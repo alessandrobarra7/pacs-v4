@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, date, json } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, date, json, decimal } from "drizzle-orm/mysql-core";
 
 /**
  * Units (Medical facilities) - Each unit has its own Orthanc instance
@@ -128,3 +128,53 @@ export const audit_log = mysqlTable("audit_log", {
 
 export type AuditLog = typeof audit_log.$inferSelect;
 export type InsertAuditLog = typeof audit_log.$inferInsert;
+/**
+ * Anamnesis - Clinical history and CID suggestions for studies
+ */
+export const anamnesis = mysqlTable("anamnesis", {
+  id: int("id").autoincrement().primaryKey(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
+  unit_id: int("unit_id"),
+  created_by_user_id: int("created_by_user_id"),
+  
+  // CAMADA 1: Área do exame
+  exam_area: varchar("exam_area", { length: 50 }),
+  
+  // CAMADA 2: Sintoma principal
+  main_symptom: varchar("main_symptom", { length: 100 }),
+  
+  // CAMADA 3: Caracterização do sintoma
+  symptom_duration_days: int("symptom_duration_days"),
+  symptom_intensity: varchar("symptom_intensity", { length: 20 }),
+  
+  // CAMADA 4: Sintomas associados
+  has_fever: boolean("has_fever").default(false),
+  fever_temperature: decimal("fever_temperature", { precision: 4, scale: 1 }),
+  has_dyspnea: boolean("has_dyspnea").default(false),
+  has_chest_pain: boolean("has_chest_pain").default(false),
+  associated_symptoms: text("associated_symptoms"),
+  
+  // CAMADA 5: Histórico clínico
+  has_hypertension: boolean("has_hypertension").default(false),
+  has_diabetes: boolean("has_diabetes").default(false),
+  has_anxiety: boolean("has_anxiety").default(false),
+  has_previous_lung_disease: boolean("has_previous_lung_disease").default(false),
+  uses_continuous_medication: boolean("uses_continuous_medication").default(false),
+  medications_list: text("medications_list"),
+  
+  // CAMADA 6: Finalidade do exame
+  exam_purpose: varchar("exam_purpose", { length: 50 }),
+  
+  // CID sugerido
+  suggested_cid: varchar("suggested_cid", { length: 20 }),
+  suggested_cid_description: varchar("suggested_cid_description", { length: 255 }),
+  
+  // Metadados completos
+  anamnesis_data: json("anamnesis_data"),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Anamnesis = typeof anamnesis.$inferSelect;
+export type InsertAnamnesis = typeof anamnesis.$inferInsert;

@@ -432,3 +432,49 @@ Implementar todas as funcionalidades do frontend Lovable no PACS Portal, mantend
 - [x] Organizar frases por categoria com cores: Normal (verde), Leves (amarelo), Moderadas (laranja), Graves (vermelho)
 - [x] Testar fluxo completo: buscar 42 exames → laudar → usar sidebar → voltar → 42 exames mantidos ✅
 - **Resultado**: Experiência do usuário significativamente melhorada, fluxo de trabalho mais eficiente
+
+## FASE 3: Funcionalidades Avançadas de Laudo e Anamnese
+
+### Módulo: Sistema de Anamnese com CID (Indicações)
+- [ ] Criar botão "CID - Indicações" na listagem de exames (entre nome do paciente e botão "Ver")
+- [ ] Implementar modal de anamnese em camadas (6 camadas progressivas)
+- [ ] CAMADA 1: Seleção de área do exame (Tórax, Abdome, Coluna, Crânio, Membros)
+- [ ] CAMADA 2: Sintoma principal (ex: tosse, dor, febre)
+- [ ] CAMADA 3: Caracterização do sintoma (duração em dias, intensidade)
+- [ ] CAMADA 4: Sintomas associados (febre, falta de ar, dor ao respirar)
+- [ ] CAMADA 5: Histórico clínico rápido (hipertensão, diabetes, medicação contínua)
+- [ ] CAMADA 6: Finalidade do exame (preventivo ou por sintomas)
+- [ ] Implementar sugestão automática de CID baseado nas respostas
+- [ ] Salvar dados de anamnese vinculados ao estudo (study_instance_uid)
+- [ ] Criar tabela `anamnesis` no banco de dados
+- [ ] Exibir dados de anamnese no editor de laudos
+- [ ] Testar fluxo completo de anamnese em camadas
+
+### Módulo: Presets Personalizados de Laudos por Médico
+- [ ] Criar tabela `report_presets` no banco de dados (id, user_id, name, body, category, isActive)
+- [ ] Criar página de gerenciamento de presets (/my-presets)
+- [ ] Implementar CRUD de presets personalizados por médico
+- [ ] Adicionar categorização de presets (Normal, Alterações Leves, Moderadas, Graves)
+- [ ] Implementar funcionalidade de arrastar e soltar presets no editor de laudos
+- [ ] Adicionar botão de edição rápida de preset no editor
+- [ ] Implementar salvamento de novo preset a partir do texto atual do laudo
+- [ ] Adicionar barra lateral de presets pessoais no editor de laudos
+- [ ] Testar criação, edição, exclusão e uso de presets
+
+### Módulo: Personalização de Laudos com Logo e Assinatura
+- [ ] Adicionar campo `signature_image_url` na tabela `user`
+- [ ] Criar página de perfil do médico (/profile)
+- [ ] Implementar upload de imagem de assinatura do médico
+- [ ] Adicionar campo `logo_url` na tabela `units` (já existe)
+- [ ] Modificar geração de laudo para incluir logo da unidade no cabeçalho
+- [ ] Modificar geração de laudo para incluir assinatura do médico no rodapé
+- [ ] Criar template de laudo com logo, nome da unidade e assinatura
+- [ ] Implementar preview de laudo com personalização
+- [ ] Testar geração de laudo completo com logo e assinatura
+
+### Módulo: Melhorias no Editor de Laudos
+- [ ] Implementar funcionalidade de arrastar presets para o editor
+- [ ] Adicionar indicador visual de área de drop no editor
+- [ ] Melhorar feedback visual ao inserir textos (animação, highlight)
+- [ ] Adicionar atalhos de teclado para inserção rápida
+- [ ] Implementar histórico de ações (undo/redo)
