@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { AnamnesisModal } from "@/components/AnamnesisModal";
 
 
 
@@ -37,6 +38,8 @@ export function PacsQueryPage() {
     return saved ? JSON.parse(saved) : [];
   });
   const [isQuerying, setIsQuerying] = useState(false);
+  const [isAnamnesisModalOpen, setIsAnamnesisModalOpen] = useState(false);
+  const [selectedStudy, setSelectedStudy] = useState<any>(null);
 
   // Save query results to localStorage whenever they change
   useEffect(() => {

@@ -653,6 +653,88 @@ export const appRouter = router({
         };
       }),
   }),
+
+  anamnesis: router({
+    create: protectedProcedure
+      .input(
+        z.object({
+          study_instance_uid: z.string(),
+          exam_area: z.string().optional(),
+          main_symptom: z.string().optional(),
+          symptom_duration_days: z.number().optional(),
+          symptom_intensity: z.string().optional(),
+          has_fever: z.boolean().optional(),
+          fever_temperature: z.number().optional(),
+          has_dyspnea: z.boolean().optional(),
+          has_chest_pain: z.boolean().optional(),
+          associated_symptoms: z.string().optional(),
+          has_hypertension: z.boolean().optional(),
+          has_diabetes: z.boolean().optional(),
+          has_anxiety: z.boolean().optional(),
+          has_previous_lung_disease: z.boolean().optional(),
+          uses_continuous_medication: z.boolean().optional(),
+          medications_list: z.string().optional(),
+          exam_purpose: z.string().optional(),
+          additional_notes: z.string().optional(),
+          suggested_cid: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { anamnesis } = await import("../drizzle/schema");
+        
+        const [result] = await db.insert(anamnesis).values({
+          study_instance_uid: input.study_instance_uid,
+          unit_id: ctx.user.unit_id || null,
+          created_by_user_id: ctx.user.id,
+          exam_area: input.exam_area || null,
+          main_symptom: input.main_symptom || null,
+          symptom_duration_days: input.symptom_duration_days || null,
+          symptom_intensity: input.symptom_intensity || null,
+          has_fever: input.has_fever || false,
+          fever_temperature: input.fever_temperature || null,
+          has_dyspnea: input.has_dyspnea || false,
+          has_chest_pain: input.has_chest_pain || false,
+          associated_symptoms: input.associated_symptoms || null,
+          has_hypertension: input.has_hypertension || false,
+          has_diabetes: input.has_diabetes || false,
+          has_anxiety: input.has_anxiety || false,
+          has_previous_lung_disease: input.has_previous_lung_disease || false,
+          uses_continuous_medication: input.uses_continuous_medication || false,
+          medications_list: input.medications_list || null,
+          exam_purpose: input.exam_purpose || null,
+          additional_notes: input.additional_notes || null,
+          suggested_cid: input.suggested_cid || null,
+        });
+
+        await createAuditLog({
+          user_id: ctx.user.id,
+          action: "CREATE_ANAMNESIS",
+          entity_type: "anamnesis",
+          entity_id: result.insertId.toString(),
+        });
+
+        return { id: result.insertId };
+      }),
+
+    getByStudyId: protectedProcedure
+      .input(z.object({ study_instance_uid: z.string() }))
+      .query(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { anamnesis } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        
+        const results = await db
+          .select()
+          .from(anamnesis)
+          .where(eq(anamnesis.study_instance_uid, input.study_instance_uid))
+          .limit(1);
+        
+        return results[0] || null;
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

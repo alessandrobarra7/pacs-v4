@@ -117,7 +117,7 @@ export const audit_log = mysqlTable("audit_log", {
   id: int("id").autoincrement().primaryKey(),
   user_id: int("user_id"),
   unit_id: int("unit_id"),
-  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD"]).notNull(),
+  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS"]).notNull(),
   target_type: varchar("target_type", { length: 50 }),
   target_id: varchar("target_id", { length: 100 }),
   ip_address: varchar("ip_address", { length: 45 }),
