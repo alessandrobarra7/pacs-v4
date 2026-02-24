@@ -421,3 +421,14 @@ Implementar todas as funcionalidades do frontend Lovable no PACS Portal, mantend
 - [ ] Testar performance com grande volume de dados
 - [ ] Validar integração com PACS externo
 - [ ] Documentar APIs e fluxos implementados
+
+### 24/02/2026 - Melhorias de UX: Barra Lateral e Persistência de Busca (CONCLUÍDO ✅)
+- [x] Implementar persistência do estado de busca usando localStorage
+- [x] Ao voltar da tela de laudos, restaurar automaticamente a última busca realizada
+- [x] Criar barra lateral no editor de laudos (layout 3 colunas + 9 colunas)
+- [x] Adicionar seção de 10 nomes de exames pré-definidos na barra lateral
+- [x] Adicionar seção de 16 frases pré-definidas organizadas por categoria
+- [x] Implementar botões de inserção rápida (botão + ao lado de cada item)
+- [x] Organizar frases por categoria com cores: Normal (verde), Leves (amarelo), Moderadas (laranja), Graves (vermelho)
+- [x] Testar fluxo completo: buscar 42 exames → laudar → usar sidebar → voltar → 42 exames mantidos ✅
+- **Resultado**: Experiência do usuário significativamente melhorada, fluxo de trabalho mais eficiente

@@ -13,7 +13,48 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Save, FileText, Check } from "lucide-react";
+import { Save, FileText, Check, Plus } from "lucide-react";
+
+// Predefined phrases by category
+const PREDEFINED_PHRASES = {
+  normal: [
+    "Exame dentro dos limites da normalidade.",
+    "Não foram identificadas alterações significativas.",
+    "Estruturas anatômicas preservadas.",
+    "Ausência de lesões expansivas.",
+  ],
+  leve: [
+    "Discreta alteração inflamatória.",
+    "Sinais de processo inflamatório leve.",
+    "Pequena área de densificação.",
+    "Alterações degenerativas leves.",
+  ],
+  moderado: [
+    "Processo inflamatório moderado.",
+    "Alterações inflamatórias de intensidade moderada.",
+    "Sinais de processo infeccioso em atividade.",
+    "Alterações degenerativas moderadas.",
+  ],
+  grave: [
+    "Processo inflamatório intenso.",
+    "Alterações significativas.",
+    "Lesão expansiva.",
+    "Necessita correlação clínica e acompanhamento.",
+  ],
+};
+
+const EXAM_NAMES = [
+  "RX Tórax PA e Perfil",
+  "TC Crânio sem contraste",
+  "TC Crânio com contraste",
+  "RM Coluna Lombar",
+  "RM Coluna Cervical",
+  "TC Abdome Total",
+  "RX Coluna Lombar",
+  "RX Coluna Cervical",
+  "US Abdome Total",
+  "US Transvaginal",
+];
 
 export default function ReportEditorPage() {
   const { studyInstanceUid } = useParams<{ studyInstanceUid: string }>();
@@ -222,19 +263,125 @@ export default function ReportEditorPage() {
           </Select>
         </Card>
 
-        {/* Report Editor */}
-        <Card className="p-4">
-          <Label className="text-sm font-medium mb-2 block">Corpo do Laudo</Label>
-          <Textarea
-            value={reportBody}
-            onChange={(e) => setReportBody(e.target.value)}
-            placeholder="Digite o laudo ou selecione um template acima..."
-            className="min-h-[500px] font-mono text-sm"
-          />
-          <div className="mt-2 text-xs text-gray-500">
-            {reportBody.length} caracteres
+        {/* Report Editor with Sidebar */}
+        <div className="grid grid-cols-12 gap-6">
+          {/* Sidebar */}
+          <div className="col-span-3 space-y-4">
+            {/* Exam Names */}
+            <Card className="p-4">
+              <h3 className="font-semibold text-sm mb-3">Nome do Exame</h3>
+              <div className="space-y-1">
+                {EXAM_NAMES.map((name, idx) => (
+                  <Button
+                    key={idx}
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start text-xs h-auto py-2"
+                    onClick={() => setReportBody(prev => prev + (prev ? "\n\n" : "") + name)}
+                  >
+                    <Plus className="h-3 w-3 mr-2" />
+                    {name}
+                  </Button>
+                ))}
+              </div>
+            </Card>
+
+            {/* Predefined Phrases */}
+            <Card className="p-4">
+              <h3 className="font-semibold text-sm mb-3">Frases Pré-definidas</h3>
+              
+              <div className="space-y-3">
+                <div>
+                  <h4 className="text-xs font-medium text-green-700 mb-1">Normal</h4>
+                  <div className="space-y-1">
+                    {PREDEFINED_PHRASES.normal.map((phrase, idx) => (
+                      <Button
+                        key={idx}
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start text-xs h-auto py-2 text-left"
+                        onClick={() => setReportBody(prev => prev + (prev ? " " : "") + phrase)}
+                      >
+                        <Plus className="h-3 w-3 mr-2 flex-shrink-0" />
+                        <span className="line-clamp-2">{phrase}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-medium text-yellow-700 mb-1">Alterações Leves</h4>
+                  <div className="space-y-1">
+                    {PREDEFINED_PHRASES.leve.map((phrase, idx) => (
+                      <Button
+                        key={idx}
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start text-xs h-auto py-2 text-left"
+                        onClick={() => setReportBody(prev => prev + (prev ? " " : "") + phrase)}
+                      >
+                        <Plus className="h-3 w-3 mr-2 flex-shrink-0" />
+                        <span className="line-clamp-2">{phrase}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-medium text-orange-700 mb-1">Alterações Moderadas</h4>
+                  <div className="space-y-1">
+                    {PREDEFINED_PHRASES.moderado.map((phrase, idx) => (
+                      <Button
+                        key={idx}
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start text-xs h-auto py-2 text-left"
+                        onClick={() => setReportBody(prev => prev + (prev ? " " : "") + phrase)}
+                      >
+                        <Plus className="h-3 w-3 mr-2 flex-shrink-0" />
+                        <span className="line-clamp-2">{phrase}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-medium text-red-700 mb-1">Alterações Graves</h4>
+                  <div className="space-y-1">
+                    {PREDEFINED_PHRASES.grave.map((phrase, idx) => (
+                      <Button
+                        key={idx}
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start text-xs h-auto py-2 text-left"
+                        onClick={() => setReportBody(prev => prev + (prev ? " " : "") + phrase)}
+                      >
+                        <Plus className="h-3 w-3 mr-2 flex-shrink-0" />
+                        <span className="line-clamp-2">{phrase}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </Card>
           </div>
-        </Card>
+
+          {/* Main Editor */}
+          <div className="col-span-9">
+            <Card className="p-4">
+              <Label className="text-sm font-medium mb-2 block">Corpo do Laudo</Label>
+              <Textarea
+                value={reportBody}
+                onChange={(e) => setReportBody(e.target.value)}
+                placeholder="Digite o laudo ou selecione um template acima..."
+                className="min-h-[600px] font-mono text-sm"
+              />
+              <div className="mt-2 text-xs text-gray-500">
+                {reportBody.length} caracteres
+              </div>
+            </Card>
+          </div>
+        </div>
       </div>
     </div>
   );

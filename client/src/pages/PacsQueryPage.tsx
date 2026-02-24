@@ -31,8 +31,20 @@ export function PacsQueryPage() {
     shift: false, // plantão
   });
 
-  const [queryResults, setQueryResults] = useState<any[]>([]);
+  const [queryResults, setQueryResults] = useState<any[]>(() => {
+    // Restore previous search results from localStorage
+    const saved = localStorage.getItem('pacs_query_results');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [isQuerying, setIsQuerying] = useState(false);
+
+  // Save query results to localStorage whenever they change
+  useEffect(() => {
+    if (queryResults.length > 0) {
+      localStorage.setItem('pacs_query_results', JSON.stringify(queryResults));
+      localStorage.setItem('pacs_last_period', filters.period);
+    }
+  }, [queryResults, filters.period]);
 
   // Get unit info
   const { data: unitData } = trpc.units.getById.useQuery(
