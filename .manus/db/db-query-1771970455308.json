@@ -1,0 +1,16 @@
+{
+  "query": "SELECT id, body, status, createdAt FROM reports ORDER BY createdAt DESC LIMIT 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, body, status, createdAt FROM reports ORDER BY createdAt DESC LIMIT 1;",
+  "rows": [
+    {
+      "id": "5",
+      "body": "Laudo final de teste com notificação toast.",
+      "status": "draft",
+      "createdAt": "2026-02-24 22:00:33"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tbody\tstatus\tcreatedAt\n5\tLaudo final de teste com notificação toast.\tdraft\t2026-02-24 22:00:33\n",
+  "stderr": "",
+  "execution_time_ms": 79
+}

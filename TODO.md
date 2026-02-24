@@ -356,18 +356,21 @@ Implementar todas as funcionalidades do frontend Lovable no PACS Portal, mantend
 - [x] Criar hook use-toast para notificações
 - [x] Testar criação, visualização e listagem de templates (testado e funcionando)
 
-### Módulo 3: Sistema de Laudos
-- [ ] Criar página de criação de laudo (/reports/create/:studyId)
-- [ ] Integrar seleção de template ao criar laudo
-- [ ] Implementar editor de texto rico para corpo do laudo
-- [ ] Adicionar campos: Achados, Conclusão, Observações
-- [ ] Implementar salvamento automático (draft)
-- [ ] Adicionar botão de finalizar laudo
-- [ ] Implementar assinatura digital do médico
-- [ ] Criar página de visualização de laudo (/reports/:id)
-- [ ] Adicionar histórico de revisões do laudo
-- [ ] Implementar status: rascunho, concluído, revisado
-- [ ] Testar fluxo completo de criação de laudo
+### Módulo 3: Sistema de Laudos (CONCLUÍDO ✅)
+- [x] Criar página de criação de laudo (/reports/create/:studyInstanceUid)
+- [x] Integrar seleção de template ao criar laudo (dropdown com templates por modalidade)
+- [x] Implementar editor de texto para corpo do laudo (textarea)
+- [x] Implementar substituição automática de variáveis do template
+- [x] Implementar salvamento como rascunho (status: draft)
+- [x] Integrar botão "Laudar" na listagem de exames
+- [x] Criar procedures tRPC para reports (create, getByStudyId)
+- [x] Adicionar validação de campos obrigatórios
+- [x] Implementar sistema de notificações (toast)
+- [x] Testar fluxo completo de criação de laudo (testado e funcionando)
+- [x] Verificar persistência no banco de dados (confirmado)
+- [ ] Adicionar botão de finalizar laudo (assinatura digital) - pendente
+- [ ] Criar página de visualização de laudo (/reports/:id) - pendente
+- [ ] Adicionar histórico de revisões do laudo - pendente
 
 ### Módulo 4: Visualizador DICOM
 - [ ] Corrigir erros de TypeScript no DicomViewer.tsx

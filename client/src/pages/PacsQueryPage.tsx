@@ -15,10 +15,12 @@ import {
   UserCircle
 } from "lucide-react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 
 
 
 export function PacsQueryPage() {
+  const [, navigate] = useLocation();
   const { data: user } = trpc.auth.me.useQuery();
   const [unitName, setUnitName] = useState("Carregando...");
   
@@ -118,7 +120,8 @@ export function PacsQueryPage() {
   };
 
   const handleReport = (study: any) => {
-    toast.info(`Laudo em desenvolvimento para: ${study.patientName}`);
+    // Navigate to report editor with study instance UID
+    navigate(`/reports/create/${study.studyInstanceUid}`);
   };
 
   const getReportStatus = (study: any) => {

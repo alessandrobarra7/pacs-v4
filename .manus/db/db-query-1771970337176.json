@@ -1,0 +1,31 @@
+{
+  "query": "SELECT id, study_instance_uid, body, status, createdAt FROM reports ORDER BY createdAt DESC LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, study_instance_uid, body, status, createdAt FROM reports ORDER BY createdAt DESC LIMIT 5;",
+  "rows": [
+    {
+      "id": "4",
+      "study_instance_uid": "1.2.392.200036.9125.2.224761048105.65124699749.321213779",
+      "body": "Teste final de salvamento de laudo.",
+      "status": "draft",
+      "createdAt": "2026-02-24 21:58:24"
+    },
+    {
+      "id": "3",
+      "study_instance_uid": "1.2.392.200036.9125.2.224761048105.65124699749.321213779",
+      "body": "Teste de laudo simples para validar salvamento.",
+      "status": "draft",
+      "createdAt": "2026-02-24 21:56:55"
+    }
+  ],
+  "messages": [
+    "2\t1.2.392.200036.9125.2.224761048105.65124699749.321213779\tPaciente: MARCELL JEAN SOUSA DOS SANTOS",
+    "Data: 24/02/2026",
+    "Template de teste para CR.\tdraft\t2026-02-24 21:55:58",
+    "1\t1.2.392.200036.9125.2.224761048105.65124699749.321213779\tPaciente: MARCELL JEAN SOUSA DOS SANTOS",
+    "Data: 24/02/2026",
+    "Template de teste para CR.\tdraft\t2026-02-24 21:54:20"
+  ],
+  "stdout": "id\tstudy_instance_uid\tbody\tstatus\tcreatedAt\n4\t1.2.392.200036.9125.2.224761048105.65124699749.321213779\tTeste final de salvamento de laudo.\tdraft\t2026-02-24 21:58:24\n3\t1.2.392.200036.9125.2.224761048105.65124699749.321213779\tTeste de laudo simples para validar salvamento.\tdraft\t2026-02-24 21:56:55\n2\t1.2.392.200036.9125.2.224761048105.65124699749.321213779\tPaciente: MARCELL JEAN SOUSA DOS SANTOS\nData: 24/02/2026\n\nTemplate de teste para CR.\tdraft\t2026-02-24 21:55:58\n1\t1.2.392.200036.9125.2.224761048105.65124699749.321213779\tPaciente: MARCELL JEAN SOUSA DOS SANTOS\nData: 24/02/2026\n\nTemplate de teste para CR.\tdraft\t2026-02-24 21:54:20\n",
+  "stderr": "",
+  "execution_time_ms": 78
+}
