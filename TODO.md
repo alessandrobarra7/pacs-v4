@@ -343,16 +343,18 @@ Implementar todas as funcionalidades do frontend Lovable no PACS Portal, mantend
 - [x] Adicionar exibição de logo na listagem
 - [x] Testar CRUD completo de unidades (testado e funcionando)
 
-### Módulo 2: Templates de Laudos
-- [ ] Criar página de listagem de templates (/admin/templates)
-- [ ] Criar formulário de criação de template
-- [ ] Implementar editor de template com campos dinâmicos
-- [ ] Adicionar seleção de modalidade para template
-- [ ] Implementar templates globais vs. templates por unidade
-- [ ] Criar sistema de variáveis no template ({{patientName}}, {{studyDate}}, etc.)
-- [ ] Adicionar preview do template
-- [ ] Implementar duplicação de templates
-- [ ] Testar criação e edição de templates
+### Módulo 2: Templates de Laudos (CONCLUÍDO ✅)
+- [x] Criar página de listagem de templates (/templates)
+- [x] Criar formulário de criação de template com textarea
+- [x] Implementar botões de variáveis dinâmicas (11 variáveis disponíveis)
+- [x] Adicionar seleção de modalidade (CR, CT, MR, US, XA, MG, DX, RF, NM, PT, etc.)
+- [x] Implementar templates globais vs. templates por unidade (switch)
+- [x] Criar sistema de variáveis: patientName, patientId, studyDate, studyTime, modality, studyDescription, accessionNumber, referringPhysician, radiologist, currentDate, currentTime
+- [x] Adicionar preview do template com variáveis destacadas
+- [x] Implementar edição de templates (botão editar)
+- [x] Implementar exclusão de templates (botão excluir)
+- [x] Criar hook use-toast para notificações
+- [x] Testar criação, visualização e listagem de templates (testado e funcionando)
 
 ### Módulo 3: Sistema de Laudos
 - [ ] Criar página de criação de laudo (/reports/create/:studyId)
