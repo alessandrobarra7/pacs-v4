@@ -345,7 +345,7 @@ export function PacsQueryPage() {
                             className="h-8 px-3 hover:bg-orange-50 hover:border-orange-300"
                             onClick={() => {
                               setSelectedStudy(study);
-                              setShowAnamnesisModal(true);
+                              setIsAnamnesisModalOpen(true);
                             }}
                           >
                             <Clipboard className="h-4 w-4 mr-1.5 text-orange-600" />
