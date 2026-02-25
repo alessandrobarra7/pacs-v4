@@ -12,7 +12,8 @@ import {
   Clock,
   Edit2,
   Printer,
-  UserCircle
+  UserCircle,
+  Clipboard
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -337,6 +338,20 @@ export function PacsQueryPage() {
                       {/* Actions Column */}
                       <TableCell className="py-3">
                         <div className="flex items-center justify-center gap-2">
+                          {/* CID-Indicações Button */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-3 hover:bg-orange-50 hover:border-orange-300"
+                            onClick={() => {
+                              setSelectedStudy(study);
+                              setShowAnamnesisModal(true);
+                            }}
+                          >
+                            <Clipboard className="h-4 w-4 mr-1.5 text-orange-600" />
+                            <span className="text-xs">CID</span>
+                          </Button>
+                          
                           {/* Ver Button */}
                           <Button
                             variant="outline"
@@ -410,6 +425,20 @@ export function PacsQueryPage() {
           </div>
         )}
       </div>
+
+      {/* Anamnesis Modal */}
+      {showAnamnesisModal && selectedStudy && (
+        <AnamnesisModal
+          isOpen={showAnamnesisModal}
+          onClose={() => {
+            setShowAnamnesisModal(false);
+            setSelectedStudy(null);
+          }}
+          studyInstanceUid={selectedStudy.studyInstanceUid}
+          patientName={selectedStudy.patientName?.replace(/\^/g, ' ').replace(/\s+\d{10,}$/g, '') || ""}
+          modality={selectedStudy.modality || ""}
+        />
+      )}
     </div>
   );
 }
