@@ -427,11 +427,11 @@ export function PacsQueryPage() {
       </div>
 
       {/* Anamnesis Modal */}
-      {showAnamnesisModal && selectedStudy && (
+      {isAnamnesisModalOpen && selectedStudy && (
         <AnamnesisModal
-          isOpen={showAnamnesisModal}
+          isOpen={isAnamnesisModalOpen}
           onClose={() => {
-            setShowAnamnesisModal(false);
+            setIsAnamnesisModalOpen(false);
             setSelectedStudy(null);
           }}
           studyInstanceUid={selectedStudy.studyInstanceUid}
