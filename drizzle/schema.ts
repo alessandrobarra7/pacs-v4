@@ -26,7 +26,7 @@ export type InsertUnit = typeof units.$inferInsert;
 
 /**
  * Users with multi-tenant support and RBAC
- * Roles: admin_master, admin_unit, radiologist, referring_doctor
+ * Roles: admin_master, unit_admin, medico, viewer
  */
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -35,7 +35,7 @@ export const users = mysqlTable("users", {
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["admin_master", "admin_unit", "radiologist", "referring_doctor"]).default("referring_doctor").notNull(),
+  role: mysqlEnum("role", ["admin_master", "unit_admin", "medico", "viewer"]).default("viewer").notNull(),
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

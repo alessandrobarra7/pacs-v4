@@ -6,7 +6,7 @@ interface User {
   openId: string;
   name: string | null;
   email: string | null;
-  role: 'admin_master' | 'admin_unit' | 'radiologist' | 'referring_doctor';
+  role: 'admin_master' | 'unit_admin' | 'medico' | 'viewer';
   unit_id: number | null;
   isActive: boolean;
   createdAt: Date;

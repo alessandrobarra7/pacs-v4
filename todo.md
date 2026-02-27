@@ -57,3 +57,26 @@
 - [x] Refinar estilo dos campos de input (bordas mais sutis)
 - [x] Aumentar border-radius do botão "Acessar"
 - [x] Garantir que a imagem ocupe exatamente 50% da largura da tela
+
+## IMPLEMENTAÇÃO RBAC - Sistema de 4 Perfis (Guia LAUDS)
+- [x] Atualizar schema: alterar enum role para (admin_master, unit_admin, medico, viewer)
+- [x] Criar migration SQL para alterar coluna role
+- [x] Atualizar tipos TypeScript com novos perfis
+- [x] Criar helpers de permissão (canReport, canAccessAdmin, canAccessPACS)
+- [x] Implementar middleware adminMasterProcedure
+- [x] Implementar middleware unitAdminProcedure  
+- [x] Implementar middleware medicoProcedure
+- [ ] Atualizar procedures existentes com novos middlewares
+- [ ] Criar componente ProtectedRoute com verificação de perfil
+- [ ] Implementar UI condicional na lista de exames (botões por perfil)
+- [ ] Criar menu lateral condicional (Administração, PACS Remoto)
+- [ ] Remover página DashboardPage.tsx
+- [ ] Remover rota /dashboard
+- [ ] Redirecionar "/" para "/studies"
+- [ ] Atualizar AppLayout com menu condicional
+- [ ] Criar página de matriz de permissões (/admin/permissions)
+- [ ] Testar fluxo do perfil viewer
+- [ ] Testar fluxo do perfil medico
+- [ ] Testar fluxo do perfil unit_admin
+- [ ] Testar fluxo do perfil admin_master
+- [ ] Documentar sistema RBAC no README

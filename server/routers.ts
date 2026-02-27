@@ -675,7 +675,6 @@ export const appRouter = router({
           uses_continuous_medication: z.boolean().optional(),
           medications_list: z.string().optional(),
           exam_purpose: z.string().optional(),
-          additional_notes: z.string().optional(),
           suggested_cid: z.string().optional(),
         })
       )
@@ -690,10 +689,10 @@ export const appRouter = router({
           created_by_user_id: ctx.user.id,
           exam_area: input.exam_area || null,
           main_symptom: input.main_symptom || null,
-          symptom_duration_days: input.symptom_duration_days || null,
+          symptom_duration_days: input.symptom_duration_days ?? null,
           symptom_intensity: input.symptom_intensity || null,
           has_fever: input.has_fever || false,
-          fever_temperature: input.fever_temperature || null,
+          fever_temperature: input.fever_temperature ? String(input.fever_temperature) : null,
           has_dyspnea: input.has_dyspnea || false,
           has_chest_pain: input.has_chest_pain || false,
           associated_symptoms: input.associated_symptoms || null,
@@ -704,15 +703,14 @@ export const appRouter = router({
           uses_continuous_medication: input.uses_continuous_medication || false,
           medications_list: input.medications_list || null,
           exam_purpose: input.exam_purpose || null,
-          additional_notes: input.additional_notes || null,
           suggested_cid: input.suggested_cid || null,
         });
 
         await createAuditLog({
           user_id: ctx.user.id,
           action: "CREATE_ANAMNESIS",
-          entity_type: "anamnesis",
-          entity_id: result.insertId.toString(),
+          target_type: "anamnesis",
+          target_id: result.insertId.toString(),
         });
 
         return { id: result.insertId };
