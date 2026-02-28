@@ -1,0 +1,26 @@
+{
+  "query": "SELECT id, name, pacs_ip, pacs_port, pacs_ae_title, orthanc_base_url FROM units;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, name, pacs_ip, pacs_port, pacs_ae_title, orthanc_base_url FROM units;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Test Unit",
+      "pacs_ip": "NULL",
+      "pacs_port": "NULL",
+      "pacs_ae_title": "NULL",
+      "orthanc_base_url": "http://172.16.3.241:8042"
+    },
+    {
+      "id": "30001",
+      "name": "Unidade Teste PACS",
+      "pacs_ip": "179.67.254.135",
+      "pacs_port": "11112",
+      "pacs_ae_title": "PACSML",
+      "orthanc_base_url": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tpacs_ip\tpacs_port\tpacs_ae_title\torthanc_base_url\n1\tTest Unit\tNULL\tNULL\tNULL\thttp://172.16.3.241:8042\n30001\tUnidade Teste PACS\t179.67.254.135\t11112\tPACSML\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 1259
+}
