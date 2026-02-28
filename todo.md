@@ -80,3 +80,13 @@
 - [ ] Testar fluxo do perfil unit_admin
 - [ ] Testar fluxo do perfil admin_master
 - [ ] Documentar sistema RBAC no README
+
+## INTEGRAÇÃO ORTHANC REST API (172.16.3.241:8042)
+- [x] Criar helper server/orthanc.ts com funções REST (queryStudies, retrieveStudy, getStudyInfo)
+- [x] Atualizar procedure pacs.query para usar Orthanc REST em vez de pynetdicom direto
+- [x] Atualizar procedure pacs.startViewer para retornar URL DICOMweb do Orthanc (/dicom-web/)
+- [x] Atualizar cadastro de unidade: orthanc_base_url obrigatório, credenciais opcionais
+- [x] Adicionar procedure getViewerUrl ao router pacs
+- [x] Corrigir erros TypeScript (cornerstone.d.ts, AnamnesisModal props)
+- [x] Atualizar unidade de teste com URL do Orthanc real (http://172.16.3.241:8042)
+- [ ] Testar busca de exames via Orthanc REST API em ambiente de produção (VM1)

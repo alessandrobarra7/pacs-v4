@@ -170,37 +170,21 @@ export default function UnitsPage() {
               <div className="border-t pt-4 mt-4">
                 <h3 className="font-semibold mb-3 flex items-center gap-2">
                   <Server className="w-4 h-4" />
-                  Configuração Orthanc (Opcional)
+                  Configuração Orthanc
                 </h3>
                 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2 col-span-2">
-                    <Label htmlFor="orthanc_base_url">URL Base do Orthanc</Label>
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="orthanc_base_url">URL do Orthanc <span className="text-red-500">*</span></Label>
                     <Input
                       id="orthanc_base_url"
                       name="orthanc_base_url"
                       type="url"
-                      placeholder="http://localhost:8042"
+                      placeholder="http://172.16.3.241:8042"
                     />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="orthanc_basic_user">Usuário</Label>
-                    <Input
-                      id="orthanc_basic_user"
-                      name="orthanc_basic_user"
-                      placeholder="orthanc"
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="orthanc_basic_pass">Senha</Label>
-                    <Input
-                      id="orthanc_basic_pass"
-                      name="orthanc_basic_pass"
-                      type="password"
-                      placeholder="••••••••"
-                    />
+                    <p className="text-xs text-muted-foreground">
+                      Orthanc em modo promíscuo (sem autenticação). Ex: http://172.16.3.241:8042
+                    </p>
                   </div>
                 </div>
               </div>
@@ -398,34 +382,19 @@ export default function UnitsPage() {
                   Configuração Orthanc
                 </h3>
                 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2 col-span-2">
-                    <Label htmlFor="edit-orthanc_base_url">URL Base do Orthanc</Label>
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-orthanc_base_url">URL do Orthanc</Label>
                     <Input
                       id="edit-orthanc_base_url"
                       name="orthanc_base_url"
                       type="url"
                       defaultValue={editingUnit.orthanc_base_url || ''}
+                      placeholder="http://172.16.3.241:8042"
                     />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-orthanc_basic_user">Usuário</Label>
-                    <Input
-                      id="edit-orthanc_basic_user"
-                      name="orthanc_basic_user"
-                      defaultValue={editingUnit.orthanc_basic_user || ''}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-orthanc_basic_pass">Senha</Label>
-                    <Input
-                      id="edit-orthanc_basic_pass"
-                      name="orthanc_basic_pass"
-                      type="password"
-                      placeholder="••••••••"
-                    />
+                    <p className="text-xs text-muted-foreground">
+                      Orthanc em modo promíscuo (sem autenticação). Ex: http://172.16.3.241:8042
+                    </p>
                   </div>
                 </div>
               </div>

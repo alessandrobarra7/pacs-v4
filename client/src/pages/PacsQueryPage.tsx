@@ -429,14 +429,16 @@ export function PacsQueryPage() {
       {/* Anamnesis Modal */}
       {isAnamnesisModalOpen && selectedStudy && (
         <AnamnesisModal
-          isOpen={isAnamnesisModalOpen}
+          open={isAnamnesisModalOpen}
           onClose={() => {
             setIsAnamnesisModalOpen(false);
             setSelectedStudy(null);
           }}
           studyInstanceUid={selectedStudy.studyInstanceUid}
-          patientName={selectedStudy.patientName?.replace(/\^/g, ' ').replace(/\s+\d{10,}$/g, '') || ""}
-          modality={selectedStudy.modality || ""}
+          onSave={() => {
+            setIsAnamnesisModalOpen(false);
+            setSelectedStudy(null);
+          }}
         />
       )}
     </div>

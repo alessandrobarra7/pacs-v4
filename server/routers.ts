@@ -26,6 +26,7 @@ import {
 } from "./db";
 import { units } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
+import { queryStudiesLocal, queryStudiesRemote, getDicomWebUrl, checkOrthancHealth } from "./orthanc";
 
 export const appRouter = router({
   system: systemRouter,
@@ -404,11 +405,13 @@ export const appRouter = router({
           });
         }
         
-        // Check if PACS connection is configured
-        if (!unit.pacs_ip || !unit.pacs_port || !unit.pacs_ae_title) {
+        // Verifica se Orthanc está configurado (preferência) ou PACS direto
+        const orthancUrl = unit.orthanc_base_url;
+        
+        if (!orthancUrl && (!unit.pacs_ip || !unit.pacs_port || !unit.pacs_ae_title)) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
-            message: 'PACS não configurado para esta unidade. Configure IP, porta e AE Title.',
+            message: 'Configure a URL do Orthanc ou os parâmetros PACS (IP, porta, AE Title) para esta unidade.',
           });
         }
         
@@ -442,40 +445,65 @@ export const appRouter = router({
           console.log('[PACS Query] LAST_30_DAYS resolved to:', studyDate);
         }
         
-        // Prepare input for Python script
-        const queryInput = {
-          pacs_ip: unit.pacs_ip,
-          pacs_port: unit.pacs_port,
-          pacs_ae_title: unit.pacs_ae_title,
-          local_ae_title: unit.pacs_local_ae_title || 'PACSMANUS',
-          filters: {
-            patient_name: input.patientName,
-            patient_id: input.patientId,
-            modality: input.modality,
-            study_date: studyDate,
-            accession_number: input.accessionNumber,
-          },
+        const filters = {
+          patientName: input.patientName,
+          patientId: input.patientId,
+          modality: input.modality,
+          studyDate,
+          accessionNumber: input.accessionNumber,
         };
         
-        // Execute Python script
-        const { exec } = await import('child_process');
-        const { promisify } = await import('util');
-        const execAsync = promisify(exec);
-        
         try {
-          const scriptPath = new URL('./dicom_query.sh', import.meta.url).pathname;
-          console.log('[PACS Query] Executing with input:', JSON.stringify(queryInput, null, 2));
-          const { stdout, stderr } = await execAsync(
-            `"${scriptPath}" '${JSON.stringify(queryInput)}'`,
-            { timeout: 60000 } // 60 second timeout
-          );
-          console.log('[PACS Query] Script stdout length:', stdout.length);
+          let result;
           
-          if (stderr) {
-            console.error('Python script stderr:', stderr);
+          if (orthancUrl) {
+            // MODO ORTHANC: Usa REST API do Orthanc local
+            console.log('[PACS Query] Usando Orthanc REST API:', orthancUrl);
+            
+            // Verifica se há modalidade remota configurada para C-FIND
+            const pacsAeTitle = unit.pacs_ae_title;
+            
+            if (pacsAeTitle) {
+              // C-FIND via Orthanc → PACS remoto
+              console.log('[PACS Query] C-FIND via Orthanc para modalidade:', pacsAeTitle);
+              result = await queryStudiesRemote(orthancUrl, pacsAeTitle, filters);
+              
+              // Fallback: se C-FIND falhar, busca estudos locais no Orthanc
+              if (!result.success) {
+                console.log('[PACS Query] C-FIND falhou, buscando estudos locais no Orthanc');
+                result = await queryStudiesLocal(orthancUrl, filters);
+              }
+            } else {
+              // Busca apenas estudos já armazenados no Orthanc local
+              console.log('[PACS Query] Buscando estudos locais no Orthanc');
+              result = await queryStudiesLocal(orthancUrl, filters);
+            }
+          } else {
+            // MODO LEGADO: Usa pynetdicom direto (Python script)
+            console.log('[PACS Query] Usando pynetdicom direto (legado)');
+            const queryInput = {
+              pacs_ip: unit.pacs_ip,
+              pacs_port: unit.pacs_port,
+              pacs_ae_title: unit.pacs_ae_title,
+              local_ae_title: unit.pacs_local_ae_title || 'PACSMANUS',
+              filters: {
+                patient_name: input.patientName,
+                patient_id: input.patientId,
+                modality: input.modality,
+                study_date: studyDate,
+                accession_number: input.accessionNumber,
+              },
+            };
+            const { exec } = await import('child_process');
+            const { promisify } = await import('util');
+            const execAsync = promisify(exec);
+            const scriptPath = new URL('./dicom_query.sh', import.meta.url).pathname;
+            const { stdout } = await execAsync(
+              `"${scriptPath}" '${JSON.stringify(queryInput)}'`,
+              { timeout: 60000 }
+            );
+            result = JSON.parse(stdout);
           }
-          
-          const result = JSON.parse(stdout);
           
           // Log audit
           await createAuditLog({
@@ -483,12 +511,12 @@ export const appRouter = router({
             unit_id: ctx.user.unit_id,
             action: 'PACS_QUERY',
             target_type: 'PACS',
-            target_id: unit.pacs_ae_title,
+            target_id: unit.pacs_ae_title || orthancUrl || 'unknown',
             ip_address: ctx.req.ip,
             user_agent: ctx.req.headers['user-agent'],
             metadata: {
               ...input,
-              pacs_ip: unit.pacs_ip,
+              orthanc_url: orthancUrl,
               results_count: result.count || 0,
             },
           });
@@ -497,7 +525,6 @@ export const appRouter = router({
             throw new TRPCError({
               code: 'INTERNAL_SERVER_ERROR',
               message: `Erro ao consultar PACS: ${result.error}`,
-              cause: result.details,
             });
           }
           
@@ -508,21 +535,17 @@ export const appRouter = router({
           };
           
         } catch (error: any) {
-          console.error('Error executing DICOM query:', error);
+          console.error('[PACS Query] Erro:', error);
           
-          // Log failed audit
           await createAuditLog({
             user_id: ctx.user.id,
             unit_id: ctx.user.unit_id,
             action: 'PACS_QUERY',
             target_type: 'PACS',
-            target_id: unit.pacs_ae_title,
+            target_id: unit.pacs_ae_title || orthancUrl || 'unknown',
             ip_address: ctx.req.ip,
             user_agent: ctx.req.headers['user-agent'],
-            metadata: {
-              ...input,
-              error: error.message,
-            },
+            metadata: { ...input, error: error.message },
           });
           
           throw new TRPCError({
@@ -630,6 +653,47 @@ export const appRouter = router({
         }
       }),
     
+    getViewerUrl: protectedProcedure
+      .input(z.object({
+        studyInstanceUid: z.string(),
+      }))
+      .query(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database não disponível' });
+        
+        const [unit] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id!)).limit(1);
+        if (!unit) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unidade não encontrada' });
+        
+        const orthancUrl = unit.orthanc_base_url;
+        if (!orthancUrl) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'URL do Orthanc não configurada para esta unidade.',
+          });
+        }
+        
+        // Retorna URL DICOMweb para o viewer
+        const viewerUrl = getDicomWebUrl(orthancUrl, input.studyInstanceUid);
+        
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: ctx.user.unit_id,
+          action: 'OPEN_VIEWER',
+          target_type: 'STUDY',
+          target_id: input.studyInstanceUid,
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+          metadata: { orthanc_url: orthancUrl, viewer_url: viewerUrl },
+        });
+        
+        return {
+          success: true,
+          viewerUrl,
+          studyInstanceUid: input.studyInstanceUid,
+          orthancUrl,
+        };
+      }),
+
     download: protectedProcedure
       .input(z.object({
         studyInstanceUid: z.string(),

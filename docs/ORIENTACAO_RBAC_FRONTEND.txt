@@ -1,0 +1,897 @@
+================================================================================
+ORIENTAÇÃO PARA IMPLEMENTAÇÃO RBAC FRONTEND - PACS PORTAL
+Sistema de 4 Perfis: admin_master, unit_admin, medico, viewer
+Data: 26/02/2026
+================================================================================
+
+ÍNDICE:
+1. Visão Geral do RBAC
+2. Estrutura de Arquivos
+3. Implementação Passo a Passo
+4. Componente ProtectedRoute
+5. UI Condicional na Lista de Exames
+6. Menu Lateral Condicional
+7. Matriz de Permissões Completa
+8. Exemplos de Código
+9. Testes a Realizar
+10. Checklist de Conclusão
+
+================================================================================
+1. VISÃO GERAL DO RBAC
+================================================================================
+
+O sistema possui 4 perfis de usuário com permissões diferentes:
+
+┌─────────────────┬──────────────────────────────────────────────────────┐
+│ PERFIL          │ DESCRIÇÃO                                            │
+├─────────────────┼──────────────────────────────────────────────────────┤
+│ admin_master    │ Acesso total ao sistema, todas as unidades          │
+│ unit_admin      │ Gerencia apenas sua unidade (usuários, auditoria)   │
+│ medico          │ Pode laudar exames, preencher anamnese, presets      │
+│ viewer          │ Apenas visualiza exames e laudos assinados           │
+└─────────────────┴──────────────────────────────────────────────────────┘
+
+BACKEND JÁ IMPLEMENTADO:
+✅ Schema do banco atualizado (enum role)
+✅ Migration aplicada (ALTER TABLE users)
+✅ Arquivo shared/permissions.ts criado
+✅ Middlewares: adminProcedure, unitAdminProcedure, medicoProcedure
+✅ Tipos do frontend atualizados (AuthContext.tsx)
+
+FRONTEND A IMPLEMENTAR:
+❌ Componente ProtectedRoute
+❌ UI condicional na lista de exames (botões por perfil)
+❌ Menu lateral condicional
+❌ Páginas protegidas por perfil
+
+================================================================================
+2. ESTRUTURA DE ARQUIVOS
+================================================================================
+
+ARQUIVOS A CRIAR:
+/home/ubuntu/pacs-portal/client/src/components/ProtectedRoute.tsx
+/home/ubuntu/pacs-portal/client/src/hooks/usePermissions.ts
+
+ARQUIVOS A MODIFICAR:
+/home/ubuntu/pacs-portal/client/src/App.tsx
+/home/ubuntu/pacs-portal/client/src/pages/PacsQueryPage.tsx
+/home/ubuntu/pacs-portal/client/src/components/DashboardLayout.tsx (se existir)
+
+ARQUIVOS DE REFERÊNCIA (NÃO MODIFICAR):
+/home/ubuntu/pacs-portal/shared/permissions.ts (funções de verificação)
+/home/ubuntu/pacs-portal/client/src/contexts/AuthContext.tsx (tipos atualizados)
+
+================================================================================
+3. IMPLEMENTAÇÃO PASSO A PASSO
+================================================================================
+
+PASSO 1: Criar hook usePermissions
+PASSO 2: Criar componente ProtectedRoute
+PASSO 3: Atualizar rotas em App.tsx
+PASSO 4: Implementar UI condicional em PacsQueryPage
+PASSO 5: Atualizar menu lateral (se existir)
+PASSO 6: Testar todos os perfis
+
+================================================================================
+4. COMPONENTE PROTECTEDROUTE
+================================================================================
+
+ARQUIVO: client/src/components/ProtectedRoute.tsx
+
+OBJETIVO:
+- Proteger rotas que requerem perfis específicos
+- Redirecionar usuários não autorizados
+- Exibir mensagem de acesso negado
+
+CÓDIGO COMPLETO:
+
+```typescript
+import { ReactNode } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { Redirect } from 'wouter';
+
+type UserRole = 'admin_master' | 'unit_admin' | 'medico' | 'viewer';
+
+interface ProtectedRouteProps {
+  children: ReactNode;
+  allowedRoles: UserRole[];
+  redirectTo?: string;
+}
+
+export function ProtectedRoute({ 
+  children, 
+  allowedRoles, 
+  redirectTo = '/' 
+}: ProtectedRouteProps) {
+  const { user, isLoading } = useAuth();
+
+  // Aguardar carregamento
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Usuário não autenticado
+  if (!user) {
+    return <Redirect to="/login" />;
+  }
+
+  // Verificar se o perfil do usuário está na lista de permitidos
+  if (!allowedRoles.includes(user.role)) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center max-w-md">
+          <h1 className="text-4xl font-bold text-destructive mb-4">Acesso Negado</h1>
+          <p className="text-muted-foreground mb-6">
+            Você não tem permissão para acessar esta página.
+          </p>
+          <p className="text-sm text-muted-foreground mb-4">
+            Seu perfil: <strong>{user.role}</strong>
+          </p>
+          <a 
+            href={redirectTo} 
+            className="inline-block px-6 py-3 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+          >
+            Voltar para Início
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // Usuário autorizado
+  return <>{children}</>;
+}
+```
+
+================================================================================
+5. HOOK USEPERMISSIONS
+================================================================================
+
+ARQUIVO: client/src/hooks/usePermissions.ts
+
+OBJETIVO:
+- Fornecer funções de verificação de permissões no frontend
+- Reutilizar lógica do arquivo shared/permissions.ts
+- Facilitar uso em componentes
+
+CÓDIGO COMPLETO:
+
+```typescript
+import { useAuth } from '@/contexts/AuthContext';
+import { 
+  canReport, 
+  canAccessAdmin, 
+  canManageUnits, 
+  canManageTemplates,
+  canManageUsers,
+  canViewAudit,
+  canAccessPACS,
+  canFillAnamnesis,
+  canManagePresets,
+  canPrintReports,
+  canViewDICOM,
+  canAccessUnit,
+  PERMISSIONS_MATRIX
+} from '@shared/permissions';
+
+export function usePermissions() {
+  const { user } = useAuth();
+
+  if (!user) {
+    return {
+      canReport: false,
+      canAccessAdmin: false,
+      canManageUnits: false,
+      canManageTemplates: false,
+      canManageUsers: false,
+      canViewAudit: false,
+      canAccessPACS: false,
+      canFillAnamnesis: false,
+      canManagePresets: false,
+      canPrintReports: false,
+      canViewDICOM: false,
+      canAccessUnit: () => false,
+      permissions: null,
+    };
+  }
+
+  return {
+    canReport: canReport(user.role),
+    canAccessAdmin: canAccessAdmin(user.role),
+    canManageUnits: canManageUnits(user.role),
+    canManageTemplates: canManageTemplates(user.role),
+    canManageUsers: canManageUsers(user.role),
+    canViewAudit: canViewAudit(user.role),
+    canAccessPACS: canAccessPACS(user.role),
+    canFillAnamnesis: canFillAnamnesis(user.role),
+    canManagePresets: canManagePresets(user.role),
+    canPrintReports: canPrintReports(user.role),
+    canViewDICOM: canViewDICOM(user.role),
+    canAccessUnit: (targetUnitId: number) => 
+      canAccessUnit({ 
+        role: user.role, 
+        unitId: user.unit_id ?? undefined, 
+        targetUnitId 
+      }),
+    permissions: PERMISSIONS_MATRIX[user.role],
+    role: user.role,
+  };
+}
+```
+
+================================================================================
+6. UI CONDICIONAL NA LISTA DE EXAMES
+================================================================================
+
+ARQUIVO: client/src/pages/PacsQueryPage.tsx
+
+OBJETIVO:
+- Mostrar/ocultar botões conforme perfil do usuário
+- Desabilitar ações não permitidas
+
+LOCALIZAÇÃO NO CÓDIGO:
+Procure pela seção onde os botões são renderizados (linhas ~340-380)
+
+ANTES (todos os botões visíveis):
+```tsx
+<div className="flex gap-2">
+  <Button size="sm" variant="outline" onClick={() => handleCIDClick(study)}>
+    CID
+  </Button>
+  <Button size="sm" variant="outline" onClick={() => handleViewStudy(study)}>
+    Ver
+  </Button>
+  <Button size="sm" variant="outline" onClick={() => handleCreateReport(study)}>
+    Laudar
+  </Button>
+  <Button size="sm" variant="outline" onClick={() => handlePrintReport(study)}>
+    Imprimir
+  </Button>
+  <Button size="sm" variant="outline" onClick={() => handleViewDoctor(study)}>
+    Médico
+  </Button>
+</div>
+```
+
+DEPOIS (botões condicionais):
+```tsx
+import { usePermissions } from '@/hooks/usePermissions';
+
+// No início do componente:
+const permissions = usePermissions();
+
+// Na renderização dos botões:
+<div className="flex gap-2">
+  {/* CID-Indicações: apenas admin_master e medico */}
+  {permissions.canFillAnamnesis && (
+    <Button 
+      size="sm" 
+      variant="outline" 
+      onClick={() => handleCIDClick(study)}
+      title="Preencher anamnese e CID"
+    >
+      CID
+    </Button>
+  )}
+
+  {/* Ver: todos os perfis */}
+  {permissions.canViewDICOM && (
+    <Button 
+      size="sm" 
+      variant="outline" 
+      onClick={() => handleViewStudy(study)}
+      title="Visualizar imagens DICOM"
+    >
+      Ver
+    </Button>
+  )}
+
+  {/* Laudar: apenas admin_master e medico */}
+  {permissions.canReport && (
+    <Button 
+      size="sm" 
+      variant="outline" 
+      onClick={() => handleCreateReport(study)}
+      title="Criar ou editar laudo"
+    >
+      Laudar
+    </Button>
+  )}
+
+  {/* Imprimir: todos os perfis (apenas laudos assinados) */}
+  {permissions.canPrintReports && (
+    <Button 
+      size="sm" 
+      variant="outline" 
+      onClick={() => handlePrintReport(study)}
+      title="Imprimir laudo assinado"
+      disabled={study.reportStatus !== 'signed'}
+    >
+      Imprimir
+    </Button>
+  )}
+
+  {/* Médico: todos os perfis */}
+  <Button 
+    size="sm" 
+    variant="outline" 
+    onClick={() => handleViewDoctor(study)}
+    title="Ver informações do médico"
+  >
+    Médico
+  </Button>
+</div>
+```
+
+RESULTADO ESPERADO POR PERFIL:
+
+┌─────────────────┬─────┬─────┬────────┬──────────┬────────┐
+│ PERFIL          │ CID │ Ver │ Laudar │ Imprimir │ Médico │
+├─────────────────┼─────┼─────┼────────┼──────────┼────────┤
+│ admin_master    │  ✅ │  ✅ │   ✅   │    ✅    │   ✅   │
+│ unit_admin      │  ❌ │  ✅ │   ❌   │    ✅    │   ✅   │
+│ medico          │  ✅ │  ✅ │   ✅   │    ✅    │   ✅   │
+│ viewer          │  ❌ │  ✅ │   ❌   │    ✅    │   ✅   │
+└─────────────────┴─────┴─────┴────────┴──────────┴────────┘
+
+================================================================================
+7. ATUALIZAR ROTAS EM APP.TSX
+================================================================================
+
+ARQUIVO: client/src/App.tsx
+
+OBJETIVO:
+- Proteger rotas administrativas
+- Proteger rotas de laudos
+- Permitir acesso público apenas ao login
+
+LOCALIZAÇÃO NO CÓDIGO:
+Procure pela seção de rotas (Route components)
+
+ANTES:
+```tsx
+<Route path="/admin/units" component={UnitsPage} />
+<Route path="/admin/templates" component={Templates} />
+<Route path="/reports/:id" component={ReportEditorPage} />
+```
+
+DEPOIS:
+```tsx
+import { ProtectedRoute } from '@/components/ProtectedRoute';
+
+{/* Rotas administrativas - apenas admin_master */}
+<Route path="/admin/units">
+  <ProtectedRoute allowedRoles={['admin_master']}>
+    <UnitsPage />
+  </ProtectedRoute>
+</Route>
+
+<Route path="/admin/templates">
+  <ProtectedRoute allowedRoles={['admin_master']}>
+    <Templates />
+  </ProtectedRoute>
+</Route>
+
+<Route path="/admin/users">
+  <ProtectedRoute allowedRoles={['admin_master', 'unit_admin']}>
+    <UsersPage />
+  </ProtectedRoute>
+</Route>
+
+<Route path="/admin/audit">
+  <ProtectedRoute allowedRoles={['admin_master', 'unit_admin']}>
+    <AuditPage />
+  </ProtectedRoute>
+</Route>
+
+{/* Rotas de laudos - admin_master e medico */}
+<Route path="/reports/:id">
+  <ProtectedRoute allowedRoles={['admin_master', 'medico']}>
+    <ReportEditorPage />
+  </ProtectedRoute>
+</Route>
+
+{/* Rotas públicas (após login) - todos os perfis */}
+<Route path="/">
+  <ProtectedRoute allowedRoles={['admin_master', 'unit_admin', 'medico', 'viewer']}>
+    <PacsQueryPage />
+  </ProtectedRoute>
+</Route>
+
+<Route path="/viewer/:studyId">
+  <ProtectedRoute allowedRoles={['admin_master', 'unit_admin', 'medico', 'viewer']}>
+    <ViewerPage />
+  </ProtectedRoute>
+</Route>
+```
+
+================================================================================
+8. MENU LATERAL CONDICIONAL
+================================================================================
+
+ARQUIVO: client/src/components/DashboardLayout.tsx (se existir)
+
+OBJETIVO:
+- Mostrar/ocultar itens do menu conforme perfil
+- Destacar itens administrativos
+
+EXEMPLO DE IMPLEMENTAÇÃO:
+
+```tsx
+import { usePermissions } from '@/hooks/usePermissions';
+
+export function DashboardLayout({ children }: { children: ReactNode }) {
+  const permissions = usePermissions();
+
+  return (
+    <div className="flex h-screen">
+      {/* Sidebar */}
+      <aside className="w-64 bg-card border-r">
+        <nav className="p-4 space-y-2">
+          {/* Item sempre visível */}
+          <a href="/" className="block px-4 py-2 rounded hover:bg-accent">
+            Exames
+          </a>
+
+          {/* Separador administrativo */}
+          {permissions.canAccessAdmin && (
+            <>
+              <div className="pt-4 pb-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase">
+                  Administração
+                </p>
+              </div>
+
+              {permissions.canManageUnits && (
+                <a href="/admin/units" className="block px-4 py-2 rounded hover:bg-accent">
+                  Unidades
+                </a>
+              )}
+
+              {permissions.canManageTemplates && (
+                <a href="/admin/templates" className="block px-4 py-2 rounded hover:bg-accent">
+                  Templates
+                </a>
+              )}
+
+              {permissions.canManageUsers && (
+                <a href="/admin/users" className="block px-4 py-2 rounded hover:bg-accent">
+                  Usuários
+                </a>
+              )}
+
+              {permissions.canViewAudit && (
+                <a href="/admin/audit" className="block px-4 py-2 rounded hover:bg-accent">
+                  Auditoria
+                </a>
+              )}
+            </>
+          )}
+
+          {/* PACS Remoto - apenas admin_master */}
+          {permissions.canAccessPACS && (
+            <>
+              <div className="pt-4 pb-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase">
+                  PACS Remoto
+                </p>
+              </div>
+              <a href="/pacs/remote" className="block px-4 py-2 rounded hover:bg-accent">
+                Buscar Exames Remotos
+              </a>
+            </>
+          )}
+
+          {/* Presets - admin_master e medico */}
+          {permissions.canManagePresets && (
+            <>
+              <div className="pt-4 pb-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase">
+                  Personalização
+                </p>
+              </div>
+              <a href="/presets" className="block px-4 py-2 rounded hover:bg-accent">
+                Frases Predefinidas
+              </a>
+            </>
+          )}
+        </nav>
+      </aside>
+
+      {/* Conteúdo principal */}
+      <main className="flex-1 overflow-auto">
+        {children}
+      </main>
+    </div>
+  );
+}
+```
+
+RESULTADO ESPERADO POR PERFIL:
+
+admin_master:
+  - Exames
+  - [Administração]
+    - Unidades
+    - Templates
+    - Usuários
+    - Auditoria
+  - [PACS Remoto]
+    - Buscar Exames Remotos
+  - [Personalização]
+    - Frases Predefinidas
+
+unit_admin:
+  - Exames
+  - [Administração]
+    - Usuários (apenas da sua unidade)
+    - Auditoria (apenas da sua unidade)
+
+medico:
+  - Exames
+  - [Personalização]
+    - Frases Predefinidas
+
+viewer:
+  - Exames
+
+================================================================================
+9. MATRIZ DE PERMISSÕES COMPLETA
+================================================================================
+
+REFERÊNCIA: shared/permissions.ts
+
+┌──────────────────────────┬──────────────┬────────────┬────────┬────────┐
+│ AÇÃO                     │ admin_master │ unit_admin │ medico │ viewer │
+├──────────────────────────┼──────────────┼────────────┼────────┼────────┤
+│ viewStudies              │      ✅      │     ✅     │   ✅   │   ✅   │
+│ openViewer               │      ✅      │     ✅     │   ✅   │   ✅   │
+│ createReport             │      ✅      │     ❌     │   ✅   │   ❌   │
+│ signReport               │      ✅      │     ❌     │   ✅   │   ❌   │
+│ printReport              │      ✅      │     ✅     │   ✅   │   ✅   │
+│ fillAnamnesis            │      ✅      │     ❌     │   ✅   │   ❌   │
+│ managePresets            │      ✅      │     ❌     │   ✅   │   ❌   │
+│ manageUnits              │      ✅      │     ❌     │   ❌   │   ❌   │
+│ manageUsers              │      ✅      │     ✅*    │   ❌   │   ❌   │
+│ manageTemplates          │      ✅      │     ❌     │   ❌   │   ❌   │
+│ viewAudit                │      ✅      │     ✅*    │   ❌   │   ❌   │
+│ configurePACS            │      ✅      │     ❌     │   ❌   │   ❌   │
+│ queryPACS                │      ✅      │     ❌     │   ❌   │   ❌   │
+│ accessAllUnits           │      ✅      │     ❌     │   ❌   │   ❌   │
+└──────────────────────────┴──────────────┴────────────┴────────┴────────┘
+
+* unit_admin: apenas da sua própria unidade
+
+================================================================================
+10. TESTES A REALIZAR
+================================================================================
+
+TESTE 1: CRIAR USUÁRIOS DE TESTE
+---------------------------------
+Criar 4 usuários no banco de dados, um de cada perfil:
+
+```sql
+-- Admin Master
+INSERT INTO users (openId, name, email, role, unit_id, isActive) 
+VALUES ('admin_master_test', 'Admin Master', 'admin@test.com', 'admin_master', NULL, true);
+
+-- Unit Admin (Unidade 1)
+INSERT INTO users (openId, name, email, role, unit_id, isActive) 
+VALUES ('unit_admin_test', 'Unit Admin', 'unitadmin@test.com', 'unit_admin', 1, true);
+
+-- Médico (Unidade 1)
+INSERT INTO users (openId, name, email, role, unit_id, isActive) 
+VALUES ('medico_test', 'Dr. Médico', 'medico@test.com', 'medico', 1, true);
+
+-- Viewer (Unidade 1)
+INSERT INTO users (openId, name, email, role, unit_id, isActive) 
+VALUES ('viewer_test', 'Viewer', 'viewer@test.com', 'viewer', 1, true);
+```
+
+TESTE 2: VERIFICAR BOTÕES NA LISTA DE EXAMES
+---------------------------------------------
+Para cada perfil, fazer login e verificar:
+
+admin_master:
+  ✅ Botão CID visível
+  ✅ Botão Ver visível
+  ✅ Botão Laudar visível
+  ✅ Botão Imprimir visível
+  ✅ Botão Médico visível
+
+unit_admin:
+  ❌ Botão CID oculto
+  ✅ Botão Ver visível
+  ❌ Botão Laudar oculto
+  ✅ Botão Imprimir visível
+  ✅ Botão Médico visível
+
+medico:
+  ✅ Botão CID visível
+  ✅ Botão Ver visível
+  ✅ Botão Laudar visível
+  ✅ Botão Imprimir visível
+  ✅ Botão Médico visível
+
+viewer:
+  ❌ Botão CID oculto
+  ✅ Botão Ver visível
+  ❌ Botão Laudar oculto
+  ✅ Botão Imprimir visível
+  ✅ Botão Médico visível
+
+TESTE 3: VERIFICAR ACESSO A ROTAS PROTEGIDAS
+---------------------------------------------
+Para cada perfil, tentar acessar URLs diretamente:
+
+admin_master:
+  ✅ /admin/units → Acesso permitido
+  ✅ /admin/templates → Acesso permitido
+  ✅ /admin/users → Acesso permitido
+  ✅ /reports/123 → Acesso permitido
+
+unit_admin:
+  ❌ /admin/units → Acesso negado
+  ❌ /admin/templates → Acesso negado
+  ✅ /admin/users → Acesso permitido
+  ❌ /reports/123 → Acesso negado
+
+medico:
+  ❌ /admin/units → Acesso negado
+  ❌ /admin/templates → Acesso negado
+  ❌ /admin/users → Acesso negado
+  ✅ /reports/123 → Acesso permitido
+
+viewer:
+  ❌ /admin/units → Acesso negado
+  ❌ /admin/templates → Acesso negado
+  ❌ /admin/users → Acesso negado
+  ❌ /reports/123 → Acesso negado
+
+TESTE 4: VERIFICAR MENU LATERAL
+--------------------------------
+Para cada perfil, verificar itens visíveis no menu:
+
+admin_master:
+  ✅ Exames
+  ✅ Seção "Administração"
+  ✅ Seção "PACS Remoto"
+  ✅ Seção "Personalização"
+
+unit_admin:
+  ✅ Exames
+  ✅ Seção "Administração" (apenas Usuários e Auditoria)
+  ❌ Seção "PACS Remoto" oculta
+  ❌ Seção "Personalização" oculta
+
+medico:
+  ✅ Exames
+  ❌ Seção "Administração" oculta
+  ❌ Seção "PACS Remoto" oculta
+  ✅ Seção "Personalização"
+
+viewer:
+  ✅ Exames
+  ❌ Todas as seções ocultas
+
+TESTE 5: VERIFICAR MENSAGEM DE ACESSO NEGADO
+---------------------------------------------
+Fazer login como viewer e tentar acessar /admin/units:
+  ✅ Deve exibir mensagem "Acesso Negado"
+  ✅ Deve mostrar perfil atual: "viewer"
+  ✅ Deve ter botão "Voltar para Início"
+
+================================================================================
+11. CHECKLIST DE CONCLUSÃO
+================================================================================
+
+ARQUIVOS CRIADOS:
+[ ] client/src/components/ProtectedRoute.tsx
+[ ] client/src/hooks/usePermissions.ts
+
+ARQUIVOS MODIFICADOS:
+[ ] client/src/App.tsx (rotas protegidas)
+[ ] client/src/pages/PacsQueryPage.tsx (botões condicionais)
+[ ] client/src/components/DashboardLayout.tsx (menu condicional, se existir)
+
+TESTES REALIZADOS:
+[ ] Criar 4 usuários de teste (um de cada perfil)
+[ ] Testar botões na lista de exames (4 perfis)
+[ ] Testar acesso a rotas protegidas (4 perfis)
+[ ] Testar menu lateral (4 perfis)
+[ ] Testar mensagem de acesso negado
+
+VALIDAÇÕES:
+[ ] Nenhum erro TypeScript
+[ ] Nenhum erro no console do navegador
+[ ] Todos os botões funcionando corretamente
+[ ] Redirecionamentos funcionando
+[ ] UI responsiva em diferentes resoluções
+
+DOCUMENTAÇÃO:
+[ ] Atualizar README.md com informações de RBAC
+[ ] Atualizar todo.md marcando tarefas concluídas
+[ ] Criar commit com mensagem descritiva
+
+================================================================================
+12. EXEMPLOS DE CÓDIGO COMPLETOS
+================================================================================
+
+EXEMPLO 1: BOTÃO CONDICIONAL SIMPLES
+-------------------------------------
+```tsx
+import { usePermissions } from '@/hooks/usePermissions';
+
+function ExampleComponent() {
+  const permissions = usePermissions();
+
+  return (
+    <div>
+      {permissions.canReport && (
+        <Button onClick={handleCreateReport}>
+          Criar Laudo
+        </Button>
+      )}
+    </div>
+  );
+}
+```
+
+EXEMPLO 2: BOTÃO COM TOOLTIP EXPLICATIVO
+-----------------------------------------
+```tsx
+import { usePermissions } from '@/hooks/usePermissions';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+
+function ExampleComponent() {
+  const permissions = usePermissions();
+
+  if (!permissions.canReport) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button disabled>
+            Criar Laudo
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          Apenas médicos podem criar laudos
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <Button onClick={handleCreateReport}>
+      Criar Laudo
+    </Button>
+  );
+}
+```
+
+EXEMPLO 3: VERIFICAÇÃO DE ACESSO A UNIDADE
+-------------------------------------------
+```tsx
+import { usePermissions } from '@/hooks/usePermissions';
+
+function UnitCard({ unit }: { unit: Unit }) {
+  const permissions = usePermissions();
+
+  // Verificar se pode acessar esta unidade
+  if (!permissions.canAccessUnit(unit.id)) {
+    return null; // Não renderiza o card
+  }
+
+  return (
+    <div className="border rounded p-4">
+      <h3>{unit.name}</h3>
+      {/* ... */}
+    </div>
+  );
+}
+```
+
+EXEMPLO 4: EXIBIR PERFIL DO USUÁRIO
+------------------------------------
+```tsx
+import { useAuth } from '@/contexts/AuthContext';
+
+function UserProfile() {
+  const { user } = useAuth();
+
+  const roleLabels = {
+    admin_master: 'Administrador Master',
+    unit_admin: 'Administrador de Unidade',
+    medico: 'Médico',
+    viewer: 'Visualizador',
+  };
+
+  return (
+    <div>
+      <p>Nome: {user?.name}</p>
+      <p>Perfil: {user ? roleLabels[user.role] : 'N/A'}</p>
+    </div>
+  );
+}
+```
+
+================================================================================
+13. TROUBLESHOOTING (SOLUÇÃO DE PROBLEMAS)
+================================================================================
+
+PROBLEMA 1: "Cannot read property 'role' of null"
+SOLUÇÃO: Sempre verificar se user existe antes de acessar propriedades
+```tsx
+const { user } = useAuth();
+if (!user) return null;
+// Agora é seguro acessar user.role
+```
+
+PROBLEMA 2: Botões não aparecem/desaparecem
+SOLUÇÃO: Verificar se usePermissions está sendo chamado corretamente
+```tsx
+// ❌ ERRADO
+const canReport = usePermissions().canReport;
+
+// ✅ CORRETO
+const permissions = usePermissions();
+const canReport = permissions.canReport;
+```
+
+PROBLEMA 3: Redirecionamento infinito
+SOLUÇÃO: Verificar se a rota de redirecionamento não está protegida
+```tsx
+// ❌ ERRADO
+<ProtectedRoute allowedRoles={['admin_master']} redirectTo="/admin">
+
+// ✅ CORRETO
+<ProtectedRoute allowedRoles={['admin_master']} redirectTo="/">
+```
+
+PROBLEMA 4: Menu não atualiza após login
+SOLUÇÃO: Verificar se AuthContext está no topo da árvore de componentes
+```tsx
+// main.tsx ou App.tsx
+<AuthProvider>
+  <App />
+</AuthProvider>
+```
+
+================================================================================
+14. REFERÊNCIAS
+================================================================================
+
+ARQUIVOS DE REFERÊNCIA:
+- /home/ubuntu/pacs-portal/shared/permissions.ts
+- /home/ubuntu/pacs-portal/client/src/contexts/AuthContext.tsx
+- /home/ubuntu/pacs-portal/server/_core/trpc.ts
+
+DOCUMENTAÇÃO EXTERNA:
+- React Hooks: https://react.dev/reference/react
+- Wouter (routing): https://github.com/molefrog/wouter
+- shadcn/ui: https://ui.shadcn.com/
+
+GUIA LAUDS ORIGINAL:
+- /home/ubuntu/upload/pasted_content.txt
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================
+
+Data de criação: 26/02/2026
+Versão: 1.0
+Autor: Manus AI
+Projeto: PACS Portal - Sistema de Gestão de Laudos Radiológicos
+Repositório: https://github.com/alessandrobarra7/pacs-v4
+
+Para dúvidas ou suporte, consulte a documentação completa em:
+/home/ubuntu/docs-para-ia/
+
+================================================================================

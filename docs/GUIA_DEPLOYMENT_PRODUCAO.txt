@@ -1,0 +1,1362 @@
+================================================================================
+GUIA DE DEPLOYMENT PARA PRODUÇÃO - PACS PORTAL
+Sistema de Gestão de Laudos Radiológicos
+Data: 26/02/2026
+================================================================================
+
+ÍNDICE:
+1. Visão Geral da Infraestrutura
+2. Requisitos de Sistema
+3. Arquitetura de Deployment
+4. VM1 - Portal (Aplicação Web)
+5. VM2 - Banco de Dados (MySQL/TiDB)
+6. Configuração de Rede e Firewall
+7. Variáveis de Ambiente
+8. Processo de Instalação Completo
+9. Configuração de SSL/HTTPS
+10. Backup e Recuperação
+11. Monitoramento e Logs
+12. Troubleshooting
+13. Checklist de Deployment
+14. Comandos de Manutenção
+
+================================================================================
+1. VISÃO GERAL DA INFRAESTRUTURA
+================================================================================
+
+AMBIENTE DE PRODUÇÃO:
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│  INTERNET                                                       │
+│     │                                                           │
+│     ▼                                                           │
+│  [MIKROTIK ROUTER]                                             │
+│     │                                                           │
+│     ├──────────────┬──────────────┐                            │
+│     ▼              ▼              ▼                            │
+│  [VM1 PORTAL]  [VM2 DATABASE]  [VM3 PACS]                     │
+│  Aplicação Web  MySQL/TiDB      Orthanc                        │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+COMPONENTES:
+- VM1: Aplicação PACS Portal (Node.js + React)
+- VM2: Banco de Dados (MySQL/TiDB)
+- VM3: Servidor PACS/DICOM (Orthanc) - NÃO COBERTO NESTE GUIA
+- Mikrotik: Roteador com NAT e firewall
+
+ESCOPO DESTE GUIA:
+✅ VM1 - Portal (Aplicação Web)
+✅ VM2 - Banco de Dados
+✅ Configuração de rede entre VM1 e VM2
+❌ VM3 - PACS/Orthanc (fora do escopo)
+❌ Configuração do Mikrotik (apenas referência)
+
+================================================================================
+2. REQUISITOS DE SISTEMA
+================================================================================
+
+VM1 - PORTAL (APLICAÇÃO WEB)
+-----------------------------
+Sistema Operacional: Ubuntu 22.04 LTS ou superior
+CPU: 2 vCPUs (mínimo) / 4 vCPUs (recomendado)
+RAM: 4 GB (mínimo) / 8 GB (recomendado)
+Disco: 50 GB SSD
+Rede: 1 interface de rede com IP estático
+
+Software Necessário:
+- Node.js 22.x
+- pnpm (gerenciador de pacotes)
+- Git
+- Nginx (proxy reverso)
+- PM2 (gerenciador de processos Node.js)
+- Python 3.11+ (para integração DICOM)
+- pip3 (gerenciador de pacotes Python)
+- Certbot (para SSL/HTTPS)
+
+VM2 - BANCO DE DADOS
+---------------------
+Sistema Operacional: Ubuntu 22.04 LTS ou superior
+CPU: 2 vCPUs (mínimo) / 4 vCPUs (recomendado)
+RAM: 8 GB (mínimo) / 16 GB (recomendado)
+Disco: 100 GB SSD (com crescimento automático)
+Rede: 1 interface de rede com IP estático
+
+Software Necessário:
+- MySQL 8.0+ OU TiDB 7.x (recomendado para escalabilidade)
+- Firewall (ufw)
+
+PORTAS NECESSÁRIAS:
+- VM1: 80 (HTTP), 443 (HTTPS), 3000 (Node.js - interno)
+- VM2: 3306 (MySQL) ou 4000 (TiDB)
+- PACS: 11112 (DICOM C-FIND) - conexão de VM1 para servidor PACS externo
+
+================================================================================
+3. ARQUITETURA DE DEPLOYMENT
+================================================================================
+
+FLUXO DE REQUISIÇÕES:
+┌────────────────────────────────────────────────────────────────┐
+│                                                                │
+│  1. Usuário acessa https://pacs.seudominio.com.br             │
+│     │                                                          │
+│     ▼                                                          │
+│  2. Mikrotik NAT → VM1:443 (Nginx)                           │
+│     │                                                          │
+│     ▼                                                          │
+│  3. Nginx proxy_pass → localhost:3000 (Node.js)              │
+│     │                                                          │
+│     ├─────────────────┬────────────────┐                      │
+│     ▼                 ▼                ▼                      │
+│  4a. API tRPC     4b. OAuth        4c. Static Files          │
+│     │                 │                                        │
+│     ▼                 ▼                                        │
+│  5. VM2:3306      Manus OAuth                                 │
+│     (MySQL)       (api.manus.im)                              │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+
+STACK TECNOLÓGICA:
+- Frontend: React 19 + Vite + Tailwind CSS 4
+- Backend: Node.js 22 + Express 4 + tRPC 11
+- Banco: MySQL 8.0+ (ou TiDB 7.x)
+- Autenticação: Manus OAuth 2.0
+- DICOM: Python 3.11 + pynetdicom
+- Proxy: Nginx
+- Process Manager: PM2
+- SSL: Let's Encrypt (Certbot)
+
+================================================================================
+4. VM1 - PORTAL (APLICAÇÃO WEB)
+================================================================================
+
+INFORMAÇÕES DA VM1:
+-------------------
+Hostname: pacs-portal-vm1
+IP Interno: [A SER DEFINIDO - exemplo: 192.168.1.10]
+IP Público: [A SER DEFINIDO - exemplo: 200.x.x.x via NAT]
+Domínio: [A SER DEFINIDO - exemplo: pacs.seudominio.com.br]
+Sistema: Ubuntu 22.04 LTS
+
+USUÁRIO DO SISTEMA:
+-------------------
+Usuário: ubuntu (ou outro com sudo)
+Diretório home: /home/ubuntu
+Diretório da aplicação: /home/ubuntu/pacs-portal
+
+ESTRUTURA DE DIRETÓRIOS:
+------------------------
+/home/ubuntu/
+├── pacs-portal/              # Código da aplicação (clonado do Git)
+│   ├── client/               # Frontend React
+│   ├── server/               # Backend Node.js
+│   ├── drizzle/              # Schema e migrations do banco
+│   ├── shared/               # Código compartilhado
+│   ├── package.json          # Dependências
+│   └── .env                  # Variáveis de ambiente (NÃO COMMITAR)
+├── logs/                     # Logs da aplicação
+│   ├── pm2/                  # Logs do PM2
+│   └── nginx/                # Logs do Nginx
+└── backups/                  # Backups locais
+
+PORTAS UTILIZADAS:
+------------------
+- 80: HTTP (Nginx) - redireciona para HTTPS
+- 443: HTTPS (Nginx) - entrada principal
+- 3000: Node.js (localhost only) - não expor externamente
+
+SERVIÇOS RODANDO:
+-----------------
+1. Nginx (proxy reverso + SSL)
+2. PM2 (gerenciador de processos Node.js)
+3. Node.js (aplicação PACS Portal)
+
+================================================================================
+5. VM2 - BANCO DE DADOS (MYSQL/TIDB)
+================================================================================
+
+INFORMAÇÕES DA VM2:
+-------------------
+Hostname: pacs-db-vm2
+IP Interno: [A SER DEFINIDO - exemplo: 192.168.1.20]
+IP Público: NÃO EXPOR (apenas acesso interno da VM1)
+Sistema: Ubuntu 22.04 LTS
+
+BANCO DE DADOS:
+---------------
+Tipo: MySQL 8.0+ (ou TiDB 7.x para escalabilidade)
+Porta: 3306 (MySQL) ou 4000 (TiDB)
+Nome do banco: pacs_portal
+Charset: utf8mb4
+Collation: utf8mb4_unicode_ci
+
+USUÁRIOS DO BANCO:
+------------------
+1. root (administrador)
+   - Acesso: localhost only
+   - Senha: [DEFINIR SENHA FORTE]
+
+2. pacs_app (aplicação)
+   - Acesso: VM1 IP (192.168.1.10)
+   - Senha: [DEFINIR SENHA FORTE]
+   - Permissões: SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX
+
+ESTRUTURA DE DIRETÓRIOS:
+------------------------
+/var/lib/mysql/               # Dados do MySQL
+/var/log/mysql/               # Logs do MySQL
+/home/ubuntu/backups/         # Backups do banco
+
+TABELAS DO BANCO (10 tabelas):
+-------------------------------
+1. users                      # Usuários do sistema
+2. units                      # Unidades médicas
+3. templates                  # Templates de laudos
+4. reports                    # Laudos médicos
+5. studies_cache              # Cache de estudos DICOM
+6. anamnesis                  # Anamnese com CID
+7. audit_log                  # Log de auditoria
+8. preset_phrases             # Frases predefinidas
+9. report_presets             # Presets de laudos
+10. [OUTRAS TABELAS FUTURAS]
+
+TAMANHO ESTIMADO:
+-----------------
+Inicial: ~10 MB
+Crescimento: ~1-5 GB/ano (depende do volume de laudos)
+
+================================================================================
+6. CONFIGURAÇÃO DE REDE E FIREWALL
+================================================================================
+
+REGRAS DE FIREWALL - VM1 (PORTAL)
+----------------------------------
+```bash
+# Permitir SSH (apenas de IPs confiáveis)
+sudo ufw allow from 200.x.x.x to any port 22
+
+# Permitir HTTP/HTTPS (público)
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+
+# Bloquear porta 3000 (Node.js) do acesso externo
+sudo ufw deny 3000/tcp
+
+# Permitir conexão com VM2 (banco de dados)
+sudo ufw allow out to 192.168.1.20 port 3306
+
+# Ativar firewall
+sudo ufw enable
+```
+
+REGRAS DE FIREWALL - VM2 (BANCO DE DADOS)
+------------------------------------------
+```bash
+# Permitir SSH (apenas de IPs confiáveis)
+sudo ufw allow from 200.x.x.x to any port 22
+
+# Permitir MySQL apenas de VM1
+sudo ufw allow from 192.168.1.10 to any port 3306
+
+# Bloquear MySQL de qualquer outro IP
+sudo ufw deny 3306/tcp
+
+# Ativar firewall
+sudo ufw enable
+```
+
+CONFIGURAÇÃO DE REDE - VM1
+---------------------------
+Arquivo: /etc/netplan/01-netcfg.yaml
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    eth0:
+      addresses:
+        - 192.168.1.10/24
+      gateway4: 192.168.1.1
+      nameservers:
+        addresses:
+          - 8.8.8.8
+          - 8.8.4.4
+```
+
+Aplicar configuração:
+```bash
+sudo netplan apply
+```
+
+CONFIGURAÇÃO DE REDE - VM2
+---------------------------
+Arquivo: /etc/netplan/01-netcfg.yaml
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    eth0:
+      addresses:
+        - 192.168.1.20/24
+      gateway4: 192.168.1.1
+      nameservers:
+        addresses:
+          - 8.8.8.8
+          - 8.8.4.4
+```
+
+Aplicar configuração:
+```bash
+sudo netplan apply
+```
+
+TESTE DE CONECTIVIDADE:
+------------------------
+```bash
+# De VM1 para VM2
+ping 192.168.1.20
+
+# De VM1 para VM2 (MySQL)
+telnet 192.168.1.20 3306
+
+# De VM2 para VM1
+ping 192.168.1.10
+```
+
+================================================================================
+7. VARIÁVEIS DE AMBIENTE
+================================================================================
+
+ARQUIVO: /home/ubuntu/pacs-portal/.env
+
+IMPORTANTE:
+- Este arquivo NÃO deve ser commitado no Git
+- Criar manualmente na VM1 após clonar o repositório
+- Usar senhas fortes e únicas para produção
+
+CONTEÚDO DO ARQUIVO .env:
+-------------------------
+
+```bash
+# ============================================================================
+# VARIÁVEIS DE AMBIENTE - PACS PORTAL (PRODUÇÃO)
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# BANCO DE DADOS
+# ----------------------------------------------------------------------------
+DATABASE_URL="mysql://pacs_app:SENHA_FORTE_AQUI@192.168.1.20:3306/pacs_portal"
+
+# Formato: mysql://USUARIO:SENHA@IP:PORTA/NOME_DO_BANCO
+# USUARIO: pacs_app (criado na VM2)
+# SENHA: [DEFINIR SENHA FORTE - mínimo 16 caracteres]
+# IP: 192.168.1.20 (IP da VM2)
+# PORTA: 3306 (MySQL) ou 4000 (TiDB)
+# NOME_DO_BANCO: pacs_portal
+
+# ----------------------------------------------------------------------------
+# AUTENTICAÇÃO (MANUS OAUTH)
+# ----------------------------------------------------------------------------
+JWT_SECRET="GERAR_STRING_ALEATORIA_64_CARACTERES"
+OAUTH_SERVER_URL="https://api.manus.im"
+VITE_OAUTH_PORTAL_URL="https://auth.manus.im"
+VITE_APP_ID="[OBTER NO PAINEL MANUS]"
+OWNER_OPEN_ID="[OBTER NO PAINEL MANUS]"
+OWNER_NAME="[SEU NOME]"
+
+# JWT_SECRET: Gerar com: openssl rand -base64 64
+# VITE_APP_ID: Obter em https://manus.im/dashboard/apps
+# OWNER_OPEN_ID: Obter em https://manus.im/dashboard/profile
+
+# ----------------------------------------------------------------------------
+# MANUS BUILT-IN APIS
+# ----------------------------------------------------------------------------
+BUILT_IN_FORGE_API_URL="https://forge.manus.im"
+BUILT_IN_FORGE_API_KEY="[OBTER NO PAINEL MANUS]"
+VITE_FRONTEND_FORGE_API_KEY="[OBTER NO PAINEL MANUS]"
+VITE_FRONTEND_FORGE_API_URL="https://forge.manus.im"
+
+# BUILT_IN_FORGE_API_KEY: API key do servidor (backend)
+# VITE_FRONTEND_FORGE_API_KEY: API key do frontend
+
+# ----------------------------------------------------------------------------
+# ANALYTICS (OPCIONAL)
+# ----------------------------------------------------------------------------
+VITE_ANALYTICS_ENDPOINT="https://analytics.manus.im"
+VITE_ANALYTICS_WEBSITE_ID="[OBTER NO PAINEL MANUS]"
+
+# ----------------------------------------------------------------------------
+# APLICAÇÃO
+# ----------------------------------------------------------------------------
+VITE_APP_TITLE="PACS Portal"
+VITE_APP_LOGO="https://seudominio.com.br/logo.png"
+VITE_API_BASE_URL="https://pacs.seudominio.com.br"
+
+# VITE_APP_LOGO: URL pública do logo (pode usar S3 ou CDN)
+# VITE_API_BASE_URL: URL pública da aplicação
+
+# ----------------------------------------------------------------------------
+# NODE.JS
+# ----------------------------------------------------------------------------
+NODE_ENV="production"
+PORT=3000
+
+# PORT: Porta interna do Node.js (não expor externamente)
+
+# ----------------------------------------------------------------------------
+# LOGS
+# ----------------------------------------------------------------------------
+LOG_LEVEL="info"
+LOG_FILE="/home/ubuntu/logs/pacs-portal.log"
+
+# LOG_LEVEL: error, warn, info, debug
+```
+
+COMO GERAR JWT_SECRET:
+----------------------
+```bash
+openssl rand -base64 64
+```
+
+COMO OBTER CREDENCIAIS MANUS:
+------------------------------
+1. Acessar https://manus.im/dashboard
+2. Criar novo app OAuth
+3. Copiar VITE_APP_ID, OWNER_OPEN_ID, API keys
+4. Configurar redirect URI: https://pacs.seudominio.com.br/api/oauth/callback
+
+================================================================================
+8. PROCESSO DE INSTALAÇÃO COMPLETO
+================================================================================
+
+PASSO 1: PREPARAR VM2 (BANCO DE DADOS)
+---------------------------------------
+
+1.1. Atualizar sistema:
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+1.2. Instalar MySQL:
+```bash
+sudo apt install mysql-server -y
+```
+
+1.3. Configurar MySQL:
+```bash
+sudo mysql_secure_installation
+```
+
+Responder:
+- Set root password? Yes → [DEFINIR SENHA FORTE]
+- Remove anonymous users? Yes
+- Disallow root login remotely? Yes
+- Remove test database? Yes
+- Reload privilege tables? Yes
+
+1.4. Configurar acesso remoto:
+```bash
+sudo nano /etc/mysql/mysql.conf.d/mysqld.cnf
+```
+
+Alterar:
+```
+bind-address = 0.0.0.0
+```
+
+Reiniciar MySQL:
+```bash
+sudo systemctl restart mysql
+```
+
+1.5. Criar banco de dados e usuário:
+```bash
+sudo mysql -u root -p
+```
+
+Executar SQL:
+```sql
+-- Criar banco de dados
+CREATE DATABASE pacs_portal CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Criar usuário da aplicação
+CREATE USER 'pacs_app'@'192.168.1.10' IDENTIFIED BY 'SENHA_FORTE_AQUI';
+
+-- Conceder permissões
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX 
+ON pacs_portal.* TO 'pacs_app'@'192.168.1.10';
+
+-- Aplicar mudanças
+FLUSH PRIVILEGES;
+
+-- Verificar
+SHOW GRANTS FOR 'pacs_app'@'192.168.1.10';
+
+-- Sair
+EXIT;
+```
+
+1.6. Testar conexão de VM1:
+```bash
+# Na VM1
+mysql -h 192.168.1.20 -u pacs_app -p pacs_portal
+```
+
+1.7. Configurar firewall:
+```bash
+sudo ufw allow from 192.168.1.10 to any port 3306
+sudo ufw deny 3306/tcp
+sudo ufw enable
+```
+
+PASSO 2: PREPARAR VM1 (PORTAL)
+-------------------------------
+
+2.1. Atualizar sistema:
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+2.2. Instalar dependências do sistema:
+```bash
+sudo apt install -y git curl build-essential python3.11 python3-pip nginx certbot python3-certbot-nginx
+```
+
+2.3. Instalar Node.js 22:
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+2.4. Instalar pnpm:
+```bash
+sudo npm install -g pnpm
+```
+
+2.5. Instalar PM2:
+```bash
+sudo npm install -g pm2
+```
+
+2.6. Instalar pynetdicom (integração DICOM):
+```bash
+sudo pip3 install pynetdicom
+```
+
+2.7. Criar diretórios:
+```bash
+mkdir -p /home/ubuntu/logs/pm2
+mkdir -p /home/ubuntu/logs/nginx
+mkdir -p /home/ubuntu/backups
+```
+
+PASSO 3: CLONAR REPOSITÓRIO
+----------------------------
+
+3.1. Clonar código:
+```bash
+cd /home/ubuntu
+git clone https://github.com/alessandrobarra7/pacs-v4.git pacs-portal
+cd pacs-portal
+```
+
+3.2. Verificar branch:
+```bash
+git branch
+git status
+```
+
+3.3. Instalar dependências:
+```bash
+pnpm install
+```
+
+PASSO 4: CONFIGURAR VARIÁVEIS DE AMBIENTE
+------------------------------------------
+
+4.1. Criar arquivo .env:
+```bash
+cd /home/ubuntu/pacs-portal
+nano .env
+```
+
+4.2. Copiar conteúdo da seção 7 deste guia
+
+4.3. Substituir valores:
+- DATABASE_URL: IP da VM2 e senha do pacs_app
+- JWT_SECRET: Gerar com openssl rand -base64 64
+- VITE_APP_ID: Obter no painel Manus
+- Outras credenciais Manus
+
+4.4. Salvar e sair (Ctrl+O, Enter, Ctrl+X)
+
+4.5. Proteger arquivo:
+```bash
+chmod 600 .env
+```
+
+PASSO 5: EXECUTAR MIGRATIONS DO BANCO
+--------------------------------------
+
+5.1. Gerar migrations:
+```bash
+cd /home/ubuntu/pacs-portal
+pnpm drizzle-kit generate
+```
+
+5.2. Verificar SQL gerado:
+```bash
+ls -la drizzle/
+cat drizzle/0001_*.sql
+```
+
+5.3. Aplicar migrations:
+```bash
+pnpm drizzle-kit push
+```
+
+5.4. Verificar tabelas criadas:
+```bash
+mysql -h 192.168.1.20 -u pacs_app -p pacs_portal -e "SHOW TABLES;"
+```
+
+PASSO 6: BUILD DA APLICAÇÃO
+----------------------------
+
+6.1. Build do frontend:
+```bash
+cd /home/ubuntu/pacs-portal
+pnpm run build
+```
+
+6.2. Verificar build:
+```bash
+ls -la client/dist/
+```
+
+PASSO 7: CONFIGURAR PM2
+------------------------
+
+7.1. Criar arquivo de configuração PM2:
+```bash
+cd /home/ubuntu/pacs-portal
+nano ecosystem.config.js
+```
+
+Conteúdo:
+```javascript
+module.exports = {
+  apps: [{
+    name: 'pacs-portal',
+    script: 'server/index.ts',
+    interpreter: 'node',
+    interpreter_args: '--loader tsx',
+    instances: 2,
+    exec_mode: 'cluster',
+    env: {
+      NODE_ENV: 'production',
+      PORT: 3000
+    },
+    error_file: '/home/ubuntu/logs/pm2/error.log',
+    out_file: '/home/ubuntu/logs/pm2/out.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+    merge_logs: true,
+    autorestart: true,
+    watch: false,
+    max_memory_restart: '1G'
+  }]
+};
+```
+
+7.2. Iniciar aplicação com PM2:
+```bash
+pm2 start ecosystem.config.js
+```
+
+7.3. Verificar status:
+```bash
+pm2 status
+pm2 logs pacs-portal
+```
+
+7.4. Configurar PM2 para iniciar no boot:
+```bash
+pm2 startup
+pm2 save
+```
+
+PASSO 8: CONFIGURAR NGINX
+--------------------------
+
+8.1. Criar arquivo de configuração:
+```bash
+sudo nano /etc/nginx/sites-available/pacs-portal
+```
+
+Conteúdo:
+```nginx
+# Redirecionar HTTP para HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name pacs.seudominio.com.br;
+
+    # Certbot challenge
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    # Redirecionar para HTTPS
+    location / {
+        return 301 https://$server_name$request_uri;
+    }
+}
+
+# HTTPS
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name pacs.seudominio.com.br;
+
+    # SSL (será configurado pelo Certbot)
+    ssl_certificate /etc/letsencrypt/live/pacs.seudominio.com.br/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pacs.seudominio.com.br/privkey.pem;
+
+    # SSL Settings
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # Logs
+    access_log /home/ubuntu/logs/nginx/access.log;
+    error_log /home/ubuntu/logs/nginx/error.log;
+
+    # Gzip
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/json;
+
+    # Proxy para Node.js
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+
+    # Arquivos estáticos (opcional - se servir via Nginx)
+    location /assets/ {
+        alias /home/ubuntu/pacs-portal/client/dist/assets/;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Tamanho máximo de upload (para imagens, logos, etc)
+    client_max_body_size 10M;
+}
+```
+
+8.2. Ativar site:
+```bash
+sudo ln -s /etc/nginx/sites-available/pacs-portal /etc/nginx/sites-enabled/
+```
+
+8.3. Remover site padrão:
+```bash
+sudo rm /etc/nginx/sites-enabled/default
+```
+
+8.4. Testar configuração:
+```bash
+sudo nginx -t
+```
+
+8.5. Reiniciar Nginx:
+```bash
+sudo systemctl restart nginx
+```
+
+PASSO 9: CONFIGURAR SSL (HTTPS)
+--------------------------------
+
+9.1. Obter certificado Let's Encrypt:
+```bash
+sudo certbot --nginx -d pacs.seudominio.com.br
+```
+
+Responder:
+- Email: [SEU EMAIL]
+- Termos: Agree
+- Compartilhar email: No
+- Redirect HTTP to HTTPS: Yes
+
+9.2. Testar renovação automática:
+```bash
+sudo certbot renew --dry-run
+```
+
+9.3. Verificar cron de renovação:
+```bash
+sudo systemctl status certbot.timer
+```
+
+PASSO 10: CRIAR USUÁRIO ADMIN INICIAL
+--------------------------------------
+
+10.1. Conectar ao banco:
+```bash
+mysql -h 192.168.1.20 -u pacs_app -p pacs_portal
+```
+
+10.2. Inserir usuário admin:
+```sql
+INSERT INTO users (openId, name, email, role, unit_id, isActive) 
+VALUES (
+  'OBTER_DO_PRIMEIRO_LOGIN', 
+  'Administrador', 
+  'admin@seudominio.com.br', 
+  'admin_master', 
+  NULL, 
+  true
+);
+```
+
+NOTA: O openId será obtido após o primeiro login via Manus OAuth
+
+10.3. Sair:
+```sql
+EXIT;
+```
+
+PASSO 11: TESTAR APLICAÇÃO
+---------------------------
+
+11.1. Verificar serviços:
+```bash
+# PM2
+pm2 status
+
+# Nginx
+sudo systemctl status nginx
+
+# MySQL (na VM2)
+sudo systemctl status mysql
+```
+
+11.2. Testar URL:
+```bash
+curl -I https://pacs.seudominio.com.br
+```
+
+11.3. Acessar no navegador:
+```
+https://pacs.seudominio.com.br
+```
+
+11.4. Fazer login via Manus OAuth
+
+11.5. Verificar logs:
+```bash
+# PM2
+pm2 logs pacs-portal
+
+# Nginx
+tail -f /home/ubuntu/logs/nginx/access.log
+tail -f /home/ubuntu/logs/nginx/error.log
+```
+
+================================================================================
+9. CONFIGURAÇÃO DE SSL/HTTPS
+================================================================================
+
+CERTIFICADO LET'S ENCRYPT:
+--------------------------
+- Válido por 90 dias
+- Renovação automática via certbot
+- Certbot verifica renovação 2x por dia
+
+RENOVAÇÃO MANUAL:
+-----------------
+```bash
+sudo certbot renew
+sudo systemctl reload nginx
+```
+
+VERIFICAR VALIDADE:
+-------------------
+```bash
+sudo certbot certificates
+```
+
+TROUBLESHOOTING SSL:
+--------------------
+Se o certificado não renovar automaticamente:
+
+1. Verificar timer:
+```bash
+sudo systemctl status certbot.timer
+```
+
+2. Verificar logs:
+```bash
+sudo journalctl -u certbot
+```
+
+3. Renovar manualmente:
+```bash
+sudo certbot renew --force-renewal
+```
+
+================================================================================
+10. BACKUP E RECUPERAÇÃO
+================================================================================
+
+BACKUP DO BANCO DE DADOS (VM2)
+-------------------------------
+
+Script de backup automático:
+```bash
+sudo nano /home/ubuntu/backup-db.sh
+```
+
+Conteúdo:
+```bash
+#!/bin/bash
+
+# Configurações
+DB_NAME="pacs_portal"
+DB_USER="pacs_app"
+DB_PASS="SENHA_AQUI"
+BACKUP_DIR="/home/ubuntu/backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="$BACKUP_DIR/pacs_portal_$DATE.sql.gz"
+
+# Criar diretório se não existir
+mkdir -p $BACKUP_DIR
+
+# Fazer backup
+mysqldump -u $DB_USER -p$DB_PASS $DB_NAME | gzip > $BACKUP_FILE
+
+# Manter apenas últimos 7 dias
+find $BACKUP_DIR -name "pacs_portal_*.sql.gz" -mtime +7 -delete
+
+# Log
+echo "Backup criado: $BACKUP_FILE"
+```
+
+Tornar executável:
+```bash
+chmod +x /home/ubuntu/backup-db.sh
+```
+
+Agendar backup diário (crontab):
+```bash
+crontab -e
+```
+
+Adicionar:
+```
+0 2 * * * /home/ubuntu/backup-db.sh >> /home/ubuntu/logs/backup.log 2>&1
+```
+
+RESTAURAR BACKUP:
+-----------------
+```bash
+gunzip < /home/ubuntu/backups/pacs_portal_20260226_020000.sql.gz | mysql -h 192.168.1.20 -u pacs_app -p pacs_portal
+```
+
+BACKUP DA APLICAÇÃO (VM1)
+--------------------------
+
+Backup do código e configurações:
+```bash
+cd /home/ubuntu
+tar -czf pacs-portal-backup-$(date +%Y%m%d).tar.gz pacs-portal/ --exclude='node_modules' --exclude='client/dist'
+```
+
+BACKUP REMOTO (OPCIONAL)
+-------------------------
+
+Enviar para S3, Google Drive, ou servidor remoto:
+```bash
+# Exemplo com rsync para servidor remoto
+rsync -avz /home/ubuntu/backups/ usuario@servidor-backup:/backups/pacs-portal/
+```
+
+================================================================================
+11. MONITORAMENTO E LOGS
+================================================================================
+
+LOGS DA APLICAÇÃO:
+------------------
+
+PM2 logs:
+```bash
+pm2 logs pacs-portal
+pm2 logs pacs-portal --lines 100
+pm2 logs pacs-portal --err
+```
+
+Nginx logs:
+```bash
+tail -f /home/ubuntu/logs/nginx/access.log
+tail -f /home/ubuntu/logs/nginx/error.log
+```
+
+MySQL logs (VM2):
+```bash
+sudo tail -f /var/log/mysql/error.log
+```
+
+MONITORAMENTO DE RECURSOS:
+---------------------------
+
+CPU e memória:
+```bash
+pm2 monit
+```
+
+Disco:
+```bash
+df -h
+```
+
+Processos:
+```bash
+htop
+```
+
+ALERTAS (OPCIONAL):
+-------------------
+
+Configurar alertas de:
+- Disco cheio (>80%)
+- Memória alta (>90%)
+- CPU alta (>90% por 5min)
+- Aplicação offline
+- Banco de dados offline
+
+Ferramentas recomendadas:
+- Prometheus + Grafana
+- Zabbix
+- Nagios
+- Uptime Robot (monitoramento externo)
+
+================================================================================
+12. TROUBLESHOOTING
+================================================================================
+
+PROBLEMA 1: Aplicação não inicia
+---------------------------------
+SINTOMAS:
+- pm2 status mostra "errored" ou "stopped"
+- Logs mostram erro de conexão com banco
+
+SOLUÇÃO:
+```bash
+# Verificar logs
+pm2 logs pacs-portal --err
+
+# Verificar .env
+cat /home/ubuntu/pacs-portal/.env | grep DATABASE_URL
+
+# Testar conexão com banco
+mysql -h 192.168.1.20 -u pacs_app -p pacs_portal
+
+# Reiniciar aplicação
+pm2 restart pacs-portal
+```
+
+PROBLEMA 2: Erro 502 Bad Gateway
+---------------------------------
+SINTOMAS:
+- Nginx retorna erro 502
+- Aplicação não responde
+
+SOLUÇÃO:
+```bash
+# Verificar se Node.js está rodando
+pm2 status
+
+# Verificar porta 3000
+netstat -tulpn | grep 3000
+
+# Reiniciar aplicação
+pm2 restart pacs-portal
+
+# Verificar logs do Nginx
+tail -f /home/ubuntu/logs/nginx/error.log
+```
+
+PROBLEMA 3: Banco de dados não conecta
+---------------------------------------
+SINTOMAS:
+- Erro "Can't connect to MySQL server"
+- Timeout na conexão
+
+SOLUÇÃO:
+```bash
+# Verificar se MySQL está rodando (VM2)
+sudo systemctl status mysql
+
+# Verificar firewall (VM2)
+sudo ufw status
+
+# Testar conexão de VM1
+telnet 192.168.1.20 3306
+
+# Verificar usuário e permissões (VM2)
+sudo mysql -u root -p
+SHOW GRANTS FOR 'pacs_app'@'192.168.1.10';
+```
+
+PROBLEMA 4: SSL não funciona
+-----------------------------
+SINTOMAS:
+- Certificado inválido
+- Erro de conexão HTTPS
+
+SOLUÇÃO:
+```bash
+# Verificar certificado
+sudo certbot certificates
+
+# Renovar certificado
+sudo certbot renew --force-renewal
+
+# Reiniciar Nginx
+sudo systemctl restart nginx
+
+# Verificar configuração Nginx
+sudo nginx -t
+```
+
+PROBLEMA 5: Busca DICOM não funciona
+-------------------------------------
+SINTOMAS:
+- Erro "ModuleNotFoundError: No module named 'pynetdicom'"
+- Timeout na busca PACS
+
+SOLUÇÃO:
+```bash
+# Instalar pynetdicom
+sudo pip3 install pynetdicom
+
+# Verificar instalação
+python3 -c "import pynetdicom; print(pynetdicom.__version__)"
+
+# Testar conectividade com PACS
+telnet IP_DO_PACS 11112
+
+# Reiniciar aplicação
+pm2 restart pacs-portal
+```
+
+PROBLEMA 6: Disco cheio
+------------------------
+SINTOMAS:
+- Erro "No space left on device"
+- Aplicação lenta
+
+SOLUÇÃO:
+```bash
+# Verificar uso de disco
+df -h
+
+# Encontrar arquivos grandes
+du -sh /home/ubuntu/* | sort -hr | head -10
+
+# Limpar logs antigos
+find /home/ubuntu/logs -name "*.log" -mtime +30 -delete
+
+# Limpar backups antigos
+find /home/ubuntu/backups -name "*.sql.gz" -mtime +7 -delete
+
+# Limpar cache do npm
+npm cache clean --force
+```
+
+================================================================================
+13. CHECKLIST DE DEPLOYMENT
+================================================================================
+
+PRÉ-DEPLOYMENT:
+---------------
+[ ] IPs das VMs definidos (VM1 e VM2)
+[ ] Domínio configurado (DNS apontando para IP público)
+[ ] Credenciais Manus OAuth obtidas
+[ ] Senhas fortes geradas (banco, JWT)
+[ ] Firewall configurado (VM1 e VM2)
+[ ] Backup do ambiente atual (se houver)
+
+VM2 - BANCO DE DADOS:
+----------------------
+[ ] Ubuntu 22.04 instalado
+[ ] MySQL instalado e configurado
+[ ] Banco pacs_portal criado
+[ ] Usuário pacs_app criado com permissões
+[ ] Firewall configurado (apenas VM1)
+[ ] Backup automático configurado
+[ ] Conexão testada de VM1
+
+VM1 - PORTAL:
+-------------
+[ ] Ubuntu 22.04 instalado
+[ ] Node.js 22 instalado
+[ ] pnpm instalado
+[ ] PM2 instalado
+[ ] Python 3.11 e pynetdicom instalados
+[ ] Nginx instalado
+[ ] Repositório clonado
+[ ] Dependências instaladas (pnpm install)
+[ ] Arquivo .env criado e configurado
+[ ] Migrations aplicadas
+[ ] Build realizado (pnpm run build)
+[ ] PM2 configurado e rodando
+[ ] Nginx configurado
+[ ] SSL configurado (Let's Encrypt)
+[ ] Firewall configurado
+
+TESTES:
+-------
+[ ] Aplicação acessível via HTTPS
+[ ] Login via Manus OAuth funcionando
+[ ] Busca de exames PACS funcionando
+[ ] Criação de laudo funcionando
+[ ] Banco de dados persistindo dados
+[ ] Logs sendo gerados corretamente
+[ ] Backup automático funcionando
+[ ] Renovação SSL automática configurada
+
+PÓS-DEPLOYMENT:
+---------------
+[ ] Usuário admin criado no banco
+[ ] Documentação atualizada
+[ ] Equipe treinada
+[ ] Monitoramento configurado
+[ ] Plano de backup testado
+[ ] Plano de recuperação testado
+
+================================================================================
+14. COMANDOS DE MANUTENÇÃO
+================================================================================
+
+REINICIAR APLICAÇÃO:
+--------------------
+```bash
+pm2 restart pacs-portal
+```
+
+REINICIAR NGINX:
+----------------
+```bash
+sudo systemctl restart nginx
+```
+
+REINICIAR MYSQL (VM2):
+----------------------
+```bash
+sudo systemctl restart mysql
+```
+
+VER LOGS EM TEMPO REAL:
+-----------------------
+```bash
+# Aplicação
+pm2 logs pacs-portal --lines 100
+
+# Nginx
+tail -f /home/ubuntu/logs/nginx/access.log
+
+# MySQL (VM2)
+sudo tail -f /var/log/mysql/error.log
+```
+
+ATUALIZAR CÓDIGO:
+-----------------
+```bash
+cd /home/ubuntu/pacs-portal
+git pull origin main
+pnpm install
+pnpm run build
+pm2 restart pacs-portal
+```
+
+EXECUTAR MIGRATIONS:
+--------------------
+```bash
+cd /home/ubuntu/pacs-portal
+pnpm drizzle-kit generate
+pnpm drizzle-kit push
+pm2 restart pacs-portal
+```
+
+LIMPAR CACHE:
+-------------
+```bash
+pm2 flush
+npm cache clean --force
+```
+
+VERIFICAR STATUS:
+-----------------
+```bash
+# Aplicação
+pm2 status
+
+# Nginx
+sudo systemctl status nginx
+
+# MySQL (VM2)
+sudo systemctl status mysql
+
+# Disco
+df -h
+
+# Memória
+free -h
+
+# Processos
+htop
+```
+
+================================================================================
+FIM DO GUIA
+================================================================================
+
+INFORMAÇÕES DE CONTATO:
+-----------------------
+Repositório: https://github.com/alessandrobarra7/pacs-v4
+Documentação: /home/ubuntu/docs-para-ia/
+
+PRÓXIMOS PASSOS:
+----------------
+1. Seguir este guia passo a passo
+2. Documentar qualquer problema encontrado
+3. Testar todas as funcionalidades
+4. Configurar monitoramento
+5. Treinar equipe
+
+OBSERVAÇÕES IMPORTANTES:
+------------------------
+- NUNCA commitar arquivo .env no Git
+- SEMPRE usar HTTPS em produção
+- SEMPRE fazer backup antes de atualizar
+- SEMPRE testar em ambiente de staging primeiro
+- SEMPRE manter logs por pelo menos 30 dias
+
+Data de criação: 26/02/2026
+Versão: 1.0
+Autor: Manus AI
+Projeto: PACS Portal - Sistema de Gestão de Laudos Radiológicos
+
+================================================================================
