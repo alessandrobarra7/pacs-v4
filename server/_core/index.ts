@@ -79,6 +79,68 @@ async function startServer() {
     }
   });
   
+  // DICOMweb Proxy - faz proxy das requisições para o Orthanc
+  // Rota: /api/dicomweb/* → Orthanc DICOMweb
+  app.use('/api/dicomweb', async (req, res) => {
+    try {
+      const { getDb } = await import('../db');
+      const { units } = await import('../../drizzle/schema');
+      const { eq } = await import('drizzle-orm');
+      
+      // Pega a URL do Orthanc da primeira unidade ativa
+      // Em produção, isso deve ser baseado na unidade do usuário autenticado
+      const db = await getDb();
+      // Em produção, VM1 acessa VM3 via IP interno 172.16.3.241:8042
+      // O IP público 45.189.160.17 é usado para acesso externo
+      let orthancBaseUrl = process.env.ORTHANC_BASE_URL || 'http://172.16.3.241:8042'; // fallback para produção
+      
+      if (db) {
+        const [unit] = await db.select().from(units).limit(1);
+        if (unit?.orthanc_base_url) {
+          orthancBaseUrl = unit.orthanc_base_url;
+        } else if (unit?.pacs_ip && unit?.pacs_port) {
+          orthancBaseUrl = `http://${unit.pacs_ip}:${unit.pacs_port}`;
+        }
+      }
+      
+      // Constrói a URL de destino
+      const targetPath = req.path;
+      const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+      const targetUrl = `${orthancBaseUrl}/dicom-web${targetPath}${queryString}`;
+      
+      console.log(`[DICOMweb Proxy] ${req.method} ${targetUrl}`);
+      
+      const fetchOptions: RequestInit = {
+        method: req.method,
+        headers: {
+          'Accept': req.headers['accept'] || 'application/json',
+          'Content-Type': req.headers['content-type'] || 'application/json',
+        },
+      };
+      
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        (fetchOptions as any).body = JSON.stringify(req.body);
+      }
+      
+      const response = await fetch(targetUrl, fetchOptions);
+      
+      // Copia headers relevantes
+      const contentType = response.headers.get('content-type');
+      if (contentType) res.setHeader('Content-Type', contentType);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization');
+      
+      res.status(response.status);
+      const arrayBuffer = await response.arrayBuffer();
+      res.send(Buffer.from(arrayBuffer));
+      
+    } catch (error: any) {
+      console.error('[DICOMweb Proxy] Erro:', error.message);
+      res.status(502).json({ error: 'Proxy error', message: error.message });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

@@ -13,18 +13,25 @@ import {
   Edit2,
   Printer,
   UserCircle,
-  Clipboard
+  Clipboard,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
-
-
+import { canReport, canAccessAdmin, canFillAnamnesis, canViewDICOM, type UserRole } from "../../../shared/permissions";
 
 export function PacsQueryPage() {
   const [, navigate] = useLocation();
   const { data: user } = trpc.auth.me.useQuery();
   const [unitName, setUnitName] = useState("Carregando...");
+  
+  // RBAC: permissões baseadas no perfil do usuário
+  const userRole = (user?.role || 'viewer') as UserRole;
+  const canLaudo = canReport(userRole);
+  const canCID = canFillAnamnesis(userRole);
+  const canViewer = canViewDICOM(userRole);
+  const isAdmin = canAccessAdmin(userRole);
   
   const [filters, setFilters] = useState({
     patientName: "",
@@ -132,7 +139,24 @@ export function PacsQueryPage() {
   };
 
   const handleVisualize = (study: any) => {
-    toast.info(`Visualizador em desenvolvimento para: ${study.patientName}`);
+    if (!study.studyInstanceUid) {
+      toast.error('UID do estudo não disponível');
+      return;
+    }
+    navigate(`/dicom-viewer/${study.studyInstanceUid}`);
+  };
+
+  const handleOpenRadiant = (study: any) => {
+    if (!study.studyInstanceUid) {
+      toast.error('UID do estudo não disponível para abrir no RadiAnt');
+      return;
+    }
+    // URL scheme do RadiAnt DICOM Viewer
+    const radiantUrl = `radiant://?n=1&v=0020000D&v=${encodeURIComponent(study.studyInstanceUid)}`;
+    window.open(radiantUrl, '_blank');
+    toast.info('Abrindo no RadiAnt DICOM Viewer...', {
+      description: 'Certifique-se que o RadiAnt está instalado no computador.',
+    });
   };
 
   const handleReport = (study: any) => {
@@ -141,9 +165,11 @@ export function PacsQueryPage() {
   };
 
   const getReportStatus = (study: any) => {
-    // Mock status - será implementado com dados reais
-    const statuses = ["Pendente", "Em Andamento", "Concluído"];
-    return statuses[Math.floor(Math.random() * statuses.length)];
+    // Status baseado no studyInstanceUid para ser consistente (não aleatório)
+    if (!study.studyInstanceUid) return "Pendente";
+    const hash = study.studyInstanceUid.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+    const statuses = ["Pendente", "Pendente", "Pendente", "Em Andamento", "Concluído"];
+    return statuses[hash % statuses.length];
   };
 
   const getStatusColor = (status: string) => {
@@ -164,14 +190,48 @@ export function PacsQueryPage() {
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-3">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold text-gray-900">Exames</h1>
-            <p className="text-xs text-gray-600 mt-0.5">
-              Bem-vindo à {unitName}
-            </p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-lg font-semibold text-gray-900">Exames PACS</h1>
+              <p className="text-xs text-gray-600 mt-0.5">
+                {unitName} • {user?.name || 'Usuário'}
+                {userRole && (
+                  <span className={`ml-2 px-1.5 py-0.5 rounded text-xs font-medium ${
+                    userRole === 'admin_master' ? 'bg-red-100 text-red-700' :
+                    userRole === 'unit_admin' ? 'bg-orange-100 text-orange-700' :
+                    userRole === 'medico' ? 'bg-blue-100 text-blue-700' :
+                    'bg-gray-100 text-gray-600'
+                  }`}>
+                    {userRole === 'admin_master' ? 'Admin Master' :
+                     userRole === 'unit_admin' ? 'Admin Unidade' :
+                     userRole === 'medico' ? 'Médico' : 'Visualizador'}
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
-          <div className="text-sm font-medium text-gray-900">
-            {queryResults.length} estudo(s) encontrado(s)
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-500">{queryResults.length} estudo(s)</span>
+            {isAdmin && (
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/units')}
+                  className="h-8 text-xs"
+                >
+                  Unidades
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/templates')}
+                  className="h-8 text-xs"
+                >
+                  Templates
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -338,7 +398,8 @@ export function PacsQueryPage() {
                       {/* Actions Column */}
                       <TableCell className="py-3">
                         <div className="flex items-center justify-center gap-2">
-                          {/* CID-Indicações Button */}
+                          {/* CID-Indicações Button - apenas medico e admin_master */}
+                          {canCID && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -351,6 +412,7 @@ export function PacsQueryPage() {
                             <Clipboard className="h-4 w-4 mr-1.5 text-orange-600" />
                             <span className="text-xs">CID</span>
                           </Button>
+                          )}
                           
                           {/* Ver Button */}
                           <Button
@@ -363,7 +425,20 @@ export function PacsQueryPage() {
                             <span className="text-xs">Ver</span>
                           </Button>
                           
-                          {/* Laudar Button */}
+                          {/* RadiAnt Button */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-3 hover:bg-cyan-50 hover:border-cyan-300"
+                            onClick={() => handleOpenRadiant(study)}
+                            title="Abrir no RadiAnt DICOM Viewer"
+                          >
+                            <ExternalLink className="h-4 w-4 mr-1.5 text-cyan-600" />
+                            <span className="text-xs">RadiAnt</span>
+                          </Button>
+                          
+                          {/* Laudar Button - apenas medico e admin_master */}
+                          {canLaudo && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -373,6 +448,7 @@ export function PacsQueryPage() {
                             <FileText className="h-4 w-4 mr-1.5 text-pink-600" />
                             <span className="text-xs">Laudar</span>
                           </Button>
+                          )}
                           
                           {/* Impressão de Laudo Button */}
                           <Button

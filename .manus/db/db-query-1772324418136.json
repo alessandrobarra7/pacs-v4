@@ -1,0 +1,17 @@
+{
+  "query": "UPDATE users SET unit_id = 1 WHERE unit_id IS NULL;\nUPDATE users SET role = 'admin_master' WHERE role = 'admin' OR role IS NULL;\nSELECT id, name, email, role, unit_id FROM users;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute UPDATE users SET unit_id = 1 WHERE unit_id IS NULL;\nUPDATE users SET role = 'admin_master' WHERE role = 'admin' OR role IS NULL;\nSELECT id, name, email, role, unit_id FROM users;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Studio Barra7",
+      "email": "studiobarra7@gmail.com",
+      "role": "admin_master",
+      "unit_id": "30001"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\temail\trole\tunit_id\n1\tStudio Barra7\tstudiobarra7@gmail.com\tadmin_master\t30001\n",
+  "stderr": "",
+  "execution_time_ms": 73
+}

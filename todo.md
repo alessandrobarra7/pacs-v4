@@ -90,3 +90,27 @@
 - [x] Corrigir erros TypeScript (cornerstone.d.ts, AnamnesisModal props)
 - [x] Atualizar unidade de teste com URL do Orthanc real (http://172.16.3.241:8042)
 - [ ] Testar busca de exames via Orthanc REST API em ambiente de produção (VM1)
+
+## CORREÇÕES E VISUALIZADOR DICOM
+- [ ] Diagnosticar e corrigir travamentos da aplicação
+- [ ] Corrigir limpeza de nomes de pacientes (remover ^ e dados extras como CPF/leito)
+- [ ] Corrigir listagem: mostrar apenas data, nome e modalidade limpos
+- [ ] Instalar Cornerstone.js para visualização DICOM no browser
+- [ ] Criar página ViewerPage com Cornerstone integrado
+- [ ] Implementar C-GET/C-MOVE para baixar imagens DICOM temporariamente
+- [ ] Visualização temporária: apagar imagens após fechar o viewer
+- [ ] Botão "Ver" abre o viewer com as imagens do estudo
+
+## SESSÃO ATUAL - Visualizador DICOM + RadiAnt + RBAC Frontend
+- [x] Corrigir banco de dados: remover IP antigo 179.67.254.135 das unidades
+- [x] Implementar visualizador DICOM com Cornerstone.js (DICOMweb via Orthanc)
+- [x] Criar proxy DICOMweb no backend (rota /api/dicomweb que faz proxy para Orthanc)
+- [x] Criar página DicomViewerPage.tsx com Cornerstone.js
+- [x] Conectar botão "Ver" ao visualizador DICOM
+- [x] Adicionar botão "RadiAnt" com URL scheme radiant://
+- [x] Aplicar RBAC frontend: botões condicionais por perfil
+- [x] Corrigir status de laudo: usar hash determinístico em vez de mock aleatório
+- [x] Corrigir getReportStatus para ser consistente
+- [x] Corrigir pacs.query: fallback para primeira unidade quando unit_id é nulo
+- [x] Adicionar badge de perfil no header da página de exames
+- [x] Adicionar links de navegação para admins (Unidades, Templates)

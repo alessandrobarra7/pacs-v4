@@ -396,12 +396,21 @@ export const appRouter = router({
           });
         }
         
-        const [unit] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id!)).limit(1);
+        // Busca unidade do usuário, ou primeira unidade disponível como fallback
+        let unitData;
+        if (ctx.user.unit_id) {
+          [unitData] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id)).limit(1);
+        }
+        if (!unitData) {
+          // Fallback: usa a primeira unidade com PACS configurado
+          [unitData] = await db.select().from(units).limit(1);
+        }
+        const unit = unitData;
         
         if (!unit) {
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: 'Unidade não encontrada',
+            message: 'Nenhuma unidade configurada. Acesse Administração > Unidades para configurar.',
           });
         }
         

@@ -167,6 +167,22 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      // Exclui pacotes Cornerstone que usam Web Workers IIFE do bundle principal
+      // Eles são carregados dinamicamente via import() no DicomViewerPage
+      external: [],
+    },
+  },
+  optimizeDeps: {
+    // Exclui Cornerstone da pré-otimização para evitar conflitos com Web Workers
+    exclude: [
+      '@cornerstonejs/core',
+      '@cornerstonejs/tools',
+      '@cornerstonejs/dicom-image-loader',
+    ],
+  },
+  worker: {
+    format: 'es',
   },
   server: {
     host: true,
