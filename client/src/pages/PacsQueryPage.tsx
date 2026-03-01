@@ -151,11 +151,35 @@ export function PacsQueryPage() {
       toast.error('UID do estudo não disponível para abrir no RadiAnt');
       return;
     }
-    // URL scheme do RadiAnt DICOM Viewer
-    const radiantUrl = `radiant://?n=1&v=0020000D&v=${encodeURIComponent(study.studyInstanceUid)}`;
-    window.open(radiantUrl, '_blank');
+    // URL scheme do RadiAnt DICOM Viewer - formato correto para abrir por StudyInstanceUID
+    // radiant://?n=1&v=0020000D&v=<StudyInstanceUID>
+    const uid = study.studyInstanceUid;
+    const radiantUrl = `radiant://?n=1&v=0020000D&v=${uid}`;
+    window.location.href = radiantUrl;
     toast.info('Abrindo no RadiAnt DICOM Viewer...', {
       description: 'Certifique-se que o RadiAnt está instalado no computador.',
+    });
+  };
+
+  const handleOpenOrthancViewer = (study: any) => {
+    if (!study.orthancId && !study.studyInstanceUid) {
+      toast.error('ID do estudo não disponível');
+      return;
+    }
+    // Abre o Osimis Web Viewer nativo do Orthanc
+    // Funciona em produção quando o portal tem acesso ao Orthanc
+    const orthancBase = 'http://172.16.3.241:8042';
+    let viewerUrl: string;
+    if (study.orthancId) {
+      // Viewer nativo do Orthanc pelo ID interno
+      viewerUrl = `${orthancBase}/osimis-viewer/app/index.html?study=${study.orthancId}`;
+    } else {
+      // Fallback: busca pelo StudyInstanceUID via DICOMweb
+      viewerUrl = `${orthancBase}/osimis-viewer/app/index.html?studyInstanceUid=${study.studyInstanceUid}`;
+    }
+    window.open(viewerUrl, '_blank');
+    toast.info('Abrindo Orthanc Web Viewer...', {
+      description: 'O viewer nativo do Orthanc será aberto em nova aba.',
     });
   };
 
@@ -414,15 +438,28 @@ export function PacsQueryPage() {
                           </Button>
                           )}
                           
-                          {/* Ver Button */}
+                          {/* Ver Button - Cornerstone.js DICOMweb viewer */}
                           <Button
                             variant="outline"
                             size="sm"
                             className="h-8 px-3 hover:bg-purple-50 hover:border-purple-300"
                             onClick={() => handleVisualize(study)}
+                            title="Visualizador DICOM no browser (Cornerstone.js)"
                           >
                             <Eye className="h-4 w-4 mr-1.5 text-purple-600" />
                             <span className="text-xs">Ver</span>
+                          </Button>
+                          
+                          {/* Orthanc Viewer Button - viewer nativo do Orthanc */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-3 hover:bg-indigo-50 hover:border-indigo-300"
+                            onClick={() => handleOpenOrthancViewer(study)}
+                            title="Abrir no Orthanc Web Viewer (viewer nativo)"
+                          >
+                            <ExternalLink className="h-4 w-4 mr-1.5 text-indigo-600" />
+                            <span className="text-xs">Orthanc</span>
                           </Button>
                           
                           {/* RadiAnt Button */}

@@ -1,0 +1,31 @@
+{
+  "query": "SELECT COUNT(*) as total_estudos FROM studies_cache;\nSELECT id, name, pacs_ip, pacs_port, pacs_ae_title, orthanc_base_url, isActive FROM units ORDER BY id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT COUNT(*) as total_estudos FROM studies_cache;\nSELECT id, name, pacs_ip, pacs_port, pacs_ae_title, orthanc_base_url, isActive FROM units ORDER BY id;",
+  "rows": [
+    {
+      "total_estudos": "0"
+    },
+    {
+      "total_estudos": "id\tname\tpacs_ip\tpacs_port\tpacs_ae_title\torthanc_base_url\tisActive"
+    },
+    {
+      "total_estudos": "1\tTest Unit\t45.189.160.17\t8042\tPACS\tNULL\t1"
+    },
+    {
+      "total_estudos": "30001\tUnidade Teste PACS\t45.189.160.17\t8042\tPACS\tNULL\t1"
+    },
+    {
+      "total_estudos": "60001\tTest Unit\tNULL\tNULL\tNULL\thttp://localhost:8042\t1"
+    },
+    {
+      "total_estudos": "60002\tTest Unit\tNULL\tNULL\tNULL\thttp://localhost:8042\t1"
+    },
+    {
+      "total_estudos": "60003\tTest Unit\tNULL\tNULL\tNULL\thttp://localhost:8042\t1"
+    }
+  ],
+  "messages": [],
+  "stdout": "total_estudos\n0\nid\tname\tpacs_ip\tpacs_port\tpacs_ae_title\torthanc_base_url\tisActive\n1\tTest Unit\t45.189.160.17\t8042\tPACS\tNULL\t1\n30001\tUnidade Teste PACS\t45.189.160.17\t8042\tPACS\tNULL\t1\n60001\tTest Unit\tNULL\tNULL\tNULL\thttp://localhost:8042\t1\n60002\tTest Unit\tNULL\tNULL\tNULL\thttp://localhost:8042\t1\n60003\tTest Unit\tNULL\tNULL\tNULL\thttp://localhost:8042\t1\n",
+  "stderr": "",
+  "execution_time_ms": 54
+}

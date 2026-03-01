@@ -114,3 +114,12 @@
 - [x] Corrigir pacs.query: fallback para primeira unidade quando unit_id é nulo
 - [x] Adicionar badge de perfil no header da página de exames
 - [x] Adicionar links de navegação para admins (Unidades, Templates)
+
+## SESSÃO 3 - Correção busca Orthanc local + Visualizador
+- [x] Corrigir pacs.query para usar queryStudiesLocal (Orthanc já tem exames armazenados)
+- [x] Remover lógica C-FIND remoto como fluxo principal (usar como fallback opcional)
+- [x] Corrigir proxy DICOMweb para usar IP da unidade do banco dinamicamente (com cache 60s)
+- [x] Adicionar botão "Orthanc" para abrir viewer nativo do Orthanc (Osimis Web Viewer)
+- [x] Garantir que o visualizador Cornerstone usa o proxy /api/dicomweb corretamente
+- [x] Corrigir URL scheme RadiAnt (window.location.href em vez de window.open)
+- [x] Atualizar todas as unidades no banco com orthanc_base_url = http://172.16.3.241:8042

@@ -80,64 +80,106 @@ async function startServer() {
   });
   
   // DICOMweb Proxy - faz proxy das requisições para o Orthanc
-  // Rota: /api/dicomweb/* → Orthanc DICOMweb
-  app.use('/api/dicomweb', async (req, res) => {
+  // Rota: /api/dicomweb/* → Orthanc /dicom-web/*
+  // O Orthanc em 172.16.3.241:8042 tem o plugin DICOMweb habilitado em /dicom-web/
+  
+  // Cache da URL do Orthanc para evitar query ao banco em cada requisição
+  let cachedOrthancUrl: string | null = null;
+  let cacheTimestamp = 0;
+  const CACHE_TTL_MS = 60_000; // 1 minuto
+  
+  async function getOrthancUrl(): Promise<string> {
+    const now = Date.now();
+    if (cachedOrthancUrl && (now - cacheTimestamp) < CACHE_TTL_MS) {
+      return cachedOrthancUrl;
+    }
     try {
       const { getDb } = await import('../db');
       const { units } = await import('../../drizzle/schema');
-      const { eq } = await import('drizzle-orm');
-      
-      // Pega a URL do Orthanc da primeira unidade ativa
-      // Em produção, isso deve ser baseado na unidade do usuário autenticado
       const db = await getDb();
-      // Em produção, VM1 acessa VM3 via IP interno 172.16.3.241:8042
-      // O IP público 45.189.160.17 é usado para acesso externo
-      let orthancBaseUrl = process.env.ORTHANC_BASE_URL || 'http://172.16.3.241:8042'; // fallback para produção
-      
       if (db) {
         const [unit] = await db.select().from(units).limit(1);
         if (unit?.orthanc_base_url) {
-          orthancBaseUrl = unit.orthanc_base_url;
-        } else if (unit?.pacs_ip && unit?.pacs_port) {
-          orthancBaseUrl = `http://${unit.pacs_ip}:${unit.pacs_port}`;
+          cachedOrthancUrl = unit.orthanc_base_url;
+          cacheTimestamp = now;
+          return cachedOrthancUrl;
         }
       }
+    } catch (e) {
+      console.error('[DICOMweb Proxy] Erro ao buscar URL do Orthanc:', e);
+    }
+    // Fallback: IP interno do Orthanc em produção
+    return process.env.ORTHANC_BASE_URL || 'http://172.16.3.241:8042';
+  }
+  
+  // OPTIONS preflight para CORS
+  app.options('/api/dicomweb/*', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization, multipart/related');
+    res.status(204).send();
+  });
+  
+  app.use('/api/dicomweb', async (req, res) => {
+    try {
+      const orthancBaseUrl = await getOrthancUrl();
       
-      // Constrói a URL de destino
+      // Constrói a URL de destino: /api/dicomweb/studies/... → http://172.16.3.241:8042/dicom-web/studies/...
       const targetPath = req.path;
       const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
-      const targetUrl = `${orthancBaseUrl}/dicom-web${targetPath}${queryString}`;
+      const targetUrl = `${orthancBaseUrl.replace(/\/$/, '')}/dicom-web${targetPath}${queryString}`;
       
       console.log(`[DICOMweb Proxy] ${req.method} ${targetUrl}`);
       
+      // Monta headers para o Orthanc
+      const forwardHeaders: Record<string, string> = {};
+      const acceptHeader = req.headers['accept'];
+      if (acceptHeader) forwardHeaders['Accept'] = acceptHeader;
+      const contentTypeHeader = req.headers['content-type'];
+      if (contentTypeHeader) forwardHeaders['Content-Type'] = contentTypeHeader;
+      
       const fetchOptions: RequestInit = {
         method: req.method,
-        headers: {
-          'Accept': req.headers['accept'] || 'application/json',
-          'Content-Type': req.headers['content-type'] || 'application/json',
-        },
+        headers: forwardHeaders,
+        signal: AbortSignal.timeout(60_000), // 60s timeout para imagens grandes
       };
       
       if (req.method !== 'GET' && req.method !== 'HEAD') {
-        (fetchOptions as any).body = JSON.stringify(req.body);
+        (fetchOptions as any).body = req.body ? JSON.stringify(req.body) : undefined;
       }
       
       const response = await fetch(targetUrl, fetchOptions);
       
-      // Copia headers relevantes
-      const contentType = response.headers.get('content-type');
-      if (contentType) res.setHeader('Content-Type', contentType);
+      // Copia todos os headers relevantes da resposta do Orthanc
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization');
       
+      const contentType = response.headers.get('content-type');
+      if (contentType) res.setHeader('Content-Type', contentType);
+      
+      const contentLength = response.headers.get('content-length');
+      if (contentLength) res.setHeader('Content-Length', contentLength);
+      
+      // Copia headers multipart se presentes (WADO-RS retorna multipart/related)
+      const transferEncoding = response.headers.get('transfer-encoding');
+      if (transferEncoding) res.setHeader('Transfer-Encoding', transferEncoding);
+      
       res.status(response.status);
+      
+      // Stream a resposta diretamente para o cliente (eficiente para imagens grandes)
       const arrayBuffer = await response.arrayBuffer();
       res.send(Buffer.from(arrayBuffer));
       
     } catch (error: any) {
       console.error('[DICOMweb Proxy] Erro:', error.message);
-      res.status(502).json({ error: 'Proxy error', message: error.message });
+      if (!res.headersSent) {
+        res.status(502).json({ 
+          error: 'DICOMweb Proxy Error', 
+          message: error.message,
+          orthanc: 'http://172.16.3.241:8042'
+        });
+      }
     }
   });
 

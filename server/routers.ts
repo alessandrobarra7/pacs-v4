@@ -466,30 +466,16 @@ export const appRouter = router({
           let result;
           
           if (orthancUrl) {
-            // MODO ORTHANC: Usa REST API do Orthanc local
-            console.log('[PACS Query] Usando Orthanc REST API:', orthancUrl);
+            // MODO ORTHANC: Busca estudos já armazenados no Orthanc local via /tools/find
+            // O Orthanc em 172.16.3.241:8042 já recebe e armazena os exames das unidades
+            console.log('[PACS Query] Buscando estudos locais no Orthanc:', orthancUrl);
+            result = await queryStudiesLocal(orthancUrl, filters);
             
-            // Verifica se há modalidade remota configurada para C-FIND
-            const pacsAeTitle = unit.pacs_ae_title;
-            
-            if (pacsAeTitle) {
-              // C-FIND via Orthanc → PACS remoto
-              console.log('[PACS Query] C-FIND via Orthanc para modalidade:', pacsAeTitle);
-              result = await queryStudiesRemote(orthancUrl, pacsAeTitle, filters);
-              
-              // Fallback: se C-FIND falhar, busca estudos locais no Orthanc
-              if (!result.success) {
-                console.log('[PACS Query] C-FIND falhou, buscando estudos locais no Orthanc');
-                result = await queryStudiesLocal(orthancUrl, filters);
-              }
-            } else {
-              // Busca apenas estudos já armazenados no Orthanc local
-              console.log('[PACS Query] Buscando estudos locais no Orthanc');
-              result = await queryStudiesLocal(orthancUrl, filters);
-            }
+            // Log do resultado
+            console.log(`[PACS Query] Encontrados ${result.count} estudos no Orthanc local`);
           } else {
-            // MODO LEGADO: Usa pynetdicom direto (Python script)
-            console.log('[PACS Query] Usando pynetdicom direto (legado)');
+            // MODO LEGADO: Usa pynetdicom direto (Python script) - apenas se orthanc_base_url não estiver configurado
+            console.log('[PACS Query] Usando pynetdicom direto (legado - sem orthanc_base_url)');
             const queryInput = {
               pacs_ip: unit.pacs_ip,
               pacs_port: unit.pacs_port,
