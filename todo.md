@@ -123,3 +123,20 @@
 - [x] Garantir que o visualizador Cornerstone usa o proxy /api/dicomweb corretamente
 - [x] Corrigir URL scheme RadiAnt (window.location.href em vez de window.open)
 - [x] Atualizar todas as unidades no banco com orthanc_base_url = http://172.16.3.241:8042
+
+## SESSÃO 4 - Autenticação Local + Deploy VM1
+- [x] Implementar login local (usuário/senha) substituindo Manus OAuth
+- [x] Adicionar campo password_hash e username na tabela user (migração aplicada)
+- [x] Criar procedure auth.login com bcrypt no backend (routers.ts)
+- [x] Atualizar frontend Login.tsx para usar auth.login local (sem OAuth)
+- [x] Criar scripts/seed-production.mjs para criar admin inicial
+- [x] Criar scripts/setup-vm1.sh para setup automático na VM1
+- [x] Criar ecosystem.config.cjs para PM2 com variáveis de ambiente
+- [x] Adicionar dotenv com caminho absoluto no server/_core/index.ts
+- [x] Configurar MySQL na VM2 (172.16.3.101): banco pacs_portal, usuário pacs_user
+- [x] Criar usuário admin no banco via SQL direto (admin / password)
+- [x] Gerar relatório técnico completo do projeto (PDF + Markdown)
+- [ ] Resolver carregamento de variáveis de ambiente no PM2 (dist/index.js injecting env 0)
+- [ ] Testar login e busca de exames em produção (http://45.189.160.17)
+- [ ] Configurar nginx como proxy reverso (porta 80 → 3000) na VM1
+- [ ] Configurar SSL/HTTPS com Let's Encrypt para lauds.com.br

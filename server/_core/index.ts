@@ -1,4 +1,10 @@
-import "dotenv/config";
+import { config } from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+const __dirname_env = path.dirname(fileURLToPath(import.meta.url));
+// Tenta .env no diretório do dist e no diretório pai (raiz do projeto)
+config({ path: path.resolve(__dirname_env, "../.env") });
+config({ path: path.resolve(process.cwd(), ".env") });
 import express from "express";
 import { createServer } from "http";
 import net from "net";

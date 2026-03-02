@@ -34,6 +34,8 @@ export const users = mysqlTable("users", {
   unit_id: int("unit_id"),
   name: text("name"),
   email: varchar("email", { length: 320 }),
+  username: varchar("username", { length: 64 }).unique(),
+  password_hash: varchar("password_hash", { length: 255 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["admin_master", "unit_admin", "medico", "viewer"]).default("viewer").notNull(),
   isActive: boolean("isActive").default(true).notNull(),

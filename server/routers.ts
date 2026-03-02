@@ -4,6 +4,8 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router, protectedProcedure, adminProcedure } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
+import { sdk } from "./_core/sdk";
 import {
   getAllUnits,
   getUnitById,
@@ -23,6 +25,9 @@ import {
   updateReport,
   createAuditLog,
   getDb,
+  getUserByUsernameOrEmail,
+  createLocalUser,
+  updateUserPassword,
 } from "./db";
 import { units } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
@@ -39,6 +44,77 @@ export const appRouter = router({
         success: true,
       } as const;
     }),
+
+    login: publicProcedure
+      .input(z.object({
+        login: z.string().min(1),
+        password: z.string().min(1),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const user = await getUserByUsernameOrEmail(input.login);
+        if (!user || !user.password_hash) {
+          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Credenciais inválidas' });
+        }
+        if (!user.isActive) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário inativo' });
+        }
+        const valid = await bcrypt.compare(input.password, user.password_hash);
+        if (!valid) {
+          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Credenciais inválidas' });
+        }
+        // Create session token
+        const sessionToken = await sdk.signSession({
+          openId: user.openId,
+          appId: 'local',
+          name: user.name ?? user.username ?? '',
+        });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, cookieOptions);
+        return { success: true, user };
+      }),
+
+    createLocalUser: protectedProcedure
+      .input(z.object({
+        username: z.string().min(3).max(64),
+        email: z.string().email().optional(),
+        name: z.string().min(1),
+        password: z.string().min(6),
+        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer']),
+        unit_id: z.number().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas admin_master pode criar usuários' });
+        }
+        const password_hash = await bcrypt.hash(input.password, 12);
+        const id = await createLocalUser({
+          username: input.username,
+          email: input.email,
+          name: input.name,
+          password_hash,
+          role: input.role,
+          unit_id: input.unit_id,
+        });
+        return { success: true, id };
+      }),
+
+    changePassword: protectedProcedure
+      .input(z.object({
+        currentPassword: z.string().min(1),
+        newPassword: z.string().min(6),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (!ctx.user.password_hash) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Usuário não usa autenticação local' });
+        }
+        const valid = await bcrypt.compare(input.currentPassword, ctx.user.password_hash);
+        if (!valid) {
+          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Senha atual incorreta' });
+        }
+        const newHash = await bcrypt.hash(input.newPassword, 12);
+        await updateUserPassword(ctx.user.id, newHash);
+        return { success: true };
+      }),
   }),
 
   units: router({

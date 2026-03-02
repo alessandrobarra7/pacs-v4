@@ -1,5 +1,6 @@
 import { eq, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { or } from "drizzle-orm";
 import { 
   InsertUser, 
   users, 
@@ -107,6 +108,47 @@ export async function getUserById(id: number) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserByUsernameOrEmail(login: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(
+    or(eq(users.username, login), eq(users.email, login))
+  ).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function updateUserPassword(userId: number, passwordHash: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(users).set({ password_hash: passwordHash }).where(eq(users.id, userId));
+}
+
+export async function createLocalUser(data: {
+  username: string;
+  email?: string;
+  name: string;
+  password_hash: string;
+  role: 'admin_master' | 'unit_admin' | 'medico' | 'viewer';
+  unit_id?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Generate a unique openId for local users
+  const openId = `local_${data.username}_${Date.now()}`;
+  const result = await db.insert(users).values({
+    openId,
+    username: data.username,
+    email: data.email ?? null,
+    name: data.name,
+    password_hash: data.password_hash,
+    role: data.role,
+    unit_id: data.unit_id ?? null,
+    loginMethod: 'local',
+    lastSignedIn: new Date(),
+  });
+  return Number(result[0].insertId);
 }
 
 // Units helpers
