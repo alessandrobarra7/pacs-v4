@@ -140,3 +140,8 @@
 - [ ] Testar login e busca de exames em produção (http://45.189.160.17)
 - [ ] Configurar nginx como proxy reverso (porta 80 → 3000) na VM1
 - [ ] Configurar SSL/HTTPS com Let's Encrypt para lauds.com.br
+
+## CORREÇÃO CRÍTICA - TypeError: Invalid URL no lauds.com.br
+- [x] Corrigir const.ts: tornar getLoginUrl() segura quando VITE_OAUTH_PORTAL_URL é undefined/vazio
+- [x] Corrigir useAuth.ts: não chamar getLoginUrl() no nível do hook (render phase)
+- [x] Validar que o build de produção não quebra quando variáveis VITE_ não estão definidas
