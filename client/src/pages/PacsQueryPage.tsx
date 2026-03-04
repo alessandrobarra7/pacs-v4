@@ -166,9 +166,10 @@ export function PacsQueryPage() {
       toast.error('ID do estudo não disponível');
       return;
     }
-    // Abre o Osimis Web Viewer nativo do Orthanc
-    // Funciona em produção quando o portal tem acesso ao Orthanc
-    const orthancBase = 'http://172.16.3.241:8042';
+    // Usa a URL pública da unidade (via Mikrotik NAT) se disponível
+    // unitData.orthanc_public_url = http://45.189.160.17:8042 (acessível externamente)
+    // Fallback: IP interno (funciona apenas na rede local)
+    const orthancBase = (unitData as any)?.orthanc_public_url || (unitData as any)?.orthanc_base_url || 'http://45.189.160.17:8042';
     let viewerUrl: string;
     if (study.orthancId) {
       // Viewer nativo do Orthanc pelo ID interno

@@ -9,6 +9,8 @@ export const units = mysqlTable("units", {
   slug: varchar("slug", { length: 100 }).notNull().unique(),
   isActive: boolean("isActive").default(true).notNull(),
   orthanc_base_url: varchar("orthanc_base_url", { length: 500 }),
+  // URL pública via Mikrotik NAT (ex: http://45.189.160.17:8042) — usada pelo frontend para viewers
+  orthanc_public_url: varchar("orthanc_public_url", { length: 500 }),
   orthanc_basic_user: varchar("orthanc_basic_user", { length: 100 }),
   orthanc_basic_pass: varchar("orthanc_basic_pass", { length: 255 }),
   // PACS/DICOM connection parameters

@@ -147,6 +147,7 @@ export const appRouter = router({
         name: z.string(),
         slug: z.string(),
         orthanc_base_url: z.string().optional(),
+        orthanc_public_url: z.string().optional(),
         orthanc_basic_user: z.string().optional(),
         orthanc_basic_pass: z.string().optional(),
         logoUrl: z.string().optional(),
@@ -171,6 +172,7 @@ export const appRouter = router({
         name: z.string().optional(),
         slug: z.string().optional(),
         orthanc_base_url: z.string().optional(),
+        orthanc_public_url: z.string().optional(),
         orthanc_basic_user: z.string().optional(),
         orthanc_basic_pass: z.string().optional(),
         logoUrl: z.string().optional(),
@@ -732,19 +734,32 @@ export const appRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database não disponível' });
         
-        const [unit] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id!)).limit(1);
-        if (!unit) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unidade não encontrada' });
+        let unitData;
+        if (ctx.user.unit_id) {
+          [unitData] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id)).limit(1);
+        }
+        if (!unitData) {
+          [unitData] = await db.select().from(units).limit(1);
+        }
+        if (!unitData) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unidade não encontrada' });
         
-        const orthancUrl = unit.orthanc_base_url;
-        if (!orthancUrl) {
+        const orthancInternalUrl = unitData.orthanc_base_url;
+        // URL pública via Mikrotik NAT (para o frontend abrir o viewer diretamente)
+        const orthancPublicUrl = unitData.orthanc_public_url || orthancInternalUrl;
+        
+        if (!orthancInternalUrl) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
             message: 'URL do Orthanc não configurada para esta unidade.',
           });
         }
         
-        // Retorna URL DICOMweb para o viewer
-        const viewerUrl = getDicomWebUrl(orthancUrl, input.studyInstanceUid);
+        // URL interna para proxy DICOMweb do backend
+        const viewerUrl = getDicomWebUrl(orthancInternalUrl, input.studyInstanceUid);
+        // URL pública para o Orthanc Web Viewer (abre no browser do usuário)
+        const orthancWebViewerUrl = orthancPublicUrl
+          ? `${orthancPublicUrl.replace(/\/$/, '')}/app/explorer.html#study?uuid=`
+          : null;
         
         await createAuditLog({
           user_id: ctx.user.id,
@@ -754,14 +769,16 @@ export const appRouter = router({
           target_id: input.studyInstanceUid,
           ip_address: ctx.req.ip,
           user_agent: ctx.req.headers['user-agent'],
-          metadata: { orthanc_url: orthancUrl, viewer_url: viewerUrl },
+          metadata: { orthanc_url: orthancInternalUrl, viewer_url: viewerUrl },
         });
         
         return {
           success: true,
           viewerUrl,
           studyInstanceUid: input.studyInstanceUid,
-          orthancUrl,
+          orthancUrl: orthancInternalUrl,
+          orthancPublicUrl,
+          orthancWebViewerUrl,
         };
       }),
 

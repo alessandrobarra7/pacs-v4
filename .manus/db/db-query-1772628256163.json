@@ -1,0 +1,50 @@
+{
+  "query": "\n-- Atualizar a unidade existente (Studio Barra7 = Orthanc principal)\nUPDATE units SET\n  name = 'Studio Barra7',\n  slug = 'studio-barra7',\n  isActive = 1,\n  orthanc_base_url = 'http://172.16.3.241:8042',\n  pacs_ip = '172.16.3.241',\n  pacs_port = 8042,\n  pacs_ae_title = 'ORTHANC'\nWHERE id = 60004;\n\n-- Inserir Orthanc 2 (porta 4007 → 172.16.3.243)\nINSERT IGNORE INTO units (name, slug, isActive, orthanc_base_url, pacs_ip, pacs_port, pacs_ae_title, createdAt, updatedAt)\nVALUES ('Unidade 2', 'unidade-2', 1, 'http://172.16.3.243:4007', '172.16.3.243', 4007, 'ORTHANC2', NOW(), NOW());\n\n-- Inserir Orthanc 3 (porta 4006 → 172.16.3.242)\nINSERT IGNORE INTO units (name, slug, isActive, orthanc_base_url, pacs_ip, pacs_port, pacs_ae_title, createdAt, updatedAt)\nVALUES ('Unidade 3', 'unidade-3', 1, 'http://172.16.3.242:4006', '172.16.3.242', 4006, 'ORTHANC3', NOW(), NOW());\n\n-- Inserir Orthanc 4 (porta 4008 → 172.16.3.244)\nINSERT IGNORE INTO units (name, slug, isActive, orthanc_base_url, pacs_ip, pacs_port, pacs_ae_title, createdAt, updatedAt)\nVALUES ('Unidade 4', 'unidade-4', 1, 'http://172.16.3.244:4008', '172.16.3.244', 4008, 'ORTHANC4', NOW(), NOW());\n\n-- Inserir Orthanc 5 (porta 4009 → 172.16.3.245)\nINSERT IGNORE INTO units (name, slug, isActive, orthanc_base_url, pacs_ip, pacs_port, pacs_ae_title, createdAt, updatedAt)\nVALUES ('Unidade 5', 'unidade-5', 1, 'http://172.16.3.245:4009', '172.16.3.245', 4009, 'ORTHANC5', NOW(), NOW());\n\n-- Verificar resultado\nSELECT id, name, slug, orthanc_base_url, pacs_ip, pacs_port FROM units ORDER BY id;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- Atualizar a unidade existente (Studio Barra7 = Orthanc principal)\nUPDATE units SET\n  name = 'Studio Barra7',\n  slug = 'studio-barra7',\n  isActive = 1,\n  orthanc_base_url = 'http://172.16.3.241:8042',\n  pacs_ip = '172.16.3.241',\n  pacs_port = 8042,\n  pacs_ae_title = 'ORTHANC'\nWHERE id = 60004;\n\n-- Inserir Orthanc 2 (porta 4007 → 172.16.3.243)\nINSERT IGNORE INTO units (name, slug, isActive, orthanc_base_url, pacs_ip, pacs_port, pacs_ae_title, createdAt, updatedAt)\nVALUES ('Unidade 2', 'unidade-2', 1, 'http://172.16.3.243:4007', '172.16.3.243', 4007, 'ORTHANC2', NOW(), NOW());\n\n-- Inserir Orthanc 3 (porta 4006 → 172.16.3.242)\nINSERT IGNORE INTO units (name, slug, isActive, orthanc_base_url, pacs_ip, pacs_port, pacs_ae_title, createdAt, updatedAt)\nVALUES ('Unidade 3', 'unidade-3', 1, 'http://172.16.3.242:4006', '172.16.3.242', 4006, 'ORTHANC3', NOW(), NOW());\n\n-- Inserir Orthanc 4 (porta 4008 → 172.16.3.244)\nINSERT IGNORE INTO units (name, slug, isActive, orthanc_base_url, pacs_ip, pacs_port, pacs_ae_title, createdAt, updatedAt)\nVALUES ('Unidade 4', 'unidade-4', 1, 'http://172.16.3.244:4008', '172.16.3.244', 4008, 'ORTHANC4', NOW(), NOW());\n\n-- Inserir Orthanc 5 (porta 4009 → 172.16.3.245)\nINSERT IGNORE INTO units (name, slug, isActive, orthanc_base_url, pacs_ip, pacs_port, pacs_ae_title, createdAt, updatedAt)\nVALUES ('Unidade 5', 'unidade-5', 1, 'http://172.16.3.245:4009', '172.16.3.245', 4009, 'ORTHANC5', NOW(), NOW());\n\n-- Verificar resultado\nSELECT id, name, slug, orthanc_base_url, pacs_ip, pacs_port FROM units ORDER BY id;\n",
+  "rows": [
+    {
+      "id": "60004",
+      "name": "Studio Barra7",
+      "slug": "studio-barra7",
+      "orthanc_base_url": "http://172.16.3.241:8042",
+      "pacs_ip": "172.16.3.241",
+      "pacs_port": "8042"
+    },
+    {
+      "id": "90001",
+      "name": "Unidade 2",
+      "slug": "unidade-2",
+      "orthanc_base_url": "http://172.16.3.243:4007",
+      "pacs_ip": "172.16.3.243",
+      "pacs_port": "4007"
+    },
+    {
+      "id": "90002",
+      "name": "Unidade 3",
+      "slug": "unidade-3",
+      "orthanc_base_url": "http://172.16.3.242:4006",
+      "pacs_ip": "172.16.3.242",
+      "pacs_port": "4006"
+    },
+    {
+      "id": "90003",
+      "name": "Unidade 4",
+      "slug": "unidade-4",
+      "orthanc_base_url": "http://172.16.3.244:4008",
+      "pacs_ip": "172.16.3.244",
+      "pacs_port": "4008"
+    },
+    {
+      "id": "90004",
+      "name": "Unidade 5",
+      "slug": "unidade-5",
+      "orthanc_base_url": "http://172.16.3.245:4009",
+      "pacs_ip": "172.16.3.245",
+      "pacs_port": "4009"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tslug\torthanc_base_url\tpacs_ip\tpacs_port\n60004\tStudio Barra7\tstudio-barra7\thttp://172.16.3.241:8042\t172.16.3.241\t8042\n90001\tUnidade 2\tunidade-2\thttp://172.16.3.243:4007\t172.16.3.243\t4007\n90002\tUnidade 3\tunidade-3\thttp://172.16.3.242:4006\t172.16.3.242\t4006\n90003\tUnidade 4\tunidade-4\thttp://172.16.3.244:4008\t172.16.3.244\t4008\n90004\tUnidade 5\tunidade-5\thttp://172.16.3.245:4009\t172.16.3.245\t4009\n",
+  "stderr": "",
+  "execution_time_ms": 174
+}

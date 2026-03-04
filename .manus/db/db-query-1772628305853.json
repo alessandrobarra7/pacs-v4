@@ -1,0 +1,55 @@
+{
+  "query": "\nALTER TABLE `units` ADD `orthanc_public_url` varchar(500);\n\n-- Atualizar URLs públicas com base no mapeamento NAT do Mikrotik\n-- Studio Barra7: porta pública 8042 → 172.16.3.241:8042\nUPDATE units SET orthanc_public_url = 'http://45.189.160.17:8042' WHERE slug = 'studio-barra7';\n\n-- Unidade 2: porta pública 4007 → 172.16.3.243:4007\nUPDATE units SET orthanc_public_url = 'http://45.189.160.17:4007' WHERE slug = 'unidade-2';\n\n-- Unidade 3: porta pública 4006 → 172.16.3.242:4006\nUPDATE units SET orthanc_public_url = 'http://45.189.160.17:4006' WHERE slug = 'unidade-3';\n\n-- Unidade 4: porta pública 4008 → 172.16.3.244:4008\nUPDATE units SET orthanc_public_url = 'http://45.189.160.17:4008' WHERE slug = 'unidade-4';\n\n-- Unidade 5: porta pública 4009 → 172.16.3.245:4009\nUPDATE units SET orthanc_public_url = 'http://45.189.160.17:4009' WHERE slug = 'unidade-5';\n\n-- Verificar resultado completo\nSELECT id, name, slug, orthanc_base_url, orthanc_public_url, pacs_ip, pacs_port FROM units ORDER BY id;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nALTER TABLE `units` ADD `orthanc_public_url` varchar(500);\n\n-- Atualizar URLs públicas com base no mapeamento NAT do Mikrotik\n-- Studio Barra7: porta pública 8042 → 172.16.3.241:8042\nUPDATE units SET orthanc_public_url = 'http://45.189.160.17:8042' WHERE slug = 'studio-barra7';\n\n-- Unidade 2: porta pública 4007 → 172.16.3.243:4007\nUPDATE units SET orthanc_public_url = 'http://45.189.160.17:4007' WHERE slug = 'unidade-2';\n\n-- Unidade 3: porta pública 4006 → 172.16.3.242:4006\nUPDATE units SET orthanc_public_url = 'http://45.189.160.17:4006' WHERE slug = 'unidade-3';\n\n-- Unidade 4: porta pública 4008 → 172.16.3.244:4008\nUPDATE units SET orthanc_public_url = 'http://45.189.160.17:4008' WHERE slug = 'unidade-4';\n\n-- Unidade 5: porta pública 4009 → 172.16.3.245:4009\nUPDATE units SET orthanc_public_url = 'http://45.189.160.17:4009' WHERE slug = 'unidade-5';\n\n-- Verificar resultado completo\nSELECT id, name, slug, orthanc_base_url, orthanc_public_url, pacs_ip, pacs_port FROM units ORDER BY id;\n",
+  "rows": [
+    {
+      "id": "60004",
+      "name": "Studio Barra7",
+      "slug": "studio-barra7",
+      "orthanc_base_url": "http://172.16.3.241:8042",
+      "orthanc_public_url": "http://45.189.160.17:8042",
+      "pacs_ip": "172.16.3.241",
+      "pacs_port": "8042"
+    },
+    {
+      "id": "90001",
+      "name": "Unidade 2",
+      "slug": "unidade-2",
+      "orthanc_base_url": "http://172.16.3.243:4007",
+      "orthanc_public_url": "http://45.189.160.17:4007",
+      "pacs_ip": "172.16.3.243",
+      "pacs_port": "4007"
+    },
+    {
+      "id": "90002",
+      "name": "Unidade 3",
+      "slug": "unidade-3",
+      "orthanc_base_url": "http://172.16.3.242:4006",
+      "orthanc_public_url": "http://45.189.160.17:4006",
+      "pacs_ip": "172.16.3.242",
+      "pacs_port": "4006"
+    },
+    {
+      "id": "90003",
+      "name": "Unidade 4",
+      "slug": "unidade-4",
+      "orthanc_base_url": "http://172.16.3.244:4008",
+      "orthanc_public_url": "http://45.189.160.17:4008",
+      "pacs_ip": "172.16.3.244",
+      "pacs_port": "4008"
+    },
+    {
+      "id": "90004",
+      "name": "Unidade 5",
+      "slug": "unidade-5",
+      "orthanc_base_url": "http://172.16.3.245:4009",
+      "orthanc_public_url": "http://45.189.160.17:4009",
+      "pacs_ip": "172.16.3.245",
+      "pacs_port": "4009"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tslug\torthanc_base_url\torthanc_public_url\tpacs_ip\tpacs_port\n60004\tStudio Barra7\tstudio-barra7\thttp://172.16.3.241:8042\thttp://45.189.160.17:8042\t172.16.3.241\t8042\n90001\tUnidade 2\tunidade-2\thttp://172.16.3.243:4007\thttp://45.189.160.17:4007\t172.16.3.243\t4007\n90002\tUnidade 3\tunidade-3\thttp://172.16.3.242:4006\thttp://45.189.160.17:4006\t172.16.3.242\t4006\n90003\tUnidade 4\tunidade-4\thttp://172.16.3.244:4008\thttp://45.189.160.17:4008\t172.16.3.244\t4008\n90004\tUnidade 5\tunidade-5\thttp://172.16.3.245:4009\thttp://45.189.160.17:4009\t172.16.3.245\t4009\n",
+  "stderr": "",
+  "execution_time_ms": 588
+}

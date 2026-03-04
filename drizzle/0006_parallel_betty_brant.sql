@@ -1,0 +1,1 @@
+ALTER TABLE `units` ADD `orthanc_public_url` varchar(500);

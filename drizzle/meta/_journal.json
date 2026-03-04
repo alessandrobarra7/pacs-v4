@@ -43,6 +43,13 @@
       "when": 1772476763758,
       "tag": "0005_organic_santa_claus",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1772628289829,
+      "tag": "0006_parallel_betty_brant",
+      "breakpoints": true
     }
   ]
 }

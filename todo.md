@@ -145,3 +145,10 @@
 - [x] Corrigir const.ts: tornar getLoginUrl() segura quando VITE_OAUTH_PORTAL_URL é undefined/vazio
 - [x] Corrigir useAuth.ts: não chamar getLoginUrl() no nível do hook (render phase)
 - [x] Validar que o build de produção não quebra quando variáveis VITE_ não estão definidas
+
+## INFRAESTRUTURA MIKROTIK — Atualização de Unidades e URLs
+
+- [x] Atualizar banco: criar 5 unidades com IPs/portas reais do Mikrotik NAT
+- [x] Corrigir unit_id do usuário admin para Studio Barra7 (Orthanc 172.16.3.241:8042)
+- [x] Verificar helper orthanc.ts: URL interna vs. URL pública por unidade
+- [x] Atualizar página de Unidades para exibir orthanc_base_url e status de conexão

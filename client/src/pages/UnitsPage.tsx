@@ -61,6 +61,7 @@ export default function UnitsPage() {
       name: formData.get('name') as string,
       slug: formData.get('slug') as string,
       orthanc_base_url: formData.get('orthanc_base_url') as string || undefined,
+      orthanc_public_url: formData.get('orthanc_public_url') as string || undefined,
       orthanc_basic_user: formData.get('orthanc_basic_user') as string || undefined,
       orthanc_basic_pass: formData.get('orthanc_basic_pass') as string || undefined,
       logoUrl: formData.get('logoUrl') as string || undefined,
@@ -78,6 +79,7 @@ export default function UnitsPage() {
       name: formData.get('name') as string,
       slug: formData.get('slug') as string,
       orthanc_base_url: formData.get('orthanc_base_url') as string || undefined,
+      orthanc_public_url: formData.get('orthanc_public_url') as string || undefined,
       orthanc_basic_user: formData.get('orthanc_basic_user') as string || undefined,
       orthanc_basic_pass: formData.get('orthanc_basic_pass') as string || undefined,
       logoUrl: formData.get('logoUrl') as string || undefined,
@@ -175,7 +177,7 @@ export default function UnitsPage() {
                 
                 <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label htmlFor="orthanc_base_url">URL do Orthanc <span className="text-red-500">*</span></Label>
+                    <Label htmlFor="orthanc_base_url">URL Interna do Orthanc <span className="text-red-500">*</span></Label>
                     <Input
                       id="orthanc_base_url"
                       name="orthanc_base_url"
@@ -183,7 +185,19 @@ export default function UnitsPage() {
                       placeholder="http://172.16.3.241:8042"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Orthanc em modo promíscuo (sem autenticação). Ex: http://172.16.3.241:8042
+                      IP interno da rede local. Ex: http://172.16.3.241:8042
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="orthanc_public_url">URL Pública do Orthanc (Mikrotik NAT)</Label>
+                    <Input
+                      id="orthanc_public_url"
+                      name="orthanc_public_url"
+                      type="url"
+                      placeholder="http://45.189.160.17:8042"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      IP público via NAT do Mikrotik. Usado pelo frontend para abrir o viewer. Ex: http://45.189.160.17:8042
                     </p>
                   </div>
                 </div>
@@ -268,9 +282,16 @@ export default function UnitsPage() {
                     </TableCell>
                     <TableCell>
                       {unit.orthanc_base_url ? (
-                        <Badge variant="outline" className="bg-green-50 text-green-700">
-                          Configurado
-                        </Badge>
+                        <div className="flex flex-col gap-1">
+                          <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">
+                            {unit.orthanc_base_url.replace('http://', '')}
+                          </Badge>
+                          {(unit as any).orthanc_public_url && (
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">
+                              🌐 {(unit as any).orthanc_public_url.replace('http://', '')}
+                            </Badge>
+                          )}
+                        </div>
                       ) : (
                         <Badge variant="outline" className="bg-gray-50 text-gray-700">
                           Não configurado
@@ -384,7 +405,7 @@ export default function UnitsPage() {
                 
                 <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label htmlFor="edit-orthanc_base_url">URL do Orthanc</Label>
+                    <Label htmlFor="edit-orthanc_base_url">URL Interna do Orthanc</Label>
                     <Input
                       id="edit-orthanc_base_url"
                       name="orthanc_base_url"
@@ -393,7 +414,20 @@ export default function UnitsPage() {
                       placeholder="http://172.16.3.241:8042"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Orthanc em modo promíscuo (sem autenticação). Ex: http://172.16.3.241:8042
+                      IP interno da rede local. Ex: http://172.16.3.241:8042
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-orthanc_public_url">URL Pública do Orthanc (Mikrotik NAT)</Label>
+                    <Input
+                      id="edit-orthanc_public_url"
+                      name="orthanc_public_url"
+                      type="url"
+                      defaultValue={editingUnit.orthanc_public_url || ''}
+                      placeholder="http://45.189.160.17:8042"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      IP público via NAT do Mikrotik. Usado pelo frontend para abrir o viewer. Ex: http://45.189.160.17:8042
                     </p>
                   </div>
                 </div>
