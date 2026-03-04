@@ -1,0 +1,20 @@
+{
+  "query": "SELECT id, name, slug, isActive, orthanc_base_url FROM units;\nSELECT id, name, username, role, unit_id, openId FROM users LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, name, slug, isActive, orthanc_base_url FROM units;\nSELECT id, name, username, role, unit_id, openId FROM users LIMIT 5;",
+  "rows": [
+    {
+      "id": "60004",
+      "name": "pacs",
+      "slug": "test-unit-1771356504777",
+      "isActive": "1",
+      "orthanc_base_url": "http://172.16.3.241:8042"
+    }
+  ],
+  "messages": [
+    "id\tname\tusername\trole\tunit_id\topenId",
+    "1\tStudio Barra7\tNULL\tadmin_master\t30001\tTSHrXxHvnivjaZW4kNSiag"
+  ],
+  "stdout": "id\tname\tslug\tisActive\torthanc_base_url\n60004\tpacs\ttest-unit-1771356504777\t1\thttp://172.16.3.241:8042\nid\tname\tusername\trole\tunit_id\topenId\n1\tStudio Barra7\tNULL\tadmin_master\t30001\tTSHrXxHvnivjaZW4kNSiag\n",
+  "stderr": "",
+  "execution_time_ms": 70
+}

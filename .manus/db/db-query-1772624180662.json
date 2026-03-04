@@ -1,0 +1,17 @@
+{
+  "query": "SELECT id, name, slug, isActive, orthanc_base_url FROM units ORDER BY id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, name, slug, isActive, orthanc_base_url FROM units ORDER BY id;",
+  "rows": [
+    {
+      "id": "60004",
+      "name": "pacs",
+      "slug": "test-unit-1771356504777",
+      "isActive": "1",
+      "orthanc_base_url": "http://172.16.3.241:8042"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tslug\tisActive\torthanc_base_url\n60004\tpacs\ttest-unit-1771356504777\t1\thttp://172.16.3.241:8042\n",
+  "stderr": "",
+  "execution_time_ms": 657
+}

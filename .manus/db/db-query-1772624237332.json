@@ -1,0 +1,20 @@
+{
+  "query": "UPDATE users SET unit_id = 60004 WHERE id = 1;\nUPDATE units SET name = 'Studio Barra7', slug = 'studio-barra7', isActive = 1, orthanc_base_url = 'http://172.16.3.241:8042' WHERE id = 60004;\nSELECT id, name, slug, isActive, orthanc_base_url FROM units;\nSELECT id, name, unit_id, role FROM users;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute UPDATE users SET unit_id = 60004 WHERE id = 1;\nUPDATE units SET name = 'Studio Barra7', slug = 'studio-barra7', isActive = 1, orthanc_base_url = 'http://172.16.3.241:8042' WHERE id = 60004;\nSELECT id, name, slug, isActive, orthanc_base_url FROM units;\nSELECT id, name, unit_id, role FROM users;",
+  "rows": [
+    {
+      "id": "60004",
+      "name": "Studio Barra7",
+      "slug": "studio-barra7",
+      "isActive": "1",
+      "orthanc_base_url": "http://172.16.3.241:8042"
+    }
+  ],
+  "messages": [
+    "id\tname\tunit_id\trole",
+    "1\tStudio Barra7\t60004\tadmin_master"
+  ],
+  "stdout": "id\tname\tslug\tisActive\torthanc_base_url\n60004\tStudio Barra7\tstudio-barra7\t1\thttp://172.16.3.241:8042\nid\tname\tunit_id\trole\n1\tStudio Barra7\t60004\tadmin_master\n",
+  "stderr": "",
+  "execution_time_ms": 80
+}
