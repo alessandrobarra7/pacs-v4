@@ -2,9 +2,22 @@ import { config } from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 const __dirname_env = path.dirname(fileURLToPath(import.meta.url));
-// Tenta .env no diretório do dist e no diretório pai (raiz do projeto)
-config({ path: path.resolve(__dirname_env, "../.env") });
-config({ path: path.resolve(process.cwd(), ".env") });
+// Carrega .env com override:true para garantir que variáveis sejam lidas mesmo
+// quando o PM2 já injetou valores vazios de sessões anteriores.
+// Tenta múltiplos caminhos para cobrir execução via dist/ e via cwd.
+const envPaths = [
+  path.resolve(__dirname_env, ".env"),       // dist/.env
+  path.resolve(__dirname_env, "../.env"),    // raiz do projeto (dist/../.env)
+  path.resolve(process.cwd(), ".env"),       // cwd/.env
+  "/opt/pacs-portal/.env",                   // caminho absoluto na VM1
+];
+for (const envPath of envPaths) {
+  const result = config({ path: envPath, override: true });
+  if (!result.error) {
+    console.log(`[dotenv] Loaded ${Object.keys(result.parsed ?? {}).length} vars from ${envPath}`);
+    break;
+  }
+}
 import express from "express";
 import { createServer } from "http";
 import net from "net";
