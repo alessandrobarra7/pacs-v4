@@ -1,6 +1,6 @@
 # Guia de Deploy — PACS Portal na VM1
 
-**VM1:** `172.16.3.100` | **Acesso externo:** `http://45.189.160.17` / `http://lauds.com.br`
+**VM1:** `172.16.3.100` | **Acesso externo:** `https://lauds.com.br` (HTTPS ativo com Let's Encrypt)
 
 ---
 
@@ -50,15 +50,13 @@ pm2 restart pacs-portal
 
 ## Configuração do Nginx
 
-Crie o arquivo `/etc/nginx/sites-available/pacs-portal`:
+Crie o arquivo `/etc/nginx/sites-available/pacs-portal` (configuração inicial HTTP, antes do SSL):
 
 ```nginx
 server {
     listen 80;
     server_name lauds.com.br 45.189.160.17;
-
     client_max_body_size 100M;
-
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
@@ -67,17 +65,41 @@ server {
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 300s;
-        proxy_connect_timeout 75s;
     }
 }
 ```
 
 ```bash
-ln -s /etc/nginx/sites-available/pacs-portal /etc/nginx/sites-enabled/
-nginx -t && systemctl reload nginx
+ln -sf /etc/nginx/sites-available/pacs-portal /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl enable nginx && systemctl start nginx
 ```
+
+---
+
+## Instalação do SSL (Let's Encrypt)
+
+> **Pré-requisito:** A porta 443 deve estar redirecionada no Mikrotik para `172.16.3.100:443`.
+> Adicione no Mikrotik: `/ip firewall nat add chain=dstnat action=dst-nat to-addresses=172.16.3.100 to-ports=443 protocol=tcp dst-address=45.189.160.17 dst-port=443 comment="RED PORTA 443 HTTPS IP: 172.16.3.100"`
+
+```bash
+apt-get install -y certbot python3-certbot-nginx
+certbot --nginx -d lauds.com.br --non-interactive --agree-tos -m admin@lauds.com.br --redirect
+```
+
+O Certbot configura automaticamente o redirecionamento HTTP → HTTPS e renova o certificado via systemd timer (duas vezes ao dia).
+
+**Verificação:**
+```bash
+systemctl status certbot.timer
+certbot renew --dry-run
+```
+
+**Status atual (05/03/2026):**
+- Certificado emitido: 05/03/2026
+- Expira em: 03/06/2026
+- Renovação automática: ativa
+- Portal acessível em: `https://lauds.com.br`
 
 ---
 
