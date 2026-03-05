@@ -164,4 +164,9 @@
 - [x] Criar AdminPage.tsx: página unificada com abas Unidades|Usuários|Auditoria
 - [x] Adicionar procedures admin.listUsers, admin.listAuditLog, admin.deleteUser
 - [x] Atualizar App.tsx: adicionar rota /admin
-- [ ] Fazer push para GitHub após aplicar todas as mudanças
+- [x] Fazer push para GitHub após aplicar todas as mudanças
+
+## CORREÇÃO LOGIN - Pixel-Perfect LAUDS
+
+- [ ] Reescrever Login.tsx: replicar fielmente o design do LAUDS de referência (lovable)
+- [ ] Trocar rodapé "Desenvolvido por Manus" por "Desenvolvimento StudioBarra7"

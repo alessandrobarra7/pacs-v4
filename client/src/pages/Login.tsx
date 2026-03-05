@@ -2,10 +2,6 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Login() {
@@ -13,7 +9,6 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async () => {
@@ -50,87 +45,107 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex">
-      {/* Lado Esquerdo — Imagem com overlay e nome LAUDS */}
-      <div className="hidden lg:flex lg:w-1/2 relative flex-col">
-        {/* Imagem de fundo em preto e branco */}
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{
-            backgroundImage: 'url(/login-medical-bg.jpg)',
-            filter: 'grayscale(100%)',
-          }}
+
+      {/* ── PAINEL ESQUERDO — imagem radiológica P&B ── */}
+      <div className="hidden lg:block lg:w-1/2 relative overflow-hidden bg-black">
+        {/* Imagem em preto e branco */}
+        <img
+          src="https://images.unsplash.com/photo-1516549655169-df83a0774514?w=1400&q=85&auto=format&fit=crop"
+          alt="Ambiente radiológico"
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ filter: "grayscale(100%)", opacity: 0.72 }}
         />
-        {/* Overlay escuro */}
-        <div className="absolute inset-0 bg-black/55" />
-        {/* Nome LAUDS no canto inferior esquerdo */}
-        <div className="relative mt-auto p-10">
-          <h1 className="text-5xl font-bold text-white tracking-tight">LAUDS</h1>
-          <p className="text-white/70 text-base mt-2">Sistema de Laudos Radiológicos</p>
+        {/* Overlay escuro semitransparente */}
+        <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.38)" }} />
+
+        {/* Nome LAUDS no canto inferior esquerdo — igual ao de referência */}
+        <div className="absolute bottom-10 left-10 z-10">
+          <p className="text-white text-4xl font-bold tracking-tight leading-none select-none">
+            LAUDS
+          </p>
+          <p className="text-white/75 text-sm mt-1.5 tracking-wide">
+            Sistema de Laudos Radiológicos
+          </p>
         </div>
       </div>
 
-      {/* Lado Direito — Formulário */}
-      <div className="w-full lg:w-1/2 flex flex-col justify-center px-8 md:px-16 lg:px-20 xl:px-28 bg-[#F9FAFB]">
-        <div className="max-w-sm w-full mx-auto">
-          {/* Título */}
-          <div className="mb-8">
-            <h2 className="text-2xl font-semibold text-gray-900">Entrar</h2>
-            <p className="text-gray-500 text-sm mt-1">Informe suas credenciais</p>
-          </div>
+      {/* ── PAINEL DIREITO — formulário ── */}
+      <div className="w-full lg:w-1/2 flex flex-col bg-white">
 
-          {/* Formulário */}
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Campo Usuário */}
-            <div className="space-y-1.5">
-              <Label htmlFor="login" className="text-sm font-medium text-gray-700">
-                Usuário
-              </Label>
-              <Input
-                id="login"
-                type="text"
-                placeholder="Digite seu usuário"
-                value={login}
-                autoComplete="username"
-                onChange={(e) => setLogin(e.target.value)}
-                className="h-10 bg-white border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-              />
+        {/* Área central com o formulário */}
+        <div className="flex-1 flex items-center justify-center px-8 md:px-16 lg:px-20 xl:px-28">
+          <div className="w-full max-w-sm">
+
+            {/* Logo mobile */}
+            <div className="lg:hidden mb-8">
+              <p className="text-2xl font-bold text-gray-900">LAUDS</p>
+              <p className="text-sm text-gray-500 mt-0.5">Sistema de Laudos Radiológicos</p>
             </div>
 
-            {/* Campo Senha */}
-            <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-sm font-medium text-gray-700">
-                Senha
-              </Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Digite sua senha"
-                  value={password}
-                  autoComplete="current-password"
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="h-10 pr-10 bg-white border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            {/* Título do formulário */}
+            <div className="mb-7">
+              <h2 className="text-2xl font-semibold text-gray-900">Entrar</h2>
+              <p className="text-sm text-gray-500 mt-1">Informe suas credenciais</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+
+              {/* Campo Usuário */}
+              <div>
+                <label
+                  htmlFor="login"
+                  className="block text-sm font-medium text-gray-700 mb-1.5"
                 >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
+                  Usuário
+                </label>
+                <input
+                  id="login"
+                  type="text"
+                  value={login}
+                  onChange={(e) => setLogin(e.target.value)}
+                  placeholder="seu usuário"
+                  autoComplete="username"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                />
               </div>
-            </div>
 
-            {/* Botão Entrar */}
-            <Button
-              type="submit"
-              disabled={loginMutation.isPending}
-              className="w-full h-10 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md mt-2"
-            >
-              {loginMutation.isPending ? "Entrando..." : "Entrar"}
-            </Button>
-          </form>
+              {/* Campo Senha */}
+              <div>
+                <label
+                  htmlFor="password"
+                  className="block text-sm font-medium text-gray-700 mb-1.5"
+                >
+                  Senha
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••"
+                  autoComplete="current-password"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm text-gray-900 placeholder-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                />
+              </div>
+
+              {/* Botão Entrar */}
+              <button
+                type="submit"
+                disabled={loginMutation.isPending}
+                className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium rounded-md transition focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 mt-1"
+              >
+                {loginMutation.isPending ? "Entrando..." : "Entrar"}
+              </button>
+
+            </form>
+          </div>
         </div>
+
+        {/* Rodapé */}
+        <div className="py-6 text-center">
+          <p className="text-xs text-gray-400">Desenvolvimento StudioBarra7</p>
+        </div>
+
       </div>
     </div>
   );
