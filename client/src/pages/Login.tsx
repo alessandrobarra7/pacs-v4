@@ -5,7 +5,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Mail, Lock, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Login() {
@@ -14,8 +14,6 @@ export default function Login() {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [loginError, setLoginError] = useState(false);
-  const [passwordError, setPasswordError] = useState(false);
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async () => {
@@ -35,153 +33,103 @@ export default function Login() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-
-    let hasError = false;
-    if (!login.trim()) {
-      setLoginError(true);
-      hasError = true;
+    if (!login.trim() || !password) {
+      toast.error("Preencha todos os campos");
+      return;
     }
-    if (!password) {
-      setPasswordError(true);
-      hasError = true;
-    }
-    if (hasError) return;
-
     loginMutation.mutate({ login: login.trim(), password });
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
       </div>
     );
   }
 
   return (
     <div className="min-h-screen flex">
-      {/* Lado Esquerdo - Formulário */}
-      <div className="w-full lg:w-1/2 flex flex-col justify-center px-8 md:px-16 lg:px-20 xl:px-32 bg-white">
-        <div className="max-w-md w-full">
-          {/* Logo */}
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center relative overflow-hidden shadow-lg">
-              <div className="absolute inset-0 flex flex-col justify-center">
-                <div className="h-1 bg-white/30 mb-1 transform -skew-y-12"></div>
-                <div className="h-1.5 bg-white/50 mb-1 transform -skew-y-12"></div>
-                <div className="h-2 bg-white/70 mb-1 transform -skew-y-12"></div>
-                <div className="h-1.5 bg-white/50 mb-1 transform -skew-y-12"></div>
-                <div className="h-1 bg-white/30 transform -skew-y-12"></div>
-              </div>
-            </div>
-            <div className="flex items-baseline gap-2">
-              <h1 className="text-4xl font-bold text-gray-800" style={{ letterSpacing: '-0.02em' }}>
-                SETE ME
-              </h1>
-              <span className="text-xl font-medium text-blue-500">
-                CLOUD
-              </span>
-            </div>
-          </div>
+      {/* Lado Esquerdo — Imagem com overlay e nome LAUDS */}
+      <div className="hidden lg:flex lg:w-1/2 relative flex-col">
+        {/* Imagem de fundo em preto e branco */}
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{
+            backgroundImage: 'url(/login-medical-bg.jpg)',
+            filter: 'grayscale(100%)',
+          }}
+        />
+        {/* Overlay escuro */}
+        <div className="absolute inset-0 bg-black/55" />
+        {/* Nome LAUDS no canto inferior esquerdo */}
+        <div className="relative mt-auto p-10">
+          <h1 className="text-5xl font-bold text-white tracking-tight">LAUDS</h1>
+          <p className="text-white/70 text-base mt-2">Sistema de Laudos Radiológicos</p>
+        </div>
+      </div>
 
+      {/* Lado Direito — Formulário */}
+      <div className="w-full lg:w-1/2 flex flex-col justify-center px-8 md:px-16 lg:px-20 xl:px-28 bg-[#F9FAFB]">
+        <div className="max-w-sm w-full mx-auto">
           {/* Título */}
           <div className="mb-8">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-1">
-              Bem Vindo(a),
-            </h2>
-            <p className="text-gray-500 text-sm">
-              Acesse a sua conta abaixo
-            </p>
+            <h2 className="text-2xl font-semibold text-gray-900">Entrar</h2>
+            <p className="text-gray-500 text-sm mt-1">Informe suas credenciais</p>
           </div>
 
           {/* Formulário */}
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Campo Login */}
-            <div className="space-y-2">
-              <Label htmlFor="login" className="text-sm text-gray-700">
-                * E-mail ou Username :
+            {/* Campo Usuário */}
+            <div className="space-y-1.5">
+              <Label htmlFor="login" className="text-sm font-medium text-gray-700">
+                Usuário
               </Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <Input
-                  id="login"
-                  type="text"
-                  placeholder="E-mail ou Username"
-                  value={login}
-                  autoComplete="username"
-                  onChange={(e) => {
-                    setLogin(e.target.value);
-                    setLoginError(false);
-                  }}
-                  className={`pl-10 h-11 border-gray-300 ${loginError ? 'border-red-500' : ''}`}
-                />
-                {loginError && (
-                  <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-red-500" />
-                )}
-              </div>
-              {loginError && (
-                <p className="text-sm text-red-500">Entre com o seu E-mail ou Username.</p>
-              )}
+              <Input
+                id="login"
+                type="text"
+                placeholder="Digite seu usuário"
+                value={login}
+                autoComplete="username"
+                onChange={(e) => setLogin(e.target.value)}
+                className="h-10 bg-white border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+              />
             </div>
 
             {/* Campo Senha */}
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm text-gray-700">
-                * Senha :
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-sm font-medium text-gray-700">
+                Senha
               </Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="Senha"
+                  placeholder="Digite sua senha"
                   value={password}
                   autoComplete="current-password"
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setPasswordError(false);
-                  }}
-                  className={`pl-10 pr-10 h-11 border-gray-300 ${passwordError ? 'border-red-500' : ''}`}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-10 pr-10 bg-white border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              {passwordError && (
-                <p className="text-sm text-red-500">Entre com a sua senha.</p>
-              )}
             </div>
 
-            {/* Botão Acessar */}
+            {/* Botão Entrar */}
             <Button
               type="submit"
               disabled={loginMutation.isPending}
-              className="w-full h-12 text-base font-medium bg-blue-600 hover:bg-blue-700 rounded-lg mt-6"
+              className="w-full h-10 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md mt-2"
             >
-              {loginMutation.isPending ? "Entrando..." : "Acessar"}
+              {loginMutation.isPending ? "Entrando..." : "Entrar"}
             </Button>
           </form>
-
-          <p className="mt-6 text-xs text-gray-400 text-center">
-            SETE ME CLOUD — Portal de Laudos Radiológicos
-          </p>
-        </div>
-      </div>
-
-      {/* Lado Direito - Imagem */}
-      <div className="hidden lg:block lg:w-1/2 relative">
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{
-            backgroundImage: 'url(/login-medical-bg.jpg)',
-            backgroundPosition: 'center center',
-          }}
-        >
-          <div className="absolute inset-0 bg-blue-600/20" />
         </div>
       </div>
     </div>

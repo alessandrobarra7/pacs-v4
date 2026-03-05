@@ -885,6 +885,79 @@ export const appRouter = router({
         return results[0] || null;
       }),
   }),
+
+  admin: router({
+    listUsers: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+      const { users } = await import("../drizzle/schema");
+      const { desc } = await import("drizzle-orm");
+      const result = await db
+        .select({
+          id: users.id,
+          name: users.name,
+          username: users.username,
+          email: users.email,
+          role: users.role,
+          unit_id: users.unit_id,
+          isActive: users.isActive,
+          createdAt: users.createdAt,
+          lastSignedIn: users.lastSignedIn,
+        })
+        .from(users)
+        .orderBy(desc(users.createdAt));
+      return result;
+    }),
+
+    listAuditLog: protectedProcedure
+      .input(z.object({ limit: z.number().min(1).max(500).default(100) }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { audit_log, users } = await import("../drizzle/schema");
+        const { desc, eq: eqOp } = await import("drizzle-orm");
+        const result = await db
+          .select({
+            id: audit_log.id,
+            action: audit_log.action,
+            target_type: audit_log.target_type,
+            target_id: audit_log.target_id,
+            ip_address: audit_log.ip_address,
+            timestamp: audit_log.timestamp,
+            user_id: audit_log.user_id,
+            userName: users.name,
+            userUsername: users.username,
+          })
+          .from(audit_log)
+          .leftJoin(users, eqOp(audit_log.user_id, users.id))
+          .orderBy(desc(audit_log.timestamp))
+          .limit(input.limit);
+        return result;
+      }),
+
+    deleteUser: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas admin_master pode excluir usuários' });
+        }
+        if (ctx.user.id === input.id) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Não é possível excluir o próprio usuário' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { users } = await import("../drizzle/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        await db.delete(users).where(eqOp(users.id, input.id));
+        return { success: true };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

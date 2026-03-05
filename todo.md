@@ -152,3 +152,16 @@
 - [x] Corrigir unit_id do usuário admin para Studio Barra7 (Orthanc 172.16.3.241:8042)
 - [x] Verificar helper orthanc.ts: URL interna vs. URL pública por unidade
 - [x] Atualizar página de Unidades para exibir orthanc_base_url e status de conexão
+
+## IDENTIDADE VISUAL LAUDS
+
+- [x] Substituir nome "SETE ME CLOUD" por "LAUDS" em toda a aplicação
+- [x] Atualizar Login.tsx: layout 50/50, imagem P&B, nome LAUDS no canto inferior esquerdo, formulário minimalista sem ícones
+- [x] Atualizar index.css: paleta de cores LAUDS (azul #2563EB, fundo #F9FAFB)
+- [x] Atualizar Header/Navbar: fundo branco, "LAUDS" bold à esquerda, nav central azul, usuário + logout à direita
+- [x] Atualizar App.tsx: remover referências "SETE ME CLOUD", aplicar tema LAUDS
+- [x] Atualizar PacsQueryPage.tsx: tabela com colunas Data|Paciente|Unidade|Visualizar|Impressão|Laudar|Status Envio
+- [x] Criar AdminPage.tsx: página unificada com abas Unidades|Usuários|Auditoria
+- [x] Adicionar procedures admin.listUsers, admin.listAuditLog, admin.deleteUser
+- [x] Atualizar App.tsx: adicionar rota /admin
+- [ ] Fazer push para GitHub após aplicar todas as mudanças
