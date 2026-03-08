@@ -5,6 +5,46 @@ Toda modificação de lógica, banco de dados, infraestrutura ou interface está
 
 ---
 
+## [sessão-2026-03-08] — 2026-03-08 — Diagnóstico e Correção do Banco de Dados na VM2
+
+### Problema Identificado
+- Após o deploy do commit `fedd0ea` na VM1, a tela de login exibia o erro:
+  `Failed query: select id, openId, unit_id, name, email, username, password_hash...`
+- Causa raiz: as tabelas no banco `pacs_portal` da VM2 foram criadas por uma versão anterior do código (Drizzle ORM) e estavam com schema desatualizado. Faltavam as colunas `username` e `password_hash` na tabela `users`, e `orthanc_public_url`, `pacs_ip`, `pacs_port`, `pacs_ae_title`, `pacs_local_ae_title` na tabela `units`.
+- Problema adicional: o usuário `pacs_user` não tinha permissão para conectar remotamente da VM1 (`172.16.3.100`) ao MySQL da VM2 (`172.16.3.101`). Erro: `Access denied for user 'pacs_user'@'172.16.3.100'`.
+
+### Diagnóstico
+- Verificado via `mysql -u root -p137946 pacs_portal` na VM2
+- `SHOW TABLES` confirmou 9 tabelas existentes (incluindo `__drizzle_migrations` e `user` — tabela legada do template Manus)
+- `DESCRIBE users` revelou ausência das colunas de autenticação local
+
+### Correção Aplicada — ALTER TABLE na VM2
+```sql
+ALTER TABLE users ADD COLUMN username VARCHAR(64) UNIQUE;
+ALTER TABLE users ADD COLUMN password_hash VARCHAR(255);
+ALTER TABLE users MODIFY COLUMN role ENUM('admin_master','unit_admin','medico','viewer') DEFAULT 'viewer' NOT NULL;
+ALTER TABLE units ADD COLUMN orthanc_public_url VARCHAR(500);
+ALTER TABLE units ADD COLUMN pacs_ip VARCHAR(45);
+ALTER TABLE units ADD COLUMN pacs_port INT;
+ALTER TABLE units ADD COLUMN pacs_ae_title VARCHAR(16);
+ALTER TABLE units ADD COLUMN pacs_local_ae_title VARCHAR(16) DEFAULT 'PACSMANUS';
+```
+
+### Dados Iniciais Inseridos
+- 5 unidades Orthanc com IPs internos (172.16.3.241–245) e URLs públicas via Mikrotik NAT
+- Usuário administrador: `admin` / `Admin@2025` / perfil `admin_master` / hash bcrypt custo 12
+
+### Permissão de Acesso Remoto ao MySQL
+```sql
+GRANT ALL PRIVILEGES ON pacs_portal.* TO 'pacs_user'@'172.16.3.100' IDENTIFIED BY 'PacsPortal2025';
+FLUSH PRIVILEGES;
+```
+
+### Arquivo Adicionado ao Repositório
+- `scripts/lauds_setup_vm2.sql`: SQL completo de criação de tabelas, colunas e dados iniciais para uso em novos deployments ou recuperação de desastres.
+
+---
+
 ## [a3bead9] — 2026-03-05 — Login Pixel-Perfect LAUDS + Rodapé StudioBarra7
 
 ### Frontend — `client/src/pages/Login.tsx`

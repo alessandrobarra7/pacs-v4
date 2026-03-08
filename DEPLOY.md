@@ -190,3 +190,43 @@ mysqldump -u pacs_user -pPacsPortal2025 pacs_portal > /backup/pacs_portal_$(date
 | `Unit not found` | `unit_id` do usuário não existe no banco | Corrigir via SQL: `UPDATE users SET unit_id=<id_correto> WHERE username='admin'` |
 | PM2 não carrega `.env` | Script de start não usa dotenv | Usar `pm2 start pnpm --name "pacs-portal" -- start` |
 | Nginx 502 Bad Gateway | PM2 não está rodando | `pm2 restart pacs-portal` |
+| `Failed query: select ... from users` | Colunas `username`/`password_hash` ausentes na tabela `users` | Executar ALTER TABLE de correção (ver seção abaixo) |
+| `Access denied for 'pacs_user'@'172.16.3.100'` | MySQL da VM2 não permite conexão remota da VM1 | Executar GRANT na VM2 (ver seção abaixo) |
+
+---
+
+## Correção do Schema do Banco (VM2)
+
+Se o banco foi criado por uma versão antiga e está com colunas faltando, acesse a VM2 e execute:
+
+```bash
+mysql -u root -p137946 pacs_portal
+```
+
+Dentro do MySQL, execute linha por linha:
+
+```sql
+ALTER TABLE users ADD COLUMN username VARCHAR(64) UNIQUE;
+ALTER TABLE users ADD COLUMN password_hash VARCHAR(255);
+ALTER TABLE users MODIFY COLUMN role ENUM('admin_master','unit_admin','medico','viewer') DEFAULT 'viewer' NOT NULL;
+ALTER TABLE units ADD COLUMN orthanc_public_url VARCHAR(500);
+ALTER TABLE units ADD COLUMN pacs_ip VARCHAR(45);
+ALTER TABLE units ADD COLUMN pacs_port INT;
+ALTER TABLE units ADD COLUMN pacs_ae_title VARCHAR(16);
+ALTER TABLE units ADD COLUMN pacs_local_ae_title VARCHAR(16) DEFAULT 'PACSMANUS';
+```
+
+Liberar acesso remoto da VM1 ao MySQL da VM2:
+
+```sql
+GRANT ALL PRIVILEGES ON pacs_portal.* TO 'pacs_user'@'172.16.3.100' IDENTIFIED BY 'PacsPortal2025';
+FLUSH PRIVILEGES;
+```
+
+Criar usuário administrador (senha: `Admin@2025`):
+
+```sql
+INSERT IGNORE INTO users (openId, username, name, password_hash, role, loginMethod, isActive, unit_id, lastSignedIn) VALUES ('local_admin_lauds','admin','Administrador','$2b$12$H5QdhpOxK294bzLLSPysYuKCNJcnoKomFpfsML03gCxDxaf8QeLjC','admin_master','local',TRUE,1,NOW());
+```
+
+> O script completo de setup do banco está em `scripts/lauds_setup_vm2.sql`.
