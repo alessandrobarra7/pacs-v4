@@ -29,8 +29,8 @@ import {
   createLocalUser,
   updateUserPassword,
 } from "./db";
-import { units } from "../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { units, studies_cache } from "../drizzle/schema";
+import { eq, and, like } from "drizzle-orm";
 import { queryStudiesLocal, queryStudiesRemote, getDicomWebUrl, checkOrthancHealth } from "./orthanc";
 
 export const appRouter = router({
@@ -73,19 +73,16 @@ export const appRouter = router({
         return { success: true, user };
       }),
 
-    createLocalUser: protectedProcedure
+    createLocalUser: adminProcedure
       .input(z.object({
         username: z.string().min(3).max(64),
         email: z.string().email().optional(),
         name: z.string().min(1),
         password: z.string().min(6),
-        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer']),
+        role: z.enum(['unit_admin', 'medico', 'viewer']),
         unit_id: z.number().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master') {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas admin_master pode criar usuários' });
-        }
         const password_hash = await bcrypt.hash(input.password, 12);
         const id = await createLocalUser({
           username: input.username,
@@ -233,6 +230,33 @@ export const appRouter = router({
         const unitId = ctx.user.unit_id || 0;
         const offset = (input.page - 1) * input.pageSize;
         
+        const db = await getDb();
+        
+        let countResult = 0;
+        if (db) {
+          const { count } = await import('drizzle-orm');
+          const conditions = [eq(studies_cache.unit_id, unitId)];
+          
+          if (input.patient_name) {
+            conditions.push(like(studies_cache.patient_name, `%${input.patient_name}%`));
+          }
+          if (input.modality) {
+            conditions.push(eq(studies_cache.modality, input.modality));
+          }
+          if (input.study_date) {
+            conditions.push(like(studies_cache.study_date, `%${input.study_date}%`));
+          }
+          if (input.accession_number) {
+            conditions.push(like(studies_cache.accession_number, `%${input.accession_number}%`));
+          }
+          
+          const [{ total }] = await db
+            .select({ total: count() })
+            .from(studies_cache)
+            .where(and(...conditions));
+          countResult = Number(total);
+        }
+        
         const studies = await getStudiesByUnitId(unitId, {
           patient_name: input.patient_name,
           modality: input.modality,
@@ -244,7 +268,7 @@ export const appRouter = router({
         
         return {
           items: studies,
-          total: studies.length,
+          total: countResult,
           page: input.page,
           pageSize: input.pageSize,
         };
@@ -354,15 +378,29 @@ export const appRouter = router({
         fields: z.any().optional(),
         isActive: z.boolean().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
+        const template = await getTemplateById(id);
+        if (!template) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Template nao encontrado' });
+        }
+        if (ctx.user.role !== 'admin_master' && template.unit_id !== ctx.user.unit_id) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
         await updateTemplate(id, data);
         return { success: true };
       }),
     
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const template = await getTemplateById(input.id);
+        if (!template) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Template nao encontrado' });
+        }
+        if (ctx.user.role !== 'admin_master' && template.unit_id !== ctx.user.unit_id) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
         await deleteTemplate(input.id);
         return { success: true };
       }),
@@ -416,6 +454,13 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
+        const report = await getReportByStudyId(id);
+        if (!report) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Report nao encontrado' });
+        }
+        if (ctx.user.role !== 'admin_master' && report.unit_id !== ctx.user.unit_id) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
         await updateReport(id, data);
         
         await createAuditLog({
@@ -434,6 +479,13 @@ export const appRouter = router({
     sign: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        const report = await getReportByStudyId(input.id);
+        if (!report) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Report nao encontrado' });
+        }
+        if (ctx.user.role !== 'admin_master' && report.unit_id !== ctx.user.unit_id) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
         await updateReport(input.id, {
           status: 'signed',
           signedAt: new Date(),
@@ -474,15 +526,15 @@ export const appRouter = router({
           });
         }
         
-        // Busca unidade do usuário, ou primeira unidade disponível como fallback
-        let unitData;
-        if (ctx.user.unit_id) {
-          [unitData] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id)).limit(1);
+        // Busca unidade do usuário
+        if (!ctx.user.unit_id) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Usuário não está associado a nenhuma unidade. Entre em contato com o administrador.',
+          });
         }
-        if (!unitData) {
-          // Fallback: usa a primeira unidade com PACS configurado
-          [unitData] = await db.select().from(units).limit(1);
-        }
+        
+        const [unitData] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id)).limit(1);
         const unit = unitData;
         
         if (!unit) {
@@ -567,12 +619,13 @@ export const appRouter = router({
                 accession_number: input.accessionNumber,
               },
             };
-            const { exec } = await import('child_process');
+            const { execFile } = await import('child_process');
             const { promisify } = await import('util');
-            const execAsync = promisify(exec);
+            const execFileAsync = promisify(execFile);
             const scriptPath = new URL('./dicom_query.sh', import.meta.url).pathname;
-            const { stdout } = await execAsync(
-              `"${scriptPath}" '${JSON.stringify(queryInput)}'`,
+            const { stdout } = await execFileAsync(
+              '/bin/bash',
+              [scriptPath, JSON.stringify(queryInput)],
               { timeout: 60000 }
             );
             result = JSON.parse(stdout);
@@ -670,14 +723,15 @@ export const appRouter = router({
         };
         
         // Execute Python C-MOVE script
-        const { exec } = await import('child_process');
+        const { execFile } = await import('child_process');
         const { promisify } = await import('util');
-        const execAsync = promisify(exec);
+        const execFileAsync = promisify(execFile);
         
         try {
           const scriptPath = new URL('./dicom_move.sh', import.meta.url).pathname;
-          const { stdout, stderr } = await execAsync(
-            `"${scriptPath}" '${JSON.stringify(moveInput)}'`,
+          const { stdout, stderr } = await execFileAsync(
+            '/bin/bash',
+            [scriptPath, JSON.stringify(moveInput)],
             { timeout: 120000 } // 2 minute timeout for C-MOVE
           );
           
@@ -734,14 +788,15 @@ export const appRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database não disponível' });
         
-        let unitData;
-        if (ctx.user.unit_id) {
-          [unitData] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id)).limit(1);
+        if (!ctx.user.unit_id) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Usuario nao esta associado a nenhuma unidade. Entre em contato com o administrador.',
+          });
         }
-        if (!unitData) {
-          [unitData] = await db.select().from(units).limit(1);
-        }
-        if (!unitData) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unidade não encontrada' });
+        
+        const [unitData] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id)).limit(1);
+        if (!unitData) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unidade nao encontrada' });
         
         const orthancInternalUrl = unitData.orthanc_base_url;
         // URL pública via Mikrotik NAT (para o frontend abrir o viewer diretamente)
@@ -894,7 +949,13 @@ export const appRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
       const { users } = await import("../drizzle/schema");
-      const { desc } = await import("drizzle-orm");
+      const { desc, eq: eqOp, and } = await import("drizzle-orm");
+      
+      const conditions = [];
+      if (ctx.user.role === 'unit_admin' && ctx.user.unit_id) {
+        conditions.push(eqOp(users.unit_id, ctx.user.unit_id));
+      }
+      
       const result = await db
         .select({
           id: users.id,
@@ -908,6 +969,7 @@ export const appRouter = router({
           lastSignedIn: users.lastSignedIn,
         })
         .from(users)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(users.createdAt));
       return result;
     }),

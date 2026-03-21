@@ -1,6 +1,5 @@
-import { eq, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { or } from "drizzle-orm";
+import { or, and, eq, like } from "drizzle-orm";
 import { 
   InsertUser, 
   users, 
@@ -203,15 +202,25 @@ export async function getStudiesByUnitId(unitId: number, filters?: {
   const db = await getDb();
   if (!db) return [];
   
-  const query = db.select().from(studies_cache).where(eq(studies_cache.unit_id, unitId));
+  const conditions = [eq(studies_cache.unit_id, unitId)];
   
-  if (filters?.limit && filters?.offset) {
-    return await query.limit(filters.limit).offset(filters.offset);
-  } else if (filters?.limit) {
-    return await query.limit(filters.limit);
-  } else if (filters?.offset) {
-    return await query.offset(filters.offset);
+  if (filters?.patient_name) {
+    conditions.push(like(studies_cache.patient_name, `%${filters.patient_name}%`));
   }
+  if (filters?.modality) {
+    conditions.push(eq(studies_cache.modality, filters.modality));
+  }
+  if (filters?.study_date) {
+    conditions.push(like(studies_cache.study_date, `%${filters.study_date}%`));
+  }
+  if (filters?.accession_number) {
+    conditions.push(like(studies_cache.accession_number, `%${filters.accession_number}%`));
+  }
+  
+  let query = db.select().from(studies_cache).where(and(...conditions)) as any;
+  
+  if (filters?.limit) query = query.limit(filters.limit);
+  if (filters?.offset) query = query.offset(filters.offset);
   
   return await query;
 }
