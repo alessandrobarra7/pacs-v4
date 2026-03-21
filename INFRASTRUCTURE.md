@@ -8,7 +8,7 @@ Documentação técnica completa da infraestrutura de rede, servidores e serviç
 
 ```
                     ┌─────────────────────────────────────────────────────┐
-  INTERNET          │              Rede Interna 172.16.3.0/24              │
+  INTERNET          │         Rede Interna 172.16.3.0/22 (GW: 172.16.0.1)  │
   45.189.160.17     │                                                      │
        │            │  ┌─────────────────────────────────────────────┐    │
        │            │  │  VM1 — Portal PACS                          │    │

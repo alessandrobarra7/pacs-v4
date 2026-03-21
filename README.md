@@ -32,7 +32,7 @@ Internet (45.189.160.17)
    NAT / Firewall
         │
    ┌────┴────────────────────────────────────────┐
-   │             Rede Interna 172.16.3.0/24       │
+   │      Rede Interna 172.16.3.0/22 (GW: 172.16.0.1) │
    │                                              │
    │  VM1 — Portal (172.16.3.100:3000)            │
    │    Node.js + Express + React                 │
