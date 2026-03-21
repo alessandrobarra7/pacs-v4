@@ -37,7 +37,10 @@ export default function Units() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await createMutation.mutateAsync(formData);
+      await createMutation.mutateAsync({
+        ...formData,
+        pacs_port: formData.pacs_port ? Number(formData.pacs_port) : undefined,
+      });
       toast.success("Unidade criada com sucesso!");
       setIsCreateOpen(false);
       setFormData({ name: "", slug: "", orthanc_base_url: "", orthanc_basic_user: "", orthanc_basic_pass: "", pacs_ip: "", pacs_port: "", pacs_ae_title: "", pacs_local_ae_title: "", logoUrl: "" });
@@ -55,6 +58,7 @@ export default function Units() {
       await updateMutation.mutateAsync({
         id: editingUnit.id,
         ...formData,
+        pacs_port: formData.pacs_port ? Number(formData.pacs_port) : undefined,
       });
       toast.success("Unidade atualizada com sucesso!");
       setEditingUnit(null);

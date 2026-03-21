@@ -151,6 +151,10 @@ export const appRouter = router({
         orthanc_basic_user: z.string().optional(),
         orthanc_basic_pass: z.string().optional(),
         logoUrl: z.string().optional(),
+        pacs_ip: z.string().optional(),
+        pacs_port: z.number().optional(),
+        pacs_ae_title: z.string().max(16).optional(),
+        pacs_local_ae_title: z.string().max(16).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const id = await createUnit(input);
@@ -177,6 +181,10 @@ export const appRouter = router({
         orthanc_basic_pass: z.string().optional(),
         logoUrl: z.string().optional(),
         isActive: z.boolean().optional(),
+        pacs_ip: z.string().optional(),
+        pacs_port: z.number().optional(),
+        pacs_ae_title: z.string().max(16).optional(),
+        pacs_local_ae_title: z.string().max(16).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;

@@ -24,6 +24,7 @@ const ROLE_LABELS: Record<string, string> = {
   unit_admin: "Admin Unidade",
   medico: "Médico",
   viewer: "Visualizador",
+  operador: "Operador",
 };
 
 const ROLE_COLORS: Record<string, string> = {
@@ -31,6 +32,7 @@ const ROLE_COLORS: Record<string, string> = {
   unit_admin: "border-orange-200 text-orange-700 bg-orange-50",
   medico: "border-blue-200 text-blue-700 bg-blue-50",
   viewer: "border-gray-200 text-gray-600 bg-gray-50",
+  operador: "border-purple-200 text-purple-700 bg-purple-50",
 };
 
 export default function AdminPage() {
@@ -80,6 +82,7 @@ export default function AdminPage() {
   const handleCreateUnit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const pacsPort = fd.get("pacs_port") as string;
     createUnit.mutate({
       name: fd.get("name") as string,
       slug: fd.get("slug") as string,
@@ -87,6 +90,10 @@ export default function AdminPage() {
       orthanc_public_url: fd.get("orthanc_public_url") as string || undefined,
       orthanc_basic_user: fd.get("orthanc_basic_user") as string || undefined,
       orthanc_basic_pass: fd.get("orthanc_basic_pass") as string || undefined,
+      pacs_ip: fd.get("pacs_ip") as string || undefined,
+      pacs_port: pacsPort ? Number(pacsPort) : undefined,
+      pacs_ae_title: fd.get("pacs_ae_title") as string || undefined,
+      pacs_local_ae_title: fd.get("pacs_local_ae_title") as string || undefined,
     });
   };
 
@@ -94,6 +101,7 @@ export default function AdminPage() {
     e.preventDefault();
     if (!editingUnit) return;
     const fd = new FormData(e.currentTarget);
+    const pacsPort = fd.get("pacs_port") as string;
     updateUnit.mutate({
       id: editingUnit.id,
       name: fd.get("name") as string,
@@ -101,6 +109,10 @@ export default function AdminPage() {
       orthanc_base_url: fd.get("orthanc_base_url") as string || undefined,
       orthanc_public_url: fd.get("orthanc_public_url") as string || undefined,
       isActive: fd.get("isActive") === "on",
+      pacs_ip: fd.get("pacs_ip") as string || undefined,
+      pacs_port: pacsPort ? Number(pacsPort) : undefined,
+      pacs_ae_title: fd.get("pacs_ae_title") as string || undefined,
+      pacs_local_ae_title: fd.get("pacs_local_ae_title") as string || undefined,
     });
   };
 
@@ -389,6 +401,37 @@ export default function AdminPage() {
                   <Label htmlFor="cu-pub" className="text-sm">URL Pública (Mikrotik NAT)</Label>
                   <Input id="cu-pub" name="orthanc_public_url" placeholder="http://45.189.160.17:8042" className="h-9" />
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Usuário Orthanc</Label>
+                    <Input name="orthanc_basic_user" placeholder="orthanc" className="h-9" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Senha Orthanc</Label>
+                    <Input name="orthanc_basic_pass" type="password" placeholder="••••••" className="h-9" />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="border-t pt-3">
+              <p className="text-xs font-semibold text-gray-600 mb-3">Configuração PACS (DICOM)</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-sm">IP do PACS</Label>
+                  <Input name="pacs_ip" placeholder="179.67.254.135" className="h-9" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Porta PACS</Label>
+                  <Input name="pacs_port" type="number" placeholder="11112" className="h-9" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">AE Title do PACS</Label>
+                  <Input name="pacs_ae_title" placeholder="PACSML" maxLength={16} className="h-9" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">AE Title Local</Label>
+                  <Input name="pacs_local_ae_title" placeholder="PACSMANUS" maxLength={16} className="h-9" />
+                </div>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
@@ -429,6 +472,27 @@ export default function AdminPage() {
                   <div className="space-y-1.5">
                     <Label className="text-sm">URL Pública (Mikrotik NAT)</Label>
                     <Input name="orthanc_public_url" defaultValue={(editingUnit as any).orthanc_public_url || ""} placeholder="http://45.189.160.17:8042" className="h-9" />
+                  </div>
+                </div>
+              </div>
+              <div className="border-t pt-3">
+                <p className="text-xs font-semibold text-gray-600 mb-3">Configuração PACS (DICOM)</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">IP do PACS</Label>
+                    <Input name="pacs_ip" defaultValue={(editingUnit as any).pacs_ip || ""} placeholder="179.67.254.135" className="h-9" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Porta PACS</Label>
+                    <Input name="pacs_port" type="number" defaultValue={(editingUnit as any).pacs_port || ""} placeholder="11112" className="h-9" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">AE Title do PACS</Label>
+                    <Input name="pacs_ae_title" defaultValue={(editingUnit as any).pacs_ae_title || ""} placeholder="PACSML" maxLength={16} className="h-9" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">AE Title Local</Label>
+                    <Input name="pacs_local_ae_title" defaultValue={(editingUnit as any).pacs_local_ae_title || "PACSMANUS"} placeholder="PACSMANUS" maxLength={16} className="h-9" />
                   </div>
                 </div>
               </div>
@@ -477,6 +541,7 @@ export default function AdminPage() {
                 <Label className="text-sm">Perfil *</Label>
                 <select name="role" required className="h-9 w-full rounded-md border border-gray-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   <option value="viewer">Visualizador</option>
+                  <option value="operador">Operador</option>
                   <option value="medico">Médico</option>
                   <option value="unit_admin">Admin Unidade</option>
                   <option value="admin_master">Admin Master</option>

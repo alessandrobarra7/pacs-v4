@@ -129,7 +129,7 @@ export async function createLocalUser(data: {
   email?: string;
   name: string;
   password_hash: string;
-  role: 'admin_master' | 'unit_admin' | 'medico' | 'viewer';
+  role: 'admin_master' | 'unit_admin' | 'medico' | 'viewer' | 'operador';
   unit_id?: number;
 }) {
   const db = await getDb();
