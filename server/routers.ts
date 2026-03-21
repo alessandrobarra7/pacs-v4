@@ -15,6 +15,7 @@ import {
   deleteUnit,
   getStudiesByUnitId,
   getStudyById,
+  getStudyByInstanceUid,
   getTemplatesByUnitId,
   getGlobalTemplates,
   getTemplateById,
@@ -689,6 +690,16 @@ export const appRouter = router({
             message: 'Database não disponível',
           });
         }
+
+        // CRITÍCO 2: Validar ownership do estudo (previne IDOR)
+        const unitIdFilter = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
+        const studyOwnership = await getStudyByInstanceUid(input.studyInstanceUid, unitIdFilter);
+        if (!studyOwnership) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Acesso negado: estudo não pertence à sua unidade.',
+          });
+        }
         
         // Get user's unit to access PACS configuration
         const [unit] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id!)).limit(1);
@@ -784,15 +795,25 @@ export const appRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database não disponível' });
         
-        if (!ctx.user.unit_id) {
+        if (!ctx.user.unit_id && ctx.user.role !== 'admin_master') {
           throw new TRPCError({
             code: 'FORBIDDEN',
-            message: 'Usuario nao esta associado a nenhuma unidade. Entre em contato com o administrador.',
+            message: 'Usuário não está associado a nenhuma unidade. Entre em contato com o administrador.',
+          });
+        }
+
+        // CRÍTICO 2: Validar ownership do estudo (previne IDOR)
+        const unitIdFilter = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
+        const studyOwnership = await getStudyByInstanceUid(input.studyInstanceUid, unitIdFilter);
+        if (!studyOwnership) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Acesso negado: estudo não pertence à sua unidade.',
           });
         }
         
-        const [unitData] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id)).limit(1);
-        if (!unitData) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unidade nao encontrada' });
+        const [unitData] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id!)).limit(1);
+        if (!unitData) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unidade não encontrada' });
         
         const orthancInternalUrl = unitData.orthanc_base_url;
         // URL pública via Mikrotik NAT (para o frontend abrir o viewer diretamente)

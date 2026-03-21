@@ -245,6 +245,18 @@ export async function createStudyCache(study: InsertStudyCache) {
   return Number(result[0].insertId);
 }
 
+// Busca estudo por study_instance_uid validando unit_id (previne IDOR)
+export async function getStudyByInstanceUid(studyInstanceUid: string, unitId?: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const conditions = [eq(studies_cache.study_instance_uid, studyInstanceUid)];
+  if (unitId !== undefined) {
+    conditions.push(eq(studies_cache.unit_id, unitId));
+  }
+  const result = await db.select().from(studies_cache).where(and(...conditions)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
 // Templates helpers
 export async function getTemplatesByUnitId(unitId: number) {
   const db = await getDb();

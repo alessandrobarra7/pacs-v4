@@ -26,6 +26,18 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
+
+// CRÍTICO 3: Rate limiting para prevenir brute force no login
+const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 10, // máximo de 10 tentativas por IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
+  skipSuccessfulRequests: true, // não conta tentativas bem-sucedidas
+});
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -49,6 +61,31 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+
+  // MELHORIA: Headers de segurança HTTP com helmet.js
+  app.use(helmet({
+    contentSecurityPolicy: false, // desativado para compatibilidade com OHIF/Cornerstone
+    crossOriginEmbedderPolicy: false,
+  }));
+
+  // MELHORIA: CORS explícito para origens permitidas
+  const allowedOrigins = [
+    'https://lauds.com.br',
+    'http://localhost:3000',
+    'http://localhost:5173',
+  ];
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
+
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -201,6 +238,9 @@ async function startServer() {
       }
     }
   });
+
+  // CRÍTICO 3: Rate limiting aplicado especificamente na rota de login
+  app.use('/api/trpc/auth.login', loginRateLimiter);
 
   // tRPC API
   app.use(

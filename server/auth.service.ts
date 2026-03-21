@@ -3,8 +3,22 @@ import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
 import { getDb, getUserByUsernameOrEmail, getUserById } from './db';
 import { users } from '../drizzle/schema';
+import { ENV } from './_core/env';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-change-in-production';
+// Falha imediatamente se JWT_SECRET não estiver definido em produção
+function getJwtSecret(): string {
+  const secret = ENV.cookieSecret;
+  if (!secret || secret.trim() === '') {
+    if (ENV.isProduction) {
+      throw new Error('[FATAL] JWT_SECRET não está definido. Defina JWT_SECRET no arquivo .env antes de iniciar o servidor em produção.');
+    }
+    console.warn('[WARN] JWT_SECRET não definido. Usando chave temporária APENAS para desenvolvimento. NUNCA use em produção.');
+    return 'dev-only-insecure-key-not-for-production';
+  }
+  return secret;
+}
+
+const JWT_SECRET = getJwtSecret();
 const SESSION_DURATION = 24 * 60 * 60 * 1000;
 
 export interface SessionPayload {
@@ -103,6 +117,6 @@ export class AuthService {
   }
 
   static async hashPassword(password: string): Promise<string> {
-    return hash(password, 10);
+    return hash(password, 12); // Custo 12 padronizado (auditoria de segurança)
   }
 }

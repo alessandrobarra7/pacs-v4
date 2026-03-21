@@ -170,3 +170,13 @@
 
 - [ ] Reescrever Login.tsx: replicar fielmente o design do LAUDS de referência (lovable)
 - [ ] Trocar rodapé "Desenvolvido por Manus" por "Desenvolvimento StudioBarra7"
+
+## AUDITORIA DE SEGURANÇA — Correções Críticas
+
+- [x] CRÍTICO 1: JWT_SECRET — remover fallback inseguro, falhar cedo se não definido
+- [x] CRÍTICO 2: IDOR em startViewer e getViewerUrl — validar unit_id do usuário
+- [x] CRÍTICO 3: Rate limiting no auth.login — express-rate-limit (10 tentativas/15min)
+- [x] CRÍTICO 4: Padronizar custo bcrypt para 12 em todos os lugares
+- [x] MELHORIA: Adicionar helmet.js para headers HTTP de segurança
+- [x] MELHORIA: Configurar CORS explicitamente
+- [x] MELHORIA: Centralizar JWT_SECRET em server/_core/env.ts (via ENV.cookieSecret)
