@@ -124,7 +124,7 @@ export default function Studies() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {studiesData.items.map((study) => (
+                  {studiesData.items.map((study: any) => (
                     <TableRow key={study.id}>
                       <TableCell className="font-medium">
                         {study.patient_name || "Não informado"}

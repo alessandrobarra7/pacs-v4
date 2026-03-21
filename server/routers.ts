@@ -70,7 +70,9 @@ export const appRouter = router({
         });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, sessionToken, cookieOptions);
-        return { success: true, user };
+        
+        const { password_hash, ...userWithoutPassword } = user;
+        return { success: true, user: userWithoutPassword };
       }),
 
     createLocalUser: adminProcedure
