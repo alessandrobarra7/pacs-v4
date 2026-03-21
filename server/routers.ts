@@ -55,7 +55,13 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         try {
           const user = await AuthService.validateCredentials(input.login, input.password);
-          const { token } = AuthService.createSession(user);
+          // Usa sdk.signSession para gerar JWT no formato esperado pelo sdk.authenticateRequest
+          // O payload precisa ter { openId, appId, name } para ser lido pelo verifySession
+          const token = await sdk.signSession({
+            openId: user.openId,
+            appId: process.env.VITE_APP_ID ?? 'pacs-local',
+            name: user.name ?? user.username ?? 'Usuário',
+          });
           const cookieOptions = getSessionCookieOptions(ctx.req);
           ctx.res.cookie(COOKIE_NAME, token, cookieOptions);
           const sanitizedUser = AuthService.sanitizeUser(user);
