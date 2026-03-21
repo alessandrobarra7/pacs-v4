@@ -1,11 +1,12 @@
-import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { COOKIE_NAME } from "@shared/const";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router, protectedProcedure, adminProcedure } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { sdk } from "./_core/sdk";
+import { AuthService } from "./auth.service";
 import {
   getAllUnits,
   getUnitById,
@@ -51,28 +52,21 @@ export const appRouter = router({
         password: z.string().min(1),
       }))
       .mutation(async ({ input, ctx }) => {
-        const user = await getUserByUsernameOrEmail(input.login);
-        if (!user || !user.password_hash) {
-          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Credenciais inválidas' });
+        try {
+          const user = await AuthService.validateCredentials(input.login, input.password);
+          const { token } = AuthService.createSession(user);
+          const cookieOptions = getSessionCookieOptions(ctx.req);
+          ctx.res.cookie(COOKIE_NAME, token, cookieOptions);
+          const sanitizedUser = AuthService.sanitizeUser(user);
+          return { success: true, user: sanitizedUser };
+        } catch (error: any) {
+          const message = error.message === 'USER_NOT_FOUND' || error.message === 'INVALID_PASSWORD'
+            ? 'Credenciais inválidas'
+            : error.message === 'USER_INACTIVE'
+              ? 'Usuário inativo'
+              : 'Erro ao fazer login';
+          throw new TRPCError({ code: 'UNAUTHORIZED', message });
         }
-        if (!user.isActive) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário inativo' });
-        }
-        const valid = await bcrypt.compare(input.password, user.password_hash);
-        if (!valid) {
-          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Credenciais inválidas' });
-        }
-        // Create session token
-        const sessionToken = await sdk.signSession({
-          openId: user.openId,
-          appId: 'local',
-          name: user.name ?? user.username ?? '',
-        });
-        const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(COOKIE_NAME, sessionToken, cookieOptions);
-        
-        const { password_hash, ...userWithoutPassword } = user;
-        return { success: true, user: userWithoutPassword };
       }),
 
     createLocalUser: adminProcedure
