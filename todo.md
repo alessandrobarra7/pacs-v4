@@ -180,3 +180,13 @@
 - [x] MELHORIA: Adicionar helmet.js para headers HTTP de segurança
 - [x] MELHORIA: Configurar CORS explicitamente
 - [x] MELHORIA: Centralizar JWT_SECRET em server/_core/env.ts (via ENV.cookieSecret)
+
+## ETAPA 2 — Integração DICOM C-FIND (rxhtl 179.67.254.135:11112 PACSML)
+
+- [ ] Simplificar schema de Unidades: manter apenas nome, ip, porta, ae_title, ae_title_local, isActive
+- [ ] Simplificar formulário de Unidades no AdminPage.tsx (remover campos Orthanc/Mikrotik)
+- [ ] Instalar biblioteca DICOM para Node.js (dicom-dimse)
+- [ ] Criar server/dicom.service.ts com função cFind(ip, port, aeTitle, filters)
+- [ ] Criar endpoint tRPC studies.queryPACS para buscar via C-FIND
+- [ ] Atualizar frontend da worklist para exibir estudos reais do PACS
+- [ ] Testar busca real contra rxhtl (179.67.254.135:11112, PACSML)

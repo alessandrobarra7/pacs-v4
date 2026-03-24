@@ -34,6 +34,7 @@ import {
 import { units, studies_cache } from "../drizzle/schema";
 import { eq, and, like } from "drizzle-orm";
 import { queryStudiesLocal, queryStudiesRemote, getDicomWebUrl, checkOrthancHealth } from "./orthanc";
+import { cFind } from "./dicom.service";
 
 export const appRouter = router({
   system: systemRouter,
@@ -555,13 +556,14 @@ export const appRouter = router({
           });
         }
         
-        // Verifica se Orthanc está configurado (preferência) ou PACS direto
+        // Verifica se tem PACS direto (IP + Porta + AE Title) — modo preferencial
+        const hasDicomDirect = !!(unit.pacs_ip && unit.pacs_port && unit.pacs_ae_title);
         const orthancUrl = unit.orthanc_base_url;
         
-        if (!orthancUrl && (!unit.pacs_ip || !unit.pacs_port || !unit.pacs_ae_title)) {
+        if (!hasDicomDirect && !orthancUrl) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
-            message: 'Configure a URL do Orthanc ou os parâmetros PACS (IP, porta, AE Title) para esta unidade.',
+            message: 'Configure o IP, Porta e AE Title da unidade para consultar o PACS.',
           });
         }
         
@@ -604,42 +606,50 @@ export const appRouter = router({
         };
         
         try {
-          let result;
+          let studies: any[] = [];
           
-          if (orthancUrl) {
-            // MODO ORTHANC: Busca estudos já armazenados no Orthanc local via /tools/find
-            // O Orthanc em 172.16.3.241:8042 já recebe e armazena os exames das unidades
-            console.log('[PACS Query] Buscando estudos locais no Orthanc:', orthancUrl);
-            result = await queryStudiesLocal(orthancUrl, filters);
-            
-            // Log do resultado
-            console.log(`[PACS Query] Encontrados ${result.count} estudos no Orthanc local`);
-          } else {
-            // MODO LEGADO: Usa pynetdicom direto (Python script) - apenas se orthanc_base_url não estiver configurado
-            console.log('[PACS Query] Usando pynetdicom direto (legado - sem orthanc_base_url)');
-            const queryInput = {
-              pacs_ip: unit.pacs_ip,
-              pacs_port: unit.pacs_port,
-              pacs_ae_title: unit.pacs_ae_title,
-              local_ae_title: unit.pacs_local_ae_title || 'PACSMANUS',
-              filters: {
-                patient_name: input.patientName,
-                patient_id: input.patientId,
-                modality: input.modality,
-                study_date: studyDate,
-                accession_number: input.accessionNumber,
+          if (hasDicomDirect) {
+            // MODO DICOM DIRETO: C-FIND via IP, Porta e AE Title
+            console.log(`[PACS Query] C-FIND direto → ${unit.pacs_ip}:${unit.pacs_port} AE=${unit.pacs_ae_title}`);
+            studies = await cFind(
+              {
+                ip: unit.pacs_ip!,
+                port: unit.pacs_port!,
+                remoteAeTitle: unit.pacs_ae_title!,
+                localAeTitle: unit.pacs_local_ae_title || 'LAUDS',
               },
-            };
-            const { execFile } = await import('child_process');
-            const { promisify } = await import('util');
-            const execFileAsync = promisify(execFile);
-            const scriptPath = new URL('./dicom_query.sh', import.meta.url).pathname;
-            const { stdout } = await execFileAsync(
-              '/bin/bash',
-              [scriptPath, JSON.stringify(queryInput)],
-              { timeout: 60000 }
+              {
+                patientName: filters.patientName ? `*${filters.patientName}*` : undefined,
+                patientID: filters.patientId,
+                studyDate: filters.studyDate,
+                modality: filters.modality,
+                accessionNumber: filters.accessionNumber,
+              }
             );
-            result = JSON.parse(stdout);
+            console.log(`[PACS Query] C-FIND retornou ${studies.length} estudos`);
+            // Normaliza campos para compatibilidade com o frontend
+            studies = studies.map((s: any) => ({
+              studyInstanceUid: s.studyInstanceUID || s.studyInstanceUid || '',
+              patientName: (s.patientName || '').replace(/\^+/g, ' ').trim(),
+              patientID: s.patientID || s.patientId || '',
+              patientBirthDate: s.patientBirthDate || '',
+              patientSex: s.patientSex || '',
+              studyDate: s.studyDate || '',
+              studyTime: s.studyTime || '',
+              modality: s.modality || '',
+              studyDescription: s.studyDescription || '',
+              accessionNumber: s.accessionNumber || '',
+              numberOfSeries: s.numberOfSeries || 0,
+              numberOfInstances: s.numberOfInstances || 0,
+              retrieveAeTitle: s.retrieveAeTitle || '',
+              source: 'dicom_direct',
+            }));
+          } else if (orthancUrl) {
+            // MODO ORTHANC: Busca estudos armazenados no Orthanc local
+            console.log('[PACS Query] Buscando estudos no Orthanc:', orthancUrl);
+            const result = await queryStudiesLocal(orthancUrl, filters);
+            studies = result.studies || [];
+            console.log(`[PACS Query] Orthanc retornou ${studies.length} estudos`);
           }
           
           // Log audit
@@ -653,22 +663,14 @@ export const appRouter = router({
             user_agent: ctx.req.headers['user-agent'],
             metadata: {
               ...input,
-              orthanc_url: orthancUrl,
-              results_count: result.count || 0,
+              results_count: studies.length,
             },
           });
           
-          if (!result.success) {
-            throw new TRPCError({
-              code: 'INTERNAL_SERVER_ERROR',
-              message: `Erro ao consultar PACS: ${result.error}`,
-            });
-          }
-          
           return {
             success: true,
-            studies: result.studies || [],
-            count: result.count || 0,
+            studies,
+            count: studies.length,
           };
           
         } catch (error: any) {
