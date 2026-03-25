@@ -1,0 +1,391 @@
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║          LAUDS — PACS PORTAL  │  RELATÓRIO DE AUDITORIA DO SISTEMA              ║
+║          Data: 25/03/2026  │  Versão: 2fee251  │  Ambiente: Produção            ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 1. VISÃO GERAL DO PROJETO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Nome:         LAUDS — Sistema de Gestão de Laudos Radiológicos
+  URL Produção: https://lauds.com.br
+  Repositório:  https://github.com/alessandrobarra7/pacs-v4.git
+  Branch:       main (HEAD: 2fee251)
+  Stack:        React 19 + Tailwind 4 + Express 4 + tRPC 11 + MySQL (TiDB)
+  Infraestrutura:
+    VM1 (Portal): /opt/pacs-portal — Node.js + PM2 — Nginx proxy reverso
+    VM2 (Banco):  172.16.3.101:3306 — MySQL
+  Rede Interna: 172.16.3.0/22 │ Gateway: 172.16.0.1
+  PACS Teste:   rxhtl │ 179.67.254.135:11112 │ AE Title: PACSML │ Protocolo: C-FIND/C-GET
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 2. HISTÓRICO DE COMMITS (Ordem Cronológica)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ab1cb34  Commit inicial — scaffold do projeto
+  0fb26af  Correção de infraestrutura: rede 172.16.3.0/24 → 172.16.3.0/22
+  950f7f9  Módulo Central de Autenticação (auth.service.ts)
+  2c0ea16  Checkpoint Final para Auditoria
+  97e768d  Documentação das Modificações (MODIFICACOES_REALIZADAS.txt)
+  5c0e611  AUDITORIA DE SEGURANÇA — 4 Correções Críticas + 3 Melhorias
+  0f43c99  CRÍTICO: Corrigir auth.login — sdk.signSession com openId
+  9e0d415  CRÍTICO: Corrigir Set-Cookie em produção (Nginx proxy reverso)
+  672fabf  ETAPA 1: Campos PACS nas Unidades + Perfil Operador
+  f9aaf89  ETAPA 2: Integração DICOM C-FIND via dcmjs-dimse
+  2fee251  TESTE: Script de teste C-FIND completo (scripts/test-cfind.mjs)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 3. STATUS ATUAL DE CADA MÓDULO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌─────────────────────────────────┬────────────┬──────────────────────────────────────────┐
+  │ Módulo                          │ Status     │ Observação                               │
+  ├─────────────────────────────────┼────────────┼──────────────────────────────────────────┤
+  │ Login Local (username/senha)    │ ✅ OK      │ Testado e funcionando em lauds.com.br    │
+  │ Login OAuth (Manus)             │ ✅ OK      │ Funciona no ambiente sandbox             │
+  │ Logout                          │ ✅ OK      │ Limpa cookie e redireciona para /login   │
+  │ Sessão / Cookie                 │ ✅ OK      │ Set-Cookie corrigido (Nginx + secure)    │
+  │ Autenticação JWT                │ ✅ OK      │ sdk.signSession com openId correto       │
+  ├─────────────────────────────────┼────────────┼──────────────────────────────────────────┤
+  │ Administração — Unidades        │ ✅ Parcial │ CRUD completo; campos PACS adicionados   │
+  │                                 │            │ FALTA: validar IP/porta no formulário    │
+  │ Administração — Usuários        │ ✅ Parcial │ Criar/listar/deletar funcionando         │
+  │                                 │            │ FALTA: botão Editar usuário              │
+  │ Administração — Auditoria       │ ✅ Básica  │ Registra ações; FALTA: filtros por data  │
+  ├─────────────────────────────────┼────────────┼──────────────────────────────────────────┤
+  │ Worklist / Busca de Estudos     │ ⚠️ Parcial │ Interface pronta; C-FIND implementado    │
+  │                                 │            │ PROBLEMA: retorna 0 estudos na interface │
+  │                                 │            │ (ver seção 4 — causa raiz identificada)  │
+  │ Integração DICOM C-FIND         │ ⚠️ Parcial │ Funciona via CLI (script de teste)       │
+  │                                 │            │ PROBLEMA: timeout/bloqueio via servidor  │
+  │ Visualizador DICOM              │ ⚠️ Parcial │ Página existe (/dicom-viewer/:uid)       │
+  │                                 │            │ FALTA: integração com Cornerstone.js     │
+  ├─────────────────────────────────┼────────────┼──────────────────────────────────────────┤
+  │ Laudo Médico                    │ ⚠️ Básico  │ Página ReportEditorPage.tsx existe       │
+  │                                 │            │ FALTA: editor rich text, assinatura      │
+  │ Templates de Laudo              │ ⚠️ Básico  │ CRUD de templates existe (Templates.tsx) │
+  │                                 │            │ FALTA: vincular ao laudo no editor       │
+  │ Dashboard Operacional           │ ⚠️ Básico  │ Página Dashboard.tsx existe              │
+  │                                 │            │ FALTA: KPIs reais com dados do PACS      │
+  └─────────────────────────────────┴────────────┴──────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 4. PROBLEMA PRINCIPAL: BUSCA DE ESTUDOS RETORNA 0 RESULTADOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  SINTOMA:
+    Ao clicar em "Hoje", "7 Dias", "30 Dias" ou "Buscar" na tela de Estudos,
+    o sistema exibe "0 estudos encontrados" mesmo com o servidor rxhtl ativo.
+
+  LOG DO SERVIDOR (PM2):
+    [PACS Query] C-FIND direto → 179.67.254.135:11112 AE=PACSML
+    PACSML <- Association release response
+    PACSML -> Connection closed
+    [PACS Query] C-FIND retornou 0 estudos
+
+  CAUSA RAIZ IDENTIFICADA:
+    O C-FIND está conectando ao servidor (associação DICOM estabelecida),
+    mas retornando 0 resultados. Há duas hipóteses:
+
+    A) FILTRO DE DATA VAZIO: O campo StudyDate no C-FIND pode estar sendo
+       enviado como string vazia ("") em vez de undefined, fazendo o servidor
+       retornar apenas estudos sem data — que podem não existir.
+
+    B) AE TITLE LOCAL NÃO AUTORIZADO: O servidor rxhtl pode exigir que o
+       AE Title local ("LAUDS") esteja na lista de SCUs autorizados.
+       No script de teste CLI funciona porque usa o mesmo AE Title.
+
+    C) FILTRO DE MODALIDADE "ALL": O campo Modality está sendo enviado como
+       "ALL" em vez de ser omitido, e o servidor pode não reconhecer "ALL"
+       como wildcard — retornando 0 resultados.
+
+  EVIDÊNCIA:
+    Script CLI (test-cfind.mjs) executado diretamente no terminal:
+    → 20 estudos de hoje em 0.5 segundos ✅
+    Mesma chamada via servidor Node.js (tRPC pacs.query):
+    → 0 estudos ❌
+
+  CORREÇÃO NECESSÁRIA:
+    1. No frontend (PacsQueryPage.tsx): enviar modality="" em vez de "ALL"
+    2. No backend (routers.ts): não enviar studyDate se for string vazia
+    3. Verificar se o AE Title local "LAUDS" está autorizado no rxhtl
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 5. SEGURANÇA — STATUS DAS CORREÇÕES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✅ CRÍTICO 1 — JWT_SECRET: Removido fallback inseguro; falha se não definido
+  ✅ CRÍTICO 2 — IDOR em startViewer/getViewerUrl: Validação de unit_id adicionada
+  ✅ CRÍTICO 3 — Rate Limiting: 10 tentativas/15min por IP (express-rate-limit 8.3.1)
+  ✅ CRÍTICO 4 — Bcrypt: Custo padronizado para 12 em todos os lugares
+  ✅ MELHORIA  — helmet.js: Headers HTTP de segurança (X-Frame-Options, CSP, etc.)
+  ✅ MELHORIA  — CORS: Configurado explicitamente para lauds.com.br
+  ✅ MELHORIA  — JWT_SECRET: Centralizado em server/_core/env.ts
+
+  PENDENTE:
+  ⚠️ Blacklist de tokens JWT no logout (tokens ainda válidos após logout)
+  ⚠️ Auditoria de login/logout não registrada no audit_log
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 6. BANCO DE DADOS — ESTRUTURA ATUAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Tabelas existentes:
+  ┌──────────────────┬──────────────────────────────────────────────────────────┐
+  │ Tabela           │ Campos Principais                                        │
+  ├──────────────────┼──────────────────────────────────────────────────────────┤
+  │ units            │ id, name, slug, pacs_ip, pacs_port, pacs_ae_title,       │
+  │                  │ pacs_local_ae_title, orthanc_base_url, isActive          │
+  │ users            │ id, openId, username, password_hash, role, unit_id,      │
+  │                  │ isActive, loginMethod, lastSignedIn                      │
+  │                  │ roles: admin_master, unit_admin, medico, viewer, operador│
+  │ studies_cache    │ id, unit_id, study_instance_uid, patient_name,           │
+  │                  │ study_date, modality, status (cache local de estudos)    │
+  │ templates        │ id, unit_id, name, content, modality, isGlobal           │
+  │ reports          │ id, unit_id, study_uid, content, status, signed_by       │
+  │ audit_log        │ id, user_id, unit_id, action, target_type, ip_address    │
+  │ anamnesis        │ id, unit_id, study_uid, content                          │
+  └──────────────────┴──────────────────────────────────────────────────────────┘
+
+  Migrations aplicadas: 0000 → 0007 (8 migrations)
+  Última migration: 0007 — Adição do perfil "operador" ao enum de roles
+
+  PENDENTE EM PRODUÇÃO (VM2):
+  ⚠️ Migration 0007 (operador) precisa ser aplicada manualmente:
+     ALTER TABLE `users` MODIFY COLUMN `role`
+     enum('admin_master','unit_admin','medico','viewer','operador')
+     NOT NULL DEFAULT 'viewer';
+
+  ⚠️ Colunas pacs_ip, pacs_port, pacs_ae_title, pacs_local_ae_title
+     precisam existir na tabela units de produção.
+     Verificar com: DESCRIBE units;
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 7. ROTAS DO SISTEMA (Frontend)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /login                          → Tela de login local (username/senha)
+  /                               → Redireciona para /pacs-query
+  /pacs-query                     → Worklist / Busca de Estudos (PRINCIPAL)
+  /admin                          → Administração (Unidades, Usuários, Auditoria)
+  /dashboard                      → Dashboard Operacional (KPIs)
+  /units                          → Gestão de Unidades (página alternativa)
+  /studies                        → Lista de estudos em cache
+  /templates                      → Templates de Laudo
+  /dicom-viewer/:studyUid         → Visualizador DICOM
+  /reports/create/:studyUid       → Editor de Laudo
+  /viewer/:studyId                → Viewer alternativo
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 8. ENDPOINTS tRPC (Backend)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  auth.login          → Login local com username/senha
+  auth.me             → Retorna usuário autenticado atual
+  auth.logout         → Logout (limpa cookie)
+  auth.createLocalUser→ Cria usuário local (admin_master only)
+
+  units.list          → Lista unidades
+  units.create        → Cria unidade (com campos PACS)
+  units.update        → Atualiza unidade
+  units.delete        → Remove unidade
+
+  users.list          → Lista usuários
+  users.create        → Cria usuário
+  users.delete        → Remove usuário
+  users.updateRole    → Atualiza perfil do usuário
+
+  pacs.query          → Busca estudos via C-FIND (PROBLEMA: retorna 0)
+  pacs.startViewer    → Inicia visualizador DICOM
+  pacs.getViewerUrl   → Obtém URL do visualizador
+
+  studies.list        → Lista estudos em cache
+  studies.getByUid    → Busca estudo por UID
+
+  reports.create      → Cria laudo
+  reports.update      → Atualiza laudo
+  reports.finalize    → Finaliza laudo
+  reports.sign        → Assina laudo
+
+  templates.list      → Lista templates
+  templates.create    → Cria template
+  templates.update    → Atualiza template
+  templates.delete    → Remove template
+
+  audit.list          → Lista log de auditoria
+
+  system.notifyOwner  → Envia notificação ao proprietário
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 9. O QUE FALTA IMPLEMENTAR (Prioridade)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  PRIORIDADE ALTA (Bloqueante para uso em produção):
+  ─────────────────────────────────────────────────
+  [ ] CORREÇÃO: C-FIND retorna 0 estudos na interface web
+      → Corrigir envio de modality="" e studyDate vazio no frontend
+      → Verificar se AE Title "LAUDS" está autorizado no rxhtl
+
+  [ ] CORREÇÃO: Aplicar migrations pendentes em produção (VM2)
+      → Adicionar colunas pacs_ip, pacs_port, pacs_ae_title na tabela units
+      → Adicionar perfil "operador" ao enum de roles
+
+  [ ] CORREÇÃO: Cadastrar unidade rxhtl em produção
+      → Inserir unidade com IP=179.67.254.135, Porta=11112, AE=PACSML
+      → Vincular usuário root à unidade rxhtl
+
+  PRIORIDADE MÉDIA (Funcionalidades principais):
+  ───────────────────────────────────────────────
+  [ ] Visualizador DICOM funcional
+      → Integrar Cornerstone.js com WADO-RS ou WADO-URI
+      → Conectar ao Orthanc/PACS via URL pública
+
+  [ ] Editor de Laudo completo
+      → Rich text editor (TipTap ou Quill)
+      → Seleção de template por modalidade
+      → Assinatura digital do médico
+      → Impressão/PDF do laudo
+
+  [ ] Worklist com status do exame
+      → Status: Recebido → Pendente → Em Laudo → Finalizado
+      → Filtro por status, unidade, médico, modalidade
+      → Indicador visual de urgência
+
+  PRIORIDADE BAIXA (Melhorias):
+  ──────────────────────────────
+  [ ] Dashboard Operacional com KPIs reais
+      → Exames por status, por unidade, por médico, por modalidade
+      → Gráfico de produtividade diária/semanal/mensal
+
+  [ ] Editar usuário (AdminPage)
+      → Botão Editar além de Deletar
+      → Alterar senha, perfil, unidade
+
+  [ ] Auditoria de login/logout
+      → Registrar no audit_log quando usuário faz login/logout
+
+  [ ] Blacklist de tokens JWT no logout
+      → Invalidar token no servidor ao fazer logout
+
+  [ ] Filtros de auditoria por data e tipo de ação
+
+  [ ] Simplificação do formulário de Unidades
+      → Remover campos desnecessários (URL Orthanc, usuário/senha)
+      → Manter apenas: Nome, IP, Porta, AE Title
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 10. DEPENDÊNCIAS INSTALADAS (package.json)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Novas dependências adicionadas nesta sessão:
+  ─────────────────────────────────────────────
+  dcmjs-dimse        → Protocolo DICOM C-FIND/C-GET/C-MOVE
+  dicom-dimse        → Biblioteca DICOM alternativa (mantida como fallback)
+  jsonwebtoken       → Criação e verificação de JWT
+  @types/jsonwebtoken→ Tipos TypeScript para jsonwebtoken
+  express-rate-limit → Rate limiting (10 tentativas/15min no login)
+  helmet             → Headers HTTP de segurança
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 11. INSTRUÇÕES DE DEPLOY EM PRODUÇÃO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Passo 1 — Atualizar código:
+    cd /opt/pacs-portal
+    git pull origin main
+    pnpm install
+    pnpm build
+    pm2 restart pacs-portal
+
+  Passo 2 — Aplicar migrations no banco de dados (VM2):
+    mysql -u pacs_user -pPacsPortal2025 -h 172.16.3.101 pacs_portal << 'SQL'
+    -- Adicionar colunas PACS na tabela units (se não existirem)
+    ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `pacs_ip` varchar(45);
+    ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `pacs_port` int;
+    ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `pacs_ae_title` varchar(16);
+    ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `pacs_local_ae_title` varchar(16) DEFAULT 'PACSMANUS';
+    ALTER TABLE `units` ADD COLUMN IF NOT EXISTS `orthanc_public_url` varchar(500);
+    -- Adicionar perfil operador
+    ALTER TABLE `users` MODIFY COLUMN `role`
+      enum('admin_master','unit_admin','medico','viewer','operador')
+      NOT NULL DEFAULT 'viewer';
+    SQL
+
+  Passo 3 — Cadastrar unidade rxhtl em produção:
+    mysql -u pacs_user -pPacsPortal2025 -h 172.16.3.101 pacs_portal << 'SQL'
+    INSERT INTO units (name, slug, pacs_ip, pacs_port, pacs_ae_title, pacs_local_ae_title)
+    VALUES ('rxhtl', 'rxhtl', '179.67.254.135', 11112, 'PACSML', 'LAUDS')
+    ON DUPLICATE KEY UPDATE pacs_ip='179.67.254.135', pacs_port=11112,
+      pacs_ae_title='PACSML', pacs_local_ae_title='LAUDS';
+    SQL
+
+  Passo 4 — Vincular usuário root à unidade rxhtl:
+    mysql -u pacs_user -pPacsPortal2025 -h 172.16.3.101 pacs_portal << 'SQL'
+    UPDATE users SET unit_id = (SELECT id FROM units WHERE slug='rxhtl')
+    WHERE username = 'root';
+    SQL
+
+  Passo 5 — Testar C-FIND em produção:
+    cd /opt/pacs-portal
+    node scripts/test-cfind.mjs --limit 10
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 12. CREDENCIAIS DE ACESSO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Sistema LAUDS (Produção):
+    URL:    https://lauds.com.br
+    Login:  root
+    Senha:  Admin@2025
+    Perfil: admin_master
+
+  Banco de Dados (VM2):
+    Host:   172.16.3.101:3306
+    DB:     pacs_portal
+    User:   pacs_user
+    Senha:  PacsPortal2025
+
+  Servidor PACS Teste (rxhtl):
+    IP:       179.67.254.135
+    Porta:    11112
+    AE Title: PACSML
+    Protocolo: DICOM C-FIND / C-GET
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 13. ANDAMENTO GERAL DO PROJETO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Progresso estimado por área:
+
+  Infraestrutura / Deploy:     ████████████████░░░░  80%
+  Autenticação / Segurança:    ████████████████████  95%
+  Administração (CRUD):        ████████████████░░░░  80%
+  Integração DICOM C-FIND:     ████████████░░░░░░░░  60%
+  Worklist / Busca de Estudos: ████████░░░░░░░░░░░░  40%
+  Visualizador DICOM:          ████░░░░░░░░░░░░░░░░  20%
+  Laudo Médico:                ████░░░░░░░░░░░░░░░░  20%
+  Templates de Laudo:          ████████░░░░░░░░░░░░  40%
+  Dashboard / KPIs:            ████░░░░░░░░░░░░░░░░  20%
+
+  PROGRESSO GERAL:             ██████████░░░░░░░░░░  ~50%
+
+  Próxima ação prioritária:
+  → Corrigir C-FIND retornando 0 estudos na interface web
+  → Aplicar migrations em produção (VM2)
+  → Cadastrar unidade rxhtl em produção e vincular ao usuário root
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Gerado em: 25/03/2026 │ LAUDS — Sistema de Gestão de Laudos Radiológicos
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
