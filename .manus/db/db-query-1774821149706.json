@@ -1,0 +1,18 @@
+{
+  "query": "SELECT id, name, pacs_ip, pacs_port, pacs_ae_title, pacs_local_ae_title FROM units ORDER BY id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, name, pacs_ip, pacs_port, pacs_ae_title, pacs_local_ae_title FROM units ORDER BY id;",
+  "rows": [
+    {
+      "id": "180001",
+      "name": "rxhtl",
+      "pacs_ip": "179.67.254.135",
+      "pacs_port": "11112",
+      "pacs_ae_title": "PACSML",
+      "pacs_local_ae_title": "LAUDS"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tpacs_ip\tpacs_port\tpacs_ae_title\tpacs_local_ae_title\n180001\trxhtl\t179.67.254.135\t11112\tPACSML\tLAUDS\n",
+  "stderr": "",
+  "execution_time_ms": 192
+}
