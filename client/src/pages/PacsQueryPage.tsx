@@ -1,27 +1,72 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import {
-  Search,
-  Eye,
-  FileText,
-  Calendar,
-  Clock,
-  Edit2,
-  Printer,
-  UserCircle,
-  Clipboard,
-  ExternalLink,
-  LogOut,
-  Settings,
+  Search, Eye, FileText, Clock, Printer, UserCircle,
+  Clipboard, ExternalLink, LogOut, Settings,
+  ChevronLeft, ChevronRight, Monitor,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
 import { canReport, canAccessAdmin, canFillAnamnesis, canViewDICOM, type UserRole } from "../../../shared/permissions";
+
+const PAGE_SIZE = 20;
+
+/** Converte data DICOM (YYYYMMDD) + hora (HHMMSS) em objeto Date */
+function parseDicomDateTime(date: string, time?: string): Date | null {
+  if (!date || date.length < 8) return null;
+  const y = date.slice(0, 4), m = date.slice(4, 6), d = date.slice(6, 8);
+  const h = time ? time.slice(0, 2) : '00';
+  const mi = time ? time.slice(2, 4) : '00';
+  const s = time ? time.slice(4, 6) : '00';
+  return new Date(`${y}-${m}-${d}T${h}:${mi}:${s}`);
+}
+
+/** Retorna string relativa: "5d14h32m", "2h15m", "45m" */
+function relativeTime(dt: Date | null): string {
+  if (!dt) return '-';
+  const diff = Math.floor((Date.now() - dt.getTime()) / 1000);
+  if (diff < 0) return 'agora';
+  const d = Math.floor(diff / 86400);
+  const h = Math.floor((diff % 86400) / 3600);
+  const m = Math.floor((diff % 3600) / 60);
+  if (d > 0) return `${d}d${h}h${m}m`;
+  if (h > 0) return `${h}h${m}m`;
+  return `${m}m`;
+}
+
+/** Formata data DICOM para exibição: DD/MM/YYYY */
+function formatDate(dicomDate: string): string {
+  if (!dicomDate || dicomDate.length < 8) return '-';
+  return `${dicomDate.slice(6, 8)}/${dicomDate.slice(4, 6)}/${dicomDate.slice(0, 4)}`;
+}
+
+/** Calcula idade a partir de data de nascimento DICOM */
+function calcAge(birthDate: string): string {
+  if (!birthDate || birthDate.length < 8) return '';
+  const birth = new Date(`${birthDate.slice(0, 4)}-${birthDate.slice(4, 6)}-${birthDate.slice(6, 8)}`);
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const m = now.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
+  if (age < 0 || age > 130) return '';
+  if (age < 1) {
+    const months = Math.floor((now.getTime() - birth.getTime()) / (1000 * 60 * 60 * 24 * 30));
+    return `${months}M`;
+  }
+  return `${age}A`;
+}
+
+/** Normaliza sexo DICOM */
+function formatSex(sex: string): string {
+  if (!sex) return '';
+  const s = sex.toUpperCase().trim();
+  if (s === 'M') return 'Masculino';
+  if (s === 'F') return 'Feminino';
+  return sex;
+}
 
 export function PacsQueryPage() {
   const [, navigate] = useLocation();
@@ -34,21 +79,15 @@ export function PacsQueryPage() {
   const isAdmin = canAccessAdmin(userRole);
   const isAdminMaster = user?.role === 'admin_master';
 
-  // admin_master pode escolher qualquer unidade; outros usam a unidade do próprio perfil
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
   const effectiveUnitId = isAdminMaster ? selectedUnitId : (user?.unit_id || null);
 
-  const { data: allUnits = [] } = trpc.units.list.useQuery(
-    undefined,
-    { enabled: isAdminMaster }
-  );
-
+  const { data: allUnits = [] } = trpc.units.list.useQuery(undefined, { enabled: isAdminMaster });
   const { data: unitData } = trpc.units.getById.useQuery(
     { id: effectiveUnitId || 0 },
     { enabled: !!effectiveUnitId }
   );
 
-  // Inicializa selectedUnitId para admin_master com a primeira unidade disponível
   useEffect(() => {
     if (isAdminMaster && allUnits.length > 0 && selectedUnitId === null) {
       setSelectedUnitId(allUnits[0].id);
@@ -57,35 +96,31 @@ export function PacsQueryPage() {
 
   const unitName = unitData?.name || (effectiveUnitId ? 'Carregando...' : 'Sem unidade');
   const unitAeTitle = (unitData as any)?.pacs_ae_title || '';
-
   const cacheKey = `pacs_query_results_unit_${effectiveUnitId || 'none'}`;
 
-  const [filters, setFilters] = useState({
-    patientName: "",
-    studyDate: "",
-    period: "today",
-    shift: false,
-  });
-
+  const [filters, setFilters] = useState({ patientName: "", studyDate: "", period: "today", shift: false });
   const [queryResults, setQueryResults] = useState<any[]>(() => {
-    const saved = localStorage.getItem(cacheKey);
-    return saved ? JSON.parse(saved) : [];
+    try { return JSON.parse(localStorage.getItem(cacheKey) || '[]'); } catch { return []; }
   });
   const [isQuerying, setIsQuerying] = useState(false);
   const [isAnamnesisModalOpen, setIsAnamnesisModalOpen] = useState(false);
   const [selectedStudy, setSelectedStudy] = useState<any>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
-  // Limpa resultados ao trocar de unidade
   useEffect(() => {
-    const saved = localStorage.getItem(cacheKey);
-    setQueryResults(saved ? JSON.parse(saved) : []);
+    try { setQueryResults(JSON.parse(localStorage.getItem(cacheKey) || '[]')); } catch { setQueryResults([]); }
+    setCurrentPage(1);
   }, [cacheKey]);
 
   useEffect(() => {
-    if (queryResults.length > 0) {
-      localStorage.setItem(cacheKey, JSON.stringify(queryResults));
-    }
+    if (queryResults.length > 0) localStorage.setItem(cacheKey, JSON.stringify(queryResults));
   }, [queryResults, cacheKey]);
+
+  const totalPages = Math.max(1, Math.ceil(queryResults.length / PAGE_SIZE));
+  const pagedResults = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return queryResults.slice(start, start + PAGE_SIZE);
+  }, [queryResults, currentPage]);
 
   const logoutMutation = trpc.auth.logout.useMutation({
     onSuccess: () => {
@@ -97,6 +132,7 @@ export function PacsQueryPage() {
   const queryPacs = trpc.pacs.query.useMutation({
     onSuccess: (data: any) => {
       setQueryResults(data.studies || []);
+      setCurrentPage(1);
       toast.success(`${data.studies?.length || 0} estudos encontrados`);
       setIsQuerying(false);
     },
@@ -106,50 +142,28 @@ export function PacsQueryPage() {
     },
   });
 
-  const handleSearch = () => {
+  const runQuery = (overrides: Partial<typeof filters> = {}) => {
+    const f = { ...filters, ...overrides };
     setIsQuerying(true);
-    let studyDate = filters.studyDate;
-    if (studyDate && studyDate.includes('-')) {
-      studyDate = studyDate.replace(/-/g, '');
-    }
+    let studyDate = f.studyDate;
+    if (studyDate && studyDate.includes('-')) studyDate = studyDate.replace(/-/g, '');
     queryPacs.mutate({
-      patientName: filters.patientName,
+      patientName: f.patientName,
       patientId: "",
       modality: "",
-      studyDate: studyDate,
-      accessionNumber: "",
-      unit_id: effectiveUnitId || undefined,
-    });
-  };
-
-  const handleTodayExams = () => {
-    setFilters({ ...filters, studyDate: 'TODAY', period: "today" });
-    setIsQuerying(true);
-    queryPacs.mutate({
-      patientName: "",
-      patientId: "",
-      modality: "",
-      studyDate: "TODAY",
+      studyDate,
       accessionNumber: "",
       unit_id: effectiveUnitId || undefined,
     });
   };
 
   const handlePeriodChange = (period: string) => {
-    setFilters({ ...filters, period, studyDate: '' });
-    setIsQuerying(true);
     let studyDate = '';
     if (period === 'today') studyDate = 'TODAY';
     else if (period === '7days') studyDate = 'LAST_7_DAYS';
     else if (period === '30days') studyDate = 'LAST_30_DAYS';
-    queryPacs.mutate({
-      patientName: filters.patientName,
-      patientId: "",
-      modality: "",
-      studyDate: studyDate,
-      accessionNumber: "",
-      unit_id: effectiveUnitId || undefined,
-    });
+    setFilters(f => ({ ...f, period, studyDate }));
+    runQuery({ period, studyDate });
   };
 
   const handleVisualize = (study: any) => {
@@ -159,13 +173,11 @@ export function PacsQueryPage() {
 
   const handleOpenRadiant = (study: any) => {
     if (!study.studyInstanceUid) { toast.error('UID do estudo não disponível'); return; }
-    const radiantUrl = `radiant://?n=1&v=0020000D&v=${study.studyInstanceUid}`;
-    window.location.href = radiantUrl;
+    window.location.href = `radiant://?n=1&v=0020000D&v=${study.studyInstanceUid}`;
     toast.info('Abrindo no RadiAnt DICOM Viewer...');
   };
 
   const handleOpenOrthancViewer = (study: any) => {
-    if (!study.orthancId && !study.studyInstanceUid) { toast.error('ID do estudo não disponível'); return; }
     const orthancBase = (unitData as any)?.orthanc_public_url || (unitData as any)?.orthanc_base_url || 'http://45.189.160.17:8042';
     const viewerUrl = study.orthancId
       ? `${orthancBase}/osimis-viewer/app/index.html?study=${study.orthancId}`
@@ -173,75 +185,74 @@ export function PacsQueryPage() {
     window.open(viewerUrl, '_blank');
   };
 
-  const handleReport = (study: any) => {
-    navigate(`/reports/create/${study.studyInstanceUid}`);
-  };
+  const handleReport = (study: any) => navigate(`/reports/create/${study.studyInstanceUid}`);
 
   const getReportStatus = (study: any) => {
     if (!study.studyInstanceUid) return "Pendente";
-    const hash = study.studyInstanceUid.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-    const statuses = ["Pendente", "Pendente", "Pendente", "Em Andamento", "Concluído"];
-    return statuses[hash % statuses.length];
+    const hash = study.studyInstanceUid.split('').reduce((a: number, c: string) => a + c.charCodeAt(0), 0);
+    return ["Pendente", "Pendente", "Pendente", "Em Andamento", "Concluído"][hash % 5];
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "Pendente": return <Badge variant="outline" className="text-xs border-yellow-300 text-yellow-700 bg-yellow-50">{status}</Badge>;
-      case "Em Andamento": return <Badge variant="outline" className="text-xs border-blue-300 text-blue-700 bg-blue-50">{status}</Badge>;
-      case "Concluído": return <Badge variant="outline" className="text-xs border-green-300 text-green-700 bg-green-50">{status}</Badge>;
-      default: return <Badge variant="outline" className="text-xs">{status}</Badge>;
-    }
+  const statusColors: Record<string, string> = {
+    "Pendente": "bg-yellow-100 text-yellow-800 border-yellow-300",
+    "Em Andamento": "bg-blue-100 text-blue-800 border-blue-300",
+    "Concluído": "bg-green-100 text-green-800 border-green-300",
+  };
+
+  const modalityColor: Record<string, string> = {
+    CT: "bg-purple-100 text-purple-800",
+    CR: "bg-sky-100 text-sky-800",
+    MR: "bg-indigo-100 text-indigo-800",
+    US: "bg-teal-100 text-teal-800",
+    DX: "bg-cyan-100 text-cyan-800",
+    PT: "bg-rose-100 text-rose-800",
   };
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB]">
-      {/* ── HEADER LAUDS ── */}
-      <header className="bg-white border-b border-gray-200 px-6 h-14 flex items-center justify-between">
-        {/* Logo + Unidade */}
-        <div className="flex items-center gap-3">
-          <span className="text-xl font-bold text-gray-900 tracking-tight">LAUDS</span>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+
+      {/* ── HEADER ── */}
+      <header className="bg-white border-b border-gray-200 px-5 h-13 flex items-center justify-between shrink-0" style={{ height: 52 }}>
+        <div className="flex items-center gap-2">
+          <span className="text-lg font-bold text-gray-900 tracking-tight">LAUDS</span>
           {isAdminMaster && allUnits.length > 0 ? (
             <select
               value={selectedUnitId || ''}
               onChange={(e) => setSelectedUnitId(Number(e.target.value))}
-              className="text-sm border border-gray-300 rounded px-2 py-1 text-gray-700 bg-white h-8"
+              className="text-sm border border-gray-300 rounded px-2 py-1 text-gray-700 bg-white h-7"
             >
               {allUnits.map((u) => (
                 <option key={u.id} value={u.id}>{u.name}</option>
               ))}
             </select>
           ) : (
-            <span className="text-sm text-gray-500">{unitName}</span>
+            <span className="text-sm text-gray-500 font-medium">{unitName}</span>
           )}
           {unitAeTitle && (
-            <span className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded border border-gray-200">
+            <span className="text-xs font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border border-gray-200">
               AE: {unitAeTitle}
             </span>
           )}
         </div>
 
-        {/* Navegação central */}
         <nav className="flex items-center gap-1">
-          <button className="px-4 py-1.5 rounded text-sm font-medium bg-blue-600 text-white">
-            Estudos
-          </button>
+          <button className="px-3 py-1.5 rounded text-sm font-medium bg-blue-600 text-white">Estudos</button>
           {isAdmin && (
             <button
               onClick={() => navigate('/admin')}
-              className="px-4 py-1.5 rounded text-sm font-medium text-gray-600 hover:bg-gray-100 flex items-center gap-1.5"
+              className="px-3 py-1.5 rounded text-sm font-medium text-gray-600 hover:bg-gray-100 flex items-center gap-1"
             >
-              <Settings className="h-4 w-4" />
+              <Settings className="h-3.5 w-3.5" />
               Administração
             </button>
           )}
         </nav>
 
-        {/* Usuário + Logout */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <span className="text-sm text-gray-700">{user?.name || 'Usuário'}</span>
           <button
             onClick={() => logoutMutation.mutate()}
-            className="p-1.5 rounded text-gray-500 hover:text-gray-800 hover:bg-gray-100"
+            className="p-1.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100"
             title="Sair"
           >
             <LogOut className="h-4 w-4" />
@@ -250,205 +261,253 @@ export function PacsQueryPage() {
       </header>
 
       {/* ── FILTROS ── */}
-      <div className="bg-white border-b border-gray-200 px-6 py-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          <Input
-            placeholder="Buscar paciente..."
-            value={filters.patientName}
-            onChange={(e) => setFilters({ ...filters, patientName: e.target.value })}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            className="h-9 w-56 text-sm bg-white border-gray-300"
-          />
-          <div className="flex items-center gap-1">
-            {[
-              { key: 'today', label: 'Hoje' },
-              { key: '7days', label: '7 Dias' },
-              { key: '30days', label: '30 Dias' },
-              { key: 'all', label: 'Todos' },
-            ].map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => handlePeriodChange(key)}
-                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                  filters.period === key
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+      <div className="bg-white border-b border-gray-200 px-5 py-2 flex items-center gap-2 flex-wrap shrink-0">
+        <Input
+          placeholder="Buscar paciente..."
+          value={filters.patientName}
+          onChange={(e) => setFilters(f => ({ ...f, patientName: e.target.value }))}
+          onKeyDown={(e) => e.key === 'Enter' && runQuery()}
+          className="h-8 w-48 text-sm bg-white border-gray-300"
+        />
+        <div className="flex items-center gap-1">
+          {[
+            { key: 'today', label: 'Hoje' },
+            { key: '7days', label: '7 Dias' },
+            { key: '30days', label: '30 Dias' },
+            { key: 'all', label: 'Todos' },
+          ].map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => handlePeriodChange(key)}
+              className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border ${
+                filters.period === key
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
           <button
-            onClick={() => setFilters({ ...filters, shift: !filters.shift })}
-            className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors flex items-center gap-1.5 ${
-              filters.shift ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+            onClick={() => { setFilters(f => ({ ...f, shift: !f.shift })); }}
+            className={`px-3 py-1.5 rounded text-xs font-medium border flex items-center gap-1 ${
+              filters.shift ? 'bg-orange-500 text-white border-orange-500' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
             }`}
           >
-            <Clock className="h-3.5 w-3.5" />
+            <Clock className="h-3 w-3" />
             Plantão
           </button>
-          <button
-            onClick={handleSearch}
-            disabled={isQuerying}
-            className="px-4 py-1.5 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 flex items-center gap-1.5"
-          >
-            <Search className="h-3.5 w-3.5" />
-            {isQuerying ? 'Buscando...' : 'Buscar'}
-          </button>
-          <span className="ml-auto text-sm text-gray-500">{queryResults.length} estudo(s)</span>
         </div>
+        <button
+          onClick={() => runQuery()}
+          disabled={isQuerying}
+          className="px-3 py-1.5 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 flex items-center gap-1"
+        >
+          <Search className="h-3 w-3" />
+          {isQuerying ? 'Buscando...' : 'Buscar'}
+        </button>
+        <span className="ml-auto text-xs text-gray-400">
+          {queryResults.length > 0 ? `Total de Exames: ${queryResults.length}` : ''}
+        </span>
       </div>
 
       {/* ── TABELA ── */}
-      <div className="px-6 py-4">
+      <div className="flex-1 overflow-auto">
         {queryResults.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded border border-gray-200">
-            <p className="text-gray-500 text-sm">Nenhum estudo encontrado</p>
+          <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+            <Search className="h-10 w-10 mb-3 opacity-30" />
+            <p className="text-sm">Nenhum estudo encontrado</p>
             <button
-              onClick={handleTodayExams}
-              className="mt-3 px-4 py-1.5 rounded text-sm border border-gray-300 text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1.5"
+              onClick={() => handlePeriodChange('today')}
+              className="mt-3 px-3 py-1.5 rounded text-xs border border-gray-300 text-gray-600 hover:bg-gray-50"
             >
-              <Calendar className="h-3.5 w-3.5" />
-              Ver Exames de Hoje
+              Ver exames de hoje
             </button>
           </div>
         ) : (
-          <div className="bg-white rounded border border-gray-200 overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-gray-50 border-b border-gray-200">
-                  <TableHead className="py-3 text-xs font-semibold text-gray-600 w-[130px]">Data</TableHead>
-                  <TableHead className="py-3 text-xs font-semibold text-gray-600">Paciente</TableHead>
-                  <TableHead className="py-3 text-xs font-semibold text-gray-600 w-[160px]">Unidade</TableHead>
-                  <TableHead className="py-3 text-xs font-semibold text-gray-600 text-center w-[90px]">Visualizar</TableHead>
-                  <TableHead className="py-3 text-xs font-semibold text-gray-600 text-center w-[90px]">Impressão</TableHead>
-                  <TableHead className="py-3 text-xs font-semibold text-gray-600 text-center w-[280px]">Ações</TableHead>
-                  <TableHead className="py-3 text-xs font-semibold text-gray-600 w-[120px]">Status Envio</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {queryResults.map((study, index) => {
-                  const status = getReportStatus(study);
-                  const patientName = study.patientName
-                    ? study.patientName.replace(/\^/g, ' ').replace(/\s+\d{10,}.*$/g, '').trim()
-                    : "-";
-                  const studyDateFormatted = study.studyDate
-                    ? new Date(study.studyDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')).toLocaleDateString('pt-BR')
-                    : "-";
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="bg-gray-100 border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wide">
+                <th className="px-3 py-2 text-left font-semibold w-28">Ações</th>
+                <th className="px-3 py-2 text-left font-semibold w-40">Paciente</th>
+                <th className="px-3 py-2 text-left font-semibold">Exame</th>
+                <th className="px-3 py-2 text-left font-semibold w-28">Unidade</th>
+                <th className="px-3 py-2 text-center font-semibold w-24">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedResults.map((study, idx) => {
+                const patientName = study.patientName
+                  ? study.patientName.replace(/\^+/g, ' ').replace(/\s{2,}/g, ' ').trim()
+                  : "Sem nome";
+                const age = calcAge(study.patientBirthDate || '');
+                const sex = formatSex(study.patientSex || '');
+                const dt = parseDicomDateTime(study.studyDate, study.studyTime);
+                const relative = relativeTime(dt);
+                const dateFormatted = formatDate(study.studyDate || '');
+                const modality = (study.modality || '-').toUpperCase();
+                const modalityCls = modalityColor[modality] || 'bg-gray-100 text-gray-700';
+                const status = getReportStatus(study);
+                const statusCls = statusColors[status] || 'bg-gray-100 text-gray-700 border-gray-300';
 
-                  return (
-                    <TableRow key={index} className="hover:bg-gray-50 border-b border-gray-100 last:border-0">
-                      {/* Data */}
-                      <TableCell className="py-3">
-                        <div className="text-sm text-gray-900">{studyDateFormatted}</div>
-                        {study.studyTime && (
-                          <div className="text-xs text-gray-400 mt-0.5">{study.studyTime}</div>
-                        )}
-                      </TableCell>
-
-                      {/* Paciente */}
-                      <TableCell className="py-3">
-                        <div className="text-sm font-medium text-gray-900">{patientName}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          {study.studyDescription || "Sem descrição"} · {study.modality || "-"}
-                        </div>
-                      </TableCell>
-
-                      {/* Unidade */}
-                      <TableCell className="py-3">
-                        <div className="text-sm text-gray-700">{unitName}</div>
-                      </TableCell>
-
-                      {/* Visualizar */}
-                      <TableCell className="py-3 text-center">
-                        <div className="flex flex-col items-center gap-1">
+                return (
+                  <tr
+                    key={idx}
+                    className="border-b border-gray-100 hover:bg-blue-50/40 transition-colors"
+                  >
+                    {/* Ações */}
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {canViewer && (
                           <button
                             onClick={() => handleVisualize(study)}
-                            className="px-2.5 py-1 rounded text-xs border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center gap-1"
-                            title="Visualizador DICOM (Cornerstone)"
+                            title="Visualizar DICOM"
+                            className="w-7 h-7 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-colors"
                           >
                             <Eye className="h-3.5 w-3.5" />
-                            Ver
                           </button>
-                          <button
-                            onClick={() => handleOpenOrthancViewer(study)}
-                            className="px-2.5 py-1 rounded text-xs border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center gap-1"
-                            title="Orthanc Web Viewer"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            Orthanc
-                          </button>
-                        </div>
-                      </TableCell>
-
-                      {/* Impressão */}
-                      <TableCell className="py-3 text-center">
+                        )}
                         <button
-                          onClick={() => toast.info('Impressão de laudo em desenvolvimento')}
-                          className="px-2.5 py-1 rounded text-xs border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center gap-1 mx-auto"
+                          onClick={() => handleOpenOrthancViewer(study)}
+                          title="Abrir no Orthanc"
+                          className="w-7 h-7 rounded-full bg-gray-400 hover:bg-gray-500 text-white flex items-center justify-center transition-colors"
+                        >
+                          <Monitor className="h-3.5 w-3.5" />
+                        </button>
+                        {canLaudo && (
+                          <button
+                            onClick={() => handleReport(study)}
+                            title="Laudar"
+                            className="w-7 h-7 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center transition-colors"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => toast.info('Impressão em desenvolvimento')}
+                          title="Imprimir laudo"
+                          className="w-7 h-7 rounded-full bg-gray-300 hover:bg-gray-400 text-gray-700 flex items-center justify-center transition-colors"
                         >
                           <Printer className="h-3.5 w-3.5" />
-                          Imprimir
                         </button>
-                      </TableCell>
+                        {canCID && (
+                          <button
+                            onClick={() => { setSelectedStudy(study); setIsAnamnesisModalOpen(true); }}
+                            title="CID / Anamnese"
+                            className="w-7 h-7 rounded-full bg-orange-400 hover:bg-orange-500 text-white flex items-center justify-center transition-colors"
+                          >
+                            <Clipboard className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleOpenRadiant(study)}
+                          title="Abrir no RadiAnt"
+                          className="w-7 h-7 rounded-full bg-indigo-400 hover:bg-indigo-500 text-white flex items-center justify-center transition-colors"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => toast.info('Atribuição de médico em desenvolvimento')}
+                          title="Médico responsável"
+                          className="w-7 h-7 rounded-full bg-teal-400 hover:bg-teal-500 text-white flex items-center justify-center transition-colors"
+                        >
+                          <UserCircle className="h-3.5 w-3.5" />
+                        </button>
+                        <span className="text-xs text-gray-400 ml-0.5 whitespace-nowrap">{relative}</span>
+                      </div>
+                    </td>
 
-                      {/* Ações */}
-                      <TableCell className="py-3">
-                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                          {canCID && (
-                            <button
-                              onClick={() => { setSelectedStudy(study); setIsAnamnesisModalOpen(true); }}
-                              className="px-2.5 py-1 rounded text-xs border border-orange-200 text-orange-700 bg-orange-50 hover:bg-orange-100 flex items-center gap-1"
-                            >
-                              <Clipboard className="h-3.5 w-3.5" />
-                              CID
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleOpenRadiant(study)}
-                            className="px-2.5 py-1 rounded text-xs border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center gap-1"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            RadiAnt
-                          </button>
-                          {canLaudo && (
-                            <button
-                              onClick={() => handleReport(study)}
-                              className="px-2.5 py-1 rounded text-xs border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 flex items-center gap-1"
-                            >
-                              <FileText className="h-3.5 w-3.5" />
-                              Laudar
-                            </button>
-                          )}
-                          <button
-                            onClick={() => toast.info('Escolha de médico em desenvolvimento')}
-                            className="px-2.5 py-1 rounded text-xs border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center gap-1"
-                          >
-                            <UserCircle className="h-3.5 w-3.5" />
-                            Médico
-                          </button>
+                    {/* Paciente */}
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-gray-900 text-sm leading-tight">{patientName}</div>
+                      {(age || sex) && (
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          {[age, sex].filter(Boolean).join(' | ')}
                         </div>
-                      </TableCell>
+                      )}
+                    </td>
 
-                      {/* Status Envio */}
-                      <TableCell className="py-3">
-                        {getStatusBadge(status)}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+                    {/* Exame */}
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${modalityCls}`}>{modality}</span>
+                        <span className="text-sm text-gray-800">{dateFormatted}</span>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-0.5 truncate max-w-xs">
+                        {study.studyDescription || 'Sem descrição'}
+                      </div>
+                    </td>
+
+                    {/* Unidade */}
+                    <td className="px-3 py-2">
+                      <span className="text-xs text-gray-600">{unitName}</span>
+                    </td>
+
+                    {/* Status */}
+                    <td className="px-3 py-2 text-center">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded border ${statusCls}`}>
+                        {status}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         )}
       </div>
+
+      {/* ── PAGINAÇÃO ── */}
+      {queryResults.length > PAGE_SIZE && (
+        <div className="bg-white border-t border-gray-200 px-5 py-2 flex items-center justify-between shrink-0">
+          <span className="text-xs text-gray-500">
+            Total de Exames: {queryResults.length} — Página {currentPage} de {totalPages}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="w-7 h-7 rounded border border-gray-300 flex items-center justify-center text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            {Array.from({ length: Math.min(7, totalPages) }, (_, i) => {
+              let page = i + 1;
+              if (totalPages > 7) {
+                if (currentPage <= 4) page = i + 1;
+                else if (currentPage >= totalPages - 3) page = totalPages - 6 + i;
+                else page = currentPage - 3 + i;
+              }
+              return (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={`w-7 h-7 rounded border text-xs font-medium transition-colors ${
+                    page === currentPage
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {page}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="w-7 h-7 rounded border border-gray-300 flex items-center justify-center text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {isAnamnesisModalOpen && selectedStudy && (
         <AnamnesisModal
           open={isAnamnesisModalOpen}
           onClose={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); }}
-          studyInstanceUid={selectedStudy.studyInstanceUid}
+          studyInstanceUid={selectedStudy?.studyInstanceUid || ''}
           onSave={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); }}
         />
       )}
