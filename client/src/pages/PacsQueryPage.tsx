@@ -26,13 +26,39 @@ import { canReport, canAccessAdmin, canFillAnamnesis, canViewDICOM, type UserRol
 export function PacsQueryPage() {
   const [, navigate] = useLocation();
   const { data: user } = trpc.auth.me.useQuery();
-  const [unitName, setUnitName] = useState("Carregando...");
 
   const userRole = (user?.role || 'viewer') as UserRole;
   const canLaudo = canReport(userRole);
   const canCID = canFillAnamnesis(userRole);
   const canViewer = canViewDICOM(userRole);
   const isAdmin = canAccessAdmin(userRole);
+  const isAdminMaster = user?.role === 'admin_master';
+
+  // admin_master pode escolher qualquer unidade; outros usam a unidade do próprio perfil
+  const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
+  const effectiveUnitId = isAdminMaster ? selectedUnitId : (user?.unit_id || null);
+
+  const { data: allUnits = [] } = trpc.units.list.useQuery(
+    undefined,
+    { enabled: isAdminMaster }
+  );
+
+  const { data: unitData } = trpc.units.getById.useQuery(
+    { id: effectiveUnitId || 0 },
+    { enabled: !!effectiveUnitId }
+  );
+
+  // Inicializa selectedUnitId para admin_master com a primeira unidade disponível
+  useEffect(() => {
+    if (isAdminMaster && allUnits.length > 0 && selectedUnitId === null) {
+      setSelectedUnitId(allUnits[0].id);
+    }
+  }, [isAdminMaster, allUnits, selectedUnitId]);
+
+  const unitName = unitData?.name || (effectiveUnitId ? 'Carregando...' : 'Sem unidade');
+  const unitAeTitle = (unitData as any)?.pacs_ae_title || '';
+
+  const cacheKey = `pacs_query_results_unit_${effectiveUnitId || 'none'}`;
 
   const [filters, setFilters] = useState({
     patientName: "",
@@ -42,34 +68,28 @@ export function PacsQueryPage() {
   });
 
   const [queryResults, setQueryResults] = useState<any[]>(() => {
-    const saved = localStorage.getItem('pacs_query_results');
+    const saved = localStorage.getItem(cacheKey);
     return saved ? JSON.parse(saved) : [];
   });
   const [isQuerying, setIsQuerying] = useState(false);
   const [isAnamnesisModalOpen, setIsAnamnesisModalOpen] = useState(false);
   const [selectedStudy, setSelectedStudy] = useState<any>(null);
 
+  // Limpa resultados ao trocar de unidade
+  useEffect(() => {
+    const saved = localStorage.getItem(cacheKey);
+    setQueryResults(saved ? JSON.parse(saved) : []);
+  }, [cacheKey]);
+
   useEffect(() => {
     if (queryResults.length > 0) {
-      localStorage.setItem('pacs_query_results', JSON.stringify(queryResults));
-      localStorage.setItem('pacs_last_period', filters.period);
+      localStorage.setItem(cacheKey, JSON.stringify(queryResults));
     }
-  }, [queryResults, filters.period]);
-
-  const { data: unitData } = trpc.units.getById.useQuery(
-    { id: user?.unit_id || 0 },
-    { enabled: !!user?.unit_id }
-  );
-
-  useEffect(() => {
-    if (unitData) {
-      setUnitName(unitData.name || "Unidade");
-    }
-  }, [unitData]);
+  }, [queryResults, cacheKey]);
 
   const logoutMutation = trpc.auth.logout.useMutation({
     onSuccess: () => {
-      localStorage.removeItem('pacs_query_results');
+      Object.keys(localStorage).filter(k => k.startsWith('pacs_query_results')).forEach(k => localStorage.removeItem(k));
       navigate("/login");
     },
   });
@@ -95,9 +115,10 @@ export function PacsQueryPage() {
     queryPacs.mutate({
       patientName: filters.patientName,
       patientId: "",
-      modality: "ALL",
+      modality: "",
       studyDate: studyDate,
       accessionNumber: "",
+      unit_id: effectiveUnitId || undefined,
     });
   };
 
@@ -107,9 +128,10 @@ export function PacsQueryPage() {
     queryPacs.mutate({
       patientName: "",
       patientId: "",
-      modality: "ALL",
+      modality: "",
       studyDate: "TODAY",
       accessionNumber: "",
+      unit_id: effectiveUnitId || undefined,
     });
   };
 
@@ -123,9 +145,10 @@ export function PacsQueryPage() {
     queryPacs.mutate({
       patientName: filters.patientName,
       patientId: "",
-      modality: "ALL",
+      modality: "",
       studyDate: studyDate,
       accessionNumber: "",
+      unit_id: effectiveUnitId || undefined,
     });
   };
 
@@ -174,14 +197,32 @@ export function PacsQueryPage() {
     <div className="min-h-screen bg-[#F9FAFB]">
       {/* ── HEADER LAUDS ── */}
       <header className="bg-white border-b border-gray-200 px-6 h-14 flex items-center justify-between">
-        {/* Logo */}
-        <span className="text-xl font-bold text-gray-900 tracking-tight">LAUDS</span>
+        {/* Logo + Unidade */}
+        <div className="flex items-center gap-3">
+          <span className="text-xl font-bold text-gray-900 tracking-tight">LAUDS</span>
+          {isAdminMaster && allUnits.length > 0 ? (
+            <select
+              value={selectedUnitId || ''}
+              onChange={(e) => setSelectedUnitId(Number(e.target.value))}
+              className="text-sm border border-gray-300 rounded px-2 py-1 text-gray-700 bg-white h-8"
+            >
+              {allUnits.map((u) => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-sm text-gray-500">{unitName}</span>
+          )}
+          {unitAeTitle && (
+            <span className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded border border-gray-200">
+              AE: {unitAeTitle}
+            </span>
+          )}
+        </div>
 
         {/* Navegação central */}
         <nav className="flex items-center gap-1">
-          <button
-            className="px-4 py-1.5 rounded text-sm font-medium bg-blue-600 text-white"
-          >
+          <button className="px-4 py-1.5 rounded text-sm font-medium bg-blue-600 text-white">
             Estudos
           </button>
           {isAdmin && (

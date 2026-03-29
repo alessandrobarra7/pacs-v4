@@ -1,0 +1,9 @@
+{
+  "query": "INSERT INTO units (name, slug, pacs_ip, pacs_port, pacs_ae_title, pacs_local_ae_title, isActive, createdAt, updatedAt) \nVALUES ('rxhtl', 'rxhtl', '179.67.254.135', 11112, 'PACSML', 'LAUDS', 1, NOW(), NOW())\nON DUPLICATE KEY UPDATE pacs_ip='179.67.254.135', pacs_port=11112, pacs_ae_title='PACSML', pacs_local_ae_title='LAUDS';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute INSERT INTO units (name, slug, pacs_ip, pacs_port, pacs_ae_title, pacs_local_ae_title, isActive, createdAt, updatedAt) \nVALUES ('rxhtl', 'rxhtl', '179.67.254.135', 11112, 'PACSML', 'LAUDS', 1, NOW(), NOW())\nON DUPLICATE KEY UPDATE pacs_ip='179.67.254.135', pacs_port=11112, pacs_ae_title='PACSML', pacs_local_ae_title='LAUDS';",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 341
+}

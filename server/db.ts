@@ -316,6 +316,19 @@ export async function getReportByStudyId(studyId: number, unitId?: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function getReportById(id: number, unitId?: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const conditions = [eq(reports.id, id)];
+  if (unitId !== undefined) {
+    conditions.push(eq(reports.unit_id, unitId));
+  }
+  
+  const result = await db.select().from(reports).where(and(...conditions)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
 export async function createReport(report: InsertReport) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

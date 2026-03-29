@@ -190,3 +190,21 @@
 - [ ] Criar endpoint tRPC studies.queryPACS para buscar via C-FIND
 - [ ] Atualizar frontend da worklist para exibir estudos reais do PACS
 - [ ] Testar busca real contra rxhtl (179.67.254.135:11112, PACSML)
+
+## REFATORAÇÃO — Relatórios RELATORIO_MUDANCAS_LAUDS + ORIENTACOES_MELHORIAS_LAUDS
+
+- [x] Mudança 1: Remover Orthanc do fluxo pacs.query — C-FIND exclusivo (dicom.service.ts)
+- [x] Mudança 1: Adicionar campo unit_id opcional no input de pacs.query para admin_master
+- [x] Mudança 1: Usar targetUnitId (admin_master pode passar unit_id explícito)
+- [x] Mudança 2: Simplificar formulário de Unidades para 4 campos (Nome, IP, Porta, AE Title)
+- [x] Mudança 2: Remover campos Orthanc (orthanc_base_url, orthanc_public_url, orthanc_basic_user, orthanc_basic_pass) dos formulários
+- [x] Mudança 2: Atualizar Units.tsx, UnitsPage.tsx e AdminPage.tsx — formulários e tabelas
+- [x] Mudança 3: Restringir aba "Unidades" ao perfil admin_master no AdminPage.tsx
+- [x] Mudança 3: effectiveTab redireciona para "users" se não for admin_master
+- [x] Mudança 5: AE Title exibido no cabeçalho da PacsQueryPage (badge "AE: PACSML")
+- [x] Mudança 5: Seletor de unidade no cabeçalho para admin_master (dropdown com todas as unidades)
+- [x] Mudança 5: Cache local isolado por unit_id (cacheKey = pacs_query_results_unit_{id})
+- [x] Mudança 5: Logout limpa todos os caches de unidade
+- [x] Mudança 5: modality enviado como "" em vez de "ALL" (corrige 0 resultados no C-FIND)
+- [x] Bug fix: reports.update e reports.sign usam getReportById (não getReportByStudyId)
+- [x] Testes Vitest: 11 novos testes cobrindo todas as mudanças (pacs-refactor.test.ts)

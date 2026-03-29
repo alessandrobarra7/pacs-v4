@@ -23,6 +23,7 @@ import {
   updateTemplate,
   deleteTemplate,
   getReportByStudyId,
+  getReportById,
   createReport,
   updateReport,
   createAuditLog,
@@ -33,7 +34,8 @@ import {
 } from "./db";
 import { units, studies_cache } from "../drizzle/schema";
 import { eq, and, like } from "drizzle-orm";
-import { queryStudiesLocal, queryStudiesRemote, getDicomWebUrl, checkOrthancHealth } from "./orthanc";
+// orthanc.ts mantido para visualização futura via DICOMweb, não mais usado na pesquisa
+import { getDicomWebUrl } from "./orthanc";
 import { cFind } from "./dicom.service";
 
 export const appRouter = router({
@@ -145,17 +147,14 @@ export const appRouter = router({
     
     create: adminProcedure
       .input(z.object({
-        name: z.string(),
-        slug: z.string(),
-        orthanc_base_url: z.string().optional(),
-        orthanc_public_url: z.string().optional(),
-        orthanc_basic_user: z.string().optional(),
-        orthanc_basic_pass: z.string().optional(),
+        name: z.string().min(2).max(255),
+        slug: z.string().min(2).max(100),
+        pacs_ip: z.string().min(7),
+        pacs_port: z.number().int().min(1).max(65535),
+        pacs_ae_title: z.string().min(1).max(16),
+        pacs_local_ae_title: z.string().max(16).optional().default('LAUDS'),
         logoUrl: z.string().optional(),
-        pacs_ip: z.string().optional(),
-        pacs_port: z.number().optional(),
-        pacs_ae_title: z.string().max(16).optional(),
-        pacs_local_ae_title: z.string().max(16).optional(),
+        isActive: z.boolean().optional().default(true),
       }))
       .mutation(async ({ input, ctx }) => {
         const id = await createUnit(input);
@@ -174,18 +173,14 @@ export const appRouter = router({
     update: protectedProcedure
       .input(z.object({
         id: z.number(),
-        name: z.string().optional(),
-        slug: z.string().optional(),
-        orthanc_base_url: z.string().optional(),
-        orthanc_public_url: z.string().optional(),
-        orthanc_basic_user: z.string().optional(),
-        orthanc_basic_pass: z.string().optional(),
+        name: z.string().min(2).max(255).optional(),
+        slug: z.string().min(2).max(100).optional(),
+        pacs_ip: z.string().min(7).optional(),
+        pacs_port: z.number().int().min(1).max(65535).optional(),
+        pacs_ae_title: z.string().min(1).max(16).optional(),
+        pacs_local_ae_title: z.string().max(16).optional(),
         logoUrl: z.string().optional(),
         isActive: z.boolean().optional(),
-        pacs_ip: z.string().optional(),
-        pacs_port: z.number().optional(),
-        pacs_ae_title: z.string().max(16).optional(),
-        pacs_local_ae_title: z.string().max(16).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
@@ -466,9 +461,11 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
-        const report = await getReportByStudyId(id);
+        // CORREÇÃO BUG: usar getReportById (por ID do laudo), não getReportByStudyId
+        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
+        const report = await getReportById(id, unitId);
         if (!report) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'Report nao encontrado' });
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
         }
         if (ctx.user.role !== 'admin_master' && report.unit_id !== ctx.user.unit_id) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
@@ -491,9 +488,11 @@ export const appRouter = router({
     sign: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        const report = await getReportByStudyId(input.id);
+        // CORREÇÃO BUG: usar getReportById (por ID do laudo), não getReportByStudyId
+        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
+        const report = await getReportById(input.id, unitId);
         if (!report) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'Report nao encontrado' });
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
         }
         if (ctx.user.role !== 'admin_master' && report.unit_id !== ctx.user.unit_id) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
@@ -527,6 +526,7 @@ export const appRouter = router({
         studyDate: z.string().optional(),
         accessionNumber: z.string().optional(),
         studyDescription: z.string().optional(),
+        unit_id: z.number().optional(), // admin_master pode passar unit_id explícito
       }))
       .mutation(async ({ input, ctx }) => {
         // Get user's unit to retrieve PACS connection parameters
@@ -537,16 +537,21 @@ export const appRouter = router({
             message: 'Database not available',
           });
         }
-        
+
+        // admin_master pode especificar unit_id; demais usuários usam a própria unidade
+        const targetUnitId = (ctx.user.role === 'admin_master' && input.unit_id)
+          ? input.unit_id
+          : ctx.user.unit_id;
+
         // Busca unidade do usuário
-        if (!ctx.user.unit_id) {
+        if (!targetUnitId) {
           throw new TRPCError({
             code: 'FORBIDDEN',
             message: 'Usuário não está associado a nenhuma unidade. Entre em contato com o administrador.',
           });
         }
         
-        const [unitData] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id)).limit(1);
+        const [unitData] = await db.select().from(units).where(eq(units.id, targetUnitId)).limit(1);
         const unit = unitData;
         
         if (!unit) {
@@ -556,14 +561,13 @@ export const appRouter = router({
           });
         }
         
-        // Verifica se tem PACS direto (IP + Porta + AE Title) — modo preferencial
+        // MODO ÚNICO: DICOM DIRETO via C-FIND
         const hasDicomDirect = !!(unit.pacs_ip && unit.pacs_port && unit.pacs_ae_title);
-        const orthancUrl = unit.orthanc_base_url;
         
-        if (!hasDicomDirect && !orthancUrl) {
+        if (!hasDicomDirect) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
-            message: 'Configure o IP, Porta e AE Title da unidade para consultar o PACS.',
+            message: 'A unidade não está configurada corretamente. Verifique o IP, Porta e AE Title nas configurações.',
           });
         }
         
@@ -608,49 +612,44 @@ export const appRouter = router({
         try {
           let studies: any[] = [];
           
-          if (hasDicomDirect) {
-            // MODO DICOM DIRETO: C-FIND via IP, Porta e AE Title
-            console.log(`[PACS Query] C-FIND direto → ${unit.pacs_ip}:${unit.pacs_port} AE=${unit.pacs_ae_title}`);
-            studies = await cFind(
-              {
-                ip: unit.pacs_ip!,
-                port: unit.pacs_port!,
-                remoteAeTitle: unit.pacs_ae_title!,
-                localAeTitle: unit.pacs_local_ae_title || 'LAUDS',
-              },
-              {
-                patientName: filters.patientName ? `*${filters.patientName}*` : undefined,
-                patientID: filters.patientId,
-                studyDate: filters.studyDate,
-                modality: filters.modality,
-                accessionNumber: filters.accessionNumber,
-              }
-            );
-            console.log(`[PACS Query] C-FIND retornou ${studies.length} estudos`);
-            // Normaliza campos para compatibilidade com o frontend
-            studies = studies.map((s: any) => ({
-              studyInstanceUid: s.studyInstanceUID || s.studyInstanceUid || '',
-              patientName: (s.patientName || '').replace(/\^+/g, ' ').trim(),
-              patientID: s.patientID || s.patientId || '',
-              patientBirthDate: s.patientBirthDate || '',
-              patientSex: s.patientSex || '',
-              studyDate: s.studyDate || '',
-              studyTime: s.studyTime || '',
-              modality: s.modality || '',
-              studyDescription: s.studyDescription || '',
-              accessionNumber: s.accessionNumber || '',
-              numberOfSeries: s.numberOfSeries || 0,
-              numberOfInstances: s.numberOfInstances || 0,
-              retrieveAeTitle: s.retrieveAeTitle || '',
-              source: 'dicom_direct',
-            }));
-          } else if (orthancUrl) {
-            // MODO ORTHANC: Busca estudos armazenados no Orthanc local
-            console.log('[PACS Query] Buscando estudos no Orthanc:', orthancUrl);
-            const result = await queryStudiesLocal(orthancUrl, filters);
-            studies = result.studies || [];
-            console.log(`[PACS Query] Orthanc retornou ${studies.length} estudos`);
-          }
+          // MODO ÚNICO: C-FIND DICOM DIRETO
+          console.log(`[PACS Query] C-FIND → ${unit.pacs_ip}:${unit.pacs_port} AE=${unit.pacs_ae_title}`);
+          studies = await cFind(
+            {
+              ip: unit.pacs_ip!,
+              port: unit.pacs_port!,
+              remoteAeTitle: unit.pacs_ae_title!,
+              localAeTitle: unit.pacs_local_ae_title || 'LAUDS',
+            },
+            {
+              patientName: filters.patientName ? `*${filters.patientName}*` : undefined,
+              patientID: filters.patientId,
+              studyDate: filters.studyDate,
+              // Não enviar modality se for vazio ou 'ALL' — C-FIND retorna todos quando omitido
+              modality: (filters.modality && filters.modality !== 'ALL') ? filters.modality : undefined,
+              accessionNumber: filters.accessionNumber,
+            }
+          );
+          console.log(`[PACS Query] C-FIND retornou ${studies.length} estudos`);
+          // Normaliza campos para o frontend
+          studies = studies.map((s: any) => ({
+            studyInstanceUid: s.studyInstanceUID || s.studyInstanceUid || '',
+            patientName: (s.patientName || '').replace(/\^+/g, ' ').trim(),
+            patientID: s.patientID || s.patientId || '',
+            patientBirthDate: s.patientBirthDate || '',
+            patientSex: s.patientSex || '',
+            studyDate: s.studyDate || '',
+            studyTime: s.studyTime || '',
+            modality: s.modality || '',
+            studyDescription: s.studyDescription || '',
+            accessionNumber: s.accessionNumber || '',
+            numberOfSeries: s.numberOfSeries || 0,
+            numberOfInstances: s.numberOfInstances || 0,
+            retrieveAeTitle: s.retrieveAeTitle || unit.pacs_ae_title || '',
+            unitId: unit.id,
+            unitName: unit.name,
+            source: 'dicom_direct',
+          }));
           
           // Log audit
           await createAuditLog({
@@ -658,7 +657,7 @@ export const appRouter = router({
             unit_id: ctx.user.unit_id,
             action: 'PACS_QUERY',
             target_type: 'PACS',
-            target_id: unit.pacs_ae_title || orthancUrl || 'unknown',
+            target_id: unit.pacs_ae_title || 'unknown',
             ip_address: ctx.req.ip,
             user_agent: ctx.req.headers['user-agent'],
             metadata: {
@@ -681,7 +680,7 @@ export const appRouter = router({
             unit_id: ctx.user.unit_id,
             action: 'PACS_QUERY',
             target_type: 'PACS',
-            target_id: unit.pacs_ae_title || orthancUrl || 'unknown',
+            target_id: unit.pacs_ae_title || 'unknown',
             ip_address: ctx.req.ip,
             user_agent: ctx.req.headers['user-agent'],
             metadata: { ...input, error: error.message },

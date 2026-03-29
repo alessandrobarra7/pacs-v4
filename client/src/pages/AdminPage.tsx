@@ -83,17 +83,14 @@ export default function AdminPage() {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const pacsPort = fd.get("pacs_port") as string;
+    if (!pacsPort || isNaN(Number(pacsPort))) { toast.error("Porta PACS inválida"); return; }
     createUnit.mutate({
       name: fd.get("name") as string,
       slug: fd.get("slug") as string,
-      orthanc_base_url: fd.get("orthanc_base_url") as string || undefined,
-      orthanc_public_url: fd.get("orthanc_public_url") as string || undefined,
-      orthanc_basic_user: fd.get("orthanc_basic_user") as string || undefined,
-      orthanc_basic_pass: fd.get("orthanc_basic_pass") as string || undefined,
-      pacs_ip: fd.get("pacs_ip") as string || undefined,
-      pacs_port: pacsPort ? Number(pacsPort) : undefined,
-      pacs_ae_title: fd.get("pacs_ae_title") as string || undefined,
-      pacs_local_ae_title: fd.get("pacs_local_ae_title") as string || undefined,
+      pacs_ip: fd.get("pacs_ip") as string,
+      pacs_port: Number(pacsPort),
+      pacs_ae_title: fd.get("pacs_ae_title") as string,
+      pacs_local_ae_title: (fd.get("pacs_local_ae_title") as string) || "LAUDS",
     });
   };
 
@@ -106,13 +103,11 @@ export default function AdminPage() {
       id: editingUnit.id,
       name: fd.get("name") as string,
       slug: fd.get("slug") as string,
-      orthanc_base_url: fd.get("orthanc_base_url") as string || undefined,
-      orthanc_public_url: fd.get("orthanc_public_url") as string || undefined,
-      isActive: fd.get("isActive") === "on",
-      pacs_ip: fd.get("pacs_ip") as string || undefined,
+      pacs_ip: (fd.get("pacs_ip") as string) || undefined,
       pacs_port: pacsPort ? Number(pacsPort) : undefined,
-      pacs_ae_title: fd.get("pacs_ae_title") as string || undefined,
-      pacs_local_ae_title: fd.get("pacs_local_ae_title") as string || undefined,
+      pacs_ae_title: (fd.get("pacs_ae_title") as string) || undefined,
+      pacs_local_ae_title: (fd.get("pacs_local_ae_title") as string) || undefined,
+      isActive: fd.get("isActive") === "on",
     });
   };
 
@@ -129,11 +124,16 @@ export default function AdminPage() {
     });
   };
 
+  const isAdminMaster = user?.role === 'admin_master';
+
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: "units", label: "Unidades", icon: <Building2 className="h-4 w-4" /> },
+    ...(isAdminMaster ? [{ key: "units" as Tab, label: "Unidades", icon: <Building2 className="h-4 w-4" /> }] : []),
     { key: "users", label: "Usuários", icon: <Users className="h-4 w-4" /> },
     { key: "audit", label: "Auditoria", icon: <ClipboardList className="h-4 w-4" /> },
   ];
+
+  // Se admin_master saiu da aba units (ex: ao recarregar sem ser admin_master), redireciona para users
+  const effectiveTab = !isAdminMaster && activeTab === 'units' ? 'users' : activeTab;
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
@@ -188,7 +188,7 @@ export default function AdminPage() {
       <div className="px-6 py-5">
 
         {/* ── ABA UNIDADES ── */}
-        {activeTab === "units" && (
+        {effectiveTab === "units" && isAdminMaster && (
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -210,23 +210,25 @@ export default function AdminPage() {
                   <TableRow className="bg-gray-50 border-b border-gray-200">
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Nome</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Slug</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Orthanc Interno</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">URL Pública</TableHead>
+                    <TableHead className="py-3 text-xs font-semibold text-gray-600">IP PACS</TableHead>
+                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Porta</TableHead>
+                    <TableHead className="py-3 text-xs font-semibold text-gray-600">AE Title</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Status</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600 text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {unitsLoading ? (
-                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-gray-400 text-sm">Carregando...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-gray-400 text-sm">Carregando...</TableCell></TableRow>
                   ) : units.length === 0 ? (
-                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-gray-400 text-sm">Nenhuma unidade cadastrada</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-gray-400 text-sm">Nenhuma unidade cadastrada</TableCell></TableRow>
                   ) : units.map((unit) => (
                     <TableRow key={unit.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                       <TableCell className="py-3 text-sm font-medium text-gray-900">{unit.name}</TableCell>
                       <TableCell className="py-3"><code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{unit.slug}</code></TableCell>
-                      <TableCell className="py-3 text-xs text-gray-500">{(unit as any).orthanc_base_url || "-"}</TableCell>
-                      <TableCell className="py-3 text-xs text-gray-500">{(unit as any).orthanc_public_url || "-"}</TableCell>
+                      <TableCell className="py-3 text-xs text-gray-500">{(unit as any).pacs_ip || "-"}</TableCell>
+                      <TableCell className="py-3 text-xs text-gray-500">{(unit as any).pacs_port || "-"}</TableCell>
+                      <TableCell className="py-3"><code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{(unit as any).pacs_ae_title || "-"}</code></TableCell>
                       <TableCell className="py-3">
                         <Badge variant="outline" className={`text-xs ${unit.isActive ? "border-green-200 text-green-700 bg-green-50" : "border-gray-200 text-gray-500"}`}>
                           {unit.isActive ? "Ativo" : "Inativo"}
@@ -257,7 +259,7 @@ export default function AdminPage() {
         )}
 
         {/* ── ABA USUÁRIOS ── */}
-        {activeTab === "users" && (
+        {effectiveTab === "users" && (
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -328,7 +330,7 @@ export default function AdminPage() {
         )}
 
         {/* ── ABA AUDITORIA ── */}
-        {activeTab === "audit" && (
+        {effectiveTab === "audit" && (
           <div>
             <div className="mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Auditoria</h2>
@@ -391,46 +393,23 @@ export default function AdminPage() {
               </div>
             </div>
             <div className="border-t pt-3">
-              <p className="text-xs font-semibold text-gray-600 mb-3 flex items-center gap-1.5"><Server className="h-3.5 w-3.5" />Orthanc</p>
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="cu-base" className="text-sm">URL Interna</Label>
-                  <Input id="cu-base" name="orthanc_base_url" placeholder="http://172.16.3.241:8042" className="h-9" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="cu-pub" className="text-sm">URL Pública (Mikrotik NAT)</Label>
-                  <Input id="cu-pub" name="orthanc_public_url" placeholder="http://45.189.160.17:8042" className="h-9" />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Usuário Orthanc</Label>
-                    <Input name="orthanc_basic_user" placeholder="orthanc" className="h-9" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Senha Orthanc</Label>
-                    <Input name="orthanc_basic_pass" type="password" placeholder="••••••" className="h-9" />
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="border-t pt-3">
-              <p className="text-xs font-semibold text-gray-600 mb-3">Configuração PACS (DICOM)</p>
+              <p className="text-xs font-semibold text-gray-600 mb-3 flex items-center gap-1.5"><Server className="h-3.5 w-3.5" />Configuração PACS (DICOM)</p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-sm">IP do PACS</Label>
-                  <Input name="pacs_ip" placeholder="179.67.254.135" className="h-9" />
+                  <Label className="text-sm">IP do PACS *</Label>
+                  <Input name="pacs_ip" placeholder="179.67.254.135" required className="h-9" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-sm">Porta PACS</Label>
-                  <Input name="pacs_port" type="number" placeholder="11112" className="h-9" />
+                  <Label className="text-sm">Porta PACS *</Label>
+                  <Input name="pacs_port" type="number" placeholder="11112" min={1} max={65535} required className="h-9" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-sm">AE Title do PACS</Label>
-                  <Input name="pacs_ae_title" placeholder="PACSML" maxLength={16} className="h-9" />
+                  <Label className="text-sm">AE Title do PACS *</Label>
+                  <Input name="pacs_ae_title" placeholder="PACSML" maxLength={16} required className="h-9" />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-sm">AE Title Local</Label>
-                  <Input name="pacs_local_ae_title" placeholder="PACSMANUS" maxLength={16} className="h-9" />
+                  <Input name="pacs_local_ae_title" placeholder="LAUDS" maxLength={16} defaultValue="LAUDS" className="h-9" />
                 </div>
               </div>
             </div>
@@ -463,20 +442,7 @@ export default function AdminPage() {
                 </div>
               </div>
               <div className="border-t pt-3">
-                <p className="text-xs font-semibold text-gray-600 mb-3 flex items-center gap-1.5"><Server className="h-3.5 w-3.5" />Orthanc</p>
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">URL Interna</Label>
-                    <Input name="orthanc_base_url" defaultValue={(editingUnit as any).orthanc_base_url || ""} placeholder="http://172.16.3.241:8042" className="h-9" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">URL Pública (Mikrotik NAT)</Label>
-                    <Input name="orthanc_public_url" defaultValue={(editingUnit as any).orthanc_public_url || ""} placeholder="http://45.189.160.17:8042" className="h-9" />
-                  </div>
-                </div>
-              </div>
-              <div className="border-t pt-3">
-                <p className="text-xs font-semibold text-gray-600 mb-3">Configuração PACS (DICOM)</p>
+                <p className="text-xs font-semibold text-gray-600 mb-3 flex items-center gap-1.5"><Server className="h-3.5 w-3.5" />Configuração PACS (DICOM)</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-sm">IP do PACS</Label>
@@ -484,7 +450,7 @@ export default function AdminPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-sm">Porta PACS</Label>
-                    <Input name="pacs_port" type="number" defaultValue={(editingUnit as any).pacs_port || ""} placeholder="11112" className="h-9" />
+                    <Input name="pacs_port" type="number" defaultValue={(editingUnit as any).pacs_port || ""} placeholder="11112" min={1} max={65535} className="h-9" />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-sm">AE Title do PACS</Label>
@@ -492,7 +458,7 @@ export default function AdminPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-sm">AE Title Local</Label>
-                    <Input name="pacs_local_ae_title" defaultValue={(editingUnit as any).pacs_local_ae_title || "PACSMANUS"} placeholder="PACSMANUS" maxLength={16} className="h-9" />
+                    <Input name="pacs_local_ae_title" defaultValue={(editingUnit as any).pacs_local_ae_title || "LAUDS"} placeholder="LAUDS" maxLength={16} className="h-9" />
                   </div>
                 </div>
               </div>

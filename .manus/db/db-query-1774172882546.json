@@ -1,0 +1,17 @@
+{
+  "query": "SELECT id, openId, name, role, unit_id FROM users ORDER BY lastSignedIn DESC LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, openId, name, role, unit_id FROM users ORDER BY lastSignedIn DESC LIMIT 5;",
+  "rows": [
+    {
+      "id": "1",
+      "openId": "TSHrXxHvnivjaZW4kNSiag",
+      "name": "Studio Barra7",
+      "role": "admin_master",
+      "unit_id": "180001"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\topenId\tname\trole\tunit_id\n1\tTSHrXxHvnivjaZW4kNSiag\tStudio Barra7\tadmin_master\t180001\n",
+  "stderr": "",
+  "execution_time_ms": 55
+}
