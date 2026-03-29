@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -106,6 +106,8 @@ export function PacsQueryPage() {
   const [isAnamnesisModalOpen, setIsAnamnesisModalOpen] = useState(false);
   const [selectedStudy, setSelectedStudy] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [modalityFilter, setModalityFilter] = useState('ALL');
+  const [reportStatusMap, setReportStatusMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
     try { setQueryResults(JSON.parse(localStorage.getItem(cacheKey) || '[]')); } catch { setQueryResults([]); }
@@ -116,11 +118,36 @@ export function PacsQueryPage() {
     if (queryResults.length > 0) localStorage.setItem(cacheKey, JSON.stringify(queryResults));
   }, [queryResults, cacheKey]);
 
-  const totalPages = Math.max(1, Math.ceil(queryResults.length / PAGE_SIZE));
+  // Filtro por modalidade aplicado antes da paginação
+  const filteredResults = useMemo(() => {
+    if (modalityFilter === 'ALL') return queryResults;
+    return queryResults.filter(s => (s.modality || '').toUpperCase() === modalityFilter);
+  }, [queryResults, modalityFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredResults.length / PAGE_SIZE));
   const pagedResults = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
-    return queryResults.slice(start, start + PAGE_SIZE);
-  }, [queryResults, currentPage]);
+    return filteredResults.slice(start, start + PAGE_SIZE);
+  }, [filteredResults, currentPage]);
+
+  // Busca status real dos laudos quando os resultados mudam
+  const studyUids = useMemo(
+    () => queryResults.map(s => s.studyInstanceUid).filter(Boolean),
+    [queryResults]
+  );
+  const { data: statusData } = trpc.reports.statusByStudyUids.useQuery(
+    { studyUids },
+    { enabled: studyUids.length > 0 }
+  );
+  useEffect(() => {
+    if (statusData) setReportStatusMap(statusData);
+  }, [statusData]);
+
+  // Modalidades únicas presentes nos resultados
+  const availableModalities = useMemo(() => {
+    const set = new Set(queryResults.map(s => (s.modality || '').toUpperCase()).filter(Boolean));
+    return Array.from(set).sort();
+  }, [queryResults]);
 
   const logoutMutation = trpc.auth.logout.useMutation({
     onSuccess: () => {
@@ -189,8 +216,8 @@ export function PacsQueryPage() {
 
   const getReportStatus = (study: any) => {
     if (!study.studyInstanceUid) return "Pendente";
-    const hash = study.studyInstanceUid.split('').reduce((a: number, c: string) => a + c.charCodeAt(0), 0);
-    return ["Pendente", "Pendente", "Pendente", "Em Andamento", "Concluído"][hash % 5];
+    // Status real do banco, fallback para Pendente
+    return reportStatusMap[study.studyInstanceUid] || "Pendente";
   };
 
   const statusColors: Record<string, string> = {
@@ -306,8 +333,27 @@ export function PacsQueryPage() {
           <Search className="h-3 w-3" />
           {isQuerying ? 'Buscando...' : 'Buscar'}
         </button>
+        {/* Filtro por modalidade — aparece após busca */}
+        {availableModalities.length > 0 && (
+          <div className="flex items-center gap-1 ml-2">
+            <span className="text-xs text-gray-400">Modalidade:</span>
+            {['ALL', ...availableModalities].map(mod => (
+              <button
+                key={mod}
+                onClick={() => { setModalityFilter(mod); setCurrentPage(1); }}
+                className={`px-2 py-1 rounded text-xs font-medium border transition-colors ${
+                  modalityFilter === mod
+                    ? 'bg-gray-700 text-white border-gray-700'
+                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {mod === 'ALL' ? 'Todos' : mod}
+              </button>
+            ))}
+          </div>
+        )}
         <span className="ml-auto text-xs text-gray-400">
-          {queryResults.length > 0 ? `Total de Exames: ${queryResults.length}` : ''}
+          {filteredResults.length > 0 ? `Total: ${filteredResults.length}${modalityFilter !== 'ALL' ? ` (${modalityFilter})` : ''}` : ''}
         </span>
       </div>
 

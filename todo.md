@@ -208,3 +208,10 @@
 - [x] Mudança 5: modality enviado como "" em vez de "ALL" (corrige 0 resultados no C-FIND)
 - [x] Bug fix: reports.update e reports.sign usam getReportById (não getReportByStudyId)
 - [x] Testes Vitest: 11 novos testes cobrindo todas as mudanças (pacs-refactor.test.ts)
+
+## PRÓXIMOS PASSOS — Status Real + Filtro Modalidade + Deploy VM1
+
+- [x] Backend: procedure reports.statusByStudyUids — busca status de laudos em lote por studyInstanceUid
+- [x] Frontend: integrar status real do laudo na worklist (substituir hash por consulta ao banco)
+- [x] Frontend: adicionar filtro por modalidade (CT/CR/MR/US/DX/PT/Todos) na barra de filtros
+- [ ] Deploy VM1: git pull + pnpm build + pm2 restart após todas as mudanças

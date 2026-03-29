@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/mysql2";
-import { or, and, eq, like } from "drizzle-orm";
+import { or, and, eq, like, inArray } from "drizzle-orm";
 import { 
   InsertUser, 
   users, 
@@ -347,4 +347,33 @@ export async function createAuditLog(log: InsertAuditLog) {
   const db = await getDb();
   if (!db) return;
   await db.insert(audit_log).values(log);
+}
+
+/** Retorna um mapa { studyInstanceUid → status } para uma lista de UIDs */
+export async function getReportStatusByStudyUids(
+  studyUids: string[],
+  unitId?: number
+): Promise<Record<string, string>> {
+  const db = await getDb();
+  if (!db || studyUids.length === 0) return {};
+
+  const conditions: any[] = [inArray(reports.study_instance_uid, studyUids)];
+  if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
+
+  const rows = await db
+    .select({ uid: reports.study_instance_uid, status: reports.status })
+    .from(reports)
+    .where(and(...conditions));
+
+  const map: Record<string, string> = {};
+  for (const row of rows) {
+    if (row.uid) {
+      const label =
+        row.status === "signed" ? "Assinado" :
+        row.status === "revised" ? "Revisado" :
+        "Em Andamento";
+      map[row.uid] = label;
+    }
+  }
+  return map;
 }

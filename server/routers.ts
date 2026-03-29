@@ -31,6 +31,7 @@ import {
   getUserByUsernameOrEmail,
   createLocalUser,
   updateUserPassword,
+  getReportStatusByStudyUids,
 } from "./db";
 import { units, studies_cache } from "../drizzle/schema";
 import { eq, and, like } from "drizzle-orm";
@@ -514,6 +515,13 @@ export const appRouter = router({
         });
         
         return { success: true };
+      }),
+
+    statusByStudyUids: protectedProcedure
+      .input(z.object({ studyUids: z.array(z.string()) }))
+      .query(async ({ input, ctx }) => {
+        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
+        return await getReportStatusByStudyUids(input.studyUids, unitId);
       }),
   }),
 
