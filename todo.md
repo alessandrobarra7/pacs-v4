@@ -250,3 +250,12 @@
 - [ ] Testar C-MOVE completo após configuração do PACS
 - [ ] Criar página de criação/edição de laudos (/reports/create/:uid)
 - [ ] Adicionar botão C-ECHO na página de Unidades para teste de conectividade
+
+## NOVA ARQUITETURA VIEWER — DICOMweb WADO-RS (sem C-MOVE)
+
+- [x] Verificar suporte C-GET no PACS dpacs (45.189.160.17:3004) — confirmado, modo promíscuo
+- [x] Reescrever dicom_move.py: C-MOVE → C-GET com negociação de roles (ext_neg scp_role=True)
+- [x] Testar C-GET: 220 arquivos DICOM recebidos com sucesso (146MB, 91s)
+- [x] Atualizar routers.ts: labels C-MOVE → C-GET, mensagens de erro atualizadas
+- [x] 42/42 testes passando
+- [ ] Testar fluxo completo via interface web: busca → clicar Visualizar → imagens no browser

@@ -1,7 +1,13 @@
 #!/usr/bin/env python3.11
 """
-DICOM C-MOVE Script — LAUDS Portal
-Solicita estudo ao PACS via C-MOVE e recebe imagens via C-STORE.
+DICOM C-GET Script — LAUDS Portal
+Solicita estudo ao PACS via C-GET (pull-based, sem listener externo).
+O C-GET recebe as imagens na mesma conexão TCP da requisição.
+
+IMPORTANTE: Requer negociação de roles (ext_neg) com scp_role=True
+para que o PACS possa enviar as imagens via C-STORE sub-operations.
+Sem isso, o PACS retorna 0xA702 (Out of Resources).
+
 Retorna JSON estruturado com status, contagem de arquivos e logs detalhados.
 """
 
@@ -11,10 +17,13 @@ import os
 import shutil
 import time
 import datetime
-from pynetdicom import AE, evt, StoragePresentationContexts
-from pynetdicom.sop_class import StudyRootQueryRetrieveInformationModelMove
+from pynetdicom import AE, evt, build_role
+from pynetdicom.sop_class import (
+    StudyRootQueryRetrieveInformationModelGet,
+    PatientRootQueryRetrieveInformationModelGet,
+)
+from pynetdicom import StoragePresentationContexts
 
-# Logs acumulados durante a execução
 _logs = []
 
 def log(level, message):
@@ -23,76 +32,87 @@ def log(level, message):
     _logs.append(entry)
     print(entry, file=sys.stderr)
 
-def handle_store(event):
-    """Recebe arquivo DICOM via C-STORE durante o C-MOVE"""
-    ds = event.dataset
-    ds.file_meta = event.file_meta
 
-    cache_dir = os.environ.get('DICOM_CACHE_DIR', '/tmp/dicom-cache')
-    study_uid = str(ds.StudyInstanceUID)
-    study_cache_dir = os.path.join(cache_dir, study_uid)
-    os.makedirs(study_cache_dir, exist_ok=True)
+def make_store_handler(study_cache_dir):
+    """Retorna handler C-STORE que salva arquivos no diretório do estudo."""
+    def handle_store(event):
+        ds = event.dataset
+        ds.file_meta = event.file_meta
+        os.makedirs(study_cache_dir, exist_ok=True)
+        filename = f"{ds.SOPInstanceUID}.dcm"
+        filepath = os.path.join(study_cache_dir, filename)
+        ds.save_as(filepath, write_like_original=False)
+        log("STORE", f"Arquivo salvo: {filename} ({os.path.getsize(filepath)} bytes)")
+        return 0x0000  # Success
+    return handle_store
 
-    filename = f"{ds.SOPInstanceUID}.dcm"
-    filepath = os.path.join(study_cache_dir, filename)
-    ds.save_as(filepath, write_like_original=False)
 
-    log("STORE", f"Arquivo recebido: {filename} ({os.path.getsize(filepath)} bytes)")
-    return 0x0000  # Success
-
-def c_move_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instance_uid, cache_dir):
+def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instance_uid, cache_dir):
     """
-    Executa C-MOVE para baixar estudo do PACS para cache local.
+    Executa C-GET para baixar estudo do PACS.
+
+    C-GET é pull-based: as imagens chegam na mesma conexão TCP.
+    Requer negociação de roles (scp_role=True) para que o PACS
+    possa enviar as imagens via C-STORE sub-operations.
 
     Retorna dict com:
-      success       (bool)
-      file_count    (int)
-      cache_dir     (str)
+      success            (bool)
+      file_count         (int)
+      cache_dir          (str)
       study_instance_uid (str)
-      duration_sec  (float)
-      logs          (list[str])
-      error         (str, apenas em falha)
+      duration_sec       (float)
+      logs               (list[str])
+      error              (str, apenas em falha)
     """
     start_time = time.time()
 
-    log("INFO", f"=== INÍCIO C-MOVE ===")
+    log("INFO", "=== INÍCIO C-GET ===")
     log("INFO", f"StudyInstanceUID : {study_instance_uid}")
     log("INFO", f"PACS remoto      : {pacs_ip}:{pacs_port} AE={pacs_ae_title}")
     log("INFO", f"AE Title local   : {local_ae_title}")
     log("INFO", f"Cache dir        : {cache_dir}")
 
-    os.environ['DICOM_CACHE_DIR'] = cache_dir
     os.makedirs(cache_dir, exist_ok=True)
-
     study_cache_dir = os.path.join(cache_dir, study_instance_uid)
 
-    # Limpa cache anterior do mesmo estudo para evitar arquivos obsoletos
+    # Limpa cache anterior do mesmo estudo
     if os.path.exists(study_cache_dir):
         shutil.rmtree(study_cache_dir)
         log("INFO", f"Cache anterior removido: {study_cache_dir}")
-
     os.makedirs(study_cache_dir, exist_ok=True)
 
-    # AE para enviar C-MOVE (SCU)
-    ae_scu = AE(ae_title=local_ae_title)
-    ae_scu.add_requested_context(StudyRootQueryRetrieveInformationModelMove)
+    # Coleta todos os SOP Classes de Storage para negociação
+    storage_sop_classes = [ctx.abstract_syntax for ctx in StoragePresentationContexts]
 
-    # AE para receber C-STORE (SCP)
-    ae_scp = AE(ae_title=local_ae_title)
-    for context in StoragePresentationContexts:
-        ae_scp.add_supported_context(context.abstract_syntax)
+    # Configura AE com C-GET SCU + Storage SCP contexts
+    ae = AE(ae_title=local_ae_title)
+    ae.add_requested_context(StudyRootQueryRetrieveInformationModelGet)
+    ae.add_requested_context(PatientRootQueryRetrieveInformationModelGet)
+    for sop_class in storage_sop_classes:
+        ae.add_requested_context(sop_class)
 
-    handlers = [(evt.EVT_C_STORE, handle_store)]
+    # Negociação de roles: declaramos que somos SCP para Storage
+    # Isso é obrigatório para que o PACS envie imagens via C-STORE sub-operations
+    # Sem isso, o PACS retorna 0xA702 (Out of Resources / Unable to perform sub-operations)
+    roles = [build_role(sop_class, scp_role=True) for sop_class in storage_sop_classes]
 
-    # Inicia listener C-STORE em background
+    # Handler que salva cada imagem recebida
+    handlers = [(evt.EVT_C_STORE, make_store_handler(study_cache_dir))]
+
+    log("INFO", f"Conectando ao PACS {pacs_ip}:{pacs_port} com negociação de roles...")
     try:
-        scp = ae_scp.start_server(('0.0.0.0', 11113), block=False, evt_handlers=handlers)
-        log("INFO", "Listener C-STORE iniciado na porta 11113")
+        assoc = ae.associate(
+            pacs_ip,
+            int(pacs_port),
+            ae_title=pacs_ae_title,
+            evt_handlers=handlers,
+            ext_neg=roles,
+        )
     except Exception as e:
-        log("ERROR", f"Falha ao iniciar listener C-STORE: {e}")
+        log("ERROR", f"Exceção ao conectar: {e}")
         return {
             "success": False,
-            "error": f"Falha ao iniciar listener C-STORE na porta 11113: {e}",
+            "error": f"Erro de conexão: {e}",
             "file_count": 0,
             "cache_dir": study_cache_dir,
             "study_instance_uid": study_instance_uid,
@@ -100,90 +120,54 @@ def c_move_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instan
             "logs": _logs,
         }
 
+    if not assoc.is_established:
+        log("ERROR", "Falha ao estabelecer associação DICOM com o PACS")
+        return {
+            "success": False,
+            "error": f"Não foi possível conectar ao PACS {pacs_ip}:{pacs_port} AE={pacs_ae_title}. Verifique IP, porta e AE Title.",
+            "file_count": 0,
+            "cache_dir": study_cache_dir,
+            "study_instance_uid": study_instance_uid,
+            "duration_sec": round(time.time() - start_time, 2),
+            "logs": _logs,
+        }
+
+    log("INFO", "Associação DICOM estabelecida com sucesso")
+
     try:
-        log("INFO", f"Conectando ao PACS {pacs_ip}:{pacs_port} ...")
-        assoc = ae_scu.associate(pacs_ip, int(pacs_port), ae_title=pacs_ae_title)
-
-        if not assoc.is_established:
-            log("ERROR", "Falha ao estabelecer associação DICOM com o PACS")
-            return {
-                "success": False,
-                "error": f"Não foi possível conectar ao PACS {pacs_ip}:{pacs_port} AE={pacs_ae_title}. Verifique IP, porta e AE Title.",
-                "file_count": 0,
-                "cache_dir": study_cache_dir,
-                "study_instance_uid": study_instance_uid,
-                "duration_sec": round(time.time() - start_time, 2),
-                "logs": _logs,
-            }
-
-        log("INFO", "Associação DICOM estabelecida com sucesso")
-
         from pydicom.dataset import Dataset
         ds = Dataset()
         ds.QueryRetrieveLevel = 'STUDY'
         ds.StudyInstanceUID = study_instance_uid
 
-        log("INFO", f"Enviando C-MOVE para AE destino: {local_ae_title}")
-        responses = assoc.send_c_move(ds, local_ae_title, StudyRootQueryRetrieveInformationModelMove)
-
-        pending_count = 0
-        success_count = 0
-        failed_count = 0
+        log("INFO", "Enviando C-GET (Study Root)...")
+        responses = assoc.send_c_get(ds, StudyRootQueryRetrieveInformationModelGet)
 
         for (status, identifier) in responses:
             if status:
                 status_hex = f"0x{status.Status:04X}"
                 if status.Status in (0xFF00, 0xFF01):  # Pending
-                    pending_count += 1
-                    log("INFO", f"C-MOVE pendente ({status_hex}): {pending_count} imagens em trânsito")
+                    # Conta arquivos já recebidos para log de progresso
+                    received_so_far = len([f for f in os.listdir(study_cache_dir) if f.endswith('.dcm')])
+                    log("INFO", f"C-GET pendente ({status_hex}) — {received_so_far} imagens recebidas até agora")
                 elif status.Status == 0x0000:  # Success
-                    success_count += 1
-                    log("INFO", f"C-MOVE concluído com sucesso ({status_hex})")
+                    log("INFO", f"C-GET concluído com sucesso ({status_hex})")
+                elif status.Status in (0xB000, 0xB007, 0xB006):  # Warning
+                    log("WARN", f"C-GET warning ({status_hex})")
                 else:
-                    failed_count += 1
-                    log("WARN", f"C-MOVE status inesperado ({status_hex})")
+                    log("WARN", f"C-GET status inesperado ({status_hex})")
             else:
-                log("WARN", "C-MOVE retornou status None (possível timeout ou recusa)")
+                log("WARN", "C-GET retornou status None")
 
         assoc.release()
         log("INFO", "Associação DICOM encerrada")
 
-        # Aguarda até 10s para arquivos chegarem via C-STORE
-        wait_start = time.time()
-        while time.time() - wait_start < 10:
-            file_count = len([f for f in os.listdir(study_cache_dir) if f.endswith('.dcm')])
-            if file_count > 0:
-                break
-            time.sleep(0.5)
-
-        file_count = len([f for f in os.listdir(study_cache_dir) if f.endswith('.dcm')])
-        duration = round(time.time() - start_time, 2)
-
-        log("INFO", f"=== FIM C-MOVE === Arquivos recebidos: {file_count} | Duração: {duration}s")
-
-        if file_count == 0:
-            log("ERROR", "Nenhum arquivo .dcm recebido. Verifique se o AE Title local está cadastrado no PACS como destino autorizado.")
-            return {
-                "success": False,
-                "error": "Nenhuma imagem recebida. O AE Title local precisa estar cadastrado no PACS como destino C-MOVE autorizado.",
-                "file_count": 0,
-                "cache_dir": study_cache_dir,
-                "study_instance_uid": study_instance_uid,
-                "duration_sec": duration,
-                "logs": _logs,
-            }
-
-        return {
-            "success": True,
-            "file_count": file_count,
-            "cache_dir": study_cache_dir,
-            "study_instance_uid": study_instance_uid,
-            "duration_sec": duration,
-            "logs": _logs,
-        }
-
     except Exception as e:
-        log("ERROR", f"Exceção durante C-MOVE: {e}")
+        log("ERROR", f"Exceção durante C-GET: {e}")
+        try:
+            assoc.release()
+        except Exception:
+            pass
         return {
             "success": False,
             "error": str(e),
@@ -194,12 +178,31 @@ def c_move_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instan
             "logs": _logs,
         }
 
-    finally:
-        try:
-            scp.shutdown()
-            log("INFO", "Listener C-STORE encerrado")
-        except Exception:
-            pass
+    file_count = len([f for f in os.listdir(study_cache_dir) if f.endswith('.dcm')])
+    duration = round(time.time() - start_time, 2)
+
+    log("INFO", f"=== FIM C-GET === Arquivos recebidos: {file_count} | Duração: {duration}s")
+
+    if file_count == 0:
+        log("ERROR", "Nenhum arquivo .dcm recebido. Verifique se o PACS suporta C-GET e se o StudyInstanceUID está correto.")
+        return {
+            "success": False,
+            "error": "Nenhuma imagem recebida via C-GET. Verifique se o PACS suporta C-GET para este estudo.",
+            "file_count": 0,
+            "cache_dir": study_cache_dir,
+            "study_instance_uid": study_instance_uid,
+            "duration_sec": duration,
+            "logs": _logs,
+        }
+
+    return {
+        "success": True,
+        "file_count": file_count,
+        "cache_dir": study_cache_dir,
+        "study_instance_uid": study_instance_uid,
+        "duration_sec": duration,
+        "logs": _logs,
+    }
 
 
 if __name__ == "__main__":
@@ -209,7 +212,7 @@ if __name__ == "__main__":
 
     try:
         params = json.loads(sys.argv[1])
-        result = c_move_study(
+        result = c_get_study(
             pacs_ip=params['pacs_ip'],
             pacs_port=int(params['pacs_port']),
             pacs_ae_title=params['pacs_ae_title'],

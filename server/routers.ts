@@ -755,7 +755,7 @@ export const appRouter = router({
           cache_dir: '/tmp/dicom-cache',
         };
 
-        console.log(`[C-MOVE] Iniciando: StudyUID=${input.studyInstanceUid} PACS=${unit.pacs_ip}:${unit.pacs_port} AE=${unit.pacs_ae_title} LocalAE=${localAeTitle} User=${ctx.user.username}`);
+        console.log(`[C-GET] Iniciando: StudyUID=${input.studyInstanceUid} PACS=${unit.pacs_ip}:${unit.pacs_port} AE=${unit.pacs_ae_title} LocalAE=${localAeTitle} User=${ctx.user.username}`);
 
         const { execFile } = await import('child_process');
         const { promisify } = await import('util');
@@ -778,7 +778,7 @@ export const appRouter = router({
 
           if (stderr) {
             // stderr contém os logs detalhados do script — registrar no console do servidor
-            console.log(`[C-MOVE] Logs do script:\n${stderr}`);
+            console.log(`[C-GET] Logs do script:\n${stderr}`);
           }
 
           let result: any;
@@ -787,13 +787,13 @@ export const appRouter = router({
           } catch {
             throw new TRPCError({
               code: 'INTERNAL_SERVER_ERROR',
-              message: 'Resposta inválida do script C-MOVE. Verifique os logs do servidor.',
+              message: 'Resposta inválida do script C-GET. Verifique os logs do servidor.',
             });
           }
 
-          console.log(`[C-MOVE] Resultado: success=${result.success} files=${result.file_count} duration=${result.duration_sec}s`);
+          console.log(`[C-GET] Resultado: success=${result.success} files=${result.file_count} duration=${result.duration_sec}s`);
           if (result.logs) {
-            result.logs.forEach((l: string) => console.log(`[C-MOVE] ${l}`));
+            result.logs.forEach((l: string) => console.log(`[C-GET] ${l}`));
           }
 
           // Registrar auditoria independente do resultado
@@ -818,14 +818,14 @@ export const appRouter = router({
           if (!result.success) {
             throw new TRPCError({
               code: 'INTERNAL_SERVER_ERROR',
-              message: result.error || 'Erro desconhecido no C-MOVE.',
+              message: result.error || 'Erro desconhecido no C-GET.',
             });
           }
 
           if (!result.file_count || result.file_count === 0) {
             throw new TRPCError({
               code: 'INTERNAL_SERVER_ERROR',
-              message: 'Nenhuma imagem recebida do PACS. Verifique se o AE Title local está cadastrado no PACS como destino autorizado.',
+              message: 'Nenhuma imagem recebida do PACS via C-GET. Verifique se o PACS suporta C-GET para este estudo.',
             });
           }
 
@@ -839,10 +839,10 @@ export const appRouter = router({
 
         } catch (error: any) {
           if (error instanceof TRPCError) throw error;
-          console.error('[C-MOVE] Erro inesperado:', error);
+          console.error('[C-GET] Erro inesperado:', error);
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
-            message: `Falha ao executar C-MOVE: ${error.message}`,
+            message: `Falha ao executar C-GET: ${error.message}`,
           });
         }
       }),
