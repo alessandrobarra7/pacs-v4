@@ -135,6 +135,22 @@ async function startServer() {
     }
   });
   
+  // Limpa cache DICOM ao fechar o viewer
+  app.delete('/api/dicom-files/:studyUid', async (req, res) => {
+    const { studyUid } = req.params;
+    if (studyUid.includes('..') || studyUid.includes('/')) {
+      return res.status(400).json({ success: false, error: 'Invalid studyUid' });
+    }
+    const studyDir = `/tmp/dicom-cache/${studyUid}`;
+    try {
+      const fs = await import('fs/promises');
+      await fs.rm(studyDir, { recursive: true, force: true });
+      res.json({ success: true });
+    } catch (error) {
+      res.json({ success: true }); // Silently succeed even if dir doesn't exist
+    }
+  });
+
   // DICOMweb Proxy - faz proxy das requisições para o Orthanc
   // Rota: /api/dicomweb/* → Orthanc /dicom-web/*
   // Usa o pacs_ip da unidade + porta 8042 (porta padrão HTTP do Orthanc)

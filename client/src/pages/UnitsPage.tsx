@@ -176,14 +176,19 @@ export default function UnitsPage() {
             <CardDescription>Lista de todas as unidades cadastradas no sistema</CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
+              <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg text-xs text-blue-700 dark:text-blue-300">
+                <p className="font-semibold mb-1">⚠️ Importante: Registro do AE Title no PACS</p>
+                <p>Para o visualizador funcionar via C-MOVE, o <strong>AE Title Local</strong> de cada unidade deve estar cadastrado no PACS como destino autorizado, assim como você cadastra o RadiAnt. O portal escuta na porta <strong>11112</strong> (DICOM_PORT).</p>
+              </div>
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Nome</TableHead>
                   <TableHead>Slug</TableHead>
                   <TableHead>IP PACS</TableHead>
                   <TableHead>Porta</TableHead>
-                  <TableHead>AE Title</TableHead>
+                  <TableHead>AE Title PACS</TableHead>
+                  <TableHead>AE Title Local</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
@@ -196,6 +201,7 @@ export default function UnitsPage() {
                     <TableCell className="text-sm text-muted-foreground">{(unit as any).pacs_ip || '-'}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{(unit as any).pacs_port || '-'}</TableCell>
                     <TableCell><code className="text-xs bg-muted px-1.5 py-0.5 rounded">{(unit as any).pacs_ae_title || '-'}</code></TableCell>
+                    <TableCell><code className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">{(unit as any).pacs_local_ae_title || 'LAUDS'}</code></TableCell>
                     <TableCell>
                       <Badge variant="outline" className={unit.isActive ? 'border-green-200 text-green-700 bg-green-50' : 'border-gray-200 text-gray-500'}>
                         {unit.isActive ? 'Ativo' : 'Inativo'}

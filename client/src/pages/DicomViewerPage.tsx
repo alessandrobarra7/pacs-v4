@@ -8,8 +8,6 @@ import {
   ZoomOut,
   RotateCcw,
   RotateCw,
-  Maximize2,
-  Minimize2,
   FlipHorizontal,
   FlipVertical,
   Loader2,
@@ -18,8 +16,10 @@ import {
   ChevronRight,
   ExternalLink,
   RefreshCw,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 
 interface StudyInfo {
   patientName: string;
@@ -34,15 +34,17 @@ export function DicomViewerPage() {
   const [, navigate] = useLocation();
   const viewerRef = useRef<HTMLDivElement>(null);
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [phase, setPhase] = useState<"downloading" | "rendering" | "ready" | "error">("downloading");
+  const [downloadProgress, setDownloadProgress] = useState<string>("Iniciando C-MOVE...");
   const [error, setError] = useState<string | null>(null);
   const [studyInfo, setStudyInfo] = useState<StudyInfo | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imageCount, setImageCount] = useState(0);
-  const [cornerstoneReady, setCornerstoneReady] = useState(false);
   const [viewport, setViewport] = useState<any>(null);
   const [renderingEngine, setRenderingEngine] = useState<any>(null);
   const [imageIds, setImageIds] = useState<string[]>([]);
+
+  const startViewerMutation = trpc.pacs.startViewer.useMutation();
 
   const formatDate = (dateStr: string) => {
     if (!dateStr || dateStr.length !== 8) return dateStr || "";
@@ -54,100 +56,39 @@ export function DicomViewerPage() {
     return name.replace(/\^/g, " ").replace(/\s+\d{10,}$/g, "").trim();
   };
 
-  // Carrega info do estudo via DICOMweb QIDO-RS
-  const loadStudyMetadata = useCallback(async () => {
-    if (!studyUid) return null;
-
+  // Extrai metadados do arquivo DICOM via pydicom tags
+  const extractMetadataFromDicom = async (studyUid: string): Promise<StudyInfo> => {
     try {
-      // Busca séries do estudo
-      const seriesResp = await fetch(`/api/dicomweb/studies/${studyUid}/series`, {
-        headers: { Accept: "application/dicom+json" },
-      });
-
-      if (!seriesResp.ok) {
-        throw new Error(`Erro ao buscar séries: HTTP ${seriesResp.status}`);
-      }
-
-      const seriesData = await seriesResp.json();
-      if (!seriesData || seriesData.length === 0) {
-        throw new Error("Nenhuma série encontrada neste estudo");
-      }
-
-      const firstSeries = seriesData[0];
-      const patientNameRaw =
-        firstSeries["00100010"]?.Value?.[0]?.Alphabetic ||
-        firstSeries["00100010"]?.Value?.[0] ||
-        "Paciente";
-      const studyDate = firstSeries["00080020"]?.Value?.[0] || "";
-      const studyDesc =
-        firstSeries["00081030"]?.Value?.[0] ||
-        firstSeries["0008103E"]?.Value?.[0] ||
-        "Sem descrição";
-      const modality = firstSeries["00080060"]?.Value?.[0] || "-";
-
-      const info: StudyInfo = {
-        patientName:
-          typeof patientNameRaw === "object"
-            ? patientNameRaw.Alphabetic || "Paciente"
-            : String(patientNameRaw),
-        studyDate,
-        studyDescription: studyDesc,
-        modality,
-        studyInstanceUid: studyUid,
-      };
-      setStudyInfo(info);
-
-      // Coleta todas as instâncias de todas as séries
-      const allImageIds: string[] = [];
-      for (const serie of seriesData) {
-        const seriesUid = serie["0020000E"]?.Value?.[0];
-        if (!seriesUid) continue;
-
-        const instResp = await fetch(
-          `/api/dicomweb/studies/${studyUid}/series/${seriesUid}/instances`,
-          { headers: { Accept: "application/dicom+json" } }
-        );
-
-        if (!instResp.ok) continue;
-
-        const instances = await instResp.json();
-        for (const inst of instances) {
-          const sopUid = inst["00080018"]?.Value?.[0];
-          if (sopUid) {
-            // wadors: URL para WADO-RS
-            const wadoUrl = `${window.location.origin}/api/dicomweb/studies/${studyUid}/series/${seriesUid}/instances/${sopUid}`;
-            allImageIds.push(`wadors:${wadoUrl}`);
-          }
+      // Tenta ler metadados do primeiro arquivo DICOM via endpoint de listagem
+      const resp = await fetch(`/api/dicom-files/${studyUid}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.metadata) {
+          return {
+            patientName: data.metadata.patientName || "Paciente",
+            studyDate: data.metadata.studyDate || "",
+            studyDescription: data.metadata.studyDescription || "Sem descrição",
+            modality: data.metadata.modality || "-",
+            studyInstanceUid: studyUid,
+          };
         }
       }
+    } catch (_) {}
+    return {
+      patientName: "Paciente",
+      studyDate: "",
+      studyDescription: "Estudo DICOM",
+      modality: "-",
+      studyInstanceUid: studyUid,
+    };
+  };
 
-      if (allImageIds.length === 0) {
-        throw new Error("Nenhuma imagem encontrada neste estudo");
-      }
-
-      return allImageIds;
-    } catch (err: any) {
-      console.error("[DicomViewer] Erro ao carregar metadados:", err);
-      throw err;
-    }
-  }, [studyUid]);
-
-  // Inicializa Cornerstone.js
-  const initViewer = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    setCornerstoneReady(false);
+  // Inicializa Cornerstone com os arquivos do cache local
+  const initCornerstoneWithCache = useCallback(async (ids: string[]) => {
+    setPhase("rendering");
+    setDownloadProgress("Inicializando visualizador...");
 
     try {
-      // 1. Carrega metadados e imageIds
-      const ids = await loadStudyMetadata();
-      if (!ids || ids.length === 0) {
-        throw new Error("Nenhuma imagem disponível");
-      }
-      setImageIds(ids);
-      setImageCount(ids.length);
-
-      // 2. Importa Cornerstone dinamicamente
       const [csCore, csTools, csDicomLoader] = await Promise.all([
         import("@cornerstonejs/core"),
         import("@cornerstonejs/tools"),
@@ -167,23 +108,16 @@ export function DicomViewerPage() {
         init: initTools,
       } = csTools;
 
-      // 3. Inicializa Cornerstone Core
       await csCore.init();
-
-      // 4. Inicializa DICOM Image Loader
       await csDicomLoader.init({ maxWebWorkers: 1 });
-
-      // 5. Inicializa Tools
       await initTools();
 
-      // 6. Registra ferramentas
       addTool(WindowLevelTool);
       addTool(ZoomTool);
       addTool(PanTool);
       addTool(LengthTool);
       addTool(StackScrollTool);
 
-      // 7. Cria Tool Group
       const toolGroupId = `PACS_TG_${Date.now()}`;
       const toolGroup = ToolGroupManager.createToolGroup(toolGroupId);
 
@@ -208,69 +142,103 @@ export function DicomViewerPage() {
         });
       }
 
-      // 8. Cria Rendering Engine
       const engineId = `PACS_RE_${Date.now()}`;
       const engine = new RenderingEngine(engineId);
       setRenderingEngine(engine);
 
-      if (!viewerRef.current) {
-        throw new Error("Elemento de visualização não encontrado");
-      }
+      if (!viewerRef.current) throw new Error("Elemento de visualização não encontrado");
 
-      // 9. Configura viewport
       const viewportId = `PACS_VP_${Date.now()}`;
       engine.enableElement({
         viewportId,
         type: Enums.ViewportType.STACK,
         element: viewerRef.current,
-        defaultOptions: {
-          background: [0, 0, 0] as [number, number, number],
-        },
+        defaultOptions: { background: [0, 0, 0] as [number, number, number] },
       });
 
       const vp = engine.getViewport(viewportId) as any;
       setViewport(vp);
 
-      // 10. Adiciona viewport ao tool group
-      if (toolGroup) {
-        toolGroup.addViewport(viewportId, engineId);
-      }
+      if (toolGroup) toolGroup.addViewport(viewportId, engineId);
 
-      // 11. Carrega stack de imagens
       await vp.setStack(ids, 0);
       vp.render();
 
-      setCornerstoneReady(true);
-      setIsLoading(false);
+      setPhase("ready");
       toast.success(`${ids.length} imagem(ns) carregada(s) com sucesso`);
     } catch (err: any) {
-      console.error("[DicomViewer] Erro na inicialização:", err);
-      setError(err.message || "Erro ao inicializar visualizador DICOM");
-      setIsLoading(false);
+      console.error("[DicomViewer] Erro ao inicializar Cornerstone:", err);
+      setError(err.message || "Erro ao inicializar visualizador");
+      setPhase("error");
     }
-  }, [loadStudyMetadata]);
+  }, []);
+
+  // Fluxo principal: C-MOVE → cache → Cornerstone
+  const startViewer = useCallback(async () => {
+    if (!studyUid) return;
+    setPhase("downloading");
+    setError(null);
+    setDownloadProgress("Solicitando imagens ao PACS via C-MOVE...");
+
+    try {
+      // 1. Dispara C-MOVE no backend (Python script)
+      const result = await startViewerMutation.mutateAsync({ studyInstanceUid: studyUid });
+
+      if (!result.success) {
+        throw new Error("C-MOVE falhou — verifique a configuração do PACS");
+      }
+
+      setDownloadProgress(`${result.fileCount} arquivo(s) recebido(s). Carregando viewer...`);
+
+      // 2. Lista os arquivos do cache
+      const listResp = await fetch(`/api/dicom-files/${studyUid}`);
+      if (!listResp.ok) throw new Error("Arquivos DICOM não encontrados no cache");
+
+      const listData = await listResp.json();
+      const files: string[] = listData.files || [];
+
+      if (files.length === 0) throw new Error("Nenhum arquivo DICOM recebido do PACS");
+
+      // 3. Monta imageIds usando wadouri (leitura local via servidor)
+      const ids = files.map(
+        (f: string) => `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${f}`
+      );
+
+      setImageIds(ids);
+      setImageCount(ids.length);
+
+      // 4. Extrai metadados do estudo
+      const meta = await extractMetadataFromDicom(studyUid);
+      setStudyInfo(meta);
+
+      // 5. Inicia Cornerstone com os arquivos locais
+      await initCornerstoneWithCache(ids);
+
+    } catch (err: any) {
+      console.error("[DicomViewer] Erro:", err);
+      setError(err.message || "Erro ao carregar estudo DICOM");
+      setPhase("error");
+    }
+  }, [studyUid, startViewerMutation, initCornerstoneWithCache]);
 
   useEffect(() => {
-    if (studyUid) {
-      initViewer();
-    }
+    if (studyUid) startViewer();
     return () => {
       if (renderingEngine) {
-        try {
-          renderingEngine.destroy();
-        } catch (_) {}
+        try { renderingEngine.destroy(); } catch (_) {}
       }
+      // Limpa cache ao fechar o viewer
+      fetch(`/api/dicom-files/${studyUid}`, { method: "DELETE" }).catch(() => {});
     };
   }, [studyUid]);
 
-  // Ações do viewer
   const handleZoomIn = () => {
     if (!viewport) return;
     try {
       const camera = viewport.getCamera();
       viewport.setCamera({ ...camera, parallelScale: (camera.parallelScale || 1) * 0.8 });
       viewport.render();
-    } catch (e) {}
+    } catch (_) {}
   };
 
   const handleZoomOut = () => {
@@ -279,7 +247,7 @@ export function DicomViewerPage() {
       const camera = viewport.getCamera();
       viewport.setCamera({ ...camera, parallelScale: (camera.parallelScale || 1) * 1.2 });
       viewport.render();
-    } catch (e) {}
+    } catch (_) {}
   };
 
   const handleRotateCW = () => {
@@ -288,7 +256,7 @@ export function DicomViewerPage() {
       const props = viewport.getProperties();
       viewport.setProperties({ rotation: ((props.rotation || 0) + 90) % 360 });
       viewport.render();
-    } catch (e) {}
+    } catch (_) {}
   };
 
   const handleRotateCCW = () => {
@@ -297,7 +265,7 @@ export function DicomViewerPage() {
       const props = viewport.getProperties();
       viewport.setProperties({ rotation: ((props.rotation || 0) - 90 + 360) % 360 });
       viewport.render();
-    } catch (e) {}
+    } catch (_) {}
   };
 
   const handleFlipH = () => {
@@ -306,7 +274,7 @@ export function DicomViewerPage() {
       const props = viewport.getProperties();
       viewport.setProperties({ flipHorizontal: !props.flipHorizontal });
       viewport.render();
-    } catch (e) {}
+    } catch (_) {}
   };
 
   const handleFlipV = () => {
@@ -315,7 +283,7 @@ export function DicomViewerPage() {
       const props = viewport.getProperties();
       viewport.setProperties({ flipVertical: !props.flipVertical });
       viewport.render();
-    } catch (e) {}
+    } catch (_) {}
   };
 
   const handleReset = () => {
@@ -324,7 +292,7 @@ export function DicomViewerPage() {
       viewport.resetCamera();
       viewport.resetProperties();
       viewport.render();
-    } catch (e) {}
+    } catch (_) {}
   };
 
   const handlePrevImage = () => {
@@ -334,7 +302,7 @@ export function DicomViewerPage() {
       viewport.setImageIdIndex(newIdx);
       setCurrentIndex(newIdx);
       viewport.render();
-    } catch (e) {}
+    } catch (_) {}
   };
 
   const handleNextImage = () => {
@@ -344,18 +312,20 @@ export function DicomViewerPage() {
       viewport.setImageIdIndex(newIdx);
       setCurrentIndex(newIdx);
       viewport.render();
-    } catch (e) {}
+    } catch (_) {}
   };
 
   const handleOpenRadiant = () => {
     if (!studyUid) return;
-    // URL scheme do RadiAnt DICOM Viewer para abrir por Study UID
     const radiantUrl = `radiant://?n=1&v=0020000D&v=${encodeURIComponent(studyUid)}`;
     window.open(radiantUrl, "_blank");
     toast.info("Tentando abrir no RadiAnt DICOM Viewer...", {
       description: "Certifique-se que o RadiAnt está instalado no computador.",
     });
   };
+
+  const isLoading = phase === "downloading" || phase === "rendering";
+  const cornerstoneReady = phase === "ready";
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white select-none">
@@ -365,7 +335,7 @@ export function DicomViewerPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigate("/studies")}
+            onClick={() => navigate("/pacs-query")}
             className="text-gray-300 hover:text-white hover:bg-gray-800 h-8"
           >
             <ArrowLeft className="h-4 w-4 mr-1" />
@@ -379,14 +349,10 @@ export function DicomViewerPage() {
                   {cleanPatientName(studyInfo.patientName)}
                 </div>
                 <div className="text-xs text-gray-400 leading-tight mt-0.5">
-                  {formatDate(studyInfo.studyDate)} •{" "}
-                  {studyInfo.studyDescription}
+                  {formatDate(studyInfo.studyDate)} • {studyInfo.studyDescription}
                 </div>
               </div>
-              <Badge
-                variant="outline"
-                className="text-xs border-blue-500 text-blue-400 h-5"
-              >
+              <Badge variant="outline" className="text-xs border-blue-500 text-blue-400 h-5">
                 {studyInfo.modality}
               </Badge>
             </div>
@@ -414,51 +380,16 @@ export function DicomViewerPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* Toolbar lateral esquerda */}
         <div className="flex flex-col gap-1 p-2 bg-gray-900 border-r border-gray-800 w-11 flex-shrink-0">
-          <ToolButton
-            icon={<ZoomIn className="h-4 w-4" />}
-            title="Zoom In"
-            onClick={handleZoomIn}
-            disabled={!cornerstoneReady}
-          />
-          <ToolButton
-            icon={<ZoomOut className="h-4 w-4" />}
-            title="Zoom Out"
-            onClick={handleZoomOut}
-            disabled={!cornerstoneReady}
-          />
+          <ToolButton icon={<ZoomIn className="h-4 w-4" />} title="Zoom In" onClick={handleZoomIn} disabled={!cornerstoneReady} />
+          <ToolButton icon={<ZoomOut className="h-4 w-4" />} title="Zoom Out" onClick={handleZoomOut} disabled={!cornerstoneReady} />
           <div className="border-t border-gray-700 my-0.5" />
-          <ToolButton
-            icon={<RotateCcw className="h-4 w-4" />}
-            title="Girar 90° Esquerda"
-            onClick={handleRotateCCW}
-            disabled={!cornerstoneReady}
-          />
-          <ToolButton
-            icon={<RotateCw className="h-4 w-4" />}
-            title="Girar 90° Direita"
-            onClick={handleRotateCW}
-            disabled={!cornerstoneReady}
-          />
+          <ToolButton icon={<RotateCcw className="h-4 w-4" />} title="Girar 90° Esquerda" onClick={handleRotateCCW} disabled={!cornerstoneReady} />
+          <ToolButton icon={<RotateCw className="h-4 w-4" />} title="Girar 90° Direita" onClick={handleRotateCW} disabled={!cornerstoneReady} />
           <div className="border-t border-gray-700 my-0.5" />
-          <ToolButton
-            icon={<FlipHorizontal className="h-4 w-4" />}
-            title="Espelhar Horizontal"
-            onClick={handleFlipH}
-            disabled={!cornerstoneReady}
-          />
-          <ToolButton
-            icon={<FlipVertical className="h-4 w-4" />}
-            title="Espelhar Vertical"
-            onClick={handleFlipV}
-            disabled={!cornerstoneReady}
-          />
+          <ToolButton icon={<FlipHorizontal className="h-4 w-4" />} title="Espelhar Horizontal" onClick={handleFlipH} disabled={!cornerstoneReady} />
+          <ToolButton icon={<FlipVertical className="h-4 w-4" />} title="Espelhar Vertical" onClick={handleFlipV} disabled={!cornerstoneReady} />
           <div className="border-t border-gray-700 my-0.5" />
-          <ToolButton
-            icon={<RefreshCw className="h-4 w-4 text-yellow-400" />}
-            title="Resetar Visualização"
-            onClick={handleReset}
-            disabled={!cornerstoneReady}
-          />
+          <ToolButton icon={<RefreshCw className="h-4 w-4 text-yellow-400" />} title="Resetar Visualização" onClick={handleReset} disabled={!cornerstoneReady} />
         </div>
 
         {/* Área principal do viewer */}
@@ -468,29 +399,23 @@ export function DicomViewerPage() {
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20">
               <Loader2 className="h-12 w-12 text-blue-400 animate-spin mb-4" />
               <p className="text-gray-300 text-sm font-medium">
-                Carregando imagens DICOM...
+                {phase === "downloading" ? "Baixando imagens via C-MOVE..." : "Inicializando visualizador..."}
               </p>
-              <p className="text-gray-500 text-xs mt-1">
-                Conectando ao servidor PACS (45.189.160.17:8042)
-              </p>
+              <p className="text-gray-500 text-xs mt-1 max-w-sm text-center">{downloadProgress}</p>
             </div>
           )}
 
           {/* Error overlay */}
-          {error && !isLoading && (
+          {phase === "error" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-950 z-20 p-6">
               <AlertCircle className="h-12 w-12 text-red-400 mb-4" />
-              <p className="text-red-300 text-sm font-semibold mb-2">
-                Erro ao carregar imagens DICOM
-              </p>
-              <p className="text-gray-500 text-xs text-center max-w-md mb-4">
-                {error}
-              </p>
+              <p className="text-red-300 text-sm font-semibold mb-2">Erro ao carregar imagens DICOM</p>
+              <p className="text-gray-500 text-xs text-center max-w-md mb-4">{error}</p>
               <div className="flex gap-2 mb-4">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => navigate("/studies")}
+                  onClick={() => navigate("/pacs-query")}
                   className="border-gray-600 text-gray-300 hover:bg-gray-800"
                 >
                   <ArrowLeft className="h-4 w-4 mr-1" />
@@ -499,7 +424,7 @@ export function DicomViewerPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={initViewer}
+                  onClick={startViewer}
                   className="border-blue-600 text-blue-400 hover:bg-blue-900"
                 >
                   <RefreshCw className="h-4 w-4 mr-1" />
@@ -517,8 +442,8 @@ export function DicomViewerPage() {
               </div>
               <div className="p-3 bg-gray-900 rounded-lg text-xs text-gray-400 max-w-md">
                 <p className="font-medium text-gray-300 mb-1">Dicas:</p>
-                <p>• Verifique se o servidor Orthanc está acessível</p>
-                <p>• O estudo deve ter suporte a DICOMweb (WADO-RS)</p>
+                <p>• Verifique se o PACS está acessível (IP + Porta + AE Title)</p>
+                <p>• O AE Title do portal deve estar registrado no PACS como destino C-MOVE</p>
                 <p>• Use "Abrir no RadiAnt" como alternativa</p>
               </div>
             </div>
@@ -552,8 +477,6 @@ export function DicomViewerPage() {
               >
                 <ChevronRight className="h-6 w-6" />
               </Button>
-
-              {/* Indicador de posição */}
               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 px-3 py-1 rounded-full text-xs text-gray-300 border border-gray-700">
                 {currentIndex + 1} / {imageCount}
               </div>
@@ -571,8 +494,7 @@ export function DicomViewerPage() {
         </div>
         {studyUid && (
           <span className="font-mono text-gray-600">
-            UID: {studyUid.substring(0, 40)}
-            {studyUid.length > 40 ? "..." : ""}
+            UID: {studyUid.substring(0, 40)}{studyUid.length > 40 ? "..." : ""}
           </span>
         )}
       </div>
@@ -580,13 +502,8 @@ export function DicomViewerPage() {
   );
 }
 
-// Componente auxiliar para botões da toolbar
 function ToolButton({
-  icon,
-  title,
-  onClick,
-  disabled,
-  active,
+  icon, title, onClick, disabled, active,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -602,9 +519,7 @@ function ToolButton({
       disabled={disabled}
       title={title}
       className={`h-7 w-7 rounded ${
-        active
-          ? "bg-blue-600 text-white hover:bg-blue-700"
-          : "text-gray-400 hover:text-white hover:bg-gray-700"
+        active ? "bg-blue-600 text-white hover:bg-blue-700" : "text-gray-400 hover:text-white hover:bg-gray-700"
       } disabled:opacity-30`}
     >
       {icon}
