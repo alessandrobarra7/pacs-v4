@@ -259,3 +259,21 @@
 - [x] Atualizar routers.ts: labels C-MOVE → C-GET, mensagens de erro atualizadas
 - [x] 42/42 testes passando
 - [ ] Testar fluxo completo via interface web: busca → clicar Visualizar → imagens no browser
+
+## ETAPA 1 — Viewer DICOM: Corrigir dicomParser e Renderização
+
+- [ ] Verificar se dicom-parser está instalado nas dependências
+- [ ] Injetar dicomParser explicitamente no csDicomLoader antes do init()
+- [ ] Configurar workers do Cornerstone (codecs WASM) corretamente no Vite
+- [ ] Validar que vp.setStack() resolve e imagem é renderizada
+- [ ] Confirmar renderização real no browser com estudo CT real
+
+## ETAPA 1 — Viewer DICOM Funcional (Cornerstone.js)
+
+- [x] Instalar comlink (dependência do Cornerstone WebWorkerManager)
+- [x] Adicionar dicom-parser ao optimizeDeps.include (fix do require('zlib') no browser)
+- [x] Expandir vitePluginCjsDefaultExport para cobrir codecs WASM do Cornerstone (libjpeg-turbo, charls, openjpeg, openjph)
+- [x] Adicionar @cornerstonejs/dicom-image-loader ao optimizeDeps.exclude (evita pré-bundle do Web Worker)
+- [x] Converter imports dinâmicos (import()) para imports estáticos no DicomViewerPage.tsx
+- [x] Validar renderização real: canvas 1236x1022px, hasContent:true — IMAGEM CT RENDERIZANDO!
+- [ ] Salvar checkpoint após viewer funcional

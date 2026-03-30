@@ -746,6 +746,35 @@ export const appRouter = router({
         }
         
         const localAeTitle = unit.pacs_local_ae_title || 'LAUDS';
+        
+        // Verificar cache existente — evita re-download se imagens já estão no disco
+        const { existsSync, readdirSync } = await import('fs');
+        const studyCacheDir = `/tmp/dicom-cache/${input.studyInstanceUid}`;
+        if (existsSync(studyCacheDir)) {
+          const cachedFiles = readdirSync(studyCacheDir).filter((f: string) => f.endsWith('.dcm'));
+          if (cachedFiles.length > 0) {
+            console.log(`[C-GET] Cache HIT: ${cachedFiles.length} arquivos para ${input.studyInstanceUid}`);
+            await createAuditLog({
+              user_id: ctx.user.id,
+              unit_id: targetUnitId,
+              action: 'OPEN_VIEWER',
+              target_type: 'STUDY',
+              target_id: input.studyInstanceUid,
+              ip_address: ctx.req.ip,
+              user_agent: ctx.req.headers['user-agent'],
+              metadata: { cache_hit: true, file_count: cachedFiles.length },
+            });
+            return {
+              success: true,
+              studyInstanceUid: input.studyInstanceUid,
+              fileCount: cachedFiles.length,
+              cacheDir: studyCacheDir,
+              durationSec: 0,
+              fromCache: true,
+            };
+          }
+        }
+        
         const moveInput = {
           pacs_ip: unit.pacs_ip,
           pacs_port: unit.pacs_port,
@@ -773,7 +802,7 @@ export const appRouter = router({
           const { stdout, stderr } = await execFileAsync(
             pythonBin,
             [scriptPath, JSON.stringify(moveInput)],
-            { timeout: 180000, env: cleanEnv } // 3 minutos para estudos grandes
+            { timeout: 600000, env: cleanEnv } // 10 minutos para estudos grandes (CT com 200+ imagens)
           );
 
           if (stderr) {

@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useParams, useLocation } from "wouter";
+import * as csCore from "@cornerstonejs/core";
+import * as csTools from "@cornerstonejs/tools";
+import * as csDicomLoader from "@cornerstonejs/dicom-image-loader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -97,12 +100,8 @@ export function DicomViewerPage() {
     setDownloadProgress("Inicializando visualizador...");
 
     try {
-      const [csCore, csTools, csDicomLoader] = await Promise.all([
-        import("@cornerstonejs/core"),
-        import("@cornerstonejs/tools"),
-        import("@cornerstonejs/dicom-image-loader"),
-      ]);
-
+      // Usa imports estáticos (definidos no topo do arquivo) para que o Vite
+      // use o pre-bundle e os wrappers ESM dos pacotes CJS sejam aplicados corretamente.
       const { RenderingEngine, Enums } = csCore;
       const {
         ToolGroupManager,
@@ -116,9 +115,13 @@ export function DicomViewerPage() {
         init: initTools,
       } = csTools;
 
+      console.log('[DicomViewer] csCore.init...');
       await csCore.init();
+      console.log('[DicomViewer] csDicomLoader.init...');
       await csDicomLoader.init({ maxWebWorkers: 1 });
+      console.log('[DicomViewer] initTools...');
       await initTools();
+      console.log('[DicomViewer] tools initialized');
 
       addTool(WindowLevelTool);
       addTool(ZoomTool);
@@ -169,8 +172,11 @@ export function DicomViewerPage() {
 
       if (toolGroup) toolGroup.addViewport(viewportId, engineId);
 
+      console.log('[DicomViewer] setStack with', ids.length, 'images, first:', ids[0]);
       await vp.setStack(ids, 0);
+      console.log('[DicomViewer] setStack done, calling render...');
       vp.render();
+      console.log('[DicomViewer] render called, setting phase ready');
 
       setPhase("ready");
       toast.success(`${ids.length} imagem(ns) carregada(s) com sucesso`);

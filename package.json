@@ -58,6 +58,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "comlink": "^4.4.2",
     "cookie": "^1.0.2",
     "cornerstone-core": "^2.6.1",
     "cornerstone-tools": "^6.0.10",
