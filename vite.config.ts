@@ -1,6 +1,7 @@
 import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import commonjs from "@rollup/plugin-commonjs";
 import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
@@ -151,50 +152,59 @@ function vitePluginManusDebugCollector(): Plugin {
 }
 
 // Plugin que corrige módulos CJS/IIFE sem default export.
-// Cobre:
-//   1. Pacotes CJS simples (globalthis, fast-deep-equal, seedrandom)
-//   2. Codecs WASM do Cornerstone (libjpeg-turbo, charls, openjpeg, openjph)
-//      gerados pelo Emscripten — exportam uma variável global, não ESM default.
+// Cobre codecs WASM do Cornerstone (libjpeg-turbo, charls, openjpeg, openjph)
+// gerados pelo Emscripten com padrão UMD: `if (typeof module === 'object') module.exports = X`
+//
+// Estratégia: SUBSTITUIR o bloco UMD inteiro por `export default X` limpo.
+// Apenas adicionar ao final não resolve pois o Rollup inclui o bloco UMD original.
 function vitePluginCjsDefaultExport(): Plugin {
   return {
     name: 'cjs-default-export',
     transform(code, id) {
-      // Cobre codecs WASM do @cornerstonejs (arquivos .js no dist/ desses pacotes)
+      // Apenas codecs WASM do @cornerstonejs (arquivos .js no dist/ desses pacotes)
       const isCodecWasm = id.includes('@cornerstonejs/codec-') && id.includes('/dist/');
-      // Cobre pacotes CJS simples que vtk.js importa como ESM default
-      const isCjsPackage = [
-        '/globalthis/',
-        '/fast-deep-equal/',
-        '/seedrandom/',
-      ].some(pkg => id.includes(pkg));
+      if (!isCodecWasm) return null;
 
-      if (!isCodecWasm && !isCjsPackage) return null;
-
-      // Se já tem export default, não precisa de patch
+      // Se já tem export default ESM, não precisa de patch
       if (code.includes('export default') || code.includes('export { default }')) return null;
 
-      // Para codecs WASM Emscripten: a variável exportada é declarada no topo como
-      // "var NomeDaLib = (() => { ... return Module; })();"
-      // Detecta o nome da variável e exporta como default.
-      if (isCodecWasm) {
-        // Extrai o nome da variável principal (ex: libjpegturbowasm_decode, CharLS, OpenJPEGWASM)
-        const match = code.match(/^var\s+(\w+)\s*=/m);
-        if (match) {
-          return {
-            code: code + `\nexport default ${match[1]};`,
-            map: null,
-          };
-        }
-        // Fallback genérico se não encontrar o nome
+      // Padrão UMD Emscripten:
+      // if (typeof exports === 'object' && typeof module === 'object')
+      //   module.exports = VarName;
+      // else if (typeof define === 'function' && define['amd'])
+      //   define([], function() { return VarName; });
+      // else if (typeof exports === 'object')
+      //   exports["VarName"] = VarName;
+      //
+      // Substitui esse bloco por `export default VarName;`
+      const umdPattern = /if\s*\(typeof\s+exports\s*===?\s*['"]object['"]\s*&&\s*typeof\s+module\s*===?\s*['"]object['"]\)[\s\S]*?(?:else\s+if\s*\(typeof\s+exports\s*===?\s*['"]object['"]\)[\s\S]*?\})?\s*$/;
+
+      // Extrai o nome da variável exportada do bloco UMD
+      const varMatch = code.match(/module\.exports\s*=\s*(\w+)/);
+      const varName = varMatch ? varMatch[1] : null;
+
+      if (varName) {
+        // Remove o bloco UMD e adiciona export default ESM
+        const cleaned = code.replace(umdPattern, '');
         return {
-          code: code + '\nexport default (typeof module !== "undefined" && module.exports) ? module.exports : {};',
+          code: cleaned.trimEnd() + `\nexport default ${varName};\n`,
           map: null,
         };
       }
 
-      // Para pacotes CJS simples
+      // Fallback: extrai o nome da variável principal do topo do arquivo
+      const topVarMatch = code.match(/^var\s+(\w+)\s*=/m);
+      if (topVarMatch) {
+        const cleaned = code.replace(umdPattern, '');
+        return {
+          code: cleaned.trimEnd() + `\nexport default ${topVarMatch[1]};\n`,
+          map: null,
+        };
+      }
+
+      // Último recurso: apenas adiciona export default vazio
       return {
-        code: code + '\nexport default module.exports;',
+        code: code + '\nexport default {};',
         map: null,
       };
     },
@@ -210,8 +220,12 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
-      // Pacotes CJS-only sem default export são tratados via optimizeDeps.include abaixo.
-      // O Vite cria wrappers ESM automáticos durante o pré-bundle.
+      // Shims ESM para pacotes CJS-only que vtk.js importa como ESM default.
+      // Esses shims substituem os pacotes CJS por implementações ESM nativas,
+      // evitando o ReferenceError de 'module' no bundle de produção.
+      "globalthis": path.resolve(import.meta.dirname, "client/src/shims/globalthis.js"),
+      "fast-deep-equal": path.resolve(import.meta.dirname, "client/src/shims/fast-deep-equal.js"),
+      "seedrandom": path.resolve(import.meta.dirname, "client/src/shims/seedrandom.js"),
     },
   },
   envDir: path.resolve(import.meta.dirname),

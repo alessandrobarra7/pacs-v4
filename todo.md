@@ -277,3 +277,9 @@
 - [x] Converter imports dinâmicos (import()) para imports estáticos no DicomViewerPage.tsx
 - [x] Validar renderização real: canvas 1236x1022px, hasContent:true — IMAGEM CT RENDERIZANDO!
 - [ ] Salvar checkpoint após viewer funcional
+
+## FIX PRODUÇÃO — module is not defined (30/03/2026)
+
+- [ ] Corrigir vite.config.ts: build de produção com módulos CJS do Cornerstone
+- [ ] Testar build local sem erros
+- [ ] Deploy na VM1 e validar que a página carrega
