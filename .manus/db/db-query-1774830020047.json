@@ -1,0 +1,18 @@
+{
+  "query": "UPDATE units SET pacs_ip = '172.16.3.250', pacs_port = 3004, pacs_ae_title = 'dpacs', pacs_local_ae_title = 'LAUDS' WHERE slug = 'lauds-principal';\nSELECT id, name, pacs_ip, pacs_port, pacs_ae_title, pacs_local_ae_title FROM units;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute UPDATE units SET pacs_ip = '172.16.3.250', pacs_port = 3004, pacs_ae_title = 'dpacs', pacs_local_ae_title = 'LAUDS' WHERE slug = 'lauds-principal';\nSELECT id, name, pacs_ip, pacs_port, pacs_ae_title, pacs_local_ae_title FROM units;",
+  "rows": [
+    {
+      "id": "180001",
+      "name": "PACS Principal",
+      "pacs_ip": "45.189.160.17",
+      "pacs_port": "3004",
+      "pacs_ae_title": "dpacs",
+      "pacs_local_ae_title": "LAUDS"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tpacs_ip\tpacs_port\tpacs_ae_title\tpacs_local_ae_title\n180001\tPACS Principal\t45.189.160.17\t3004\tdpacs\tLAUDS\n",
+  "stderr": "",
+  "execution_time_ms": 178
+}
