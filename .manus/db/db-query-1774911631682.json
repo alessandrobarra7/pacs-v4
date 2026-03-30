@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE units SET pacs_ip = '45.189.160.17' WHERE id = 180001;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute UPDATE units SET pacs_ip = '45.189.160.17' WHERE id = 180001;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 200
+}
