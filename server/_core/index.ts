@@ -137,14 +137,16 @@ async function startServer() {
   
   // DICOMweb Proxy - faz proxy das requisições para o Orthanc
   // Rota: /api/dicomweb/* → Orthanc /dicom-web/*
-  // O Orthanc em 172.16.3.241:8042 tem o plugin DICOMweb habilitado em /dicom-web/
+  // Usa o pacs_ip da unidade + porta 8042 (porta padrão HTTP do Orthanc)
+  // O viewer passa o studyUid na URL; o proxy descobre a unidade pelo studyUid
+  // ou usa a primeira unidade ativa como fallback.
   
   // Cache da URL do Orthanc para evitar query ao banco em cada requisição
   let cachedOrthancUrl: string | null = null;
   let cacheTimestamp = 0;
   const CACHE_TTL_MS = 60_000; // 1 minuto
   
-  async function getOrthancUrl(): Promise<string> {
+  async function getOrthancUrl(studyUid?: string): Promise<string> {
     const now = Date.now();
     if (cachedOrthancUrl && (now - cacheTimestamp) < CACHE_TTL_MS) {
       return cachedOrthancUrl;
@@ -154,18 +156,29 @@ async function startServer() {
       const { units } = await import('../../drizzle/schema');
       const db = await getDb();
       if (db) {
-        const [unit] = await db.select().from(units).limit(1);
-        if (unit?.orthanc_base_url) {
-          cachedOrthancUrl = unit.orthanc_base_url;
+        // Busca a primeira unidade ativa com IP configurado
+        const [unit] = await db
+          .select()
+          .from(units)
+          .where(require('drizzle-orm').eq(units.isActive, true))
+          .limit(1);
+        if (unit?.pacs_ip) {
+          // Porta Orthanc HTTP padrão é 8042; pode ser sobrescrita por ORTHANC_HTTP_PORT
+          const orthancPort = process.env.ORTHANC_HTTP_PORT || '8042';
+          const url = `http://${unit.pacs_ip}:${orthancPort}`;
+          cachedOrthancUrl = url;
           cacheTimestamp = now;
-          return cachedOrthancUrl;
+          console.log(`[DICOMweb Proxy] Orthanc URL resolvida do banco: ${url}`);
+          return url;
         }
       }
     } catch (e) {
       console.error('[DICOMweb Proxy] Erro ao buscar URL do Orthanc:', e);
     }
-    // Fallback: IP interno do Orthanc em produção
-    return process.env.ORTHANC_BASE_URL || 'http://172.16.3.241:8042';
+    // Fallback: variável de ambiente ou IP padrão
+    const fallback = process.env.ORTHANC_BASE_URL || 'http://172.16.3.250:8042';
+    console.log(`[DICOMweb Proxy] Usando fallback: ${fallback}`);
+    return fallback;
   }
   
   // OPTIONS preflight para CORS
