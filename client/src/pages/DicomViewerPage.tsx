@@ -178,28 +178,30 @@ export function DicomViewerPage() {
     if (!studyUid) return;
     setPhase("downloading");
     setError(null);
-    setDownloadProgress("Solicitando imagens ao PACS via C-MOVE...");
 
     try {
-      // 1. Dispara C-MOVE no backend (Python script)
+      // Etapa 1: Associação DICOM
+      setDownloadProgress("[1/4] Estabelecendo associação DICOM com o PACS...");
       const result = await startViewerMutation.mutateAsync({ studyInstanceUid: studyUid });
 
       if (!result.success) {
-        throw new Error("C-MOVE falhou — verifique a configuração do PACS");
+        throw new Error("C-MOVE falhou — verifique IP, Porta e AE Title do PACS");
       }
 
-      setDownloadProgress(`${result.fileCount} arquivo(s) recebido(s). Carregando viewer...`);
+      // Etapa 2: Recebimento confirmado
+      setDownloadProgress(`[2/4] ${result.fileCount} arquivo(s) DICOM recebido(s) com sucesso.`);
 
-      // 2. Lista os arquivos do cache
+      // Etapa 3: Lista os arquivos do cache
+      setDownloadProgress(`[3/4] Preparando ${result.fileCount} imagem(ns) para visualização...`);
       const listResp = await fetch(`/api/dicom-files/${studyUid}`);
-      if (!listResp.ok) throw new Error("Arquivos DICOM não encontrados no cache");
+      if (!listResp.ok) throw new Error("Arquivos DICOM não encontrados no cache após C-MOVE");
 
       const listData = await listResp.json();
       const files: string[] = listData.files || [];
 
-      if (files.length === 0) throw new Error("Nenhum arquivo DICOM recebido do PACS");
+      if (files.length === 0) throw new Error("Nenhum arquivo DICOM encontrado no cache. O PACS enviou os arquivos?");
 
-      // 3. Monta imageIds usando wadouri (leitura local via servidor)
+      // Monta imageIds usando wadouri (leitura local via servidor)
       const ids = files.map(
         (f: string) => `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${f}`
       );
@@ -207,11 +209,12 @@ export function DicomViewerPage() {
       setImageIds(ids);
       setImageCount(ids.length);
 
-      // 4. Extrai metadados do estudo
+      // Extrai metadados do estudo
       const meta = await extractMetadataFromDicom(studyUid);
       setStudyInfo(meta);
 
-      // 5. Inicia Cornerstone com os arquivos locais
+      // Etapa 4: Inicializa Cornerstone
+      setDownloadProgress(`[4/4] Inicializando visualizador com ${ids.length} imagem(ns)...`);
       await initCornerstoneWithCache(ids);
 
     } catch (err: any) {

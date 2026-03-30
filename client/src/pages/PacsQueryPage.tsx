@@ -99,6 +99,9 @@ export function PacsQueryPage() {
   const cacheKey = `pacs_query_results_unit_${effectiveUnitId || 'none'}`;
 
   const [filters, setFilters] = useState({ patientName: "", studyDate: "", period: "today", shift: false });
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo] = useState("");
+  const [showCustomDate, setShowCustomDate] = useState(false);
   const [queryResults, setQueryResults] = useState<any[]>(() => {
     try { return JSON.parse(localStorage.getItem(cacheKey) || '[]'); } catch { return []; }
   });
@@ -185,12 +188,30 @@ export function PacsQueryPage() {
   };
 
   const handlePeriodChange = (period: string) => {
+    if (period === 'custom') {
+      setShowCustomDate(true);
+      setFilters(f => ({ ...f, period: 'custom', studyDate: '' }));
+      return;
+    }
+    setShowCustomDate(false);
     let studyDate = '';
     if (period === 'today') studyDate = 'TODAY';
     else if (period === '7days') studyDate = 'LAST_7_DAYS';
     else if (period === '30days') studyDate = 'LAST_30_DAYS';
     setFilters(f => ({ ...f, period, studyDate }));
     runQuery({ period, studyDate });
+  };
+
+  const handleCustomDateSearch = () => {
+    if (!customDateFrom && !customDateTo) { toast.error('Informe ao menos uma data'); return; }
+    const from = customDateFrom ? customDateFrom.replace(/-/g, '') : '';
+    const to = customDateTo ? customDateTo.replace(/-/g, '') : '';
+    let studyDate = '';
+    if (from && to) studyDate = `${from}-${to}`;
+    else if (from) studyDate = from;
+    else studyDate = to;
+    setFilters(f => ({ ...f, period: 'custom', studyDate }));
+    runQuery({ period: 'custom', studyDate });
   };
 
   const handleVisualize = (study: any) => {
@@ -296,12 +317,13 @@ export function PacsQueryPage() {
           onKeyDown={(e) => e.key === 'Enter' && runQuery()}
           className="h-8 w-48 text-sm bg-white border-gray-300"
         />
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           {[
             { key: 'today', label: 'Hoje' },
             { key: '7days', label: '7 Dias' },
             { key: '30days', label: '30 Dias' },
             { key: 'all', label: 'Todos' },
+            { key: 'custom', label: 'Período' },
           ].map(({ key, label }) => (
             <button
               key={key}
@@ -324,6 +346,34 @@ export function PacsQueryPage() {
             <Clock className="h-3 w-3" />
             Plantão
           </button>
+          {/* Inputs de data customizada */}
+          {showCustomDate && (
+            <div className="flex items-center gap-1 ml-1">
+              <input
+                type="date"
+                value={customDateFrom}
+                onChange={e => setCustomDateFrom(e.target.value)}
+                className="h-7 px-2 text-xs border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                title="Data inicial"
+              />
+              <span className="text-xs text-gray-400">até</span>
+              <input
+                type="date"
+                value={customDateTo}
+                onChange={e => setCustomDateTo(e.target.value)}
+                className="h-7 px-2 text-xs border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                title="Data final"
+              />
+              <button
+                onClick={handleCustomDateSearch}
+                disabled={isQuerying}
+                className="px-2 py-1 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 flex items-center gap-1"
+              >
+                <Search className="h-3 w-3" />
+                Buscar
+              </button>
+            </div>
+          )}
         </div>
         <button
           onClick={() => runQuery()}

@@ -742,36 +742,52 @@ export const appRouter = router({
           });
         }
         
-        // Prepare input for C-MOVE Python script
+        const localAeTitle = unit.pacs_local_ae_title || 'LAUDS';
         const moveInput = {
           pacs_ip: unit.pacs_ip,
           pacs_port: unit.pacs_port,
           pacs_ae_title: unit.pacs_ae_title,
-          local_ae_title: unit.pacs_local_ae_title || 'PACSMANUS',
+          local_ae_title: localAeTitle,
           study_instance_uid: input.studyInstanceUid,
           cache_dir: '/tmp/dicom-cache',
         };
-        
-        // Execute Python C-MOVE script
+
+        console.log(`[C-MOVE] Iniciando: StudyUID=${input.studyInstanceUid} PACS=${unit.pacs_ip}:${unit.pacs_port} AE=${unit.pacs_ae_title} LocalAE=${localAeTitle} User=${ctx.user.username}`);
+
         const { execFile } = await import('child_process');
         const { promisify } = await import('util');
         const execFileAsync = promisify(execFile);
-        
+
         try {
-          const scriptPath = new URL('./dicom_move.sh', import.meta.url).pathname;
+          // Executa dicom_move.py diretamente (sem wrapper .sh)
+          const scriptPath = new URL('./dicom_move.py', import.meta.url).pathname;
           const { stdout, stderr } = await execFileAsync(
-            '/bin/bash',
+            'python3.11',
             [scriptPath, JSON.stringify(moveInput)],
-            { timeout: 120000 } // 2 minute timeout for C-MOVE
+            { timeout: 180000 } // 3 minutos para estudos grandes
           );
-          
+
           if (stderr) {
-            console.error('C-MOVE script stderr:', stderr);
+            // stderr contém os logs detalhados do script — registrar no console do servidor
+            console.log(`[C-MOVE] Logs do script:\n${stderr}`);
           }
-          
-          const result = JSON.parse(stdout);
-          
-          // Log audit
+
+          let result: any;
+          try {
+            result = JSON.parse(stdout);
+          } catch {
+            throw new TRPCError({
+              code: 'INTERNAL_SERVER_ERROR',
+              message: 'Resposta inválida do script C-MOVE. Verifique os logs do servidor.',
+            });
+          }
+
+          console.log(`[C-MOVE] Resultado: success=${result.success} files=${result.file_count} duration=${result.duration_sec}s`);
+          if (result.logs) {
+            result.logs.forEach((l: string) => console.log(`[C-MOVE] ${l}`));
+          }
+
+          // Registrar auditoria independente do resultado
           await createAuditLog({
             user_id: ctx.user.id,
             unit_id: ctx.user.unit_id,
@@ -782,30 +798,42 @@ export const appRouter = router({
             user_agent: ctx.req.headers['user-agent'],
             metadata: {
               pacs_ip: unit.pacs_ip,
+              pacs_ae_title: unit.pacs_ae_title,
+              local_ae_title: localAeTitle,
               file_count: result.file_count || 0,
+              duration_sec: result.duration_sec || 0,
+              success: result.success,
             },
           });
-          
+
           if (!result.success) {
             throw new TRPCError({
               code: 'INTERNAL_SERVER_ERROR',
-              message: `Erro ao baixar estudo: ${result.error}`,
+              message: result.error || 'Erro desconhecido no C-MOVE.',
             });
           }
-          
+
+          if (!result.file_count || result.file_count === 0) {
+            throw new TRPCError({
+              code: 'INTERNAL_SERVER_ERROR',
+              message: 'Nenhuma imagem recebida do PACS. Verifique se o AE Title local está cadastrado no PACS como destino autorizado.',
+            });
+          }
+
           return {
             success: true,
             studyInstanceUid: input.studyInstanceUid,
-            fileCount: result.file_count || 0,
+            fileCount: result.file_count,
             cacheDir: result.cache_dir,
+            durationSec: result.duration_sec,
           };
-          
+
         } catch (error: any) {
-          console.error('Error executing C-MOVE:', error);
-          
+          if (error instanceof TRPCError) throw error;
+          console.error('[C-MOVE] Erro inesperado:', error);
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
-            message: `Falha ao baixar estudo: ${error.message}`,
+            message: `Falha ao executar C-MOVE: ${error.message}`,
           });
         }
       }),

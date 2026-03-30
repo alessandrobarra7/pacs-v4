@@ -92,62 +92,75 @@ async function startServer() {
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   
+  const DICOM_CACHE_ROOT = '/tmp/dicom-cache';
+
+  // Limpeza automática de caches com mais de 2 horas (evita acúmulo em disco)
+  async function cleanOldDicomCaches() {
+    try {
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const entries = await fs.readdir(DICOM_CACHE_ROOT, { withFileTypes: true }).catch(() => []);
+      const now = Date.now();
+      const TWO_HOURS = 2 * 60 * 60 * 1000;
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const dirPath = path.join(DICOM_CACHE_ROOT, entry.name);
+        const stat = await fs.stat(dirPath).catch(() => null);
+        if (stat && now - stat.mtimeMs > TWO_HOURS) {
+          await fs.rm(dirPath, { recursive: true, force: true });
+          console.log(`[DICOM Cache] Limpeza automática: ${entry.name} (>2h)`);
+        }
+      }
+    } catch {}
+  }
+  setInterval(cleanOldDicomCaches, 30 * 60 * 1000); // a cada 30 minutos
+
   // Serve DICOM files from cache
   app.get('/api/dicom-files/:studyUid/:filename', (req, res) => {
     const { studyUid, filename } = req.params;
-    const filePath = `/tmp/dicom-cache/${studyUid}/${filename}`;
-    
-    // Security: validate filename to prevent directory traversal
-    if (filename.includes('..') || filename.includes('/')) {
-      return res.status(400).send('Invalid filename');
+    if (filename.includes('..') || filename.includes('/') || studyUid.includes('..') || studyUid.includes('/')) {
+      return res.status(400).send('Invalid path');
     }
-    
+    const filePath = `${DICOM_CACHE_ROOT}/${studyUid}/${filename}`;
     res.sendFile(filePath, (err) => {
       if (err) {
-        console.error('Error sending DICOM file:', err);
         res.status(404).send('File not found');
       }
     });
   });
-  
-  // List DICOM files for a study
+
+  // Lista arquivos DICOM de um estudo no cache
   app.get('/api/dicom-files/:studyUid', async (req, res) => {
     const { studyUid } = req.params;
-    const studyDir = `/tmp/dicom-cache/${studyUid}`;
-    
+    if (studyUid.includes('..') || studyUid.includes('/')) {
+      return res.status(400).json({ success: false, error: 'Invalid studyUid' });
+    }
+    const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
     try {
       const fs = await import('fs/promises');
       const files = await fs.readdir(studyDir);
-      const dicomFiles = files.filter(f => f.endsWith('.dcm'));
-      
-      res.json({
-        success: true,
-        studyUid,
-        files: dicomFiles,
-        count: dicomFiles.length,
-      });
-    } catch (error) {
-      console.error('Error listing DICOM files:', error);
-      res.status(404).json({
-        success: false,
-        error: 'Study not found in cache',
-      });
+      const dicomFiles = files.filter(f => f.endsWith('.dcm')).sort();
+      console.log(`[DICOM Cache] Listagem: ${studyUid} → ${dicomFiles.length} arquivos`);
+      res.json({ success: true, studyUid, files: dicomFiles, count: dicomFiles.length });
+    } catch {
+      res.status(404).json({ success: false, error: 'Estudo não encontrado no cache. Execute o C-MOVE novamente.' });
     }
   });
-  
-  // Limpa cache DICOM ao fechar o viewer
+
+  // Remove cache DICOM ao fechar o viewer
   app.delete('/api/dicom-files/:studyUid', async (req, res) => {
     const { studyUid } = req.params;
     if (studyUid.includes('..') || studyUid.includes('/')) {
       return res.status(400).json({ success: false, error: 'Invalid studyUid' });
     }
-    const studyDir = `/tmp/dicom-cache/${studyUid}`;
+    const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
     try {
       const fs = await import('fs/promises');
       await fs.rm(studyDir, { recursive: true, force: true });
+      console.log(`[DICOM Cache] Removido ao fechar viewer: ${studyUid}`);
       res.json({ success: true });
-    } catch (error) {
-      res.json({ success: true }); // Silently succeed even if dir doesn't exist
+    } catch {
+      res.json({ success: true });
     }
   });
 

@@ -215,3 +215,17 @@
 - [x] Frontend: integrar status real do laudo na worklist (substituir hash por consulta ao banco)
 - [x] Frontend: adicionar filtro por modalidade (CT/CR/MR/US/DX/PT/Todos) na barra de filtros
 - [ ] Deploy VM1: git pull + pnpm build + pm2 restart após todas as mudanças
+
+## PLANO_ACAO_VIEWER_LAUDS — C-MOVE Confiável + Filtro Data Customizado
+
+- [ ] dicom_move.py: logs detalhados (StudyUID, AE Titles, IP/porta, qtd arquivos, erros)
+- [ ] dicom_move.py: retornar JSON com status, qtd_arquivos, diretorio, erros
+- [ ] startViewer (routers.ts): aguardar confirmação real de recebimento antes de liberar viewer
+- [ ] startViewer: retornar erro claro quando 0 arquivos recebidos
+- [ ] _core/index.ts: endpoint listagem de instâncias retorna lista correta de .dcm
+- [ ] _core/index.ts: limpeza de cache com log (diretório, horário, causa)
+- [ ] _core/index.ts: limpeza automática de caches com mais de 2 horas
+- [ ] DicomViewerPage: exibir progresso do C-MOVE (aguardando → recebendo → abrindo)
+- [ ] DicomViewerPage: só montar Cornerstone após confirmação de arquivos recebidos
+- [ ] PacsQueryPage: filtro de data customizado (data inicial + data final)
+- [ ] PacsQueryPage: opção "Personalizado" nos filtros rápidos abre date picker
