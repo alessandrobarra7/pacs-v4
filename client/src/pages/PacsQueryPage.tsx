@@ -216,7 +216,8 @@ export function PacsQueryPage() {
 
   const handleVisualize = (study: any) => {
     if (!study.studyInstanceUid) { toast.error('UID do estudo não disponível'); return; }
-    navigate(`/dicom-viewer/${study.studyInstanceUid}`);
+    const unitParam = isAdminMaster && effectiveUnitId ? `?unit_id=${effectiveUnitId}` : '';
+    navigate(`/dicom-viewer/${study.studyInstanceUid}${unitParam}`);
   };
 
   const handleOpenRadiant = (study: any) => {

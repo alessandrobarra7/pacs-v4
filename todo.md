@@ -229,3 +229,24 @@
 - [x] DicomViewerPage: só montar Cornerstone após confirmação de arquivos recebidos
 - [x] PacsQueryPage: filtro de data customizado (data inicial + data final)
 - [x] PacsQueryPage: opção "Personalizado" nos filtros rápidos abre date picker
+
+## CORREÇÃO CRÍTICA — Viewer DICOM (Sessão Atual)
+
+- [x] Corrigir startViewer: remover dependência da tabela studies_cache (estava vazia, causava "Acesso negado")
+- [x] startViewer: usar unit_id do usuário diretamente (sem consultar studies_cache)
+- [x] startViewer: aceitar unit_id opcional no input para admin_master
+- [x] Corrigir conflito Python: PYTHONHOME/PYTHONPATH apontavam para Python 3.13 (uv), mas pynetdicom está no Python 3.11
+- [x] Usar /usr/bin/python3.11 com caminho absoluto e limpar PYTHONHOME/PYTHONPATH no execFileAsync
+- [x] Corrigir getViewerUrl: remover dependência de studies_cache
+- [x] PacsQueryPage: passar unit_id na URL ao navegar para o viewer (admin_master)
+- [x] DicomViewerPage: ler unit_id da query string e passar ao startViewer
+- [x] Corrigir teste auth.logout: sameSite "none" → "lax" (alinhado com auth.service.ts)
+- [x] 42/42 testes passando
+
+## PRÓXIMO PASSO CRÍTICO — Configuração PACS (Ação no Servidor)
+
+- [ ] Registrar AE Title "LAUDS" no Orthanc dpacs (172.16.3.250:3004) como destino autorizado para C-MOVE
+- [ ] Verificar porta 11112 aberta no VM1: ss -tlnp | grep 11112
+- [ ] Testar C-MOVE completo após configuração do PACS
+- [ ] Criar página de criação/edição de laudos (/reports/create/:uid)
+- [ ] Adicionar botão C-ECHO na página de Unidades para teste de conectividade

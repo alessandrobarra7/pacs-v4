@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useParams, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,8 +31,16 @@ interface StudyInfo {
 
 export function DicomViewerPage() {
   const { studyUid } = useParams<{ studyUid: string }>();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const viewerRef = useRef<HTMLDivElement>(null);
+
+  // Ler unit_id da query string (passado pelo admin_master)
+  const urlUnitId = useMemo(() => {
+    const search = window.location.search;
+    const params = new URLSearchParams(search);
+    const uid = params.get('unit_id');
+    return uid ? parseInt(uid, 10) : undefined;
+  }, [location]);
 
   const [phase, setPhase] = useState<"downloading" | "rendering" | "ready" | "error">("downloading");
   const [downloadProgress, setDownloadProgress] = useState<string>("Iniciando C-MOVE...");
@@ -182,7 +190,10 @@ export function DicomViewerPage() {
     try {
       // Etapa 1: Associação DICOM
       setDownloadProgress("[1/4] Estabelecendo associação DICOM com o PACS...");
-      const result = await startViewerMutation.mutateAsync({ studyInstanceUid: studyUid });
+      const result = await startViewerMutation.mutateAsync({
+        studyInstanceUid: studyUid,
+        unit_id: urlUnitId,
+      });
 
       if (!result.success) {
         throw new Error("C-MOVE falhou — verifique IP, Porta e AE Title do PACS");

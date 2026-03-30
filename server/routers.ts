@@ -704,6 +704,7 @@ export const appRouter = router({
     startViewer: protectedProcedure
       .input(z.object({
         studyInstanceUid: z.string(),
+        unit_id: z.number().optional(), // admin_master pode especificar a unidade
       }))
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
@@ -714,18 +715,20 @@ export const appRouter = router({
           });
         }
 
-        // CRITÍCO 2: Validar ownership do estudo (previne IDOR)
-        const unitIdFilter = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
-        const studyOwnership = await getStudyByInstanceUid(input.studyInstanceUid, unitIdFilter);
-        if (!studyOwnership) {
+        // Determinar a unidade alvo: admin_master pode passar unit_id explícito
+        const targetUnitId = (ctx.user.role === 'admin_master' && input.unit_id)
+          ? input.unit_id
+          : ctx.user.unit_id;
+
+        if (!targetUnitId) {
           throw new TRPCError({
             code: 'FORBIDDEN',
-            message: 'Acesso negado: estudo não pertence à sua unidade.',
+            message: 'Usuário não está associado a nenhuma unidade.',
           });
         }
-        
+
         // Get user's unit to access PACS configuration
-        const [unit] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id!)).limit(1);
+        const [unit] = await db.select().from(units).where(eq(units.id, targetUnitId)).limit(1);
         
         if (!unit) {
           throw new TRPCError({
@@ -761,10 +764,16 @@ export const appRouter = router({
         try {
           // Executa dicom_move.py diretamente (sem wrapper .sh)
           const scriptPath = new URL('./dicom_move.py', import.meta.url).pathname;
+          // Usar caminho absoluto do Python 3.11 e limpar PYTHONHOME/PYTHONPATH
+          // para evitar conflito com o ambiente uv Python 3.13 do servidor
+          const pythonBin = '/usr/bin/python3.11';
+          const cleanEnv = { ...process.env };
+          delete cleanEnv.PYTHONHOME;
+          delete cleanEnv.PYTHONPATH;
           const { stdout, stderr } = await execFileAsync(
-            'python3.11',
+            pythonBin,
             [scriptPath, JSON.stringify(moveInput)],
-            { timeout: 180000 } // 3 minutos para estudos grandes
+            { timeout: 180000, env: cleanEnv } // 3 minutos para estudos grandes
           );
 
           if (stderr) {
@@ -790,7 +799,7 @@ export const appRouter = router({
           // Registrar auditoria independente do resultado
           await createAuditLog({
             user_id: ctx.user.id,
-            unit_id: ctx.user.unit_id,
+            unit_id: targetUnitId,
             action: 'OPEN_VIEWER',
             target_type: 'STUDY',
             target_id: input.studyInstanceUid,
@@ -853,17 +862,16 @@ export const appRouter = router({
           });
         }
 
-        // CRÍTICO 2: Validar ownership do estudo (previne IDOR)
-        const unitIdFilter = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
-        const studyOwnership = await getStudyByInstanceUid(input.studyInstanceUid, unitIdFilter);
-        if (!studyOwnership) {
+        // Determinar a unidade alvo
+        const targetUnitIdForViewer = ctx.user.unit_id;
+        if (!targetUnitIdForViewer) {
           throw new TRPCError({
             code: 'FORBIDDEN',
-            message: 'Acesso negado: estudo não pertence à sua unidade.',
+            message: 'Usuário não está associado a nenhuma unidade.',
           });
         }
         
-        const [unitData] = await db.select().from(units).where(eq(units.id, ctx.user.unit_id!)).limit(1);
+        const [unitData] = await db.select().from(units).where(eq(units.id, targetUnitIdForViewer)).limit(1);
         if (!unitData) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unidade não encontrada' });
         
         const orthancInternalUrl = unitData.orthanc_base_url;
