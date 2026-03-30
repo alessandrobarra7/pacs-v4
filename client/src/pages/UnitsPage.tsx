@@ -177,8 +177,8 @@ export default function UnitsPage() {
           </CardHeader>
           <CardContent>
               <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg text-xs text-blue-700 dark:text-blue-300">
-                <p className="font-semibold mb-1">⚠️ Importante: Registro do AE Title no PACS</p>
-                <p>Para o visualizador funcionar via C-MOVE, o <strong>AE Title Local</strong> de cada unidade deve estar cadastrado no PACS como destino autorizado, assim como você cadastra o RadiAnt. O portal escuta na porta <strong>11112</strong> (DICOM_PORT).</p>
+                <p className="font-semibold mb-1">ℹ️ Protocolo de Recuperação: C-GET</p>
+                <p>O visualizador usa <strong>C-GET</strong> (protocolo pull-based) — o portal busca as imagens diretamente do PACS na mesma conexão TCP, sem necessidade de listener externo. Basta que o PACS suporte C-GET (como o Orthanc em modo promíscuo).</p>
               </div>
               <Table>
               <TableHeader>

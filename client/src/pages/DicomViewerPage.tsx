@@ -43,7 +43,7 @@ export function DicomViewerPage() {
   }, [location]);
 
   const [phase, setPhase] = useState<"downloading" | "rendering" | "ready" | "error">("downloading");
-  const [downloadProgress, setDownloadProgress] = useState<string>("Iniciando C-MOVE...");
+  const [downloadProgress, setDownloadProgress] = useState<string>("Iniciando C-GET...");
   const [error, setError] = useState<string | null>(null);
   const [studyInfo, setStudyInfo] = useState<StudyInfo | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -181,7 +181,7 @@ export function DicomViewerPage() {
     }
   }, []);
 
-  // Fluxo principal: C-MOVE → cache → Cornerstone
+  // Fluxo principal: C-GET → cache → Cornerstone
   const startViewer = useCallback(async () => {
     if (!studyUid) return;
     setPhase("downloading");
@@ -196,7 +196,7 @@ export function DicomViewerPage() {
       });
 
       if (!result.success) {
-        throw new Error("C-MOVE falhou — verifique IP, Porta e AE Title do PACS");
+        throw new Error("C-GET falhou — verifique IP, Porta e AE Title do PACS");
       }
 
       // Etapa 2: Recebimento confirmado
@@ -205,7 +205,7 @@ export function DicomViewerPage() {
       // Etapa 3: Lista os arquivos do cache
       setDownloadProgress(`[3/4] Preparando ${result.fileCount} imagem(ns) para visualização...`);
       const listResp = await fetch(`/api/dicom-files/${studyUid}`);
-      if (!listResp.ok) throw new Error("Arquivos DICOM não encontrados no cache após C-MOVE");
+      if (!listResp.ok) throw new Error("Arquivos DICOM não encontrados no cache após C-GET");
 
       const listData = await listResp.json();
       const files: string[] = listData.files || [];
@@ -413,7 +413,7 @@ export function DicomViewerPage() {
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20">
               <Loader2 className="h-12 w-12 text-blue-400 animate-spin mb-4" />
               <p className="text-gray-300 text-sm font-medium">
-                {phase === "downloading" ? "Baixando imagens via C-MOVE..." : "Inicializando visualizador..."}
+                {phase === "downloading" ? "Baixando imagens via C-GET..." : "Inicializando visualizador..."}
               </p>
               <p className="text-gray-500 text-xs mt-1 max-w-sm text-center">{downloadProgress}</p>
             </div>
@@ -457,7 +457,7 @@ export function DicomViewerPage() {
               <div className="p-3 bg-gray-900 rounded-lg text-xs text-gray-400 max-w-md">
                 <p className="font-medium text-gray-300 mb-1">Dicas:</p>
                 <p>• Verifique se o PACS está acessível (IP + Porta + AE Title)</p>
-                <p>• O AE Title do portal deve estar registrado no PACS como destino C-MOVE</p>
+                <p>• O PACS deve suportar C-GET (protocolo pull-based — sem necessidade de listener externo)</p>
                 <p>• Use "Abrir no RadiAnt" como alternativa</p>
               </div>
             </div>
