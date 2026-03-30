@@ -218,14 +218,14 @@
 
 ## PLANO_ACAO_VIEWER_LAUDS — C-MOVE Confiável + Filtro Data Customizado
 
-- [ ] dicom_move.py: logs detalhados (StudyUID, AE Titles, IP/porta, qtd arquivos, erros)
-- [ ] dicom_move.py: retornar JSON com status, qtd_arquivos, diretorio, erros
-- [ ] startViewer (routers.ts): aguardar confirmação real de recebimento antes de liberar viewer
-- [ ] startViewer: retornar erro claro quando 0 arquivos recebidos
-- [ ] _core/index.ts: endpoint listagem de instâncias retorna lista correta de .dcm
-- [ ] _core/index.ts: limpeza de cache com log (diretório, horário, causa)
-- [ ] _core/index.ts: limpeza automática de caches com mais de 2 horas
-- [ ] DicomViewerPage: exibir progresso do C-MOVE (aguardando → recebendo → abrindo)
-- [ ] DicomViewerPage: só montar Cornerstone após confirmação de arquivos recebidos
-- [ ] PacsQueryPage: filtro de data customizado (data inicial + data final)
-- [ ] PacsQueryPage: opção "Personalizado" nos filtros rápidos abre date picker
+- [x] dicom_move.py: logs detalhados (StudyUID, AE Titles, IP/porta, qtd arquivos, erros)
+- [x] dicom_move.py: retornar JSON com status, qtd_arquivos, diretorio, erros
+- [x] startViewer (routers.ts): aguardar confirmação real de recebimento antes de liberar viewer
+- [x] startViewer: retornar erro claro quando 0 arquivos recebidos
+- [x] _core/index.ts: endpoint listagem de instâncias retorna lista correta de .dcm
+- [x] _core/index.ts: limpeza de cache com log (diretório, horário, causa)
+- [x] _core/index.ts: limpeza automática de caches com mais de 2 horas
+- [x] DicomViewerPage: exibir progresso do C-MOVE (aguardando → recebendo → abrindo)
+- [x] DicomViewerPage: só montar Cornerstone após confirmação de arquivos recebidos
+- [x] PacsQueryPage: filtro de data customizado (data inicial + data final)
+- [x] PacsQueryPage: opção "Personalizado" nos filtros rápidos abre date picker
