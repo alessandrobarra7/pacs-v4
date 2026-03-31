@@ -13,8 +13,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  LogOut, Building2, Users, ClipboardList, Plus, Edit2, Trash2, Server, ArrowLeft,
+  Building2, Users, ClipboardList, Plus, Edit2, Trash2, Server,
 } from "lucide-react";
+import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 
 type Tab = "units" | "users" | "audit";
@@ -137,32 +138,21 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
-      {/* ── HEADER ── */}
-      <header className="bg-white border-b border-gray-200 px-6 h-14 flex items-center justify-between">
-        <span className="text-xl font-bold text-gray-900 tracking-tight">LAUDS</span>
-        <nav className="flex items-center gap-1">
-          <button
-            onClick={() => navigate("/pacs-query")}
-            className="px-4 py-1.5 rounded text-sm font-medium text-gray-600 hover:bg-gray-100 flex items-center gap-1.5"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Estudos
-          </button>
-          <button className="px-4 py-1.5 rounded text-sm font-medium bg-blue-600 text-white">
-            Administração
-          </button>
-        </nav>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-700">{user?.name || "Usuário"}</span>
-          <button
-            onClick={() => logoutMutation.mutate()}
-            className="p-1.5 rounded text-gray-500 hover:text-gray-800 hover:bg-gray-100"
-            title="Sair"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
-        </div>
-      </header>
+      <AppHeader
+        nav={
+          <>
+            <button
+              onClick={() => navigate("/pacs-query")}
+              className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              Estudos
+            </button>
+            <button className="px-4 py-1.5 rounded text-sm font-semibold bg-amber-700 text-white">
+              Administração
+            </button>
+          </>
+        }
+      />
 
       {/* ── ABAS ── */}
       <div className="bg-white border-b border-gray-200 px-6">

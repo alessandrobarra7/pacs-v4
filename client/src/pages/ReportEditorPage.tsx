@@ -249,28 +249,51 @@ export default function ReportEditorPage() {
     <div className="min-h-screen bg-gray-50">
 
       {/* ── HEADER ── */}
-      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+      <div
+        className="px-5 flex items-center justify-between sticky top-0 z-10"
+        style={{ background: '#2c2420', height: 56 }}
+      >
         <div className="flex items-center gap-3 min-w-0">
+          {/* Logo clicável */}
+          <button
+            onClick={() => navigate("/pacs-query")}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity focus:outline-none flex-shrink-0"
+            title="Voltar para listagem de exames"
+          >
+            <img
+              src="https://d2xsxph8kpxj0f.cloudfront.net/310419663028509564/cTdrattvNQ95XCgX9zeyNM/lauds_logo_branco_final_c960f283.png"
+              alt="Lauds"
+              className="object-contain"
+              style={{ height: 36 }}
+            />
+            <div className="hidden sm:flex flex-col items-start leading-tight">
+              <span className="text-white font-bold text-sm tracking-tight">lauds</span>
+              <span className="text-white/40 text-xs">Gestão de Laudos Radiológicos</span>
+            </div>
+          </button>
+          <div className="h-5 w-px bg-white/20 flex-shrink-0" />
           <Button
             variant="ghost"
             size="sm"
             onClick={() => navigate("/pacs-query")}
-            className="text-gray-500 hover:text-gray-800 flex-shrink-0"
+            className="text-white/70 hover:text-white hover:bg-white/10 flex-shrink-0"
           >
             <ArrowLeft className="h-4 w-4 mr-1" />
             Voltar
           </Button>
-          <div className="h-5 w-px bg-gray-200 flex-shrink-0" />
-          <div className="min-w-0">
-            <h1 className="text-base font-bold text-gray-900 leading-tight">Editor de Laudo</h1>
-            <p className="text-xs text-gray-500 truncate">
+          <div className="h-5 w-px bg-white/20 flex-shrink-0" />
+          <div className="min-w-0 hidden sm:block">
+            <h1 className="text-sm font-bold text-white leading-tight">Editor de Laudo</h1>
+            <p className="text-xs text-white/50 truncate">
               {patientDisplayName}
               {studyData.studyDescription ? ` · ${studyData.studyDescription}` : ""}
             </p>
           </div>
         </div>
         <div className="flex gap-2 flex-shrink-0">
-          <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={!reportBody || isSaving}>
+          <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={!reportBody || isSaving}
+            className="border-white/30 text-white/80 hover:bg-white/10 hover:text-white bg-transparent"
+          >
             <Save className="h-4 w-4 mr-1.5" />
             Salvar Rascunho
           </Button>

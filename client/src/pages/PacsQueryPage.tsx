@@ -2,17 +2,16 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Search, Eye, FileText, Printer,
-  Clipboard, LogOut, Settings,
+  Clipboard, Settings,
   ChevronLeft, ChevronRight, Clock, Pencil, Check, X,
 } from "lucide-react";
+import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
 import { canReport, canAccessAdmin, canFillAnamnesis, canViewDICOM, type UserRole } from "../../../shared/permissions";
 
 const PAGE_SIZE = 20;
-const LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310419663028509564/cTdrattvNQ95XCgX9zeyNM/lauds_logo_branco_final_c960f283.png";
-
 /** Converte data DICOM (YYYYMMDD) + hora (HHMMSS) em objeto Date */
 function parseDicomDateTime(date: string, time?: string): Date | null {
   if (!date || date.length < 8) return null;
@@ -218,12 +217,7 @@ export function PacsQueryPage() {
     if (statusData) setReportStatusMap(statusData);
   }, [statusData]);
 
-  const logoutMutation = trpc.auth.logout.useMutation({
-    onSuccess: () => {
-      Object.keys(localStorage).filter(k => k.startsWith('pacs_query_results')).forEach(k => localStorage.removeItem(k));
-      navigate("/login");
-    },
-  });
+  // logout handled by AppHeader
 
   const queryPacs = trpc.pacs.query.useMutation({
     onSuccess: (data: any) => {
@@ -368,19 +362,9 @@ export function PacsQueryPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: '#f5f3ef' }}>
 
-      {/* ── HEADER ESCURO ── */}
-      <header
-        className="px-5 flex items-center justify-between shrink-0"
-        style={{ background: '#2c2420', height: 56 }}
-      >
-        {/* Logo + unidade */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <img src={LOGO_URL} alt="Lauds" className="h-7 w-auto object-contain" />
-            <span className="text-white text-base font-bold tracking-tight">lauds</span>
-          </div>
-          <div className="w-px h-5 bg-white/20" />
-          {isAdminMaster && allUnits.length > 0 ? (
+      <AppHeader
+        unitSlot={
+          isAdminMaster && allUnits.length > 0 ? (
             <select
               value={selectedUnitId || ''}
               onChange={(e) => setSelectedUnitId(Number(e.target.value))}
@@ -392,37 +376,25 @@ export function PacsQueryPage() {
             </select>
           ) : (
             <span className="text-white/80 text-sm font-medium">{unitName}</span>
-          )}
-        </div>
-
-        {/* Nav central */}
-        <nav className="flex items-center gap-1">
-          <button className="px-4 py-1.5 rounded text-sm font-semibold bg-amber-700 text-white">
-            Estudos
-          </button>
-          {isAdmin && (
-            <button
-              onClick={() => navigate('/admin')}
-              className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
-            >
-              <Settings className="h-3.5 w-3.5" />
-              Administração
+          )
+        }
+        nav={
+          <>
+            <button className="px-4 py-1.5 rounded text-sm font-semibold bg-amber-700 text-white">
+              Estudos
             </button>
-          )}
-        </nav>
-
-        {/* Usuário + sair */}
-        <div className="flex items-center gap-2">
-          <span className="text-white/80 text-sm">{user?.name || 'Usuário'}</span>
-          <button
-            onClick={() => logoutMutation.mutate()}
-            className="p-1.5 rounded text-white/50 hover:text-white hover:bg-white/10 transition-colors"
-            title="Sair"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
-        </div>
-      </header>
+            {isAdmin && (
+              <button
+                onClick={() => navigate('/admin')}
+                className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
+              >
+                <Settings className="h-3.5 w-3.5" />
+                Administração
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* ── FILTROS ── */}
       <div className="bg-white border-b border-gray-200 px-5 py-2.5 flex items-center gap-2 flex-wrap shrink-0">

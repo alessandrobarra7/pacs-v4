@@ -479,6 +479,24 @@ export function DicomViewerPage() {
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900 border-b border-gray-800 flex-shrink-0">
         <div className="flex items-center gap-2">
+          {/* Logo clicável */}
+          <button
+            onClick={() => navigate("/pacs-query")}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity focus:outline-none"
+            title="Voltar para listagem de exames"
+          >
+            <img
+              src="https://d2xsxph8kpxj0f.cloudfront.net/310419663028509564/cTdrattvNQ95XCgX9zeyNM/lauds_logo_branco_final_c960f283.png"
+              alt="Lauds"
+              className="object-contain"
+              style={{ height: 36 }}
+            />
+            <div className="hidden sm:flex flex-col items-start leading-tight">
+              <span className="text-white font-bold text-sm tracking-tight">lauds</span>
+              <span className="text-white/40 text-xs">Gestão de Laudos Radiológicos</span>
+            </div>
+          </button>
+          <div className="w-px h-5 bg-gray-700 mx-1" />
           <Button
             variant="ghost"
             size="sm"
