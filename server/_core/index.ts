@@ -406,8 +406,9 @@ async function startServer() {
       sendEvent('status', { phase: 'downloading', message: 'Iniciando C-GET...' });
 
       const { spawn } = await import('child_process');
-      // dicom_move.py fica em server/, não em server/_core/
-      const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dicom_move.py');
+      // dicom_move.py é copiado para dist/ pelo build (cp server/*.py dist/)
+      // Usar new URL() igual ao startViewer para garantir compatibilidade em produção
+      const scriptPath = new URL('./dicom_move.py', import.meta.url).pathname;
       const cleanEnv = { ...process.env };
       delete cleanEnv.PYTHONHOME;
       delete cleanEnv.PYTHONPATH;

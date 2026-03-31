@@ -71,13 +71,13 @@ describe('SSE endpoint /api/dicom-stream/:studyUid', () => {
     expect(content).toContain("child.kill('SIGTERM')");
   });
 
-  it('deve usar o caminho correto para dicom_move.py (server/, não server/_core/)', async () => {
+  it('deve usar o caminho correto para dicom_move.py (new URL para compat. produção)', async () => {
     const indexPath = path.resolve(__dirname, '_core', 'index.ts');
     const content = await fs.readFile(indexPath, 'utf-8');
-    // Deve usar '..' para subir de _core para server
-    expect(content).toContain("'..', 'dicom_move.py'");
-    // Não deve usar './dicom_move.py' (caminho incorreto)
-    expect(content).not.toContain("'./dicom_move.py'");
+    // Ambos os endpoints (startViewer e SSE) devem usar new URL() para que
+    // o build de produção resolva corretamente para dist/dicom_move.py
+    // Verifica que usa new URL() com dicom_move.py (compat. produção)
+    expect(content).toContain("new URL('./dicom_move.py'");
   });
 
   it('deve configurar headers SSE corretos', async () => {
