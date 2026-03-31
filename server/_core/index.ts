@@ -129,7 +129,7 @@ async function startServer() {
     });
   });
 
-  // Lista arquivos DICOM de um estudo no cache
+  // Lista arquivos DICOM de um estudo no cache + extrai metadados do primeiro arquivo
   app.get('/api/dicom-files/:studyUid', async (req, res) => {
     const { studyUid } = req.params;
     if (studyUid.includes('..') || studyUid.includes('/')) {
@@ -141,7 +141,52 @@ async function startServer() {
       const files = await fs.readdir(studyDir);
       const dicomFiles = files.filter(f => f.endsWith('.dcm')).sort();
       console.log(`[DICOM Cache] Listagem: ${studyUid} → ${dicomFiles.length} arquivos`);
-      res.json({ success: true, studyUid, files: dicomFiles, count: dicomFiles.length });
+
+      // Extrai metadados DICOM do primeiro arquivo (sem dependência externa)
+      let metadata: Record<string, string> = {};
+      if (dicomFiles.length > 0) {
+        try {
+          const buf = await fs.readFile(`${studyDir}/${dicomFiles[0]}`);
+          // Leitura de tags DICOM little-endian (pula 132 bytes de preamble)
+          const readTag = (group: number, element: number): string => {
+            let offset = 132;
+            while (offset < buf.length - 8) {
+              const g = buf.readUInt16LE(offset);
+              const e = buf.readUInt16LE(offset + 2);
+              const vr = buf.slice(offset + 4, offset + 6).toString('ascii');
+              let len: number, dataOffset: number;
+              if (['OB','OW','OF','SQ','UC','UN','UR','UT'].includes(vr)) {
+                len = buf.readUInt32LE(offset + 8); dataOffset = offset + 12;
+              } else if (vr.charCodeAt(0) >= 65 && vr.charCodeAt(0) <= 90) {
+                len = buf.readUInt16LE(offset + 6); dataOffset = offset + 8;
+              } else {
+                len = buf.readUInt32LE(offset + 4); dataOffset = offset + 8;
+              }
+              if (len === 0xFFFFFFFF || len < 0) { offset += 8; continue; }
+              if (g === group && e === element && dataOffset + len <= buf.length) {
+                return buf.slice(dataOffset, dataOffset + len).toString('utf8').replace(/\x00/g, '').trim();
+              }
+              offset = dataOffset + (len > 0 ? len : 0);
+              if (offset <= 0) break;
+            }
+            return '';
+          };
+          metadata = {
+            patientName:      readTag(0x0010, 0x0010).replace(/\^+/g, ' ').replace(/\s+/g, ' ').trim(),
+            patientID:        readTag(0x0010, 0x0020),
+            studyDate:        readTag(0x0008, 0x0020),
+            modality:         readTag(0x0008, 0x0060),
+            studyDescription: readTag(0x0008, 0x1030),
+            patientBirthDate: readTag(0x0010, 0x0030),
+            patientSex:       readTag(0x0010, 0x0040),
+            accessionNumber:  readTag(0x0008, 0x0050),
+          };
+          console.log(`[DICOM Cache] Metadados: ${metadata.patientName} | ${metadata.studyDate} | ${metadata.modality}`);
+        } catch (metaErr) {
+          console.warn('[DICOM Cache] Falha ao ler metadados DICOM:', metaErr);
+        }
+      }
+      res.json({ success: true, studyUid, files: dicomFiles, count: dicomFiles.length, metadata });
     } catch {
       res.status(404).json({ success: false, error: 'Estudo não encontrado no cache. Execute o C-MOVE novamente.' });
     }

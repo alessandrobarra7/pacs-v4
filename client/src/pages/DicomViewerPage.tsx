@@ -148,7 +148,9 @@ export function DicomViewerPage() {
       } = csTools;
 
       await csCore.init();
-      await csDicomLoader.init({ maxWebWorkers: 2 });
+      // Usa metade dos cores disponíveis para decodificação paralela (mín 2, máx 6)
+      const workerCount = Math.min(6, Math.max(2, Math.floor((navigator.hardwareConcurrency || 4) / 2)));
+      await csDicomLoader.init({ maxWebWorkers: workerCount });
       await initTools();
 
       // Registra ferramentas (ignora erro se já registradas)
@@ -316,9 +318,19 @@ export function DicomViewerPage() {
       setImageIds(ids);
       setImageCount(ids.length);
 
-      // Metadados
-      const meta = await extractMetadataFromDicom(studyUid);
-      setStudyInfo(meta);
+      // Metadados já vem na resposta de listagem (sem fetch extra)
+      if (listData.metadata && listData.metadata.patientName) {
+        setStudyInfo({
+          patientName: listData.metadata.patientName || "Paciente",
+          studyDate: listData.metadata.studyDate || "",
+          studyDescription: listData.metadata.studyDescription || "Estudo DICOM",
+          modality: listData.metadata.modality || "-",
+          studyInstanceUid: studyUid,
+        });
+      } else {
+        const meta = await extractMetadataFromDicom(studyUid);
+        setStudyInfo(meta);
+      }
 
       setProgressPercent(88);
       setDownloadProgress(`[4/4] Inicializando visualizador com ${ids.length} imagem(ns)...`);
