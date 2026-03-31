@@ -120,7 +120,7 @@ const EXAM_SUGGESTIONS = [
 ];
 
 // Componente para edição inline do nome do exame com sugestões
-function EditableExamName({ value, studyUid }: { value: string; studyUid: string }) {
+function EditableExamName({ value, studyUid, rawDescription }: { value: string; studyUid: string; rawDescription?: string }) {
   const storageKey = `exam_label_${studyUid}`;
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(() => localStorage.getItem(storageKey) || value || 'Sem descrição');
@@ -143,9 +143,13 @@ function EditableExamName({ value, studyUid }: { value: string; studyUid: string
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const filtered = draft.trim().length > 0
-    ? EXAM_SUGGESTIONS.filter(s => s.toLowerCase().includes(draft.toLowerCase()))
+  // Inclui a descrição original do PACS como primeira sugestão se diferente do label atual
+  const allSuggestions = rawDescription && rawDescription.trim() && rawDescription.toUpperCase() !== label.toUpperCase()
+    ? [rawDescription.toUpperCase(), ...EXAM_SUGGESTIONS.filter(s => s.toUpperCase() !== rawDescription.toUpperCase())]
     : EXAM_SUGGESTIONS;
+  const filtered = draft.trim().length > 0
+    ? allSuggestions.filter(s => s.toLowerCase().includes(draft.toLowerCase()))
+    : allSuggestions;
 
   const save = (val?: string) => {
     const trimmed = (val ?? draft).trim() || value || 'Sem descrição';
@@ -398,6 +402,86 @@ export function PacsQueryPage() {
     navigate(`/reports/create/${study.studyInstanceUid}`);
   };
 
+  const handlePrintReport = async (study: any) => {
+    if (!study.studyInstanceUid) { toast.error('UID do estudo não disponível'); return; }
+    const storedStudy = sessionStorage.getItem(`study_${study.studyInstanceUid}`);
+    const studyData = storedStudy ? JSON.parse(storedStudy) : study;
+    const patientName = (studyData.patientName || study.patientName || 'Não informado').replace(/\^/g, ' ').trim();
+    const examLabel = localStorage.getItem(`exam_label_${study.studyInstanceUid}`) || study.studyDescription || 'Sem descrição';
+    const studyDate = study.studyDate ? `${study.studyDate.slice(6,8)}/${study.studyDate.slice(4,6)}/${study.studyDate.slice(0,4)}` : '-';
+    const modality = study.modality || '';
+    const unitLabel = unitName || '';
+    // Buscar laudo salvo no banco
+    const reportData = reportStatusMap[study.studyInstanceUid];
+    const reportStatus = reportData || 'Pendente';
+    // Montar HTML de impressão
+    const printWindow = window.open('', '_blank', 'width=800,height=900');
+    if (!printWindow) { toast.error('Bloqueador de pop-up ativo. Permita pop-ups para imprimir.'); return; }
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8">
+        <title>Laudo - ${patientName}</title>
+        <style>
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { font-family: Arial, sans-serif; font-size: 12px; color: #222; background: #fff; padding: 20mm; }
+          .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #2c2420; padding-bottom: 10px; margin-bottom: 16px; }
+          .header h1 { font-size: 18px; color: #2c2420; font-weight: bold; }
+          .header .unit { font-size: 11px; color: #666; }
+          .patient-card { background: #f9f5f0; border: 1px solid #e5d9cc; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+          .patient-card .field label { font-size: 10px; color: #888; text-transform: uppercase; }
+          .patient-card .field span { font-size: 12px; font-weight: 600; color: #222; display: block; }
+          .section-title { font-size: 11px; font-weight: bold; text-transform: uppercase; color: #2c2420; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-bottom: 10px; }
+          .report-body { min-height: 200px; line-height: 1.7; font-size: 12px; white-space: pre-wrap; }
+          .footer { margin-top: 40px; border-top: 1px solid #ddd; padding-top: 12px; display: flex; justify-content: space-between; font-size: 10px; color: #888; }
+          .status-badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 10px; font-weight: bold; background: ${reportStatus === 'Assinado' ? '#d1fae5' : '#fef3c7'}; color: ${reportStatus === 'Assinado' ? '#065f46' : '#92400e'}; border: 1px solid ${reportStatus === 'Assinado' ? '#6ee7b7' : '#fcd34d'}; }
+          @media print { body { padding: 15mm; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h1>Gestão de Laudos Radiológicos</h1>
+            <div class="unit">${unitLabel}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="status-badge">${reportStatus}</div>
+            <div style="font-size:10px;color:#888;margin-top:4px">Impresso em: ${new Date().toLocaleString('pt-BR')}</div>
+          </div>
+        </div>
+        <div class="patient-card">
+          <div class="field"><label>Paciente</label><span>${patientName}</span></div>
+          <div class="field"><label>Exame</label><span>${examLabel} (${modality})</span></div>
+          <div class="field"><label>Data do Exame</label><span>${studyDate}</span></div>
+          <div class="field"><label>Número de Acesso</label><span>${studyData.accessionNumber || study.accessionNumber || '-'}</span></div>
+        </div>
+        <div class="section-title">Laudo</div>
+        <div class="report-body" id="report-body">Carregando laudo...</div>
+        <div class="footer">
+          <span>Desenvolvimento StudioBarra7</span>
+          <span>${unitLabel}</span>
+        </div>
+        <script>
+          // Buscar laudo via API
+          fetch('/api/trpc/reports.getByStudyUid?input=' + encodeURIComponent(JSON.stringify({"0":{"json":{"studyUid":"${study.studyInstanceUid}"}}})))
+            .then(r => r.json())
+            .then(data => {
+              const body = data?.[0]?.result?.data?.json?.body || '';
+              document.getElementById('report-body').textContent = body || '(Laudo não encontrado ou ainda não elaborado)';
+              setTimeout(() => window.print(), 500);
+            })
+            .catch(() => {
+              document.getElementById('report-body').textContent = '(Erro ao carregar laudo)';
+              setTimeout(() => window.print(), 500);
+            });
+        <\/script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   const getReportStatus = (study: any) => {
     if (!study.studyInstanceUid) return "Pendente";
     return reportStatusMap[study.studyInstanceUid] || "Pendente";
@@ -580,8 +664,8 @@ export function PacsQueryPage() {
                 <th className="px-4 py-2.5 text-center font-semibold w-10">Anam.</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10">Ver</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10">Laudar</th>
-                <th className="px-4 py-2.5 text-center font-semibold w-28">Status</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10">Imp.</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-32">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -628,6 +712,7 @@ export function PacsQueryPage() {
                         <EditableExamName
                           value={study.studyDescription || ''}
                           studyUid={study.studyInstanceUid || `${idx}`}
+                          rawDescription={study.studyDescription || ''}
                         />
                       </div>
                     </td>
@@ -677,22 +762,21 @@ export function PacsQueryPage() {
                       )}
                     </td>
 
-                    {/* Status */}
-                    <td className="px-4 py-3 text-center">
-                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusCls}`}>
-                        {status}
-                      </span>
-                    </td>
-
-                    {/* Imprimir */}
+                     {/* Imprimir */}
                     <td className="px-4 py-3 text-center">
                       <button
-                        onClick={() => toast.info('Impressão em desenvolvimento')}
+                        onClick={() => handlePrintReport(study)}
                         title="Imprimir laudo"
                         className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 inline-flex items-center justify-center transition-colors"
                       >
                         <Printer className="h-3.5 w-3.5" />
                       </button>
+                    </td>
+                    {/* Status */}
+                    <td className="px-4 py-3 text-center">
+                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full border whitespace-nowrap min-w-[100px] inline-block ${statusCls}`}>
+                        {status}
+                      </span>
                     </td>
                   </tr>
                 );
