@@ -434,3 +434,48 @@ export async function deleteAnnotation(
       )
     );
 }
+
+// ─── Anamnesis Simple ────────────────────────────────────────────────────────
+import { anamnesis_simple } from "../drizzle/schema";
+
+/** Busca a anamnese de um estudo pelo studyInstanceUid */
+export async function getAnamnesisSimple(studyInstanceUid: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(anamnesis_simple)
+    .where(eq(anamnesis_simple.study_instance_uid, studyInstanceUid))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Cria ou atualiza a anamnese de um estudo (upsert por studyInstanceUid) */
+export async function saveAnamnesisSimple(data: {
+  study_instance_uid: string;
+  unit_id?: number | null;
+  created_by_user_id?: number | null;
+  patient_name?: string | null;
+  presets: string[];
+  manual_text: string;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(anamnesis_simple)
+    .values({
+      study_instance_uid: data.study_instance_uid,
+      unit_id: data.unit_id ?? null,
+      created_by_user_id: data.created_by_user_id ?? null,
+      patient_name: data.patient_name ?? null,
+      presets: data.presets,
+      manual_text: data.manual_text,
+    })
+    .onDuplicateKeyUpdate({
+      set: {
+        presets: data.presets,
+        manual_text: data.manual_text,
+        patient_name: data.patient_name ?? null,
+      },
+    });
+}

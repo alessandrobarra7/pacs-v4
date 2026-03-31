@@ -32,6 +32,8 @@ import {
   Pause,
   SkipBack,
   SkipForward,
+  ClipboardList,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -107,6 +109,12 @@ export function DicomViewerPage() {
   const [activeSeries, setActiveSeries] = useState<string | null>(null);
   const [seriesLoaded, setSeriesLoaded] = useState(false);
 
+  // ─── Anamnese ──────────────────────────────────────────────────────────────
+  const [showAnamnesisPanel, setShowAnamnesisPanel] = useState(false);
+  const anamnesisQuery = trpc.anamnesisSimple.getByStudy.useQuery(
+    { studyInstanceUid: studyUid ?? "" },
+    { enabled: !!studyUid }
+  );
   // ─── Anotações persistentes ─────────────────────────────────────────────────
   const saveAnnotationMutation = trpc.annotations.save.useMutation();
   const deleteAnnotationMutation = trpc.annotations.delete.useMutation();
@@ -900,7 +908,6 @@ export function DicomViewerPage() {
             )}
             Exportar ZIP
           </Button>
-
           <Button
             variant="outline"
             size="sm"
@@ -910,13 +917,63 @@ export function DicomViewerPage() {
             <ExternalLink className="h-3 w-3 mr-1" />
             RadiAnt
           </Button>
+          {/* Botão Anamnese */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAnamnesisPanel(v => !v)}
+            className={`text-xs h-7 px-2 ${
+              anamnesisQuery.data
+                ? 'border-emerald-700 text-emerald-400 hover:bg-emerald-900/40'
+                : 'border-gray-600 text-gray-400 hover:bg-gray-800'
+            } ${showAnamnesisPanel ? 'bg-gray-800' : ''}`}
+            title={anamnesisQuery.data ? 'Anamnese registrada — clique para ver' : 'Sem anamnese registrada'}
+          >
+            <ClipboardList className="h-3 w-3 mr-1" />
+            Anamnese
+            {anamnesisQuery.data && (
+              <span className="ml-1 w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+            )}
+          </Button>
         </div>
       </div>
-
-      {/* ── Corpo principal ─────────────────────────────────────────────────── */}
+      {/* ── Painel de Anamnese (colapsável abaixo do header) ──────────────────── */}
+      {showAnamnesisPanel && (
+        <div className="flex-shrink-0 bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-start gap-4">
+          <ClipboardList className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-emerald-400 mb-1">Indicação Clínica / Anamnese</p>
+            {anamnesisQuery.isLoading ? (
+              <p className="text-xs text-gray-500">Carregando...</p>
+            ) : anamnesisQuery.data ? (
+              <div className="space-y-1">
+                {(anamnesisQuery.data.presets as string[])?.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {(anamnesisQuery.data.presets as string[]).map((p: string) => (
+                      <span key={p} className="text-xs bg-gray-800 text-gray-300 border border-gray-700 rounded px-1.5 py-0.5">{p}</span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-sm text-gray-200 leading-relaxed">{anamnesisQuery.data.manual_text}</p>
+                <p className="text-xs text-gray-600">
+                  Registrado em: {new Date(anamnesisQuery.data.createdAt).toLocaleString('pt-BR')}
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500 italic">Nenhuma anamnese registrada para este estudo.</p>
+            )}
+          </div>
+          <button
+            onClick={() => setShowAnamnesisPanel(false)}
+            className="text-gray-600 hover:text-gray-400 shrink-0"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+      {/* ── Corpo principal ───────────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
-
-        {/* ── Toolbar lateral esquerda ─────────────────────────────────────── */}
+        {/* ── Toolbar lateral esquerda ──────────────────────────────────── */}
         <div className="flex flex-col gap-0.5 p-1.5 bg-gray-900 border-r border-gray-800 w-10 flex-shrink-0">
 
           {/* Ferramentas de interação */}

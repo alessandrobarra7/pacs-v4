@@ -202,3 +202,22 @@ export const dicom_annotations = mysqlTable("dicom_annotations", {
 
 export type DicomAnnotation = typeof dicom_annotations.$inferSelect;
 export type InsertDicomAnnotation = typeof dicom_annotations.$inferInsert;
+
+/**
+ * Anamnesis Simple - Clinical indication for studies (presets + free text)
+ * Linked to study by studyInstanceUid, shown in viewer and report
+ */
+export const anamnesis_simple = mysqlTable("anamnesis_simple", {
+  id: int("id").autoincrement().primaryKey(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull().unique(),
+  unit_id: int("unit_id"),
+  created_by_user_id: int("created_by_user_id"),
+  patient_name: varchar("patient_name", { length: 255 }),
+  presets: json("presets").$type<string[]>().notNull().default([]),
+  manual_text: text("manual_text").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AnamnesisSimple = typeof anamnesis_simple.$inferSelect;
+export type InsertAnamnesisSimple = typeof anamnesis_simple.$inferInsert;

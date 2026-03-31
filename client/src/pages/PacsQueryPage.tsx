@@ -1081,6 +1081,7 @@ export function PacsQueryPage() {
           open={isAnamnesisModalOpen}
           onClose={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); }}
           studyInstanceUid={selectedStudy?.studyInstanceUid || ''}
+          patientName={selectedStudy?.patientName || ''}
           onSave={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); }}
         />
       )}

@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Save, FileText, Check, Plus, ArrowLeft, User, Calendar, Hash, Stethoscope, Building2, Layers } from "lucide-react";
+import { Save, FileText, Check, Plus, ArrowLeft, User, Calendar, Hash, Stethoscope, Building2, Layers, ClipboardList } from "lucide-react";
 
 // Frases pré-definidas por categoria
 const PREDEFINED_PHRASES = {
@@ -160,6 +160,12 @@ export default function ReportEditorPage() {
       }
     }
   }, [studyInstanceUid]);
+
+  // Busca anamnese do estudo
+  const { data: anamnesisData } = trpc.anamnesisSimple.getByStudy.useQuery(
+    { studyInstanceUid: studyInstanceUid ?? "" },
+    { enabled: !!studyInstanceUid }
+  );
 
   // Busca templates
   const { data: templates } = trpc.templates.list.useQuery();
@@ -403,6 +409,29 @@ export default function ReportEditorPage() {
             </div>
           </div>
         </Card>
+
+        {/* ── ANAMNESE ── */}
+        {anamnesisData && (
+          <Card className="p-4 border-emerald-200 bg-emerald-50">
+            <div className="flex items-start gap-2">
+              <ClipboardList className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-emerald-700 mb-1 uppercase tracking-wide">Indicação Clínica / Anamnese</p>
+                {(anamnesisData.presets as string[])?.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {(anamnesisData.presets as string[]).map((p: string) => (
+                      <span key={p} className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 rounded px-1.5 py-0.5">{p}</span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-sm text-gray-800 leading-relaxed">{anamnesisData.manual_text}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Registrado em: {new Date(anamnesisData.createdAt).toLocaleString('pt-BR')}
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* ── SELEÇÃO DE TEMPLATE ── */}
         <Card className="p-4">

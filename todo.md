@@ -339,3 +339,15 @@
 - [x] Viewer: carregar anotações salvas ao abrir o viewer (LengthTool)
 - [x] Viewer: salvar anotações automaticamente ao criar/modificar medição
 - [x] Viewer: botão para deletar anotação individual
+
+## MÓDULO ANAMNESE
+
+- [x] Schema: tabela anamnesis_simple (studyInstanceUid, patientName, presets JSON, manual_text, userId, createdAt, updatedAt)
+- [x] Migration SQL executada no banco
+- [x] Helper: getAnamnesisSimpleByStudy, saveAnamnesisSimple (upsert)
+- [x] tRPC: anamnesisSimple.getByStudy, anamnesisSimple.save
+- [x] Componente AnamnesisModal.tsx reescrito com presets + campo manual obrigatório
+- [x] Botão "Anamnese" na listagem de exames (PacsQueryPage) por estudo
+- [x] Indicador visual: botão verde quando anamnese já foi preenchida
+- [x] Viewer: painel colapsável mostrando anamnese salva do estudo aberto
+- [x] Laudo: card de anamnese exibido no ReportEditorPage acima do seletor de template
