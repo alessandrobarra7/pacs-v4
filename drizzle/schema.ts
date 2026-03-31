@@ -182,3 +182,23 @@ export const anamnesis = mysqlTable("anamnesis", {
 
 export type Anamnesis = typeof anamnesis.$inferSelect;
 export type InsertAnamnesis = typeof anamnesis.$inferInsert;
+
+/**
+ * DICOM Annotations - Persistent measurements and annotations from the viewer
+ * Stores Cornerstone3D annotation state (LengthTool, etc.) per study
+ */
+export const dicom_annotations = mysqlTable("dicom_annotations", {
+  id: int("id").autoincrement().primaryKey(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
+  series_instance_uid: varchar("series_instance_uid", { length: 128 }),
+  user_id: int("user_id").notNull(),
+  tool_name: varchar("tool_name", { length: 64 }).notNull().default("Length"),
+  annotation_uid: varchar("annotation_uid", { length: 128 }).notNull().unique(),
+  annotation_data: json("annotation_data").notNull(),
+  label: varchar("label", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type DicomAnnotation = typeof dicom_annotations.$inferSelect;
+export type InsertDicomAnnotation = typeof dicom_annotations.$inferInsert;

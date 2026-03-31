@@ -234,6 +234,84 @@ async function startServer() {
     }
   });
 
+  // Lista séries DICOM de um estudo agrupadas por SeriesInstanceUID
+  // Retorna: { series: [{ seriesUid, description, modality, files: string[], thumbnail: string }] }
+  app.get('/api/dicom-series/:studyUid', async (req, res) => {
+    const { studyUid } = req.params;
+    if (studyUid.includes('..') || studyUid.includes('/')) {
+      return res.status(400).json({ success: false, error: 'Invalid studyUid' });
+    }
+    const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
+    try {
+      const fs = await import('fs/promises');
+      const allFiles = await fs.readdir(studyDir);
+      const dicomFiles = allFiles.filter(f => f.endsWith('.dcm')).sort();
+      if (dicomFiles.length === 0) {
+        return res.json({ success: true, series: [] });
+      }
+
+      // Agrupa arquivos por SeriesInstanceUID lendo tag DICOM (0020,000E)
+      const readTag = (buf: Buffer, group: number, element: number): string => {
+        let offset = 132;
+        while (offset < buf.length - 8) {
+          const g = buf.readUInt16LE(offset);
+          const e = buf.readUInt16LE(offset + 2);
+          const vr = buf.slice(offset + 4, offset + 6).toString('ascii');
+          let len: number, dataOffset: number;
+          if (['OB','OW','OF','SQ','UC','UN','UR','UT'].includes(vr)) {
+            len = buf.readUInt32LE(offset + 8); dataOffset = offset + 12;
+          } else if (vr.charCodeAt(0) >= 65 && vr.charCodeAt(0) <= 90) {
+            len = buf.readUInt16LE(offset + 6); dataOffset = offset + 8;
+          } else {
+            len = buf.readUInt32LE(offset + 4); dataOffset = offset + 8;
+          }
+          if (len === 0xFFFFFFFF || len < 0) { offset += 8; continue; }
+          if (g === group && e === element && dataOffset + len <= buf.length) {
+            return buf.slice(dataOffset, dataOffset + len).toString('utf8').replace(/\x00/g, '').trim();
+          }
+          offset = dataOffset + (len > 0 ? len : 0);
+          if (offset <= 0) break;
+        }
+        return '';
+      };
+
+      // Mapeia seriesUid → { files, description, modality, instanceNumber }
+      const seriesMap = new Map<string, { files: string[]; description: string; modality: string; seriesNumber: string }>();
+
+      for (const file of dicomFiles) {
+        try {
+          const buf = await fs.readFile(`${studyDir}/${file}`);
+          const seriesUid = readTag(buf, 0x0020, 0x000E) || 'unknown';
+          const seriesDesc = readTag(buf, 0x0008, 0x103E) || readTag(buf, 0x0008, 0x1030) || '';
+          const modality = readTag(buf, 0x0008, 0x0060) || '';
+          const seriesNumber = readTag(buf, 0x0020, 0x0011) || '0';
+          if (!seriesMap.has(seriesUid)) {
+            seriesMap.set(seriesUid, { files: [], description: seriesDesc, modality, seriesNumber });
+          }
+          seriesMap.get(seriesUid)!.files.push(file);
+        } catch { /* skip unreadable files */ }
+      }
+
+      const series = Array.from(seriesMap.entries())
+        .sort((a, b) => parseInt(a[1].seriesNumber) - parseInt(b[1].seriesNumber))
+        .map(([seriesUid, info]) => ({
+          seriesUid,
+          description: info.description,
+          modality: info.modality,
+          seriesNumber: info.seriesNumber,
+          fileCount: info.files.length,
+          files: info.files,
+          // Primeiro arquivo da série como thumbnail
+          thumbnail: info.files[0] ?? null,
+        }));
+
+      console.log(`[DICOM Series] ${studyUid} → ${series.length} série(s)`);
+      res.json({ success: true, series });
+    } catch {
+      res.status(404).json({ success: false, error: 'Estudo não encontrado no cache.' });
+    }
+  });
+
   // DICOMweb Proxy - faz proxy das requisições para o Orthanc
   // Rota: /api/dicomweb/* → Orthanc /dicom-web/*
   // Usa o pacs_ip da unidade + porta 8042 (porta padrão HTTP do Orthanc)

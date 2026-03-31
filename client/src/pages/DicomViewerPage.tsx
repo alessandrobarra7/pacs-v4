@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useParams, useLocation } from "wouter";
+import { trpc } from "@/lib/trpc";
 import * as csCore from "@cornerstonejs/core";
 import * as csTools from "@cornerstonejs/tools";
 import * as csDicomLoader from "@cornerstonejs/dicom-image-loader";
@@ -40,6 +41,16 @@ interface StudyInfo {
   studyDescription: string;
   modality: string;
   studyInstanceUid: string;
+}
+
+interface DicomSeries {
+  seriesUid: string;
+  description: string;
+  modality: string;
+  seriesNumber: string;
+  fileCount: number;
+  files: string[];
+  thumbnail: string | null;
 }
 
 type ActiveTool = "WindowLevel" | "Zoom" | "Pan" | "Length" | "StackScroll";
@@ -90,6 +101,20 @@ export function DicomViewerPage() {
   // Lista de imageIds acumulados durante o streaming
   const imageIdsRef = useRef<string[]>([]);
   const [imageIds, setImageIds] = useState<string[]>([]);
+
+  // ─── Séries DICOM ──────────────────────────────────────────────────────────
+  const [series, setSeries] = useState<DicomSeries[]>([]);
+  const [activeSeries, setActiveSeries] = useState<string | null>(null);
+  const [seriesLoaded, setSeriesLoaded] = useState(false);
+
+  // ─── Anotações persistentes ─────────────────────────────────────────────────
+  const saveAnnotationMutation = trpc.annotations.save.useMutation();
+  const deleteAnnotationMutation = trpc.annotations.delete.useMutation();
+  const annotationsQuery = trpc.annotations.getByStudy.useQuery(
+    { studyInstanceUid: studyUid ?? "" },
+    { enabled: !!studyUid && phase === "ready" }
+  );
+  const annotationsLoadedRef = useRef(false);
 
   const formatDate = (dateStr: string) => {
     if (!dateStr || dateStr.length !== 8) return dateStr || "";
@@ -266,7 +291,43 @@ export function DicomViewerPage() {
     } catch (_) {}
   }, [studyUid]);
 
-  // ─── Fluxo principal via SSE ──────────────────────────────────────────────
+  // ─── Carrega lista de séries do estudo ────────────────────────────────────────────
+  const loadSeries = useCallback(async () => {
+    if (!studyUid || seriesLoaded) return;
+    try {
+      const resp = await fetch(`/api/dicom-series/${studyUid}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data.success && Array.isArray(data.series) && data.series.length > 0) {
+        setSeries(data.series);
+        setActiveSeries(data.series[0].seriesUid);
+        setSeriesLoaded(true);
+      }
+    } catch (_) {}
+  }, [studyUid, seriesLoaded]);
+
+  // ─── Troca a série ativa no viewport ────────────────────────────────────────────
+  const switchSeries = useCallback(async (targetSeries: DicomSeries) => {
+    const vp = viewportRef.current;
+    if (!vp || !studyUid) return;
+    setActiveSeries(targetSeries.seriesUid);
+    const newIds = targetSeries.files.map(
+      (f) => `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${f}`
+    );
+    imageIdsRef.current = newIds;
+    setImageIds(newIds);
+    setImageCount(newIds.length);
+    setCurrentIndex(0);
+    try {
+      await vp.setStack(newIds, 0);
+      vp.render();
+      toast.info(`Série: ${targetSeries.description || targetSeries.seriesUid.slice(-8)} — ${targetSeries.fileCount} imagem(ns)`);
+    } catch (err: any) {
+      toast.error("Erro ao trocar série", { description: err.message });
+    }
+  }, [studyUid]);
+
+  // ─── Fluxo principal via SSE ──────────────────────────────────────────────────────────
   const startStreamingViewer = useCallback(() => {
     if (!studyUid) return;
 
@@ -438,7 +499,81 @@ export function DicomViewerPage() {
     };
   }, [studyUid]);
 
-  // ─── Atualiza índice ao navegar ───────────────────────────────────────────
+  // ─── Carrega séries e anotações quando o viewer fica pronto ────────────────────────
+  useEffect(() => {
+    if (phase === "ready") {
+      loadSeries();
+    }
+  }, [phase, loadSeries]);
+
+  // ─── Restaura anotações salvas no Cornerstone ────────────────────────────────────
+  useEffect(() => {
+    if (!annotationsQuery.data || annotationsLoadedRef.current) return;
+    if (annotationsQuery.data.length === 0) { annotationsLoadedRef.current = true; return; }
+    try {
+      const { annotation } = csTools;
+      if (!annotation?.state) return;
+      for (const ann of annotationsQuery.data) {
+        try {
+          const data = ann.annotation_data as Record<string, unknown>;
+          if (data && typeof data === "object" && data.annotationUID) {
+            annotation.state.addAnnotation(data as any, viewerRef.current!);
+          }
+        } catch (_) {}
+      }
+      annotationsLoadedRef.current = true;
+      if (annotationsQuery.data.length > 0) {
+        toast.info(`${annotationsQuery.data.length} anotação(es) restaurada(s)`, { duration: 3000 });
+      }
+      viewportRef.current?.render();
+    } catch (_) {}
+  }, [annotationsQuery.data]);
+
+  // ─── Escuta eventos de criação/remoção de anotações e persiste no banco ──────────────
+  useEffect(() => {
+    if (!viewerRef.current || !studyUid) return;
+    const el = viewerRef.current;
+
+    const handleAnnotationCompleted = (e: Event) => {
+      try {
+        const detail = (e as CustomEvent).detail;
+        const ann = detail?.annotation;
+        if (!ann?.annotationUID) return;
+        saveAnnotationMutation.mutate({
+          studyInstanceUid: studyUid,
+          annotationUid: ann.annotationUID,
+          toolName: ann.metadata?.toolName ?? "Length",
+          annotationData: ann as Record<string, unknown>,
+          label: ann.data?.label ?? undefined,
+        });
+      } catch (_) {}
+    };
+
+    const handleAnnotationRemoved = (e: Event) => {
+      try {
+        const detail = (e as CustomEvent).detail;
+        const ann = detail?.annotation;
+        if (!ann?.annotationUID) return;
+        deleteAnnotationMutation.mutate({ annotationUid: ann.annotationUID });
+      } catch (_) {}
+    };
+
+    // Eventos do Cornerstone Tools
+    el.addEventListener("CORNERSTONE_TOOLS_ANNOTATION_COMPLETED", handleAnnotationCompleted);
+    el.addEventListener("CORNERSTONE_TOOLS_ANNOTATION_REMOVED", handleAnnotationRemoved);
+    // Alias para versões diferentes do Cornerstone
+    el.addEventListener("cornerstonetoolsannotationcompleted", handleAnnotationCompleted);
+    el.addEventListener("cornerstonetoolsannotationremoved", handleAnnotationRemoved);
+
+    return () => {
+      el.removeEventListener("CORNERSTONE_TOOLS_ANNOTATION_COMPLETED", handleAnnotationCompleted);
+      el.removeEventListener("CORNERSTONE_TOOLS_ANNOTATION_REMOVED", handleAnnotationRemoved);
+      el.removeEventListener("cornerstonetoolsannotationcompleted", handleAnnotationCompleted);
+      el.removeEventListener("cornerstonetoolsannotationremoved", handleAnnotationRemoved);
+    };
+  }, [studyUid, viewport, saveAnnotationMutation, deleteAnnotationMutation]);
+
+  // ─── Atualiza índice ao navegar ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!viewerRef.current || !viewport) return;
     const el = viewerRef.current;
@@ -1075,7 +1210,42 @@ export function DicomViewerPage() {
         )}
       </div>
 
-      {/* ── Barra de status inferior ─────────────────────────────────────────── */}
+      {/* ── Faixa de miniaturas de séries ──────────────────────────────────────────────────────── */}
+      {series.length > 1 && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-900 border-t border-gray-800 overflow-x-auto flex-shrink-0" style={{ minHeight: 72 }}>
+          <span className="text-[10px] text-gray-500 uppercase tracking-wide shrink-0">Séries</span>
+          {series.map((s) => (
+            <button
+              key={s.seriesUid}
+              onClick={() => switchSeries(s)}
+              title={`${s.description || 'Série'} — ${s.fileCount} imagem(ns)`}
+              className={`flex flex-col items-center gap-0.5 shrink-0 rounded p-1 border transition-all ${
+                activeSeries === s.seriesUid
+                  ? "border-blue-500 bg-blue-900/30"
+                  : "border-gray-700 bg-gray-800 hover:border-gray-500 hover:bg-gray-700"
+              }`}
+            >
+              <div className="relative bg-black rounded overflow-hidden" style={{ width: 48, height: 48 }}>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-[9px] text-gray-400 font-mono text-center leading-tight px-1">
+                    {s.modality || 'IMG'}
+                    <br />
+                    {s.fileCount}
+                  </span>
+                </div>
+              </div>
+              <span className="text-[9px] text-gray-400 max-w-[52px] truncate text-center leading-tight">
+                {s.description ? s.description.substring(0, 8) : `Sér.${s.seriesNumber}`}
+              </span>
+              {activeSeries === s.seriesUid && (
+                <div className="w-1 h-1 rounded-full bg-blue-400" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Barra de status inferior ────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 py-1 bg-gray-900 border-t border-gray-800 text-xs text-gray-500 flex-shrink-0">
         <div className="flex items-center gap-3">
           <span>🖱 Esq: {toolLabel[activeTool]}</span>

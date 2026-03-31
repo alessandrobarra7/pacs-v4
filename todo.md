@@ -326,3 +326,16 @@
 - [x] Modo Cine: botão Play que percorre slices automaticamente em loop
 - [x] Ícone mais intuitivo para o botão Scroll (Layers/setas verticais)
 - [x] Barra de progresso de slices na parte inferior com indicador visual de posição
+
+## VIEWER - Miniaturas de Séries e Anotações Persistentes
+
+- [x] Schema: tabela dicom_annotations no banco (studyUid, seriesUid, userId, annotationData JSON, createdAt)
+- [x] Backend: endpoint GET /api/trpc/annotations.getByStudy
+- [x] Backend: endpoint POST /api/trpc/annotations.save
+- [x] Backend: endpoint DELETE /api/trpc/annotations.delete
+- [x] Backend: endpoint GET /api/dicom-series/:studyUid — listar séries com metadata e thumbnail
+- [x] Viewer: faixa horizontal de miniaturas de séries na parte inferior do canvas
+- [x] Viewer: clicar na miniatura troca a série ativa no viewport
+- [x] Viewer: carregar anotações salvas ao abrir o viewer (LengthTool)
+- [x] Viewer: salvar anotações automaticamente ao criar/modificar medição
+- [x] Viewer: botão para deletar anotação individual

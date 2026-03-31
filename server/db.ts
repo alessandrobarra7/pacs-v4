@@ -12,7 +12,10 @@ import {
   reports,
   InsertReport,
   audit_log,
-  InsertAuditLog
+  InsertAuditLog,
+  dicom_annotations,
+  InsertDicomAnnotation,
+  DicomAnnotation
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -376,4 +379,58 @@ export async function getReportStatusByStudyUids(
     }
   }
   return map;
+}
+
+// ─── DICOM Annotations ───────────────────────────────────────────────────────
+
+/** Retorna todas as anotações de um estudo para um usuário */
+export async function getAnnotationsByStudy(
+  studyInstanceUid: string,
+  userId: number
+): Promise<DicomAnnotation[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(dicom_annotations)
+    .where(
+      and(
+        eq(dicom_annotations.study_instance_uid, studyInstanceUid),
+        eq(dicom_annotations.user_id, userId)
+      )
+    );
+}
+
+/** Upsert de uma anotação (insert ou update pelo annotation_uid) */
+export async function upsertAnnotation(data: InsertDicomAnnotation): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(dicom_annotations)
+    .values(data)
+    .onDuplicateKeyUpdate({
+      set: {
+        annotation_data: data.annotation_data,
+        label: data.label,
+        series_instance_uid: data.series_instance_uid,
+        tool_name: data.tool_name,
+      },
+    });
+}
+
+/** Remove uma anotação pelo annotation_uid e userId (garante que só o dono pode deletar) */
+export async function deleteAnnotation(
+  annotationUid: string,
+  userId: number
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .delete(dicom_annotations)
+    .where(
+      and(
+        eq(dicom_annotations.annotation_uid, annotationUid),
+        eq(dicom_annotations.user_id, userId)
+      )
+    );
 }
