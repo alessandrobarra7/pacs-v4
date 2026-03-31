@@ -78,46 +78,123 @@ function sortByDateDesc(studies: any[]): any[] {
   });
 }
 
-// Componente para edição inline do nome do exame
+// Lista de sugestões de exames radiológicos
+const EXAM_SUGGESTIONS = [
+  // Radiografia (RX)
+  "RX TÓRAX PA E PERFIL", "RX TÓRAX PA", "RX ABDOME SIMPLES",
+  "RX COLUNA CERVICAL AP E PERFIL", "RX COLUNA TORÁCICA AP E PERFIL",
+  "RX COLUNA LOMBAR AP E PERFIL", "RX COLUNA LOMBOSSACRA AP E PERFIL",
+  "RX PELVE AP", "RX BACIA AP", "RX CRÂNIO AP E PERFIL",
+  "RX MÃO DIREITA", "RX MÃO ESQUERDA", "RX PÉ DIREITO", "RX PÉ ESQUERDO",
+  "RX JOELHO DIREITO", "RX JOELHO ESQUERDO", "RX OMBRO DIREITO", "RX OMBRO ESQUERDO",
+  "RX TORNOZELO DIREITO", "RX TORNOZELO ESQUERDO",
+  "RX QUADRIL DIREITO", "RX QUADRIL ESQUERDO",
+  "ESCANEOMETRIA DE MEMBROS INFERIORES", "RX PANORÂMICO COLUNA",
+  // Tomografia (TC)
+  "TC CRÂNIO SEM CONTRASTE", "TC CRÂNIO COM CONTRASTE",
+  "TC TÓRAX SEM CONTRASTE", "TC TÓRAX COM CONTRASTE",
+  "TC ABDOME TOTAL SEM CONTRASTE", "TC ABDOME TOTAL COM CONTRASTE",
+  "TC PELVE SEM CONTRASTE", "TC PELVE COM CONTRASTE",
+  "TC ABDOME E PELVE COM CONTRASTE", "TC COLUNA CERVICAL",
+  "TC COLUNA TORÁCICA", "TC COLUNA LOMBAR", "TC SEIOS DA FACE",
+  "TC PESCOÇO COM CONTRASTE", "TC TÓRAX E ABDOME COM CONTRASTE",
+  "ANGIOTOMOGRAFIA DE TÓRAX", "ANGIOTOMOGRAFIA DE ABDOME",
+  // Ressonância (RM)
+  "RM CRÂNIO SEM CONTRASTE", "RM CRÂNIO COM CONTRASTE",
+  "RM COLUNA CERVICAL", "RM COLUNA TORÁCICA", "RM COLUNA LOMBAR",
+  "RM OMBRO DIREITO", "RM OMBRO ESQUERDO",
+  "RM JOELHO DIREITO", "RM JOELHO ESQUERDO",
+  "RM QUADRIL DIREITO", "RM QUADRIL ESQUERDO",
+  "RM ABDOME", "RM PELVE", "RM MAMA BILATERAL",
+  "RM TORNOZELO DIREITO", "RM TORNOZELO ESQUERDO",
+  // Ultrassonografia (US)
+  "US ABDOME TOTAL", "US ABDOME SUPERIOR", "US PÉLVICO",
+  "US TRANSVAGINAL", "US MAMA BILATERAL", "US MAMA DIREITA", "US MAMA ESQUERDA",
+  "US TIREOIDE", "US PESCOÇO", "US TESTICULAR", "US PRÓSTATA TRANSRETAL",
+  "US OBSTÉTRICO", "US MORFOLÓGICO", "US DOPPLER VASCULAR",
+  "US PARTES MOLES", "US ARTICULAR",
+  // Mamografia
+  "MAMOGRAFIA BILATERAL", "MAMOGRAFIA UNILATERAL DIREITA", "MAMOGRAFIA UNILATERAL ESQUERDA",
+  // Densitometria
+  "DENSITOMETRIA ÓSSEA COLUNA E FÊMUR",
+];
+
+// Componente para edição inline do nome do exame com sugestões
 function EditableExamName({ value, studyUid }: { value: string; studyUid: string }) {
   const storageKey = `exam_label_${studyUid}`;
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(() => localStorage.getItem(storageKey) || value || 'Sem descrição');
   const [draft, setDraft] = useState(label);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (editing) inputRef.current?.focus();
+    if (editing) { inputRef.current?.focus(); setShowSuggestions(true); }
   }, [editing]);
 
-  const save = () => {
-    const trimmed = draft.trim() || value || 'Sem descrição';
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = draft.trim().length > 0
+    ? EXAM_SUGGESTIONS.filter(s => s.toLowerCase().includes(draft.toLowerCase()))
+    : EXAM_SUGGESTIONS;
+
+  const save = (val?: string) => {
+    const trimmed = (val ?? draft).trim() || value || 'Sem descrição';
     setLabel(trimmed);
+    setDraft(trimmed);
     localStorage.setItem(storageKey, trimmed);
     setEditing(false);
+    setShowSuggestions(false);
   };
 
   const cancel = () => {
     setDraft(label);
     setEditing(false);
+    setShowSuggestions(false);
   };
 
   if (editing) {
     return (
-      <div className="flex items-center gap-1">
-        <input
-          ref={inputRef}
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel(); }}
-          className="text-sm border border-amber-400 rounded px-1.5 py-0.5 w-44 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white text-gray-800"
-        />
-        <button onClick={save} className="text-emerald-600 hover:text-emerald-700" title="Salvar">
-          <Check className="h-3.5 w-3.5" />
-        </button>
-        <button onClick={cancel} className="text-red-400 hover:text-red-500" title="Cancelar">
-          <X className="h-3.5 w-3.5" />
-        </button>
+      <div ref={containerRef} className="relative">
+        <div className="flex items-center gap-1">
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={e => { setDraft(e.target.value); setShowSuggestions(true); }}
+            onFocus={() => setShowSuggestions(true)}
+            onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel(); }}
+            className="text-sm border border-amber-400 rounded px-1.5 py-0.5 w-52 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white text-gray-800"
+            placeholder="Buscar ou digitar exame..."
+          />
+          <button onClick={() => save()} className="text-emerald-600 hover:text-emerald-700 shrink-0" title="Salvar">
+            <Check className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={cancel} className="text-red-400 hover:text-red-500 shrink-0" title="Cancelar">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        {showSuggestions && filtered.length > 0 && (
+          <div className="absolute top-7 left-0 z-50 w-72 max-h-48 overflow-y-auto bg-white border border-amber-300 rounded shadow-lg">
+            {filtered.slice(0, 25).map(s => (
+              <button
+                key={s}
+                onMouseDown={() => save(s)}
+                className="w-full text-left px-3 py-1.5 text-xs text-gray-800 hover:bg-amber-50 border-b border-gray-100 last:border-0"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }

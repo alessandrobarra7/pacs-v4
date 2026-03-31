@@ -29,7 +29,7 @@ export function AppHeader({ nav, rightSlot, unitSlot }: AppHeaderProps) {
   return (
     <header
       className="px-5 flex items-center justify-between shrink-0"
-      style={{ background: "#2c2420", height: 72 }}
+      style={{ background: "#2c2420", height: 88 }}
     >
       {/* ── Logo clicável ── */}
       <button
@@ -41,14 +41,11 @@ export function AppHeader({ nav, rightSlot, unitSlot }: AppHeaderProps) {
           src={LOGO_URL}
           alt="Lauds"
           className="object-contain"
-          style={{ height: 48 }}
+          style={{ height: 84 }}
         />
-        <div className="flex flex-col items-start leading-tight">
-          <span className="text-white font-bold text-lg tracking-tight">lauds</span>
-          <span className="text-white/60 text-xs font-normal tracking-wide">
-            Gestão de Laudos Radiológicos
-          </span>
-        </div>
+        <span className="text-white/80 text-sm font-medium tracking-wide hidden sm:inline">
+          Gestão de Laudos Radiológicos
+        </span>
       </button>
 
       {/* Separador + seletor de unidade */}

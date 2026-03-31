@@ -39,6 +39,8 @@ export interface AnamnesisData {
   // CID sugerido
   suggestedCid?: string;
   suggestedCidDescription?: string;
+  // Dados adicionais livres
+  additionalNotes?: string;
 }
 
 export function AnamnesisModal({ open, onClose, studyInstanceUid, onSave }: AnamnesisModalProps) {
@@ -383,7 +385,7 @@ export function AnamnesisModal({ open, onClose, studyInstanceUid, onSave }: Anam
               </RadioGroup>
 
               {data.examPurpose && (
-                <div className="mt-6 p-4 bg-muted rounded-lg">
+                <div className="mt-4 p-4 bg-muted rounded-lg">
                   <h4 className="font-semibold mb-2">CID Sugerido:</h4>
                   <p className="text-sm">
                     <strong>{calculateCID().cid}</strong> - {calculateCID().description}
@@ -393,6 +395,24 @@ export function AnamnesisModal({ open, onClose, studyInstanceUid, onSave }: Anam
                   </p>
                 </div>
               )}
+
+              {/* Outros / Dados adicionais */}
+              <div className="pt-2 border-t border-border">
+                <Label htmlFor="additionalNotes" className="text-sm font-semibold">
+                  Outros / Dados adicionais
+                </Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Informações complementares não cobertas pelas opções acima
+                </p>
+                <textarea
+                  id="additionalNotes"
+                  rows={3}
+                  placeholder="Ex: paciente gestante, histórico de cirurgia prévia, alergia a contraste, observações do médico solicitante..."
+                  value={data.additionalNotes || ""}
+                  onChange={(e) => setData({ ...data, additionalNotes: e.target.value })}
+                  className="w-full text-sm border border-input rounded-md px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-ring bg-background text-foreground"
+                />
+              </div>
             </div>
           )}
         </div>
