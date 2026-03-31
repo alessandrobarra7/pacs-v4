@@ -268,6 +268,38 @@ export function PacsQueryPage() {
     error?: string;
   }>>({});
 
+  // Ao montar ou ao mudar a lista de estudos, verifica quais já estão em cache no servidor
+  // Isso garante que o botão verde persiste ao voltar do viewer
+  useEffect(() => {
+    if (queryResults.length === 0) return;
+    const uids = queryResults.map((s: any) => s.studyInstanceUid).filter(Boolean);
+    if (uids.length === 0) return;
+    // Verifica em paralelo (sem bloquear a UI)
+    Promise.all(
+      uids.map(async (uid: string) => {
+        try {
+          const res = await fetch(`/api/dicom-cache-status/${uid}`);
+          if (!res.ok) return null;
+          const data = await res.json();
+          return { uid, cached: data.cached, count: data.count };
+        } catch {
+          return null;
+        }
+      })
+    ).then((results) => {
+      const updates: Record<string, any> = {};
+      for (const r of results) {
+        if (!r) continue;
+        if (r.cached) {
+          updates[r.uid] = { phase: 'done', received: r.count, total: r.count };
+        }
+      }
+      if (Object.keys(updates).length > 0) {
+        setPreDownloadMap(prev => ({ ...prev, ...updates }));
+      }
+    });
+  }, [queryResults]);
+
   const handlePreDownload = (study: any) => {
     const uid = study.studyInstanceUid;
     if (!uid) { toast.error('UID do estudo não disponível'); return; }

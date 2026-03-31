@@ -292,3 +292,8 @@
 - [x] Botão "Baixar Imagens" na listagem com barra de progresso (pré-download antes de laudar)
 - [x] Botão "Exportar ZIP" no viewer para baixar arquivos DICOM (RadiAnt/OsiriX/Horos)
 - [x] Endpoint /api/dicom-export/:studyUid que gera ZIP dos arquivos em cache
+
+## Cache Persistente de Download (Sessão 31/03/2026)
+- [x] Endpoint GET /api/dicom-cache-status/:studyUid para verificar se estudo já está em cache no servidor
+- [x] PacsQueryPage consulta status do cache ao carregar e mantém botão verde se já baixado
+- [x] Limpeza automática do cache após 30 min de inatividade por estudo (timer por arquivo)

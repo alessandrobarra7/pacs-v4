@@ -1,0 +1,16 @@
+{
+  "query": "SELECT id, username, role, unit_id FROM users ORDER BY id LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, username, role, unit_id FROM users ORDER BY id LIMIT 10;",
+  "rows": [
+    {
+      "id": "1",
+      "username": "NULL",
+      "role": "admin_master",
+      "unit_id": "180001"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tusername\trole\tunit_id\n1\tNULL\tadmin_master\t180001\n",
+  "stderr": "",
+  "execution_time_ms": 65
+}

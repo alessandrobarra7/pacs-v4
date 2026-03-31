@@ -94,26 +94,50 @@ async function startServer() {
   
   const DICOM_CACHE_ROOT = '/tmp/dicom-cache';
 
-  // Limpeza automática de caches com mais de 2 horas (evita acúmulo em disco)
+  // Limpeza automática de caches com mais de 30 minutos de inatividade
   async function cleanOldDicomCaches() {
     try {
       const fs = await import('fs/promises');
       const path = await import('path');
       const entries = await fs.readdir(DICOM_CACHE_ROOT, { withFileTypes: true }).catch(() => []);
       const now = Date.now();
-      const TWO_HOURS = 2 * 60 * 60 * 1000;
+      const THIRTY_MINUTES = 30 * 60 * 1000;
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         const dirPath = path.join(DICOM_CACHE_ROOT, entry.name);
         const stat = await fs.stat(dirPath).catch(() => null);
-        if (stat && now - stat.mtimeMs > TWO_HOURS) {
+        // Usa atime (último acesso) para medir inatividade real
+        const lastAccess = stat ? Math.max(stat.mtimeMs, stat.atimeMs) : 0;
+        if (stat && now - lastAccess > THIRTY_MINUTES) {
           await fs.rm(dirPath, { recursive: true, force: true });
-          console.log(`[DICOM Cache] Limpeza automática: ${entry.name} (>2h)`);
+          console.log(`[DICOM Cache] Limpeza automática: ${entry.name} (>30min inativo)`);
         }
       }
     } catch {}
   }
-  setInterval(cleanOldDicomCaches, 30 * 60 * 1000); // a cada 30 minutos
+  setInterval(cleanOldDicomCaches, 5 * 60 * 1000); // verifica a cada 5 minutos
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // STATUS DO CACHE — verifica se um estudo já está baixado no servidor
+  // Usado pela listagem para manter o botão verde ao voltar do viewer
+  // ─────────────────────────────────────────────────────────────────────────────
+  app.get('/api/dicom-cache-status/:studyUid', async (req, res) => {
+    const { studyUid } = req.params;
+    if (!studyUid || studyUid.includes('..') || studyUid.includes('/')) {
+      return res.status(400).json({ cached: false, count: 0 });
+    }
+    const studyCacheDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
+    try {
+      const fs = await import('fs/promises');
+      const files = await fs.readdir(studyCacheDir);
+      const dcmFiles = files.filter((f: string) => f.endsWith('.dcm'));
+      // Atualiza o atime do diretório para resetar o timer de inatividade
+      await fs.utimes(studyCacheDir, new Date(), new Date()).catch(() => {});
+      return res.json({ cached: dcmFiles.length > 0, count: dcmFiles.length });
+    } catch {
+      return res.json({ cached: false, count: 0 });
+    }
+  });
 
   // Serve DICOM files from cache
   app.get('/api/dicom-files/:studyUid/:filename', (req, res) => {
