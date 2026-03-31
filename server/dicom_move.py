@@ -4,11 +4,17 @@ DICOM C-GET Script — LAUDS Portal
 Solicita estudo ao PACS via C-GET (pull-based, sem listener externo).
 O C-GET recebe as imagens na mesma conexão TCP da requisição.
 
+MODOS DE OPERAÇÃO:
+  - Padrão (streaming=false): aguarda todos os arquivos, retorna JSON único no stdout
+  - Streaming (streaming=true): emite uma linha JSON por arquivo recebido + JSON final
+    Formato streaming:
+      {"type": "total", "total": N}          — quando o PACS informa o total de imagens
+      {"type": "file", "filename": "x.dcm", "total": N}  — a cada arquivo salvo
+      {"type": "complete", ...resultado final...}          — ao finalizar
+
 IMPORTANTE: Requer negociação de roles (ext_neg) com scp_role=True
 para que o PACS possa enviar as imagens via C-STORE sub-operations.
 Sem isso, o PACS retorna 0xA702 (Out of Resources).
-
-Retorna JSON estruturado com status, contagem de arquivos e logs detalhados.
 """
 
 import sys
@@ -25,6 +31,8 @@ from pynetdicom.sop_class import (
 from pynetdicom import StoragePresentationContexts
 
 _logs = []
+_streaming = False  # modo streaming: emite JSON por linha a cada arquivo
+
 
 def log(level, message):
     ts = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -33,8 +41,17 @@ def log(level, message):
     print(entry, file=sys.stderr)
 
 
-def make_store_handler(study_cache_dir):
-    """Retorna handler C-STORE que salva arquivos no diretório do estudo."""
+def emit(data: dict):
+    """Emite uma linha JSON no stdout (modo streaming ou final)."""
+    print(json.dumps(data), flush=True)
+
+
+def make_store_handler(study_cache_dir, total_ref: list):
+    """
+    Retorna handler C-STORE que:
+    1. Salva o arquivo no diretório do estudo
+    2. Em modo streaming, emite {"type": "file", "filename": "...", "total": N} no stdout
+    """
     def handle_store(event):
         ds = event.dataset
         ds.file_meta = event.file_meta
@@ -42,12 +59,18 @@ def make_store_handler(study_cache_dir):
         filename = f"{ds.SOPInstanceUID}.dcm"
         filepath = os.path.join(study_cache_dir, filename)
         ds.save_as(filepath, write_like_original=False)
-        log("STORE", f"Arquivo salvo: {filename} ({os.path.getsize(filepath)} bytes)")
+        size = os.path.getsize(filepath)
+        log("STORE", f"Arquivo salvo: {filename} ({size} bytes)")
+
+        if _streaming:
+            # Emite evento de arquivo recebido para o SSE do servidor
+            emit({"type": "file", "filename": filename, "total": total_ref[0]})
+
         return 0x0000  # Success
     return handle_store
 
 
-def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instance_uid, cache_dir):
+def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instance_uid, cache_dir, streaming=False):
     """
     Executa C-GET para baixar estudo do PACS.
 
@@ -64,6 +87,9 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
       logs               (list[str])
       error              (str, apenas em falha)
     """
+    global _streaming
+    _streaming = streaming
+
     start_time = time.time()
 
     log("INFO", "=== INÍCIO C-GET ===")
@@ -71,6 +97,7 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
     log("INFO", f"PACS remoto      : {pacs_ip}:{pacs_port} AE={pacs_ae_title}")
     log("INFO", f"AE Title local   : {local_ae_title}")
     log("INFO", f"Cache dir        : {cache_dir}")
+    log("INFO", f"Modo streaming   : {streaming}")
 
     os.makedirs(cache_dir, exist_ok=True)
     study_cache_dir = os.path.join(cache_dir, study_instance_uid)
@@ -96,8 +123,11 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
     # Sem isso, o PACS retorna 0xA702 (Out of Resources / Unable to perform sub-operations)
     roles = [build_role(sop_class, scp_role=True) for sop_class in storage_sop_classes]
 
+    # total_ref[0] será atualizado quando o PACS informar o total de imagens
+    total_ref = [0]
+
     # Handler que salva cada imagem recebida
-    handlers = [(evt.EVT_C_STORE, make_store_handler(study_cache_dir))]
+    handlers = [(evt.EVT_C_STORE, make_store_handler(study_cache_dir, total_ref))]
 
     log("INFO", f"Conectando ao PACS {pacs_ip}:{pacs_port} com negociação de roles...")
     try:
@@ -110,7 +140,7 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
         )
     except Exception as e:
         log("ERROR", f"Exceção ao conectar: {e}")
-        return {
+        result = {
             "success": False,
             "error": f"Erro de conexão: {e}",
             "file_count": 0,
@@ -119,10 +149,13 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
             "duration_sec": round(time.time() - start_time, 2),
             "logs": _logs,
         }
+        if streaming:
+            emit({"type": "complete", **result})
+        return result
 
     if not assoc.is_established:
         log("ERROR", "Falha ao estabelecer associação DICOM com o PACS")
-        return {
+        result = {
             "success": False,
             "error": f"Não foi possível conectar ao PACS {pacs_ip}:{pacs_port} AE={pacs_ae_title}. Verifique IP, porta e AE Title.",
             "file_count": 0,
@@ -131,6 +164,9 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
             "duration_sec": round(time.time() - start_time, 2),
             "logs": _logs,
         }
+        if streaming:
+            emit({"type": "complete", **result})
+        return result
 
     log("INFO", "Associação DICOM estabelecida com sucesso")
 
@@ -147,7 +183,19 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
             if status:
                 status_hex = f"0x{status.Status:04X}"
                 if status.Status in (0xFF00, 0xFF01):  # Pending
-                    # Conta arquivos já recebidos para log de progresso
+                    # Tenta extrair o total de imagens do status (NumberOfRemainingSuboperations)
+                    try:
+                        remaining = getattr(status, 'NumberOfRemainingSuboperations', 0) or 0
+                        completed = getattr(status, 'NumberOfCompletedSuboperations', 0) or 0
+                        total = remaining + completed
+                        if total > 0 and total_ref[0] == 0:
+                            total_ref[0] = total
+                            log("INFO", f"Total de imagens informado pelo PACS: {total}")
+                            if streaming:
+                                emit({"type": "total", "total": total})
+                    except Exception:
+                        pass
+
                     received_so_far = len([f for f in os.listdir(study_cache_dir) if f.endswith('.dcm')])
                     log("INFO", f"C-GET pendente ({status_hex}) — {received_so_far} imagens recebidas até agora")
                 elif status.Status == 0x0000:  # Success
@@ -168,7 +216,7 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
             assoc.release()
         except Exception:
             pass
-        return {
+        result = {
             "success": False,
             "error": str(e),
             "file_count": 0,
@@ -177,6 +225,9 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
             "duration_sec": round(time.time() - start_time, 2),
             "logs": _logs,
         }
+        if streaming:
+            emit({"type": "complete", **result})
+        return result
 
     file_count = len([f for f in os.listdir(study_cache_dir) if f.endswith('.dcm')])
     duration = round(time.time() - start_time, 2)
@@ -185,7 +236,7 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
 
     if file_count == 0:
         log("ERROR", "Nenhum arquivo .dcm recebido. Verifique se o PACS suporta C-GET e se o StudyInstanceUID está correto.")
-        return {
+        result = {
             "success": False,
             "error": "Nenhuma imagem recebida via C-GET. Verifique se o PACS suporta C-GET para este estudo.",
             "file_count": 0,
@@ -194,8 +245,11 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
             "duration_sec": duration,
             "logs": _logs,
         }
+        if streaming:
+            emit({"type": "complete", **result})
+        return result
 
-    return {
+    result = {
         "success": True,
         "file_count": file_count,
         "cache_dir": study_cache_dir,
@@ -203,6 +257,9 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
         "duration_sec": duration,
         "logs": _logs,
     }
+    if streaming:
+        emit({"type": "complete", **result})
+    return result
 
 
 if __name__ == "__main__":
@@ -212,15 +269,19 @@ if __name__ == "__main__":
 
     try:
         params = json.loads(sys.argv[1])
+        streaming_mode = params.get('streaming', False)
         result = c_get_study(
             pacs_ip=params['pacs_ip'],
             pacs_port=int(params['pacs_port']),
             pacs_ae_title=params['pacs_ae_title'],
             local_ae_title=params.get('local_ae_title', 'LAUDS'),
             study_instance_uid=params['study_instance_uid'],
-            cache_dir=params.get('cache_dir', '/tmp/dicom-cache')
+            cache_dir=params.get('cache_dir', '/tmp/dicom-cache'),
+            streaming=streaming_mode,
         )
-        print(json.dumps(result))
+        # No modo não-streaming, emite o JSON final no stdout (comportamento original)
+        if not streaming_mode:
+            print(json.dumps(result))
     except Exception as e:
         print(json.dumps({"success": False, "error": str(e), "logs": _logs}))
         sys.exit(1)

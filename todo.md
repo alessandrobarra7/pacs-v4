@@ -283,3 +283,12 @@
 - [ ] Corrigir vite.config.ts: build de produção com módulos CJS do Cornerstone
 - [ ] Testar build local sem erros
 - [ ] Deploy na VM1 e validar que a página carrega
+
+## PERFORMANCE VIEWER — Streaming Progressivo + Exportação DICOM
+
+- [x] Streaming progressivo: endpoint SSE /api/dicom-stream/:studyUid (C-GET com eventos por arquivo)
+- [x] Modificar dicom_move.py para modo streaming (emite JSON por linha a cada arquivo salvo)
+- [x] Refatorar DicomViewerPage: consumir SSE e adicionar imagens ao stack progressivamente
+- [x] Botão "Baixar Imagens" na listagem com barra de progresso (pré-download antes de laudar)
+- [x] Botão "Exportar ZIP" no viewer para baixar arquivos DICOM (RadiAnt/OsiriX/Horos)
+- [x] Endpoint /api/dicom-export/:studyUid que gera ZIP dos arquivos em cache

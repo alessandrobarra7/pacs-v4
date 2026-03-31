@@ -326,6 +326,238 @@ async function startServer() {
     }
   });
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // STREAMING PROGRESSIVO — SSE: envia evento a cada arquivo DICOM recebido
+  // O browser pode renderizar a 1ª imagem assim que o 1º arquivo chegar
+  // ─────────────────────────────────────────────────────────────────────────────
+  app.get('/api/dicom-stream/:studyUid', async (req, res) => {
+    const { studyUid } = req.params;
+    if (!studyUid || studyUid.includes('..') || studyUid.includes('/')) {
+      return res.status(400).json({ error: 'Invalid studyUid' });
+    }
+
+    // Autenticação: verifica cookie de sessão
+    let user: any = null;
+    try {
+      const { createContext } = await import('./context');
+      const ctx = await createContext({ req, res } as any);
+      user = ctx.user;
+    } catch {}
+    if (!user) {
+      return res.status(401).json({ error: 'Não autenticado' });
+    }
+
+    // Configura SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // desativa buffer do nginx
+    res.flushHeaders();
+
+    const sendEvent = (event: string, data: object) => {
+      if (res.writableEnded) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    sendEvent('status', { phase: 'connecting', message: 'Conectando ao PACS...' });
+
+    try {
+      // Busca configuração PACS da unidade do usuário
+      const { getDb } = await import('../db');
+      const { units } = await import('../../drizzle/schema');
+      const { eq } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) {
+        sendEvent('error', { message: 'Database não disponível' });
+        return res.end();
+      }
+
+      const unitId = user.unit_id;
+      if (!unitId) {
+        sendEvent('error', { message: 'Usuário sem unidade associada' });
+        return res.end();
+      }
+
+      const [unit] = await db.select().from(units).where(eq(units.id, unitId)).limit(1);
+      if (!unit || !unit.pacs_ip || !unit.pacs_port || !unit.pacs_ae_title) {
+        sendEvent('error', { message: 'PACS não configurado para esta unidade' });
+        return res.end();
+      }
+
+      const studyCacheDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
+
+      // Verifica cache existente
+      const fs = await import('fs/promises');
+      const fsSync = await import('fs');
+      try {
+        const existing = await fs.readdir(studyCacheDir);
+        const dcmFiles = existing.filter((f: string) => f.endsWith('.dcm')).sort();
+        if (dcmFiles.length > 0) {
+          sendEvent('status', { phase: 'cached', message: `Cache encontrado: ${dcmFiles.length} imagens`, total: dcmFiles.length });
+          for (const f of dcmFiles) {
+            sendEvent('file', { filename: f, index: dcmFiles.indexOf(f) + 1, total: dcmFiles.length });
+          }
+          sendEvent('complete', { total: dcmFiles.length, fromCache: true });
+          return res.end();
+        }
+      } catch {}
+
+      // Inicia C-GET via Python com modo streaming (linha por linha)
+      sendEvent('status', { phase: 'downloading', message: 'Iniciando C-GET...' });
+
+      const { spawn } = await import('child_process');
+      // dicom_move.py fica em server/, não em server/_core/
+      const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dicom_move.py');
+      const cleanEnv = { ...process.env };
+      delete cleanEnv.PYTHONHOME;
+      delete cleanEnv.PYTHONPATH;
+
+      const moveParams = JSON.stringify({
+        pacs_ip: unit.pacs_ip,
+        pacs_port: unit.pacs_port,
+        pacs_ae_title: unit.pacs_ae_title,
+        local_ae_title: unit.pacs_local_ae_title || 'LAUDS',
+        study_instance_uid: studyUid,
+        cache_dir: DICOM_CACHE_ROOT,
+        streaming: true,  // modo streaming: emite JSON por linha a cada arquivo
+      });
+
+      const child = spawn('/usr/bin/python3.11', [scriptPath, moveParams], {
+        env: cleanEnv,
+        timeout: 600000,
+      });
+
+      let totalFiles = 0;
+      let receivedFiles = 0;
+      let stdoutBuffer = '';
+
+      child.stdout.on('data', (chunk: Buffer) => {
+        stdoutBuffer += chunk.toString();
+        const lines = stdoutBuffer.split('\n');
+        stdoutBuffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const msg = JSON.parse(trimmed);
+            if (msg.type === 'file') {
+              receivedFiles++;
+              sendEvent('file', { filename: msg.filename, index: receivedFiles, total: msg.total || 0 });
+            } else if (msg.type === 'total') {
+              totalFiles = msg.total;
+              sendEvent('status', { phase: 'downloading', message: `Baixando ${totalFiles} imagens...`, total: totalFiles });
+            } else if (msg.type === 'complete') {
+              // final JSON com resultado
+            }
+          } catch {
+            // linha não é JSON (log de texto) — ignora
+          }
+        }
+      });
+
+      child.stderr.on('data', (chunk: Buffer) => {
+        // logs do script — não enviamos ao cliente por segurança
+        console.log(`[DICOM Stream] ${chunk.toString().trim()}`);
+      });
+
+      child.on('close', async (code: number) => {
+        // Processa buffer restante
+        if (stdoutBuffer.trim()) {
+          try {
+            const msg = JSON.parse(stdoutBuffer.trim());
+            if (msg.success !== undefined) {
+              if (msg.success) {
+                sendEvent('complete', { total: msg.file_count || receivedFiles, fromCache: false });
+              } else {
+                sendEvent('error', { message: msg.error || 'Erro no C-GET' });
+              }
+            }
+          } catch {}
+        }
+        if (!res.writableEnded) {
+          // Garante que enviamos o complete mesmo se não veio no stdout
+          try {
+            const files = await fs.readdir(studyCacheDir);
+            const count = files.filter((f: string) => f.endsWith('.dcm')).length;
+            if (count > 0) sendEvent('complete', { total: count, fromCache: false });
+            else sendEvent('error', { message: 'Nenhuma imagem recebida do PACS' });
+          } catch {
+            sendEvent('error', { message: 'Erro ao verificar cache após C-GET' });
+          }
+          res.end();
+        }
+      });
+
+      child.on('error', (err: Error) => {
+        sendEvent('error', { message: `Erro ao executar C-GET: ${err.message}` });
+        res.end();
+      });
+
+      // Quando o cliente desconecta, mata o processo Python
+      req.on('close', () => {
+        try { child.kill('SIGTERM'); } catch {}
+      });
+
+    } catch (err: any) {
+      sendEvent('error', { message: err.message || 'Erro interno' });
+      res.end();
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // EXPORTAÇÃO ZIP — baixa todos os arquivos DICOM do cache como .zip
+  // Para abrir em RadiAnt, OsiriX, Horos, etc.
+  // ─────────────────────────────────────────────────────────────────────────────
+  app.get('/api/dicom-export/:studyUid', async (req, res) => {
+    const { studyUid } = req.params;
+    if (!studyUid || studyUid.includes('..') || studyUid.includes('/')) {
+      return res.status(400).json({ error: 'Invalid studyUid' });
+    }
+
+    const studyCacheDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
+    try {
+      const fs = await import('fs/promises');
+      const fsSync = await import('fs');
+      const path = await import('path');
+      const { createGzip } = await import('zlib');
+      const { Readable, PassThrough } = await import('stream');
+
+      const files = await fs.readdir(studyCacheDir);
+      const dicomFiles = files.filter((f: string) => f.endsWith('.dcm')).sort();
+
+      if (dicomFiles.length === 0) {
+        return res.status(404).json({ error: 'Nenhuma imagem no cache. Abra o visualizador primeiro.' });
+      }
+
+      // Usa archiver para criar ZIP em streaming
+      const archiver = (await import('archiver')).default;
+      const archive = archiver('zip', { zlib: { level: 1 } }); // level 1 = rápido (DICOM já é comprimido)
+
+      const patientName = studyUid.slice(0, 20);
+      const filename = `DICOM_${patientName}_${Date.now()}.zip`;
+
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('X-Accel-Buffering', 'no');
+
+      archive.pipe(res);
+
+      for (const f of dicomFiles) {
+        const filePath = path.join(studyCacheDir, f);
+        archive.file(filePath, { name: f });
+      }
+
+      await archive.finalize();
+      console.log(`[DICOM Export] ZIP gerado: ${dicomFiles.length} arquivos para ${studyUid}`);
+
+    } catch (err: any) {
+      console.error('[DICOM Export] Erro:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Erro ao gerar ZIP: ' + err.message });
+      }
+    }
+  });
+
   // CRÍTICO 3: Rate limiting aplicado especificamente na rota de login
   app.use('/api/trpc/auth.login', loginRateLimiter);
 

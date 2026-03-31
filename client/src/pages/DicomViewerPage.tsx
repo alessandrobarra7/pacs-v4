@@ -24,9 +24,10 @@ import {
   Ruler,
   MousePointer2,
   Maximize2,
+  Download,
+  Archive,
 } from "lucide-react";
 import { toast } from "sonner";
-import { trpc } from "@/lib/trpc";
 
 interface StudyInfo {
   patientName: string;
@@ -43,6 +44,10 @@ export function DicomViewerPage() {
   const [location, navigate] = useLocation();
   const viewerRef = useRef<HTMLDivElement>(null);
   const toolGroupRef = useRef<any>(null);
+  const viewportRef = useRef<any>(null);
+  const renderingEngineRef = useRef<any>(null);
+  const cornerstoneInitRef = useRef(false);
+  const sseRef = useRef<EventSource | null>(null);
 
   // Ler unit_id da query string (passado pelo admin_master)
   const urlUnitId = useMemo(() => {
@@ -52,20 +57,30 @@ export function DicomViewerPage() {
     return uid ? parseInt(uid, 10) : undefined;
   }, [location]);
 
-  const [phase, setPhase] = useState<"downloading" | "rendering" | "ready" | "error">("downloading");
-  const [downloadProgress, setDownloadProgress] = useState<string>("Iniciando C-GET...");
+  // ─── Estado de fase ───────────────────────────────────────────────────────
+  // "idle"        → aguardando início
+  // "connecting"  → SSE conectado, aguardando 1º arquivo
+  // "streaming"   → recebendo arquivos, viewer já pode mostrar imagens
+  // "rendering"   → inicializando Cornerstone
+  // "ready"       → viewer pronto
+  // "error"       → erro
+  const [phase, setPhase] = useState<"idle" | "connecting" | "streaming" | "rendering" | "ready" | "error">("idle");
+  const [downloadProgress, setDownloadProgress] = useState<string>("Aguardando...");
   const [progressPercent, setProgressPercent] = useState(0);
+  const [receivedCount, setReceivedCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [studyInfo, setStudyInfo] = useState<StudyInfo | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imageCount, setImageCount] = useState(0);
   const [viewport, setViewport] = useState<any>(null);
-  const [renderingEngine, setRenderingEngine] = useState<any>(null);
-  const [imageIds, setImageIds] = useState<string[]>([]);
   const [activeTool, setActiveTool] = useState<ActiveTool>("WindowLevel");
   const [wl, setWl] = useState<{ ww: number; wc: number } | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
-  const startViewerMutation = trpc.pacs.startViewer.useMutation();
+  // Lista de imageIds acumulados durante o streaming
+  const imageIdsRef = useRef<string[]>([]);
+  const [imageIds, setImageIds] = useState<string[]>([]);
 
   const formatDate = (dateStr: string) => {
     if (!dateStr || dateStr.length !== 8) return dateStr || "";
@@ -77,139 +92,109 @@ export function DicomViewerPage() {
     return name.replace(/\^/g, " ").replace(/\s+\d{10,}$/g, "").trim();
   };
 
-  // Extrai metadados do arquivo DICOM via endpoint de listagem
-  const extractMetadataFromDicom = async (uid: string): Promise<StudyInfo> => {
-    try {
-      const resp = await fetch(`/api/dicom-files/${uid}`);
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.metadata) {
-          return {
-            patientName: data.metadata.patientName || "Paciente",
-            studyDate: data.metadata.studyDate || "",
-            studyDescription: data.metadata.studyDescription || "Sem descrição",
-            modality: data.metadata.modality || "-",
-            studyInstanceUid: uid,
-          };
-        }
-      }
-    } catch (_) {}
-    return {
-      patientName: "Paciente",
-      studyDate: "",
-      studyDescription: "Estudo DICOM",
-      modality: "-",
-      studyInstanceUid: uid,
-    };
-  };
+  // ─── Inicializa Cornerstone (apenas uma vez) ──────────────────────────────
+  const ensureCornerstoneInit = useCallback(async () => {
+    if (cornerstoneInitRef.current) return;
+    cornerstoneInitRef.current = true;
 
-  // Troca a ferramenta ativa no ToolGroup
-  const switchTool = useCallback((tool: ActiveTool) => {
-    const tg = toolGroupRef.current;
-    if (!tg) return;
-    const { Enums: ToolEnums } = csTools;
-    const toolMap: Record<ActiveTool, string> = {
-      WindowLevel: csTools.WindowLevelTool.toolName,
-      Zoom: csTools.ZoomTool.toolName,
-      Pan: csTools.PanTool.toolName,
-      Length: csTools.LengthTool.toolName,
-      StackScroll: csTools.StackScrollTool.toolName,
-    };
-    // Desativa todas as ferramentas de clique esquerdo
-    const allTools: ActiveTool[] = ["WindowLevel", "Zoom", "Pan", "Length", "StackScroll"];
-    allTools.forEach((t) => {
-      try { tg.setToolPassive(toolMap[t]); } catch (_) {}
+    const { RenderingEngine, Enums } = csCore;
+    const {
+      ToolGroupManager,
+      WindowLevelTool,
+      ZoomTool,
+      PanTool,
+      LengthTool,
+      StackScrollTool,
+      Enums: ToolEnums,
+      addTool,
+      init: initTools,
+    } = csTools;
+
+    await csCore.init();
+    const workerCount = Math.min(6, Math.max(2, Math.floor((navigator.hardwareConcurrency || 4) / 2)));
+    await csDicomLoader.init({ maxWebWorkers: workerCount });
+    await initTools();
+
+    [WindowLevelTool, ZoomTool, PanTool, LengthTool, StackScrollTool].forEach((T) => {
+      try { addTool(T); } catch (_) {}
     });
-    // Ativa a ferramenta selecionada no botão esquerdo
-    tg.setToolActive(toolMap[tool], {
-      bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
+
+    const toolGroupId = `PACS_TG_${Date.now()}`;
+    const toolGroup = ToolGroupManager.createToolGroup(toolGroupId);
+    toolGroupRef.current = toolGroup;
+
+    if (toolGroup) {
+      toolGroup.addTool(WindowLevelTool.toolName);
+      toolGroup.addTool(ZoomTool.toolName);
+      toolGroup.addTool(PanTool.toolName);
+      toolGroup.addTool(LengthTool.toolName);
+      toolGroup.addTool(StackScrollTool.toolName);
+      toolGroup.setToolActive(WindowLevelTool.toolName, {
+        bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
+      });
+      toolGroup.setToolActive(ZoomTool.toolName, {
+        bindings: [{ mouseButton: ToolEnums.MouseBindings.Secondary }],
+      });
+      toolGroup.setToolActive(PanTool.toolName, {
+        bindings: [{ mouseButton: ToolEnums.MouseBindings.Auxiliary }],
+      });
+      toolGroup.setToolActive(StackScrollTool.toolName, {
+        bindings: [{ mouseButton: ToolEnums.MouseBindings.Wheel }],
+      });
+    }
+
+    const engineId = `PACS_RE_${Date.now()}`;
+    const engine = new RenderingEngine(engineId);
+    renderingEngineRef.current = engine;
+
+    if (!viewerRef.current) throw new Error("Elemento de visualização não encontrado");
+
+    const viewportId = `PACS_VP_${Date.now()}`;
+    engine.enableElement({
+      viewportId,
+      type: Enums.ViewportType.STACK,
+      element: viewerRef.current,
+      defaultOptions: { background: [0, 0, 0] as [number, number, number] },
     });
-    setActiveTool(tool);
+
+    const vp = engine.getViewport(viewportId) as any;
+    viewportRef.current = vp;
+    setViewport(vp);
+
+    if (toolGroup) toolGroup.addViewport(viewportId, engineId);
+
+    // Atualiza WL ao interagir
+    viewerRef.current?.addEventListener("mousemove", () => {
+      try {
+        const props = vp.getProperties();
+        if (props?.voiRange) {
+          const ww = props.voiRange.upper - props.voiRange.lower;
+          const wc = (props.voiRange.upper + props.voiRange.lower) / 2;
+          setWl({ ww: Math.round(ww), wc: Math.round(wc) });
+        }
+      } catch (_) {}
+    });
   }, []);
 
-  // Inicializa Cornerstone com os arquivos do cache local
-  const initCornerstoneWithCache = useCallback(async (ids: string[]) => {
-    setPhase("rendering");
-    setDownloadProgress("Inicializando visualizador...");
-    setProgressPercent(90);
-
+  // ─── Renderiza a 1ª imagem assim que tiver pelo menos 1 arquivo ──────────
+  const renderFirstImage = useCallback(async (firstFilename: string) => {
     try {
-      const { RenderingEngine, Enums } = csCore;
-      const {
-        ToolGroupManager,
-        WindowLevelTool,
-        ZoomTool,
-        PanTool,
-        LengthTool,
-        StackScrollTool,
-        Enums: ToolEnums,
-        addTool,
-        init: initTools,
-      } = csTools;
+      setPhase("rendering");
+      setDownloadProgress("Renderizando 1ª imagem...");
+      await ensureCornerstoneInit();
 
-      await csCore.init();
-      // Usa metade dos cores disponíveis para decodificação paralela (mín 2, máx 6)
-      const workerCount = Math.min(6, Math.max(2, Math.floor((navigator.hardwareConcurrency || 4) / 2)));
-      await csDicomLoader.init({ maxWebWorkers: workerCount });
-      await initTools();
+      const vp = viewportRef.current;
+      if (!vp) return;
 
-      // Registra ferramentas (ignora erro se já registradas)
-      [WindowLevelTool, ZoomTool, PanTool, LengthTool, StackScrollTool].forEach((T) => {
-        try { addTool(T); } catch (_) {}
-      });
+      const firstId = `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${firstFilename}`;
+      imageIdsRef.current = [firstId];
+      setImageIds([firstId]);
+      setImageCount(1);
 
-      const toolGroupId = `PACS_TG_${Date.now()}`;
-      const toolGroup = ToolGroupManager.createToolGroup(toolGroupId);
-      toolGroupRef.current = toolGroup;
-
-      if (toolGroup) {
-        toolGroup.addTool(WindowLevelTool.toolName);
-        toolGroup.addTool(ZoomTool.toolName);
-        toolGroup.addTool(PanTool.toolName);
-        toolGroup.addTool(LengthTool.toolName);
-        toolGroup.addTool(StackScrollTool.toolName);
-
-        // Window/Level no botão esquerdo (padrão clínico)
-        toolGroup.setToolActive(WindowLevelTool.toolName, {
-          bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
-        });
-        // Zoom no botão direito
-        toolGroup.setToolActive(ZoomTool.toolName, {
-          bindings: [{ mouseButton: ToolEnums.MouseBindings.Secondary }],
-        });
-        // Pan no botão do meio
-        toolGroup.setToolActive(PanTool.toolName, {
-          bindings: [{ mouseButton: ToolEnums.MouseBindings.Auxiliary }],
-        });
-        // Scroll de slices com a roda do mouse
-        toolGroup.setToolActive(StackScrollTool.toolName, {
-          bindings: [{ mouseButton: ToolEnums.MouseBindings.Wheel }],
-        });
-      }
-
-      const engineId = `PACS_RE_${Date.now()}`;
-      const engine = new RenderingEngine(engineId);
-      setRenderingEngine(engine);
-
-      if (!viewerRef.current) throw new Error("Elemento de visualização não encontrado");
-
-      const viewportId = `PACS_VP_${Date.now()}`;
-      engine.enableElement({
-        viewportId,
-        type: Enums.ViewportType.STACK,
-        element: viewerRef.current,
-        defaultOptions: { background: [0, 0, 0] as [number, number, number] },
-      });
-
-      const vp = engine.getViewport(viewportId) as any;
-      setViewport(vp);
-
-      if (toolGroup) toolGroup.addViewport(viewportId, engineId);
-
-      await vp.setStack(ids, 0);
+      await vp.setStack([firstId], 0);
       vp.render();
 
-      // Captura window/level inicial após renderização
+      // Captura WL inicial
       setTimeout(() => {
         try {
           const props = vp.getProperties();
@@ -221,139 +206,231 @@ export function DicomViewerPage() {
         } catch (_) {}
       }, 500);
 
-      // Atualiza WL ao interagir
-      viewerRef.current?.addEventListener("mousemove", () => {
-        try {
-          const props = vp.getProperties();
-          if (props?.voiRange) {
-            const ww = props.voiRange.upper - props.voiRange.lower;
-            const wc = (props.voiRange.upper + props.voiRange.lower) / 2;
-            setWl({ ww: Math.round(ww), wc: Math.round(wc) });
-          }
-        } catch (_) {}
-      });
-
-      setProgressPercent(100);
       setPhase("ready");
-      toast.success(`${ids.length} imagem(ns) carregada(s)`);
+      toast.success("1ª imagem carregada — restante chegando em background...");
     } catch (err: any) {
-      console.error("[DicomViewer] Erro ao inicializar Cornerstone:", err);
-      setError(err.message || "Erro ao inicializar visualizador");
-      setPhase("error");
+      console.error("[DicomViewer] Erro ao renderizar 1ª imagem:", err);
+      // Não seta error aqui — continua tentando com mais arquivos
     }
-  }, []);
+  }, [studyUid, ensureCornerstoneInit]);
 
-  // Polling de progresso durante C-GET
-  const pollProgress = useCallback((uid: string, expectedCount: number) => {
-    let attempts = 0;
-    const maxAttempts = 120; // 2 min máx
-    const interval = setInterval(async () => {
-      attempts++;
-      if (attempts > maxAttempts) { clearInterval(interval); return; }
-      try {
-        const resp = await fetch(`/api/dicom-files/${uid}`);
-        if (resp.ok) {
-          const data = await resp.json();
-          const received = data.count || 0;
-          if (received > 0) {
-            const pct = expectedCount > 0
-              ? Math.min(80, Math.round((received / expectedCount) * 80))
-              : Math.min(80, attempts * 2);
-            setProgressPercent(pct);
-            setDownloadProgress(
-              expectedCount > 0
-                ? `[2/4] Recebendo imagens: ${received} / ${expectedCount}...`
-                : `[2/4] Recebendo imagens: ${received} recebida(s)...`
-            );
-          }
-        }
-      } catch (_) {}
-    }, 1000);
-    return interval;
-  }, []);
+  // ─── Adiciona imagens ao stack progressivamente ───────────────────────────
+  const addImageToStack = useCallback(async (filename: string) => {
+    const newId = `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${filename}`;
+    if (imageIdsRef.current.includes(newId)) return;
 
-  // Fluxo principal: C-GET → cache → Cornerstone
-  const startViewer = useCallback(async () => {
-    if (!studyUid) return;
-    setPhase("downloading");
-    setError(null);
-    setProgressPercent(5);
+    imageIdsRef.current = [...imageIdsRef.current, newId].sort();
+    const updatedIds = imageIdsRef.current;
+    setImageIds(updatedIds);
+    setImageCount(updatedIds.length);
 
-    let progressInterval: ReturnType<typeof setInterval> | null = null;
+    const vp = viewportRef.current;
+    if (!vp || phase !== "ready") return;
 
     try {
-      setDownloadProgress("[1/4] Estabelecendo associação DICOM com o PACS...");
-      setProgressPercent(10);
+      const currentIdx = vp.getCurrentImageIdIndex?.() ?? 0;
+      await vp.setStack(updatedIds, currentIdx);
+      // Não re-renderiza automaticamente para não interromper a navegação do usuário
+    } catch (_) {}
+  }, [studyUid, phase]);
 
-      // Inicia polling de progresso (estimativa: 220 imagens para CT)
-      progressInterval = pollProgress(studyUid, 0);
-
-      const result = await startViewerMutation.mutateAsync({
-        studyInstanceUid: studyUid,
-        unit_id: urlUnitId,
-      });
-
-      if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
-
-      if (!result.success) {
-        throw new Error("C-GET falhou — verifique IP, Porta e AE Title do PACS");
+  // ─── Carrega metadados do primeiro arquivo ────────────────────────────────
+  const loadMetadata = useCallback(async () => {
+    try {
+      const resp = await fetch(`/api/dicom-files/${studyUid}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.metadata?.patientName) {
+          setStudyInfo({
+            patientName: data.metadata.patientName || "Paciente",
+            studyDate: data.metadata.studyDate || "",
+            studyDescription: data.metadata.studyDescription || "Estudo DICOM",
+            modality: data.metadata.modality || "-",
+            studyInstanceUid: studyUid!,
+          });
+        }
       }
+    } catch (_) {}
+  }, [studyUid]);
 
-      setProgressPercent(82);
-      setDownloadProgress(`[2/4] ${result.fileCount} arquivo(s) DICOM recebido(s).`);
+  // ─── Fluxo principal via SSE ──────────────────────────────────────────────
+  const startStreamingViewer = useCallback(() => {
+    if (!studyUid) return;
 
-      // Lista arquivos do cache
-      setProgressPercent(85);
-      setDownloadProgress(`[3/4] Preparando ${result.fileCount} imagem(ns)...`);
-      const listResp = await fetch(`/api/dicom-files/${studyUid}`);
-      if (!listResp.ok) throw new Error("Arquivos DICOM não encontrados no cache após C-GET");
-
-      const listData = await listResp.json();
-      const files: string[] = listData.files || [];
-      if (files.length === 0) throw new Error("Nenhum arquivo DICOM encontrado no cache.");
-
-      const ids = files.map(
-        (f: string) => `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${f}`
-      );
-      setImageIds(ids);
-      setImageCount(ids.length);
-
-      // Metadados já vem na resposta de listagem (sem fetch extra)
-      if (listData.metadata && listData.metadata.patientName) {
-        setStudyInfo({
-          patientName: listData.metadata.patientName || "Paciente",
-          studyDate: listData.metadata.studyDate || "",
-          studyDescription: listData.metadata.studyDescription || "Estudo DICOM",
-          modality: listData.metadata.modality || "-",
-          studyInstanceUid: studyUid,
-        });
-      } else {
-        const meta = await extractMetadataFromDicom(studyUid);
-        setStudyInfo(meta);
-      }
-
-      setProgressPercent(88);
-      setDownloadProgress(`[4/4] Inicializando visualizador com ${ids.length} imagem(ns)...`);
-      await initCornerstoneWithCache(ids);
-    } catch (err: any) {
-      if (progressInterval) clearInterval(progressInterval);
-      console.error("[DicomViewer] Erro:", err);
-      setError(err.message || "Erro ao carregar estudo DICOM");
-      setPhase("error");
+    // Fecha SSE anterior se existir
+    if (sseRef.current) {
+      sseRef.current.close();
+      sseRef.current = null;
     }
-  }, [studyUid, startViewerMutation, initCornerstoneWithCache, pollProgress]);
 
-  useEffect(() => {
-    if (studyUid) startViewer();
-    return () => {
-      if (renderingEngine) {
-        try { renderingEngine.destroy(); } catch (_) {}
+    setPhase("connecting");
+    setError(null);
+    setProgressPercent(5);
+    setReceivedCount(0);
+    setTotalCount(0);
+    setDownloadProgress("Conectando ao PACS...");
+    imageIdsRef.current = [];
+    setImageIds([]);
+    setImageCount(0);
+    cornerstoneInitRef.current = false;
+
+    let firstFileReceived = false;
+    let localTotal = 0;
+    let localReceived = 0;
+
+    const sse = new EventSource(`/api/dicom-stream/${studyUid}`);
+    sseRef.current = sse;
+
+    sse.addEventListener("status", (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.phase === "connecting") {
+          setDownloadProgress("Conectando ao PACS...");
+          setProgressPercent(8);
+        } else if (data.phase === "downloading") {
+          setPhase("streaming");
+          setDownloadProgress(`Baixando imagens do PACS...`);
+          setProgressPercent(10);
+          if (data.total) {
+            localTotal = data.total;
+            setTotalCount(data.total);
+          }
+        } else if (data.phase === "cached") {
+          setPhase("streaming");
+          setDownloadProgress(`Cache encontrado: ${data.total} imagens`);
+          localTotal = data.total || 0;
+          setTotalCount(localTotal);
+        }
+      } catch (_) {}
+    });
+
+    sse.addEventListener("file", (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        const { filename, total } = data;
+        if (!filename) return;
+
+        localReceived++;
+        if (total && total > localTotal) {
+          localTotal = total;
+          setTotalCount(total);
+        }
+        setReceivedCount(localReceived);
+
+        const pct = localTotal > 0
+          ? Math.min(85, 10 + Math.round((localReceived / localTotal) * 75))
+          : Math.min(85, 10 + localReceived * 2);
+        setProgressPercent(pct);
+        setDownloadProgress(
+          localTotal > 0
+            ? `Recebendo: ${localReceived} / ${localTotal} imagens`
+            : `Recebendo: ${localReceived} imagem(ns)...`
+        );
+
+        // Renderiza a 1ª imagem imediatamente
+        if (!firstFileReceived) {
+          firstFileReceived = true;
+          renderFirstImage(filename).then(() => {
+            // Após renderizar a 1ª, carrega metadados
+            loadMetadata();
+          });
+        } else {
+          // Adiciona ao stack progressivamente
+          addImageToStack(filename);
+        }
+      } catch (_) {}
+    });
+
+    sse.addEventListener("complete", (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        sse.close();
+        sseRef.current = null;
+
+        if (data.total === 0) {
+          setError("Nenhuma imagem recebida do PACS. Verifique a configuração.");
+          setPhase("error");
+          return;
+        }
+
+        setProgressPercent(100);
+        setDownloadProgress(`${data.total} imagem(ns) carregada(s)`);
+
+        // Garante que o stack final está completo
+        setTimeout(async () => {
+          try {
+            const resp = await fetch(`/api/dicom-files/${studyUid}`);
+            if (resp.ok) {
+              const listData = await resp.json();
+              const files: string[] = (listData.files || []).sort();
+              const finalIds = files.map(
+                (f: string) => `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${f}`
+              );
+              imageIdsRef.current = finalIds;
+              setImageIds(finalIds);
+              setImageCount(finalIds.length);
+
+              const vp = viewportRef.current;
+              if (vp && phase === "ready") {
+                const currentIdx = vp.getCurrentImageIdIndex?.() ?? 0;
+                await vp.setStack(finalIds, currentIdx);
+              }
+
+              // Metadados finais
+              if (listData.metadata?.patientName) {
+                setStudyInfo({
+                  patientName: listData.metadata.patientName || "Paciente",
+                  studyDate: listData.metadata.studyDate || "",
+                  studyDescription: listData.metadata.studyDescription || "Estudo DICOM",
+                  modality: listData.metadata.modality || "-",
+                  studyInstanceUid: studyUid!,
+                });
+              }
+            }
+          } catch (_) {}
+        }, 500);
+
+        toast.success(`Download completo: ${data.total} imagem(ns)`);
+      } catch (_) {}
+    });
+
+    sse.addEventListener("error", (e) => {
+      try {
+        const data = JSON.parse((e as MessageEvent).data || "{}");
+        setError(data.message || "Erro ao carregar imagens do PACS");
+        setPhase("error");
+      } catch {
+        // SSE nativo error (sem dados) — pode ser desconexão normal
+        if (phase !== "ready") {
+          setError("Conexão com o servidor interrompida. Tente novamente.");
+          setPhase("error");
+        }
       }
+      sse.close();
+      sseRef.current = null;
+    });
+
+  }, [studyUid, renderFirstImage, addImageToStack, loadMetadata, phase]);
+
+  // ─── Inicia ao montar ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (studyUid) startStreamingViewer();
+    return () => {
+      // Fecha SSE
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
+      // Destroi Cornerstone
+      if (renderingEngineRef.current) {
+        try { renderingEngineRef.current.destroy(); } catch (_) {}
+      }
+      // Remove cache ao fechar
       fetch(`/api/dicom-files/${studyUid}`, { method: "DELETE" }).catch(() => {});
     };
   }, [studyUid]);
 
-  // Atualiza índice ao navegar com scroll (evento do Cornerstone)
+  // ─── Atualiza índice ao navegar com scroll ────────────────────────────────
   useEffect(() => {
     if (!viewerRef.current || !viewport) return;
     const el = viewerRef.current;
@@ -370,6 +447,28 @@ export function DicomViewerPage() {
       el.removeEventListener("cornerstoneimagerendered", handler);
     };
   }, [viewport]);
+
+  // ─── Ferramentas ─────────────────────────────────────────────────────────
+  const switchTool = useCallback((tool: ActiveTool) => {
+    const tg = toolGroupRef.current;
+    if (!tg) return;
+    const { Enums: ToolEnums } = csTools;
+    const toolMap: Record<ActiveTool, string> = {
+      WindowLevel: csTools.WindowLevelTool.toolName,
+      Zoom: csTools.ZoomTool.toolName,
+      Pan: csTools.PanTool.toolName,
+      Length: csTools.LengthTool.toolName,
+      StackScroll: csTools.StackScrollTool.toolName,
+    };
+    const allTools: ActiveTool[] = ["WindowLevel", "Zoom", "Pan", "Length", "StackScroll"];
+    allTools.forEach((t) => {
+      try { tg.setToolPassive(toolMap[t]); } catch (_) {}
+    });
+    tg.setToolActive(toolMap[tool], {
+      bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
+    });
+    setActiveTool(tool);
+  }, []);
 
   const handleZoomIn = () => {
     if (!viewport) return;
@@ -463,8 +562,49 @@ export function DicomViewerPage() {
     });
   };
 
-  const isLoading = phase === "downloading" || phase === "rendering";
+  // ─── Exportação ZIP ───────────────────────────────────────────────────────
+  const handleExportZip = async () => {
+    if (!studyUid || isExporting) return;
+    if (imageCount === 0) {
+      toast.error("Nenhuma imagem disponível para exportar. Aguarde o download.");
+      return;
+    }
+    setIsExporting(true);
+    toast.info("Gerando arquivo ZIP...", { description: `${imageCount} imagem(ns) DICOM` });
+    try {
+      const resp = await fetch(`/api/dicom-export/${studyUid}`);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: "Erro ao gerar ZIP" }));
+        throw new Error(err.error || "Erro ao gerar ZIP");
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const patientLabel = studyInfo ? cleanPatientName(studyInfo.patientName).replace(/\s+/g, "_") : "DICOM";
+      a.href = url;
+      a.download = `DICOM_${patientLabel}_${Date.now()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("ZIP baixado com sucesso!", {
+        description: "Abra no RadiAnt, OsiriX ou Horos.",
+      });
+    } catch (err: any) {
+      toast.error("Erro ao exportar ZIP", { description: err.message });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const isLoading = phase === "connecting" || phase === "streaming" || phase === "rendering";
   const cornerstoneReady = phase === "ready";
+
+  // Mostra o viewer assim que a 1ª imagem chegar (fase "ready" mesmo com download em andamento)
+  const showViewer = phase === "ready";
+
+  // Progresso do download em background (após 1ª imagem renderizada)
+  const isBackgroundDownloading = showViewer && totalCount > 0 && imageCount < totalCount;
 
   const toolCursor: Record<ActiveTool, string> = {
     WindowLevel: "crosshair",
@@ -529,6 +669,16 @@ export function DicomViewerPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Indicador de download em background */}
+          {isBackgroundDownloading && (
+            <div className="flex items-center gap-1.5 bg-blue-900/40 border border-blue-800 rounded px-2 py-0.5">
+              <Loader2 className="h-3 w-3 text-blue-400 animate-spin" />
+              <span className="text-xs text-blue-300 tabular-nums">
+                {imageCount} / {totalCount}
+              </span>
+            </div>
+          )}
+
           {imageCount > 0 && (
             <span className="text-xs text-gray-400 bg-gray-800 px-2 py-0.5 rounded tabular-nums">
               {currentIndex + 1} / {imageCount}
@@ -539,6 +689,24 @@ export function DicomViewerPage() {
               WW:{wl.ww} WC:{wl.wc}
             </span>
           )}
+
+          {/* Botão Exportar ZIP */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportZip}
+            disabled={isExporting || imageCount === 0}
+            className="text-xs border-green-700 text-green-400 hover:bg-green-900/40 h-7 px-2"
+            title="Baixar imagens DICOM para abrir no RadiAnt, OsiriX ou Horos"
+          >
+            {isExporting ? (
+              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+            ) : (
+              <Archive className="h-3 w-3 mr-1" />
+            )}
+            Exportar ZIP
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -546,7 +714,7 @@ export function DicomViewerPage() {
             className="text-xs border-blue-700 text-blue-400 hover:bg-blue-900/40 h-7 px-2"
           >
             <ExternalLink className="h-3 w-3 mr-1" />
-            Abrir no RadiAnt
+            RadiAnt
           </Button>
         </div>
       </div>
@@ -554,7 +722,6 @@ export function DicomViewerPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* Toolbar lateral esquerda */}
         <div className="flex flex-col gap-0.5 p-1.5 bg-gray-900 border-r border-gray-800 w-10 flex-shrink-0">
-          {/* Ferramentas de interação */}
           <div className="text-[9px] text-gray-600 text-center mb-0.5 uppercase tracking-wide">Ferr.</div>
           <ToolButton
             icon={<SunMedium className="h-4 w-4" />}
@@ -594,7 +761,6 @@ export function DicomViewerPage() {
 
           <div className="border-t border-gray-700 my-1" />
 
-          {/* Ações de transformação */}
           <div className="text-[9px] text-gray-600 text-center mb-0.5 uppercase tracking-wide">Img</div>
           <ToolButton icon={<ZoomIn className="h-4 w-4" />} title="Zoom In" onClick={handleZoomIn} disabled={!cornerstoneReady} />
           <ToolButton icon={<ZoomOut className="h-4 w-4" />} title="Zoom Out" onClick={handleZoomOut} disabled={!cornerstoneReady} />
@@ -610,23 +776,37 @@ export function DicomViewerPage() {
 
         {/* Área principal do viewer */}
         <div className="flex-1 relative bg-black">
-          {/* Loading overlay com barra de progresso */}
+          {/* Loading overlay — apenas enquanto aguarda a 1ª imagem */}
           {isLoading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 gap-4">
               <Loader2 className="h-10 w-10 text-blue-400 animate-spin" />
-              <div className="w-72 text-center">
+              <div className="w-80 text-center">
                 <p className="text-gray-200 text-sm font-medium mb-1">
-                  {phase === "downloading" ? "Baixando imagens via C-GET..." : "Inicializando visualizador..."}
+                  {phase === "connecting" && "Conectando ao PACS..."}
+                  {phase === "streaming" && "Baixando imagens..."}
+                  {phase === "rendering" && "Renderizando 1ª imagem..."}
                 </p>
                 <p className="text-gray-500 text-xs mb-3">{downloadProgress}</p>
+
                 {/* Barra de progresso */}
-                <div className="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                <div className="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden mb-1">
                   <div
-                    className="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
+                    className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
-                <p className="text-gray-600 text-xs mt-1">{progressPercent}%</p>
+                <p className="text-gray-600 text-xs">
+                  {totalCount > 0
+                    ? `${receivedCount} / ${totalCount} imagens (${progressPercent}%)`
+                    : `${progressPercent}%`}
+                </p>
+
+                {/* Dica de performance */}
+                {phase === "streaming" && receivedCount === 0 && (
+                  <p className="text-gray-700 text-xs mt-3">
+                    A 1ª imagem aparecerá assim que chegar do PACS...
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -650,7 +830,7 @@ export function DicomViewerPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={startViewer}
+                  onClick={startStreamingViewer}
                   className="border-blue-600 text-blue-400 hover:bg-blue-900/40"
                 >
                   <RefreshCw className="h-4 w-4 mr-1" />
@@ -709,6 +889,9 @@ export function DicomViewerPage() {
               {/* Indicador de slice */}
               <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/70 px-3 py-1 rounded-full text-xs text-gray-300 border border-gray-700 tabular-nums">
                 {currentIndex + 1} / {imageCount}
+                {isBackgroundDownloading && (
+                  <span className="text-blue-400 ml-1">({totalCount} total)</span>
+                )}
               </div>
             </>
           )}

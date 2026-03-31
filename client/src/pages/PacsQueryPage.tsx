@@ -4,6 +4,7 @@ import {
   Search, Eye, FileText, Printer,
   Clipboard, Settings,
   ChevronLeft, ChevronRight, Clock, Pencil, Check, X,
+  Download, Loader2,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
@@ -258,6 +259,78 @@ export function PacsQueryPage() {
   const [selectedStudy, setSelectedStudy] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, string>>({});
+
+  // Pré-download: mapa de studyUid → { phase, received, total }
+  const [preDownloadMap, setPreDownloadMap] = useState<Record<string, {
+    phase: 'idle' | 'connecting' | 'downloading' | 'done' | 'error';
+    received: number;
+    total: number;
+    error?: string;
+  }>>({});
+
+  const handlePreDownload = (study: any) => {
+    const uid = study.studyInstanceUid;
+    if (!uid) { toast.error('UID do estudo não disponível'); return; }
+    const current = preDownloadMap[uid];
+    if (current && (current.phase === 'connecting' || current.phase === 'downloading')) return; // já em andamento
+
+    setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'connecting', received: 0, total: 0 } }));
+    toast.info('Iniciando pré-download das imagens...', { description: study.patientName?.replace(/\^/g, ' ') || '' });
+
+    const sse = new EventSource(`/api/dicom-stream/${uid}`);
+
+    sse.addEventListener('status', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.phase === 'downloading' || data.phase === 'cached') {
+          setPreDownloadMap(prev => ({
+            ...prev,
+            [uid]: { phase: 'downloading', received: 0, total: data.total || 0 },
+          }));
+        }
+      } catch {}
+    });
+
+    sse.addEventListener('file', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setPreDownloadMap(prev => {
+          const cur = prev[uid] || { phase: 'downloading', received: 0, total: 0 };
+          return {
+            ...prev,
+            [uid]: {
+              phase: 'downloading',
+              received: (cur.received || 0) + 1,
+              total: data.total || cur.total || 0,
+            },
+          };
+        });
+      } catch {}
+    });
+
+    sse.addEventListener('complete', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'done', received: data.total, total: data.total } }));
+        toast.success(`Download concluído: ${data.total} imagem(ns)`, {
+          description: 'Clique em Visualizar para abrir o viewer instantaneamente.',
+          action: { label: 'Visualizar', onClick: () => handleVisualize(study) },
+        });
+      } catch {}
+      sse.close();
+    });
+
+    sse.addEventListener('error', (e) => {
+      try {
+        const data = JSON.parse((e as MessageEvent).data || '{}');
+        setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'error', received: 0, total: 0, error: data.message } }));
+        toast.error('Erro no pré-download', { description: data.message });
+      } catch {
+        setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'error', received: 0, total: 0 } }));
+      }
+      sse.close();
+    });
+  };
 
   useEffect(() => {
     try { setQueryResults(JSON.parse(localStorage.getItem(cacheKey) || '[]')); } catch { setQueryResults([]); }
@@ -732,16 +805,58 @@ export function PacsQueryPage() {
                       )}
                     </td>
 
-                    {/* Visualizar */}
+                    {/* Visualizar + Pré-download */}
                     <td className="px-4 py-3 text-center">
                       {canViewer ? (
-                        <button
-                          onClick={() => handleVisualize(study)}
-                          title="Visualizar DICOM"
-                          className="w-8 h-8 rounded-lg bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center justify-center transition-colors"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          {/* Botão Visualizar */}
+                          <button
+                            onClick={() => handleVisualize(study)}
+                            title="Visualizar DICOM"
+                            className="w-8 h-8 rounded-lg bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center justify-center transition-colors"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+
+                          {/* Botão Pré-download */}
+                          {(() => {
+                            const pd = preDownloadMap[study.studyInstanceUid];
+                            if (!pd || pd.phase === 'idle' || pd.phase === 'error') {
+                              return (
+                                <button
+                                  onClick={() => handlePreDownload(study)}
+                                  title="Baixar imagens em background (abre o viewer instantaneamente depois)"
+                                  className="w-8 h-8 rounded-lg border border-gray-300 bg-white hover:bg-blue-50 text-gray-500 hover:text-blue-600 inline-flex items-center justify-center transition-colors"
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                </button>
+                              );
+                            }
+                            if (pd.phase === 'connecting' || pd.phase === 'downloading') {
+                              const pct = pd.total > 0 ? Math.round((pd.received / pd.total) * 100) : 0;
+                              return (
+                                <div className="flex flex-col items-center gap-0.5" title={`${pd.received}/${pd.total} imagens`}>
+                                  <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />
+                                  {pd.total > 0 && (
+                                    <span className="text-[9px] text-blue-500 tabular-nums leading-none">{pct}%</span>
+                                  )}
+                                </div>
+                              );
+                            }
+                            if (pd.phase === 'done') {
+                              return (
+                                <button
+                                  onClick={() => handleVisualize(study)}
+                                  title={`${pd.total} imagens prontas — clique para abrir instantaneamente`}
+                                  className="w-8 h-8 rounded-lg bg-green-500 hover:bg-green-600 text-white inline-flex items-center justify-center transition-colors"
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                </button>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
                       ) : (
                         <span className="text-gray-300">—</span>
                       )}
