@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -13,12 +13,12 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Building2, Users, ClipboardList, Plus, Edit2, Trash2, Server,
+  Building2, Users, ClipboardList, Plus, Edit2, Trash2, Server, HardDrive, Trash, RefreshCw,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 
-type Tab = "units" | "users" | "audit";
+type Tab = "units" | "users" | "audit" | "cache";
 
 const ROLE_LABELS: Record<string, string> = {
   admin_master: "Admin Master",
@@ -35,6 +35,138 @@ const ROLE_COLORS: Record<string, string> = {
   viewer: "border-gray-200 text-gray-600 bg-gray-50",
   operador: "border-purple-200 text-purple-700 bg-purple-50",
 };
+
+// Componente painel de cache DICOM
+function CachePanel() {
+  const [cacheInfo, setCacheInfo] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
+  const fetchCacheInfo = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/dicom-cache-info');
+      if (res.ok) setCacheInfo(await res.json());
+    } catch { toast.error('Erro ao buscar info do cache'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchCacheInfo(); }, [fetchCacheInfo]);
+
+  const handleClearAll = async () => {
+    if (!confirm('Tem certeza que deseja limpar todo o cache DICOM? Os estudos precisarão ser baixados novamente.')) return;
+    setClearing(true);
+    try {
+      const res = await fetch('/api/dicom-cache-clear', { method: 'DELETE' });
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(`Cache limpo: ${data.removed} estudo(s) removido(s)`);
+        await fetchCacheInfo();
+      } else {
+        toast.error('Erro ao limpar cache');
+      }
+    } catch { toast.error('Erro ao limpar cache'); }
+    finally { setClearing(false); }
+  };
+
+  const usedMB = cacheInfo?.totalSizeMB || 0;
+  const studyCount = cacheInfo?.studyCount || 0;
+  // Barra de uso: assume limite de 2GB como referência visual
+  const limitMB = 2048;
+  const pct = Math.min(100, Math.round((usedMB / limitMB) * 100));
+  const barColor = pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-amber-500' : 'bg-green-500';
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Cache DICOM</h2>
+          <p className="text-sm text-gray-500">Imagens temporárias armazenadas no servidor (expiram após 30 min de inatividade)</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchCacheInfo}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Atualizar
+          </button>
+          <button
+            onClick={handleClearAll}
+            disabled={clearing || studyCount === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            <Trash className="h-3.5 w-3.5" />
+            {clearing ? 'Limpando...' : 'Limpar Cache'}
+          </button>
+        </div>
+      </div>
+
+      {/* Cards de resumo */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="bg-white rounded border border-gray-200 p-4">
+          <div className="text-xs text-gray-500 mb-1">Espaço Usado</div>
+          <div className="text-2xl font-bold text-gray-900">{usedMB < 1024 ? `${usedMB} MB` : `${(usedMB / 1024).toFixed(1)} GB`}</div>
+          <div className="mt-2">
+            <div className="flex justify-between text-xs text-gray-400 mb-1">
+              <span>{pct}% de 2 GB</span>
+              <span>{limitMB - usedMB > 0 ? `${(limitMB - usedMB) < 1024 ? `${limitMB - usedMB} MB livres` : `${((limitMB - usedMB) / 1024).toFixed(1)} GB livres`}` : 'Limite atingido'}</span>
+            </div>
+            <div className="w-full bg-gray-100 rounded-full h-2">
+              <div className={`${barColor} h-2 rounded-full transition-all`} style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded border border-gray-200 p-4">
+          <div className="text-xs text-gray-500 mb-1">Estudos em Cache</div>
+          <div className="text-2xl font-bold text-gray-900">{studyCount}</div>
+          <div className="text-xs text-gray-400 mt-1">estudos com imagens baixadas</div>
+        </div>
+        <div className="bg-white rounded border border-gray-200 p-4">
+          <div className="text-xs text-gray-500 mb-1">Expiração</div>
+          <div className="text-2xl font-bold text-gray-900">30 min</div>
+          <div className="text-xs text-gray-400 mt-1">após inatividade por estudo</div>
+        </div>
+      </div>
+
+      {/* Tabela de estudos em cache */}
+      {studyCount > 0 && (
+        <div className="bg-white rounded border border-gray-200 overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-gray-50 border-b border-gray-200">
+                <TableHead className="py-3 text-xs font-semibold text-gray-600">Study UID</TableHead>
+                <TableHead className="py-3 text-xs font-semibold text-gray-600">Imagens</TableHead>
+                <TableHead className="py-3 text-xs font-semibold text-gray-600">Tamanho</TableHead>
+                <TableHead className="py-3 text-xs font-semibold text-gray-600">Ultimo Acesso</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(cacheInfo?.studies || []).map((s: any) => (
+                <TableRow key={s.uid} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                  <TableCell className="py-2.5">
+                    <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{s.uid.slice(0, 40)}...</code>
+                  </TableCell>
+                  <TableCell className="py-2.5 text-sm text-gray-700">{s.fileCount}</TableCell>
+                  <TableCell className="py-2.5 text-sm text-gray-700">{s.sizeMB} MB</TableCell>
+                  <TableCell className="py-2.5 text-sm text-gray-500">{s.lastAccess ? new Date(s.lastAccess).toLocaleString('pt-BR') : '-'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+      {studyCount === 0 && !loading && (
+        <div className="bg-white rounded border border-gray-200 flex flex-col items-center justify-center py-16 text-gray-400">
+          <HardDrive className="h-10 w-10 mb-3 opacity-30" />
+          <p className="text-sm">Nenhum estudo em cache no momento</p>
+          <p className="text-xs mt-1">Os estudos aparecem aqui após serem baixados pelo visualizador</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AdminPage() {
   const [, navigate] = useLocation();
@@ -131,6 +263,7 @@ export default function AdminPage() {
     ...(isAdminMaster ? [{ key: "units" as Tab, label: "Unidades", icon: <Building2 className="h-4 w-4" /> }] : []),
     { key: "users", label: "Usuários", icon: <Users className="h-4 w-4" /> },
     { key: "audit", label: "Auditoria", icon: <ClipboardList className="h-4 w-4" /> },
+    { key: "cache", label: "Cache DICOM", icon: <HardDrive className="h-4 w-4" /> },
   ];
 
   // Se admin_master saiu da aba units (ex: ao recarregar sem ser admin_master), redireciona para users
@@ -363,6 +496,8 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+        {/* ── ABA CACHE DICOM ── */}
+        {effectiveTab === "cache" && <CachePanel />}
       </div>
 
       {/* ── DIALOG CRIAR UNIDADE ── */}

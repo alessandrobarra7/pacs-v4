@@ -1,6 +1,7 @@
 import { config } from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
 const __dirname_env = path.dirname(fileURLToPath(import.meta.url));
 // Carrega .env com override:true para garantir que variáveis sejam lidas mesmo
 // quando o PM2 já injetou valores vazios de sessões anteriores.
@@ -585,6 +586,66 @@ async function startServer() {
       if (!res.headersSent) {
         res.status(500).json({ error: 'Erro ao gerar ZIP: ' + err.message });
       }
+    }
+  });
+
+  // Endpoint: informações gerais do cache DICOM (tamanho total, estudos, etc.)
+  app.get('/api/dicom-cache-info', async (_req, res) => {
+    try {
+      if (!fs.existsSync(DICOM_CACHE_ROOT)) {
+        return res.json({ totalSizeBytes: 0, totalSizeMB: 0, studyCount: 0, studies: [] });
+      }
+      const studies = fs.readdirSync(DICOM_CACHE_ROOT).filter(d => {
+        try { return fs.statSync(path.join(DICOM_CACHE_ROOT, d)).isDirectory(); } catch { return false; }
+      });
+      let totalSizeBytes = 0;
+      const studyInfos: { uid: string; sizeBytes: number; sizeMB: number; fileCount: number; lastAccess: number }[] = [];
+      for (const uid of studies) {
+        const studyDir = path.join(DICOM_CACHE_ROOT, uid);
+        try {
+          const files = fs.readdirSync(studyDir).filter(f => f.endsWith('.dcm'));
+          let studySize = 0;
+          let lastAccess = 0;
+          for (const f of files) {
+            const stat = fs.statSync(path.join(studyDir, f));
+            studySize += stat.size;
+            if (stat.atimeMs > lastAccess) lastAccess = stat.atimeMs;
+          }
+          totalSizeBytes += studySize;
+          studyInfos.push({ uid, sizeBytes: studySize, sizeMB: Math.round(studySize / 1024 / 1024 * 10) / 10, fileCount: files.length, lastAccess });
+        } catch {}
+      }
+      res.json({
+        totalSizeBytes,
+        totalSizeMB: Math.round(totalSizeBytes / 1024 / 1024 * 10) / 10,
+        studyCount: studyInfos.length,
+        studies: studyInfos.sort((a, b) => b.lastAccess - a.lastAccess),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Endpoint: limpar todo o cache DICOM manualmente
+  app.delete('/api/dicom-cache-clear', async (_req, res) => {
+    try {
+      if (!fs.existsSync(DICOM_CACHE_ROOT)) {
+        return res.json({ success: true, removed: 0 });
+      }
+      const studies = fs.readdirSync(DICOM_CACHE_ROOT).filter(d => {
+        try { return fs.statSync(path.join(DICOM_CACHE_ROOT, d)).isDirectory(); } catch { return false; }
+      });
+      let removed = 0;
+      for (const uid of studies) {
+        try {
+          fs.rmSync(path.join(DICOM_CACHE_ROOT, uid), { recursive: true, force: true });
+          removed++;
+          console.log(`[DICOM Cache] Limpo manualmente: ${uid}`);
+        } catch {}
+      }
+      res.json({ success: true, removed });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

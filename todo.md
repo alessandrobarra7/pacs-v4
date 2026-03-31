@@ -297,3 +297,9 @@
 - [x] Endpoint GET /api/dicom-cache-status/:studyUid para verificar se estudo já está em cache no servidor
 - [x] PacsQueryPage consulta status do cache ao carregar e mantém botão verde se já baixado
 - [x] Limpeza automática do cache após 30 min de inatividade por estudo (timer por arquivo)
+
+## Melhorias de UX — Cache e Viewer (31/03/2026)
+
+- [ ] Botão laranja inteligente: se estudo já em cache, abre viewer instantaneamente (sem novo C-GET)
+- [ ] Pré-download automático ao entrar na listagem: opção nas configurações da unidade
+- [ ] Indicador de espaço do cache em /tmp/dicom-cache na tela de Administração com botão de limpeza manual

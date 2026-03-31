@@ -260,6 +260,19 @@ export function PacsQueryPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, string>>({});
 
+  // Pré-download automático: configuração por unidade
+  const autoDownloadKey = `pacs_auto_download_unit_${effectiveUnitId || 'none'}`;
+  const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean>(() => {
+    return localStorage.getItem(autoDownloadKey) === 'true';
+  });
+
+  const toggleAutoDownload = () => {
+    const next = !autoDownloadEnabled;
+    setAutoDownloadEnabled(next);
+    localStorage.setItem(autoDownloadKey, String(next));
+    toast.success(next ? 'Pré-download automático ativado' : 'Pré-download automático desativado');
+  };
+
   // Pré-download: mapa de studyUid → { phase, received, total }
   const [preDownloadMap, setPreDownloadMap] = useState<Record<string, {
     phase: 'idle' | 'connecting' | 'downloading' | 'done' | 'error';
@@ -288,17 +301,30 @@ export function PacsQueryPage() {
       })
     ).then((results) => {
       const updates: Record<string, any> = {};
+      const toAutoDownload: string[] = [];
       for (const r of results) {
         if (!r) continue;
         if (r.cached) {
           updates[r.uid] = { phase: 'done', received: r.count, total: r.count };
+        } else {
+          toAutoDownload.push(r.uid);
         }
       }
       if (Object.keys(updates).length > 0) {
         setPreDownloadMap(prev => ({ ...prev, ...updates }));
       }
+      // Pré-download automático: inicia download dos que não estão em cache
+      if (autoDownloadEnabled && toAutoDownload.length > 0) {
+        const studiesNotCached = queryResults.filter((s: any) =>
+          toAutoDownload.includes(s.studyInstanceUid)
+        );
+        // Dispara com delay de 500ms entre cada para não sobrecarregar
+        studiesNotCached.forEach((study: any, i: number) => {
+          setTimeout(() => handlePreDownload(study), i * 800);
+        });
+      }
     });
-  }, [queryResults]);
+  }, [queryResults, autoDownloadEnabled]);
 
   const handlePreDownload = (study: any) => {
     const uid = study.studyInstanceUid;
@@ -483,10 +509,31 @@ export function PacsQueryPage() {
     runQuery({ period: 'custom', studyDate });
   };
 
-  const handleVisualize = (study: any) => {
+  const handleVisualize = async (study: any) => {
     if (!study.studyInstanceUid) { toast.error('UID do estudo não disponível'); return; }
     const unitParam = isAdminMaster && effectiveUnitId ? `?unit_id=${effectiveUnitId}` : '';
-    navigate(`/dicom-viewer/${study.studyInstanceUid}${unitParam}`);
+    const uid = study.studyInstanceUid;
+    // Se já está em cache (botão verde), abre instantaneamente
+    const pd = preDownloadMap[uid];
+    if (pd && pd.phase === 'done') {
+      navigate(`/dicom-viewer/${uid}${unitParam}`);
+      return;
+    }
+    // Verifica no servidor se já há cache (caso o estado local não saiba)
+    try {
+      const res = await fetch(`/api/dicom-cache-status/${uid}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.cached && data.count > 0) {
+          // Atualiza estado local e abre instantaneamente
+          setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'done', received: data.count, total: data.count } }));
+          navigate(`/dicom-viewer/${uid}${unitParam}`);
+          return;
+        }
+      }
+    } catch {}
+    // Sem cache: abre o viewer normalmente (fará C-GET interno)
+    navigate(`/dicom-viewer/${uid}${unitParam}`);
   };
 
   const handleReport = (study: any) => {
@@ -731,6 +778,20 @@ export function PacsQueryPage() {
             </button>
           </div>
         )}
+
+        {/* Toggle pré-download automático */}
+        <button
+          onClick={toggleAutoDownload}
+          title={autoDownloadEnabled ? 'Pré-download automático ativado — clique para desativar' : 'Ativar pré-download automático ao carregar a lista'}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
+            autoDownloadEnabled
+              ? 'bg-green-600 text-white border-green-600 hover:bg-green-700'
+              : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          <Download className="h-3 w-3" />
+          {autoDownloadEnabled ? 'Auto-Download ON' : 'Auto-Download'}
+        </button>
 
         {/* Contador de pacientes */}
         <span className="ml-auto text-xs text-gray-500 font-medium">
