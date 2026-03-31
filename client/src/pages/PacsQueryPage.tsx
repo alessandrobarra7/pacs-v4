@@ -234,7 +234,24 @@ export function PacsQueryPage() {
     window.open(viewerUrl, '_blank');
   };
 
-  const handleReport = (study: any) => navigate(`/reports/create/${study.studyInstanceUid}`);
+  const handleReport = (study: any) => {
+    // Salva todos os dados do estudo no sessionStorage para o editor de laudo
+    sessionStorage.setItem(`study_${study.studyInstanceUid}`, JSON.stringify({
+      patientName: study.patientName || '',
+      patientID: study.patientID || '',
+      patientBirthDate: study.patientBirthDate || '',
+      patientSex: study.patientSex || '',
+      studyDate: study.studyDate || '',
+      studyTime: study.studyTime || '',
+      modality: study.modality || '',
+      studyDescription: study.studyDescription || '',
+      accessionNumber: study.accessionNumber || '',
+      numberOfInstances: study.numberOfInstances || 0,
+      unitName: study.unitName || '',
+      unitId: study.unitId || '',
+    }));
+    navigate(`/reports/create/${study.studyInstanceUid}`);
+  };
 
   const getReportStatus = (study: any) => {
     if (!study.studyInstanceUid) return "Pendente";
