@@ -1,11 +1,9 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
-  Search, Eye, FileText, Clock, Printer, UserCircle,
+  Search, Eye, FileText, Printer,
   Clipboard, ExternalLink, LogOut, Settings,
-  ChevronLeft, ChevronRight, Monitor,
+  ChevronLeft, ChevronRight, Monitor, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -63,8 +61,8 @@ function calcAge(birthDate: string): string {
 function formatSex(sex: string): string {
   if (!sex) return '';
   const s = sex.toUpperCase().trim();
-  if (s === 'M') return 'Masculino';
-  if (s === 'F') return 'Feminino';
+  if (s === 'M') return 'M';
+  if (s === 'F') return 'F';
   return sex;
 }
 
@@ -95,7 +93,6 @@ export function PacsQueryPage() {
   }, [isAdminMaster, allUnits, selectedUnitId]);
 
   const unitName = unitData?.name || (effectiveUnitId ? 'Carregando...' : 'Sem unidade');
-  const unitAeTitle = (unitData as any)?.pacs_ae_title || '';
   const cacheKey = `pacs_query_results_unit_${effectiveUnitId || 'none'}`;
 
   const [filters, setFilters] = useState({ patientName: "", studyDate: "", period: "today", shift: false });
@@ -196,8 +193,12 @@ export function PacsQueryPage() {
     setShowCustomDate(false);
     let studyDate = '';
     if (period === 'today') studyDate = 'TODAY';
-    else if (period === '7days') studyDate = 'LAST_7_DAYS';
-    else if (period === '30days') studyDate = 'LAST_30_DAYS';
+    else if (period === 'yesterday') {
+      const d = new Date(); d.setDate(d.getDate() - 1);
+      studyDate = d.toISOString().slice(0, 10).replace(/-/g, '');
+    }
+    else if (period === 'pending') studyDate = 'LAST_30_DAYS';
+    else if (period === 'all') studyDate = '';
     setFilters(f => ({ ...f, period, studyDate }));
     runQuery({ period, studyDate });
   };
@@ -255,16 +256,19 @@ export function PacsQueryPage() {
 
   const getReportStatus = (study: any) => {
     if (!study.studyInstanceUid) return "Pendente";
-    // Status real do banco, fallback para Pendente
     return reportStatusMap[study.studyInstanceUid] || "Pendente";
   };
 
-  const statusColors: Record<string, string> = {
-    "Pendente": "bg-yellow-100 text-yellow-800 border-yellow-300",
-    "Em Andamento": "bg-blue-100 text-blue-800 border-blue-300",
-    "Concluído": "bg-green-100 text-green-800 border-green-300",
+  // Cores dos status — paleta terra quente
+  const statusConfig: Record<string, { cls: string; label: string }> = {
+    "Pendente":     { cls: "bg-amber-100 text-amber-800 border-amber-300",   label: "Pendente" },
+    "Rascunho":     { cls: "bg-stone-100 text-stone-600 border-stone-300",   label: "Rascunho" },
+    "Assinado":     { cls: "bg-emerald-100 text-emerald-700 border-emerald-300", label: "Assinado" },
+    "Em Andamento": { cls: "bg-sky-100 text-sky-700 border-sky-300",         label: "Em Andamento" },
+    "Concluído":    { cls: "bg-emerald-100 text-emerald-700 border-emerald-300", label: "Concluído" },
   };
 
+  // Cores das modalidades
   const modalityColor: Record<string, string> = {
     CT: "bg-purple-100 text-purple-800",
     CR: "bg-sky-100 text-sky-800",
@@ -274,39 +278,62 @@ export function PacsQueryPage() {
     PT: "bg-rose-100 text-rose-800",
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+  // Botão de período ativo
+  const periodBtn = (key: string, label: string) => (
+    <button
+      key={key}
+      onClick={() => handlePeriodChange(key)}
+      className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border ${
+        filters.period === key
+          ? 'bg-amber-700 text-white border-amber-700'
+          : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+      }`}
+    >
+      {label}
+    </button>
+  );
 
-      {/* ── HEADER ── */}
-      <header className="bg-white border-b border-gray-200 px-5 h-13 flex items-center justify-between shrink-0" style={{ height: 52 }}>
-        <div className="flex items-center gap-2">
-          <span className="text-lg font-bold text-gray-900 tracking-tight">LAUDS</span>
+  return (
+    <div className="min-h-screen flex flex-col" style={{ background: '#f5f3ef' }}>
+
+      {/* ── HEADER ESCURO ── */}
+      <header
+        className="px-5 flex items-center justify-between shrink-0"
+        style={{ background: '#2c2420', height: 56 }}
+      >
+        {/* Logo + unidade */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded bg-red-700 flex items-center justify-center">
+              <span className="text-white text-xs font-bold leading-none">L</span>
+            </div>
+            <span className="text-white text-base font-bold tracking-tight">lauds</span>
+          </div>
+          <div className="w-px h-5 bg-white/20" />
           {isAdminMaster && allUnits.length > 0 ? (
             <select
               value={selectedUnitId || ''}
               onChange={(e) => setSelectedUnitId(Number(e.target.value))}
-              className="text-sm border border-gray-300 rounded px-2 py-1 text-gray-700 bg-white h-7"
+              className="text-sm border border-white/20 rounded px-2 py-1 text-white bg-white/10 h-7 focus:outline-none"
             >
               {allUnits.map((u) => (
-                <option key={u.id} value={u.id}>{u.name}</option>
+                <option key={u.id} value={u.id} style={{ color: '#000' }}>{u.name}</option>
               ))}
             </select>
           ) : (
-            <span className="text-sm text-gray-500 font-medium">{unitName}</span>
-          )}
-          {unitAeTitle && (
-            <span className="text-xs font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border border-gray-200">
-              AE: {unitAeTitle}
-            </span>
+            <span className="text-white/80 text-sm font-medium">{unitName}</span>
           )}
         </div>
 
+        {/* Nav central */}
         <nav className="flex items-center gap-1">
-          <button className="px-3 py-1.5 rounded text-sm font-medium bg-blue-600 text-white">Estudos</button>
+          <button className="px-4 py-1.5 rounded text-sm font-semibold bg-amber-700 text-white">
+            Estudos
+          </button>
           {isAdmin && (
             <button
               onClick={() => navigate('/admin')}
-              className="px-3 py-1.5 rounded text-sm font-medium text-gray-600 hover:bg-gray-100 flex items-center gap-1"
+              className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
             >
               <Settings className="h-3.5 w-3.5" />
               Administração
@@ -314,11 +341,12 @@ export function PacsQueryPage() {
           )}
         </nav>
 
+        {/* Usuário + sair */}
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-700">{user?.name || 'Usuário'}</span>
+          <span className="text-white/80 text-sm">{user?.name || 'Usuário'}</span>
           <button
             onClick={() => logoutMutation.mutate()}
-            className="p-1.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+            className="p-1.5 rounded text-white/50 hover:text-white hover:bg-white/10 transition-colors"
             title="Sair"
           >
             <LogOut className="h-4 w-4" />
@@ -327,91 +355,74 @@ export function PacsQueryPage() {
       </header>
 
       {/* ── FILTROS ── */}
-      <div className="bg-white border-b border-gray-200 px-5 py-2 flex items-center gap-2 flex-wrap shrink-0">
-        <Input
-          placeholder="Buscar paciente..."
-          value={filters.patientName}
-          onChange={(e) => setFilters(f => ({ ...f, patientName: e.target.value }))}
-          onKeyDown={(e) => e.key === 'Enter' && runQuery()}
-          className="h-8 w-48 text-sm bg-white border-gray-300"
-        />
-        <div className="flex items-center gap-1 flex-wrap">
-          {[
-            { key: 'today', label: 'Hoje' },
-            { key: '7days', label: '7 Dias' },
-            { key: '30days', label: '30 Dias' },
-            { key: 'all', label: 'Todos' },
-            { key: 'custom', label: 'Período' },
-          ].map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => handlePeriodChange(key)}
-              className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border ${
-                filters.period === key
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+      <div className="bg-white border-b border-gray-200 px-5 py-2.5 flex items-center gap-2 flex-wrap shrink-0">
+        {/* Busca */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <input
+            placeholder="Buscar paciente..."
+            value={filters.patientName}
+            onChange={(e) => setFilters(f => ({ ...f, patientName: e.target.value }))}
+            onKeyDown={(e) => e.key === 'Enter' && runQuery()}
+            className="h-8 pl-8 pr-3 text-sm border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-600 w-44"
+          />
+        </div>
+
+        {/* Períodos */}
+        <div className="flex items-center gap-1">
+          {periodBtn('today', 'Hoje')}
+          {periodBtn('yesterday', 'Ontem')}
+          {periodBtn('pending', 'Não Laudados')}
+          {periodBtn('all', 'Todos')}
           <button
-            onClick={() => { setFilters(f => ({ ...f, shift: !f.shift })); }}
-            className={`px-3 py-1.5 rounded text-xs font-medium border flex items-center gap-1 ${
-              filters.shift ? 'bg-orange-500 text-white border-orange-500' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+            onClick={() => handlePeriodChange('custom')}
+            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border flex items-center gap-1 ${
+              filters.period === 'custom'
+                ? 'bg-amber-700 text-white border-amber-700'
+                : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
             }`}
           >
             <Clock className="h-3 w-3" />
-            Plantão
+            Período
           </button>
-          {/* Inputs de data customizada */}
-          {showCustomDate && (
-            <div className="flex items-center gap-1 ml-1">
-              <input
-                type="date"
-                value={customDateFrom}
-                onChange={e => setCustomDateFrom(e.target.value)}
-                className="h-7 px-2 text-xs border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                title="Data inicial"
-              />
-              <span className="text-xs text-gray-400">até</span>
-              <input
-                type="date"
-                value={customDateTo}
-                onChange={e => setCustomDateTo(e.target.value)}
-                className="h-7 px-2 text-xs border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                title="Data final"
-              />
-              <button
-                onClick={handleCustomDateSearch}
-                disabled={isQuerying}
-                className="px-2 py-1 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 flex items-center gap-1"
-              >
-                <Search className="h-3 w-3" />
-                Buscar
-              </button>
-            </div>
-          )}
         </div>
-        <button
-          onClick={() => runQuery()}
-          disabled={isQuerying}
-          className="px-3 py-1.5 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 flex items-center gap-1"
-        >
-          <Search className="h-3 w-3" />
-          {isQuerying ? 'Buscando...' : 'Buscar'}
-        </button>
-        {/* Filtro por modalidade — aparece após busca */}
+
+        {/* Datas customizadas */}
+        {showCustomDate && (
+          <div className="flex items-center gap-1">
+            <input
+              type="date"
+              value={customDateFrom}
+              onChange={e => setCustomDateFrom(e.target.value)}
+              className="h-7 px-2 text-xs border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-600"
+            />
+            <span className="text-xs text-gray-400">até</span>
+            <input
+              type="date"
+              value={customDateTo}
+              onChange={e => setCustomDateTo(e.target.value)}
+              className="h-7 px-2 text-xs border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-600"
+            />
+            <button
+              onClick={handleCustomDateSearch}
+              disabled={isQuerying}
+              className="px-2 py-1 rounded text-xs font-medium bg-amber-700 text-white hover:bg-amber-800 disabled:opacity-60"
+            >
+              Buscar
+            </button>
+          </div>
+        )}
+
+        {/* Filtro por modalidade */}
         {availableModalities.length > 0 && (
-          <div className="flex items-center gap-1 ml-2">
-            <span className="text-xs text-gray-400">Modalidade:</span>
+          <div className="flex items-center gap-1 ml-1">
             {['ALL', ...availableModalities].map(mod => (
               <button
                 key={mod}
                 onClick={() => { setModalityFilter(mod); setCurrentPage(1); }}
                 className={`px-2 py-1 rounded text-xs font-medium border transition-colors ${
                   modalityFilter === mod
-                    ? 'bg-gray-700 text-white border-gray-700'
+                    ? 'bg-stone-700 text-white border-stone-700'
                     : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
                 }`}
               >
@@ -420,8 +431,12 @@ export function PacsQueryPage() {
             ))}
           </div>
         )}
+
+        {/* Contador */}
         <span className="ml-auto text-xs text-gray-400">
-          {filteredResults.length > 0 ? `Total: ${filteredResults.length}${modalityFilter !== 'ALL' ? ` (${modalityFilter})` : ''}` : ''}
+          {filteredResults.length > 0
+            ? `${filteredResults.length} paciente${filteredResults.length !== 1 ? 's' : ''}`
+            : ''}
         </span>
       </div>
 
@@ -441,12 +456,16 @@ export function PacsQueryPage() {
         ) : (
           <table className="w-full text-sm border-collapse">
             <thead>
-              <tr className="bg-gray-100 border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wide">
-                <th className="px-3 py-2 text-left font-semibold w-28">Ações</th>
-                <th className="px-3 py-2 text-left font-semibold w-40">Paciente</th>
-                <th className="px-3 py-2 text-left font-semibold">Exame</th>
-                <th className="px-3 py-2 text-left font-semibold w-28">Unidade</th>
-                <th className="px-3 py-2 text-center font-semibold w-24">Status</th>
+              <tr
+                className="text-xs uppercase tracking-wider text-gray-500 border-b border-gray-200 sticky top-0 z-10"
+                style={{ background: '#f5f3ef' }}
+              >
+                <th className="px-4 py-2.5 text-left font-semibold w-28">Data</th>
+                <th className="px-4 py-2.5 text-left font-semibold">Paciente</th>
+                <th className="px-4 py-2.5 text-left font-semibold w-16">Idade</th>
+                <th className="px-4 py-2.5 text-left font-semibold">Exame</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-28">Status</th>
+                <th className="px-4 py-2.5 text-right font-semibold w-44">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -462,106 +481,105 @@ export function PacsQueryPage() {
                 const modality = (study.modality || '-').toUpperCase();
                 const modalityCls = modalityColor[modality] || 'bg-gray-100 text-gray-700';
                 const status = getReportStatus(study);
-                const statusCls = statusColors[status] || 'bg-gray-100 text-gray-700 border-gray-300';
+                const { cls: statusCls, label: statusLabel } = statusConfig[status] || { cls: 'bg-gray-100 text-gray-600 border-gray-300', label: status };
 
                 return (
                   <tr
                     key={idx}
-                    className="border-b border-gray-100 hover:bg-blue-50/40 transition-colors"
+                    className="border-b border-gray-200 hover:bg-amber-50/60 transition-colors bg-white"
                   >
-                    {/* Ações */}
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {canViewer && (
-                          <button
-                            onClick={() => handleVisualize(study)}
-                            title="Visualizar DICOM"
-                            className="w-7 h-7 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-colors"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleOpenOrthancViewer(study)}
-                          title="Abrir no Orthanc"
-                          className="w-7 h-7 rounded-full bg-gray-400 hover:bg-gray-500 text-white flex items-center justify-center transition-colors"
-                        >
-                          <Monitor className="h-3.5 w-3.5" />
-                        </button>
-                        {canLaudo && (
-                          <button
-                            onClick={() => handleReport(study)}
-                            title="Laudar"
-                            className="w-7 h-7 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center transition-colors"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => toast.info('Impressão em desenvolvimento')}
-                          title="Imprimir laudo"
-                          className="w-7 h-7 rounded-full bg-gray-300 hover:bg-gray-400 text-gray-700 flex items-center justify-center transition-colors"
-                        >
-                          <Printer className="h-3.5 w-3.5" />
-                        </button>
+                    {/* Data + tempo relativo */}
+                    <td className="px-4 py-3">
+                      <div className="text-sm text-gray-700">{dateFormatted}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">{relative}</div>
+                    </td>
+
+                    {/* Paciente */}
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-gray-900 text-sm leading-tight uppercase">{patientName}</div>
+                      {sex && (
+                        <div className="text-xs text-gray-400 mt-0.5">{sex}</div>
+                      )}
+                    </td>
+
+                    {/* Idade */}
+                    <td className="px-4 py-3">
+                      <span className="text-sm text-gray-600">{age || '-'}</span>
+                    </td>
+
+                    {/* Exame */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${modalityCls}`}>{modality}</span>
+                        <span className="text-sm text-gray-800">{study.studyDescription || 'Sem descrição'}</span>
+                      </div>
+                    </td>
+
+                    {/* Status */}
+                    <td className="px-4 py-3 text-center">
+                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusCls}`}>
+                        {statusLabel}
+                      </span>
+                    </td>
+
+                    {/* Ações — 4 botões quadrados à direita */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {/* Anamnese/CID */}
                         {canCID && (
                           <button
                             onClick={() => { setSelectedStudy(study); setIsAnamnesisModalOpen(true); }}
                             title="CID / Anamnese"
-                            className="w-7 h-7 rounded-full bg-orange-400 hover:bg-orange-500 text-white flex items-center justify-center transition-colors"
+                            className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 flex items-center justify-center transition-colors"
                           >
                             <Clipboard className="h-3.5 w-3.5" />
                           </button>
                         )}
+                        {/* Visualizar DICOM */}
+                        {canViewer && (
+                          <button
+                            onClick={() => handleVisualize(study)}
+                            title="Visualizar DICOM"
+                            className="w-8 h-8 rounded-lg bg-amber-600 hover:bg-amber-700 text-white flex items-center justify-center transition-colors"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {/* Laudar */}
+                        {canLaudo && (
+                          <button
+                            onClick={() => handleReport(study)}
+                            title="Laudar"
+                            className="w-8 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center transition-colors"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {/* Imprimir */}
+                        <button
+                          onClick={() => toast.info('Impressão em desenvolvimento')}
+                          title="Imprimir laudo"
+                          className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 flex items-center justify-center transition-colors"
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                        </button>
+                        {/* Orthanc viewer */}
+                        <button
+                          onClick={() => handleOpenOrthancViewer(study)}
+                          title="Abrir no Orthanc"
+                          className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 flex items-center justify-center transition-colors"
+                        >
+                          <Monitor className="h-3.5 w-3.5" />
+                        </button>
+                        {/* RadiAnt */}
                         <button
                           onClick={() => handleOpenRadiant(study)}
                           title="Abrir no RadiAnt"
-                          className="w-7 h-7 rounded-full bg-indigo-400 hover:bg-indigo-500 text-white flex items-center justify-center transition-colors"
+                          className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 flex items-center justify-center transition-colors"
                         >
                           <ExternalLink className="h-3.5 w-3.5" />
                         </button>
-                        <button
-                          onClick={() => toast.info('Atribuição de médico em desenvolvimento')}
-                          title="Médico responsável"
-                          className="w-7 h-7 rounded-full bg-teal-400 hover:bg-teal-500 text-white flex items-center justify-center transition-colors"
-                        >
-                          <UserCircle className="h-3.5 w-3.5" />
-                        </button>
-                        <span className="text-xs text-gray-400 ml-0.5 whitespace-nowrap">{relative}</span>
                       </div>
-                    </td>
-
-                    {/* Paciente */}
-                    <td className="px-3 py-2">
-                      <div className="font-medium text-gray-900 text-sm leading-tight">{patientName}</div>
-                      {(age || sex) && (
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          {[age, sex].filter(Boolean).join(' | ')}
-                        </div>
-                      )}
-                    </td>
-
-                    {/* Exame */}
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${modalityCls}`}>{modality}</span>
-                        <span className="text-sm text-gray-800">{dateFormatted}</span>
-                      </div>
-                      <div className="text-xs text-gray-500 mt-0.5 truncate max-w-xs">
-                        {study.studyDescription || 'Sem descrição'}
-                      </div>
-                    </td>
-
-                    {/* Unidade */}
-                    <td className="px-3 py-2">
-                      <span className="text-xs text-gray-600">{unitName}</span>
-                    </td>
-
-                    {/* Status */}
-                    <td className="px-3 py-2 text-center">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded border ${statusCls}`}>
-                        {status}
-                      </span>
                     </td>
                   </tr>
                 );
@@ -572,10 +590,10 @@ export function PacsQueryPage() {
       </div>
 
       {/* ── PAGINAÇÃO ── */}
-      {queryResults.length > PAGE_SIZE && (
+      {filteredResults.length > PAGE_SIZE && (
         <div className="bg-white border-t border-gray-200 px-5 py-2 flex items-center justify-between shrink-0">
           <span className="text-xs text-gray-500">
-            Total de Exames: {queryResults.length} — Página {currentPage} de {totalPages}
+            Total: {filteredResults.length} — Página {currentPage} de {totalPages}
           </span>
           <div className="flex items-center gap-1">
             <button
@@ -598,7 +616,7 @@ export function PacsQueryPage() {
                   onClick={() => setCurrentPage(page)}
                   className={`w-7 h-7 rounded border text-xs font-medium transition-colors ${
                     page === currentPage
-                      ? 'bg-blue-600 text-white border-blue-600'
+                      ? 'bg-amber-700 text-white border-amber-700'
                       : 'border-gray-300 text-gray-600 hover:bg-gray-50'
                   }`}
                 >
