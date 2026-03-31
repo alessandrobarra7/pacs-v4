@@ -792,7 +792,12 @@ export const appRouter = router({
 
         try {
           // Executa dicom_move.py diretamente (sem wrapper .sh)
-          const scriptPath = new URL('./dicom_move.py', import.meta.url).pathname;
+          // Em dev: import.meta.url aponta para server/routers.ts → mesmo nível
+          // Em prod: dist/routers.js → dicom_move.py está em dist/ (copiado pelo build)
+          const { existsSync: _existsSync } = await import('fs');
+          const _scriptPathSameLevel = new URL('./dicom_move.py', import.meta.url).pathname;
+          const _scriptPathParent = new URL('../dicom_move.py', import.meta.url).pathname;
+          const scriptPath = _existsSync(_scriptPathSameLevel) ? _scriptPathSameLevel : _scriptPathParent;
           // Usar caminho absoluto do Python 3.11 e limpar PYTHONHOME/PYTHONPATH
           // para evitar conflito com o ambiente uv Python 3.13 do servidor
           const pythonBin = '/usr/bin/python3.11';

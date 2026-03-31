@@ -432,7 +432,12 @@ async function startServer() {
       const { spawn } = await import('child_process');
       // dicom_move.py é copiado para dist/ pelo build (cp server/*.py dist/)
       // Usar new URL() igual ao startViewer para garantir compatibilidade em produção
-      const scriptPath = new URL('./dicom_move.py', import.meta.url).pathname;
+      // Em dev: import.meta.url aponta para server/_core/index.ts → sobe um nível
+      // Em prod: dist/_core/index.js → dicom_move.py está em dist/ (copiado pelo build)
+      const scriptPathDev = new URL('../dicom_move.py', import.meta.url).pathname;
+      const scriptPathProd = new URL('./dicom_move.py', import.meta.url).pathname;
+      const { existsSync } = await import('fs');
+      const scriptPath = existsSync(scriptPathDev) ? scriptPathDev : scriptPathProd;
       const cleanEnv = { ...process.env };
       delete cleanEnv.PYTHONHOME;
       delete cleanEnv.PYTHONPATH;

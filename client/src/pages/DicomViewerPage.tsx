@@ -425,8 +425,8 @@ export function DicomViewerPage() {
       if (renderingEngineRef.current) {
         try { renderingEngineRef.current.destroy(); } catch (_) {}
       }
-      // Remove cache ao fechar
-      fetch(`/api/dicom-files/${studyUid}`, { method: "DELETE" }).catch(() => {});
+      // Cache mantido no servidor por 30min de inatividade (limpeza automática por timer)
+      // Não deletar ao fechar o viewer para permitir reabrir instantaneamente
     };
   }, [studyUid]);
 
