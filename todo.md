@@ -303,3 +303,8 @@
 - [ ] Botão laranja inteligente: se estudo já em cache, abre viewer instantaneamente (sem novo C-GET)
 - [ ] Pré-download automático ao entrar na listagem: opção nas configurações da unidade
 - [ ] Indicador de espaço do cache em /tmp/dicom-cache na tela de Administração com botão de limpeza manual
+
+## Correções Viewer DICOM (31/03/2026)
+
+- [ ] Corrigir travamento do scroll CT: substituir closure stale do `phase` por `useRef` no `addImageToStack`
+- [ ] Corrigir botão RadiAnt: protocolo radiant:// com IP/porta do PACS e Study UID correto

@@ -869,6 +869,7 @@ export const appRouter = router({
             fileCount: result.file_count,
             cacheDir: result.cache_dir,
             durationSec: result.duration_sec,
+            pacsAeTitle: unit.pacs_ae_title || 'DPACS',
           };
 
         } catch (error: any) {

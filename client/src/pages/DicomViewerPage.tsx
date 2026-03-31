@@ -65,6 +65,11 @@ export function DicomViewerPage() {
   // "ready"       → viewer pronto
   // "error"       → erro
   const [phase, setPhase] = useState<"idle" | "connecting" | "streaming" | "rendering" | "ready" | "error">("idle");
+  // Ref para o phase — evita closure stale no addImageToStack
+  // DEVE ser declarado ANTES do useEffect que o sincroniza
+  const phaseRef = useRef<"idle" | "connecting" | "streaming" | "rendering" | "ready" | "error">("idle");
+  // Mantém phaseRef sincronizado com phase para uso em callbacks
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
   const [downloadProgress, setDownloadProgress] = useState<string>("Aguardando...");
   const [progressPercent, setProgressPercent] = useState(0);
   const [receivedCount, setReceivedCount] = useState(0);
@@ -77,6 +82,7 @@ export function DicomViewerPage() {
   const [activeTool, setActiveTool] = useState<ActiveTool>("WindowLevel");
   const [wl, setWl] = useState<{ ww: number; wc: number } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [pacsAeTitle, setPacsAeTitle] = useState<string>("DPACS");
 
   // Lista de imageIds acumulados durante o streaming
   const imageIdsRef = useRef<string[]>([]);
@@ -213,8 +219,7 @@ export function DicomViewerPage() {
       // Não seta error aqui — continua tentando com mais arquivos
     }
   }, [studyUid, ensureCornerstoneInit]);
-
-  // ─── Adiciona imagens ao stack progressivamente ───────────────────────────
+  // ─── Adiciona imagens ao stack progressivamente ────────────────────────────
   const addImageToStack = useCallback(async (filename: string) => {
     const newId = `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${filename}`;
     if (imageIdsRef.current.includes(newId)) return;
@@ -225,16 +230,16 @@ export function DicomViewerPage() {
     setImageCount(updatedIds.length);
 
     const vp = viewportRef.current;
-    if (!vp || phase !== "ready") return;
+    // Atualiza o stack sempre que o viewport existir (sem depender do phase)
+    // O viewport só existe após renderFirstImage ser chamado
+    if (!vp) return;
 
     try {
       const currentIdx = vp.getCurrentImageIdIndex?.() ?? 0;
       await vp.setStack(updatedIds, currentIdx);
       // Não re-renderiza automaticamente para não interromper a navegação do usuário
     } catch (_) {}
-  }, [studyUid, phase]);
-
-  // ─── Carrega metadados do primeiro arquivo ────────────────────────────────
+  }, [studyUid]); // ─── Carrega metadados do primeiro arquivo ────────────────────────────────
   const loadMetadata = useCallback(async () => {
     try {
       const resp = await fetch(`/api/dicom-files/${studyUid}`);
@@ -295,11 +300,13 @@ export function DicomViewerPage() {
             localTotal = data.total;
             setTotalCount(data.total);
           }
+          if (data.pacsAeTitle) setPacsAeTitle(data.pacsAeTitle);
         } else if (data.phase === "cached") {
           setPhase("streaming");
           setDownloadProgress(`Cache encontrado: ${data.total} imagens`);
           localTotal = data.total || 0;
           setTotalCount(localTotal);
+          if (data.pacsAeTitle) setPacsAeTitle(data.pacsAeTitle);
         }
       } catch (_) {}
     });
@@ -371,7 +378,8 @@ export function DicomViewerPage() {
               setImageCount(finalIds.length);
 
               const vp = viewportRef.current;
-              if (vp && phase === "ready") {
+              // Usa phaseRef para evitar closure stale
+              if (vp && phaseRef.current === "ready") {
                 const currentIdx = vp.getCurrentImageIdIndex?.() ?? 0;
                 await vp.setStack(finalIds, currentIdx);
               }
@@ -555,10 +563,15 @@ export function DicomViewerPage() {
 
   const handleOpenRadiant = () => {
     if (!studyUid) return;
-    const radiantUrl = `radiant://?n=1&v=0020000D&v=${encodeURIComponent(studyUid)}`;
-    window.open(radiantUrl, "_blank");
-    toast.info("Tentando abrir no RadiAnt DICOM Viewer...", {
-      description: "Certifique-se que o RadiAnt está instalado.",
+    // Protocolo correto: -paet AE_TITLE -pstv 0020000D "STUDY_UID"
+    // O RadiAnt precisa ter o PACS configurado localmente com o mesmo AE Title
+    const aeTitle = pacsAeTitle || "DPACS";
+    const encodedUid = encodeURIComponent(`"${studyUid}"`);
+    const radiantUrl = `radiant://?n=paet&v=${aeTitle}&n=pstv&v=0020000D&v=${encodedUid}`;
+    window.location.href = radiantUrl;
+    toast.info("Abrindo no RadiAnt DICOM Viewer...", {
+      description: `O RadiAnt deve estar instalado e o PACS configurado com AE Title: ${aeTitle}`,
+      duration: 6000,
     });
   };
 

@@ -418,7 +418,7 @@ async function startServer() {
         const existing = await fs.readdir(studyCacheDir);
         const dcmFiles = existing.filter((f: string) => f.endsWith('.dcm')).sort();
         if (dcmFiles.length > 0) {
-          sendEvent('status', { phase: 'cached', message: `Cache encontrado: ${dcmFiles.length} imagens`, total: dcmFiles.length });
+          sendEvent('status', { phase: 'cached', message: `Cache encontrado: ${dcmFiles.length} imagens`, total: dcmFiles.length, pacsAeTitle: unit.pacs_ae_title });
           for (const f of dcmFiles) {
             sendEvent('file', { filename: f, index: dcmFiles.indexOf(f) + 1, total: dcmFiles.length });
           }
@@ -428,7 +428,7 @@ async function startServer() {
       } catch {}
 
       // Inicia C-GET via Python com modo streaming (linha por linha)
-      sendEvent('status', { phase: 'downloading', message: 'Iniciando C-GET...' });
+      sendEvent('status', { phase: 'downloading', message: 'Iniciando C-GET...', pacsAeTitle: unit.pacs_ae_title });
 
       const { spawn } = await import('child_process');
       // dicom_move.py é copiado para dist/ pelo build (cp server/*.py dist/)
