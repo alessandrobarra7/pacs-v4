@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useParams, useLocation } from "wouter";
 import * as csCore from "@cornerstonejs/core";
 import * as csTools from "@cornerstonejs/tools";
@@ -17,15 +17,20 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   ExternalLink,
   RefreshCw,
   Move,
   SunMedium,
   Ruler,
-  MousePointer2,
+  Layers,
   Maximize2,
-  Download,
   Archive,
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -58,17 +63,8 @@ export function DicomViewerPage() {
   }, [location]);
 
   // ─── Estado de fase ───────────────────────────────────────────────────────
-  // "idle"        → aguardando início
-  // "connecting"  → SSE conectado, aguardando 1º arquivo
-  // "streaming"   → recebendo arquivos, viewer já pode mostrar imagens
-  // "rendering"   → inicializando Cornerstone
-  // "ready"       → viewer pronto
-  // "error"       → erro
   const [phase, setPhase] = useState<"idle" | "connecting" | "streaming" | "rendering" | "ready" | "error">("idle");
-  // Ref para o phase — evita closure stale no addImageToStack
-  // DEVE ser declarado ANTES do useEffect que o sincroniza
   const phaseRef = useRef<"idle" | "connecting" | "streaming" | "rendering" | "ready" | "error">("idle");
-  // Mantém phaseRef sincronizado com phase para uso em callbacks
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   const [downloadProgress, setDownloadProgress] = useState<string>("Aguardando...");
   const [progressPercent, setProgressPercent] = useState(0);
@@ -79,10 +75,17 @@ export function DicomViewerPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imageCount, setImageCount] = useState(0);
   const [viewport, setViewport] = useState<any>(null);
-  const [activeTool, setActiveTool] = useState<ActiveTool>("WindowLevel");
+  // StackScroll como ferramenta padrão ao abrir
+  const [activeTool, setActiveTool] = useState<ActiveTool>("StackScroll");
   const [wl, setWl] = useState<{ ww: number; wc: number } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [pacsAeTitle, setPacsAeTitle] = useState<string>("DPACS");
+
+  // ─── Cine (Play automático) ───────────────────────────────────────────────
+  const [isCinePlaying, setIsCinePlaying] = useState(false);
+  const [cineFps, setCineFps] = useState(8); // frames por segundo
+  const cineIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cineIndexRef = useRef(0); // ref para evitar closure stale
 
   // Lista de imageIds acumulados durante o streaming
   const imageIdsRef = useRef<string[]>([]);
@@ -135,7 +138,9 @@ export function DicomViewerPage() {
       toolGroup.addTool(PanTool.toolName);
       toolGroup.addTool(LengthTool.toolName);
       toolGroup.addTool(StackScrollTool.toolName);
-      toolGroup.setToolActive(WindowLevelTool.toolName, {
+
+      // StackScroll como ferramenta padrão no botão esquerdo
+      toolGroup.setToolActive(StackScrollTool.toolName, {
         bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
       });
       toolGroup.setToolActive(ZoomTool.toolName, {
@@ -144,8 +149,12 @@ export function DicomViewerPage() {
       toolGroup.setToolActive(PanTool.toolName, {
         bindings: [{ mouseButton: ToolEnums.MouseBindings.Auxiliary }],
       });
+      // Wheel também faz scroll
       toolGroup.setToolActive(StackScrollTool.toolName, {
-        bindings: [{ mouseButton: ToolEnums.MouseBindings.Wheel }],
+        bindings: [
+          { mouseButton: ToolEnums.MouseBindings.Primary },
+          { mouseButton: ToolEnums.MouseBindings.Wheel },
+        ],
       });
     }
 
@@ -216,9 +225,9 @@ export function DicomViewerPage() {
       toast.success("1ª imagem carregada — restante chegando em background...");
     } catch (err: any) {
       console.error("[DicomViewer] Erro ao renderizar 1ª imagem:", err);
-      // Não seta error aqui — continua tentando com mais arquivos
     }
   }, [studyUid, ensureCornerstoneInit]);
+
   // ─── Adiciona imagens ao stack progressivamente ────────────────────────────
   const addImageToStack = useCallback(async (filename: string) => {
     const newId = `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${filename}`;
@@ -230,16 +239,15 @@ export function DicomViewerPage() {
     setImageCount(updatedIds.length);
 
     const vp = viewportRef.current;
-    // Atualiza o stack sempre que o viewport existir (sem depender do phase)
-    // O viewport só existe após renderFirstImage ser chamado
     if (!vp) return;
 
     try {
       const currentIdx = vp.getCurrentImageIdIndex?.() ?? 0;
       await vp.setStack(updatedIds, currentIdx);
-      // Não re-renderiza automaticamente para não interromper a navegação do usuário
     } catch (_) {}
-  }, [studyUid]); // ─── Carrega metadados do primeiro arquivo ────────────────────────────────
+  }, [studyUid]);
+
+  // ─── Carrega metadados do primeiro arquivo ────────────────────────────────
   const loadMetadata = useCallback(async () => {
     try {
       const resp = await fetch(`/api/dicom-files/${studyUid}`);
@@ -262,7 +270,6 @@ export function DicomViewerPage() {
   const startStreamingViewer = useCallback(() => {
     if (!studyUid) return;
 
-    // Fecha SSE anterior se existir
     if (sseRef.current) {
       sseRef.current.close();
       sseRef.current = null;
@@ -334,15 +341,12 @@ export function DicomViewerPage() {
             : `Recebendo: ${localReceived} imagem(ns)...`
         );
 
-        // Renderiza a 1ª imagem imediatamente
         if (!firstFileReceived) {
           firstFileReceived = true;
           renderFirstImage(filename).then(() => {
-            // Após renderizar a 1ª, carrega metadados
             loadMetadata();
           });
         } else {
-          // Adiciona ao stack progressivamente
           addImageToStack(filename);
         }
       } catch (_) {}
@@ -363,7 +367,6 @@ export function DicomViewerPage() {
         setProgressPercent(100);
         setDownloadProgress(`${data.total} imagem(ns) carregada(s)`);
 
-        // Garante que o stack final está completo
         setTimeout(async () => {
           try {
             const resp = await fetch(`/api/dicom-files/${studyUid}`);
@@ -378,13 +381,11 @@ export function DicomViewerPage() {
               setImageCount(finalIds.length);
 
               const vp = viewportRef.current;
-              // Usa phaseRef para evitar closure stale
               if (vp && phaseRef.current === "ready") {
                 const currentIdx = vp.getCurrentImageIdIndex?.() ?? 0;
                 await vp.setStack(finalIds, currentIdx);
               }
 
-              // Metadados finais
               if (listData.metadata?.patientName) {
                 setStudyInfo({
                   patientName: listData.metadata.patientName || "Paciente",
@@ -408,7 +409,6 @@ export function DicomViewerPage() {
         setError(data.message || "Erro ao carregar imagens do PACS");
         setPhase("error");
       } catch {
-        // SSE nativo error (sem dados) — pode ser desconexão normal
         if (phase !== "ready") {
           setError("Conexão com o servidor interrompida. Tente novamente.");
           setPhase("error");
@@ -417,28 +417,28 @@ export function DicomViewerPage() {
       sse.close();
       sseRef.current = null;
     });
-
   }, [studyUid, renderFirstImage, addImageToStack, loadMetadata, phase]);
 
   // ─── Inicia ao montar ────────────────────────────────────────────────────
   useEffect(() => {
     if (studyUid) startStreamingViewer();
     return () => {
-      // Fecha SSE
       if (sseRef.current) {
         sseRef.current.close();
         sseRef.current = null;
       }
-      // Destroi Cornerstone
       if (renderingEngineRef.current) {
         try { renderingEngineRef.current.destroy(); } catch (_) {}
       }
-      // Cache mantido no servidor por 30min de inatividade (limpeza automática por timer)
-      // Não deletar ao fechar o viewer para permitir reabrir instantaneamente
+      // Para o cine ao desmontar
+      if (cineIntervalRef.current) {
+        clearInterval(cineIntervalRef.current);
+        cineIntervalRef.current = null;
+      }
     };
   }, [studyUid]);
 
-  // ─── Atualiza índice ao navegar com scroll ────────────────────────────────
+  // ─── Atualiza índice ao navegar ───────────────────────────────────────────
   useEffect(() => {
     if (!viewerRef.current || !viewport) return;
     const el = viewerRef.current;
@@ -446,6 +446,7 @@ export function DicomViewerPage() {
       try {
         const idx = viewport.getCurrentImageIdIndex?.() ?? 0;
         setCurrentIndex(idx);
+        cineIndexRef.current = idx;
       } catch (_) {}
     };
     el.addEventListener("CORNERSTONE_STACK_VIEWPORT_NEW_IMAGE", handler);
@@ -472,12 +473,86 @@ export function DicomViewerPage() {
     allTools.forEach((t) => {
       try { tg.setToolPassive(toolMap[t]); } catch (_) {}
     });
-    tg.setToolActive(toolMap[tool], {
-      bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
-    });
+
+    if (tool === "StackScroll") {
+      // StackScroll: botão esquerdo + wheel
+      tg.setToolActive(toolMap[tool], {
+        bindings: [
+          { mouseButton: ToolEnums.MouseBindings.Primary },
+          { mouseButton: ToolEnums.MouseBindings.Wheel },
+        ],
+      });
+    } else {
+      tg.setToolActive(toolMap[tool], {
+        bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
+      });
+      // Mantém wheel sempre como scroll
+      try {
+        tg.setToolActive(csTools.StackScrollTool.toolName, {
+          bindings: [{ mouseButton: ToolEnums.MouseBindings.Wheel }],
+        });
+      } catch (_) {}
+    }
     setActiveTool(tool);
   }, []);
 
+  // ─── Navegação entre slices ───────────────────────────────────────────────
+  const goToSlice = useCallback((idx: number) => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const total = imageIdsRef.current.length;
+    if (total === 0) return;
+    const clamped = Math.max(0, Math.min(total - 1, idx));
+    try {
+      vp.setImageIdIndex(clamped);
+      setCurrentIndex(clamped);
+      cineIndexRef.current = clamped;
+      vp.render();
+    } catch (_) {}
+  }, []);
+
+  const handlePrevImage = useCallback(() => goToSlice(currentIndex - 1), [currentIndex, goToSlice]);
+  const handleNextImage = useCallback(() => goToSlice(currentIndex + 1), [currentIndex, goToSlice]);
+  const handleFirstImage = useCallback(() => goToSlice(0), [goToSlice]);
+  const handleLastImage = useCallback(() => goToSlice(imageCount - 1), [imageCount, goToSlice]);
+
+  // ─── Cine (Play automático) ───────────────────────────────────────────────
+  const startCine = useCallback(() => {
+    if (cineIntervalRef.current) clearInterval(cineIntervalRef.current);
+    setIsCinePlaying(true);
+    cineIntervalRef.current = setInterval(() => {
+      const total = imageIdsRef.current.length;
+      if (total === 0) return;
+      const next = (cineIndexRef.current + 1) % total;
+      goToSlice(next);
+    }, Math.round(1000 / cineFps));
+  }, [cineFps, goToSlice]);
+
+  const stopCine = useCallback(() => {
+    if (cineIntervalRef.current) {
+      clearInterval(cineIntervalRef.current);
+      cineIntervalRef.current = null;
+    }
+    setIsCinePlaying(false);
+  }, []);
+
+  const toggleCine = useCallback(() => {
+    if (isCinePlaying) stopCine();
+    else startCine();
+  }, [isCinePlaying, startCine, stopCine]);
+
+  // Reinicia cine quando FPS muda
+  useEffect(() => {
+    if (isCinePlaying) {
+      stopCine();
+      startCine();
+    }
+  }, [cineFps]);
+
+  // Para cine ao desmontar
+  useEffect(() => () => stopCine(), []);
+
+  // ─── Zoom / Rotação / Flip / Reset ───────────────────────────────────────
   const handleZoomIn = () => {
     if (!viewport) return;
     try {
@@ -541,30 +616,9 @@ export function DicomViewerPage() {
     } catch (_) {}
   };
 
-  const handlePrevImage = () => {
-    if (!viewport || currentIndex === 0) return;
-    try {
-      const newIdx = currentIndex - 1;
-      viewport.setImageIdIndex(newIdx);
-      setCurrentIndex(newIdx);
-      viewport.render();
-    } catch (_) {}
-  };
-
-  const handleNextImage = () => {
-    if (!viewport || currentIndex >= imageCount - 1) return;
-    try {
-      const newIdx = currentIndex + 1;
-      viewport.setImageIdIndex(newIdx);
-      setCurrentIndex(newIdx);
-      viewport.render();
-    } catch (_) {}
-  };
-
+  // ─── RadiAnt ─────────────────────────────────────────────────────────────
   const handleOpenRadiant = () => {
     if (!studyUid) return;
-    // Protocolo correto: -paet AE_TITLE -pstv 0020000D "STUDY_UID"
-    // O RadiAnt precisa ter o PACS configurado localmente com o mesmo AE Title
     const aeTitle = pacsAeTitle || "DPACS";
     const encodedUid = encodeURIComponent(`"${studyUid}"`);
     const radiantUrl = `radiant://?n=paet&v=${aeTitle}&n=pstv&v=0020000D&v=${encodedUid}`;
@@ -578,24 +632,15 @@ export function DicomViewerPage() {
   // ─── Exportação ZIP ───────────────────────────────────────────────────────
   const handleExportZip = async () => {
     if (!studyUid || isExporting) return;
-    if (imageCount === 0) {
-      toast.error("Nenhuma imagem disponível para exportar. Aguarde o download.");
-      return;
-    }
     setIsExporting(true);
-    toast.info("Gerando arquivo ZIP...", { description: `${imageCount} imagem(ns) DICOM` });
     try {
       const resp = await fetch(`/api/dicom-export/${studyUid}`);
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: "Erro ao gerar ZIP" }));
-        throw new Error(err.error || "Erro ao gerar ZIP");
-      }
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      const patientLabel = studyInfo ? cleanPatientName(studyInfo.patientName).replace(/\s+/g, "_") : "DICOM";
       a.href = url;
-      a.download = `DICOM_${patientLabel}_${Date.now()}.zip`;
+      a.download = `${studyUid}.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -612,11 +657,7 @@ export function DicomViewerPage() {
 
   const isLoading = phase === "connecting" || phase === "streaming" || phase === "rendering";
   const cornerstoneReady = phase === "ready";
-
-  // Mostra o viewer assim que a 1ª imagem chegar (fase "ready" mesmo com download em andamento)
   const showViewer = phase === "ready";
-
-  // Progresso do download em background (após 1ª imagem renderizada)
   const isBackgroundDownloading = showViewer && totalCount > 0 && imageCount < totalCount;
 
   const toolCursor: Record<ActiveTool, string> = {
@@ -627,12 +668,19 @@ export function DicomViewerPage() {
     StackScroll: "ns-resize",
   };
 
+  const toolLabel: Record<ActiveTool, string> = {
+    WindowLevel: "W/L",
+    Zoom: "Zoom",
+    Pan: "Pan",
+    Length: "Régua",
+    StackScroll: "Scroll",
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white select-none">
-      {/* Header */}
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900 border-b border-gray-800 flex-shrink-0">
         <div className="flex items-center gap-2">
-          {/* Logo clicável */}
           <button
             onClick={() => navigate("/pacs-query")}
             className="flex items-center gap-2 hover:opacity-80 transition-opacity focus:outline-none"
@@ -682,7 +730,6 @@ export function DicomViewerPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Indicador de download em background */}
           {isBackgroundDownloading && (
             <div className="flex items-center gap-1.5 bg-blue-900/40 border border-blue-800 rounded px-2 py-0.5">
               <Loader2 className="h-3 w-3 text-blue-400 animate-spin" />
@@ -703,7 +750,6 @@ export function DicomViewerPage() {
             </span>
           )}
 
-          {/* Botão Exportar ZIP */}
           <Button
             variant="outline"
             size="sm"
@@ -732,41 +778,47 @@ export function DicomViewerPage() {
         </div>
       </div>
 
+      {/* ── Corpo principal ─────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Toolbar lateral esquerda */}
+
+        {/* ── Toolbar lateral esquerda ─────────────────────────────────────── */}
         <div className="flex flex-col gap-0.5 p-1.5 bg-gray-900 border-r border-gray-800 w-10 flex-shrink-0">
+
+          {/* Ferramentas de interação */}
           <div className="text-[9px] text-gray-600 text-center mb-0.5 uppercase tracking-wide">Ferr.</div>
+
           <ToolButton
             icon={<SunMedium className="h-4 w-4" />}
-            title="Window/Level (Brilho e Contraste)"
+            title="Window/Level — Ajuste de brilho e contraste (clique+arraste)"
             onClick={() => switchTool("WindowLevel")}
             disabled={!cornerstoneReady}
             active={activeTool === "WindowLevel"}
           />
           <ToolButton
             icon={<ZoomIn className="h-4 w-4" />}
-            title="Zoom"
+            title="Zoom — Ampliar/reduzir (clique+arraste)"
             onClick={() => switchTool("Zoom")}
             disabled={!cornerstoneReady}
             active={activeTool === "Zoom"}
           />
           <ToolButton
             icon={<Move className="h-4 w-4" />}
-            title="Pan (Mover imagem)"
+            title="Pan — Mover imagem (clique+arraste)"
             onClick={() => switchTool("Pan")}
             disabled={!cornerstoneReady}
             active={activeTool === "Pan"}
           />
           <ToolButton
             icon={<Ruler className="h-4 w-4" />}
-            title="Medição de distância"
+            title="Medição de distância (clique+arraste)"
             onClick={() => switchTool("Length")}
             disabled={!cornerstoneReady}
             active={activeTool === "Length"}
           />
+          {/* Botão Scroll — destaque especial */}
           <ToolButton
-            icon={<MousePointer2 className="h-4 w-4" />}
-            title="Scroll de Slices"
+            icon={<Layers className="h-4 w-4" />}
+            title="Scroll de Slices — Navegar entre imagens (clique+arraste ↑↓ ou scroll do mouse)"
             onClick={() => switchTool("StackScroll")}
             disabled={!cornerstoneReady}
             active={activeTool === "StackScroll"}
@@ -774,6 +826,48 @@ export function DicomViewerPage() {
 
           <div className="border-t border-gray-700 my-1" />
 
+          {/* Navegação rápida entre slices */}
+          <div className="text-[9px] text-gray-600 text-center mb-0.5 uppercase tracking-wide">Nav.</div>
+          <ToolButton
+            icon={<SkipBack className="h-3.5 w-3.5" />}
+            title="Primeira imagem"
+            onClick={handleFirstImage}
+            disabled={!cornerstoneReady || imageCount <= 1}
+          />
+          <ToolButton
+            icon={<ChevronUp className="h-4 w-4" />}
+            title="Imagem anterior (←)"
+            onClick={handlePrevImage}
+            disabled={!cornerstoneReady || currentIndex === 0}
+          />
+          <ToolButton
+            icon={<ChevronDown className="h-4 w-4" />}
+            title="Próxima imagem (→)"
+            onClick={handleNextImage}
+            disabled={!cornerstoneReady || currentIndex >= imageCount - 1}
+          />
+          <ToolButton
+            icon={<SkipForward className="h-3.5 w-3.5" />}
+            title="Última imagem"
+            onClick={handleLastImage}
+            disabled={!cornerstoneReady || imageCount <= 1}
+          />
+
+          {/* Cine Play/Pause */}
+          <ToolButton
+            icon={isCinePlaying
+              ? <Pause className="h-4 w-4 text-yellow-400" />
+              : <Play className="h-4 w-4 text-green-400" />
+            }
+            title={isCinePlaying ? "Pausar Cine" : "Play Cine — percorrer slices automaticamente"}
+            onClick={toggleCine}
+            disabled={!cornerstoneReady || imageCount <= 1}
+            active={isCinePlaying}
+          />
+
+          <div className="border-t border-gray-700 my-1" />
+
+          {/* Manipulação de imagem */}
           <div className="text-[9px] text-gray-600 text-center mb-0.5 uppercase tracking-wide">Img</div>
           <ToolButton icon={<ZoomIn className="h-4 w-4" />} title="Zoom In" onClick={handleZoomIn} disabled={!cornerstoneReady} />
           <ToolButton icon={<ZoomOut className="h-4 w-4" />} title="Zoom Out" onClick={handleZoomOut} disabled={!cornerstoneReady} />
@@ -787,9 +881,9 @@ export function DicomViewerPage() {
           <ToolButton icon={<Maximize2 className="h-3.5 w-3.5 text-gray-400" />} title="Tela cheia" onClick={() => document.documentElement.requestFullscreen?.()} disabled={false} />
         </div>
 
-        {/* Área principal do viewer */}
+        {/* ── Área principal do viewer ─────────────────────────────────────── */}
         <div className="flex-1 relative bg-black">
-          {/* Loading overlay — apenas enquanto aguarda a 1ª imagem */}
+          {/* Loading overlay */}
           {isLoading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 gap-4">
               <Loader2 className="h-10 w-10 text-blue-400 animate-spin" />
@@ -800,8 +894,6 @@ export function DicomViewerPage() {
                   {phase === "rendering" && "Renderizando 1ª imagem..."}
                 </p>
                 <p className="text-gray-500 text-xs mb-3">{downloadProgress}</p>
-
-                {/* Barra de progresso */}
                 <div className="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden mb-1">
                   <div
                     className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
@@ -813,8 +905,6 @@ export function DicomViewerPage() {
                     ? `${receivedCount} / ${totalCount} imagens (${progressPercent}%)`
                     : `${progressPercent}%`}
                 </p>
-
-                {/* Dica de performance */}
                 {phase === "streaming" && receivedCount === 0 && (
                   <p className="text-gray-700 text-xs mt-3">
                     A 1ª imagem aparecerá assim que chegar do PACS...
@@ -831,32 +921,14 @@ export function DicomViewerPage() {
               <p className="text-red-300 text-sm font-semibold mb-1">Erro ao carregar imagens DICOM</p>
               <p className="text-gray-500 text-xs text-center max-w-md mb-4">{error}</p>
               <div className="flex gap-2 mb-4 flex-wrap justify-center">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate("/pacs-query")}
-                  className="border-gray-600 text-gray-300 hover:bg-gray-800"
-                >
-                  <ArrowLeft className="h-4 w-4 mr-1" />
-                  Voltar
+                <Button variant="outline" size="sm" onClick={() => navigate("/pacs-query")} className="border-gray-600 text-gray-300 hover:bg-gray-800">
+                  <ArrowLeft className="h-4 w-4 mr-1" />Voltar
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={startStreamingViewer}
-                  className="border-blue-600 text-blue-400 hover:bg-blue-900/40"
-                >
-                  <RefreshCw className="h-4 w-4 mr-1" />
-                  Tentar Novamente
+                <Button variant="outline" size="sm" onClick={startStreamingViewer} className="border-blue-600 text-blue-400 hover:bg-blue-900/40">
+                  <RefreshCw className="h-4 w-4 mr-1" />Tentar Novamente
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleOpenRadiant}
-                  className="border-green-700 text-green-400 hover:bg-green-900/40"
-                >
-                  <ExternalLink className="h-4 w-4 mr-1" />
-                  Abrir no RadiAnt
+                <Button variant="outline" size="sm" onClick={handleOpenRadiant} className="border-green-700 text-green-400 hover:bg-green-900/40">
+                  <ExternalLink className="h-4 w-4 mr-1" />Abrir no RadiAnt
                 </Button>
               </div>
               <div className="p-3 bg-gray-900 rounded-lg text-xs text-gray-400 max-w-md">
@@ -868,7 +940,7 @@ export function DicomViewerPage() {
             </div>
           )}
 
-          {/* Elemento do Cornerstone */}
+          {/* Canvas Cornerstone */}
           <div
             ref={viewerRef}
             className="w-full h-full"
@@ -878,7 +950,7 @@ export function DicomViewerPage() {
             }}
           />
 
-          {/* Navegação entre imagens */}
+          {/* Setas de navegação esquerda/direita (visíveis quando há múltiplas imagens) */}
           {cornerstoneReady && imageCount > 1 && (
             <>
               <Button
@@ -895,40 +967,128 @@ export function DicomViewerPage() {
                 size="icon"
                 onClick={handleNextImage}
                 disabled={currentIndex >= imageCount - 1}
-                className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 bg-black/50 text-white hover:bg-black/80 rounded-full border border-gray-700 disabled:opacity-20"
+                className="absolute right-14 top-1/2 -translate-y-1/2 h-9 w-9 bg-black/50 text-white hover:bg-black/80 rounded-full border border-gray-700 disabled:opacity-20"
               >
                 <ChevronRight className="h-5 w-5" />
               </Button>
-              {/* Indicador de slice */}
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/70 px-3 py-1 rounded-full text-xs text-gray-300 border border-gray-700 tabular-nums">
-                {currentIndex + 1} / {imageCount}
-                {isBackgroundDownloading && (
-                  <span className="text-blue-400 ml-1">({totalCount} total)</span>
-                )}
-              </div>
             </>
           )}
 
           {/* Badge da ferramenta ativa */}
           {cornerstoneReady && (
-            <div className="absolute top-2 right-2 bg-blue-900/80 border border-blue-700 text-blue-200 text-xs px-2 py-0.5 rounded">
-              {activeTool === "WindowLevel" && "W/L"}
-              {activeTool === "Zoom" && "Zoom"}
-              {activeTool === "Pan" && "Pan"}
-              {activeTool === "Length" && "Régua"}
-              {activeTool === "StackScroll" && "Scroll"}
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-gray-900/90 border border-gray-700 text-gray-300 text-xs px-3 py-0.5 rounded-full pointer-events-none">
+              {activeTool === "StackScroll"
+                ? "⬆⬇ Scroll de Slices — arraste ou use scroll do mouse"
+                : `Ferramenta: ${toolLabel[activeTool]}`}
+            </div>
+          )}
+
+          {/* Barra de progresso de slices clicável na parte inferior */}
+          {cornerstoneReady && imageCount > 1 && (
+            <div className="absolute bottom-0 left-0 right-14 h-6 flex items-center px-2 gap-2 bg-black/60">
+              <span className="text-[10px] text-gray-500 tabular-nums w-12 text-right shrink-0">
+                {currentIndex + 1}/{imageCount}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={imageCount - 1}
+                value={currentIndex}
+                onChange={(e) => goToSlice(parseInt(e.target.value, 10))}
+                className="flex-1 h-1.5 accent-blue-500 cursor-pointer"
+                style={{ accentColor: "#3b82f6" }}
+              />
+              {isBackgroundDownloading && (
+                <span className="text-[10px] text-blue-400 tabular-nums shrink-0">
+                  +{totalCount - imageCount}
+                </span>
+              )}
             </div>
           )}
         </div>
+
+        {/* ── Slider vertical de slices (lateral direita) ──────────────────── */}
+        {cornerstoneReady && imageCount > 1 && (
+          <div className="flex flex-col items-center justify-between py-2 px-1 bg-gray-900 border-l border-gray-800 w-10 flex-shrink-0 gap-1">
+            {/* Botão topo */}
+            <button
+              onClick={handleFirstImage}
+              disabled={currentIndex === 0}
+              className="text-gray-500 hover:text-white disabled:opacity-20 p-0.5 rounded hover:bg-gray-700 transition-colors"
+              title="Primeira imagem"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+
+            {/* Slider vertical */}
+            <div className="flex-1 flex items-center justify-center relative" style={{ minHeight: 80 }}>
+              <input
+                type="range"
+                min={0}
+                max={imageCount - 1}
+                value={currentIndex}
+                onChange={(e) => goToSlice(parseInt(e.target.value, 10))}
+                className="cursor-pointer"
+                style={{
+                  writingMode: "vertical-lr" as any,
+                  direction: "rtl" as any,
+                  appearance: "slider-vertical" as any,
+                  WebkitAppearance: "slider-vertical" as any,
+                  width: 20,
+                  height: "100%",
+                  accentColor: "#3b82f6",
+                }}
+                title={`Slice ${currentIndex + 1} de ${imageCount}`}
+              />
+            </div>
+
+            {/* Número atual */}
+            <div className="text-[9px] text-gray-500 tabular-nums text-center leading-tight">
+              <div className="text-blue-400 font-bold">{currentIndex + 1}</div>
+              <div>/{imageCount}</div>
+            </div>
+
+            {/* Botão base */}
+            <button
+              onClick={handleLastImage}
+              disabled={currentIndex >= imageCount - 1}
+              className="text-gray-500 hover:text-white disabled:opacity-20 p-0.5 rounded hover:bg-gray-700 transition-colors"
+              title="Última imagem"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+
+            {/* Botão Cine */}
+            <button
+              onClick={toggleCine}
+              disabled={imageCount <= 1}
+              className={`p-0.5 rounded transition-colors ${
+                isCinePlaying
+                  ? "text-yellow-400 bg-yellow-900/30 hover:bg-yellow-900/50"
+                  : "text-green-400 hover:text-green-300 hover:bg-gray-700"
+              } disabled:opacity-20`}
+              title={isCinePlaying ? "Pausar Cine" : "Play Cine"}
+            >
+              {isCinePlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Barra de status inferior */}
+      {/* ── Barra de status inferior ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 py-1 bg-gray-900 border-t border-gray-800 text-xs text-gray-500 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <span>🖱 Esq: {activeTool === "WindowLevel" ? "W/L" : activeTool === "Zoom" ? "Zoom" : activeTool === "Pan" ? "Pan" : activeTool === "Length" ? "Medir" : "Scroll"}</span>
+          <span>🖱 Esq: {toolLabel[activeTool]}</span>
           <span>🖱 Dir: Zoom</span>
           <span>🖱 Meio: Pan</span>
           <span>⚙ Scroll: Slices</span>
+          {isCinePlaying && (
+            <span className="text-yellow-400 flex items-center gap-1">
+              <Play className="h-3 w-3" /> Cine {cineFps} fps
+              <button onClick={() => setCineFps(f => Math.max(1, f - 2))} className="ml-1 px-1 bg-gray-800 rounded hover:bg-gray-700">−</button>
+              <button onClick={() => setCineFps(f => Math.min(30, f + 2))} className="px-1 bg-gray-800 rounded hover:bg-gray-700">+</button>
+            </span>
+          )}
         </div>
         {studyUid && (
           <span className="font-mono text-gray-700 hidden md:inline">

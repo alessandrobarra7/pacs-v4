@@ -317,3 +317,12 @@
 - [x] Adicionar cleanupSSE() nos handlers de complete e error para limpar o timeout
 - [x] Confirmar scroll funcionando no viewer: Carlos Henrique (6 imagens CR) navega entre slices com setas
 - [x] Confirmar botão verde após download: Antonio Santos, Pedro Daniel e Carlos Henrique todos com botão verde
+
+## MELHORIA DO VIEWER DICOM - Navegação entre Slices
+
+- [x] StackScroll como ferramenta padrão ao abrir o viewer (em vez de Window/Level)
+- [x] Slider vertical na lateral direita para navegar entre slices arrastando
+- [x] Botões ⬆/⬇ de navegação maiores e mais visíveis na toolbar
+- [x] Modo Cine: botão Play que percorre slices automaticamente em loop
+- [x] Ícone mais intuitivo para o botão Scroll (Layers/setas verticais)
+- [x] Barra de progresso de slices na parte inferior com indicador visual de posição
