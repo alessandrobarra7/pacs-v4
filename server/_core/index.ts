@@ -461,6 +461,14 @@ async function startServer() {
       let totalFiles = 0;
       let receivedFiles = 0;
       let stdoutBuffer = '';
+      let completeSent = false;
+
+      const sendComplete = (total: number) => {
+        if (completeSent) return;
+        completeSent = true;
+        sendEvent('complete', { total, fromCache: false });
+        if (!res.writableEnded) res.end();
+      };
 
       child.stdout.on('data', (chunk: Buffer) => {
         stdoutBuffer += chunk.toString();
@@ -478,7 +486,13 @@ async function startServer() {
               totalFiles = msg.total;
               sendEvent('status', { phase: 'downloading', message: `Baixando ${totalFiles} imagens...`, total: totalFiles });
             } else if (msg.type === 'complete') {
-              // final JSON com resultado
+              // Trata o resultado final do Python imediatamente
+              if (msg.success === false) {
+                sendEvent('error', { message: msg.error || 'Erro no C-GET' });
+                if (!res.writableEnded) res.end();
+                completeSent = true; // evita enviar complete no close
+              }
+              // Se success=true, deixa o close verificar o cache e enviar sendComplete
             }
           } catch {
             // linha não é JSON (log de texto) — ignora
@@ -497,26 +511,26 @@ async function startServer() {
           try {
             const msg = JSON.parse(stdoutBuffer.trim());
             if (msg.success !== undefined) {
-              if (msg.success) {
-                sendEvent('complete', { total: msg.file_count || receivedFiles, fromCache: false });
-              } else {
+              if (!msg.success) {
                 sendEvent('error', { message: msg.error || 'Erro no C-GET' });
+                if (!res.writableEnded) res.end();
+                return;
               }
             }
           } catch {}
         }
-        if (!res.writableEnded) {
-          // Garante que enviamos o complete mesmo se não veio no stdout
-          try {
-            const files = await fs.readdir(studyCacheDir);
-            const count = files.filter((f: string) => f.endsWith('.dcm')).length;
-            if (count > 0) sendEvent('complete', { total: count, fromCache: false });
-            else sendEvent('error', { message: 'Nenhuma imagem recebida do PACS' });
-          } catch {
-            sendEvent('error', { message: 'Erro ao verificar cache após C-GET' });
-          }
-          res.end();
+        // Verifica o cache para enviar o complete com contagem real
+        try {
+          const files = await fs.readdir(studyCacheDir);
+          const count = files.filter((f: string) => f.endsWith('.dcm')).length;
+          if (count > 0) sendComplete(count);
+          else sendEvent('error', { message: 'Nenhuma imagem recebida do PACS' });
+        } catch {
+          // Se não conseguiu ler o cache mas recebeu arquivos, usa o contador local
+          if (receivedFiles > 0) sendComplete(receivedFiles);
+          else sendEvent('error', { message: 'Erro ao verificar cache após C-GET' });
         }
+        if (!res.writableEnded) res.end();
       });
 
       child.on('error', (err: Error) => {

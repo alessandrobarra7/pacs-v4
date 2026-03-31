@@ -337,6 +337,23 @@ export function PacsQueryPage() {
 
     const sse = new EventSource(`/api/dicom-stream/${uid}`);
 
+    // Timeout de segurança: se após 5 minutos ainda não concluiu, marca como erro
+    const safetyTimeout = setTimeout(() => {
+      sse.close();
+      setPreDownloadMap(prev => {
+        const cur = prev[uid];
+        if (cur && (cur.phase === 'connecting' || cur.phase === 'downloading')) {
+          toast.error('Timeout no download', { description: 'O download demorou mais de 5 minutos.' });
+          return { ...prev, [uid]: { phase: 'error', received: cur.received, total: cur.total, error: 'Timeout' } };
+        }
+        return prev;
+      });
+    }, 5 * 60 * 1000);
+
+    // Limpa o timeout quando o SSE fechar
+    const cleanupSSE = () => clearTimeout(safetyTimeout);
+    sse.addEventListener('complete', () => cleanupSSE(), { once: true });
+
     sse.addEventListener('status', (e) => {
       try {
         const data = JSON.parse(e.data);
@@ -367,6 +384,7 @@ export function PacsQueryPage() {
     });
 
     sse.addEventListener('complete', (e) => {
+      cleanupSSE();
       try {
         const data = JSON.parse(e.data);
         setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'done', received: data.total, total: data.total } }));
@@ -379,14 +397,32 @@ export function PacsQueryPage() {
     });
 
     sse.addEventListener('error', (e) => {
-      try {
-        const data = JSON.parse((e as MessageEvent).data || '{}');
-        setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'error', received: 0, total: 0, error: data.message } }));
-        toast.error('Erro no pré-download', { description: data.message });
-      } catch {
-        setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'error', received: 0, total: 0 } }));
+      const msgData = (e as MessageEvent).data;
+      if (msgData) {
+        // Evento customizado 'error' com dados JSON do servidor
+        cleanupSSE();
+        try {
+          const data = JSON.parse(msgData);
+          setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'error', received: 0, total: 0, error: data.message } }));
+          toast.error('Erro no pré-download', { description: data.message || 'Erro desconhecido' });
+        } catch {
+          setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'error', received: 0, total: 0, error: 'Erro no download' } }));
+          toast.error('Erro no pré-download');
+        }
+        sse.close();
+      } else {
+        // Evento nativo do EventSource (reconexão ou fechamento de conexão)
+        // Fecha o SSE para evitar reconexão automática
+        sse.close();
+        // Se ainda está em estado de connecting/downloading, marca como erro
+        setPreDownloadMap(prev => {
+          const cur = prev[uid];
+          if (cur && (cur.phase === 'connecting' || cur.phase === 'downloading')) {
+            return { ...prev, [uid]: { phase: 'error', received: cur.received, total: cur.total, error: 'Conexão interrompida' } };
+          }
+          return prev; // não sobrescreve se já está done ou error
+        });
       }
-      sse.close();
     });
   };
 

@@ -308,3 +308,12 @@
 
 - [ ] Corrigir travamento do scroll CT: substituir closure stale do `phase` por `useRef` no `addImageToStack`
 - [ ] Corrigir botão RadiAnt: protocolo radiant:// com IP/porta do PACS e Study UID correto
+
+## SESSÃO ATUAL - Fix Spinner Infinito + Scroll Viewer
+
+- [x] Corrigir bug do spinner infinito no pré-download: backend agora trata type:complete com success:false imediatamente (não espera o close)
+- [x] Corrigir frontend: distinguir evento 'error' customizado (com dados JSON) do evento nativo do EventSource (sem dados)
+- [x] Adicionar timeout de segurança de 5 minutos no pré-download para evitar spinners infinitos
+- [x] Adicionar cleanupSSE() nos handlers de complete e error para limpar o timeout
+- [x] Confirmar scroll funcionando no viewer: Carlos Henrique (6 imagens CR) navega entre slices com setas
+- [x] Confirmar botão verde após download: Antonio Santos, Pedro Daniel e Carlos Henrique todos com botão verde
