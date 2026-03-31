@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Search, Eye, FileText, Printer,
-  Clipboard, ExternalLink, LogOut, Settings,
-  ChevronLeft, ChevronRight, Monitor, Clock,
+  Clipboard, LogOut, Settings,
+  ChevronLeft, ChevronRight, Clock, Pencil, Check, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -11,6 +11,7 @@ import { AnamnesisModal } from "@/components/AnamnesisModal";
 import { canReport, canAccessAdmin, canFillAnamnesis, canViewDICOM, type UserRole } from "../../../shared/permissions";
 
 const PAGE_SIZE = 20;
+const LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310419663028509564/cTdrattvNQ95XCgX9zeyNM/lauds_logo_branco_final_c960f283.png";
 
 /** Converte data DICOM (YYYYMMDD) + hora (HHMMSS) em objeto Date */
 function parseDicomDateTime(date: string, time?: string): Date | null {
@@ -66,6 +67,76 @@ function formatSex(sex: string): string {
   return sex;
 }
 
+/** Ordena estudos do mais recente para o mais antigo */
+function sortByDateDesc(studies: any[]): any[] {
+  return [...studies].sort((a, b) => {
+    const da = parseDicomDateTime(a.studyDate, a.studyTime);
+    const db = parseDicomDateTime(b.studyDate, b.studyTime);
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return db.getTime() - da.getTime();
+  });
+}
+
+// Componente para edição inline do nome do exame
+function EditableExamName({ value, studyUid }: { value: string; studyUid: string }) {
+  const storageKey = `exam_label_${studyUid}`;
+  const [editing, setEditing] = useState(false);
+  const [label, setLabel] = useState(() => localStorage.getItem(storageKey) || value || 'Sem descrição');
+  const [draft, setDraft] = useState(label);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  const save = () => {
+    const trimmed = draft.trim() || value || 'Sem descrição';
+    setLabel(trimmed);
+    localStorage.setItem(storageKey, trimmed);
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    setDraft(label);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel(); }}
+          className="text-sm border border-amber-400 rounded px-1.5 py-0.5 w-44 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white text-gray-800"
+        />
+        <button onClick={save} className="text-emerald-600 hover:text-emerald-700" title="Salvar">
+          <Check className="h-3.5 w-3.5" />
+        </button>
+        <button onClick={cancel} className="text-red-400 hover:text-red-500" title="Cancelar">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 group">
+      <span className="text-sm text-gray-800">{label}</span>
+      <button
+        onClick={() => { setDraft(label); setEditing(true); }}
+        className="opacity-0 group-hover:opacity-60 hover:!opacity-100 text-gray-400 hover:text-amber-600 transition-opacity"
+        title="Editar nome do exame"
+      >
+        <Pencil className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
 export function PacsQueryPage() {
   const [, navigate] = useLocation();
   const { data: user } = trpc.auth.me.useQuery();
@@ -95,7 +166,7 @@ export function PacsQueryPage() {
   const unitName = unitData?.name || (effectiveUnitId ? 'Carregando...' : 'Sem unidade');
   const cacheKey = `pacs_query_results_unit_${effectiveUnitId || 'none'}`;
 
-  const [filters, setFilters] = useState({ patientName: "", studyDate: "", period: "today", shift: false });
+  const [filters, setFilters] = useState({ patientName: "", studyDate: "", period: "today" });
   const [customDateFrom, setCustomDateFrom] = useState("");
   const [customDateTo, setCustomDateTo] = useState("");
   const [showCustomDate, setShowCustomDate] = useState(false);
@@ -106,7 +177,6 @@ export function PacsQueryPage() {
   const [isAnamnesisModalOpen, setIsAnamnesisModalOpen] = useState(false);
   const [selectedStudy, setSelectedStudy] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [modalityFilter, setModalityFilter] = useState('ALL');
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -118,11 +188,19 @@ export function PacsQueryPage() {
     if (queryResults.length > 0) localStorage.setItem(cacheKey, JSON.stringify(queryResults));
   }, [queryResults, cacheKey]);
 
-  // Filtro por modalidade aplicado antes da paginação
+  // Ordenar por data mais recente primeiro
+  const sortedResults = useMemo(() => sortByDateDesc(queryResults), [queryResults]);
+
+  // Filtro "Não Laudados" aplicado sobre os resultados ordenados
+  const [showPendingOnly, setShowPendingOnly] = useState(false);
   const filteredResults = useMemo(() => {
-    if (modalityFilter === 'ALL') return queryResults;
-    return queryResults.filter(s => (s.modality || '').toUpperCase() === modalityFilter);
-  }, [queryResults, modalityFilter]);
+    if (!showPendingOnly) return sortedResults;
+    return sortedResults.filter(s => {
+      const uid = s.studyInstanceUid;
+      const status = uid ? (reportStatusMap[uid] || 'Pendente') : 'Pendente';
+      return status === 'Pendente';
+    });
+  }, [sortedResults, showPendingOnly, reportStatusMap]);
 
   const totalPages = Math.max(1, Math.ceil(filteredResults.length / PAGE_SIZE));
   const pagedResults = useMemo(() => {
@@ -130,11 +208,8 @@ export function PacsQueryPage() {
     return filteredResults.slice(start, start + PAGE_SIZE);
   }, [filteredResults, currentPage]);
 
-  // Busca status real dos laudos quando os resultados mudam
-  const studyUids = useMemo(
-    () => queryResults.map(s => s.studyInstanceUid).filter(Boolean),
-    [queryResults]
-  );
+  // Busca status real dos laudos
+  const studyUids = useMemo(() => queryResults.map(s => s.studyInstanceUid).filter(Boolean), [queryResults]);
   const { data: statusData } = trpc.reports.statusByStudyUids.useQuery(
     { studyUids },
     { enabled: studyUids.length > 0 }
@@ -142,12 +217,6 @@ export function PacsQueryPage() {
   useEffect(() => {
     if (statusData) setReportStatusMap(statusData);
   }, [statusData]);
-
-  // Modalidades únicas presentes nos resultados
-  const availableModalities = useMemo(() => {
-    const set = new Set(queryResults.map(s => (s.modality || '').toUpperCase()).filter(Boolean));
-    return Array.from(set).sort();
-  }, [queryResults]);
 
   const logoutMutation = trpc.auth.logout.useMutation({
     onSuccess: () => {
@@ -173,7 +242,9 @@ export function PacsQueryPage() {
     const f = { ...filters, ...overrides };
     setIsQuerying(true);
     let studyDate = f.studyDate;
-    if (studyDate && studyDate.includes('-')) studyDate = studyDate.replace(/-/g, '');
+    if (studyDate && studyDate.includes('-') && studyDate.length === 8) {
+      studyDate = studyDate.replace(/-/g, '');
+    }
     queryPacs.mutate({
       patientName: f.patientName,
       patientId: "",
@@ -185,6 +256,7 @@ export function PacsQueryPage() {
   };
 
   const handlePeriodChange = (period: string) => {
+    setShowPendingOnly(false);
     if (period === 'custom') {
       setShowCustomDate(true);
       setFilters(f => ({ ...f, period: 'custom', studyDate: '' }));
@@ -196,11 +268,27 @@ export function PacsQueryPage() {
     else if (period === 'yesterday') {
       const d = new Date(); d.setDate(d.getDate() - 1);
       studyDate = d.toISOString().slice(0, 10).replace(/-/g, '');
+    } else if (period === 'all') {
+      studyDate = '';
     }
-    else if (period === 'pending') studyDate = 'LAST_30_DAYS';
-    else if (period === 'all') studyDate = '';
     setFilters(f => ({ ...f, period, studyDate }));
     runQuery({ period, studyDate });
+  };
+
+  const handlePendingOnly = () => {
+    setShowPendingOnly(true);
+    setFilters(f => ({ ...f, period: 'pending' }));
+    setShowCustomDate(false);
+    // Busca todos os estudos para filtrar localmente por status
+    setIsQuerying(true);
+    queryPacs.mutate({
+      patientName: filters.patientName,
+      patientId: "",
+      modality: "",
+      studyDate: 'LAST_30_DAYS',
+      accessionNumber: "",
+      unit_id: effectiveUnitId || undefined,
+    });
   };
 
   const handleCustomDateSearch = () => {
@@ -221,22 +309,7 @@ export function PacsQueryPage() {
     navigate(`/dicom-viewer/${study.studyInstanceUid}${unitParam}`);
   };
 
-  const handleOpenRadiant = (study: any) => {
-    if (!study.studyInstanceUid) { toast.error('UID do estudo não disponível'); return; }
-    window.location.href = `radiant://?n=1&v=0020000D&v=${study.studyInstanceUid}`;
-    toast.info('Abrindo no RadiAnt DICOM Viewer...');
-  };
-
-  const handleOpenOrthancViewer = (study: any) => {
-    const orthancBase = (unitData as any)?.orthanc_public_url || (unitData as any)?.orthanc_base_url || 'http://45.189.160.17:8042';
-    const viewerUrl = study.orthancId
-      ? `${orthancBase}/osimis-viewer/app/index.html?study=${study.orthancId}`
-      : `${orthancBase}/osimis-viewer/app/index.html?studyInstanceUid=${study.studyInstanceUid}`;
-    window.open(viewerUrl, '_blank');
-  };
-
   const handleReport = (study: any) => {
-    // Salva todos os dados do estudo no sessionStorage para o editor de laudo
     sessionStorage.setItem(`study_${study.studyInstanceUid}`, JSON.stringify({
       patientName: study.patientName || '',
       patientID: study.patientID || '',
@@ -248,8 +321,8 @@ export function PacsQueryPage() {
       studyDescription: study.studyDescription || '',
       accessionNumber: study.accessionNumber || '',
       numberOfInstances: study.numberOfInstances || 0,
-      unitName: study.unitName || '',
-      unitId: study.unitId || '',
+      unitName: unitName,
+      unitId: effectiveUnitId || '',
     }));
     navigate(`/reports/create/${study.studyInstanceUid}`);
   };
@@ -259,16 +332,14 @@ export function PacsQueryPage() {
     return reportStatusMap[study.studyInstanceUid] || "Pendente";
   };
 
-  // Cores dos status — paleta terra quente
-  const statusConfig: Record<string, { cls: string; label: string }> = {
-    "Pendente":     { cls: "bg-amber-100 text-amber-800 border-amber-300",   label: "Pendente" },
-    "Rascunho":     { cls: "bg-stone-100 text-stone-600 border-stone-300",   label: "Rascunho" },
-    "Assinado":     { cls: "bg-emerald-100 text-emerald-700 border-emerald-300", label: "Assinado" },
-    "Em Andamento": { cls: "bg-sky-100 text-sky-700 border-sky-300",         label: "Em Andamento" },
-    "Concluído":    { cls: "bg-emerald-100 text-emerald-700 border-emerald-300", label: "Concluído" },
+  const statusConfig: Record<string, { cls: string }> = {
+    "Pendente":     { cls: "bg-amber-100 text-amber-800 border-amber-300" },
+    "Rascunho":     { cls: "bg-stone-100 text-stone-600 border-stone-300" },
+    "Assinado":     { cls: "bg-emerald-100 text-emerald-700 border-emerald-300" },
+    "Em Andamento": { cls: "bg-sky-100 text-sky-700 border-sky-300" },
+    "Concluído":    { cls: "bg-emerald-100 text-emerald-700 border-emerald-300" },
   };
 
-  // Cores das modalidades
   const modalityColor: Record<string, string> = {
     CT: "bg-purple-100 text-purple-800",
     CR: "bg-sky-100 text-sky-800",
@@ -278,13 +349,14 @@ export function PacsQueryPage() {
     PT: "bg-rose-100 text-rose-800",
   };
 
-  // Botão de período ativo
-  const periodBtn = (key: string, label: string) => (
+  const activePeriod = filters.period;
+
+  const periodBtn = (key: string, label: string, onClick?: () => void) => (
     <button
       key={key}
-      onClick={() => handlePeriodChange(key)}
+      onClick={onClick || (() => handlePeriodChange(key))}
       className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border ${
-        filters.period === key
+        activePeriod === key
           ? 'bg-amber-700 text-white border-amber-700'
           : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
       }`}
@@ -304,9 +376,7 @@ export function PacsQueryPage() {
         {/* Logo + unidade */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded bg-red-700 flex items-center justify-center">
-              <span className="text-white text-xs font-bold leading-none">L</span>
-            </div>
+            <img src={LOGO_URL} alt="Lauds" className="h-7 w-auto object-contain" />
             <span className="text-white text-base font-bold tracking-tight">lauds</span>
           </div>
           <div className="w-px h-5 bg-white/20" />
@@ -356,7 +426,7 @@ export function PacsQueryPage() {
 
       {/* ── FILTROS ── */}
       <div className="bg-white border-b border-gray-200 px-5 py-2.5 flex items-center gap-2 flex-wrap shrink-0">
-        {/* Busca */}
+        {/* Busca por nome */}
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
           <input
@@ -369,25 +439,36 @@ export function PacsQueryPage() {
         </div>
 
         {/* Períodos */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           {periodBtn('today', 'Hoje')}
           {periodBtn('yesterday', 'Ontem')}
-          {periodBtn('pending', 'Não Laudados')}
-          {periodBtn('all', 'Todos')}
+          {/* Data customizada */}
           <button
             onClick={() => handlePeriodChange('custom')}
             className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border flex items-center gap-1 ${
-              filters.period === 'custom'
+              activePeriod === 'custom'
                 ? 'bg-amber-700 text-white border-amber-700'
                 : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
             }`}
           >
             <Clock className="h-3 w-3" />
-            Período
+            Data
           </button>
+          {/* Não Laudados */}
+          <button
+            onClick={handlePendingOnly}
+            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border ${
+              activePeriod === 'pending'
+                ? 'bg-amber-700 text-white border-amber-700'
+                : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Não Laudados
+          </button>
+          {periodBtn('all', 'Todos')}
         </div>
 
-        {/* Datas customizadas */}
+        {/* Inputs de data customizada */}
         {showCustomDate && (
           <div className="flex items-center gap-1">
             <input
@@ -413,30 +494,11 @@ export function PacsQueryPage() {
           </div>
         )}
 
-        {/* Filtro por modalidade */}
-        {availableModalities.length > 0 && (
-          <div className="flex items-center gap-1 ml-1">
-            {['ALL', ...availableModalities].map(mod => (
-              <button
-                key={mod}
-                onClick={() => { setModalityFilter(mod); setCurrentPage(1); }}
-                className={`px-2 py-1 rounded text-xs font-medium border transition-colors ${
-                  modalityFilter === mod
-                    ? 'bg-stone-700 text-white border-stone-700'
-                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {mod === 'ALL' ? 'Todos' : mod}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Contador */}
-        <span className="ml-auto text-xs text-gray-400">
+        {/* Contador de pacientes */}
+        <span className="ml-auto text-xs text-gray-500 font-medium">
           {filteredResults.length > 0
             ? `${filteredResults.length} paciente${filteredResults.length !== 1 ? 's' : ''}`
-            : ''}
+            : isQuerying ? 'Buscando...' : ''}
         </span>
       </div>
 
@@ -445,13 +507,15 @@ export function PacsQueryPage() {
         {queryResults.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400">
             <Search className="h-10 w-10 mb-3 opacity-30" />
-            <p className="text-sm">Nenhum estudo encontrado</p>
-            <button
-              onClick={() => handlePeriodChange('today')}
-              className="mt-3 px-3 py-1.5 rounded text-xs border border-gray-300 text-gray-600 hover:bg-gray-50"
-            >
-              Ver exames de hoje
-            </button>
+            <p className="text-sm">{isQuerying ? 'Buscando estudos...' : 'Nenhum estudo encontrado'}</p>
+            {!isQuerying && (
+              <button
+                onClick={() => handlePeriodChange('today')}
+                className="mt-3 px-3 py-1.5 rounded text-xs border border-gray-300 text-gray-600 hover:bg-gray-50"
+              >
+                Ver exames de hoje
+              </button>
+            )}
           </div>
         ) : (
           <table className="w-full text-sm border-collapse">
@@ -464,8 +528,11 @@ export function PacsQueryPage() {
                 <th className="px-4 py-2.5 text-left font-semibold">Paciente</th>
                 <th className="px-4 py-2.5 text-left font-semibold w-16">Idade</th>
                 <th className="px-4 py-2.5 text-left font-semibold">Exame</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-10">Anam.</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-10">Ver</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-10">Laudar</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-28">Status</th>
-                <th className="px-4 py-2.5 text-right font-semibold w-44">Ações</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-10">Imp.</th>
               </tr>
             </thead>
             <tbody>
@@ -481,14 +548,14 @@ export function PacsQueryPage() {
                 const modality = (study.modality || '-').toUpperCase();
                 const modalityCls = modalityColor[modality] || 'bg-gray-100 text-gray-700';
                 const status = getReportStatus(study);
-                const { cls: statusCls, label: statusLabel } = statusConfig[status] || { cls: 'bg-gray-100 text-gray-600 border-gray-300', label: status };
+                const { cls: statusCls } = statusConfig[status] || { cls: 'bg-gray-100 text-gray-600 border-gray-300' };
 
                 return (
                   <tr
                     key={idx}
                     className="border-b border-gray-200 hover:bg-amber-50/60 transition-colors bg-white"
                   >
-                    {/* Data + tempo relativo */}
+                    {/* Data */}
                     <td className="px-4 py-3">
                       <div className="text-sm text-gray-700">{dateFormatted}</div>
                       <div className="text-xs text-gray-400 mt-0.5">{relative}</div>
@@ -497,9 +564,7 @@ export function PacsQueryPage() {
                     {/* Paciente */}
                     <td className="px-4 py-3">
                       <div className="font-semibold text-gray-900 text-sm leading-tight uppercase">{patientName}</div>
-                      {sex && (
-                        <div className="text-xs text-gray-400 mt-0.5">{sex}</div>
-                      )}
+                      {sex && <div className="text-xs text-gray-400 mt-0.5">{sex}</div>}
                     </td>
 
                     {/* Idade */}
@@ -507,79 +572,78 @@ export function PacsQueryPage() {
                       <span className="text-sm text-gray-600">{age || '-'}</span>
                     </td>
 
-                    {/* Exame */}
+                    {/* Exame — editável */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${modalityCls}`}>{modality}</span>
-                        <span className="text-sm text-gray-800">{study.studyDescription || 'Sem descrição'}</span>
+                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${modalityCls}`}>{modality}</span>
+                        <EditableExamName
+                          value={study.studyDescription || ''}
+                          studyUid={study.studyInstanceUid || `${idx}`}
+                        />
                       </div>
+                    </td>
+
+                    {/* Anamnese */}
+                    <td className="px-4 py-3 text-center">
+                      {canCID ? (
+                        <button
+                          onClick={() => { setSelectedStudy(study); setIsAnamnesisModalOpen(true); }}
+                          title="CID / Anamnese"
+                          className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-amber-50 text-gray-500 hover:text-amber-700 inline-flex items-center justify-center transition-colors"
+                        >
+                          <Clipboard className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+
+                    {/* Visualizar */}
+                    <td className="px-4 py-3 text-center">
+                      {canViewer ? (
+                        <button
+                          onClick={() => handleVisualize(study)}
+                          title="Visualizar DICOM"
+                          className="w-8 h-8 rounded-lg bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center justify-center transition-colors"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+
+                    {/* Laudar */}
+                    <td className="px-4 py-3 text-center">
+                      {canLaudo ? (
+                        <button
+                          onClick={() => handleReport(study)}
+                          title="Laudar"
+                          className="w-8 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center justify-center transition-colors"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
                     </td>
 
                     {/* Status */}
                     <td className="px-4 py-3 text-center">
                       <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusCls}`}>
-                        {statusLabel}
+                        {status}
                       </span>
                     </td>
 
-                    {/* Ações — 4 botões quadrados à direita */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {/* Anamnese/CID */}
-                        {canCID && (
-                          <button
-                            onClick={() => { setSelectedStudy(study); setIsAnamnesisModalOpen(true); }}
-                            title="CID / Anamnese"
-                            className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 flex items-center justify-center transition-colors"
-                          >
-                            <Clipboard className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        {/* Visualizar DICOM */}
-                        {canViewer && (
-                          <button
-                            onClick={() => handleVisualize(study)}
-                            title="Visualizar DICOM"
-                            className="w-8 h-8 rounded-lg bg-amber-600 hover:bg-amber-700 text-white flex items-center justify-center transition-colors"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        {/* Laudar */}
-                        {canLaudo && (
-                          <button
-                            onClick={() => handleReport(study)}
-                            title="Laudar"
-                            className="w-8 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center transition-colors"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        {/* Imprimir */}
-                        <button
-                          onClick={() => toast.info('Impressão em desenvolvimento')}
-                          title="Imprimir laudo"
-                          className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 flex items-center justify-center transition-colors"
-                        >
-                          <Printer className="h-3.5 w-3.5" />
-                        </button>
-                        {/* Orthanc viewer */}
-                        <button
-                          onClick={() => handleOpenOrthancViewer(study)}
-                          title="Abrir no Orthanc"
-                          className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 flex items-center justify-center transition-colors"
-                        >
-                          <Monitor className="h-3.5 w-3.5" />
-                        </button>
-                        {/* RadiAnt */}
-                        <button
-                          onClick={() => handleOpenRadiant(study)}
-                          title="Abrir no RadiAnt"
-                          className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 flex items-center justify-center transition-colors"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                    {/* Imprimir */}
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={() => toast.info('Impressão em desenvolvimento')}
+                        title="Imprimir laudo"
+                        className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 inline-flex items-center justify-center transition-colors"
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
                     </td>
                   </tr>
                 );
