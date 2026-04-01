@@ -365,3 +365,9 @@
 - [x] Viewer: painel de anamnese exibe seção "✏️ Editado pelo Técnico" com nome, exame e notas
 - [x] Laudo: card âmbar "Informações Editadas pelo Técnico" acima do card de anamnese
 - [x] Laudo: exibe "Editado por [técnico] em [data]" quando houver override
+
+## BUGS — Cadastro e Seleção de Unidades
+
+- [ ] Bug: erro ao adicionar nova unidade PACS (179.67.254.135, 11112, PACSML)
+- [ ] Bug: ao voltar para a página principal, sempre reseta para a primeira unidade (perde a seleção)
+- [ ] Fix: persistir unidade selecionada no localStorage entre navegações

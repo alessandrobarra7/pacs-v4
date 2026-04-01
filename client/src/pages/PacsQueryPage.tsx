@@ -269,7 +269,12 @@ export function PacsQueryPage() {
   const isAdmin = canAccessAdmin(userRole);
   const isAdminMaster = user?.role === 'admin_master';
 
-  const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
+  // Persistir unidade selecionada no localStorage para manter a seleção ao navegar entre páginas
+  const SELECTED_UNIT_KEY = 'pacs_selected_unit_id';
+  const [selectedUnitId, setSelectedUnitId] = useState<number | null>(() => {
+    const saved = localStorage.getItem(SELECTED_UNIT_KEY);
+    return saved ? parseInt(saved, 10) : null;
+  });
   const effectiveUnitId = isAdminMaster ? selectedUnitId : (user?.unit_id || null);
 
   const { data: allUnits = [] } = trpc.units.list.useQuery(undefined, { enabled: isAdminMaster });
@@ -278,9 +283,28 @@ export function PacsQueryPage() {
     { enabled: !!effectiveUnitId }
   );
 
+  // Wrapper que persiste a troca de unidade no localStorage
+  const handleSelectUnit = (unitId: number) => {
+    setSelectedUnitId(unitId);
+    localStorage.setItem(SELECTED_UNIT_KEY, String(unitId));
+  };
+
   useEffect(() => {
-    if (isAdminMaster && allUnits.length > 0 && selectedUnitId === null) {
-      setSelectedUnitId(allUnits[0].id);
+    if (isAdminMaster && allUnits.length > 0) {
+      if (selectedUnitId === null) {
+        // Primeira visita: selecionar a primeira unidade e persistir
+        const firstId = allUnits[0].id;
+        setSelectedUnitId(firstId);
+        localStorage.setItem(SELECTED_UNIT_KEY, String(firstId));
+      } else {
+        // Verificar se a unidade salva ainda existe (pode ter sido deletada)
+        const exists = allUnits.some(u => u.id === selectedUnitId);
+        if (!exists) {
+          const firstId = allUnits[0].id;
+          setSelectedUnitId(firstId);
+          localStorage.setItem(SELECTED_UNIT_KEY, String(firstId));
+        }
+      }
     }
   }, [isAdminMaster, allUnits, selectedUnitId]);
 
@@ -767,7 +791,7 @@ export function PacsQueryPage() {
           isAdminMaster && allUnits.length > 0 ? (
             <select
               value={selectedUnitId || ''}
-              onChange={(e) => setSelectedUnitId(Number(e.target.value))}
+              onChange={(e) => handleSelectUnit(Number(e.target.value))}
               className="text-sm border border-white/20 rounded px-2 py-1 text-white bg-white/10 h-7 focus:outline-none"
             >
               {allUnits.map((u) => (
