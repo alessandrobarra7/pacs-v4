@@ -405,3 +405,6 @@
 ## FILTRO DE DATA — Calendário único (Popover)
 - [x] Substituir filtro de data (campos de/até + botão Buscar) por Popover com Calendar shadcn que dispara busca ao clicar em uma data
 - [x] Botão "Limpar" para remover a data selecionada e voltar ao filtro de período anterior
+
+## AJUSTES TOOLBAR
+- [x] Remover botão "Todos" da barra de filtros

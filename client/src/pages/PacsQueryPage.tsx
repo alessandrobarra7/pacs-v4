@@ -891,7 +891,7 @@ export function PacsQueryPage() {
           >
             Não Laudados
           </button>
-          {periodBtn('all', 'Todos')}
+
         </div>
 
 
