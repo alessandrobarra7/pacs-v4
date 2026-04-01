@@ -352,7 +352,16 @@ export async function updateReport(id: number, data: Partial<InsertReport>) {
 export async function createAuditLog(log: InsertAuditLog) {
   const db = await getDb();
   if (!db) return;
-  await db.insert(audit_log).values(log);
+  try {
+    // Passa timestamp explicitamente para evitar erro de DEFAULT em prepared statements no TiDB/MySQL
+    await db.insert(audit_log).values({
+      ...log,
+      timestamp: new Date(),
+    });
+  } catch (err) {
+    // Não propagar erros de auditoria para não bloquear operações do usuário
+    console.error('[AuditLog] Falha ao registrar auditoria:', err);
+  }
 }
 
 /** Retorna um mapa { studyInstanceUid → status } para uma lista de UIDs */
