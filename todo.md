@@ -371,3 +371,21 @@
 - [ ] Bug: erro ao adicionar nova unidade PACS (179.67.254.135, 11112, PACSML)
 - [ ] Bug: ao voltar para a página principal, sempre reseta para a primeira unidade (perde a seleção)
 - [ ] Fix: persistir unidade selecionada no localStorage entre navegações
+
+## MELHORIAS ADMIN — Formulários de Unidade e Usuário (Etapa 1)
+
+- [x] Migração banco: adicionar colunas address e equipment_info na tabela units
+- [x] Migração banco: adicionar coluna expiration_date na tabela users
+- [x] Criar componente UnitFormDialog.tsx com campos: nome, slug, endereço, equipamento, PACS (ip/porta/ae_title/ae_local), toggle ativo
+- [x] Criar componente UserFormDialog.tsx com campos: nome, email, usuário, senha, perfil, data expiração, toggle ativo, badge de perfil colorido
+- [x] Atualizar AdminPage: usar UnitFormDialog e UserFormDialog em vez de formulários inline
+- [x] Atualizar AdminPage: adicionar botão Power/PowerOff para ativar/desativar unidade diretamente na tabela
+- [x] Atualizar AdminPage: adicionar botão ativar/desativar usuário diretamente na tabela
+- [x] Atualizar AdminPage: adicionar coluna Expiração na tabela de usuários
+- [x] Atualizar AdminPage: badges de perfil com cores semânticas (vermelho admin_master, laranja unit_admin, azul médico, etc.)
+- [x] Atualizar AdminPage: coluna Unidade na tabela de usuários
+- [x] Atualizar procedure units.update para aceitar address e equipment_info
+- [x] Atualizar procedure units.create para aceitar address e equipment_info
+- [x] Criar procedure admin.updateUser para editar usuário (nome, email, role, isActive, expiration_date, unit_id)
+- [x] Criar procedure admin.toggleUserActive para ativar/desativar usuário
+- [x] Atualizar procedure admin.listUsers para retornar expiration_date e nome da unidade

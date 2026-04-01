@@ -2,21 +2,18 @@ import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Building2, Users, ClipboardList, Plus, Edit2, Trash2, Server, HardDrive, Trash, RefreshCw,
+  Building2, Users, ClipboardList, Plus, Edit2, Trash2, Server, HardDrive,
+  Trash, RefreshCw, Power, PowerOff,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
+import UnitFormDialog, { type UnitFormData } from "@/components/UnitFormDialog";
+import UserFormDialog, { type UserFormData } from "@/components/UserFormDialog";
 
 type Tab = "units" | "users" | "audit" | "cache";
 
@@ -36,7 +33,7 @@ const ROLE_COLORS: Record<string, string> = {
   operador: "border-purple-200 text-purple-700 bg-purple-50",
 };
 
-// Componente painel de cache DICOM
+// ─── Painel de Cache DICOM ────────────────────────────────────────────────────
 function CachePanel() {
   const [cacheInfo, setCacheInfo] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -45,36 +42,35 @@ function CachePanel() {
   const fetchCacheInfo = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/dicom-cache-info');
+      const res = await fetch("/api/dicom-cache-info");
       if (res.ok) setCacheInfo(await res.json());
-    } catch { toast.error('Erro ao buscar info do cache'); }
+    } catch { toast.error("Erro ao buscar info do cache"); }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchCacheInfo(); }, [fetchCacheInfo]);
 
   const handleClearAll = async () => {
-    if (!confirm('Tem certeza que deseja limpar todo o cache DICOM? Os estudos precisarão ser baixados novamente.')) return;
+    if (!confirm("Tem certeza que deseja limpar todo o cache DICOM? Os estudos precisarão ser baixados novamente.")) return;
     setClearing(true);
     try {
-      const res = await fetch('/api/dicom-cache-clear', { method: 'DELETE' });
+      const res = await fetch("/api/dicom-cache-clear", { method: "DELETE" });
       if (res.ok) {
         const data = await res.json();
         toast.success(`Cache limpo: ${data.removed} estudo(s) removido(s)`);
         await fetchCacheInfo();
       } else {
-        toast.error('Erro ao limpar cache');
+        toast.error("Erro ao limpar cache");
       }
-    } catch { toast.error('Erro ao limpar cache'); }
+    } catch { toast.error("Erro ao limpar cache"); }
     finally { setClearing(false); }
   };
 
   const usedMB = cacheInfo?.totalSizeMB || 0;
   const studyCount = cacheInfo?.studyCount || 0;
-  // Barra de uso: assume limite de 2GB como referência visual
   const limitMB = 2048;
   const pct = Math.min(100, Math.round((usedMB / limitMB) * 100));
-  const barColor = pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-amber-500' : 'bg-green-500';
+  const barColor = pct > 80 ? "bg-red-500" : pct > 50 ? "bg-amber-500" : "bg-green-500";
 
   return (
     <div>
@@ -89,7 +85,7 @@ function CachePanel() {
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Atualizar
           </button>
           <button
@@ -98,20 +94,21 @@ function CachePanel() {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
           >
             <Trash className="h-3.5 w-3.5" />
-            {clearing ? 'Limpando...' : 'Limpar Cache'}
+            {clearing ? "Limpando..." : "Limpar Cache"}
           </button>
         </div>
       </div>
 
-      {/* Cards de resumo */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded border border-gray-200 p-4">
           <div className="text-xs text-gray-500 mb-1">Espaço Usado</div>
-          <div className="text-2xl font-bold text-gray-900">{usedMB < 1024 ? `${usedMB} MB` : `${(usedMB / 1024).toFixed(1)} GB`}</div>
+          <div className="text-2xl font-bold text-gray-900">
+            {usedMB < 1024 ? `${usedMB} MB` : `${(usedMB / 1024).toFixed(1)} GB`}
+          </div>
           <div className="mt-2">
             <div className="flex justify-between text-xs text-gray-400 mb-1">
               <span>{pct}% de 2 GB</span>
-              <span>{limitMB - usedMB > 0 ? `${(limitMB - usedMB) < 1024 ? `${limitMB - usedMB} MB livres` : `${((limitMB - usedMB) / 1024).toFixed(1)} GB livres`}` : 'Limite atingido'}</span>
+              <span>{limitMB - usedMB > 0 ? `${(limitMB - usedMB) < 1024 ? `${limitMB - usedMB} MB livres` : `${((limitMB - usedMB) / 1024).toFixed(1)} GB livres`}` : "Limite atingido"}</span>
             </div>
             <div className="w-full bg-gray-100 rounded-full h-2">
               <div className={`${barColor} h-2 rounded-full transition-all`} style={{ width: `${pct}%` }} />
@@ -130,7 +127,6 @@ function CachePanel() {
         </div>
       </div>
 
-      {/* Tabela de estudos em cache */}
       {studyCount > 0 && (
         <div className="bg-white rounded border border-gray-200 overflow-hidden">
           <Table>
@@ -139,7 +135,7 @@ function CachePanel() {
                 <TableHead className="py-3 text-xs font-semibold text-gray-600">Study UID</TableHead>
                 <TableHead className="py-3 text-xs font-semibold text-gray-600">Imagens</TableHead>
                 <TableHead className="py-3 text-xs font-semibold text-gray-600">Tamanho</TableHead>
-                <TableHead className="py-3 text-xs font-semibold text-gray-600">Ultimo Acesso</TableHead>
+                <TableHead className="py-3 text-xs font-semibold text-gray-600">Último Acesso</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -150,7 +146,9 @@ function CachePanel() {
                   </TableCell>
                   <TableCell className="py-2.5 text-sm text-gray-700">{s.fileCount}</TableCell>
                   <TableCell className="py-2.5 text-sm text-gray-700">{s.sizeMB} MB</TableCell>
-                  <TableCell className="py-2.5 text-sm text-gray-500">{s.lastAccess ? new Date(s.lastAccess).toLocaleString('pt-BR') : '-'}</TableCell>
+                  <TableCell className="py-2.5 text-sm text-gray-500">
+                    {s.lastAccess ? new Date(s.lastAccess).toLocaleString("pt-BR") : "-"}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -168,26 +166,33 @@ function CachePanel() {
   );
 }
 
+// ─── Página Principal ─────────────────────────────────────────────────────────
 export default function AdminPage() {
   const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState<Tab>("units");
-  const [isCreateUnitOpen, setIsCreateUnitOpen] = useState(false);
-  const [isCreateUserOpen, setIsCreateUserOpen] = useState(false);
-  const [editingUnit, setEditingUnit] = useState<any>(null);
 
-  const { data: user } = trpc.auth.me.useQuery();
+  // Diálogos de unidade
+  const [unitDialogOpen, setUnitDialogOpen] = useState(false);
+  const [editingUnit, setEditingUnit] = useState<UnitFormData | null>(null);
+
+  // Diálogos de usuário
+  const [userDialogOpen, setUserDialogOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserFormData | null>(null);
+
+  const { data: currentUser } = trpc.auth.me.useQuery();
   const logoutMutation = trpc.auth.logout.useMutation({
     onSuccess: () => navigate("/login"),
   });
 
-  // Units
+  // ── Units ──
   const { data: units = [], isLoading: unitsLoading, refetch: refetchUnits } = trpc.units.list.useQuery();
+
   const createUnit = trpc.units.create.useMutation({
-    onSuccess: () => { toast.success("Unidade criada!"); setIsCreateUnitOpen(false); refetchUnits(); },
+    onSuccess: () => { toast.success("Unidade criada!"); setUnitDialogOpen(false); refetchUnits(); },
     onError: (e) => toast.error(e.message),
   });
   const updateUnit = trpc.units.update.useMutation({
-    onSuccess: () => { toast.success("Unidade atualizada!"); setEditingUnit(null); refetchUnits(); },
+    onSuccess: () => { toast.success("Unidade atualizada!"); setUnitDialogOpen(false); setEditingUnit(null); refetchUnits(); },
     onError: (e) => toast.error(e.message),
   });
   const deleteUnit = trpc.units.delete.useMutation({
@@ -195,79 +200,140 @@ export default function AdminPage() {
     onError: (e) => toast.error(e.message),
   });
 
-  // Users
+  // ── Users ──
   const { data: usersList = [], isLoading: usersLoading, refetch: refetchUsers } = trpc.admin.listUsers.useQuery();
+
   const createUser = trpc.auth.createLocalUser.useMutation({
-    onSuccess: () => { toast.success("Usuário criado!"); setIsCreateUserOpen(false); refetchUsers(); },
+    onSuccess: () => { toast.success("Usuário criado!"); setUserDialogOpen(false); refetchUsers(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateUserMutation = trpc.admin.updateUser.useMutation({
+    onSuccess: () => { toast.success("Usuário atualizado!"); setUserDialogOpen(false); setEditingUser(null); refetchUsers(); },
     onError: (e) => toast.error(e.message),
   });
   const deleteUser = trpc.admin.deleteUser.useMutation({
     onSuccess: () => { toast.success("Usuário excluído!"); refetchUsers(); },
     onError: (e) => toast.error(e.message),
   });
+  const toggleUserActive = trpc.admin.toggleUserActive.useMutation({
+    onSuccess: (_, vars) => { toast.success(vars.isActive ? "Usuário ativado" : "Usuário desativado"); refetchUsers(); },
+    onError: (e) => toast.error(e.message),
+  });
 
-  // Audit
+  // ── Audit ──
   const { data: auditLogs = [], isLoading: auditLoading } = trpc.admin.listAuditLog.useQuery(
     { limit: 200 },
     { enabled: activeTab === "audit" }
   );
 
-  const handleCreateUnit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const pacsPort = fd.get("pacs_port") as string;
-    if (!pacsPort || isNaN(Number(pacsPort))) { toast.error("Porta PACS inválida"); return; }
-    createUnit.mutate({
-      name: fd.get("name") as string,
-      slug: fd.get("slug") as string,
-      pacs_ip: fd.get("pacs_ip") as string,
-      pacs_port: Number(pacsPort),
-      pacs_ae_title: fd.get("pacs_ae_title") as string,
-      pacs_local_ae_title: (fd.get("pacs_local_ae_title") as string) || "LAUDS",
-    });
+  // ── Handlers ──
+  const handleSaveUnit = (data: UnitFormData) => {
+    if (data.id) {
+      updateUnit.mutate({
+        id: data.id,
+        name: data.name,
+        slug: data.slug,
+        pacs_ip: data.pacs_ip,
+        pacs_port: data.pacs_port,
+        pacs_ae_title: data.pacs_ae_title,
+        pacs_local_ae_title: data.pacs_local_ae_title,
+        address: data.address,
+        equipment_info: data.equipment_info,
+        isActive: data.isActive,
+      });
+    } else {
+      createUnit.mutate({
+        name: data.name,
+        slug: data.slug,
+        pacs_ip: data.pacs_ip,
+        pacs_port: data.pacs_port,
+        pacs_ae_title: data.pacs_ae_title,
+        pacs_local_ae_title: data.pacs_local_ae_title,
+        address: data.address,
+        equipment_info: data.equipment_info,
+        isActive: data.isActive,
+      });
+    }
   };
 
-  const handleUpdateUnit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!editingUnit) return;
-    const fd = new FormData(e.currentTarget);
-    const pacsPort = fd.get("pacs_port") as string;
-    updateUnit.mutate({
-      id: editingUnit.id,
-      name: fd.get("name") as string,
-      slug: fd.get("slug") as string,
-      pacs_ip: (fd.get("pacs_ip") as string) || undefined,
-      pacs_port: pacsPort ? Number(pacsPort) : undefined,
-      pacs_ae_title: (fd.get("pacs_ae_title") as string) || undefined,
-      pacs_local_ae_title: (fd.get("pacs_local_ae_title") as string) || undefined,
-      isActive: fd.get("isActive") === "on",
-    });
+  const handleSaveUser = (data: UserFormData) => {
+    if (data.id) {
+      updateUserMutation.mutate({
+        id: data.id,
+        name: data.name,
+        email: data.email,
+        role: data.role,
+        unit_id: data.unit_id,
+        isActive: data.isActive,
+        expiration_date: data.expiration_date || undefined,
+        password: data.password || undefined,
+      });
+    } else {
+      createUser.mutate({
+        username: data.username,
+        name: data.name,
+        email: data.email || undefined,
+        password: data.password!,
+        role: data.role,
+        unit_id: data.unit_id,
+      });
+    }
   };
 
-  const handleCreateUser = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    createUser.mutate({
-      username: fd.get("username") as string,
-      name: fd.get("name") as string,
-      email: fd.get("email") as string || undefined,
-      password: fd.get("password") as string,
-      role: fd.get("role") as any,
-      unit_id: fd.get("unit_id") ? Number(fd.get("unit_id")) : undefined,
+  const handleOpenEditUnit = (unit: any) => {
+    setEditingUnit({
+      id: unit.id,
+      name: unit.name,
+      slug: unit.slug,
+      address: (unit as any).address || "",
+      equipment_info: (unit as any).equipment_info || "",
+      pacs_ip: (unit as any).pacs_ip || "",
+      pacs_port: (unit as any).pacs_port || 11112,
+      pacs_ae_title: (unit as any).pacs_ae_title || "",
+      pacs_local_ae_title: (unit as any).pacs_local_ae_title || "LAUDS",
+      isActive: unit.isActive,
     });
+    setUnitDialogOpen(true);
   };
 
-  const isAdminMaster = user?.role === 'admin_master';
+  const handleOpenEditUser = (u: any) => {
+    setEditingUser({
+      id: u.id,
+      name: u.name || "",
+      email: u.email || "",
+      username: u.username || "",
+      role: u.role,
+      unit_id: u.unit_id || undefined,
+      isActive: u.isActive,
+      expiration_date: u.expiration_date || "",
+    });
+    setUserDialogOpen(true);
+  };
+
+  const handleNewUnit = () => {
+    setEditingUnit(null);
+    setUnitDialogOpen(true);
+  };
+
+  const handleNewUser = () => {
+    setEditingUser(null);
+    setUserDialogOpen(true);
+  };
+
+  const isAdminMaster = currentUser?.role === "admin_master";
+  const isUnitAdmin = currentUser?.role === "unit_admin";
+  const canManageUsers = isAdminMaster || isUnitAdmin;
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     ...(isAdminMaster ? [{ key: "units" as Tab, label: "Unidades", icon: <Building2 className="h-4 w-4" /> }] : []),
-    { key: "users", label: "Usuários", icon: <Users className="h-4 w-4" /> },
+    ...(canManageUsers ? [{ key: "users" as Tab, label: "Usuários", icon: <Users className="h-4 w-4" /> }] : []),
     { key: "audit", label: "Auditoria", icon: <ClipboardList className="h-4 w-4" /> },
     { key: "cache", label: "Cache DICOM", icon: <HardDrive className="h-4 w-4" /> },
   ];
 
-  // Se admin_master saiu da aba units (ex: ao recarregar sem ser admin_master), redireciona para users
-  const effectiveTab = !isAdminMaster && activeTab === 'units' ? 'users' : activeTab;
+  const effectiveTab = (!isAdminMaster && activeTab === "units") ? "users" : activeTab;
+
+  const unitMap = Object.fromEntries(units.map((u: any) => [u.id, u.name]));
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
@@ -287,7 +353,7 @@ export default function AdminPage() {
         }
       />
 
-      {/* ── ABAS ── */}
+      {/* Abas */}
       <div className="bg-white border-b border-gray-200 px-6">
         <div className="flex items-center gap-0">
           {tabs.map((tab) => (
@@ -307,7 +373,6 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* ── CONTEÚDO ── */}
       <div className="px-6 py-5">
 
         {/* ── ABA UNIDADES ── */}
@@ -319,7 +384,7 @@ export default function AdminPage() {
                 <p className="text-sm text-gray-500">Clínicas e hospitais cadastrados no sistema</p>
               </div>
               <button
-                onClick={() => setIsCreateUnitOpen(true)}
+                onClick={handleNewUnit}
                 className="px-4 py-2 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1.5"
               >
                 <Plus className="h-4 w-4" />
@@ -332,7 +397,7 @@ export default function AdminPage() {
                 <TableHeader>
                   <TableRow className="bg-gray-50 border-b border-gray-200">
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Nome</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Slug</TableHead>
+                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Endereço</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">IP PACS</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Porta</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">AE Title</TableHead>
@@ -345,13 +410,22 @@ export default function AdminPage() {
                     <TableRow><TableCell colSpan={7} className="text-center py-8 text-gray-400 text-sm">Carregando...</TableCell></TableRow>
                   ) : units.length === 0 ? (
                     <TableRow><TableCell colSpan={7} className="text-center py-8 text-gray-400 text-sm">Nenhuma unidade cadastrada</TableCell></TableRow>
-                  ) : units.map((unit) => (
+                  ) : units.map((unit: any) => (
                     <TableRow key={unit.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                      <TableCell className="py-3 text-sm font-medium text-gray-900">{unit.name}</TableCell>
-                      <TableCell className="py-3"><code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{unit.slug}</code></TableCell>
-                      <TableCell className="py-3 text-xs text-gray-500">{(unit as any).pacs_ip || "-"}</TableCell>
-                      <TableCell className="py-3 text-xs text-gray-500">{(unit as any).pacs_port || "-"}</TableCell>
-                      <TableCell className="py-3"><code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{(unit as any).pacs_ae_title || "-"}</code></TableCell>
+                      <TableCell className="py-3">
+                        <div className="text-sm font-medium text-gray-900">{unit.name}</div>
+                        {unit.equipment_info && (
+                          <div className="text-xs text-gray-400 mt-0.5 truncate max-w-[180px]">{unit.equipment_info}</div>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-3 text-xs text-gray-500 max-w-[160px] truncate">
+                        {unit.address || <span className="text-gray-300">—</span>}
+                      </TableCell>
+                      <TableCell className="py-3 text-xs text-gray-500">{unit.pacs_ip || "—"}</TableCell>
+                      <TableCell className="py-3 text-xs text-gray-500">{unit.pacs_port || "—"}</TableCell>
+                      <TableCell className="py-3">
+                        <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{unit.pacs_ae_title || "—"}</code>
+                      </TableCell>
                       <TableCell className="py-3">
                         <Badge variant="outline" className={`text-xs ${unit.isActive ? "border-green-200 text-green-700 bg-green-50" : "border-gray-200 text-gray-500"}`}>
                           {unit.isActive ? "Ativo" : "Inativo"}
@@ -359,15 +433,25 @@ export default function AdminPage() {
                       </TableCell>
                       <TableCell className="py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {/* Toggle ativo/inativo direto */}
                           <button
-                            onClick={() => setEditingUnit(unit)}
+                            title={unit.isActive ? "Desativar unidade" : "Ativar unidade"}
+                            onClick={() => updateUnit.mutate({ id: unit.id, isActive: !unit.isActive })}
+                            className={`p-1.5 rounded ${unit.isActive ? "text-green-600 hover:bg-green-50" : "text-gray-400 hover:bg-gray-100"}`}
+                          >
+                            {unit.isActive ? <Power className="h-3.5 w-3.5" /> : <PowerOff className="h-3.5 w-3.5" />}
+                          </button>
+                          <button
+                            onClick={() => handleOpenEditUnit(unit)}
                             className="p-1.5 rounded text-gray-500 hover:bg-gray-100"
+                            title="Editar"
                           >
                             <Edit2 className="h-3.5 w-3.5" />
                           </button>
                           <button
                             onClick={() => { if (confirm(`Excluir "${unit.name}"?`)) deleteUnit.mutate({ id: unit.id }); }}
                             className="p-1.5 rounded text-red-500 hover:bg-red-50"
+                            title="Excluir"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -382,7 +466,7 @@ export default function AdminPage() {
         )}
 
         {/* ── ABA USUÁRIOS ── */}
-        {effectiveTab === "users" && (
+        {effectiveTab === "users" && canManageUsers && (
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -390,7 +474,7 @@ export default function AdminPage() {
                 <p className="text-sm text-gray-500">Usuários cadastrados no sistema</p>
               </div>
               <button
-                onClick={() => setIsCreateUserOpen(true)}
+                onClick={handleNewUser}
                 className="px-4 py-2 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1.5"
               >
                 <Plus className="h-4 w-4" />
@@ -404,48 +488,79 @@ export default function AdminPage() {
                   <TableRow className="bg-gray-50 border-b border-gray-200">
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Nome</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Usuário</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">E-mail</TableHead>
+                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Unidade</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Perfil</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Status</TableHead>
+                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Expiração</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Último Acesso</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600 text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {usersLoading ? (
-                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-gray-400 text-sm">Carregando...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="text-center py-8 text-gray-400 text-sm">Carregando...</TableCell></TableRow>
                   ) : usersList.length === 0 ? (
-                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-gray-400 text-sm">Nenhum usuário encontrado</TableCell></TableRow>
-                  ) : usersList.map((u: any) => (
-                    <TableRow key={u.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                      <TableCell className="py-3 text-sm font-medium text-gray-900">{u.name || "-"}</TableCell>
-                      <TableCell className="py-3 text-sm text-gray-600">{u.username || "-"}</TableCell>
-                      <TableCell className="py-3 text-sm text-gray-500">{u.email || "-"}</TableCell>
-                      <TableCell className="py-3">
-                        <Badge variant="outline" className={`text-xs ${ROLE_COLORS[u.role] || ""}`}>
-                          {ROLE_LABELS[u.role] || u.role}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="py-3">
-                        <Badge variant="outline" className={`text-xs ${u.isActive ? "border-green-200 text-green-700 bg-green-50" : "border-gray-200 text-gray-500"}`}>
-                          {u.isActive ? "Ativo" : "Inativo"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="py-3 text-xs text-gray-500">
-                        {u.lastSignedIn ? new Date(u.lastSignedIn).toLocaleString('pt-BR') : "-"}
-                      </TableCell>
-                      <TableCell className="py-3 text-right">
-                        {u.id !== user?.id && (
-                          <button
-                            onClick={() => { if (confirm(`Excluir usuário "${u.name || u.username}"?`)) deleteUser.mutate({ id: u.id }); }}
-                            className="p-1.5 rounded text-red-500 hover:bg-red-50"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                    <TableRow><TableCell colSpan={8} className="text-center py-8 text-gray-400 text-sm">Nenhum usuário encontrado</TableCell></TableRow>
+                  ) : usersList.map((u: any) => {
+                    const isExpired = u.expiration_date && new Date(u.expiration_date) < new Date();
+                    return (
+                      <TableRow key={u.id} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50 ${isExpired ? "opacity-60" : ""}`}>
+                        <TableCell className="py-3 text-sm font-medium text-gray-900">{u.name || "—"}</TableCell>
+                        <TableCell className="py-3 text-sm text-gray-600 font-mono">{u.username || "—"}</TableCell>
+                        <TableCell className="py-3 text-xs text-gray-500">
+                          {u.unit_id ? (unitMap[u.unit_id] || `#${u.unit_id}`) : <span className="text-gray-300">—</span>}
+                        </TableCell>
+                        <TableCell className="py-3">
+                          <Badge variant="outline" className={`text-xs ${ROLE_COLORS[u.role] || ""}`}>
+                            {ROLE_LABELS[u.role] || u.role}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="py-3">
+                          <Badge variant="outline" className={`text-xs ${u.isActive && !isExpired ? "border-green-200 text-green-700 bg-green-50" : "border-gray-200 text-gray-500"}`}>
+                            {isExpired ? "Expirado" : u.isActive ? "Ativo" : "Inativo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="py-3 text-xs text-gray-500">
+                          {u.expiration_date
+                            ? <span className={isExpired ? "text-red-500 font-medium" : ""}>{new Date(u.expiration_date).toLocaleDateString("pt-BR")}</span>
+                            : <span className="text-gray-300">—</span>}
+                        </TableCell>
+                        <TableCell className="py-3 text-xs text-gray-500">
+                          {u.lastSignedIn ? new Date(u.lastSignedIn).toLocaleString("pt-BR") : "—"}
+                        </TableCell>
+                        <TableCell className="py-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/* Toggle ativo/inativo direto */}
+                            {u.id !== currentUser?.id && (
+                              <button
+                                title={u.isActive ? "Desativar usuário" : "Ativar usuário"}
+                                onClick={() => toggleUserActive.mutate({ id: u.id, isActive: !u.isActive })}
+                                className={`p-1.5 rounded ${u.isActive ? "text-green-600 hover:bg-green-50" : "text-gray-400 hover:bg-gray-100"}`}
+                              >
+                                {u.isActive ? <Power className="h-3.5 w-3.5" /> : <PowerOff className="h-3.5 w-3.5" />}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleOpenEditUser(u)}
+                              className="p-1.5 rounded text-gray-500 hover:bg-gray-100"
+                              title="Editar"
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </button>
+                            {u.id !== currentUser?.id && isAdminMaster && (
+                              <button
+                                onClick={() => { if (confirm(`Excluir usuário "${u.name || u.username}"?`)) deleteUser.mutate({ id: u.id }); }}
+                                className="p-1.5 rounded text-red-500 hover:bg-red-50"
+                                title="Excluir"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -457,18 +572,17 @@ export default function AdminPage() {
           <div>
             <div className="mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Auditoria</h2>
-              <p className="text-sm text-gray-500">Log de atividades do portal</p>
+              <p className="text-sm text-gray-500">Registro de ações realizadas no sistema</p>
             </div>
-
             <div className="bg-white rounded border border-gray-200 overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-gray-50 border-b border-gray-200">
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600 w-[160px]">Data/Hora</TableHead>
+                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Data/Hora</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Usuário</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Ação</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Tipo</TableHead>
                     <TableHead className="py-3 text-xs font-semibold text-gray-600">Alvo</TableHead>
+                    <TableHead className="py-3 text-xs font-semibold text-gray-600">IP</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -478,17 +592,19 @@ export default function AdminPage() {
                     <TableRow><TableCell colSpan={5} className="text-center py-8 text-gray-400 text-sm">Nenhum registro de auditoria</TableCell></TableRow>
                   ) : auditLogs.map((log: any) => (
                     <TableRow key={log.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                      <TableCell className="py-3 text-xs text-gray-500">
-                        {new Date(log.timestamp).toLocaleString('pt-BR')}
+                      <TableCell className="py-2.5 text-xs text-gray-500">
+                        {new Date(log.timestamp).toLocaleString("pt-BR")}
                       </TableCell>
-                      <TableCell className="py-3 text-sm text-gray-700">
-                        {log.userName || log.userUsername || `ID ${log.user_id}` || "Sistema"}
+                      <TableCell className="py-2.5 text-sm text-gray-700">
+                        {log.userName || log.userUsername || `#${log.user_id}`}
                       </TableCell>
-                      <TableCell className="py-3">
+                      <TableCell className="py-2.5">
                         <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{log.action}</code>
                       </TableCell>
-                      <TableCell className="py-3 text-xs text-gray-500">{log.target_type || "-"}</TableCell>
-                      <TableCell className="py-3 text-xs text-gray-500">{log.target_id || "-"}</TableCell>
+                      <TableCell className="py-2.5 text-xs text-gray-500">
+                        {log.target_type ? `${log.target_type} #${log.target_id}` : "—"}
+                      </TableCell>
+                      <TableCell className="py-2.5 text-xs text-gray-400">{log.ip_address || "—"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -496,167 +612,28 @@ export default function AdminPage() {
             </div>
           </div>
         )}
-        {/* ── ABA CACHE DICOM ── */}
+
+        {/* ── ABA CACHE ── */}
         {effectiveTab === "cache" && <CachePanel />}
       </div>
 
-      {/* ── DIALOG CRIAR UNIDADE ── */}
-      <Dialog open={isCreateUnitOpen} onOpenChange={setIsCreateUnitOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Nova Unidade</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleCreateUnit} className="space-y-4 mt-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="cu-name" className="text-sm">Nome *</Label>
-                <Input id="cu-name" name="name" placeholder="Ex: Studio Barra7" required className="h-9" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cu-slug" className="text-sm">Slug *</Label>
-                <Input id="cu-slug" name="slug" placeholder="studio-barra7" required pattern="[a-z0-9-]+" className="h-9" />
-              </div>
-            </div>
-            <div className="border-t pt-3">
-              <p className="text-xs font-semibold text-gray-600 mb-3 flex items-center gap-1.5"><Server className="h-3.5 w-3.5" />Configuração PACS (DICOM)</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-sm">IP do PACS *</Label>
-                  <Input name="pacs_ip" placeholder="179.67.254.135" required className="h-9" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Porta PACS *</Label>
-                  <Input name="pacs_port" type="number" placeholder="11112" min={1} max={65535} required className="h-9" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">AE Title do PACS *</Label>
-                  <Input name="pacs_ae_title" placeholder="PACSML" maxLength={16} required className="h-9" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">AE Title Local</Label>
-                  <Input name="pacs_local_ae_title" placeholder="LAUDS" maxLength={16} defaultValue="LAUDS" className="h-9" />
-                </div>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setIsCreateUnitOpen(false)}>Cancelar</Button>
-              <Button type="submit" size="sm" disabled={createUnit.isPending}>
-                {createUnit.isPending ? "Criando..." : "Criar Unidade"}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {/* Diálogos */}
+      <UnitFormDialog
+        open={unitDialogOpen}
+        onOpenChange={(open) => { setUnitDialogOpen(open); if (!open) setEditingUnit(null); }}
+        unit={editingUnit}
+        onSave={handleSaveUnit}
+        loading={createUnit.isPending || updateUnit.isPending}
+      />
 
-      {/* ── DIALOG EDITAR UNIDADE ── */}
-      <Dialog open={!!editingUnit} onOpenChange={(o) => !o && setEditingUnit(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Editar Unidade</DialogTitle>
-          </DialogHeader>
-          {editingUnit && (
-            <form onSubmit={handleUpdateUnit} className="space-y-4 mt-2">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Nome *</Label>
-                  <Input name="name" defaultValue={editingUnit.name} required className="h-9" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Slug *</Label>
-                  <Input name="slug" defaultValue={editingUnit.slug} required className="h-9" />
-                </div>
-              </div>
-              <div className="border-t pt-3">
-                <p className="text-xs font-semibold text-gray-600 mb-3 flex items-center gap-1.5"><Server className="h-3.5 w-3.5" />Configuração PACS (DICOM)</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">IP do PACS</Label>
-                    <Input name="pacs_ip" defaultValue={(editingUnit as any).pacs_ip || ""} placeholder="179.67.254.135" className="h-9" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Porta PACS</Label>
-                    <Input name="pacs_port" type="number" defaultValue={(editingUnit as any).pacs_port || ""} placeholder="11112" min={1} max={65535} className="h-9" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">AE Title do PACS</Label>
-                    <Input name="pacs_ae_title" defaultValue={(editingUnit as any).pacs_ae_title || ""} placeholder="PACSML" maxLength={16} className="h-9" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">AE Title Local</Label>
-                    <Input name="pacs_local_ae_title" defaultValue={(editingUnit as any).pacs_local_ae_title || "LAUDS"} placeholder="LAUDS" maxLength={16} className="h-9" />
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch name="isActive" defaultChecked={editingUnit.isActive} />
-                <Label className="text-sm">Unidade ativa</Label>
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setEditingUnit(null)}>Cancelar</Button>
-                <Button type="submit" size="sm" disabled={updateUnit.isPending}>
-                  {updateUnit.isPending ? "Salvando..." : "Salvar"}
-                </Button>
-              </div>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* ── DIALOG CRIAR USUÁRIO ── */}
-      <Dialog open={isCreateUserOpen} onOpenChange={setIsCreateUserOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Novo Usuário</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleCreateUser} className="space-y-4 mt-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-sm">Nome completo *</Label>
-                <Input name="name" placeholder="Dr. João Silva" required className="h-9" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Usuário *</Label>
-                <Input name="username" placeholder="joaosilva" required className="h-9" />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm">E-mail</Label>
-              <Input name="email" type="email" placeholder="joao@clinica.com" className="h-9" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm">Senha *</Label>
-              <Input name="password" type="password" placeholder="Mínimo 6 caracteres" required minLength={6} className="h-9" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-sm">Perfil *</Label>
-                <select name="role" required className="h-9 w-full rounded-md border border-gray-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="viewer">Visualizador</option>
-                  <option value="operador">Operador</option>
-                  <option value="medico">Médico</option>
-                  <option value="unit_admin">Admin Unidade</option>
-                  <option value="admin_master">Admin Master</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Unidade</Label>
-                <select name="unit_id" className="h-9 w-full rounded-md border border-gray-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="">Sem unidade</option>
-                  {units.map((u) => (
-                    <option key={u.id} value={u.id}>{u.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setIsCreateUserOpen(false)}>Cancelar</Button>
-              <Button type="submit" size="sm" disabled={createUser.isPending}>
-                {createUser.isPending ? "Criando..." : "Criar Usuário"}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <UserFormDialog
+        open={userDialogOpen}
+        onOpenChange={(open) => { setUserDialogOpen(open); if (!open) setEditingUser(null); }}
+        user={editingUser}
+        units={units.map((u: any) => ({ id: u.id, name: u.name, isActive: u.isActive }))}
+        onSave={handleSaveUser}
+        loading={createUser.isPending || updateUserMutation.isPending}
+      />
     </div>
   );
 }

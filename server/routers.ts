@@ -94,7 +94,7 @@ export const appRouter = router({
         email: z.string().email().optional(),
         name: z.string().min(1),
         password: z.string().min(6),
-        role: z.enum(['unit_admin', 'medico', 'viewer']),
+        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador']),
         unit_id: z.number().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -162,6 +162,8 @@ export const appRouter = router({
         pacs_port: z.number().int().min(1).max(65535),
         pacs_ae_title: z.string().min(1).max(16),
         pacs_local_ae_title: z.string().max(16).optional().default('LAUDS'),
+        address: z.string().max(500).optional(),
+        equipment_info: z.string().optional(),
         logoUrl: z.string().optional(),
         isActive: z.boolean().optional().default(true),
       }))
@@ -188,6 +190,8 @@ export const appRouter = router({
         pacs_port: z.number().int().min(1).max(65535).optional(),
         pacs_ae_title: z.string().min(1).max(16).optional(),
         pacs_local_ae_title: z.string().max(16).optional(),
+        address: z.string().max(500).optional().nullable(),
+        equipment_info: z.string().optional().nullable(),
         logoUrl: z.string().optional(),
         isActive: z.boolean().optional(),
       }))
@@ -1136,6 +1140,69 @@ export const appRouter = router({
         const { users } = await import("../drizzle/schema");
         const { eq: eqOp } = await import("drizzle-orm");
         await db.delete(users).where(eqOp(users.id, input.id));
+        return { success: true };
+      }),
+
+    updateUser: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().min(1).max(255).optional(),
+        email: z.string().optional().nullable(),
+        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador']).optional(),
+        unit_id: z.number().optional().nullable(),
+        isActive: z.boolean().optional(),
+        expiration_date: z.string().optional().nullable(),
+        password: z.string().min(6).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        if (ctx.user.role === 'unit_admin' && input.role === 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não pode promover para admin_master' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { users } = await import("../drizzle/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        const updateData: Record<string, unknown> = {};
+        if (input.name !== undefined) updateData.name = input.name;
+        if (input.email !== undefined) updateData.email = input.email || null;
+        if (input.role !== undefined) updateData.role = input.role;
+        if (input.unit_id !== undefined) updateData.unit_id = input.unit_id;
+        if (input.isActive !== undefined) updateData.isActive = input.isActive;
+        if (input.expiration_date !== undefined) updateData.expiration_date = input.expiration_date || null;
+        if (input.password) {
+          const bcryptLib = await import('bcryptjs');
+          updateData.password_hash = await bcryptLib.hash(input.password, 12);
+        }
+        await db.update(users).set(updateData as any).where(eqOp(users.id, input.id));
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: ctx.user.unit_id ?? undefined,
+          action: 'UPDATE_USER',
+          target_type: 'USER',
+          target_id: String(input.id),
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+        });
+        return { success: true };
+      }),
+
+    toggleUserActive: protectedProcedure
+      .input(z.object({ id: z.number(), isActive: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        if (ctx.user.id === input.id) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Não é possível desativar o próprio usuário' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { users } = await import("../drizzle/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        await db.update(users).set({ isActive: input.isActive }).where(eqOp(users.id, input.id));
         return { success: true };
       }),
   }),

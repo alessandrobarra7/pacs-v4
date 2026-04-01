@@ -78,6 +78,13 @@
       "when": 1775002765791,
       "tag": "0010_lumpy_wasp",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1775085368424,
+      "tag": "0011_pale_moon_knight",
+      "breakpoints": true
     }
   ]
 }
