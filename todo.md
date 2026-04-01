@@ -401,3 +401,7 @@
 - [ ] PacsQueryPage: dropdown de unidades mostra apenas unidades com permissão view_studies
 - [ ] Procedures protegidos: verificar permissão granular além do role (ex: edit_reports para laudar)
 - [ ] admin_master e unit_admin têm acesso total sem precisar de registro na tabela
+
+## FILTRO DE DATA — Calendário único (Popover)
+- [x] Substituir filtro de data (campos de/até + botão Buscar) por Popover com Calendar shadcn que dispara busca ao clicar em uma data
+- [x] Botão "Limpar" para remover a data selecionada e voltar ao filtro de período anterior

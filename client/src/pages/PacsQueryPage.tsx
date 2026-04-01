@@ -4,13 +4,17 @@ import {
   Search, Eye, FileText, Printer,
   Clipboard, Settings,
   ChevronLeft, ChevronRight, Clock, Pencil, Check, X,
-  Download, Loader2,
+  Download, Loader2, CalendarDays,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
 import { canReport, canAccessAdmin, canFillAnamnesis, canViewDICOM, type UserRole } from "../../../shared/permissions";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 const PAGE_SIZE = 20;
 /** Converte data DICOM (YYYYMMDD) + hora (HHMMSS) em objeto Date */
@@ -318,9 +322,8 @@ export function PacsQueryPage() {
   const cacheKey = `pacs_query_results_unit_${effectiveUnitId || 'none'}`;
 
   const [filters, setFilters] = useState({ patientName: "", studyDate: "", period: "today" });
-  const [customDateFrom, setCustomDateFrom] = useState("");
-  const [customDateTo, setCustomDateTo] = useState("");
-  const [showCustomDate, setShowCustomDate] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [queryResults, setQueryResults] = useState<any[]>(() => {
     try { return JSON.parse(localStorage.getItem(cacheKey) || '[]'); } catch { return []; }
   });
@@ -581,12 +584,7 @@ export function PacsQueryPage() {
 
   const handlePeriodChange = (period: string) => {
     setShowPendingOnly(false);
-    if (period === 'custom') {
-      setShowCustomDate(true);
-      setFilters(f => ({ ...f, period: 'custom', studyDate: '' }));
-      return;
-    }
-    setShowCustomDate(false);
+    setSelectedDate(undefined);
     let studyDate = '';
     if (period === 'today') studyDate = 'TODAY';
     else if (period === 'yesterday') {
@@ -599,10 +597,23 @@ export function PacsQueryPage() {
     runQuery({ period, studyDate });
   };
 
+  const handleCalendarSelect = (date: Date | undefined) => {
+    setSelectedDate(date);
+    setCalendarOpen(false);
+    if (!date) {
+      // Limpar: volta para Hoje
+      handlePeriodChange('today');
+      return;
+    }
+    const studyDate = format(date, 'yyyyMMdd');
+    setFilters(f => ({ ...f, period: 'custom', studyDate }));
+    runQuery({ period: 'custom', studyDate });
+  };
+
   const handlePendingOnly = () => {
     setShowPendingOnly(true);
+    setSelectedDate(undefined);
     setFilters(f => ({ ...f, period: 'pending' }));
-    setShowCustomDate(false);
     // Busca todos os estudos para filtrar localmente por status
     setIsQuerying(true);
     queryPacs.mutate({
@@ -615,17 +626,7 @@ export function PacsQueryPage() {
     });
   };
 
-  const handleCustomDateSearch = () => {
-    if (!customDateFrom && !customDateTo) { toast.error('Informe ao menos uma data'); return; }
-    const from = customDateFrom ? customDateFrom.replace(/-/g, '') : '';
-    const to = customDateTo ? customDateTo.replace(/-/g, '') : '';
-    let studyDate = '';
-    if (from && to) studyDate = `${from}-${to}`;
-    else if (from) studyDate = from;
-    else studyDate = to;
-    setFilters(f => ({ ...f, period: 'custom', studyDate }));
-    runQuery({ period: 'custom', studyDate });
-  };
+
 
   const handleVisualize = async (study: any) => {
     if (!study.studyInstanceUid) { toast.error('UID do estudo não disponível'); return; }
@@ -845,18 +846,40 @@ export function PacsQueryPage() {
         <div className="flex items-center gap-1 flex-wrap">
           {periodBtn('today', 'Hoje')}
           {periodBtn('yesterday', 'Ontem')}
-          {/* Data customizada */}
-          <button
-            onClick={() => handlePeriodChange('custom')}
-            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border flex items-center gap-1 ${
-              activePeriod === 'custom'
-                ? 'bg-amber-700 text-white border-amber-700'
-                : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            <Clock className="h-3 w-3" />
-            Data
-          </button>
+          {/* Calendário — Popover com seleção de data única */}
+          <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+            <PopoverTrigger asChild>
+              <button
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border flex items-center gap-1 ${
+                  activePeriod === 'custom' && selectedDate
+                    ? 'bg-amber-700 text-white border-amber-700'
+                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <CalendarDays className="h-3 w-3" />
+                {selectedDate
+                  ? format(selectedDate, 'dd/MM/yyyy', { locale: ptBR })
+                  : 'Data'}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={selectedDate}
+                onSelect={handleCalendarSelect}
+                locale={ptBR}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+          {selectedDate && (
+            <button
+              onClick={() => handleCalendarSelect(undefined)}
+              className="text-xs text-gray-400 hover:text-gray-600 underline"
+            >
+              Limpar
+            </button>
+          )}
           {/* Não Laudados */}
           <button
             onClick={handlePendingOnly}
@@ -871,31 +894,7 @@ export function PacsQueryPage() {
           {periodBtn('all', 'Todos')}
         </div>
 
-        {/* Inputs de data customizada */}
-        {showCustomDate && (
-          <div className="flex items-center gap-1">
-            <input
-              type="date"
-              value={customDateFrom}
-              onChange={e => setCustomDateFrom(e.target.value)}
-              className="h-7 px-2 text-xs border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-600"
-            />
-            <span className="text-xs text-gray-400">até</span>
-            <input
-              type="date"
-              value={customDateTo}
-              onChange={e => setCustomDateTo(e.target.value)}
-              className="h-7 px-2 text-xs border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-600"
-            />
-            <button
-              onClick={handleCustomDateSearch}
-              disabled={isQuerying}
-              className="px-2 py-1 rounded text-xs font-medium bg-amber-700 text-white hover:bg-amber-800 disabled:opacity-60"
-            >
-              Buscar
-            </button>
-          </div>
-        )}
+
 
         {/* Toggle pré-download automático */}
         <button
