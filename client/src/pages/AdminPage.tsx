@@ -256,6 +256,10 @@ export default function AdminPage() {
     }
   };
 
+  const setPermissions = trpc.admin.setUserPermissions.useMutation({
+    onError: (e) => toast.error(`Erro ao salvar permissões: ${e.message}`),
+  });
+
   const handleSaveUser = (data: UserFormData) => {
     if (data.id) {
       updateUserMutation.mutate({
@@ -263,10 +267,16 @@ export default function AdminPage() {
         name: data.name,
         email: data.email,
         role: data.role,
-        unit_id: data.unit_id,
+        unit_id: data.unit_id ?? undefined,
         isActive: data.isActive,
         expiration_date: data.expiration_date || undefined,
         password: data.password || undefined,
+      }, {
+        onSuccess: () => {
+          if (data.permissions && data.permissions.length >= 0) {
+            setPermissions.mutate({ userId: data.id!, permissions: data.permissions });
+          }
+        },
       });
     } else {
       createUser.mutate({
@@ -275,7 +285,14 @@ export default function AdminPage() {
         email: data.email || undefined,
         password: data.password!,
         role: data.role,
-        unit_id: data.unit_id,
+        unit_id: data.unit_id ?? undefined,
+      }, {
+        onSuccess: (result: any) => {
+          const newUserId = result?.userId;
+          if (newUserId && data.permissions && data.permissions.length > 0) {
+            setPermissions.mutate({ userId: newUserId, permissions: data.permissions });
+          }
+        },
       });
     }
   };
@@ -303,9 +320,10 @@ export default function AdminPage() {
       email: u.email || "",
       username: u.username || "",
       role: u.role,
-      unit_id: u.unit_id || undefined,
+      unit_id: u.unit_id ?? null,
       isActive: u.isActive,
       expiration_date: u.expiration_date || "",
+      permissions: [],
     });
     setUserDialogOpen(true);
   };

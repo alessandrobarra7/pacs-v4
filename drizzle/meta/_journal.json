@@ -85,6 +85,13 @@
       "when": 1775085368424,
       "tag": "0011_pale_moon_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1775086519858,
+      "tag": "0012_wonderful_secret_warriors",
+      "breakpoints": true
     }
   ]
 }

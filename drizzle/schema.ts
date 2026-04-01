@@ -53,6 +53,25 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 /**
+ * User-Unit Permissions — granular access control per unit per user
+ * admin_master and unit_admin bypass this table (full access implied)
+ */
+export const user_unit_permissions = mysqlTable("user_unit_permissions", {
+  id: int("id").autoincrement().primaryKey(),
+  user_id: int("user_id").notNull(),
+  unit_id: int("unit_id").notNull(),
+  view_studies: boolean("view_studies").default(true).notNull(),
+  edit_reports: boolean("edit_reports").default(false).notNull(),
+  view_anamnesis: boolean("view_anamnesis").default(false).notNull(),
+  print_reports: boolean("print_reports").default(false).notNull(),
+  manage_templates: boolean("manage_templates").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type UserUnitPermission = typeof user_unit_permissions.$inferSelect;
+export type InsertUserUnitPermission = typeof user_unit_permissions.$inferInsert;
+
+/**
  * Studies cache - Local cache of DICOM studies from Orthanc
  */
 export const studies_cache = mysqlTable("studies_cache", {

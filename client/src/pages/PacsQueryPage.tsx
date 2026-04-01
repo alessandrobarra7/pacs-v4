@@ -275,9 +275,15 @@ export function PacsQueryPage() {
     const saved = localStorage.getItem(SELECTED_UNIT_KEY);
     return saved ? parseInt(saved, 10) : null;
   });
-  const effectiveUnitId = isAdminMaster ? selectedUnitId : (user?.unit_id || null);
+  // Carregar unidades acessíveis pelo usuário (admin_master vê todas, outros vêem apenas as que têm permissão)
+  const canSelectUnit = isAdminMaster || user?.role === 'unit_admin';
+  const { data: allUnits = [] } = trpc.units.list.useQuery(undefined, { enabled: !!user });
 
-  const { data: allUnits = [] } = trpc.units.list.useQuery(undefined, { enabled: isAdminMaster });
+  // Para usuários com múltiplas unidades (via permissões), usa selectedUnitId; caso contrário usa unit_id legado
+  const effectiveUnitId = (canSelectUnit || allUnits.length > 1)
+    ? selectedUnitId
+    : (user?.unit_id || (allUnits.length > 0 ? allUnits[0].id : null));
+
   const { data: unitData } = trpc.units.getById.useQuery(
     { id: effectiveUnitId || 0 },
     { enabled: !!effectiveUnitId }
@@ -290,14 +296,14 @@ export function PacsQueryPage() {
   };
 
   useEffect(() => {
-    if (isAdminMaster && allUnits.length > 0) {
+    if (allUnits.length > 0) {
       if (selectedUnitId === null) {
         // Primeira visita: selecionar a primeira unidade e persistir
         const firstId = allUnits[0].id;
         setSelectedUnitId(firstId);
         localStorage.setItem(SELECTED_UNIT_KEY, String(firstId));
       } else {
-        // Verificar se a unidade salva ainda existe (pode ter sido deletada)
+        // Verificar se a unidade salva ainda existe (pode ter sido deletada ou permissão removida)
         const exists = allUnits.some(u => u.id === selectedUnitId);
         if (!exists) {
           const firstId = allUnits[0].id;
@@ -306,7 +312,7 @@ export function PacsQueryPage() {
         }
       }
     }
-  }, [isAdminMaster, allUnits, selectedUnitId]);
+  }, [allUnits, selectedUnitId]);
 
   const unitName = unitData?.name || (effectiveUnitId ? 'Carregando...' : 'Sem unidade');
   const cacheKey = `pacs_query_results_unit_${effectiveUnitId || 'none'}`;
@@ -399,7 +405,7 @@ export function PacsQueryPage() {
     setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'connecting', received: 0, total: 0 } }));
     toast.info('Iniciando pré-download das imagens...', { description: study.patientName?.replace(/\^/g, ' ') || '' });
 
-    const unitParam = isAdminMaster && effectiveUnitId ? `?unitId=${effectiveUnitId}` : '';
+    const unitParam = effectiveUnitId ? `?unitId=${effectiveUnitId}` : '';
     const sse = new EventSource(`/api/dicom-stream/${uid}${unitParam}`);
 
     // Timeout de segurança: se após 5 minutos ainda não concluiu, marca como erro
@@ -623,7 +629,7 @@ export function PacsQueryPage() {
 
   const handleVisualize = async (study: any) => {
     if (!study.studyInstanceUid) { toast.error('UID do estudo não disponível'); return; }
-    const unitParam = isAdminMaster && effectiveUnitId ? `?unitId=${effectiveUnitId}` : '';
+    const unitParam = effectiveUnitId ? `?unitId=${effectiveUnitId}` : '';
     const uid = study.studyInstanceUid;
     // Se já está em cache (botão verde), abre instantaneamente
     const pd = preDownloadMap[uid];

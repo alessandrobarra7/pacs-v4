@@ -563,3 +563,64 @@ export async function upsertStudyMetadata(data: {
       },
     });
 }
+
+// ─── User-Unit Permissions ────────────────────────────────────────────────────
+
+/** Retorna todas as permissões de um usuário (todas as unidades) */
+export async function getUserUnitPermissions(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { user_unit_permissions } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  return db.select().from(user_unit_permissions).where(eq(user_unit_permissions.user_id, userId));
+}
+
+/** Retorna a permissão de um usuário para uma unidade específica */
+export async function getUserUnitPermission(userId: number, unitId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { user_unit_permissions } = await import("../drizzle/schema");
+  const { eq, and } = await import("drizzle-orm");
+  const rows = await db
+    .select()
+    .from(user_unit_permissions)
+    .where(and(eq(user_unit_permissions.user_id, userId), eq(user_unit_permissions.unit_id, unitId)));
+  return rows[0] ?? null;
+}
+
+/** Define (replace) as permissões de um usuário para uma lista de unidades.
+ *  Unidades não incluídas na lista terão seus registros removidos. */
+export async function setUserUnitPermissions(
+  userId: number,
+  permissions: Array<{
+    unit_id: number;
+    view_studies: boolean;
+    edit_reports: boolean;
+    view_anamnesis: boolean;
+    print_reports: boolean;
+    manage_templates: boolean;
+  }>
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { user_unit_permissions } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+
+  // Remove todas as permissões existentes do usuário
+  await db.delete(user_unit_permissions).where(eq(user_unit_permissions.user_id, userId));
+
+  // Insere as novas permissões
+  if (permissions.length > 0) {
+    await db.insert(user_unit_permissions).values(
+      permissions.map((p) => ({
+        user_id: userId,
+        unit_id: p.unit_id,
+        view_studies: p.view_studies,
+        edit_reports: p.edit_reports,
+        view_anamnesis: p.view_anamnesis,
+        print_reports: p.print_reports,
+        manage_templates: p.manage_templates,
+      }))
+    );
+  }
+}

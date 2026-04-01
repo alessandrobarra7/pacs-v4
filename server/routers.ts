@@ -134,12 +134,53 @@ export const appRouter = router({
       if (ctx.user.role === 'admin_master') {
         return await getAllUnits();
       }
+      // Verificar permissões por unidade (nova lógica multi-unidade)
+      const { getUserUnitPermissions } = await import('./db');
+      const perms = await getUserUnitPermissions(ctx.user.id);
+      if (perms.length > 0) {
+        const unitIds = perms.map(p => p.unit_id);
+        const allUnits = await getAllUnits();
+        return allUnits.filter(u => unitIds.includes(u.id));
+      }
+      // Fallback: unidade única do usuário (campo unit_id legado)
       if (ctx.user.unit_id) {
         const unit = await getUnitById(ctx.user.unit_id);
         return unit ? [unit] : [];
       }
       return [];
     }),
+
+    /** Retorna as permissões do usuário logado para uma unidade específica */
+    myPermissions: protectedProcedure
+      .input(z.object({ unitId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role === 'admin_master') {
+          // admin_master tem todas as permissões
+          return {
+            view_studies: true,
+            edit_reports: true,
+            view_anamnesis: true,
+            print_reports: true,
+            manage_templates: true,
+          };
+        }
+        const { getUserUnitPermission } = await import('./db');
+        const perm = await getUserUnitPermission(ctx.user.id, input.unitId);
+        if (!perm) {
+          // Fallback para unit_id legado
+          if (ctx.user.unit_id === input.unitId) {
+            return { view_studies: true, edit_reports: true, view_anamnesis: true, print_reports: true, manage_templates: true };
+          }
+          return null;
+        }
+        return {
+          view_studies: perm.view_studies,
+          edit_reports: perm.edit_reports,
+          view_anamnesis: perm.view_anamnesis,
+          print_reports: perm.print_reports,
+          manage_templates: perm.manage_templates,
+        };
+      }),
     
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
@@ -1204,6 +1245,64 @@ export const appRouter = router({
         const { eq: eqOp } = await import("drizzle-orm");
         await db.update(users).set({ isActive: input.isActive }).where(eqOp(users.id, input.id));
         return { success: true };
+      }),
+
+    getUserPermissions: protectedProcedure
+      .input(z.object({ userId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        const { getUserUnitPermissions } = await import('./db');
+        return getUserUnitPermissions(input.userId);
+      }),
+
+    setUserPermissions: protectedProcedure
+      .input(z.object({
+        userId: z.number(),
+        permissions: z.array(z.object({
+          unit_id: z.number(),
+          view_studies: z.boolean(),
+          edit_reports: z.boolean(),
+          view_anamnesis: z.boolean(),
+          print_reports: z.boolean(),
+          manage_templates: z.boolean(),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        const { setUserUnitPermissions } = await import('./db');
+        await setUserUnitPermissions(input.userId, input.permissions);
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: ctx.user.unit_id ?? undefined,
+          action: 'UPDATE_USER',
+          target_type: 'USER',
+          target_id: String(input.userId),
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+        });
+        return { success: true };
+      }),
+
+    listUsersWithPermissions: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { users: usersTable, units: unitsTable, user_unit_permissions } = await import('../drizzle/schema');
+        const allUsers = await db.select().from(usersTable);
+        const allUnits = await db.select().from(unitsTable);
+        const allPerms = await db.select().from(user_unit_permissions);
+        return allUsers.map(u => ({
+          ...u,
+          unitName: allUnits.find(un => un.id === u.unit_id)?.name ?? null,
+          permissions: allPerms.filter(p => p.user_id === u.id),
+        }));
       }),
   }),
   annotations: router({

@@ -389,3 +389,15 @@
 - [x] Criar procedure admin.updateUser para editar usuário (nome, email, role, isActive, expiration_date, unit_id)
 - [x] Criar procedure admin.toggleUserActive para ativar/desativar usuário
 - [x] Atualizar procedure admin.listUsers para retornar expiration_date e nome da unidade
+
+## MELHORIAS ADMIN — Etapa 2: Múltiplas Unidades por Usuário + Permissões Granulares
+
+- [ ] Schema: criar tabela user_unit_permissions (user_id, unit_id, view_studies, edit_reports, view_anamnesis, print_reports, manage_templates)
+- [ ] Migração SQL aplicada no banco
+- [ ] Helper: getUserUnitPermissions(userId), setUserUnitPermissions(userId, permissions[])
+- [ ] tRPC: admin.getUserPermissions, admin.setUserPermissions
+- [ ] UserFormDialog: seção "Unidades e Permissões" com checkbox por unidade + 5 permissões granulares ao expandir
+- [ ] Salvar/editar permissões ao criar/editar usuário
+- [ ] PacsQueryPage: dropdown de unidades mostra apenas unidades com permissão view_studies
+- [ ] Procedures protegidos: verificar permissão granular além do role (ex: edit_reports para laudar)
+- [ ] admin_master e unit_admin têm acesso total sem precisar de registro na tabela
