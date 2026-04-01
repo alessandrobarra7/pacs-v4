@@ -67,11 +67,11 @@ export function DicomViewerPage() {
   const cornerstoneInitRef = useRef(false);
   const sseRef = useRef<EventSource | null>(null);
 
-  // Ler unit_id da query string (passado pelo admin_master)
+  // Ler unitId da query string (passado pelo admin_master via ?unitId=X ou ?unit_id=X)
   const urlUnitId = useMemo(() => {
     const search = window.location.search;
     const params = new URLSearchParams(search);
-    const uid = params.get("unit_id");
+    const uid = params.get("unitId") || params.get("unit_id");
     return uid ? parseInt(uid, 10) : undefined;
   }, [location]);
 
@@ -365,7 +365,8 @@ export function DicomViewerPage() {
     let localTotal = 0;
     let localReceived = 0;
 
-    const sse = new EventSource(`/api/dicom-stream/${studyUid}`);
+    const unitSuffix = urlUnitId ? `?unitId=${urlUnitId}` : '';
+    const sse = new EventSource(`/api/dicom-stream/${studyUid}${unitSuffix}`);
     sseRef.current = sse;
 
     sse.addEventListener("status", (e) => {

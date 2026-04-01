@@ -399,7 +399,8 @@ export function PacsQueryPage() {
     setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'connecting', received: 0, total: 0 } }));
     toast.info('Iniciando pré-download das imagens...', { description: study.patientName?.replace(/\^/g, ' ') || '' });
 
-    const sse = new EventSource(`/api/dicom-stream/${uid}`);
+    const unitParam = isAdminMaster && effectiveUnitId ? `?unitId=${effectiveUnitId}` : '';
+    const sse = new EventSource(`/api/dicom-stream/${uid}${unitParam}`);
 
     // Timeout de segurança: se após 5 minutos ainda não concluiu, marca como erro
     const safetyTimeout = setTimeout(() => {
@@ -622,7 +623,7 @@ export function PacsQueryPage() {
 
   const handleVisualize = async (study: any) => {
     if (!study.studyInstanceUid) { toast.error('UID do estudo não disponível'); return; }
-    const unitParam = isAdminMaster && effectiveUnitId ? `?unit_id=${effectiveUnitId}` : '';
+    const unitParam = isAdminMaster && effectiveUnitId ? `?unitId=${effectiveUnitId}` : '';
     const uid = study.studyInstanceUid;
     // Se já está em cache (botão verde), abre instantaneamente
     const pd = preDownloadMap[uid];

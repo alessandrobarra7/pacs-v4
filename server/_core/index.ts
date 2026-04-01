@@ -475,7 +475,10 @@ async function startServer() {
         return res.end();
       }
 
-      const unitId = user.unit_id;
+      // admin_master pode passar unitId via query param; demais usuários usam sua própria unit_id
+      const queryUnitId = req.query.unitId ? parseInt(req.query.unitId as string, 10) : null;
+      const isAdminMaster = user.role === 'admin_master';
+      const unitId = (isAdminMaster && queryUnitId) ? queryUnitId : user.unit_id;
       if (!unitId) {
         sendEvent('error', { message: 'Usuário sem unidade associada' });
         return res.end();
