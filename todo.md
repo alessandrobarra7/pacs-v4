@@ -351,3 +351,17 @@
 - [x] Indicador visual: botão verde quando anamnese já foi preenchida
 - [x] Viewer: painel colapsável mostrando anamnese salva do estudo aberto
 - [x] Laudo: card de anamnese exibido no ReportEditorPage acima do seletor de template
+
+## MÓDULO STUDY_METADATA — Edições Compartilhadas por Unidade
+
+- [x] Schema: tabela study_metadata (studyInstanceUid, unitId, patientNameOverride, descriptionOverride, notes, editedByUserId, editedByName, editedAt)
+- [x] Migration SQL executada no banco (migrate-study-metadata.mjs)
+- [x] Helper: getStudyMetadata, getStudyMetadataBatch, upsertStudyMetadata
+- [x] tRPC: studyMetadata.get, studyMetadata.getBatch, studyMetadata.save
+- [x] Worklist: merge PACS + banco ao exibir estudos (nome/descrição editados sobrepõem PACS)
+- [x] Worklist: indicador visual (✏️ âmbar) quando nome/descrição foi editado pelo técnico
+- [x] Worklist: notas do técnico exibidas abaixo do nome do paciente
+- [x] EditableExamName: persiste no banco via tRPC (não mais localStorage)
+- [x] Viewer: painel de anamnese exibe seção "✏️ Editado pelo Técnico" com nome, exame e notas
+- [x] Laudo: card âmbar "Informações Editadas pelo Técnico" acima do card de anamnese
+- [x] Laudo: exibe "Editado por [técnico] em [data]" quando houver override

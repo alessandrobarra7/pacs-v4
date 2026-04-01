@@ -120,15 +120,37 @@ const EXAM_SUGGESTIONS = [
   "DENSITOMETRIA ÓSSEA COLUNA E FÊMUR",
 ];
 
-// Componente para edição inline do nome do exame com sugestões
-function EditableExamName({ value, studyUid, rawDescription }: { value: string; studyUid: string; rawDescription?: string }) {
+// Componente para edição inline do nome do exame com sugestões + persistência no banco
+function EditableExamName({
+  value, studyUid, rawDescription, dbOverride, onSaved, canEdit
+}: {
+  value: string;
+  studyUid: string;
+  rawDescription?: string;
+  dbOverride?: string | null;
+  onSaved?: () => void;
+  canEdit?: boolean;
+}) {
   const storageKey = `exam_label_${studyUid}`;
   const [editing, setEditing] = useState(false);
-  const [label, setLabel] = useState(() => localStorage.getItem(storageKey) || value || 'Sem descrição');
+  // Prioridade: banco > localStorage > PACS
+  const [label, setLabel] = useState(() =>
+    dbOverride || localStorage.getItem(storageKey) || value || 'Sem descrição'
+  );
   const [draft, setDraft] = useState(label);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const saveMutation = trpc.studyMetadata.save.useMutation();
+
+  // Sincroniza quando o banco retorna um override atualizado
+  useEffect(() => {
+    if (dbOverride) {
+      setLabel(dbOverride);
+      setDraft(dbOverride);
+    }
+  }, [dbOverride]);
 
   useEffect(() => {
     if (editing) { inputRef.current?.focus(); setShowSuggestions(true); }
@@ -144,7 +166,6 @@ function EditableExamName({ value, studyUid, rawDescription }: { value: string; 
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Inclui a descrição original do PACS como primeira sugestão se diferente do label atual
   const allSuggestions = rawDescription && rawDescription.trim() && rawDescription.toUpperCase() !== label.toUpperCase()
     ? [rawDescription.toUpperCase(), ...EXAM_SUGGESTIONS.filter(s => s.toUpperCase() !== rawDescription.toUpperCase())]
     : EXAM_SUGGESTIONS;
@@ -152,13 +173,28 @@ function EditableExamName({ value, studyUid, rawDescription }: { value: string; 
     ? allSuggestions.filter(s => s.toLowerCase().includes(draft.toLowerCase()))
     : allSuggestions;
 
-  const save = (val?: string) => {
+  const save = async (val?: string) => {
     const trimmed = (val ?? draft).trim() || value || 'Sem descrição';
     setLabel(trimmed);
     setDraft(trimmed);
     localStorage.setItem(storageKey, trimmed);
     setEditing(false);
     setShowSuggestions(false);
+    // Persiste no banco
+    if (studyUid && studyUid.length > 5) {
+      setSaving(true);
+      try {
+        await saveMutation.mutateAsync({
+          studyInstanceUid: studyUid,
+          descriptionOverride: trimmed,
+        });
+        onSaved?.();
+      } catch {
+        toast.error('Erro ao salvar descrição no banco');
+      } finally {
+        setSaving(false);
+      }
+    }
   };
 
   const cancel = () => {
@@ -180,8 +216,8 @@ function EditableExamName({ value, studyUid, rawDescription }: { value: string; 
             className="text-sm border border-amber-400 rounded px-1.5 py-0.5 w-52 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white text-gray-800"
             placeholder="Buscar ou digitar exame..."
           />
-          <button onClick={() => save()} className="text-emerald-600 hover:text-emerald-700 shrink-0" title="Salvar">
-            <Check className="h-3.5 w-3.5" />
+          <button onClick={() => save()} disabled={saving} className="text-emerald-600 hover:text-emerald-700 shrink-0" title="Salvar">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
           </button>
           <button onClick={cancel} className="text-red-400 hover:text-red-500 shrink-0" title="Cancelar">
             <X className="h-3.5 w-3.5" />
@@ -204,16 +240,20 @@ function EditableExamName({ value, studyUid, rawDescription }: { value: string; 
     );
   }
 
+  const isEdited = !!dbOverride;
   return (
     <div className="flex items-center gap-1 group">
-      <span className="text-sm text-gray-800">{label}</span>
-      <button
-        onClick={() => { setDraft(label); setEditing(true); }}
-        className="opacity-0 group-hover:opacity-60 hover:!opacity-100 text-gray-400 hover:text-amber-600 transition-opacity"
-        title="Editar nome do exame"
-      >
-        <Pencil className="h-3 w-3" />
-      </button>
+      <span className={`text-sm ${isEdited ? 'text-amber-700 font-medium' : 'text-gray-800'}`}>{label}</span>
+      {isEdited && <span className="text-xs text-amber-500" title="Editado pelo técnico">✏️</span>}
+      {canEdit !== false && (
+        <button
+          onClick={() => { setDraft(label); setEditing(true); }}
+          className="opacity-0 group-hover:opacity-60 hover:!opacity-100 text-gray-400 hover:text-amber-600 transition-opacity"
+          title="Editar nome do exame"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+      )}
     </div>
   );
 }
@@ -464,6 +504,17 @@ export function PacsQueryPage() {
   useEffect(() => {
     if (statusData) setReportStatusMap(statusData);
   }, [statusData]);
+
+  // Busca metadados editados pelo técnico para todos os estudos da página
+  const { data: metadataBatch, refetch: refetchMetadata } = trpc.studyMetadata.getBatch.useQuery(
+    { studyInstanceUids: studyUids },
+    { enabled: studyUids.length > 0 }
+  );
+  // Mapa de studyUid → metadados editados (compartilhado por toda a unidade)
+  const metadataMap = useMemo(() => {
+    if (!metadataBatch) return {} as Record<string, any>;
+    return Object.fromEntries((metadataBatch as any[]).map((m: any) => [m.study_instance_uid, m]));
+  }, [metadataBatch]);
 
   // logout handled by AppHeader
 
@@ -872,9 +923,14 @@ export function PacsQueryPage() {
             </thead>
             <tbody>
               {pagedResults.map((study, idx) => {
-                const patientName = study.patientName
+                // Metadados editados pelo técnico (compartilhados por toda a unidade)
+                const meta = metadataMap[study.studyInstanceUid] || null;
+                const patientNameRaw = study.patientName
                   ? study.patientName.replace(/\^+/g, ' ').replace(/\s{2,}/g, ' ').trim()
                   : "Sem nome";
+                // Override do banco prevalece sobre o dado do PACS
+                const patientName = (meta?.patient_name_override || patientNameRaw).toUpperCase();
+                const patientNameEdited = !!meta?.patient_name_override;
                 const age = calcAge(study.patientBirthDate || '');
                 const sex = formatSex(study.patientSex || '');
                 const dt = parseDicomDateTime(study.studyDate, study.studyTime);
@@ -898,8 +954,16 @@ export function PacsQueryPage() {
 
                     {/* Paciente */}
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-gray-900 text-sm leading-tight uppercase">{patientName}</div>
+                      <div className={`font-semibold text-sm leading-tight uppercase ${patientNameEdited ? 'text-amber-700' : 'text-gray-900'}`}>
+                        {patientName}
+                        {patientNameEdited && <span className="ml-1 text-xs text-amber-500" title="Nome editado pelo técnico">✏️</span>}
+                      </div>
                       {sex && <div className="text-xs text-gray-400 mt-0.5">{sex}</div>}
+                      {meta?.notes && (
+                        <div className="text-xs text-blue-600 mt-0.5 truncate max-w-[160px]" title={meta.notes}>
+                          📝 {meta.notes}
+                        </div>
+                      )}
                     </td>
 
                     {/* Idade */}
@@ -907,7 +971,7 @@ export function PacsQueryPage() {
                       <span className="text-sm text-gray-600">{age || '-'}</span>
                     </td>
 
-                    {/* Exame — editável */}
+                    {/* Exame — editável (persiste no banco) */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${modalityCls}`}>{modality}</span>
@@ -915,6 +979,9 @@ export function PacsQueryPage() {
                           value={study.studyDescription || ''}
                           studyUid={study.studyInstanceUid || `${idx}`}
                           rawDescription={study.studyDescription || ''}
+                          dbOverride={meta?.description_override || null}
+                          onSaved={() => refetchMetadata()}
+                          canEdit={canCID}
                         />
                       </div>
                     </td>

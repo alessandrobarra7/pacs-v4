@@ -15,7 +15,10 @@ import {
   InsertAuditLog,
   dicom_annotations,
   InsertDicomAnnotation,
-  DicomAnnotation
+  DicomAnnotation,
+  anamnesis_simple,
+  study_metadata,
+  StudyMetadata
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -435,9 +438,7 @@ export async function deleteAnnotation(
     );
 }
 
-// ─── Anamnesis Simple ────────────────────────────────────────────────────────
-import { anamnesis_simple } from "../drizzle/schema";
-
+/// ─── Anamnesis Simple ────────────────────────────────────────────────────────
 /** Busca a anamnese de um estudo pelo studyInstanceUid */
 export async function getAnamnesisSimple(studyInstanceUid: string) {
   const db = await getDb();
@@ -476,6 +477,80 @@ export async function saveAnamnesisSimple(data: {
         presets: data.presets,
         manual_text: data.manual_text,
         patient_name: data.patient_name ?? null,
+      },
+    });
+}
+
+// ─── Study Metadata ───────────────────────────────────────────────────────────
+/** Busca os metadados editados de um estudo para uma unidade específica */
+export async function getStudyMetadata(
+  studyInstanceUid: string,
+  unitId: number
+): Promise<StudyMetadata | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(study_metadata)
+    .where(
+      and(
+        eq(study_metadata.study_instance_uid, studyInstanceUid),
+        eq(study_metadata.unit_id, unitId)
+      )
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Busca metadados de múltiplos estudos de uma unidade (batch) */
+export async function getStudyMetadataBatch(
+  studyInstanceUids: string[],
+  unitId: number
+): Promise<StudyMetadata[]> {
+  if (!studyInstanceUids.length) return [];
+  const db = await getDb();
+  if (!db) return [];
+  return await db
+    .select()
+    .from(study_metadata)
+    .where(
+      and(
+        inArray(study_metadata.study_instance_uid, studyInstanceUids),
+        eq(study_metadata.unit_id, unitId)
+      )
+    );
+}
+
+/** Cria ou atualiza os metadados editados de um estudo (upsert por uid+unitId) */
+export async function upsertStudyMetadata(data: {
+  study_instance_uid: string;
+  unit_id: number;
+  patient_name_override?: string | null;
+  description_override?: string | null;
+  notes?: string | null;
+  edited_by_user_id: number;
+  edited_by_name?: string | null;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .insert(study_metadata)
+    .values({
+      study_instance_uid: data.study_instance_uid,
+      unit_id: data.unit_id,
+      patient_name_override: data.patient_name_override ?? null,
+      description_override: data.description_override ?? null,
+      notes: data.notes ?? null,
+      edited_by_user_id: data.edited_by_user_id,
+      edited_by_name: data.edited_by_name ?? null,
+    })
+    .onDuplicateKeyUpdate({
+      set: {
+        patient_name_override: data.patient_name_override ?? null,
+        description_override: data.description_override ?? null,
+        notes: data.notes ?? null,
+        edited_by_user_id: data.edited_by_user_id,
+        edited_by_name: data.edited_by_name ?? null,
       },
     });
 }

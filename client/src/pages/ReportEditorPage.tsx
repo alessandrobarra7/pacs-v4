@@ -166,6 +166,12 @@ export default function ReportEditorPage() {
     { studyInstanceUid: studyInstanceUid ?? "" },
     { enabled: !!studyInstanceUid }
   );
+  // Busca metadados editados pelo técnico
+  const { data: studyMetaRaw } = trpc.studyMetadata.get.useQuery(
+    { studyInstanceUid: studyInstanceUid ?? "" },
+    { enabled: !!studyInstanceUid }
+  );
+  const studyMeta = studyMetaRaw as any;
 
   // Busca templates
   const { data: templates } = trpc.templates.list.useQuery();
@@ -409,6 +415,40 @@ export default function ReportEditorPage() {
             </div>
           </div>
         </Card>
+
+        {/* ── METADADOS EDITADOS PELO TÉCNICO ── */}
+        {studyMeta && (studyMeta.patient_name_override || studyMeta.description_override || studyMeta.notes) && (
+          <Card className="p-4 border-amber-200 bg-amber-50">
+            <div className="flex items-start gap-2">
+              <span className="text-amber-600 mt-0.5 shrink-0 text-sm">✏️</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-amber-700 mb-2 uppercase tracking-wide">Informações Editadas pelo Técnico</p>
+                <div className="space-y-1">
+                  {studyMeta.patient_name_override && (
+                    <p className="text-sm text-gray-800">
+                      <span className="font-medium text-amber-700">Paciente:</span> {studyMeta.patient_name_override}
+                    </p>
+                  )}
+                  {studyMeta.description_override && (
+                    <p className="text-sm text-gray-800">
+                      <span className="font-medium text-amber-700">Exame:</span> {studyMeta.description_override}
+                    </p>
+                  )}
+                  {studyMeta.notes && (
+                    <p className="text-sm text-gray-800">
+                      <span className="font-medium text-amber-700">Observações:</span> {studyMeta.notes}
+                    </p>
+                  )}
+                  {studyMeta.edited_by_name && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Editado por {studyMeta.edited_by_name} • {studyMeta.updatedAt ? new Date(studyMeta.updatedAt).toLocaleString('pt-BR') : ''}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* ── ANAMNESE ── */}
         {anamnesisData && (

@@ -115,6 +115,12 @@ export function DicomViewerPage() {
     { studyInstanceUid: studyUid ?? "" },
     { enabled: !!studyUid }
   );
+  // Metadados editados pelo técnico (nome do paciente, descrição, notas)
+  const studyMetaQuery = trpc.studyMetadata.get.useQuery(
+    { studyInstanceUid: studyUid ?? "" },
+    { enabled: !!studyUid }
+  );
+  const studyMeta = studyMetaQuery.data as any;
   // ─── Anotações persistentes ─────────────────────────────────────────────────
   const saveAnnotationMutation = trpc.annotations.save.useMutation();
   const deleteAnnotationMutation = trpc.annotations.delete.useMutation();
@@ -941,7 +947,34 @@ export function DicomViewerPage() {
       {showAnamnesisPanel && (
         <div className="flex-shrink-0 bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-start gap-4">
           <ClipboardList className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 space-y-3">
+            {/* Metadados editados pelo técnico */}
+            {studyMeta && (studyMeta.patient_name_override || studyMeta.description_override || studyMeta.notes) && (
+              <div className="bg-amber-900/30 border border-amber-700/50 rounded p-2 space-y-1">
+                <p className="text-xs font-semibold text-amber-400 mb-1">✏️ Editado pelo Técnico</p>
+                {studyMeta.patient_name_override && (
+                  <p className="text-xs text-amber-200">
+                    <span className="text-amber-500">Paciente:</span> {studyMeta.patient_name_override}
+                  </p>
+                )}
+                {studyMeta.description_override && (
+                  <p className="text-xs text-amber-200">
+                    <span className="text-amber-500">Exame:</span> {studyMeta.description_override}
+                  </p>
+                )}
+                {studyMeta.notes && (
+                  <p className="text-xs text-amber-200">
+                    <span className="text-amber-500">Observações:</span> {studyMeta.notes}
+                  </p>
+                )}
+                {studyMeta.edited_by_name && (
+                  <p className="text-xs text-gray-600">
+                    por {studyMeta.edited_by_name} • {studyMeta.updatedAt ? new Date(studyMeta.updatedAt).toLocaleString('pt-BR') : ''}
+                  </p>
+                )}
+              </div>
+            )}
+            {/* Anamnese */}
             <p className="text-xs font-semibold text-emerald-400 mb-1">Indicação Clínica / Anamnese</p>
             {anamnesisQuery.isLoading ? (
               <p className="text-xs text-gray-500">Carregando...</p>

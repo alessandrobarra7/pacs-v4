@@ -121,7 +121,7 @@ export const audit_log = mysqlTable("audit_log", {
   id: int("id").autoincrement().primaryKey(),
   user_id: int("user_id"),
   unit_id: int("unit_id"),
-  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS"]).notNull(),
+  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA"]).notNull(),
   target_type: varchar("target_type", { length: 50 }),
   target_id: varchar("target_id", { length: 100 }),
   ip_address: varchar("ip_address", { length: 45 }),
@@ -221,3 +221,25 @@ export const anamnesis_simple = mysqlTable("anamnesis_simple", {
 
 export type AnamnesisSimple = typeof anamnesis_simple.$inferSelect;
 export type InsertAnamnesisSimple = typeof anamnesis_simple.$inferInsert;
+
+/**
+ * Study Metadata — Editable overrides per unit
+ * Allows technicians to edit patient name, study description, etc.
+ * All users of the same unit see the same overrides (shared data layer)
+ */
+export const study_metadata = mysqlTable("study_metadata", {
+  id: int("id").autoincrement().primaryKey(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
+  unit_id: int("unit_id").notNull(),
+  // Overrides — null means "use original PACS value"
+  patient_name_override: varchar("patient_name_override", { length: 255 }),
+  description_override: varchar("description_override", { length: 255 }),
+  notes: text("notes"),
+  // Audit
+  edited_by_user_id: int("edited_by_user_id").notNull(),
+  edited_by_name: varchar("edited_by_name", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type StudyMetadata = typeof study_metadata.$inferSelect;
+export type InsertStudyMetadata = typeof study_metadata.$inferInsert;
