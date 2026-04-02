@@ -1,3 +1,20 @@
+# Guia de Deploy — PACS Portal
+
+> **Convenção:** todos os comandos indicam explicitamente em qual máquina devem ser executados:
+> - **VM1** — servidor da aplicação Node.js (`172.16.3.100` / `lauds.com.br`)
+> - **VM2** — servidor do banco de dados MySQL (`172.16.3.101`)
+
+---
+
+## Arquitetura do Ambiente
+
+| Máquina | IP Interno | Função |
+|---|---|---|
+| VM1 | `172.16.3.100` | Aplicação Node.js (PM2 + Nginx + SSL) |
+| VM2 | `172.16.3.101` | Banco de dados MySQL 8.0 |
+
+---
+
 # Guia de Deploy — PACS Portal na VM1
 
 **VM1:** `172.16.3.100` | **Acesso externo:** `https://lauds.com.br` (HTTPS ativo com Let's Encrypt)
@@ -6,7 +23,7 @@
 
 ## Pré-requisitos
 
-Execute os comandos abaixo como `root` na VM1 antes de qualquer coisa:
+**Execute na VM1** como `root`:
 
 ```bash
 apt update && apt install -y git curl nginx
@@ -19,6 +36,8 @@ npm install -g pnpm pm2
 ---
 
 ## Deploy Inicial (primeira vez)
+
+**Execute na VM1:**
 
 ```bash
 cd /opt
@@ -39,6 +58,8 @@ O script cria o `.env`, instala dependências, compila o frontend, popula o banc
 
 ## Atualização (após novo commit no GitHub)
 
+**Execute na VM1:**
+
 ```bash
 cd /opt/pacs-portal
 git pull github main
@@ -49,6 +70,8 @@ pm2 restart pacs-portal
 ---
 
 ## Configuração do Nginx
+
+**Execute na VM1.**
 
 Crie o arquivo `/etc/nginx/sites-available/pacs-portal` (configuração inicial HTTP, antes do SSL):
 
@@ -79,6 +102,8 @@ nginx -t && systemctl enable nginx && systemctl start nginx
 
 ## Instalação do SSL (Let's Encrypt)
 
+**Execute na VM1.**
+
 > **Pré-requisito:** A porta 443 deve estar redirecionada no Mikrotik para `172.16.3.100:443`.
 > Adicione no Mikrotik: `/ip firewall nat add chain=dstnat action=dst-nat to-addresses=172.16.3.100 to-ports=443 protocol=tcp dst-address=45.189.160.17 dst-port=443 comment="RED PORTA 443 HTTPS IP: 172.16.3.100"`
 
@@ -105,7 +130,7 @@ certbot renew --dry-run
 
 ## Arquivo `.env` de Produção
 
-Localização: `/opt/pacs-portal/.env`
+**Localização na VM1:** `/opt/pacs-portal/.env`
 
 ```env
 DATABASE_URL=mysql://pacs_user:PacsPortal2025@172.16.3.101:3306/pacs_portal
@@ -129,6 +154,8 @@ PORT=3000
 
 ## Comandos PM2 Úteis
 
+**Execute na VM1:**
+
 ```bash
 pm2 list
 pm2 logs pacs-portal --lines 50
@@ -141,7 +168,9 @@ pm2 save
 
 ---
 
-## Verificação de Conectividade com o Banco (VM2)
+## Verificação de Conectividade com o Banco
+
+**Execute na VM1** (testa a conexão da VM1 até o banco na VM2):
 
 ```bash
 mysql -h 172.16.3.101 -u pacs_user -pPacsPortal2025 pacs_portal -e "SELECT id, name FROM units;"
@@ -150,6 +179,8 @@ mysql -h 172.16.3.101 -u pacs_user -pPacsPortal2025 pacs_portal -e "SELECT id, n
 ---
 
 ## Verificação de Conectividade com o Orthanc
+
+**Execute na VM1:**
 
 ```bash
 curl -s http://172.16.3.241:8042/system | python3 -m json.tool
@@ -161,19 +192,176 @@ Resposta esperada: JSON com `Version`, `Name`, `ApiVersion`.
 
 ## Migrações de Banco
 
-Após atualizar o código com novas migrações:
+**Execute na VM2** (acesso direto ao MySQL):
 
 ```bash
-cd /opt/pacs-portal
-cat drizzle/0006_parallel_betty_brant.sql
-mysql -h 172.16.3.101 -u pacs_user -pPacsPortal2025 pacs_portal < drizzle/0006_parallel_betty_brant.sql
+mysql -u root pacs_portal < /caminho/para/migracao.sql
+```
+
+Ou conectando da VM1:
+
+```bash
+mysql -h 172.16.3.101 -u pacs_user -pPacsPortal2025 pacs_portal < drizzle/migracao.sql
 ```
 
 ---
 
-## Backup do Banco (VM2)
+## Schema Completo do Banco de Dados
 
-Execute na VM2 (`172.16.3.101`):
+> Estado atual após todas as migrações aplicadas até **01/04/2026**.
+> Em uma nova instalação, aplique este schema diretamente na **VM2** — não é necessário rodar as migrações individualmente.
+
+**Execute na VM2:**
+
+```sql
+-- Tabela de unidades PACS
+CREATE TABLE IF NOT EXISTS units (
+  id                  INT AUTO_INCREMENT PRIMARY KEY,
+  name                VARCHAR(255) NOT NULL,
+  slug                VARCHAR(100) NOT NULL UNIQUE,
+  isActive            TINYINT(1) NOT NULL DEFAULT 1,
+  orthanc_base_url    VARCHAR(500) NULL,
+  orthanc_basic_user  VARCHAR(100) NULL,
+  orthanc_basic_pass  VARCHAR(255) NULL,
+  logoUrl             VARCHAR(500) NULL,
+  createdAt           TIMESTAMP NOT NULL DEFAULT now(),
+  updatedAt           TIMESTAMP NOT NULL DEFAULT now() ON UPDATE CURRENT_TIMESTAMP,
+  pacs_ip             VARCHAR(45) NULL,
+  pacs_port           INT NULL,
+  pacs_ae_title       VARCHAR(16) NULL,
+  pacs_local_ae_title VARCHAR(16) NULL DEFAULT 'PACSMANUS',
+  orthanc_public_url  VARCHAR(500) NULL,
+  address             VARCHAR(255) NULL,
+  equipment_info      TEXT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tabela de usuários
+CREATE TABLE IF NOT EXISTS users (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  openId          VARCHAR(64) NOT NULL UNIQUE,
+  name            TEXT NULL,
+  email           VARCHAR(320) NULL,
+  loginMethod     VARCHAR(64) NULL,
+  role            ENUM('admin_master','unit_admin','medico','viewer','operador') NOT NULL DEFAULT 'viewer',
+  createdAt       TIMESTAMP NOT NULL DEFAULT now(),
+  updatedAt       TIMESTAMP NOT NULL DEFAULT now() ON UPDATE CURRENT_TIMESTAMP,
+  lastSignedIn    TIMESTAMP NOT NULL DEFAULT now(),
+  unit_id         INT NULL,
+  isActive        TINYINT(1) NOT NULL DEFAULT 1,
+  username        VARCHAR(64) NULL,
+  password_hash   VARCHAR(255) NULL,
+  expiration_date BIGINT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tabela de permissões granulares por unidade
+CREATE TABLE IF NOT EXISTS user_unit_permissions (
+  id               INT AUTO_INCREMENT PRIMARY KEY,
+  user_id          INT NOT NULL,
+  unit_id          INT NOT NULL,
+  view_studies     TINYINT(1) NOT NULL DEFAULT 1,
+  edit_reports     TINYINT(1) NOT NULL DEFAULT 1,
+  view_anamnesis   TINYINT(1) NOT NULL DEFAULT 1,
+  print_reports    TINYINT(1) NOT NULL DEFAULT 1,
+  manage_templates TINYINT(1) NOT NULL DEFAULT 0,
+  created_at       BIGINT NOT NULL,
+  UNIQUE KEY uq_user_unit (user_id, unit_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+---
+
+## Histórico de Migrações
+
+Registro de todas as alterações aplicadas no banco. Para novas instalações, use o schema completo acima.
+
+### Migração 001 — Campos PACS por unidade
+
+**VM2** — data: anterior a 01/2026
+
+```sql
+ALTER TABLE units
+  ADD COLUMN pacs_ip VARCHAR(45) NULL,
+  ADD COLUMN pacs_port INT NULL,
+  ADD COLUMN pacs_ae_title VARCHAR(16) NULL,
+  ADD COLUMN pacs_local_ae_title VARCHAR(16) NULL DEFAULT 'PACSMANUS';
+```
+
+### Migração 002 — URL pública do Orthanc
+
+**VM2** — data: anterior a 01/2026
+
+```sql
+ALTER TABLE units
+  ADD COLUMN orthanc_public_url VARCHAR(500) NULL;
+```
+
+### Migração 003 — Usuários locais
+
+**VM2** — data: anterior a 01/2026
+
+```sql
+ALTER TABLE users
+  ADD COLUMN username VARCHAR(64) NULL,
+  ADD COLUMN password_hash VARCHAR(255) NULL;
+```
+
+### Migração 004 — Controle de ativação de usuário
+
+**VM2** — data: anterior a 01/2026
+
+```sql
+ALTER TABLE users
+  ADD COLUMN isActive TINYINT(1) NOT NULL DEFAULT 1;
+```
+
+### Migração 005 — Endereço e equipamentos da unidade
+
+**VM2** — data: 01/04/2026
+
+```sql
+ALTER TABLE units
+  ADD COLUMN address VARCHAR(255) NULL,
+  ADD COLUMN equipment_info TEXT NULL;
+```
+
+### Migração 006 — Data de expiração e perfil operador
+
+**VM2** — data: 01/04/2026
+
+```sql
+ALTER TABLE users
+  ADD COLUMN expiration_date BIGINT NULL,
+  MODIFY COLUMN role ENUM('admin_master','unit_admin','medico','viewer','operador') NOT NULL DEFAULT 'viewer';
+```
+
+### Migração 007 — Permissões granulares por unidade
+
+**VM2** — data: 01/04/2026
+
+```sql
+CREATE TABLE IF NOT EXISTS user_unit_permissions (
+  id               INT AUTO_INCREMENT PRIMARY KEY,
+  user_id          INT NOT NULL,
+  unit_id          INT NOT NULL,
+  view_studies     TINYINT(1) NOT NULL DEFAULT 1,
+  edit_reports     TINYINT(1) NOT NULL DEFAULT 1,
+  view_anamnesis   TINYINT(1) NOT NULL DEFAULT 1,
+  print_reports    TINYINT(1) NOT NULL DEFAULT 1,
+  manage_templates TINYINT(1) NOT NULL DEFAULT 0,
+  created_at       BIGINT NOT NULL,
+  UNIQUE KEY uq_user_unit (user_id, unit_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+);
+```
+
+---
+
+## Backup do Banco
+
+**Execute na VM2:**
 
 ```bash
 mysqldump -u pacs_user -pPacsPortal2025 pacs_portal > /backup/pacs_portal_$(date +%Y%m%d).sql
