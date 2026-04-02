@@ -1558,6 +1558,32 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    updateStamp: protectedProcedure
+      .input(z.object({
+        userId: z.number(),
+        stampFile: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { updateUserMedicalData } = await import('./db');
+        const { storagePut } = await import('./storage');
+        const base64Data = input.stampFile.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        const key = `stamps/user_${input.userId}_${Date.now()}.png`;
+        const { url } = await storagePut(key, buffer, 'image/png');
+        await updateUserMedicalData(input.userId, { stamp_url: url });
+        return { success: true };
+      }),
+    removeStamp: protectedProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas o administrador root pode remover carimbos' });
+        }
+        const { updateUserMedicalData } = await import('./db');
+        await updateUserMedicalData(input.userId, { stamp_url: null });
+        return { success: true };
+      }),
     getReportContext: protectedProcedure
       .input(z.object({ unitId: z.number() }))
       .query(async ({ input, ctx }) => {
@@ -1568,6 +1594,7 @@ export const appRouter = router({
           doctorName: user?.name ?? '',
           crm: user?.crm ?? '',
           signatureUrl: user?.signature_url ?? null,
+          stampUrl: user?.stamp_url ?? null,
           unitName: unit?.name ?? '',
           unitLogoUrl: unit?.logo_url ?? null,
           userId: user?.id ?? 0,

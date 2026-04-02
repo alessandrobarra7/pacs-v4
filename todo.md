@@ -522,3 +522,11 @@
 - [ ] Usuários: botão de upload de nova assinatura (substituir existente)
 - [ ] Usuários: campo CRM visível e editável no formulário de edição
 - [ ] Usuários: procedure removeSignature já existe — garantir que seja chamada corretamente
+
+## UPLOAD DE CARIMBO DO MÉDICO — IMPLEMENTAR
+- [ ] Adicionar campo stamp_url na tabela users (ALTER TABLE)
+- [ ] Adicionar procedure backend para upload de carimbo (medicalData.updateStamp)
+- [ ] Adicionar procedure backend para remover carimbo (medicalData.removeStamp)
+- [ ] Adicionar campo de upload de carimbo no UserFormDialog (visível apenas para admin_master)
+- [ ] Adicionar preview e botão Remover carimbo no UserFormDialog
+- [ ] Testar upload, visualização e remoção de carimbo

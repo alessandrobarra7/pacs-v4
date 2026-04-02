@@ -651,6 +651,7 @@ export default function AdminPage() {
         units={units.map((u: any) => ({ id: u.id, name: u.name, isActive: u.isActive }))}
         onSave={handleSaveUser}
         loading={createUser.isPending || updateUserMutation.isPending}
+        currentUserRole={currentUser?.role}
       />
     </div>
   );

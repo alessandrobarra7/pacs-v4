@@ -701,7 +701,7 @@ export async function togglePhrasesFavorite(phraseId: number, userId: number, is
 }
 
 // ─── User CRM / Signature ─────────────────────────────────────────────────────
-export async function updateUserMedicalData(userId: number, data: { crm?: string; signature_url?: string | null }) {
+export async function updateUserMedicalData(userId: number, data: { crm?: string; signature_url?: string | null; stamp_url?: string | null }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { users } = await import("../drizzle/schema");

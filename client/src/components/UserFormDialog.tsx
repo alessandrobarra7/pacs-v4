@@ -54,6 +54,7 @@ interface UserFormDialogProps {
   onSave: (user: UserFormData) => void;
   onResetPassword?: (userId: number, email: string) => void;
   loading?: boolean;
+  currentUserRole?: string;
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -84,7 +85,7 @@ function defaultPermission(unitId: number): UnitPermission {
 }
 
 export default function UserFormDialog({
-  open, onOpenChange, user, units, onSave, onResetPassword, loading = false,
+  open, onOpenChange, user, units, onSave, onResetPassword, loading = false, currentUserRole,
 }: UserFormDialogProps) {
   const isEditing = !!user?.id;
 
@@ -102,8 +103,36 @@ export default function UserFormDialog({
   const [signatureFile, setSignatureFile] = useState<string | null>(null);
   const [removingSignature, setRemovingSignature] = useState(false);
   const sigInputRef = useRef<HTMLInputElement>(null);
+  // Carimbo
+  const [stampPreview, setStampPreview] = useState<string | null>(null);
+  const [stampFile, setStampFile] = useState<string | null>(null);
+  const [removingStamp, setRemovingStamp] = useState(false);
+  const stampInputRef = useRef<HTMLInputElement>(null);
 
   const utils = trpc.useUtils();
+
+  const updateStamp = trpc.medicalData.updateStamp.useMutation({
+    onSuccess: () => {
+      toast.success("Carimbo atualizado com sucesso");
+      setStampFile(null);
+      utils.medicalData.getReportContext.invalidate();
+    },
+    onError: (e) => toast.error(e.message || "Erro ao salvar carimbo"),
+  });
+
+  const removeStamp = trpc.medicalData.removeStamp.useMutation({
+    onSuccess: () => {
+      toast.success("Carimbo removido com sucesso");
+      setStampPreview(null);
+      setStampFile(null);
+      setRemovingStamp(false);
+      utils.medicalData.getReportContext.invalidate();
+    },
+    onError: (e) => {
+      toast.error(e.message || "Erro ao remover carimbo");
+      setRemovingStamp(false);
+    },
+  });
 
   const updateMedical = trpc.medicalData.updateUserMedical.useMutation({
     onSuccess: () => {
@@ -158,11 +187,15 @@ export default function UserFormDialog({
         setSignaturePreview((user as any).signature_url || null);
         setSignatureFile(null);
         setRemovingSignature(false);
+        setStampPreview((user as any).stamp_url || null);
+        setStampFile(null);
+        setRemovingStamp(false);
       } else {
         setName(""); setEmail(""); setUsername(""); setPassword("");
         setRole("medico"); setIsActive(true); setExpirationDate("");
         setPermissions([]);
         setCrm(""); setSignaturePreview(null); setSignatureFile(null); setRemovingSignature(false);
+        setStampPreview(null); setStampFile(null); setRemovingStamp(false);
       }
       setExpandedUnits({});
     }
@@ -234,12 +267,36 @@ export default function UserFormDialog({
     removeSignature.mutate({ userId: user.id });
   };
 
+  const handleStampChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { toast.error("Imagem muito grande. Máximo 2 MB."); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const d = reader.result as string;
+      setStampFile(d);
+      setStampPreview(d);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handleRemoveStamp = () => {
+    if (!user?.id) return;
+    if (!confirm("Remover o carimbo deste médico? Esta ação não pode ser desfeita.")) return;
+    setRemovingStamp(true);
+    removeStamp.mutate({ userId: user.id });
+  };
+
   const handleSave = () => {
     if (!name.trim()) { toast.error("Informe o nome do usuário"); return; }
     if (!username.trim()) { toast.error("Informe o nome de usuário (login)"); return; }
     if (!isEditing && !password.trim()) { toast.error("Defina uma senha para o novo usuário"); return; }
     if (isEditing && user?.id && (role === "medico" || role === "unit_admin") && (crm.trim() || signatureFile)) {
       updateMedical.mutate({ userId: user.id, crm: crm.trim() || undefined, signatureFile: signatureFile || undefined });
+    }
+    if (isEditing && user?.id && stampFile) {
+      updateStamp.mutate({ userId: user.id, stampFile });
     }
     onSave({
       id: user?.id,
@@ -350,6 +407,48 @@ export default function UserFormDialog({
                   placeholder="Ex: 12345/SP"
                 />
               </div>
+
+              {/* Carimbo do Médico — apenas admin_master */}
+              {currentUserRole === 'admin_master' ? (
+              <div>
+                <Label className="text-sm font-medium">Carimbo do Médico</Label>
+                <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+                  Imagem do carimbo oficial. PNG ou JPG, máx. 2 MB. Visível apenas para admin root.
+                </p>
+                {stampPreview ? (
+                  <div className="flex items-start gap-3">
+                    <img src={stampPreview} alt="Carimbo" className="h-20 max-w-[220px] object-contain border border-gray-200 rounded p-2 bg-white" />
+                    <div className="flex flex-col gap-2 mt-1">
+                      <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 text-xs border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
+                        <Upload className="h-3.5 w-3.5 text-gray-400" />
+                        <span className="text-gray-600">Trocar carimbo</span>
+                        <input ref={stampInputRef} type="file" accept="image/*" className="hidden" onChange={handleStampChange} />
+                      </label>
+                      <button type="button" onClick={handleRemoveStamp} disabled={removingStamp || removeStamp.isPending}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-50">
+                        {removingStamp ? <span className="animate-spin h-3.5 w-3.5 border-2 border-red-400 border-t-transparent rounded-full inline-block" /> : <Trash2 className="h-3.5 w-3.5" />}
+                        Remover carimbo
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="flex items-center gap-2 cursor-pointer px-3 py-3 border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
+                    <ImageOff className="h-5 w-5 text-gray-300" />
+                    <div>
+                      <p className="text-sm text-gray-600">Nenhum carimbo cadastrado</p>
+                      <p className="text-xs text-gray-400">Clique para fazer upload</p>
+                    </div>
+                    <input ref={stampInputRef} type="file" accept="image/*" className="hidden" onChange={handleStampChange} />
+                  </label>
+                )}
+                {stampFile && (
+                  <p className="text-xs text-amber-600 flex items-center gap-1 mt-2">
+                    <Upload className="h-3 w-3" />
+                    Novo carimbo será salvo ao clicar em "Salvar Alterações"
+                  </p>
+                )}
+              </div>
+              ) : null}
 
               {/* Assinatura Digital */}
               <div>

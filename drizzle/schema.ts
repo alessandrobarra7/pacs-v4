@@ -47,6 +47,7 @@ export const users = mysqlTable("users", {
   expiration_date: date("expiration_date"),
   crm: varchar("crm", { length: 50 }),
   signature_url: text("signature_url"),
+  stamp_url: text("stamp_url"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
