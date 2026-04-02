@@ -292,8 +292,8 @@ export default function UserFormDialog({
     if (!name.trim()) { toast.error("Informe o nome do usuário"); return; }
     if (!username.trim()) { toast.error("Informe o nome de usuário (login)"); return; }
     if (!isEditing && !password.trim()) { toast.error("Defina uma senha para o novo usuário"); return; }
-    if (isEditing && user?.id && (role === "medico" || role === "unit_admin") && (crm.trim() || signatureFile)) {
-      updateMedical.mutate({ userId: user.id, crm: crm.trim() || undefined, signatureFile: signatureFile || undefined });
+    if (isEditing && user?.id && (role === "medico" || role === "unit_admin") && crm.trim()) {
+      updateMedical.mutate({ userId: user.id, crm: crm.trim() || undefined, signatureFile: undefined });
     }
     if (isEditing && user?.id && stampFile) {
       updateStamp.mutate({ userId: user.id, stampFile });
@@ -309,7 +309,10 @@ export default function UserFormDialog({
       isActive,
       expiration_date: expirationDate,
       permissions,
-    });
+      crm: crm.trim() || undefined,
+      // Pass stampFile so parent can upload after user creation
+      _stampFile: !isEditing ? stampFile || undefined : undefined,
+    } as any);
   };
 
   const handleResetPassword = () => {
@@ -389,8 +392,8 @@ export default function UserFormDialog({
             </Button>
           )}
 
-          {/* Dados Médicos (apenas para médico/unit_admin em edição) */}
-          {isEditing && isMedical && (
+          {/* Dados Médicos (CRM e Carimbo para médico/unit_admin — visível na criação e edição) */}
+          {isMedical && (
             <div className="border-t border-border pt-4 space-y-4">
               <div className="flex items-center gap-2">
                 <PenLine className="h-4 w-4 text-blue-600" />
@@ -409,114 +412,50 @@ export default function UserFormDialog({
               </div>
 
               {/* Carimbo do Médico — apenas admin_master */}
-              {currentUserRole === 'admin_master' ? (
-              <div>
-                <Label className="text-sm font-medium">Carimbo do Médico</Label>
-                <p className="text-xs text-muted-foreground mt-0.5 mb-2">
-                  Imagem do carimbo oficial. PNG ou JPG, máx. 2 MB. Visível apenas para admin root.
-                </p>
-                {stampPreview ? (
-                  <div className="flex items-start gap-3">
-                    <img src={stampPreview} alt="Carimbo" className="h-20 max-w-[220px] object-contain border border-gray-200 rounded p-2 bg-white" />
-                    <div className="flex flex-col gap-2 mt-1">
-                      <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 text-xs border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                        <Upload className="h-3.5 w-3.5 text-gray-400" />
-                        <span className="text-gray-600">Trocar carimbo</span>
-                        <input ref={stampInputRef} type="file" accept="image/*" className="hidden" onChange={handleStampChange} />
-                      </label>
-                      <button type="button" onClick={handleRemoveStamp} disabled={removingStamp || removeStamp.isPending}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-50">
-                        {removingStamp ? <span className="animate-spin h-3.5 w-3.5 border-2 border-red-400 border-t-transparent rounded-full inline-block" /> : <Trash2 className="h-3.5 w-3.5" />}
-                        Remover carimbo
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <label className="flex items-center gap-2 cursor-pointer px-3 py-3 border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                    <ImageOff className="h-5 w-5 text-gray-300" />
-                    <div>
-                      <p className="text-sm text-gray-600">Nenhum carimbo cadastrado</p>
-                      <p className="text-xs text-gray-400">Clique para fazer upload</p>
-                    </div>
-                    <input ref={stampInputRef} type="file" accept="image/*" className="hidden" onChange={handleStampChange} />
-                  </label>
-                )}
-                {stampFile && (
-                  <p className="text-xs text-amber-600 flex items-center gap-1 mt-2">
-                    <Upload className="h-3 w-3" />
-                    Novo carimbo será salvo ao clicar em "Salvar Alterações"
+              {currentUserRole === 'admin_master' && (
+                <div>
+                  <Label className="text-sm font-medium">Carimbo do Médico</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+                    Imagem do carimbo oficial. PNG ou JPG, máx. 2 MB. Visível apenas para admin root.
                   </p>
-                )}
-              </div>
-              ) : null}
-
-              {/* Assinatura Digital */}
-              <div>
-                <Label className="text-sm font-medium">Assinatura Digital</Label>
-                <p className="text-xs text-muted-foreground mt-0.5 mb-2">
-                  PNG ou JPG, fundo branco ou transparente, máx. 2 MB.
-                </p>
-
-                {signaturePreview ? (
-                  <div className="flex items-start gap-3">
-                    <img
-                      src={signaturePreview}
-                      alt="Assinatura"
-                      className="h-16 max-w-[200px] object-contain border border-gray-200 rounded p-2 bg-white"
-                    />
-                    <div className="flex flex-col gap-2 mt-1">
-                      {/* Trocar */}
-                      <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 text-xs border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                        <Upload className="h-3.5 w-3.5 text-gray-400" />
-                        <span className="text-gray-600">Trocar assinatura</span>
-                        <input
-                          ref={sigInputRef}
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={handleSignatureChange}
-                        />
-                      </label>
-                      {/* Remover */}
-                      <button
-                        type="button"
-                        onClick={handleRemoveSignature}
-                        disabled={removingSignature || removeSignature.isPending}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-50"
-                      >
-                        {removingSignature ? (
-                          <span className="animate-spin h-3.5 w-3.5 border-2 border-red-400 border-t-transparent rounded-full inline-block" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5" />
+                  {stampPreview ? (
+                    <div className="flex items-start gap-3">
+                      <img src={stampPreview} alt="Carimbo" className="h-20 max-w-[220px] object-contain border border-gray-200 rounded p-2 bg-white" />
+                      <div className="flex flex-col gap-2 mt-1">
+                        <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 text-xs border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
+                          <Upload className="h-3.5 w-3.5 text-gray-400" />
+                          <span className="text-gray-600">Trocar carimbo</span>
+                          <input ref={stampInputRef} type="file" accept="image/*" className="hidden" onChange={handleStampChange} />
+                        </label>
+                        {isEditing && (
+                          <button type="button" onClick={handleRemoveStamp} disabled={removingStamp || removeStamp.isPending}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-50">
+                            {removingStamp ? <span className="animate-spin h-3.5 w-3.5 border-2 border-red-400 border-t-transparent rounded-full inline-block" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            Remover carimbo
+                          </button>
                         )}
-                        Remover assinatura
-                      </button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <label className="flex items-center gap-2 cursor-pointer px-3 py-3 border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                    <ImageOff className="h-5 w-5 text-gray-300" />
-                    <div>
-                      <p className="text-sm text-gray-600">Nenhuma assinatura cadastrada</p>
-                      <p className="text-xs text-gray-400">Clique para fazer upload</p>
-                    </div>
-                    <input
-                      ref={sigInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleSignatureChange}
-                    />
-                  </label>
-                )}
+                  ) : (
+                    <label className="flex items-center gap-2 cursor-pointer px-3 py-3 border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
+                      <ImageOff className="h-5 w-5 text-gray-300" />
+                      <div>
+                        <p className="text-sm text-gray-600">Nenhum carimbo cadastrado</p>
+                        <p className="text-xs text-gray-400">Clique para fazer upload</p>
+                      </div>
+                      <input ref={stampInputRef} type="file" accept="image/*" className="hidden" onChange={handleStampChange} />
+                    </label>
+                  )}
+                  {stampFile && (
+                    <p className="text-xs text-amber-600 flex items-center gap-1 mt-2">
+                      <Upload className="h-3 w-3" />
+                      {isEditing ? 'Novo carimbo será salvo ao clicar em "Salvar Alterações"' : 'Carimbo será enviado após criar o usuário'}
+                    </p>
+                  )}
+                </div>
+              )}
 
-                {signatureFile && (
-                  <p className="text-xs text-amber-600 flex items-center gap-1 mt-2">
-                    <Upload className="h-3 w-3" />
-                    Nova assinatura será salva ao clicar em "Salvar Alterações"
-                  </p>
-                )}
-              </div>
+              {/* Assinatura removida — não utilizada no documento de laudo */}
             </div>
           )}
 

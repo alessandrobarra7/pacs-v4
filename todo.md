@@ -530,3 +530,25 @@
 - [ ] Adicionar campo de upload de carimbo no UserFormDialog (visível apenas para admin_master)
 - [ ] Adicionar preview e botão Remover carimbo no UserFormDialog
 - [ ] Testar upload, visualização e remoção de carimbo
+
+## CORREÇÕES EDITOR DE LAUDOS V3 — 02/04/2026 09:30
+- [ ] Documento A4: remover seção de assinatura (imagem/nome do médico) do corpo do laudo
+- [ ] Documento A4: remover nome do usuário logado do canto inferior esquerdo
+- [ ] Documento A4: manter apenas logo da unidade + nome do paciente + data de nascimento + data de realização no cabeçalho
+- [ ] Documento A4: rodapé legal fixo na parte inferior da folha (frase completa da Lauds)
+- [ ] Impressão: replicar exatamente o mesmo layout do documento A4 (logo + dados + corpo + rodapé legal)
+- [ ] UserFormDialog: permitir upload de carimbo ao CRIAR médico (não apenas ao editar)
+- [ ] UserFormDialog: upload de carimbo visível apenas para admin_master
+- [ ] Aba Inserir: médico vê apenas as opções de inserir carimbo (sem botões de upload/remover)
+- [ ] Limpar todos os uploads antigos de assinatura e logo do banco de dados
+
+## SESSÃO ATUAL — Correções Editor de Laudos (Assinatura/Carimbo/Layout)
+
+- [x] Remover assinatura do documento A4 (corpo e impressão)
+- [x] Remover nome do usuário do documento A4
+- [x] Mover rodapé legal para posição absoluta na parte inferior da folha A4
+- [x] Corrigir aba "Inserir" da sidebar: remover "Inserir Assinatura", manter apenas "Logo da Unidade" e "Carimbo do Médico"
+- [x] Aba Inserir agora usa a imagem real do carimbo (stamp_url) em vez de gerar via canvas
+- [x] Upload de carimbo disponível ao criar médico (não apenas ao editar) — admin_master
+- [x] Seção de Assinatura Digital removida do UserFormDialog (não utilizada no documento)
+- [x] AdminPage: upload de carimbo e CRM enviados após criação do usuário médico

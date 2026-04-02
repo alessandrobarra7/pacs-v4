@@ -260,6 +260,14 @@ export default function AdminPage() {
     onError: (e) => toast.error(`Erro ao salvar permissões: ${e.message}`),
   });
 
+  const updateStamp = trpc.medicalData.updateStamp.useMutation({
+    onError: (e) => toast.error(`Erro ao salvar carimbo: ${e.message}`),
+  });
+
+  const updateMedical = trpc.medicalData.updateUserMedical.useMutation({
+    onError: (e) => toast.error(`Erro ao salvar dados médicos: ${e.message}`),
+  });
+
   const handleSaveUser = (data: UserFormData) => {
     if (data.id) {
       updateUserMutation.mutate({
@@ -291,6 +299,15 @@ export default function AdminPage() {
           const newUserId = result?.userId;
           if (newUserId && data.permissions && data.permissions.length > 0) {
             setPermissions.mutate({ userId: newUserId, permissions: data.permissions });
+          }
+          // Upload stamp if provided during user creation
+          const anyData = data as any;
+          if (newUserId && anyData._stampFile) {
+            updateStamp.mutate({ userId: newUserId, stampFile: anyData._stampFile });
+          }
+          // Save CRM if provided
+          if (newUserId && anyData.crm) {
+            updateMedical.mutate({ userId: newUserId, crm: anyData.crm, signatureFile: undefined });
           }
         },
       });
