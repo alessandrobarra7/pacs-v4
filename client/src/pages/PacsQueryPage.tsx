@@ -685,7 +685,8 @@ export function PacsQueryPage() {
     // Buscar laudo salvo no banco
     const reportData = reportStatusMap[study.studyInstanceUid];
     const reportStatus = reportData || 'Pendente';
-    // Montar HTML de impressão
+    // Montar HTML de impressão (layout igual ao ReportEditorPage)
+    const LEGAL_FOOTER = 'Este documento foi gerado pela plataforma de sistema de laudos "Lauds", inscrita no CNPJ nº 12.345.678/0001-90. Em caso de dúvidas, entre em contato pelo número comercial 0800 896 555 489 625. Para mais informações, acesse nosso site www.lauds.com.br ou siga-nos no Instagram @lauds_radiologia.';
     const printWindow = window.open('', '_blank', 'width=800,height=900');
     if (!printWindow) { toast.error('Bloqueador de pop-up ativo. Permita pop-ups para imprimir.'); return; }
     printWindow.document.write(`
@@ -695,46 +696,28 @@ export function PacsQueryPage() {
         <meta charset="UTF-8">
         <title>Laudo - ${patientName}</title>
         <style>
-          * { box-sizing: border-box; margin: 0; padding: 0; }
-          body { font-family: Arial, sans-serif; font-size: 12px; color: #222; background: #fff; padding: 20mm; }
-          .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #2c2420; padding-bottom: 10px; margin-bottom: 16px; }
-          .header h1 { font-size: 18px; color: #2c2420; font-weight: bold; }
-          .header .unit { font-size: 11px; color: #666; }
-          .patient-card { background: #f9f5f0; border: 1px solid #e5d9cc; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-          .patient-card .field label { font-size: 10px; color: #888; text-transform: uppercase; }
-          .patient-card .field span { font-size: 12px; font-weight: 600; color: #222; display: block; }
-          .section-title { font-size: 11px; font-weight: bold; text-transform: uppercase; color: #2c2420; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-bottom: 10px; }
-          .report-body { min-height: 200px; line-height: 1.7; font-size: 12px; white-space: pre-wrap; }
-          .footer { margin-top: 40px; border-top: 1px solid #ddd; padding-top: 12px; display: flex; justify-content: space-between; font-size: 10px; color: #888; }
-          .status-badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 10px; font-weight: bold; background: ${reportStatus === 'Assinado' ? '#d1fae5' : '#fef3c7'}; color: ${reportStatus === 'Assinado' ? '#065f46' : '#92400e'}; border: 1px solid ${reportStatus === 'Assinado' ? '#6ee7b7' : '#fcd34d'}; }
-          @media print { body { padding: 15mm; } }
+          @page { size: A4; margin: 0; }
+          body { margin: 0; font-family: 'Times New Roman', serif; font-size: 12pt; color: #000; }
+          .doc { position: relative; width: 210mm; min-height: 297mm; padding: 20mm 20mm 25mm 20mm; box-sizing: border-box; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8mm; border-bottom: 1px solid #ccc; padding-bottom: 4mm; }
+          .patient { text-align: right; font-size: 10pt; }
+          .body { min-height: 120mm; line-height: 1.8; white-space: pre-wrap; }
+          .footer { position: absolute; bottom: 20mm; left: 20mm; right: 20mm; border-top: 1px solid #eee; padding-top: 3mm; font-size: 7pt; color: #888; line-height: 1.4; }
         </style>
       </head>
       <body>
-        <div class="header">
-          <div>
-            <h1>Gestão de Laudos Radiológicos</h1>
-            <div class="unit">${unitLabel}</div>
+        <div class="doc">
+          <div class="header">
+            <div><p style="font-size:9pt;color:#888;">Logo da unidade</p></div>
+            <div class="patient">
+              <p><strong>Paciente:</strong> ${patientName}</p>
+              <p><strong>Realizado em:</strong> ${studyDate}</p>
+            </div>
           </div>
-          <div style="text-align:right">
-            <div class="status-badge">${reportStatus}</div>
-            <div style="font-size:10px;color:#888;margin-top:4px">Impresso em: ${new Date().toLocaleString('pt-BR')}</div>
-          </div>
-        </div>
-        <div class="patient-card">
-          <div class="field"><label>Paciente</label><span>${patientName}</span></div>
-          <div class="field"><label>Exame</label><span>${examLabel} (${modality})</span></div>
-          <div class="field"><label>Data do Exame</label><span>${studyDate}</span></div>
-          <div class="field"><label>Número de Acesso</label><span>${studyData.accessionNumber || study.accessionNumber || '-'}</span></div>
-        </div>
-        <div class="section-title">Laudo</div>
-        <div class="report-body" id="report-body">Carregando laudo...</div>
-        <div class="footer">
-          <span>Desenvolvimento StudioBarra7</span>
-          <span>${unitLabel}</span>
+          <div class="body" id="report-body">Carregando laudo...</div>
+          <div class="footer">${LEGAL_FOOTER}</div>
         </div>
         <script>
-          // Buscar laudo via API
           fetch('/api/trpc/reports.getByStudyUid?input=' + encodeURIComponent(JSON.stringify({"0":{"json":{"studyUid":"${study.studyInstanceUid}"}}})))
             .then(r => r.json())
             .then(data => {

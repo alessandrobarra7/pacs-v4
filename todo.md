@@ -552,3 +552,14 @@
 - [x] Upload de carimbo disponível ao criar médico (não apenas ao editar) — admin_master
 - [x] Seção de Assinatura Digital removida do UserFormDialog (não utilizada no documento)
 - [x] AdminPage: upload de carimbo e CRM enviados após criação do usuário médico
+
+## CORREÇÃO URGENTE — Template de Impressão da Lista de Exames
+
+- [x] Corrigir handlePrintReport na PacsQueryPage para usar layout correto
+- [x] Remover título "Gestão de Laudos Radiológicos" e substituir por logo da unidade
+- [x] Remover badge de status "Assinado" do cabeçalho impresso
+- [x] Remover data de impressão do cabeçalho
+- [x] Remover box de dados do paciente (patient-card) e usar layout simples
+- [x] Remover título "LAUDO" antes do corpo
+- [x] Substituir rodapé "Desenvolvimento StudioBarra7" pelo rodapé legal LAUDS
+- [x] Alinhar layout de impressão com o ReportEditorPage
