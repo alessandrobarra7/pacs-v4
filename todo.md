@@ -484,3 +484,13 @@
 - [x] Documento A4 com logo da unidade, dados do paciente, título do exame, corpo editável, rodapé
 - [x] UserFormDialog: seção Dados Médicos (CRM + upload de assinatura) para médicos/unit_admin
 - [x] UnitFormDialog: seção Logo da Unidade com upload de imagem ao editar
+
+## REDESIGN V2 EDITOR (02/04/2026)
+- [x] Header: nome do paciente + exame, botões apenas Imprimir e Assinar
+- [x] Remover seletor de exame do header, remover botão Inserir Assinatura, remover botão Salvar
+- [x] Aba 1 Exames: buscador + lista de nomes de exame, clique envia título ao documento
+- [x] Aba 2 Templates: grupos de templates criados pelo médico, CRUD de grupos e templates
+- [x] Aba 3 Frases: grupos de frases, inserção no cursor, CRUD
+- [x] Aba 4 Inserir: carimbos/imagens do médico logado (assinatura, carimbo), arrastáveis sobre o documento
+- [x] Documento A4: logo da empresa (admin root), dados do paciente obrigatórios
+- [x] Rodapé legal fixo no documento com texto Lauds/CNPJ/telefone/site/instagram

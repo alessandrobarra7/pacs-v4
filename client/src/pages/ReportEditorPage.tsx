@@ -1,591 +1,869 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/_core/hooks/useAuth";
+import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Printer, Save, CheckCircle, PenLine, ChevronDown,
-  Plus, Star, StarOff, Trash2, Upload, FileText, BookOpen,
-  Search, X, Check
+  ArrowLeft, Printer, CheckCircle, Search, ChevronDown, ChevronRight,
+  Plus, Trash2, Star, StarOff, GripVertical, Image as ImageIcon, FileText,
+  MessageSquare, Layers, X, Edit2, Check,
 } from "lucide-react";
 
+// ─── Constantes ───────────────────────────────────────────────────────────────
+const LEGAL_FOOTER = `Este documento foi gerado pela plataforma de sistema de laudos "Lauds", inscrita no CNPJ nº 12.345.678/0001-90. Em caso de dúvidas, entre em contato pelo número comercial 0800 896 555 489 625. Para mais informações, acesse nosso site www.lauds.com.br ou siga-nos no Instagram @lauds_radiologia.`;
+
 const EXAM_SUGGESTIONS = [
-  "RX TÓRAX PA E PERFIL","RX TÓRAX PA","RX ABDOME SIMPLES",
-  "RX COLUNA CERVICAL AP E PERFIL","RX COLUNA TORÁCICA AP E PERFIL",
-  "RX COLUNA LOMBAR AP E PERFIL","RX COLUNA LOMBOSSACRA AP E PERFIL",
-  "RX PELVE AP","RX BACIA AP","RX CRÂNIO AP E PERFIL",
-  "RX MÃO DIREITA","RX MÃO ESQUERDA","RX PÉ DIREITO","RX PÉ ESQUERDO",
-  "RX JOELHO DIREITO","RX JOELHO ESQUERDO","RX OMBRO DIREITO","RX OMBRO ESQUERDO",
-  "RX TORNOZELO DIREITO","RX TORNOZELO ESQUERDO",
-  "RX QUADRIL DIREITO","RX QUADRIL ESQUERDO",
-  "ESCANEOMETRIA DE MEMBROS INFERIORES","RX PANORÂMICO COLUNA",
-  "TC CRÂNIO SEM CONTRASTE","TC CRÂNIO COM CONTRASTE",
-  "TC TÓRAX SEM CONTRASTE","TC TÓRAX COM CONTRASTE",
-  "TC ABDOME TOTAL SEM CONTRASTE","TC ABDOME TOTAL COM CONTRASTE",
-  "TC PELVE SEM CONTRASTE","TC PELVE COM CONTRASTE",
-  "TC ABDOME E PELVE COM CONTRASTE","TC COLUNA CERVICAL",
-  "TC COLUNA TORÁCICA","TC COLUNA LOMBAR","TC SEIOS DA FACE",
-  "TC PESCOÇO COM CONTRASTE","TC TÓRAX E ABDOME COM CONTRASTE",
-  "ANGIOTOMOGRAFIA DE TÓRAX","ANGIOTOMOGRAFIA DE ABDOME",
-  "RM CRÂNIO SEM CONTRASTE","RM CRÂNIO COM CONTRASTE",
-  "RM COLUNA CERVICAL","RM COLUNA TORÁCICA","RM COLUNA LOMBAR",
-  "RM OMBRO DIREITO","RM OMBRO ESQUERDO",
-  "RM JOELHO DIREITO","RM JOELHO ESQUERDO",
-  "RM QUADRIL DIREITO","RM QUADRIL ESQUERDO",
-  "RM ABDOME","RM PELVE","RM MAMA BILATERAL",
-  "RM TORNOZELO DIREITO","RM TORNOZELO ESQUERDO",
-  "US ABDOME TOTAL","US ABDOME SUPERIOR","US PÉLVICO",
-  "US TRANSVAGINAL","US MAMA BILATERAL","US MAMA DIREITA","US MAMA ESQUERDA",
-  "US TIREOIDE","US PESCOÇO","US TESTICULAR","US PRÓSTATA TRANSRETAL",
-  "US OBSTÉTRICO","US MORFOLÓGICO","US DOPPLER VASCULAR",
-  "US PARTES MOLES","US ARTICULAR",
-  "MAMOGRAFIA BILATERAL","MAMOGRAFIA UNILATERAL DIREITA","MAMOGRAFIA UNILATERAL ESQUERDA",
-  "DENSITOMETRIA ÓSSEA COLUNA E FÊMUR",
+  "Radiografia de Tórax PA e Perfil",
+  "Radiografia de Tórax PA",
+  "Tomografia Computadorizada de Crânio sem Contraste",
+  "Tomografia Computadorizada de Crânio com Contraste",
+  "Tomografia Computadorizada de Tórax sem Contraste",
+  "Tomografia Computadorizada de Tórax com Contraste",
+  "Tomografia Computadorizada de Abdome e Pelve sem Contraste",
+  "Tomografia Computadorizada de Abdome e Pelve com Contraste",
+  "Tomografia Computadorizada de Coluna Cervical",
+  "Tomografia Computadorizada de Coluna Lombar",
+  "Tomografia Computadorizada de Seios da Face",
+  "Tomografia Computadorizada de Mastoides",
+  "Tomografia Computadorizada de Órbitas",
+  "Tomografia Computadorizada de Pescoço",
+  "Tomografia Computadorizada de Pelve",
+  "Tomografia Computadorizada de Joelho",
+  "Tomografia Computadorizada de Ombro",
+  "Ressonância Magnética de Crânio sem Contraste",
+  "Ressonância Magnética de Crânio com Contraste",
+  "Ressonância Magnética de Coluna Cervical",
+  "Ressonância Magnética de Coluna Torácica",
+  "Ressonância Magnética de Coluna Lombar",
+  "Ressonância Magnética de Joelho",
+  "Ressonância Magnética de Ombro",
+  "Ressonância Magnética de Quadril",
+  "Ressonância Magnética de Abdome",
+  "Ressonância Magnética de Pelve",
+  "Ultrassonografia de Abdome Total",
+  "Ultrassonografia de Abdome Superior",
+  "Ultrassonografia Pélvica Transvaginal",
+  "Ultrassonografia Pélvica Suprapúbica",
+  "Ultrassonografia de Tireoide",
+  "Ultrassonografia de Mama Bilateral",
+  "Ultrassonografia de Partes Moles",
+  "Ultrassonografia Doppler de Carótidas",
+  "Ultrassonografia Doppler de Membros Inferiores",
+  "Ultrassonografia Doppler de Membros Superiores",
+  "Ultrassonografia de Próstata",
+  "Ultrassonografia Obstétrica",
+  "Ultrassonografia Morfológica",
+  "Ecocardiograma Transtorácico",
+  "Radiografia de Coluna Cervical AP e Perfil",
+  "Radiografia de Coluna Lombar AP e Perfil",
+  "Radiografia de Abdome sem Preparo",
+  "Radiografia de Bacia AP",
+  "Radiografia de Joelho AP e Perfil",
+  "Radiografia de Ombro AP",
+  "Radiografia de Mão AP e Oblíqua",
+  "Radiografia de Pé AP e Perfil",
+  "Radiografia de Tornozelo AP e Perfil",
+  "Radiografia de Crânio AP e Perfil",
+  "Mamografia Bilateral",
+  "Densitometria Óssea",
+  "Cintilografia Óssea",
+  "Angiotomografia de Coronárias",
+  "Angiotomografia de Aorta",
+  "Angiotomografia Cerebral",
+  "Angiorressonância Cerebral",
+  "Angiorressonância de Carótidas",
 ];
 
-function cleanName(name: string) {
-  return (name || "").replace(/\^/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
-}
-function fmtDicom(d: string) {
-  if (!d || d.length < 8) return "";
-  return `${d.slice(6,8)}/${d.slice(4,6)}/${d.slice(0,4)}`;
-}
-function calcAge(bd: string) {
-  if (!bd || bd.length < 8) return "";
-  const birth = new Date(`${bd.slice(0,4)}-${bd.slice(4,6)}-${bd.slice(6,8)}`);
-  const now = new Date();
-  let age = now.getFullYear() - birth.getFullYear();
-  const m = now.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
-  if (age < 0 || age > 130) return "";
-  if (age < 1) return `${Math.floor((now.getTime()-birth.getTime())/(1000*60*60*24*30))}M`;
-  return `${age}A`;
-}
-function fmtSex(s: string) {
-  const u = (s||"").toUpperCase().trim();
-  return u === "M" ? "M" : u === "F" ? "F" : s||"";
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+interface StudyInfo {
+  patientName: string;
+  studyDescription: string;
+  studyDate: string;
+  birthDate: string;
+  age: string;
+  sex: string;
+  studyInstanceUid: string;
+  unitId: number | null;
 }
 
+interface DraggableImage {
+  id: string;
+  src: string;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function formatPatientName(name: string) {
+  return (name || "").replace(/\^/g, " ").trim();
+}
+
+function formatSex(s: string) {
+  const u = (s || "").toUpperCase().trim();
+  return u === "M" ? "M" : u === "F" ? "F" : s || "";
+}
+
+// ─── Componente Principal ─────────────────────────────────────────────────────
 export default function ReportEditorPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const isAdminMaster = user?.role === "admin_master";
   const studyUid = window.location.pathname.split("/").pop() || "";
 
-  const [studyData] = useState(() => {
-    try { const r = sessionStorage.getItem(`study_${studyUid}`); return r ? JSON.parse(r) : {}; }
-    catch { return {}; }
-  });
+  // Info do estudo (vinda do sessionStorage)
+  const [studyInfo, setStudyInfo] = useState<StudyInfo | null>(null);
 
-  const patientName = cleanName(studyData.patientName || "");
-  const studyDate = fmtDicom(studyData.studyDate || "");
-  const studyTime = studyData.studyTime ? `${(studyData.studyTime||"").slice(0,2)}:${(studyData.studyTime||"").slice(2,4)}` : "";
-  const age = calcAge(studyData.patientBirthDate || "");
-  const sex = fmtSex(studyData.patientSex || "");
-  const unitId: number | null = studyData.unitId ? Number(studyData.unitId) : null;
+  // Título do exame no documento (definido pela aba Exames)
+  const [examTitle, setExamTitle] = useState("");
 
-  const [examTitle, setExamTitle] = useState(
-    () => localStorage.getItem(`exam_label_${studyUid}`) || studyData.studyDescription || ""
-  );
-  const [showExamDropdown, setShowExamDropdown] = useState(false);
-  const [examSearch, setExamSearch] = useState("");
-  const examDropRef = useRef<HTMLDivElement>(null);
+  // Aba ativa da sidebar
+  const [activeTab, setActiveTab] = useState<"exames" | "templates" | "frases" | "inserir">("exames");
 
-  const [reportId, setReportId] = useState<number | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isSigning, setIsSigning] = useState(false);
-  const [isSigned, setIsSigned] = useState(false);
+  // Referência ao documento editável
+  const docRef = useRef<HTMLDivElement>(null);
+  const savedSelection = useRef<Range | null>(null);
 
-  const savedRange = useRef<Range | null>(null);
-  const editorRef = useRef<HTMLDivElement>(null);
-  const [activeTab, setActiveTab] = useState<"templates"|"frases"|"exames">("templates");
+  // Imagens arrastáveis sobre o documento
+  const [draggableImages, setDraggableImages] = useState<DraggableImage[]>([]);
+  const dragging = useRef<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
 
-  const { data: existingReport } = trpc.reports.getByStudyUid.useQuery(
-    { studyInstanceUid: studyUid }, { enabled: !!studyUid }
-  );
-  const { data: templates } = trpc.templates.list.useQuery();
-  const { data: phraseGroups } = trpc.phrases.listGroups.useQuery();
-  const { data: phrases } = trpc.phrases.list.useQuery();
+  // Dados médicos (assinatura, logo, CRM)
+  const unitId = studyInfo?.unitId ?? 0;
   const { data: medCtx } = trpc.medicalData.getReportContext.useQuery(
-    { unitId: unitId ?? 0 }, { enabled: !!unitId }
+    { unitId },
+    { enabled: unitId > 0 }
   );
 
-  const createMut = trpc.reports.create.useMutation();
-  const updateMut = trpc.reports.update.useMutation();
-  const signMut = trpc.reports.sign.useMutation();
-  const updateMedical = trpc.medicalData.updateUserMedical.useMutation();
-  const updateLogo = trpc.medicalData.updateUnitLogo.useMutation();
-  const utils = trpc.useUtils();
+  // Laudo existente
+  const { data: existingReport } = trpc.reports.getByStudyUid.useQuery(
+    { studyInstanceUid: studyUid },
+    { enabled: !!studyUid }
+  );
 
+  // Mutations
+  const createReport = trpc.reports.create.useMutation();
+  const updateReport = trpc.reports.update.useMutation();
+  const signReport = trpc.reports.sign.useMutation();
+
+  // ── Carregar info do estudo ──────────────────────────────────────────────
   useEffect(() => {
-    if (existingReport && editorRef.current) {
-      setReportId(existingReport.id);
-      setIsSigned(existingReport.status === "signed");
-      if (existingReport.body) {
-        editorRef.current.innerHTML = existingReport.body.includes("<")
-          ? existingReport.body
-          : existingReport.body.split("\n\n").map((p: string) => `<p>${p.replace(/\n/g,"<br>")}</p>`).join("");
-      }
+    const raw = sessionStorage.getItem(`study_${studyUid}`);
+    if (raw) {
+      try {
+        const info = JSON.parse(raw);
+        setStudyInfo(info);
+        setExamTitle(info.studyDescription || "");
+      } catch { /* ignore */ }
+    }
+  }, [studyUid]);
+
+  // ── Carregar laudo existente no documento ────────────────────────────────
+  useEffect(() => {
+    if (existingReport?.body && docRef.current) {
+      docRef.current.innerHTML = existingReport.body;
     }
   }, [existingReport]);
 
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (examDropRef.current && !examDropRef.current.contains(e.target as Node))
-        setShowExamDropdown(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
-
+  // ── Salvar seleção antes de interagir com sidebar ────────────────────────
   const saveSelection = useCallback(() => {
     const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && editorRef.current) {
-      const r = sel.getRangeAt(0);
-      if (editorRef.current.contains(r.startContainer)) savedRange.current = r.cloneRange();
+    if (sel && sel.rangeCount > 0 && docRef.current?.contains(sel.anchorNode)) {
+      savedSelection.current = sel.getRangeAt(0).cloneRange();
     }
   }, []);
 
+  // ── Inserir texto no cursor ──────────────────────────────────────────────
   const insertAtCursor = useCallback((text: string) => {
-    const ed = editorRef.current;
-    if (!ed) return;
-    ed.focus();
-    let range: Range | null = null;
-    if (savedRange.current && ed.contains(savedRange.current.startContainer)) range = savedRange.current;
-    else {
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount > 0 && ed.contains(sel.getRangeAt(0).startContainer)) range = sel.getRangeAt(0);
-    }
-    if (range) {
-      range.deleteContents();
-      const tn = document.createTextNode(text);
-      range.insertNode(tn);
-      range.setStartAfter(tn); range.collapse(true);
-      const sel = window.getSelection(); sel?.removeAllRanges(); sel?.addRange(range);
-      savedRange.current = range.cloneRange();
+    docRef.current?.focus();
+    const sel = window.getSelection();
+    let range: Range;
+    if (savedSelection.current) {
+      range = savedSelection.current;
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    } else if (sel && sel.rangeCount > 0) {
+      range = sel.getRangeAt(0);
     } else {
-      const p = document.createElement("p"); p.textContent = text; ed.appendChild(p);
+      // Inserir no final
+      if (docRef.current) {
+        range = document.createRange();
+        range.selectNodeContents(docRef.current);
+        range.collapse(false);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      } else return;
     }
+    range.deleteContents();
+    const textNode = document.createTextNode(text);
+    range.insertNode(textNode);
+    range.setStartAfter(textNode);
+    range.collapse(true);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    savedSelection.current = range.cloneRange();
   }, []);
 
-  const insertSignature = useCallback(() => {
-    const sigUrl = medCtx?.signatureUrl;
-    if (!sigUrl) { toast.error("Nenhuma assinatura cadastrada para este médico."); return; }
-    const ed = editorRef.current; if (!ed) return;
-    ed.focus();
-    let range: Range | null = null;
-    if (savedRange.current && ed.contains(savedRange.current.startContainer)) range = savedRange.current;
-    const img = document.createElement("img");
-    img.src = sigUrl; img.alt = "Assinatura";
-    img.style.cssText = "max-height:60px;max-width:200px;display:block;margin:8px 0;";
-    if (range) {
-      range.deleteContents(); range.insertNode(img);
-      range.setStartAfter(img); range.collapse(true);
-      const sel = window.getSelection(); sel?.removeAllRanges(); sel?.addRange(range);
-    } else { ed.appendChild(img); }
-  }, [medCtx]);
-
-  const applyTemplate = useCallback((t: { bodyTemplate: string; name: string }) => {
-    if (!editorRef.current) return;
-    let body = t.bodyTemplate
-      .replace(/\{\{patientName\}\}/g, patientName)
-      .replace(/\{\{studyDate\}\}/g, studyDate)
-      .replace(/\{\{modality\}\}/g, studyData.modality || "")
-      .replace(/\{\{examTitle\}\}/g, examTitle)
-      .replace(/\{\{doctorName\}\}/g, medCtx?.doctorName || "")
-      .replace(/\{\{crm\}\}/g, medCtx?.crm || "");
-    editorRef.current.innerHTML = body.includes("<")
-      ? body : body.split("\n\n").map(p => `<p>${p.replace(/\n/g,"<br>")}</p>`).join("");
-    toast.success(`Template "${t.name}" aplicado`);
-  }, [patientName, studyDate, studyData.modality, examTitle, medCtx]);
-
-  const handleSave = async () => {
-    const body = editorRef.current?.innerHTML || "";
-    setIsSaving(true);
+  // ── Salvar rascunho ──────────────────────────────────────────────────────
+  const handleSave = useCallback(async () => {
+    const body = docRef.current?.innerHTML || "";
     try {
-      if (reportId) { await updateMut.mutateAsync({ id: reportId, body }); }
-      else { const r = await createMut.mutateAsync({ study_id: 0, study_instance_uid: studyUid, body }); setReportId(r.id); }
-      await utils.reports.getByStudyUid.invalidate({ studyInstanceUid: studyUid });
-      toast.success("Rascunho salvo com sucesso");
-    } catch (e: any) { toast.error(e?.message || "Erro ao salvar laudo"); }
-    finally { setIsSaving(false); }
-  };
+      if (existingReport?.id) {
+        await updateReport.mutateAsync({ id: existingReport.id, body });
+      } else {
+        await createReport.mutateAsync({
+          study_instance_uid: studyUid,
+          body,
+        });
+      }
+      toast.success("Rascunho salvo");
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao salvar");
+    }
+  }, [existingReport, studyUid, examTitle, studyInfo, updateReport, createReport]);
 
-  const handleSign = async () => {
-    const body = editorRef.current?.innerHTML || "";
-    setIsSigning(true);
+  // ── Assinar ──────────────────────────────────────────────────────────────
+  const handleSign = useCallback(async () => {
+    if (!existingReport?.id) {
+      toast.error("Salve o laudo antes de assinar");
+      return;
+    }
     try {
-      let id = reportId;
-      if (!id) { const r = await createMut.mutateAsync({ study_id: 0, study_instance_uid: studyUid, body }); id = r.id; setReportId(id); }
-      else { await updateMut.mutateAsync({ id, body }); }
-      await signMut.mutateAsync({ id: id! });
-      setIsSigned(true);
-      await utils.reports.getByStudyUid.invalidate({ studyInstanceUid: studyUid });
-      toast.success("Laudo assinado e finalizado com sucesso!");
-    } catch (e: any) { toast.error(e?.message || "Erro ao assinar laudo"); }
-    finally { setIsSigning(false); }
-  };
+      await signReport.mutateAsync({ id: existingReport.id });
+      toast.success("Laudo assinado com sucesso!");
+      navigate("/");
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao assinar");
+    }
+  }, [existingReport, signReport, navigate]);
 
-  const handleUploadSignature = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file || !user) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        await updateMedical.mutateAsync({ userId: user.id, signatureFile: reader.result as string });
-        await utils.medicalData.getReportContext.invalidate();
-        toast.success("Assinatura atualizada com sucesso");
-      } catch (err: any) { toast.error(err?.message || "Erro no upload da assinatura"); }
+  // ── Imprimir ─────────────────────────────────────────────────────────────
+  const handlePrint = useCallback(() => {
+    window.print();
+  }, []);
+
+  // ── Drag de imagens sobre o documento ───────────────────────────────────
+  const handleMouseDown = useCallback((e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    const img = draggableImages.find(i => i.id === id);
+    if (!img) return;
+    dragging.current = { id, startX: e.clientX, startY: e.clientY, origX: img.x, origY: img.y };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current) return;
+      const dx = ev.clientX - dragging.current.startX;
+      const dy = ev.clientY - dragging.current.startY;
+      setDraggableImages(prev => prev.map(i =>
+        i.id === dragging.current!.id
+          ? { ...i, x: dragging.current!.origX + dx, y: dragging.current!.origY + dy }
+          : i
+      ));
     };
-    reader.readAsDataURL(file); e.target.value = "";
-  };
-
-  const handleUploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file || !unitId) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        await updateLogo.mutateAsync({ unitId, logoFile: reader.result as string });
-        await utils.medicalData.getReportContext.invalidate();
-        toast.success("Logo da unidade atualizado com sucesso");
-      } catch (err: any) { toast.error(err?.message || "Erro no upload do logo"); }
+    const onUp = () => {
+      dragging.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
     };
-    reader.readAsDataURL(file); e.target.value = "";
-  };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [draggableImages]);
 
-  const [newGroupName, setNewGroupName] = useState("");
-  const [showNewGroup, setShowNewGroup] = useState(false);
-  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
-  const [newPhraseContent, setNewPhraseContent] = useState("");
-  const [showNewPhrase, setShowNewPhrase] = useState(false);
+  const addDraggableImage = useCallback((src: string, label: string) => {
+    setDraggableImages(prev => [...prev, {
+      id: `img_${Date.now()}`,
+      src,
+      label,
+      x: 40,
+      y: 40,
+      width: 160,
+    }]);
+  }, []);
 
-  const createGroupMut = trpc.phrases.createGroup.useMutation({
-    onSuccess: () => { utils.phrases.listGroups.invalidate(); setNewGroupName(""); setShowNewGroup(false); },
-  });
-  const createPhraseMut = trpc.phrases.create.useMutation({
-    onSuccess: () => { utils.phrases.list.invalidate(); setNewPhraseContent(""); setShowNewPhrase(false); },
-  });
-  const deletePhraseMut = trpc.phrases.delete.useMutation({ onSuccess: () => utils.phrases.list.invalidate() });
-  const toggleFavMut = trpc.phrases.toggleFavorite.useMutation({ onSuccess: () => utils.phrases.list.invalidate() });
+  const removeDraggableImage = useCallback((id: string) => {
+    setDraggableImages(prev => prev.filter(i => i.id !== id));
+  }, []);
 
-  const filteredExams = examSearch.trim()
-    ? EXAM_SUGGESTIONS.filter(s => s.toLowerCase().includes(examSearch.toLowerCase()))
-    : EXAM_SUGGESTIONS;
+  // ── Render ───────────────────────────────────────────────────────────────
+  const patientName = formatPatientName(studyInfo?.patientName || "");
+  const examDesc = examTitle || studyInfo?.studyDescription || "";
 
   return (
-    <div className="flex flex-col h-screen bg-white" style={{ fontFamily: "Inter, Arial, sans-serif" }}>
-      {/* HEADER */}
-      <header className="flex items-center gap-3 px-4 border-b border-gray-200 bg-white shrink-0" style={{ height: 52 }}>
-        <button onClick={() => navigate("/studies")}
-          className="flex items-center gap-1 text-gray-500 hover:text-gray-800 text-sm font-medium transition-colors shrink-0">
-          <ArrowLeft className="w-4 h-4" /><span>Voltar</span>
+    <div className="flex flex-col h-screen bg-white overflow-hidden print:block">
+      {/* ── HEADER ─────────────────────────────────────────────────────── */}
+      <header className="flex items-center gap-3 px-4 py-2 border-b border-gray-200 bg-white shrink-0 print:hidden">
+        <button
+          onClick={() => navigate("/")}
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Voltar
         </button>
-        <div className="flex flex-col leading-tight shrink-0">
-          <span className="font-semibold text-gray-900 text-sm">Editor de Laudo</span>
-          <span className="text-xs text-gray-400">{patientName || "Paciente"} · {examTitle || studyData.modality || "Exame"}</span>
+        <div className="w-px h-6 bg-gray-200" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900 truncate">{patientName || "Carregando..."}</p>
+          {examDesc && <p className="text-xs text-gray-500 truncate">{examDesc}</p>}
         </div>
-        <div className="flex-1" />
-
-        {/* Seletor de exame */}
-        <div className="relative" ref={examDropRef}>
-          <button onClick={() => { setShowExamDropdown(v => !v); setExamSearch(""); }}
-            className="flex items-center gap-2 px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors" style={{ maxWidth: 260 }}>
-            <FileText className="w-4 h-4 text-gray-500 shrink-0" />
-            <span className="truncate">{examTitle || "Selecionar exame"}</span>
-            <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-          </button>
-          {showExamDropdown && (
-            <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-xl w-80">
-              <div className="p-2 border-b border-gray-100">
-                <div className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 rounded border border-gray-200">
-                  <Search className="w-3.5 h-3.5 text-gray-400" />
-                  <input autoFocus value={examSearch} onChange={e => setExamSearch(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter" && examSearch.trim()) {
-                      const v = examSearch.trim().toUpperCase(); setExamTitle(v);
-                      localStorage.setItem(`exam_label_${studyUid}`, v); setShowExamDropdown(false);
-                    }}}
-                    placeholder="Buscar ou digitar nome do exame..."
-                    className="flex-1 bg-transparent text-sm outline-none text-gray-700 placeholder-gray-400" />
-                  {examSearch && <button onClick={() => setExamSearch("")} className="text-gray-400 hover:text-gray-600"><X className="w-3.5 h-3.5" /></button>}
-                </div>
-                {examSearch.trim() && (
-                  <button onClick={() => { const v = examSearch.trim().toUpperCase(); setExamTitle(v); localStorage.setItem(`exam_label_${studyUid}`, v); setShowExamDropdown(false); }}
-                    className="mt-1.5 w-full text-left text-xs px-2 py-1 text-blue-600 hover:bg-blue-50 rounded flex items-center gap-1">
-                    <Check className="w-3 h-3" />Usar: "{examSearch.trim().toUpperCase()}"
-                  </button>
-                )}
-              </div>
-              <div className="max-h-56 overflow-y-auto">
-                {filteredExams.slice(0, 30).map(s => (
-                  <button key={s} onClick={() => { setExamTitle(s); localStorage.setItem(`exam_label_${studyUid}`, s); setShowExamDropdown(false); }}
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-50 last:border-0">{s}</button>
-                ))}
-              </div>
-            </div>
-          )}
+        <div className="flex items-center gap-2 ml-auto">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePrint}
+            className="gap-1.5 text-xs"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            Imprimir
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSign}
+            disabled={signReport.isPending}
+            className="gap-1.5 text-xs bg-green-600 hover:bg-green-700 text-white"
+          >
+            <CheckCircle className="h-3.5 w-3.5" />
+            {signReport.isPending ? "Assinando..." : "Assinar"}
+          </Button>
         </div>
-
-        <button onClick={insertSignature}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors shrink-0">
-          <PenLine className="w-4 h-4 text-gray-500" /><span>Inserir Assinatura</span>
-        </button>
-        <button onClick={() => window.print()}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors shrink-0">
-          <Printer className="w-4 h-4 text-gray-500" /><span>Imprimir</span>
-        </button>
-        <button onClick={handleSave} disabled={isSaving || isSigned}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50 shrink-0">
-          <Save className="w-4 h-4 text-gray-500" /><span>{isSaving ? "Salvando..." : "Salvar"}</span>
-        </button>
-        <button onClick={handleSign} disabled={isSigning || isSigned}
-          className="flex items-center gap-1.5 px-4 py-1.5 rounded text-sm font-semibold text-white transition-colors disabled:opacity-60 shrink-0"
-          style={{ background: isSigned ? "#16a34a" : "#15803d" }}>
-          <CheckCircle className="w-4 h-4" />
-          <span>{isSigned ? "Assinado" : isSigning ? "Assinando..." : "Assinar"}</span>
-        </button>
       </header>
 
-      {/* CORPO */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* SIDEBAR */}
-        <aside className="flex flex-col border-r border-gray-200 bg-white shrink-0 overflow-y-auto" style={{ width: 260 }}>
+      {/* ── CORPO ──────────────────────────────────────────────────────── */}
+      <div className="flex flex-1 overflow-hidden print:block">
+        {/* ── SIDEBAR ──────────────────────────────────────────────────── */}
+        <aside className="w-64 shrink-0 border-r border-gray-200 bg-gray-50 flex flex-col overflow-hidden print:hidden">
           {/* Abas */}
-          <div className="flex border-b border-gray-200 shrink-0">
-            {(["templates","frases","exames"] as const).map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)}
-                className={`flex-1 py-2.5 text-xs font-medium capitalize transition-colors border-b-2 ${activeTab===tab ? "border-gray-800 text-gray-900" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
-                {tab==="templates"?"Templates":tab==="frases"?"Frases":"Exames"}
-              </button>
-            ))}
+          <div className="flex border-b border-gray-200 bg-white">
+            {(["exames", "templates", "frases", "inserir"] as const).map((tab) => {
+              const icons = {
+                exames: <Search className="h-3.5 w-3.5" />,
+                templates: <FileText className="h-3.5 w-3.5" />,
+                frases: <MessageSquare className="h-3.5 w-3.5" />,
+                inserir: <Layers className="h-3.5 w-3.5" />,
+              };
+              const labels = { exames: "Exames", templates: "Templates", frases: "Frases", inserir: "Inserir" };
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
+                    activeTab === tab
+                      ? "text-blue-600 border-b-2 border-blue-600 bg-white"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {icons[tab]}
+                  {labels[tab]}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Aba Templates */}
-          {activeTab==="templates" && (
-            <div className="flex-1 p-3 overflow-y-auto">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Meus Templates</span>
-                <button onClick={() => navigate("/templates")}
-                  className="flex items-center gap-0.5 text-xs text-gray-500 hover:text-gray-800 transition-colors">
-                  <Plus className="w-3.5 h-3.5" /><span>Novo</span>
-                </button>
-              </div>
-              {!templates || templates.length===0 ? (
-                <div className="text-xs text-gray-400 text-center py-6">
-                  Nenhum template cadastrado.<br />
-                  <button onClick={() => navigate("/templates")} className="text-blue-500 hover:underline mt-1">Criar template</button>
-                </div>
-              ) : (
-                <div className="space-y-0.5">
-                  {templates.map((t: any) => (
-                    <button key={t.id} onClick={() => applyTemplate(t)}
-                      className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-gray-50 text-left transition-colors">
-                      <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                      <span className="text-sm text-gray-700 truncate">{t.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {/* Conteúdo da aba */}
+          <div className="flex-1 overflow-y-auto">
+            {activeTab === "exames" && (
+              <ExamesTab
+                onSelectExam={(name) => setExamTitle(name)}
+                currentTitle={examTitle}
+              />
+            )}
+            {activeTab === "templates" && (
+              <TemplatesTab
+                onApplyTemplate={(body) => {
+                  if (docRef.current) docRef.current.innerHTML = body;
+                }}
+              />
+            )}
+            {activeTab === "frases" && (
+              <FrasesTab
+                onInsert={insertAtCursor}
+                onFocus={saveSelection}
+              />
+            )}
+            {activeTab === "inserir" && (
+              <InserirTab
+                signatureUrl={medCtx?.signatureUrl ?? null}
+                doctorName={medCtx?.doctorName ?? ""}
+                crm={medCtx?.crm ?? ""}
+                onInsertImage={addDraggableImage}
+              />
+            )}
+          </div>
 
-          {/* Aba Frases */}
-          {activeTab==="frases" && (
-            <div className="flex-1 p-3 overflow-y-auto flex flex-col gap-3">
-              {!phraseGroups || phraseGroups.length===0 ? (
-                <div className="text-xs text-gray-400 text-center py-4">Nenhum grupo de frases.</div>
-              ) : phraseGroups.map((group: any) => {
-                const gPhrases = (phrases||[]).filter((p: any) => p.group_id===group.id);
-                const isOpen = selectedGroupId===group.id;
-                return (
-                  <div key={group.id}>
-                    <button className="flex items-center justify-between w-full mb-1"
-                      onClick={() => setSelectedGroupId(isOpen ? null : group.id)}>
-                      <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{group.name}</span>
-                      <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isOpen?"rotate-180":""}`} />
-                    </button>
-                    {isOpen && (
-                      <div className="space-y-0.5 pl-1">
-                        {gPhrases.length===0 ? (
-                          <p className="text-xs text-gray-400 py-1">Sem frases neste grupo.</p>
-                        ) : gPhrases.map((phrase: any) => (
-                          <div key={phrase.id} className="flex items-start gap-1 group">
-                            <button onClick={() => insertAtCursor(phrase.content)}
-                              className="flex-1 text-left text-xs text-gray-700 hover:text-gray-900 hover:bg-gray-50 px-2 py-1.5 rounded transition-colors leading-snug">
-                              {phrase.content}
-                            </button>
-                            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 pt-1">
-                              <button onClick={() => toggleFavMut.mutate({ phraseId: phrase.id, isFavorite: !phrase.is_favorite })}
-                                className="text-gray-300 hover:text-amber-400 transition-colors">
-                                {phrase.is_favorite ? <Star className="w-3 h-3 fill-amber-400 text-amber-400" /> : <StarOff className="w-3 h-3" />}
-                              </button>
-                              <button onClick={() => { if(confirm("Excluir frase?")) deletePhraseMut.mutate({ phraseId: phrase.id }); }}
-                                className="text-gray-300 hover:text-red-400 transition-colors">
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                        {showNewPhrase && selectedGroupId===group.id ? (
-                          <div className="mt-1">
-                            <textarea autoFocus value={newPhraseContent} onChange={e => setNewPhraseContent(e.target.value)}
-                              placeholder="Digite a frase..." rows={2}
-                              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-gray-400" />
-                            <div className="flex gap-1 mt-1">
-                              <button onClick={() => { if(newPhraseContent.trim()) createPhraseMut.mutate({ groupId: group.id, content: newPhraseContent.trim() }); }}
-                                className="text-xs px-2 py-1 bg-gray-800 text-white rounded hover:bg-gray-700">Salvar</button>
-                              <button onClick={() => setShowNewPhrase(false)}
-                                className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-50">Cancelar</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <button onClick={() => { setShowNewPhrase(true); setSelectedGroupId(group.id); }}
-                            className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 px-2 py-1 mt-0.5">
-                            <Plus className="w-3 h-3" />Adicionar frase
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {showNewGroup ? (
-                <div className="mt-1">
-                  <input autoFocus value={newGroupName} onChange={e => setNewGroupName(e.target.value)}
-                    onKeyDown={e => { if(e.key==="Enter"&&newGroupName.trim()) createGroupMut.mutate({ name: newGroupName.trim() }); }}
-                    placeholder="Nome do grupo..."
-                    className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-gray-400" />
-                  <div className="flex gap-1 mt-1">
-                    <button onClick={() => { if(newGroupName.trim()) createGroupMut.mutate({ name: newGroupName.trim() }); }}
-                      className="text-xs px-2 py-1 bg-gray-800 text-white rounded hover:bg-gray-700">Criar</button>
-                    <button onClick={() => setShowNewGroup(false)}
-                      className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-50">Cancelar</button>
-                  </div>
-                </div>
-              ) : (
-                <button onClick={() => setShowNewGroup(true)}
-                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors mt-1">
-                  <Plus className="w-3.5 h-3.5" />Novo grupo
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Aba Exames */}
-          {activeTab==="exames" && (
-            <div className="flex-1 p-3 overflow-y-auto">
-              <p className="text-xs text-gray-500 mb-2">Clique para definir o título do laudo:</p>
-              <div className="space-y-0.5">
-                {EXAM_SUGGESTIONS.map(s => (
-                  <button key={s} onClick={() => { setExamTitle(s); localStorage.setItem(`exam_label_${studyUid}`, s); toast.success("Título atualizado"); }}
-                    className={`w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 transition-colors ${examTitle===s?"bg-gray-100 font-medium text-gray-900":"text-gray-600"}`}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Upload (admin_master) */}
-          {isAdminMaster && (
-            <div className="border-t border-gray-200 p-3 space-y-3 shrink-0">
-              <div>
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <PenLine className="w-3.5 h-3.5 text-amber-600" />
-                  <span className="text-xs font-semibold text-gray-700">Assinatura</span>
-                </div>
-                {medCtx?.signatureUrl && (
-                  <img src={medCtx.signatureUrl} alt="Assinatura" className="h-10 object-contain mb-1.5 border border-gray-100 rounded p-1" />
-                )}
-                <label className="flex items-center gap-1.5 cursor-pointer w-full justify-center py-1.5 border border-gray-300 rounded text-xs text-gray-600 hover:bg-gray-50 transition-colors">
-                  <Upload className="w-3.5 h-3.5" /><span>Upload Assinatura</span>
-                  <input type="file" accept="image/*" className="hidden" onChange={handleUploadSignature} />
-                </label>
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <BookOpen className="w-3.5 h-3.5 text-amber-600" />
-                  <span className="text-xs font-semibold text-gray-700">Logo da Unidade</span>
-                </div>
-                {medCtx?.unitLogoUrl && (
-                  <img src={medCtx.unitLogoUrl} alt="Logo" className="h-10 object-contain mb-1.5 border border-gray-100 rounded p-1" />
-                )}
-                <label className="flex items-center gap-1.5 cursor-pointer w-full justify-center py-1.5 border border-gray-300 rounded text-xs text-gray-600 hover:bg-gray-50 transition-colors">
-                  <Upload className="w-3.5 h-3.5" /><span>Upload Logo</span>
-                  <input type="file" accept="image/*" className="hidden" onChange={handleUploadLogo} />
-                </label>
-              </div>
-            </div>
-          )}
+          {/* Botão salvar rascunho no rodapé da sidebar */}
+          <div className="p-3 border-t border-gray-200 bg-white">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-xs"
+              onClick={handleSave}
+              disabled={createReport.isPending || updateReport.isPending}
+            >
+              {(createReport.isPending || updateReport.isPending) ? "Salvando..." : "Salvar Rascunho"}
+            </Button>
+          </div>
         </aside>
 
-        {/* DOCUMENTO A4 */}
-        <main className="flex-1 overflow-y-auto bg-gray-100 flex justify-center py-8 px-4" id="print-area">
-          <div id="report-document" className="bg-white shadow-md"
-            style={{ width:"210mm", minHeight:"297mm", padding:"20mm 25mm 25mm 25mm",
-              fontFamily:"Arial, sans-serif", fontSize:"11pt", lineHeight:"1.6",
-              boxSizing:"border-box" }}>
-
-            {/* Cabeçalho */}
-            <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:20 }}>
-              {medCtx?.unitLogoUrl ? (
-                <img src={medCtx.unitLogoUrl} alt="Logo" style={{ height:60, objectFit:"contain" }} />
-              ) : (
-                <div style={{ width:80, height:60, border:"1px dashed #ccc", display:"flex",
-                  alignItems:"center", justifyContent:"center", fontSize:"8pt", color:"#aaa", borderRadius:4 }}>
-                  Logo da unidade
-                </div>
-              )}
-            </div>
-
-            {/* Dados do paciente */}
-            <div style={{ marginBottom:16 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
-                <div>
-                  <div style={{ fontWeight:"bold", fontSize:"11pt" }}>Paciente: {patientName||"—"}</div>
-                  <div style={{ fontSize:"10pt", color:"#444", marginTop:2 }}>
-                    Realizado em: {studyDate}{studyTime?` ${studyTime}`:""}
+        {/* ── ÁREA DO DOCUMENTO ────────────────────────────────────────── */}
+        <main className="flex-1 overflow-y-auto bg-gray-100 flex justify-center py-8 print:bg-white print:p-0 print:block">
+          <div
+            className="relative bg-white shadow-md print:shadow-none"
+            style={{ width: "210mm", minHeight: "297mm" }}
+          >
+            {/* Imagens arrastáveis */}
+            {draggableImages.map((img) => (
+              <div
+                key={img.id}
+                style={{ position: "absolute", left: img.x, top: img.y, width: img.width, zIndex: 10, cursor: "grab" }}
+                onMouseDown={(e) => handleMouseDown(e, img.id)}
+              >
+                <div className="relative group">
+                  <img src={img.src} alt={img.label} style={{ width: "100%", display: "block" }} />
+                  <button
+                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity print:hidden"
+                    onClick={() => removeDraggableImage(img.id)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-white text-[8px] text-center py-0.5 opacity-0 group-hover:opacity-100 print:hidden">
+                    <GripVertical className="h-3 w-3 inline" /> {img.label}
                   </div>
                 </div>
-                <div style={{ textAlign:"right", fontSize:"10pt", color:"#444" }}>
-                  {studyData.patientBirthDate && <div>Data Nasc: {fmtDicom(studyData.patientBirthDate)}</div>}
-                  {age && <div>Idade: {age}</div>}
-                  {sex && <div>Sexo: {sex}</div>}
+              </div>
+            ))}
+
+            {/* Conteúdo do documento */}
+            <div style={{ padding: "20mm 20mm 25mm 20mm", fontFamily: "Times New Roman, serif", fontSize: "12pt", color: "#000" }}>
+              {/* Cabeçalho: Logo + dados do paciente */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8mm", borderBottom: "1px solid #ccc", paddingBottom: "4mm" }}>
+                <div>
+                  {medCtx?.unitLogoUrl ? (
+                    <img src={medCtx.unitLogoUrl} alt="Logo" style={{ maxHeight: "50px", maxWidth: "160px", objectFit: "contain" }} />
+                  ) : (
+                    <div style={{ width: 120, height: 40, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", color: "#bbb", fontSize: "9pt" }}>
+                      Logo da unidade
+                    </div>
+                  )}
+                </div>
+                <div style={{ textAlign: "right", fontSize: "10pt" }}>
+                  <div><strong>Paciente:</strong> {patientName}</div>
+                  {studyInfo?.birthDate && <div><strong>Data Nasc:</strong> {studyInfo.birthDate}</div>}
+                  {studyInfo?.age && <div><strong>Idade:</strong> {studyInfo.age}</div>}
+                  {studyInfo?.sex && <div><strong>Sexo:</strong> {formatSex(studyInfo.sex)}</div>}
+                  {studyInfo?.studyDate && <div><strong>Realizado em:</strong> {studyInfo.studyDate}</div>}
                 </div>
               </div>
-              <hr style={{ border:"none", borderTop:"1px solid #e0e0e0", marginTop:12 }} />
-            </div>
 
-            {/* Título do exame */}
-            <div style={{ textAlign:"center", fontWeight:"bold", fontSize:"13pt", marginBottom:20, letterSpacing:"0.5px" }}>
-              {examTitle||studyData.modality||""}
-            </div>
-
-            {/* Corpo editável */}
-            <div ref={editorRef} contentEditable={!isSigned} suppressContentEditableWarning spellCheck
-              onMouseUp={saveSelection} onKeyUp={saveSelection} onFocus={saveSelection}
-              data-placeholder="Clique aqui para começar a digitar o laudo..."
-              style={{ minHeight:300, outline:"none", fontSize:"11pt", lineHeight:"1.8",
-                color:"#222", whiteSpace:"pre-wrap", wordBreak:"break-word" }} />
-
-            {/* Rodapé */}
-            <div style={{ marginTop:40, fontSize:"10pt", color:"#444" }}>
-              {medCtx?.doctorName && (
-                <div>Radiologista: {medCtx.doctorName}{medCtx.crm?` — CRM: ${medCtx.crm}`:""}</div>
+              {/* Título do exame */}
+              {examTitle && (
+                <div style={{ textAlign: "center", fontWeight: "bold", fontSize: "14pt", marginBottom: "6mm", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {examTitle}
+                </div>
               )}
-              <div style={{ marginTop:20, fontSize:"8pt", color:"#aaa" }}>Com os cumprimentos</div>
+
+              {/* Corpo editável */}
+              <div
+                ref={docRef}
+                contentEditable
+                suppressContentEditableWarning
+                onMouseUp={saveSelection}
+                onKeyUp={saveSelection}
+                data-placeholder="Digite o laudo aqui..."
+                style={{
+                  minHeight: "120mm",
+                  outline: "none",
+                  lineHeight: 1.8,
+                  whiteSpace: "pre-wrap",
+                }}
+              />
+
+              {/* Assinatura do médico */}
+              {(medCtx?.signatureUrl || medCtx?.doctorName) && (
+                <div style={{ marginTop: "12mm", borderTop: "1px solid #ccc", paddingTop: "4mm" }}>
+                  {medCtx.signatureUrl && (
+                    <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: "50px", objectFit: "contain", marginBottom: "2mm" }} />
+                  )}
+                  {medCtx.doctorName && (
+                    <div style={{ fontSize: "11pt" }}>
+                      <strong>{medCtx.doctorName}</strong>
+                      {medCtx.crm && <span style={{ marginLeft: "8px", color: "#555" }}>CRM: {medCtx.crm}</span>}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Rodapé legal */}
+              <div style={{ marginTop: "16mm", borderTop: "1px solid #eee", paddingTop: "3mm", fontSize: "7pt", color: "#888", lineHeight: 1.4 }}>
+                {LEGAL_FOOTER}
+              </div>
             </div>
           </div>
         </main>
       </div>
 
+      {/* Estilos de impressão */}
       <style>{`
         @media print {
-          body > *:not(#print-area) { display: none !important; }
-          #print-area { display: block !important; background: white !important; padding: 0 !important; }
-          #report-document { box-shadow: none !important; width: 100% !important; min-height: auto !important; }
-          header, aside { display: none !important; }
+          body { margin: 0; }
+          .print\\:hidden { display: none !important; }
         }
-        [data-placeholder]:empty:before { content: attr(data-placeholder); color: #bbb; pointer-events: none; }
+        [contenteditable]:empty:before {
+          content: attr(data-placeholder);
+          color: #bbb;
+          pointer-events: none;
+        }
       `}</style>
+    </div>
+  );
+}
+
+// ─── Aba Exames ───────────────────────────────────────────────────────────────
+function ExamesTab({ onSelectExam, currentTitle }: { onSelectExam: (name: string) => void; currentTitle: string }) {
+  const [search, setSearch] = useState("");
+  const filtered = EXAM_SUGGESTIONS.filter(e => e.toLowerCase().includes(search.toLowerCase()));
+  return (
+    <div className="p-3 space-y-2">
+      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Selecionar Exame</p>
+      <div className="relative">
+        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar exame..."
+          className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+        />
+      </div>
+      <div className="space-y-0.5">
+        {filtered.map((exam) => (
+          <button
+            key={exam}
+            onClick={() => onSelectExam(exam)}
+            className={`w-full text-left px-2 py-1.5 text-xs rounded transition-colors ${
+              currentTitle === exam
+                ? "bg-blue-100 text-blue-700 font-medium"
+                : "text-gray-700 hover:bg-gray-100"
+            }`}
+          >
+            {exam}
+          </button>
+        ))}
+        {filtered.length === 0 && (
+          <div className="text-center py-4">
+            <p className="text-xs text-gray-400">Nenhum exame encontrado</p>
+            <button
+              onClick={() => onSelectExam(search)}
+              className="mt-1 text-xs text-blue-600 hover:underline"
+            >
+              Usar "{search}" como título
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Aba Templates ────────────────────────────────────────────────────────────
+function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string) => void }) {
+  const { data: templates = [], refetch } = trpc.templates.list.useQuery();
+  const createTemplate = trpc.templates.create.useMutation({ onSuccess: () => { refetch(); toast.success("Template criado"); } });
+  const deleteTemplate = trpc.templates.delete.useMutation({ onSuccess: () => { refetch(); toast.success("Template excluído"); } });
+
+  const [showNew, setShowNew] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newModality, setNewModality] = useState("");
+  const [newBody, setNewBody] = useState("");
+
+  // Agrupar por modalidade
+  const grouped: Record<string, typeof templates> = {};
+  for (const t of templates) {
+    const key = t.modality || "Geral";
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(t);
+  }
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const toggleGroup = (k: string) => setOpenGroups(prev => ({ ...prev, [k]: !prev[k] }));
+
+  const handleCreate = () => {
+    if (!newName.trim() || !newBody.trim()) { toast.error("Preencha nome e conteúdo"); return; }
+    createTemplate.mutate({ name: newName.trim(), modality: newModality.trim() || undefined, bodyTemplate: newBody.trim(), isGlobal: false });
+    setShowNew(false); setNewName(""); setNewModality(""); setNewBody("");
+  };
+
+  return (
+    <div className="p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Meus Templates</p>
+        <button onClick={() => setShowNew(!showNew)} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700">
+          <Plus className="h-3.5 w-3.5" /> Novo
+        </button>
+      </div>
+
+      {showNew && (
+        <div className="border border-gray-200 rounded p-2 space-y-1.5 bg-white">
+          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nome do template" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          <input value={newModality} onChange={e => setNewModality(e.target.value)} placeholder="Modalidade (ex: TC Crânio)" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          <textarea value={newBody} onChange={e => setNewBody(e.target.value)} placeholder="Conteúdo do template..." rows={4} className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none" />
+          <div className="flex gap-1">
+            <button onClick={handleCreate} className="flex-1 text-xs bg-blue-600 text-white rounded py-1 hover:bg-blue-700">Criar</button>
+            <button onClick={() => setShowNew(false)} className="flex-1 text-xs border border-gray-200 rounded py-1 hover:bg-gray-50">Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {Object.keys(grouped).length === 0 && !showNew && (
+        <p className="text-xs text-gray-400 text-center py-4">Nenhum template criado</p>
+      )}
+
+      {Object.entries(grouped).map(([group, items]) => (
+        <div key={group} className="border border-gray-200 rounded overflow-hidden">
+          <button
+            onClick={() => toggleGroup(group)}
+            className="w-full flex items-center justify-between px-2 py-1.5 bg-gray-50 text-xs font-medium text-gray-700 hover:bg-gray-100"
+          >
+            <span>{group}</span>
+            {openGroups[group] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          </button>
+          {openGroups[group] && (
+            <div className="divide-y divide-gray-100">
+              {items.map(t => (
+                <div key={t.id} className="flex items-center gap-1 px-2 py-1.5 hover:bg-blue-50 group">
+                  <button
+                    onClick={() => onApplyTemplate(t.bodyTemplate)}
+                    className="flex-1 text-left text-xs text-gray-700 truncate"
+                  >
+                    {t.name}
+                  </button>
+                  <button
+                    onClick={() => { if (confirm("Excluir template?")) deleteTemplate.mutate({ id: t.id }); }}
+                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Aba Frases ───────────────────────────────────────────────────────────────
+function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; onFocus: () => void }) {
+  const { data: groups = [], refetch: refetchGroups } = trpc.phrases.listGroups.useQuery();
+  const { data: phrases = [], refetch: refetchPhrases } = trpc.phrases.list.useQuery();
+  const createGroup = trpc.phrases.createGroup.useMutation({ onSuccess: () => { refetchGroups(); toast.success("Grupo criado"); } });
+  const createPhrase = trpc.phrases.create.useMutation({ onSuccess: () => { refetchPhrases(); toast.success("Frase adicionada"); } });
+  const deletePhrase = trpc.phrases.delete.useMutation({ onSuccess: () => { refetchPhrases(); toast.success("Frase excluída"); } });
+  const toggleFav = trpc.phrases.toggleFavorite.useMutation({ onSuccess: () => refetchPhrases() });
+
+  const [openGroups, setOpenGroups] = useState<Record<number, boolean>>({});
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [addingPhrase, setAddingPhrase] = useState<number | null>(null);
+  const [newPhraseText, setNewPhraseText] = useState("");
+
+  const toggleGroup = (id: number) => setOpenGroups(prev => ({ ...prev, [id]: !prev[id] }));
+
+  const handleCreateGroup = () => {
+    if (!newGroupName.trim()) return;
+    createGroup.mutate({ name: newGroupName.trim() });
+    setShowNewGroup(false); setNewGroupName("");
+  };
+
+  const handleAddPhrase = (groupId: number) => {
+    if (!newPhraseText.trim()) return;
+    createPhrase.mutate({ groupId, content: newPhraseText.trim() });
+    setAddingPhrase(null); setNewPhraseText("");
+  };
+
+  return (
+    <div className="p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Frases Prontas</p>
+        <button onClick={() => setShowNewGroup(!showNewGroup)} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700">
+          <Plus className="h-3.5 w-3.5" /> Grupo
+        </button>
+      </div>
+
+      {showNewGroup && (
+        <div className="flex gap-1">
+          <input
+            value={newGroupName}
+            onChange={e => setNewGroupName(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleCreateGroup()}
+            placeholder="Nome do grupo..."
+            className="flex-1 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            autoFocus
+          />
+          <button onClick={handleCreateGroup} className="text-xs bg-blue-600 text-white rounded px-2 hover:bg-blue-700">OK</button>
+          <button onClick={() => setShowNewGroup(false)} className="text-xs border border-gray-200 rounded px-2 hover:bg-gray-50">✕</button>
+        </div>
+      )}
+
+      {groups.length === 0 && (
+        <p className="text-xs text-gray-400 text-center py-4">Nenhum grupo criado</p>
+      )}
+
+      {groups.map(group => {
+        const groupPhrases = phrases.filter(p => p.group_id === group.id);
+        const isOpen = openGroups[group.id] ?? false;
+        return (
+          <div key={group.id} className="border border-gray-200 rounded overflow-hidden">
+            <button
+              onClick={() => toggleGroup(group.id)}
+              className="w-full flex items-center justify-between px-2 py-1.5 bg-gray-50 text-xs font-medium text-gray-700 hover:bg-gray-100"
+            >
+              <span>{group.name}</span>
+              <div className="flex items-center gap-1">
+                <span className="text-gray-400 text-[10px]">{groupPhrases.length}</span>
+                {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              </div>
+            </button>
+            {isOpen && (
+              <div className="divide-y divide-gray-100">
+                {groupPhrases.map(phrase => (
+                  <div key={phrase.id} className="flex items-start gap-1 px-2 py-1.5 hover:bg-blue-50 group">
+                    <button
+                      onClick={() => { onFocus(); onInsert(phrase.content); }}
+                      className="flex-1 text-left text-xs text-gray-700 leading-relaxed"
+                    >
+                      {phrase.content}
+                    </button>
+                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
+                      <button
+                        onClick={() => toggleFav.mutate({ phraseId: phrase.id, isFavorite: !phrase.is_favorite })}
+                        className={phrase.is_favorite ? "text-amber-400" : "text-gray-300 hover:text-amber-400"}
+                      >
+                        <Star className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => deletePhrase.mutate({ phraseId: phrase.id })}
+                        className="text-red-300 hover:text-red-500"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {addingPhrase === group.id ? (
+                  <div className="p-2 space-y-1">
+                    <textarea
+                      value={newPhraseText}
+                      onChange={e => setNewPhraseText(e.target.value)}
+                      placeholder="Digite a frase..."
+                      rows={2}
+                      className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
+                      autoFocus
+                    />
+                    <div className="flex gap-1">
+                      <button onClick={() => handleAddPhrase(group.id)} className="flex-1 text-xs bg-blue-600 text-white rounded py-0.5 hover:bg-blue-700">Adicionar</button>
+                      <button onClick={() => { setAddingPhrase(null); setNewPhraseText(""); }} className="text-xs border border-gray-200 rounded px-2 hover:bg-gray-50">✕</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setAddingPhrase(group.id)}
+                    className="w-full text-left px-2 py-1.5 text-xs text-blue-500 hover:text-blue-700 hover:bg-blue-50 flex items-center gap-1"
+                  >
+                    <Plus className="h-3 w-3" /> Adicionar frase
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Aba Inserir ──────────────────────────────────────────────────────────────
+function InserirTab({
+  signatureUrl,
+  doctorName,
+  crm,
+  onInsertImage,
+}: {
+  signatureUrl: string | null;
+  doctorName: string;
+  crm: string;
+  onInsertImage: (src: string, label: string) => void;
+}) {
+  return (
+    <div className="p-3 space-y-4">
+      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Inserir no Documento</p>
+      <p className="text-xs text-gray-500">Clique para inserir a imagem no documento. Após inserida, arraste para posicioná-la.</p>
+
+      {/* Assinatura */}
+      <div className="border border-gray-200 rounded p-2 space-y-2">
+        <p className="text-xs font-medium text-gray-700">Assinatura</p>
+        {signatureUrl ? (
+          <div className="space-y-1.5">
+            <div className="bg-white border border-gray-100 rounded p-2 flex items-center justify-center">
+              <img src={signatureUrl} alt="Assinatura" className="max-h-16 object-contain" />
+            </div>
+            <p className="text-[10px] text-gray-500 text-center">{doctorName}{crm ? ` — CRM: ${crm}` : ""}</p>
+            <button
+              onClick={() => onInsertImage(signatureUrl, "Assinatura")}
+              className="w-full text-xs bg-blue-600 text-white rounded py-1.5 hover:bg-blue-700 flex items-center justify-center gap-1"
+            >
+              <Layers className="h-3.5 w-3.5" />
+              Inserir Assinatura
+            </button>
+          </div>
+        ) : (
+          <div className="text-center py-4">
+            <p className="text-xs text-gray-400">Nenhuma assinatura cadastrada</p>
+            <p className="text-[10px] text-gray-400 mt-1">Solicite ao administrador que cadastre sua assinatura</p>
+          </div>
+        )}
+      </div>
+
+      {/* Carimbo */}
+      {(doctorName || crm) && (
+        <div className="border border-gray-200 rounded p-2 space-y-2">
+          <p className="text-xs font-medium text-gray-700">Carimbo</p>
+          <div className="bg-white border border-gray-100 rounded p-2 text-center">
+            <p className="text-xs font-bold">{doctorName}</p>
+            {crm && <p className="text-[10px] text-gray-500">CRM: {crm}</p>}
+          </div>
+          <button
+            onClick={() => {
+              // Gerar carimbo como canvas
+              const canvas = document.createElement("canvas");
+              canvas.width = 300; canvas.height = 80;
+              const ctx = canvas.getContext("2d");
+              if (ctx) {
+                ctx.fillStyle = "#fff";
+                ctx.fillRect(0, 0, 300, 80);
+                ctx.strokeStyle = "#333";
+                ctx.strokeRect(2, 2, 296, 76);
+                ctx.fillStyle = "#000";
+                ctx.font = "bold 16px serif";
+                ctx.textAlign = "center";
+                ctx.fillText(doctorName, 150, 30);
+                if (crm) {
+                  ctx.font = "12px serif";
+                  ctx.fillText(`CRM: ${crm}`, 150, 52);
+                }
+              }
+              onInsertImage(canvas.toDataURL(), "Carimbo");
+            }}
+            className="w-full text-xs bg-gray-700 text-white rounded py-1.5 hover:bg-gray-800 flex items-center justify-center gap-1"
+          >
+            <Layers className="h-3.5 w-3.5" />
+            Inserir Carimbo
+          </button>
+        </div>
+      )}
+
+      {!signatureUrl && !doctorName && (
+        <p className="text-xs text-gray-400 text-center py-4">Nenhuma imagem disponível</p>
+      )}
     </div>
   );
 }

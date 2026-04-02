@@ -489,7 +489,7 @@ export const appRouter = router({
     
     create: protectedProcedure
       .input(z.object({
-        study_id: z.number(),
+        study_id: z.number().optional(),
         study_instance_uid: z.string().optional(),
         template_id: z.number().optional(),
         body: z.string(),
