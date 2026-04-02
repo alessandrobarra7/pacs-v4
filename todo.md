@@ -497,3 +497,14 @@
 
 ## BUG: IMPRESSÃO NÃO MOSTRA CONTEÚDO
 - [x] Corrigir CSS de impressão para garantir que o documento A4 apareça completo ao imprimir
+
+## CORREÇÕES URGENTES — EDITOR DE LAUDOS (02/04/2026)
+- [ ] Formatar data "Realizado em" de YYYYMMDD para DD/MM/YYYY no documento A4
+- [ ] Corrigir assinatura: mostrar imagem da assinatura real do médico (não avatar)
+- [ ] Adicionar guards de null em todos os .map() para prevenir TypeError
+- [ ] Corrigir erro TypeError: Cannot read properties of null (reading 'id') reportado pelo usuário
+
+## CORREÇÕES APLICADAS (02/04/2026 08:33)
+- [x] Formatar data "Realizado em" de YYYYMMDD para DD/MM/YYYY no documento A4
+- [x] Adicionar guards de null (filter(Boolean)) em todos os .map() de templates e phrases para prevenir TypeError
+- [x] Verificar assinatura: documento mostra corretamente nome do médico quando não há signatureUrl

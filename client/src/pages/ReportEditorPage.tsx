@@ -107,6 +107,14 @@ function formatSex(s: string) {
   return u === "M" ? "M" : u === "F" ? "F" : s || "";
 }
 
+// Formata data DICOM YYYYMMDD para DD/MM/YYYY
+function formatDicomDate(dateStr: string | undefined) {
+  if (!dateStr) return "";
+  const s = dateStr.replace(/[^0-9]/g, "");
+  if (s.length === 8) return `${s.substring(6, 8)}/${s.substring(4, 6)}/${s.substring(0, 4)}`;
+  return dateStr;
+}
+
 // ─── Componente Principal ─────────────────────────────────────────────────────
 export default function ReportEditorPage() {
   const [, navigate] = useLocation();
@@ -252,7 +260,7 @@ export default function ReportEditorPage() {
       ${studyInfo?.birthDate ? `<div><strong>Data Nasc:</strong> ${studyInfo.birthDate}</div>` : ""}
       ${studyInfo?.age ? `<div><strong>Idade:</strong> ${studyInfo.age}</div>` : ""}
       ${studyInfo?.sex ? `<div><strong>Sexo:</strong> ${formatSex(studyInfo.sex)}</div>` : ""}
-      ${studyInfo?.studyDate ? `<div><strong>Realizado em:</strong> ${studyInfo.studyDate}</div>` : ""}
+      ${studyInfo?.studyDate ? `<div><strong>Realizado em:</strong> ${formatDicomDate(studyInfo.studyDate)}</div>` : ""}
     `;
     const titleHtml = examTitle
       ? `<div style="text-align:center;font-weight:bold;font-size:14pt;margin-bottom:6mm;text-transform:uppercase;letter-spacing:0.5px;">${examTitle}</div>`
@@ -494,7 +502,7 @@ export default function ReportEditorPage() {
                   {studyInfo?.birthDate && <div><strong>Data Nasc:</strong> {studyInfo.birthDate}</div>}
                   {studyInfo?.age && <div><strong>Idade:</strong> {studyInfo.age}</div>}
                   {studyInfo?.sex && <div><strong>Sexo:</strong> {formatSex(studyInfo.sex)}</div>}
-                  {studyInfo?.studyDate && <div><strong>Realizado em:</strong> {studyInfo.studyDate}</div>}
+                  {studyInfo?.studyDate && <div><strong>Realizado em:</strong> {formatDicomDate(studyInfo.studyDate)}</div>}
                 </div>
               </div>
 
@@ -612,7 +620,8 @@ function ExamesTab({ onSelectExam, currentTitle }: { onSelectExam: (name: string
 
 // ─── Aba Templates ────────────────────────────────────────────────────────────
 function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string) => void }) {
-  const { data: templates = [], refetch } = trpc.templates.list.useQuery();
+  const { data: rawTemplates = [], refetch } = trpc.templates.list.useQuery();
+  const templates = rawTemplates.filter(Boolean);
   const createTemplate = trpc.templates.create.useMutation({ onSuccess: () => { refetch(); toast.success("Template criado"); } });
   const deleteTemplate = trpc.templates.delete.useMutation({ onSuccess: () => { refetch(); toast.success("Template excluído"); } });
 
@@ -699,8 +708,10 @@ function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string) => 
 
 // ─── Aba Frases ───────────────────────────────────────────────────────────────
 function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; onFocus: () => void }) {
-  const { data: groups = [], refetch: refetchGroups } = trpc.phrases.listGroups.useQuery();
-  const { data: phrases = [], refetch: refetchPhrases } = trpc.phrases.list.useQuery();
+  const { data: rawGroups = [], refetch: refetchGroups } = trpc.phrases.listGroups.useQuery();
+  const { data: rawPhrases = [], refetch: refetchPhrases } = trpc.phrases.list.useQuery();
+  const groups = rawGroups.filter(Boolean);
+  const phrases = rawPhrases.filter(Boolean);
   const createGroup = trpc.phrases.createGroup.useMutation({ onSuccess: () => { refetchGroups(); toast.success("Grupo criado"); } });
   const createPhrase = trpc.phrases.create.useMutation({ onSuccess: () => { refetchPhrases(); toast.success("Frase adicionada"); } });
   const deletePhrase = trpc.phrases.delete.useMutation({ onSuccess: () => { refetchPhrases(); toast.success("Frase excluída"); } });
