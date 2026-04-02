@@ -357,6 +357,64 @@ CREATE TABLE IF NOT EXISTS user_unit_permissions (
 );
 ```
 
+### Migração 008 — Carimbo do médico e histórico de retificações
+
+**VM2** — data: 02/04/2026
+
+> **Contexto:** Adicionado campo `stamp_url` para armazenar a imagem do carimbo do médico e tabela `report_versions` para histórico de retificações de laudos assinados.
+
+```sql
+-- Adicionar coluna stamp_url na tabela users
+ALTER TABLE users ADD COLUMN stamp_url TEXT NULL;
+
+-- Criar tabela de histórico de versões de laudos
+CREATE TABLE IF NOT EXISTS report_versions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  report_id INT NOT NULL,
+  body LONGTEXT NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  revised_by INT NOT NULL,
+  created_at BIGINT NOT NULL,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  FOREIGN KEY (revised_by) REFERENCES users(id)
+);
+```
+
+---
+
+## ⚠️ Procedimento de Deploy Seguro (OBRIGATÓRIO)
+
+> **Regra de ouro:** Sempre aplique as migrações de banco na **VM2** ANTES de fazer `git pull` na **VM1**. Nunca atualize o código sem antes sincronizar o banco.
+
+### Checklist antes de cada `git pull` na VM1
+
+1. **Verificar migrações pendentes** — consulte o histórico de commits no GitHub e identifique se há novas migrações no `DEPLOY.md`
+2. **Aplicar migrações na VM2** — execute os SQLs pendentes na VM2 antes de atualizar o código
+3. **Fazer o deploy na VM1** — somente após confirmar que o banco está atualizado
+
+### Sequência correta de deploy
+
+**Na VM2** (aplicar migrações primeiro):
+```bash
+mysql -u root -p137946 pacs_portal -e "<SQL DA MIGRAÇÃO PENDENTE>"
+```
+
+**Na VM1** (atualizar código depois):
+```bash
+cd /var/www/pacs-portal && git pull origin main && pnpm install && pnpm build && pm2 restart pacs-portal
+```
+
+### Como identificar migrações pendentes
+
+Compare as colunas do banco em produção com o schema esperado:
+```bash
+# Na VM2 — ver colunas atuais da tabela users
+mysql -u root -p137946 pacs_portal -e "DESCRIBE users;" 2>/dev/null
+
+# Na VM2 — ver todas as tabelas existentes
+mysql -u root -p137946 pacs_portal -e "SHOW TABLES;" 2>/dev/null
+```
+
 ---
 
 ## Backup do Banco
