@@ -1536,6 +1536,28 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    removeSignature: protectedProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas administradores podem remover assinaturas' });
+        }
+        const { updateUserMedicalData } = await import('./db');
+        await updateUserMedicalData(input.userId, { signature_url: null });
+        return { success: true };
+      }),
+
+    removeLogo: protectedProcedure
+      .input(z.object({ unitId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas administradores podem remover logos' });
+        }
+        const { updateUnitLogo } = await import('./db');
+        await updateUnitLogo(input.unitId, null as any);
+        return { success: true };
+      }),
+
     getReportContext: protectedProcedure
       .input(z.object({ unitId: z.number() }))
       .query(async ({ input, ctx }) => {
@@ -1548,6 +1570,7 @@ export const appRouter = router({
           signatureUrl: user?.signature_url ?? null,
           unitName: unit?.name ?? '',
           unitLogoUrl: unit?.logo_url ?? null,
+          userId: user?.id ?? 0,
         };
       }),
   }),

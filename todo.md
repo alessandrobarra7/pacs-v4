@@ -508,3 +508,8 @@
 - [x] Formatar data "Realizado em" de YYYYMMDD para DD/MM/YYYY no documento A4
 - [x] Adicionar guards de null (filter(Boolean)) em todos os .map() de templates e phrases para prevenir TypeError
 - [x] Verificar assinatura: documento mostra corretamente nome do médico quando não há signatureUrl
+
+## BOTÕES DE APAGAR ASSINATURA/CARIMBO (02/04/2026)
+- [x] Adicionar procedure backend para remover signature_url do médico (admin_master e unit_admin)
+- [x] Adicionar botão "Apagar Assinatura" na aba Inserir (visível apenas para admin_master e unit_admin)
+- [x] Adicionar botão "Apagar Carimbo" na aba Inserir (visível apenas para admin_master e unit_admin)

@@ -436,6 +436,9 @@ export default function ReportEditorPage() {
                 signatureUrl={medCtx?.signatureUrl ?? null}
                 doctorName={medCtx?.doctorName ?? ""}
                 crm={medCtx?.crm ?? ""}
+                userId={medCtx?.userId ?? 0}
+                unitId={unitId}
+                isAdmin={user?.role === "admin_master" || user?.role === "unit_admin"}
                 onInsertImage={addDraggableImage}
               />
             )}
@@ -843,13 +846,44 @@ function InserirTab({
   signatureUrl,
   doctorName,
   crm,
+  userId,
+  unitId,
+  isAdmin,
   onInsertImage,
 }: {
   signatureUrl: string | null;
   doctorName: string;
   crm: string;
+  userId: number;
+  unitId: number;
+  isAdmin: boolean;
   onInsertImage: (src: string, label: string) => void;
 }) {
+  const removeSignature = trpc.medicalData.removeSignature.useMutation();
+  const removeLogo = trpc.medicalData.removeLogo.useMutation();
+  const utils = trpc.useUtils();
+
+  const handleRemoveSignature = async () => {
+    if (!confirm("Tem certeza que deseja remover a assinatura?")) return;
+    try {
+      await removeSignature.mutateAsync({ userId });
+      await utils.medicalData.getReportContext.invalidate();
+      toast.success("Assinatura removida");
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao remover assinatura");
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!confirm("Tem certeza que deseja remover o logo da unidade?")) return;
+    try {
+      await removeLogo.mutateAsync({ unitId });
+      await utils.medicalData.getReportContext.invalidate();
+      toast.success("Logo removido");
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao remover logo");
+    }
+  };
   return (
     <div className="p-3 space-y-4">
       <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Inserir no Documento</p>
@@ -864,13 +898,24 @@ function InserirTab({
               <img src={signatureUrl} alt="Assinatura" className="max-h-16 object-contain" />
             </div>
             <p className="text-[10px] text-gray-500 text-center">{doctorName}{crm ? ` — CRM: ${crm}` : ""}</p>
-            <button
-              onClick={() => onInsertImage(signatureUrl, "Assinatura")}
-              className="w-full text-xs bg-blue-600 text-white rounded py-1.5 hover:bg-blue-700 flex items-center justify-center gap-1"
-            >
-              <Layers className="h-3.5 w-3.5" />
-              Inserir Assinatura
-            </button>
+            <div className="flex gap-1">
+              <button
+                onClick={() => onInsertImage(signatureUrl, "Assinatura")}
+                className="flex-1 text-xs bg-blue-600 text-white rounded py-1.5 hover:bg-blue-700 flex items-center justify-center gap-1"
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Inserir
+              </button>
+              {isAdmin && (
+                <button
+                  onClick={handleRemoveSignature}
+                  disabled={removeSignature.isPending}
+                  className="text-xs bg-red-500 text-white rounded py-1.5 px-3 hover:bg-red-600 flex items-center justify-center gap-1"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <div className="text-center py-4">
@@ -888,33 +933,45 @@ function InserirTab({
             <p className="text-xs font-bold">{doctorName}</p>
             {crm && <p className="text-[10px] text-gray-500">CRM: {crm}</p>}
           </div>
-          <button
-            onClick={() => {
-              // Gerar carimbo como canvas
-              const canvas = document.createElement("canvas");
-              canvas.width = 300; canvas.height = 80;
-              const ctx = canvas.getContext("2d");
-              if (ctx) {
-                ctx.fillStyle = "#fff";
-                ctx.fillRect(0, 0, 300, 80);
-                ctx.strokeStyle = "#333";
-                ctx.strokeRect(2, 2, 296, 76);
-                ctx.fillStyle = "#000";
-                ctx.font = "bold 16px serif";
-                ctx.textAlign = "center";
-                ctx.fillText(doctorName, 150, 30);
-                if (crm) {
-                  ctx.font = "12px serif";
-                  ctx.fillText(`CRM: ${crm}`, 150, 52);
+          <div className="flex gap-1">
+            <button
+              onClick={() => {
+                // Gerar carimbo como canvas
+                const canvas = document.createElement("canvas");
+                canvas.width = 300; canvas.height = 80;
+                const ctx = canvas.getContext("2d");
+                if (ctx) {
+                  ctx.fillStyle = "#fff";
+                  ctx.fillRect(0, 0, 300, 80);
+                  ctx.strokeStyle = "#333";
+                  ctx.strokeRect(2, 2, 296, 76);
+                  ctx.fillStyle = "#000";
+                  ctx.font = "bold 16px serif";
+                  ctx.textAlign = "center";
+                  ctx.fillText(doctorName, 150, 30);
+                  if (crm) {
+                    ctx.font = "12px serif";
+                    ctx.fillText(`CRM: ${crm}`, 150, 52);
+                  }
                 }
-              }
-              onInsertImage(canvas.toDataURL(), "Carimbo");
-            }}
-            className="w-full text-xs bg-gray-700 text-white rounded py-1.5 hover:bg-gray-800 flex items-center justify-center gap-1"
-          >
-            <Layers className="h-3.5 w-3.5" />
-            Inserir Carimbo
-          </button>
+                onInsertImage(canvas.toDataURL(), "Carimbo");
+              }}
+              className="flex-1 text-xs bg-gray-700 text-white rounded py-1.5 hover:bg-gray-800 flex items-center justify-center gap-1"
+            >
+              <Layers className="h-3.5 w-3.5" />
+              Inserir Carimbo
+            </button>
+            {isAdmin && (
+              <button
+                onClick={handleRemoveLogo}
+                disabled={removeLogo.isPending}
+                title="Remover logo da unidade"
+                className="text-xs bg-red-500 text-white rounded py-1.5 px-3 hover:bg-red-600 flex items-center justify-center gap-1"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
