@@ -408,3 +408,6 @@
 
 ## AJUSTES TOOLBAR
 - [x] Remover botão "Todos" da barra de filtros
+
+## AJUSTES TOOLBAR — Layout
+- [ ] Separar mais os botões de filtro (gap maior), mover Auto-Download para a direita junto à contagem de pacientes

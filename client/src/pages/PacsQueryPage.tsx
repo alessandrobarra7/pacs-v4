@@ -829,7 +829,7 @@ export function PacsQueryPage() {
       />
 
       {/* ── FILTROS ── */}
-      <div className="bg-white border-b border-gray-200 px-5 py-2.5 flex items-center gap-2 flex-wrap shrink-0">
+      <div className="bg-white border-b border-gray-200 px-5 py-2.5 flex items-center gap-3 shrink-0">
         {/* Busca por nome */}
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -841,16 +841,29 @@ export function PacsQueryPage() {
             className="h-8 pl-8 pr-3 text-sm border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-600 w-44"
           />
         </div>
+        {/* Separador */}
+        <div className="w-px h-5 bg-gray-200 shrink-0" />
 
-        {/* Períodos */}
-        <div className="flex items-center gap-1 flex-wrap">
+        {/* Períodos — Hoje | Ontem | Não Laudados | Data */}
+        <div className="flex items-center gap-2">
           {periodBtn('today', 'Hoje')}
           {periodBtn('yesterday', 'Ontem')}
+          {/* Não Laudados */}
+          <button
+            onClick={handlePendingOnly}
+            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border ${
+              activePeriod === 'pending'
+                ? 'bg-amber-700 text-white border-amber-700'
+                : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Não Laudados
+          </button>
           {/* Calendário — Popover com seleção de data única */}
           <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
             <PopoverTrigger asChild>
               <button
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border flex items-center gap-1 ${
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border flex items-center gap-1.5 ${
                   activePeriod === 'custom' && selectedDate
                     ? 'bg-amber-700 text-white border-amber-700'
                     : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
@@ -880,42 +893,31 @@ export function PacsQueryPage() {
               Limpar
             </button>
           )}
-          {/* Não Laudados */}
+        </div>
+
+        {/* Espaço flex — empurra Auto-Download e contador para a direita */}
+        <div className="flex-1" />
+
+        {/* Auto-Download + Contador — agrupados à direita */}
+        <div className="flex items-center gap-3 shrink-0">
           <button
-            onClick={handlePendingOnly}
-            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border ${
-              activePeriod === 'pending'
-                ? 'bg-amber-700 text-white border-amber-700'
+            onClick={toggleAutoDownload}
+            title={autoDownloadEnabled ? 'Pré-download automático ativado — clique para desativar' : 'Ativar pré-download automático ao carregar a lista'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
+              autoDownloadEnabled
+                ? 'bg-green-600 text-white border-green-600 hover:bg-green-700'
                 : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
             }`}
           >
-            Não Laudados
+            <Download className="h-3 w-3" />
+            {autoDownloadEnabled ? 'Auto-Download ON' : 'Auto-Download'}
           </button>
-
+          <span className="text-xs text-gray-500 font-medium">
+            {filteredResults.length > 0
+              ? `${filteredResults.length} paciente${filteredResults.length !== 1 ? 's' : ''}`
+              : isQuerying ? 'Buscando...' : ''}
+          </span>
         </div>
-
-
-
-        {/* Toggle pré-download automático */}
-        <button
-          onClick={toggleAutoDownload}
-          title={autoDownloadEnabled ? 'Pré-download automático ativado — clique para desativar' : 'Ativar pré-download automático ao carregar a lista'}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
-            autoDownloadEnabled
-              ? 'bg-green-600 text-white border-green-600 hover:bg-green-700'
-              : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <Download className="h-3 w-3" />
-          {autoDownloadEnabled ? 'Auto-Download ON' : 'Auto-Download'}
-        </button>
-
-        {/* Contador de pacientes */}
-        <span className="ml-auto text-xs text-gray-500 font-medium">
-          {filteredResults.length > 0
-            ? `${filteredResults.length} paciente${filteredResults.length !== 1 ? 's' : ''}`
-            : isQuerying ? 'Buscando...' : ''}
-        </span>
       </div>
 
       {/* ── TABELA ── */}
