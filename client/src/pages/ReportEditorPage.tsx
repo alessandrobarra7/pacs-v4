@@ -241,9 +241,54 @@ export default function ReportEditorPage() {
   }, [existingReport, signReport, navigate]);
 
   // ── Imprimir ─────────────────────────────────────────────────────────────
+  const patientName = formatPatientName(studyInfo?.patientName || "");
   const handlePrint = useCallback(() => {
-    window.print();
-  }, []);
+    // Abre janela dedicada com o conteúdo do documento para impressão correta
+    const logoHtml = medCtx?.unitLogoUrl
+      ? `<img src="${medCtx.unitLogoUrl}" alt="Logo" style="max-height:50px;max-width:160px;object-fit:contain;" />`
+      : `<div style="width:120px;height:40px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:9pt;">Logo da unidade</div>`;
+    const patientHtml = `
+      <div><strong>Paciente:</strong> ${patientName}</div>
+      ${studyInfo?.birthDate ? `<div><strong>Data Nasc:</strong> ${studyInfo.birthDate}</div>` : ""}
+      ${studyInfo?.age ? `<div><strong>Idade:</strong> ${studyInfo.age}</div>` : ""}
+      ${studyInfo?.sex ? `<div><strong>Sexo:</strong> ${formatSex(studyInfo.sex)}</div>` : ""}
+      ${studyInfo?.studyDate ? `<div><strong>Realizado em:</strong> ${studyInfo.studyDate}</div>` : ""}
+    `;
+    const titleHtml = examTitle
+      ? `<div style="text-align:center;font-weight:bold;font-size:14pt;margin-bottom:6mm;text-transform:uppercase;letter-spacing:0.5px;">${examTitle}</div>`
+      : "";
+    const bodyHtml = docRef.current?.innerHTML || "";
+    const sigHtml = (medCtx?.signatureUrl || medCtx?.doctorName) ? `
+      <div style="margin-top:12mm;border-top:1px solid #ccc;padding-top:4mm;">
+        ${medCtx?.signatureUrl ? `<img src="${medCtx.signatureUrl}" alt="Assinatura" style="max-height:50px;object-fit:contain;margin-bottom:2mm;" />` : ""}
+        ${medCtx?.doctorName ? `<div style="font-size:11pt;"><strong>${medCtx.doctorName}</strong>${medCtx.crm ? ` <span style="margin-left:8px;color:#555;">CRM: ${medCtx.crm}</span>` : ""}</div>` : ""}
+      </div>` : "";
+    const draggableHtml = draggableImages.map(img =>
+      `<img src="${img.src}" alt="${img.label}" style="position:absolute;left:${img.x}px;top:${img.y}px;width:${img.width}px;" />`
+    ).join("");
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Laudo</title>
+      <style>
+        @page { size: A4; margin: 0; }
+        body { margin: 0; font-family: 'Times New Roman', serif; font-size: 12pt; color: #000; }
+        .doc { position: relative; width: 210mm; min-height: 297mm; padding: 20mm 20mm 25mm 20mm; box-sizing: border-box; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8mm; border-bottom: 1px solid #ccc; padding-bottom: 4mm; }
+        .patient { text-align: right; font-size: 10pt; }
+        .body { min-height: 120mm; line-height: 1.8; white-space: pre-wrap; }
+        .footer { margin-top: 16mm; border-top: 1px solid #eee; padding-top: 3mm; font-size: 7pt; color: #888; line-height: 1.4; }
+      </style></head><body>
+      <div class="doc">
+        ${draggableHtml}
+        <div class="header"><div>${logoHtml}</div><div class="patient">${patientHtml}</div></div>
+        ${titleHtml}
+        <div class="body">${bodyHtml}</div>
+        ${sigHtml}
+        <div class="footer">${LEGAL_FOOTER}</div>
+      </div>
+      <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
+    </body></html>`;
+    const win = window.open("", "_blank");
+    if (win) { win.document.write(html); win.document.close(); }
+  }, [medCtx, patientName, studyInfo, examTitle, docRef, draggableImages]);
 
   // ── Drag de imagens sobre o documento ───────────────────────────────────
   const handleMouseDown = useCallback((e: React.MouseEvent, id: string) => {
@@ -286,7 +331,6 @@ export default function ReportEditorPage() {
   }, []);
 
   // ── Render ───────────────────────────────────────────────────────────────
-  const patientName = formatPatientName(studyInfo?.patientName || "");
   const examDesc = examTitle || studyInfo?.studyDescription || "";
 
   return (
@@ -505,7 +549,9 @@ export default function ReportEditorPage() {
       <style>{`
         @media print {
           body { margin: 0; }
+          * { overflow: visible !important; }
           .print\\:hidden { display: none !important; }
+          [contenteditable] { outline: none !important; }
         }
         [contenteditable]:empty:before {
           content: attr(data-placeholder);

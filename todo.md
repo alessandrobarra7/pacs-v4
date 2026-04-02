@@ -494,3 +494,6 @@
 - [x] Aba 4 Inserir: carimbos/imagens do médico logado (assinatura, carimbo), arrastáveis sobre o documento
 - [x] Documento A4: logo da empresa (admin root), dados do paciente obrigatórios
 - [x] Rodapé legal fixo no documento com texto Lauds/CNPJ/telefone/site/instagram
+
+## BUG: IMPRESSÃO NÃO MOSTRA CONTEÚDO
+- [x] Corrigir CSS de impressão para garantir que o documento A4 apareça completo ao imprimir
