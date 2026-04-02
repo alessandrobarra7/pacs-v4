@@ -563,3 +563,24 @@
 - [x] Remover título "LAUDO" antes do corpo
 - [x] Substituir rodapé "Desenvolvimento StudioBarra7" pelo rodapé legal LAUDS
 - [x] Alinhar layout de impressão com o ReportEditorPage
+
+## MINIO — Repositório Central de Arquivos na VM2
+
+- [ ] Gerar script de instalação do MinIO para VM2 (172.16.3.101)
+- [ ] Adaptar server/storage.ts para usar MinIO em vez do S3 da Manus
+- [ ] Adicionar variáveis de ambiente MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET
+- [ ] Criar bucket "lauds" no MinIO com estrutura: unidades/{id}/logo, usuarios/{id}/carimbo
+- [ ] Testar upload de carimbo e logo via MinIO
+
+## EDIÇÃO DE LAUDOS ASSINADOS — Retificação e Complemento
+
+- [x] Criar tabela report_versions no banco para histórico de versões
+- [x] Implementar procedure reports.revise no backend (salva versão anterior + cria nova)
+- [x] Implementar procedure reports.getVersions para buscar histórico
+- [x] Botão "Editar" no ReportEditorPage para laudos assinados
+- [x] Modal de motivo de retificação (obrigatório, mínimo 5 caracteres)
+- [x] Documento read-only quando assinado e não em modo de retificação
+- [x] Banner visual indicando laudo assinado/retificado
+- [x] Status "revised" para laudos editados após assinatura
+- [ ] Botão "Editar" na lista de exames (PacsQueryPage) para laudos assinados
+- [ ] Exibir histórico de versões no editor de laudos (aba lateral)

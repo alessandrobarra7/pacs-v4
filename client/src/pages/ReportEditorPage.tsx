@@ -156,6 +156,15 @@ export default function ReportEditorPage() {
   const createReport = trpc.reports.create.useMutation();
   const updateReport = trpc.reports.update.useMutation();
   const signReport = trpc.reports.sign.useMutation();
+  const reviseReport = trpc.reports.revise.useMutation();
+
+  // Estado de retificação
+  const [isRevising, setIsRevising] = useState(false);
+  const [reviseReason, setReviseReason] = useState("");
+  const [showReviseModal, setShowReviseModal] = useState(false);
+
+  const isSigned = existingReport?.status === 'signed' || existingReport?.status === 'revised';
+  const isEditable = !isSigned || isRevising;
 
   // ── Carregar info do estudo ──────────────────────────────────────────────
   useEffect(() => {
@@ -247,6 +256,26 @@ export default function ReportEditorPage() {
       toast.error(e.message || "Erro ao assinar");
     }
   }, [existingReport, signReport, navigate]);
+
+  // ── Retificar laudo assinado ─────────────────────────────────────────────
+  const handleRevise = useCallback(async () => {
+    if (!existingReport?.id) return;
+    if (!reviseReason.trim() || reviseReason.trim().length < 5) {
+      toast.error("Informe o motivo da retificação (mínimo 5 caracteres)");
+      return;
+    }
+    const body = docRef.current?.innerHTML || "";
+    try {
+      await reviseReport.mutateAsync({ id: existingReport.id, body, reason: reviseReason });
+      toast.success("Laudo retificado com sucesso!");
+      setIsRevising(false);
+      setShowReviseModal(false);
+      setReviseReason("");
+      navigate("/");
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao retificar");
+    }
+  }, [existingReport, reviseReason, reviseReport, navigate]);
 
   // ── Imprimir ─────────────────────────────────────────────────────────────
   const patientName = formatPatientName(studyInfo?.patientName || "");
@@ -361,15 +390,49 @@ export default function ReportEditorPage() {
             <Printer className="h-3.5 w-3.5" />
             Imprimir
           </Button>
-          <Button
-            size="sm"
-            onClick={handleSign}
-            disabled={signReport.isPending}
-            className="gap-1.5 text-xs bg-green-600 hover:bg-green-700 text-white"
-          >
-            <CheckCircle className="h-3.5 w-3.5" />
-            {signReport.isPending ? "Assinando..." : "Assinar"}
-          </Button>
+          {isSigned ? (
+            isRevising ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setIsRevising(false); setReviseReason(""); }}
+                  className="gap-1.5 text-xs"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Cancelar
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => setShowReviseModal(true)}
+                  disabled={reviseReport.isPending}
+                  className="gap-1.5 text-xs bg-orange-600 hover:bg-orange-700 text-white"
+                >
+                  <CheckCircle className="h-3.5 w-3.5" />
+                  {reviseReport.isPending ? "Salvando..." : "Salvar Retificação"}
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() => setIsRevising(true)}
+                className="gap-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Edit2 className="h-3.5 w-3.5" />
+                Editar
+              </Button>
+            )
+          ) : (
+            <Button
+              size="sm"
+              onClick={handleSign}
+              disabled={signReport.isPending}
+              className="gap-1.5 text-xs bg-green-600 hover:bg-green-700 text-white"
+            >
+              <CheckCircle className="h-3.5 w-3.5" />
+              {signReport.isPending ? "Assinando..." : "Assinar"}
+            </Button>
+          )}
         </div>
       </header>
 
@@ -510,19 +573,29 @@ export default function ReportEditorPage() {
                 </div>
               )}
 
+              {/* Banner de laudo assinado */}
+              {isSigned && !isRevising && (
+                <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 6, padding: '8px 12px', marginBottom: 8, fontSize: '10pt', color: '#92400e', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
+                  <span>Laudo <strong>{existingReport?.status === 'revised' ? 'retificado' : 'assinado'}</strong> — clique em <strong>Editar</strong> para retificar.</span>
+                </div>
+              )}
+
               {/* Corpo editável */}
               <div
                 ref={docRef}
-                contentEditable
+                contentEditable={isEditable}
                 suppressContentEditableWarning
-                onMouseUp={saveSelection}
-                onKeyUp={saveSelection}
+                onMouseUp={isEditable ? saveSelection : undefined}
+                onKeyUp={isEditable ? saveSelection : undefined}
                 data-placeholder="Digite o laudo aqui..."
                 style={{
                   minHeight: "120mm",
                   outline: "none",
                   lineHeight: 1.8,
                   whiteSpace: "pre-wrap",
+                  cursor: isEditable ? 'text' : 'default',
+                  background: isEditable ? 'transparent' : '#fafafa',
                 }}
               />
 
@@ -534,6 +607,38 @@ export default function ReportEditorPage() {
           </div>
         </main>
       </div>
+
+      {/* Modal de motivo de retificação */}
+      {showReviseModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, width: 440, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: '#1a1a1a' }}>Motivo da Retificação</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#666' }}>Descreva o motivo da alteração. Este registro será salvo no histórico de versões do laudo.</p>
+            <textarea
+              value={reviseReason}
+              onChange={e => setReviseReason(e.target.value)}
+              placeholder="Ex: Correção de erro tipográfico no parágrafo 2..."
+              rows={4}
+              style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: '10px 12px', fontSize: 13, resize: 'vertical', boxSizing: 'border-box', outline: 'none' }}
+            />
+            <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowReviseModal(false)}
+                style={{ padding: '8px 18px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleRevise}
+                disabled={reviseReport.isPending || reviseReason.trim().length < 5}
+                style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: reviseReason.trim().length < 5 ? '#ccc' : '#ea580c', color: '#fff', cursor: reviseReason.trim().length < 5 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600 }}
+              >
+                {reviseReport.isPending ? 'Salvando...' : 'Confirmar Retificação'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Estilos de impressão */}
       <style>{`

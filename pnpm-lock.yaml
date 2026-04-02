@@ -12,10 +12,10 @@ importers:
   .:
     dependencies:
       '@aws-sdk/client-s3':
-        specifier: ^3.693.0
+        specifier: ^3.995.0
         version: 3.995.0
       '@aws-sdk/s3-request-presigner':
-        specifier: ^3.693.0
+        specifier: ^3.995.0
         version: 3.995.0
       '@cornerstonejs/adapters':
         specifier: ^4.18.4

@@ -305,3 +305,21 @@ export const phrases = mysqlTable("phrases", {
 });
 export type Phrase = typeof phrases.$inferSelect;
 export type InsertPhrase = typeof phrases.$inferInsert;
+
+/**
+ * Report Versions — Audit trail of all edits to signed reports
+ * Every time a signed report is edited, the old version is saved here
+ */
+export const report_versions = mysqlTable("report_versions", {
+  id: int("id").autoincrement().primaryKey(),
+  report_id: int("report_id").notNull(),
+  version: int("version").notNull(),
+  body: text("body").notNull(),
+  status: mysqlEnum("status", ["draft", "signed", "revised"]).notNull(),
+  reason: varchar("reason", { length: 500 }),
+  saved_by_user_id: int("saved_by_user_id").notNull(),
+  saved_at: timestamp("saved_at").defaultNow().notNull(),
+});
+
+export type ReportVersion = typeof report_versions.$inferSelect;
+export type InsertReportVersion = typeof report_versions.$inferInsert;

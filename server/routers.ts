@@ -588,6 +588,67 @@ export const appRouter = router({
         const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
         return await getReportStatusByStudyUids(input.studyUids, unitId);
       }),
+
+    // Retificar laudo assinado: salva versão anterior e cria nova revisão
+    revise: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        body: z.string(),
+        reason: z.string().min(5, 'Informe o motivo da retificação (mínimo 5 caracteres)'),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
+        const report = await getReportById(input.id, unitId);
+        if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
+        if (ctx.user.role !== 'admin_master' && report.unit_id !== ctx.user.unit_id) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        if (report.status !== 'signed' && report.status !== 'revised') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Apenas laudos assinados podem ser retificados' });
+        }
+        // 1. Salvar versão anterior no histórico
+        const { report_versions } = await import('../drizzle/schema');
+        await db.insert(report_versions).values({
+          report_id: report.id,
+          version: report.version ?? 1,
+          body: report.body,
+          status: report.status as 'draft' | 'signed' | 'revised',
+          reason: input.reason,
+          saved_by_user_id: ctx.user.id,
+        });
+        // 2. Atualizar laudo com novo corpo e status 'revised'
+        await updateReport(input.id, {
+          body: input.body,
+          status: 'revised',
+          version: (report.version ?? 1) + 1,
+        });
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: ctx.user.unit_id,
+          action: 'UPDATE_REPORT',
+          target_type: 'REPORT',
+          target_id: String(input.id),
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+          metadata: { action: 'REVISE', reason: input.reason, newVersion: (report.version ?? 1) + 1 },
+        });
+        return { success: true };
+      }),
+
+    // Buscar histórico de versões de um laudo
+    getVersions: protectedProcedure
+      .input(z.object({ reportId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        const { report_versions } = await import('../drizzle/schema');
+        const { desc } = await import('drizzle-orm');
+        return await db.select().from(report_versions)
+          .where(eq(report_versions.report_id, input.reportId))
+          .orderBy(desc(report_versions.saved_at));
+      }),
   }),
 
   pacs: router({

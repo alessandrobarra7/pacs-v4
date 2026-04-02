@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `report_versions` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`report_id` int NOT NULL,\n\t`version` int NOT NULL,\n\t`body` text NOT NULL,\n\t`status` enum('draft','signed','revised') NOT NULL,\n\t`reason` varchar(500),\n\t`saved_by_user_id` int NOT NULL,\n\t`saved_at` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `report_versions_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute CREATE TABLE IF NOT EXISTS `report_versions` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`report_id` int NOT NULL,\n\t`version` int NOT NULL,\n\t`body` text NOT NULL,\n\t`status` enum('draft','signed','revised') NOT NULL,\n\t`reason` varchar(500),\n\t`saved_by_user_id` int NOT NULL,\n\t`saved_at` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `report_versions_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 572
+}
