@@ -419,3 +419,40 @@
 
 ## VISUALIZADOR — Thumbnails Reais nas Séries
 - [ ] Gerar miniatura real (canvas) do primeiro frame de cada série no painel de séries do DicomViewerPage
+
+## NOVO EDITOR DE LAUDOS WYSIWYG
+
+- [ ] Adicionar campo `crm` (VARCHAR 50) na tabela `user`
+- [ ] Adicionar campo `signature_url` (TEXT) na tabela `user`
+- [ ] Adicionar campo `logo_url` (TEXT) na tabela `unit`
+- [ ] Criar tabela `phrase_groups` (id, name, color, sortOrder, isActive)
+- [ ] Criar tabela `phrases` (id, groupId, userId, content, isFavorite, isActive, sortOrder)
+- [ ] Criar helpers de DB para phrases e phrase_groups
+- [ ] Criar procedures tRPC para CRUD de phrases (phrases.list, phrases.add, phrases.delete)
+- [ ] Criar procedure para upload de assinatura/logo via S3 (admin_master only)
+- [ ] Criar procedure para atualizar CRM do médico (admin_master only)
+- [ ] Criar componente ReportDocument.tsx (div contentEditable A4 WYSIWYG)
+- [ ] Criar componente ReportSidebar.tsx (3 abas: templates, frases, exames)
+- [ ] Criar componente SignatureManager.tsx (upload assinatura/logo via S3)
+- [ ] Criar hook useUserReportData.ts integrado ao backend via tRPC
+- [ ] Reescrever ReportEditorPage.tsx com novo layout
+- [ ] Implementar geração de PDF para download (html2pdf ou puppeteer)
+- [ ] Corrigir e testar função assinar/finalizar (reports.sign)
+- [ ] Seed inicial de phrase_groups e phrases no banco
+
+## EDITOR WYSIWYG — IMPLEMENTADO (02/04/2026)
+- [x] Campos crm, signature_url, logo_url adicionados via SQL externo
+- [x] Tabelas phrase_groups e phrases criadas via SQL externo
+- [x] Helpers de DB para phrases e phrase_groups (listPhraseGroups, listPhrases, createPhraseGroup, createPhrase, deletePhrase, togglePhrasesFavorite)
+- [x] Procedures tRPC: phrases.listGroups, phrases.list, phrases.createGroup, phrases.create, phrases.delete, phrases.toggleFavorite
+- [x] Procedures tRPC: medicalData.updateUserMedical, medicalData.updateUnitLogo, medicalData.getReportContext
+- [x] Componente ReportDocument.tsx (contentEditable A4 WYSIWYG com cabeçalho, tabela de paciente, corpo editável, assinatura)
+- [x] Componente ReportSidebar.tsx (abas: templates, frases com grupos/favoritos, config)
+- [x] ReportEditorPage.tsx reescrito com layout sidebar + documento A4
+- [x] Geração de PDF via html2canvas + jsPDF (download do laudo)
+- [x] Impressão via window.print() com CSS @media print
+- [x] Função "Assinar e Finalizar" integrada ao reports.sign tRPC
+- [x] Salvar rascunho integrado ao reports.create/update tRPC
+- [x] Carregamento de laudo existente ao abrir editor
+- [x] Substituição de variáveis no template ({{patientName}}, {{studyDate}}, etc.)
+- [x] unitId corrigido para Number no sessionStorage (PacsQueryPage)

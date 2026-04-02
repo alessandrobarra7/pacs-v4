@@ -41,7 +41,7 @@ import {
   getStudyMetadataBatch,
   upsertStudyMetadata,
 } from "./db";
-import { units, studies_cache } from "../drizzle/schema";
+import { units, studies_cache, reports } from "../drizzle/schema";
 import { eq, and, like } from "drizzle-orm";
 // orthanc.ts mantido para visualização futura via DICOMweb, não mais usado na pesquisa
 import { getDicomWebUrl } from "./orthanc";
@@ -473,6 +473,18 @@ export const appRouter = router({
       .query(async ({ input, ctx }) => {
         const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
         return await getReportByStudyId(input.studyId, unitId);
+      }),
+
+    getByStudyUid: protectedProcedure
+      .input(z.object({ studyInstanceUid: z.string() }))
+      .query(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
+        const rows = unitId
+          ? await db.select().from(reports).where(and(eq(reports.study_instance_uid, input.studyInstanceUid), eq(reports.unit_id, unitId)))
+          : await db.select().from(reports).where(eq(reports.study_instance_uid, input.studyInstanceUid));
+        return rows[0] ?? null;
       }),
     
     create: protectedProcedure
@@ -1437,6 +1449,106 @@ export const appRouter = router({
           target_id: input.studyInstanceUid,
         });
         return { success: true };
+      }),
+  }),
+  phrases: router({
+    listGroups: protectedProcedure.query(async ({ ctx }) => {
+      const { listPhraseGroups } = await import('./db');
+      return listPhraseGroups(ctx.user.id);
+    }),
+
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const { listPhrases } = await import('./db');
+      return listPhrases(ctx.user.id);
+    }),
+
+    createGroup: protectedProcedure
+      .input(z.object({ name: z.string().min(1), color: z.string().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        const { createPhraseGroup } = await import('./db');
+        return createPhraseGroup({ name: input.name, color: input.color, userId: ctx.user.id });
+      }),
+
+    create: protectedProcedure
+      .input(z.object({ groupId: z.number(), content: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        const { createPhrase } = await import('./db');
+        return createPhrase({ groupId: input.groupId, userId: ctx.user.id, content: input.content });
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ phraseId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { deletePhrase } = await import('./db');
+        await deletePhrase(input.phraseId, ctx.user.id);
+        return { success: true };
+      }),
+
+    toggleFavorite: protectedProcedure
+      .input(z.object({ phraseId: z.number(), isFavorite: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        const { togglePhrasesFavorite } = await import('./db');
+        await togglePhrasesFavorite(input.phraseId, ctx.user.id, input.isFavorite);
+        return { success: true };
+      }),
+  }),
+
+  medicalData: router({
+    updateUserMedical: protectedProcedure
+      .input(z.object({
+        userId: z.number(),
+        crm: z.string().max(50).optional(),
+        signatureFile: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { updateUserMedicalData } = await import('./db');
+        let signature_url: string | null | undefined = undefined;
+        if (input.signatureFile) {
+          const { storagePut } = await import('./storage');
+          const base64Data = input.signatureFile.replace(/^data:image\/\w+;base64,/, '');
+          const buffer = Buffer.from(base64Data, 'base64');
+          const key = `signatures/user_${input.userId}_${Date.now()}.png`;
+          const { url } = await storagePut(key, buffer, 'image/png');
+          signature_url = url;
+        }
+        await updateUserMedicalData(input.userId, {
+          crm: input.crm,
+          ...(signature_url !== undefined ? { signature_url } : {}),
+        });
+        return { success: true };
+      }),
+
+    updateUnitLogo: protectedProcedure
+      .input(z.object({
+        unitId: z.number(),
+        logoFile: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { updateUnitLogo } = await import('./db');
+        const { storagePut } = await import('./storage');
+        const base64Data = input.logoFile.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        const key = `logos/unit_${input.unitId}_${Date.now()}.png`;
+        const { url } = await storagePut(key, buffer, 'image/png');
+        await updateUnitLogo(input.unitId, url);
+        return { success: true };
+      }),
+
+    getReportContext: protectedProcedure
+      .input(z.object({ unitId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getUserById, getUnitById } = await import('./db');
+        const user = await getUserById(ctx.user.id);
+        const unit = await getUnitById(input.unitId);
+        return {
+          doctorName: user?.name ?? '',
+          crm: user?.crm ?? '',
+          signatureUrl: user?.signature_url ?? null,
+          unitName: unit?.name ?? '',
+          unitLogoUrl: unit?.logo_url ?? null,
+        };
       }),
   }),
 });

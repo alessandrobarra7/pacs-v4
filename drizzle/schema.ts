@@ -21,6 +21,7 @@ export const units = mysqlTable("units", {
   address: varchar("address", { length: 500 }),
   equipment_info: text("equipment_info"),
   logoUrl: varchar("logoUrl", { length: 500 }),
+  logo_url: text("logo_url"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -44,6 +45,8 @@ export const users = mysqlTable("users", {
   role: mysqlEnum("role", ["admin_master", "unit_admin", "medico", "viewer", "operador"]).default("viewer").notNull(),
   isActive: boolean("isActive").default(true).notNull(),
   expiration_date: date("expiration_date"),
+  crm: varchar("crm", { length: 50 }),
+  signature_url: text("signature_url"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -265,3 +268,39 @@ export const study_metadata = mysqlTable("study_metadata", {
 });
 export type StudyMetadata = typeof study_metadata.$inferSelect;
 export type InsertStudyMetadata = typeof study_metadata.$inferInsert;
+
+/**
+ * Phrase Groups — Grouping for pre-defined report phrases
+ * Global groups visible to all users; user-created groups are personal
+ */
+export const phrase_groups = mysqlTable("phrase_groups", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  color: varchar("color", { length: 30 }).default("blue"),
+  sort_order: int("sort_order").default(0),
+  is_global: boolean("is_global").default(true).notNull(),
+  created_by_user_id: int("created_by_user_id"),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type PhraseGroup = typeof phrase_groups.$inferSelect;
+export type InsertPhraseGroup = typeof phrase_groups.$inferInsert;
+
+/**
+ * Phrases — Pre-defined report phrases (global + personal)
+ * Global phrases are visible to all; personal phrases belong to a user
+ */
+export const phrases = mysqlTable("phrases", {
+  id: int("id").autoincrement().primaryKey(),
+  group_id: int("group_id").notNull(),
+  user_id: int("user_id"),
+  content: text("content").notNull(),
+  is_global: boolean("is_global").default(false).notNull(),
+  is_favorite: boolean("is_favorite").default(false).notNull(),
+  sort_order: int("sort_order").default(0),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type Phrase = typeof phrases.$inferSelect;
+export type InsertPhrase = typeof phrases.$inferInsert;

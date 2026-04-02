@@ -668,7 +668,7 @@ export function PacsQueryPage() {
       accessionNumber: study.accessionNumber || '',
       numberOfInstances: study.numberOfInstances || 0,
       unitName: unitName,
-      unitId: effectiveUnitId || '',
+      unitId: effectiveUnitId ? Number(effectiveUnitId) : null,
     }));
     navigate(`/reports/create/${study.studyInstanceUid}`);
   };

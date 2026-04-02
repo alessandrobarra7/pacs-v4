@@ -624,3 +624,96 @@ export async function setUserUnitPermissions(
     );
   }
 }
+
+// ─── Phrase Groups ────────────────────────────────────────────────────────────
+export async function listPhraseGroups(userId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { phrase_groups } = await import("../drizzle/schema");
+  const { eq, or, and } = await import("drizzle-orm");
+  const where = userId
+    ? or(eq(phrase_groups.is_global, true), eq(phrase_groups.created_by_user_id, userId))
+    : eq(phrase_groups.is_global, true);
+  return db.select().from(phrase_groups)
+    .where(and(where, eq(phrase_groups.isActive, true)))
+    .orderBy(phrase_groups.sort_order, phrase_groups.name);
+}
+
+export async function createPhraseGroup(data: { name: string; color?: string; userId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { phrase_groups } = await import("../drizzle/schema");
+  const [result] = await db.insert(phrase_groups).values({
+    name: data.name,
+    color: data.color ?? "blue",
+    is_global: false,
+    created_by_user_id: data.userId,
+    isActive: true,
+  });
+  return result;
+}
+
+// ─── Phrases ──────────────────────────────────────────────────────────────────
+export async function listPhrases(userId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { phrases } = await import("../drizzle/schema");
+  const { eq, or, and } = await import("drizzle-orm");
+  const where = userId
+    ? or(eq(phrases.is_global, true), eq(phrases.user_id, userId))
+    : eq(phrases.is_global, true);
+  return db.select().from(phrases)
+    .where(and(where, eq(phrases.isActive, true)))
+    .orderBy(phrases.sort_order, phrases.id);
+}
+
+export async function createPhrase(data: { groupId: number; userId: number; content: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { phrases } = await import("../drizzle/schema");
+  const [result] = await db.insert(phrases).values({
+    group_id: data.groupId,
+    user_id: data.userId,
+    content: data.content,
+    is_global: false,
+    is_favorite: false,
+    isActive: true,
+  });
+  return result;
+}
+
+export async function deletePhrase(phraseId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { phrases } = await import("../drizzle/schema");
+  const { eq, and } = await import("drizzle-orm");
+  await db.update(phrases).set({ isActive: false })
+    .where(and(eq(phrases.id, phraseId), eq(phrases.user_id, userId)));
+}
+
+export async function togglePhrasesFavorite(phraseId: number, userId: number, isFavorite: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { phrases } = await import("../drizzle/schema");
+  const { eq, and, or } = await import("drizzle-orm");
+  await db.update(phrases).set({ is_favorite: isFavorite })
+    .where(and(eq(phrases.id, phraseId), or(eq(phrases.user_id, userId), eq(phrases.is_global, true))));
+}
+
+// ─── User CRM / Signature ─────────────────────────────────────────────────────
+export async function updateUserMedicalData(userId: number, data: { crm?: string; signature_url?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { users } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  await db.update(users).set(data).where(eq(users.id, userId));
+}
+
+// ─── Unit Logo ────────────────────────────────────────────────────────────────
+export async function updateUnitLogo(unitId: number, logoUrl: string | null) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { units } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  await db.update(units).set({ logo_url: logoUrl }).where(eq(units.id, unitId));
+}
