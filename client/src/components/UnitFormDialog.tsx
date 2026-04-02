@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Upload, Building2 } from "lucide-react";
+import { Upload, Building2, Trash2, ImageOff } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 export interface UnitFormData {
@@ -22,6 +22,7 @@ export interface UnitFormData {
   pacs_ae_title: string;
   pacs_local_ae_title: string;
   isActive: boolean;
+  logo_url?: string | null;
 }
 
 interface UnitFormDialogProps {
@@ -46,11 +47,32 @@ export default function UnitFormDialog({
   const [isActive, setIsActive] = useState(true);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<string | null>(null);
+  const [removingLogo, setRemovingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
+  const utils = trpc.useUtils();
+
   const updateLogo = trpc.medicalData.updateUnitLogo.useMutation({
-    onSuccess: () => { toast.success("Logo da unidade atualizado"); setLogoFile(null); },
+    onSuccess: () => {
+      toast.success("Logo da unidade atualizado com sucesso");
+      setLogoFile(null);
+      utils.medicalData.getReportContext.invalidate();
+    },
     onError: (e) => toast.error(e.message || "Erro ao salvar logo"),
+  });
+
+  const removeLogo = trpc.medicalData.removeLogo.useMutation({
+    onSuccess: () => {
+      toast.success("Logo removido com sucesso");
+      setLogoPreview(null);
+      setLogoFile(null);
+      setRemovingLogo(false);
+      utils.medicalData.getReportContext.invalidate();
+    },
+    onError: (e) => {
+      toast.error(e.message || "Erro ao remover logo");
+      setRemovingLogo(false);
+    },
   });
 
   useEffect(() => {
@@ -65,13 +87,14 @@ export default function UnitFormDialog({
         setPacsAeTitle(unit.pacs_ae_title || "");
         setPacsLocalAeTitle(unit.pacs_local_ae_title || "LAUDS");
         setIsActive(unit.isActive);
-        setLogoPreview((unit as any).logo_url || null);
+        setLogoPreview(unit.logo_url || null);
         setLogoFile(null);
+        setRemovingLogo(false);
       } else {
         setName(""); setSlug(""); setAddress(""); setEquipmentInfo("");
         setPacsIp(""); setPacsPort("11112"); setPacsAeTitle(""); setPacsLocalAeTitle("LAUDS");
         setIsActive(true);
-        setLogoPreview(null); setLogoFile(null);
+        setLogoPreview(null); setLogoFile(null); setRemovingLogo(false);
       }
     }
   }, [open, unit]);
@@ -86,10 +109,25 @@ export default function UnitFormDialog({
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Imagem muito grande. Máximo 2 MB.");
+      return;
+    }
     const reader = new FileReader();
-    reader.onload = () => { const d = reader.result as string; setLogoFile(d); setLogoPreview(d); };
+    reader.onload = () => {
+      const d = reader.result as string;
+      setLogoFile(d);
+      setLogoPreview(d);
+    };
     reader.readAsDataURL(file);
     e.target.value = "";
+  };
+
+  const handleRemoveLogo = () => {
+    if (!unit?.id) return;
+    if (!confirm("Remover o logo desta unidade? Esta ação não pode ser desfeita.")) return;
+    setRemovingLogo(true);
+    removeLogo.mutate({ unitId: unit.id });
   };
 
   const handleSave = () => {
@@ -97,6 +135,7 @@ export default function UnitFormDialog({
     if (!pacsIp.trim()) { toast.error("Informe o IP do PACS"); return; }
     const port = parseInt(pacsPort);
     if (isNaN(port) || port < 1 || port > 65535) { toast.error("Porta PACS inválida"); return; }
+    // Upload do logo se houver novo arquivo
     if (unit?.id && logoFile) {
       updateLogo.mutate({ unitId: unit.id, logoFile });
     }
@@ -214,24 +253,80 @@ export default function UnitFormDialog({
             </div>
           </div>
 
-          {/* Logo da Unidade (apenas ao editar) */}
-          {unit?.id && (
-            <div className="border-t border-border pt-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-amber-600" />
-                <Label className="text-sm font-semibold">Logo da Unidade</Label>
-              </div>
-              <p className="text-xs text-muted-foreground">Imagem que aparece no cabeçalho do laudo (PNG ou JPG, fundo branco)</p>
-              {logoPreview && (
-                <img src={logoPreview} alt="Logo" className="h-16 object-contain border border-gray-200 rounded p-2 bg-white" />
-              )}
-              <label className="flex items-center gap-2 cursor-pointer px-3 py-2 border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                <Upload className="h-4 w-4 text-gray-400" />
-                <span className="text-sm text-gray-600">{logoPreview ? "Trocar logo" : "Upload do logo"}</span>
-                <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
-              </label>
+          {/* Logo da Unidade */}
+          <div className="border-t border-border pt-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Building2 className="h-4 w-4 text-amber-600" />
+              <Label className="text-sm font-semibold">Logo da Unidade</Label>
             </div>
-          )}
+            <p className="text-xs text-muted-foreground">
+              Aparece no cabeçalho do laudo. Recomendado: PNG com fundo branco, máx. 2 MB.
+            </p>
+
+            {/* Preview atual */}
+            {logoPreview ? (
+              <div className="flex items-start gap-3">
+                <img
+                  src={logoPreview}
+                  alt="Logo da unidade"
+                  className="h-20 max-w-[180px] object-contain border border-gray-200 rounded p-2 bg-white"
+                />
+                <div className="flex flex-col gap-2 mt-1">
+                  {/* Trocar logo */}
+                  <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 text-xs border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
+                    <Upload className="h-3.5 w-3.5 text-gray-400" />
+                    <span className="text-gray-600">Trocar logo</span>
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleLogoChange}
+                    />
+                  </label>
+                  {/* Remover logo (apenas ao editar unidade existente) */}
+                  {unit?.id && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveLogo}
+                      disabled={removingLogo || removeLogo.isPending}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-50"
+                    >
+                      {removingLogo ? (
+                        <span className="animate-spin h-3.5 w-3.5 border-2 border-red-400 border-t-transparent rounded-full" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                      Remover logo
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <label className="flex items-center gap-2 cursor-pointer px-3 py-3 border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
+                <ImageOff className="h-5 w-5 text-gray-300" />
+                <div>
+                  <p className="text-sm text-gray-600">Nenhum logo cadastrado</p>
+                  <p className="text-xs text-gray-400">Clique para fazer upload</p>
+                </div>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleLogoChange}
+                />
+              </label>
+            )}
+
+            {/* Indicador de novo logo pendente de salvar */}
+            {logoFile && (
+              <p className="text-xs text-amber-600 flex items-center gap-1">
+                <Upload className="h-3 w-3" />
+                Novo logo será salvo ao clicar em "Salvar Alterações"
+              </p>
+            )}
+          </div>
 
           {/* Status */}
           <div className="flex items-center gap-3 border-t border-border pt-4">
@@ -249,8 +344,8 @@ export default function UnitFormDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
             Cancelar
           </Button>
-          <Button onClick={handleSave} disabled={loading}>
-            {loading ? "Salvando..." : unit ? "Salvar Alterações" : "Criar Unidade"}
+          <Button onClick={handleSave} disabled={loading || updateLogo.isPending}>
+            {loading || updateLogo.isPending ? "Salvando..." : unit ? "Salvar Alterações" : "Criar Unidade"}
           </Button>
         </DialogFooter>
       </DialogContent>

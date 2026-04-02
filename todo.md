@@ -513,3 +513,12 @@
 - [x] Adicionar procedure backend para remover signature_url do médico (admin_master e unit_admin)
 - [x] Adicionar botão "Apagar Assinatura" na aba Inserir (visível apenas para admin_master e unit_admin)
 - [x] Adicionar botão "Apagar Carimbo" na aba Inserir (visível apenas para admin_master e unit_admin)
+
+## CRUD LOGO UNIDADE / ASSINATURA USUÁRIO (02/04/2026)
+- [ ] Unidades: exibir logo atual no formulário de edição com botão Remover
+- [ ] Unidades: botão de upload de nova logo (substituir existente)
+- [ ] Unidades: procedure removeLogo no backend (limpar logo_url)
+- [ ] Usuários: exibir assinatura atual no formulário de edição com botão Remover
+- [ ] Usuários: botão de upload de nova assinatura (substituir existente)
+- [ ] Usuários: campo CRM visível e editável no formulário de edição
+- [ ] Usuários: procedure removeSignature já existe — garantir que seja chamada corretamente
