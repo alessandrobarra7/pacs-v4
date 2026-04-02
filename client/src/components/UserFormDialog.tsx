@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ChevronDown, ChevronRight, KeyRound } from "lucide-react";
+import { ChevronDown, ChevronRight, KeyRound, Upload, PenLine } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -95,6 +95,15 @@ export default function UserFormDialog({
   const [expirationDate, setExpirationDate] = useState("");
   const [permissions, setPermissions] = useState<UnitPermission[]>([]);
   const [expandedUnits, setExpandedUnits] = useState<Record<number, boolean>>({});
+  const [crm, setCrm] = useState("");
+  const [signaturePreview, setSignaturePreview] = useState<string | null>(null);
+  const [signatureFile, setSignatureFile] = useState<string | null>(null);
+  const sigInputRef = useRef<HTMLInputElement>(null);
+
+  const updateMedical = trpc.medicalData.updateUserMedical.useMutation({
+    onSuccess: () => { toast.success("Dados médicos atualizados"); setSignatureFile(null); },
+    onError: (e) => toast.error(e.message || "Erro ao salvar dados médicos"),
+  });
 
   // Load existing permissions from backend when editing
   const { data: existingPerms } = trpc.admin.getUserPermissions.useQuery(
@@ -122,10 +131,14 @@ export default function UserFormDialog({
           setExpirationDate("");
         }
         setPermissions(user.permissions || []);
+        setCrm((user as any).crm || "");
+        setSignaturePreview((user as any).signature_url || null);
+        setSignatureFile(null);
       } else {
         setName(""); setEmail(""); setUsername(""); setPassword("");
         setRole("medico"); setIsActive(true); setExpirationDate("");
         setPermissions([]);
+        setCrm(""); setSignaturePreview(null); setSignatureFile(null);
       }
       setExpandedUnits({});
     }
@@ -173,10 +186,22 @@ export default function UserFormDialog({
     setExpandedUnits((prev) => ({ ...prev, [unitId]: !prev[unitId] }));
   };
 
+  const handleSignatureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { const d = reader.result as string; setSignatureFile(d); setSignaturePreview(d); };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   const handleSave = () => {
     if (!name.trim()) { toast.error("Informe o nome do usuário"); return; }
     if (!username.trim()) { toast.error("Informe o nome de usuário (login)"); return; }
     if (!isEditing && !password.trim()) { toast.error("Defina uma senha para o novo usuário"); return; }
+    if (isEditing && user?.id && (role === "medico" || role === "unit_admin") && (crm.trim() || signatureFile)) {
+      updateMedical.mutate({ userId: user.id, crm: crm.trim() || undefined, signatureFile: signatureFile || undefined });
+    }
     onSave({
       id: user?.id,
       name: name.trim(),
@@ -265,6 +290,32 @@ export default function UserFormDialog({
               <KeyRound className="h-3.5 w-3.5" />
               Resetar Senha
             </Button>
+          )}
+
+          {/* Dados Médicos (apenas para médico/unit_admin em edição) */}
+          {isEditing && (role === "medico" || role === "unit_admin") && (
+            <div className="border-t border-border pt-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <PenLine className="h-4 w-4 text-blue-600" />
+                <Label className="text-sm font-semibold">Dados Médicos</Label>
+              </div>
+              <div>
+                <Label className="text-sm font-medium">CRM</Label>
+                <Input value={crm} onChange={e => setCrm(e.target.value)} className="mt-1" placeholder="Ex: 12345/SP" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Assinatura Digital</Label>
+                <p className="text-xs text-muted-foreground mb-2">Imagem da assinatura do médico (PNG ou JPG, fundo branco ou transparente)</p>
+                {signaturePreview && (
+                  <img src={signaturePreview} alt="Assinatura" className="h-16 object-contain border border-gray-200 rounded p-2 mb-2 bg-white" />
+                )}
+                <label className="flex items-center gap-2 cursor-pointer px-3 py-2 border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
+                  <Upload className="h-4 w-4 text-gray-400" />
+                  <span className="text-sm text-gray-600">{signaturePreview ? "Trocar assinatura" : "Upload da assinatura"}</span>
+                  <input ref={sigInputRef} type="file" accept="image/*" className="hidden" onChange={handleSignatureChange} />
+                </label>
+              </div>
+            </div>
           )}
 
           {/* Unidades e Permissões */}

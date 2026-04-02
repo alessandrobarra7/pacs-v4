@@ -456,3 +456,31 @@
 - [x] Carregamento de laudo existente ao abrir editor
 - [x] Substituição de variáveis no template ({{patientName}}, {{studyDate}}, etc.)
 - [x] unitId corrigido para Number no sessionStorage (PacsQueryPage)
+
+## REDESIGN EDITOR DE LAUDOS — Fiel à Referência Visual (02/04/2026)
+- [ ] Header: título "Editor de Laudo" + subtítulo com nome paciente/exame, botões: seletor de nome do exame (dropdown com sugestões), Inserir Assinatura, Imprimir, Salvar, Assinar
+- [ ] Sidebar aba Templates: lista "Meus Templates" com botão +Novo, templates agrupados por categoria
+- [ ] Sidebar aba Frases: frases pessoais do usuário, clique insere no cursor do documento
+- [ ] Sidebar aba Exames: lista de sugestões de nomes de exames para inserção rápida
+- [ ] Sidebar seção Assinatura: upload de assinatura (visível apenas para admin_master)
+- [ ] Sidebar seção Logo da Unidade: upload de logo (visível apenas para admin_master)
+- [ ] Documento A4: cabeçalho com logo da unidade (placeholder se não tiver), dados do paciente em linha (nome, data nasc, idade, sexo, data realização)
+- [ ] Documento A4: título do exame centralizado em negrito (vem do seletor no header)
+- [ ] Documento A4: seções RELATÓRIO e IMPRESSÃO com texto editável
+- [ ] Documento A4: rodapé com nome do radiologista
+- [ ] Seletor de exame no header: dropdown com lista de sugestões + campo manual, ao selecionar vira título no documento
+- [ ] Cadastro de Unidades (AdminPage): adicionar campo de upload de logo da unidade (S3)
+- [ ] Cadastro de Usuários médicos (AdminPage): adicionar campo de upload de assinatura (S3)
+- [ ] Botão "Inserir Assinatura" no header: insere imagem da assinatura do médico no documento no cursor atual
+
+## REDESIGN EDITOR WYSIWYG (02/04/2026)
+- [x] ReportEditorPage reescrito com design fiel à referência visual
+- [x] Header: botão Voltar, título + subtítulo, seletor de exame com dropdown e busca, Inserir Assinatura, Imprimir, Salvar, Assinar
+- [x] Sidebar 260px com 3 abas: Templates, Frases, Exames
+- [x] Aba Templates: lista com clique para aplicar template ao documento
+- [x] Aba Frases: grupos colapsáveis, inserção no cursor, favoritar, excluir, adicionar frase/grupo
+- [x] Aba Exames: lista completa de 60+ sugestões de nomes de exame
+- [x] Upload de assinatura e logo visível apenas para admin_master na sidebar
+- [x] Documento A4 com logo da unidade, dados do paciente, título do exame, corpo editável, rodapé
+- [x] UserFormDialog: seção Dados Médicos (CRM + upload de assinatura) para médicos/unit_admin
+- [x] UnitFormDialog: seção Logo da Unidade com upload de imagem ao editar

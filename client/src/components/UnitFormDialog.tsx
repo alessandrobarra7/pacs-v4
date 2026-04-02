@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { Upload, Building2 } from "lucide-react";
+import { trpc } from "@/lib/trpc";
 
 export interface UnitFormData {
   id?: number;
@@ -42,6 +44,14 @@ export default function UnitFormDialog({
   const [pacsAeTitle, setPacsAeTitle] = useState("");
   const [pacsLocalAeTitle, setPacsLocalAeTitle] = useState("LAUDS");
   const [isActive, setIsActive] = useState(true);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  const updateLogo = trpc.medicalData.updateUnitLogo.useMutation({
+    onSuccess: () => { toast.success("Logo da unidade atualizado"); setLogoFile(null); },
+    onError: (e) => toast.error(e.message || "Erro ao salvar logo"),
+  });
 
   useEffect(() => {
     if (open) {
@@ -55,10 +65,13 @@ export default function UnitFormDialog({
         setPacsAeTitle(unit.pacs_ae_title || "");
         setPacsLocalAeTitle(unit.pacs_local_ae_title || "LAUDS");
         setIsActive(unit.isActive);
+        setLogoPreview((unit as any).logo_url || null);
+        setLogoFile(null);
       } else {
         setName(""); setSlug(""); setAddress(""); setEquipmentInfo("");
         setPacsIp(""); setPacsPort("11112"); setPacsAeTitle(""); setPacsLocalAeTitle("LAUDS");
         setIsActive(true);
+        setLogoPreview(null); setLogoFile(null);
       }
     }
   }, [open, unit]);
@@ -70,11 +83,23 @@ export default function UnitFormDialog({
     }
   };
 
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { const d = reader.result as string; setLogoFile(d); setLogoPreview(d); };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   const handleSave = () => {
     if (!name.trim()) { toast.error("Informe o nome da unidade"); return; }
     if (!pacsIp.trim()) { toast.error("Informe o IP do PACS"); return; }
     const port = parseInt(pacsPort);
     if (isNaN(port) || port < 1 || port > 65535) { toast.error("Porta PACS inválida"); return; }
+    if (unit?.id && logoFile) {
+      updateLogo.mutate({ unitId: unit.id, logoFile });
+    }
     onSave({
       id: unit?.id,
       name: name.trim(),
@@ -188,6 +213,25 @@ export default function UnitFormDialog({
               </div>
             </div>
           </div>
+
+          {/* Logo da Unidade (apenas ao editar) */}
+          {unit?.id && (
+            <div className="border-t border-border pt-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-amber-600" />
+                <Label className="text-sm font-semibold">Logo da Unidade</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">Imagem que aparece no cabeçalho do laudo (PNG ou JPG, fundo branco)</p>
+              {logoPreview && (
+                <img src={logoPreview} alt="Logo" className="h-16 object-contain border border-gray-200 rounded p-2 bg-white" />
+              )}
+              <label className="flex items-center gap-2 cursor-pointer px-3 py-2 border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
+                <Upload className="h-4 w-4 text-gray-400" />
+                <span className="text-sm text-gray-600">{logoPreview ? "Trocar logo" : "Upload do logo"}</span>
+                <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+              </label>
+            </div>
+          )}
 
           {/* Status */}
           <div className="flex items-center gap-3 border-t border-border pt-4">
