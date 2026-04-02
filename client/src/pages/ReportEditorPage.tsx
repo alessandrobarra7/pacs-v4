@@ -439,7 +439,7 @@ export default function ReportEditorPage() {
       {/* ── CORPO ──────────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden print:block">
         {/* ── SIDEBAR ──────────────────────────────────────────────────── */}
-        <aside className="w-64 shrink-0 border-r border-gray-200 bg-gray-50 flex flex-col overflow-hidden print:hidden">
+        <aside className="w-[340px] shrink-0 border-r border-gray-200 bg-gray-50 flex flex-col overflow-hidden print:hidden">
           {/* Abas */}
           <div className="flex border-b border-gray-200 bg-white">
             {(["exames", "templates", "frases", "inserir"] as const).map((tab) => {
@@ -706,6 +706,58 @@ function ExamesTab({ onSelectExam, currentTitle }: { onSelectExam: (name: string
 }
 
 // ─── Aba Templates ────────────────────────────────────────────────────────────
+// Estrutura de modalidades e regiões para navegação rápida
+const MODALITY_TREE: { label: string; key: string; icon: string; regions: { label: string; key: string }[] }[] = [
+  {
+    label: "Radiografias",
+    key: "RX",
+    icon: "X",
+    regions: [
+      { label: "Tórax", key: "RX Tórax" },
+      { label: "Seios da Face", key: "RX Seios da Face" },
+      { label: "Abdome", key: "RX Abdome" },
+      { label: "Coluna", key: "RX Coluna" },
+      { label: "Extremidades", key: "RX Extremidades" },
+    ],
+  },
+  {
+    label: "Tomografias",
+    key: "TC",
+    icon: "CT",
+    regions: [
+      { label: "Tórax", key: "TC Tórax" },
+      { label: "Seios da Face", key: "TC Seios da Face" },
+      { label: "Abdome", key: "TC Abdome" },
+      { label: "Crânio", key: "TC Crânio" },
+      { label: "Coluna", key: "TC Coluna" },
+    ],
+  },
+  {
+    label: "Ultrassom",
+    key: "US",
+    icon: "US",
+    regions: [
+      { label: "Tórax", key: "US Tórax" },
+      { label: "Seios da Face", key: "US Seios da Face" },
+      { label: "Abdome", key: "US Abdome" },
+      { label: "Pelve", key: "US Pelve" },
+      { label: "Mama", key: "US Mama" },
+    ],
+  },
+  {
+    label: "Ressonância",
+    key: "RM",
+    icon: "MR",
+    regions: [
+      { label: "Tórax", key: "RM Tórax" },
+      { label: "Seios da Face", key: "RM Seios da Face" },
+      { label: "Abdome", key: "RM Abdome" },
+      { label: "Crânio", key: "RM Crânio" },
+      { label: "Coluna", key: "RM Coluna" },
+    ],
+  },
+];
+
 function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string) => void }) {
   const { data: rawTemplates = [], refetch } = trpc.templates.list.useQuery();
   const templates = rawTemplates.filter(Boolean);
@@ -716,16 +768,12 @@ function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string) => 
   const [newName, setNewName] = useState("");
   const [newModality, setNewModality] = useState("");
   const [newBody, setNewBody] = useState("");
+  const [search, setSearch] = useState("");
+  const [openModalities, setOpenModalities] = useState<Record<string, boolean>>({});
+  const [openRegions, setOpenRegions] = useState<Record<string, boolean>>({});
 
-  // Agrupar por modalidade
-  const grouped: Record<string, typeof templates> = {};
-  for (const t of templates) {
-    const key = t.modality || "Geral";
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(t);
-  }
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  const toggleGroup = (k: string) => setOpenGroups(prev => ({ ...prev, [k]: !prev[k] }));
+  const toggleModality = (k: string) => setOpenModalities(prev => ({ ...prev, [k]: !prev[k] }));
+  const toggleRegion = (k: string) => setOpenRegions(prev => ({ ...prev, [k]: !prev[k] }));
 
   const handleCreate = () => {
     if (!newName.trim() || !newBody.trim()) { toast.error("Preencha nome e conteúdo"); return; }
@@ -733,19 +781,64 @@ function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string) => 
     setShowNew(false); setNewName(""); setNewModality(""); setNewBody("");
   };
 
+  // Filtro de busca
+  const searchLower = search.toLowerCase();
+  const filteredTemplates = search
+    ? templates.filter(t => t.name.toLowerCase().includes(searchLower) || (t.modality || "").toLowerCase().includes(searchLower))
+    : [];
+
+  // Agrupar templates por chave de região (modality field)
+  const getTemplatesForRegion = (regionKey: string) =>
+    templates.filter(t => (t.modality || "").toLowerCase() === regionKey.toLowerCase());
+
+  // Templates sem modalidade mapeada na árvore
+  const mappedKeys = MODALITY_TREE.flatMap(m => m.regions.map(r => r.key.toLowerCase()));
+  const unmappedTemplates = templates.filter(t => !mappedKeys.includes((t.modality || "").toLowerCase()));
+
+  const renderTemplateItem = (t: typeof templates[0]) => (
+    <div key={t.id} className="flex items-center gap-1 px-3 py-1.5 hover:bg-blue-50 group">
+      <button
+        onClick={() => onApplyTemplate(t.bodyTemplate)}
+        className="flex-1 text-left text-xs text-gray-700"
+      >
+        {t.name}
+      </button>
+      <button
+        onClick={() => { if (confirm("Excluir template?")) deleteTemplate.mutate({ id: t.id }); }}
+        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity flex-shrink-0"
+      >
+        <Trash2 className="h-3 w-3" />
+      </button>
+    </div>
+  );
+
   return (
-    <div className="p-3 space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Meus Templates</p>
-        <button onClick={() => setShowNew(!showNew)} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700">
-          <Plus className="h-3.5 w-3.5" /> Novo
-        </button>
+    <div className="flex flex-col h-full">
+      {/* Cabeçalho com busca e botão Novo */}
+      <div className="p-3 border-b border-gray-200 space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Templates</p>
+          <button onClick={() => setShowNew(!showNew)} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700">
+            <Plus className="h-3.5 w-3.5" /> Novo
+          </button>
+        </div>
+        {/* Campo de busca */}
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar template..."
+            className="w-full pl-6 pr-3 py-1.5 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+          />
+        </div>
       </div>
 
+      {/* Formulário novo template */}
       {showNew && (
-        <div className="border border-gray-200 rounded p-2 space-y-1.5 bg-white">
+        <div className="p-3 border-b border-gray-200 bg-white space-y-1.5">
           <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nome do template" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400" />
-          <input value={newModality} onChange={e => setNewModality(e.target.value)} placeholder="Modalidade (ex: TC Crânio)" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          <input value={newModality} onChange={e => setNewModality(e.target.value)} placeholder="Modalidade (ex: TC Tórax)" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400" />
           <textarea value={newBody} onChange={e => setNewBody(e.target.value)} placeholder="Conteúdo do template..." rows={4} className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none" />
           <div className="flex gap-1">
             <button onClick={handleCreate} className="flex-1 text-xs bg-blue-600 text-white rounded py-1 hover:bg-blue-700">Criar</button>
@@ -754,41 +847,116 @@ function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string) => 
         </div>
       )}
 
-      {Object.keys(grouped).length === 0 && !showNew && (
-        <p className="text-xs text-gray-400 text-center py-4">Nenhum template criado</p>
-      )}
-
-      {Object.entries(grouped).map(([group, items]) => (
-        <div key={group} className="border border-gray-200 rounded overflow-hidden">
-          <button
-            onClick={() => toggleGroup(group)}
-            className="w-full flex items-center justify-between px-2 py-1.5 bg-gray-50 text-xs font-medium text-gray-700 hover:bg-gray-100"
-          >
-            <span>{group}</span>
-            {openGroups[group] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          </button>
-          {openGroups[group] && (
-            <div className="divide-y divide-gray-100">
-              {items.map(t => (
-                <div key={t.id} className="flex items-center gap-1 px-2 py-1.5 hover:bg-blue-50 group">
-                  <button
-                    onClick={() => onApplyTemplate(t.bodyTemplate)}
-                    className="flex-1 text-left text-xs text-gray-700 truncate"
-                  >
-                    {t.name}
-                  </button>
-                  <button
-                    onClick={() => { if (confirm("Excluir template?")) deleteTemplate.mutate({ id: t.id }); }}
-                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+      {/* Área de conteúdo com scroll */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Resultados de busca */}
+        {search && (
+          <div className="p-2">
+            {filteredTemplates.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-3">Nenhum resultado para "{search}"</p>
+            ) : (
+              <div className="border border-gray-200 rounded overflow-hidden">
+                <div className="px-2 py-1.5 bg-blue-50 text-xs font-medium text-blue-700">
+                  {filteredTemplates.length} resultado{filteredTemplates.length !== 1 ? 's' : ''}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
+                <div className="divide-y divide-gray-100">
+                  {filteredTemplates.map(renderTemplateItem)}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Árvore de modalidades (visível quando não há busca) */}
+        {!search && (
+          <div className="p-2 space-y-1">
+            {MODALITY_TREE.map(modality => {
+              const modalityOpen = openModalities[modality.key];
+              const totalInModality = modality.regions.reduce((acc, r) => acc + getTemplatesForRegion(r.key).length, 0);
+              return (
+                <div key={modality.key} className="border border-gray-200 rounded overflow-hidden">
+                  {/* Cabeçalho da modalidade */}
+                  <button
+                    onClick={() => toggleModality(modality.key)}
+                    className="w-full flex items-center justify-between px-3 py-2 bg-gray-100 hover:bg-gray-200 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold bg-gray-700 text-white rounded px-1 py-0.5 leading-none">{modality.icon}</span>
+                      <span className="text-xs font-semibold text-gray-700">{modality.label}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {totalInModality > 0 && (
+                        <span className="text-[10px] bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5 font-medium">{totalInModality}</span>
+                      )}
+                      {modalityOpen ? <ChevronDown className="h-3 w-3 text-gray-500" /> : <ChevronRight className="h-3 w-3 text-gray-500" />}
+                    </div>
+                  </button>
+
+                  {/* Regiões dentro da modalidade */}
+                  {modalityOpen && (
+                    <div className="divide-y divide-gray-100 bg-white">
+                      {modality.regions.map(region => {
+                        const regionTemplates = getTemplatesForRegion(region.key);
+                        const regionOpen = openRegions[region.key];
+                        return (
+                          <div key={region.key}>
+                            <button
+                              onClick={() => toggleRegion(region.key)}
+                              className="w-full flex items-center justify-between px-4 py-1.5 hover:bg-gray-50 transition-colors"
+                            >
+                              <span className="text-xs text-gray-600">{region.label}</span>
+                              <div className="flex items-center gap-1.5">
+                                {regionTemplates.length > 0 && (
+                                  <span className="text-[10px] bg-green-100 text-green-700 rounded-full px-1.5 font-medium">{regionTemplates.length}</span>
+                                )}
+                                {regionOpen ? <ChevronDown className="h-3 w-3 text-gray-400" /> : <ChevronRight className="h-3 w-3 text-gray-400" />}
+                              </div>
+                            </button>
+                            {regionOpen && (
+                              <div className="bg-blue-50/30 divide-y divide-gray-100">
+                                {regionTemplates.length === 0 ? (
+                                  <p className="text-[11px] text-gray-400 px-5 py-2 italic">Nenhum template nesta categoria</p>
+                                ) : (
+                                  regionTemplates.map(renderTemplateItem)
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Templates sem categoria mapeada */}
+            {unmappedTemplates.length > 0 && (
+              <div className="border border-gray-200 rounded overflow-hidden">
+                <button
+                  onClick={() => toggleModality('__outros')}
+                  className="w-full flex items-center justify-between px-3 py-2 bg-gray-100 hover:bg-gray-200 transition-colors"
+                >
+                  <span className="text-xs font-semibold text-gray-700">Outros</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5 font-medium">{unmappedTemplates.length}</span>
+                    {openModalities['__outros'] ? <ChevronDown className="h-3 w-3 text-gray-500" /> : <ChevronRight className="h-3 w-3 text-gray-500" />}
+                  </div>
+                </button>
+                {openModalities['__outros'] && (
+                  <div className="divide-y divide-gray-100 bg-white">
+                    {unmappedTemplates.map(renderTemplateItem)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {templates.length === 0 && !showNew && (
+              <p className="text-xs text-gray-400 text-center py-6">Nenhum template criado ainda.<br/>Clique em "Novo" para criar.</p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

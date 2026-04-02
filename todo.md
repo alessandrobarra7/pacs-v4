@@ -590,3 +590,10 @@
 - [x] Substituir botão "Não Laudados" por filtro "Últimos 7 dias" no buscador de pacientes (PacsQueryPage)
 - [x] Filtro deve filtrar por data de realização do exame (StudyDate) nos últimos 7 dias
 - [x] Filtro deve ser eficiente e aplicado na query DICOM/resultado
+
+## LAYOUT — Caixa de Templates no Editor de Laudos
+
+- [x] Aumentar largura da caixa de seleção de templates em ~30% (w-64 → w-[340px])
+- [x] Adicionar seções por modalidade: Radiografias, Tomografias, Ultrassom, Ressonância
+- [x] Cada seção com subgrupos: Tórax, Seios da Face, Abdome, Crânio, Coluna
+- [x] Busca funcionando para filtrar templates por nome ou modalidade
