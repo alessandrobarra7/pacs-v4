@@ -323,9 +323,12 @@ async function startServer() {
     const filePath = `${DICOM_CACHE_ROOT}/${studyUid}/${filename}`;
     try {
       const { spawn } = await import('child_process');
-      const pathMod = await import('path');
-      const __dir = pathMod.dirname(new URL(import.meta.url).pathname);
-      const scriptPath = pathMod.resolve(__dir, '../dicom_thumbnail.py');
+      // Em dev: import.meta.url aponta para server/_core/index.ts → sobe um nível
+      // Em prod: dist/_core/index.js → dicom_thumbnail.py está em dist/ (copiado pelo build)
+      const scriptPathDev = new URL('../dicom_thumbnail.py', import.meta.url).pathname;
+      const scriptPathProd = new URL('./dicom_thumbnail.py', import.meta.url).pathname;
+      const { existsSync: pyExists } = await import('fs');
+      const scriptPath = pyExists(scriptPathDev) ? scriptPathDev : scriptPathProd;
 
       // Limpar PYTHONHOME/PYTHONPATH para evitar conflito com venv do sandbox
       const pyEnv = { ...process.env };
@@ -333,7 +336,6 @@ async function startServer() {
       delete pyEnv.PYTHONPATH;
 
       // Usar python3.11 se disponível (tem pydicom instalado), senão python3
-      const { existsSync: pyExists } = await import('fs');
       const pythonBin = pyExists('/usr/bin/python3.11') ? '/usr/bin/python3.11' : '/usr/bin/python3';
 
       const pngBuf = await new Promise<Buffer>((resolve, reject) => {
