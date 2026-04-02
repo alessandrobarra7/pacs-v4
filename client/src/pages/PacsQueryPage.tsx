@@ -512,16 +512,24 @@ export function PacsQueryPage() {
   // Ordenar por data mais recente primeiro
   const sortedResults = useMemo(() => sortByDateDesc(queryResults), [queryResults]);
 
-  // Filtro "Não Laudados" aplicado sobre os resultados ordenados
-  const [showPendingOnly, setShowPendingOnly] = useState(false);
+  // Filtro "Últimos 7 dias" aplicado sobre os resultados
+  const [showLast7Days, setShowLast7Days] = useState(false);
   const filteredResults = useMemo(() => {
-    if (!showPendingOnly) return sortedResults;
+    if (!showLast7Days) return sortedResults;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    cutoff.setHours(0, 0, 0, 0);
     return sortedResults.filter(s => {
-      const uid = s.studyInstanceUid;
-      const status = uid ? (reportStatusMap[uid] || 'Pendente') : 'Pendente';
-      return status === 'Pendente';
+      if (!s.studyDate) return false;
+      // studyDate vem no formato YYYYMMDD
+      const raw = String(s.studyDate);
+      const year = parseInt(raw.slice(0, 4), 10);
+      const month = parseInt(raw.slice(4, 6), 10) - 1;
+      const day = parseInt(raw.slice(6, 8), 10);
+      const studyDateObj = new Date(year, month, day);
+      return studyDateObj >= cutoff;
     });
-  }, [sortedResults, showPendingOnly, reportStatusMap]);
+  }, [sortedResults, showLast7Days]);
 
   const totalPages = Math.max(1, Math.ceil(filteredResults.length / PAGE_SIZE));
   const pagedResults = useMemo(() => {
@@ -583,7 +591,7 @@ export function PacsQueryPage() {
   };
 
   const handlePeriodChange = (period: string) => {
-    setShowPendingOnly(false);
+    setShowLast7Days(false);
     setSelectedDate(undefined);
     let studyDate = '';
     if (period === 'today') studyDate = 'TODAY';
@@ -598,6 +606,7 @@ export function PacsQueryPage() {
   };
 
   const handleCalendarSelect = (date: Date | undefined) => {
+    setShowLast7Days(false);
     setSelectedDate(date);
     setCalendarOpen(false);
     if (!date) {
@@ -610,11 +619,11 @@ export function PacsQueryPage() {
     runQuery({ period: 'custom', studyDate });
   };
 
-  const handlePendingOnly = () => {
-    setShowPendingOnly(true);
+  const handleLast7Days = () => {
+    setShowLast7Days(true);
     setSelectedDate(undefined);
-    setFilters(f => ({ ...f, period: 'pending' }));
-    // Busca todos os estudos para filtrar localmente por status
+    setFilters(f => ({ ...f, period: 'last7days' }));
+    // Busca os últimos 30 dias e filtra localmente pelos últimos 7 dias
     setIsQuerying(true);
     queryPacs.mutate({
       patientName: filters.patientName,
@@ -831,16 +840,16 @@ export function PacsQueryPage() {
         <div className="flex items-center gap-2">
           {periodBtn('today', 'Hoje')}
           {periodBtn('yesterday', 'Ontem')}
-          {/* Não Laudados */}
+          {/* Últimos 7 dias */}
           <button
-            onClick={handlePendingOnly}
+            onClick={handleLast7Days}
             className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border ${
-              activePeriod === 'pending'
-                ? 'bg-amber-700 text-white border-amber-700'
+              activePeriod === 'last7days'
+                ? 'bg-blue-700 text-white border-blue-700'
                 : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
             }`}
           >
-            Não Laudados
+            Últimos 7 dias
           </button>
           {/* Calendário — Popover com seleção de data única */}
           <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>

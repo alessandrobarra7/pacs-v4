@@ -584,3 +584,9 @@
 - [x] Status "revised" para laudos editados após assinatura
 - [ ] Botão "Editar" na lista de exames (PacsQueryPage) para laudos assinados
 - [ ] Exibir histórico de versões no editor de laudos (aba lateral)
+
+## LAYOUT — Filtro Últimos 7 Dias no Buscador
+
+- [x] Substituir botão "Não Laudados" por filtro "Últimos 7 dias" no buscador de pacientes (PacsQueryPage)
+- [x] Filtro deve filtrar por data de realização do exame (StudyDate) nos últimos 7 dias
+- [x] Filtro deve ser eficiente e aplicado na query DICOM/resultado
