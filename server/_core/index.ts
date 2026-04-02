@@ -313,7 +313,8 @@ async function startServer() {
   });
 
   // ── Thumbnail DICOM ────────────────────────────────────────────────────────
-  // Gera miniatura PNG 64x64 a partir do pixel data de um .dcm no cache
+  // Gera miniatura PNG 64x64 via script Python (pydicom) para leitura correta
+  // de todos os formatos DICOM (MONOCHROME1/2, Window Center/Width como string, etc.)
   app.get('/api/dicom-thumbnail/:studyUid/:filename', async (req, res) => {
     const { studyUid, filename } = req.params;
     if (studyUid.includes('..') || studyUid.includes('/') || filename.includes('..') || filename.includes('/')) {
@@ -321,77 +322,35 @@ async function startServer() {
     }
     const filePath = `${DICOM_CACHE_ROOT}/${studyUid}/${filename}`;
     try {
-      const fsP = await import('fs/promises');
-      const buf = await fsP.readFile(filePath);
+      const { spawn } = await import('child_process');
+      const pathMod = await import('path');
+      const __dir = pathMod.dirname(new URL(import.meta.url).pathname);
+      const scriptPath = pathMod.resolve(__dir, '../dicom_thumbnail.py');
 
-      // Lê uma tag DICOM little-endian (pula 132 bytes de preamble + DICM)
-      const readTagRaw = (targetGroup: number, targetElem: number): { offset: number; len: number } | null => {
-        let o = 132;
-        while (o < buf.length - 8) {
-          const tg = buf.readUInt16LE(o);
-          const te = buf.readUInt16LE(o + 2);
-          const vr = buf.slice(o + 4, o + 6).toString('ascii');
-          let len: number, dataOffset: number;
-          if (['OB','OW','OF','SQ','UC','UN','UR','UT'].includes(vr)) {
-            len = buf.readUInt32LE(o + 8); dataOffset = o + 12;
-          } else if (vr.charCodeAt(0) >= 65 && vr.charCodeAt(0) <= 90) {
-            len = buf.readUInt16LE(o + 6); dataOffset = o + 8;
+      // Limpar PYTHONHOME/PYTHONPATH para evitar conflito com venv do sandbox
+      const pyEnv = { ...process.env };
+      delete pyEnv.PYTHONHOME;
+      delete pyEnv.PYTHONPATH;
+
+      const pngBuf = await new Promise<Buffer>((resolve, reject) => {
+        const py = spawn('/usr/bin/python3', [scriptPath, filePath], { env: pyEnv });
+        const chunks: Buffer[] = [];
+        py.stdout.on('data', (d: Buffer) => chunks.push(d));
+        py.stderr.on('data', (d: Buffer) => {
+          const msg = d.toString();
+          if (!msg.includes('DeprecationWarning')) console.error('[DICOM Thumbnail]', msg);
+        });
+        py.on('close', (code: number) => {
+          if (code === 0 && chunks.length > 0) {
+            resolve(Buffer.concat(chunks));
           } else {
-            len = buf.readUInt32LE(o + 4); dataOffset = o + 8;
+            reject(new Error(`Python exit ${code}`));
           }
-          if (len === 0xFFFFFFFF || len < 0) { o += 8; continue; }
-          if (tg === targetGroup && te === targetElem) return { offset: dataOffset, len };
-          o = dataOffset + (len > 0 ? len : 0);
-          if (o <= 132) break;
-        }
-        return null;
-      };
-      const readUint16 = (g: number, e: number): number => {
-        const t = readTagRaw(g, e);
-        return (t && t.len >= 2) ? buf.readUInt16LE(t.offset) : 0;
-      };
-
-      const rows = readUint16(0x0028, 0x0010);
-      const cols = readUint16(0x0028, 0x0011);
-      const bitsAlloc = readUint16(0x0028, 0x0100) || 16;
-      const pixelRep = readUint16(0x0028, 0x0103);
-      const wc = readUint16(0x0028, 0x1050);
-      const ww = readUint16(0x0028, 0x1051);
-      const pixTag = readTagRaw(0x7FE0, 0x0010);
-
-      if (!pixTag || rows === 0 || cols === 0) {
-        return res.status(422).json({ error: 'Cannot extract pixel data' });
-      }
-
-      const totalPx = rows * cols;
-      const pixels: number[] = new Array(totalPx);
-      if (bitsAlloc === 16) {
-        for (let i = 0; i < totalPx && (pixTag.offset + i * 2 + 1) < buf.length; i++) {
-          pixels[i] = pixelRep ? buf.readInt16LE(pixTag.offset + i * 2) : buf.readUInt16LE(pixTag.offset + i * 2);
-        }
-      } else {
-        for (let i = 0; i < totalPx && (pixTag.offset + i) < buf.length; i++) {
-          pixels[i] = buf[pixTag.offset + i];
-        }
-      }
-
-      let minV = Infinity, maxV = -Infinity;
-      for (const v of pixels) { if (v < minV) minV = v; if (v > maxV) maxV = v; }
-      const wMin = ww > 0 ? wc - ww / 2 : minV;
-      const wMax = ww > 0 ? wc + ww / 2 : maxV;
-      const range = (wMax - wMin) || 1;
-
-      const rawBuf = Buffer.alloc(rows * cols * 4);
-      for (let i = 0; i < totalPx; i++) {
-        const n = Math.max(0, Math.min(255, Math.round(((pixels[i] - wMin) / range) * 255)));
-        rawBuf[i * 4] = n; rawBuf[i * 4 + 1] = n; rawBuf[i * 4 + 2] = n; rawBuf[i * 4 + 3] = 255;
-      }
-
-      const sharp = (await import('sharp')).default;
-      const pngBuf = await sharp(rawBuf, { raw: { width: cols, height: rows, channels: 4 } })
-        .resize(64, 64, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 255 } })
-        .png({ compressionLevel: 6 })
-        .toBuffer();
+        });
+        py.on('error', reject);
+        // timeout de 15s
+        setTimeout(() => { py.kill(); reject(new Error('timeout')); }, 15000);
+      });
 
       res.set('Content-Type', 'image/png');
       res.set('Cache-Control', 'public, max-age=3600');
