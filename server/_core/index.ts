@@ -332,8 +332,12 @@ async function startServer() {
       delete pyEnv.PYTHONHOME;
       delete pyEnv.PYTHONPATH;
 
+      // Usar python3.11 se disponível (tem pydicom instalado), senão python3
+      const { existsSync: pyExists } = await import('fs');
+      const pythonBin = pyExists('/usr/bin/python3.11') ? '/usr/bin/python3.11' : '/usr/bin/python3';
+
       const pngBuf = await new Promise<Buffer>((resolve, reject) => {
-        const py = spawn('/usr/bin/python3', [scriptPath, filePath], { env: pyEnv });
+        const py = spawn(pythonBin, [scriptPath, filePath], { env: pyEnv });
         const chunks: Buffer[] = [];
         py.stdout.on('data', (d: Buffer) => chunks.push(d));
         py.stderr.on('data', (d: Buffer) => {
