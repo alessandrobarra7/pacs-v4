@@ -1317,7 +1317,22 @@ export function DicomViewerPage() {
               }`}
             >
               <div className="relative bg-black rounded overflow-hidden" style={{ width: 48, height: 48 }}>
-                <div className="absolute inset-0 flex items-center justify-center">
+                {s.thumbnail ? (
+                  <img
+                    src={`/api/dicom-thumbnail/${studyUid}/${s.thumbnail}`}
+                    alt={s.description || s.modality || 'Série'}
+                    className="w-full h-full object-contain"
+                    loading="lazy"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      (e.currentTarget.nextElementSibling as HTMLElement | null)?.style && ((e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex');
+                    }}
+                  />
+                ) : null}
+                <div
+                  className="absolute inset-0 flex items-center justify-center"
+                  style={{ display: s.thumbnail ? 'none' : 'flex' }}
+                >
                   <span className="text-[9px] text-gray-400 font-mono text-center leading-tight px-1">
                     {s.modality || 'IMG'}
                     <br />

@@ -416,3 +416,6 @@
 - [x] Corrigir conversão de expiration_date: string "YYYY-MM-DD" convertida para BIGINT (ms) na procedure admin.updateUser
 - [x] Adicionar expiration_date no select do listUsers (estava faltando na query)
 - [x] Corrigir UserFormDialog: converter BIGINT (ms) para YYYY-MM-DD ao popular o formulário de edição
+
+## VISUALIZADOR — Thumbnails Reais nas Séries
+- [ ] Gerar miniatura real (canvas) do primeiro frame de cada série no painel de séries do DicomViewerPage
