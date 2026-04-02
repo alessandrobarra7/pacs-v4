@@ -1131,6 +1131,7 @@ export const appRouter = router({
           isActive: users.isActive,
           createdAt: users.createdAt,
           lastSignedIn: users.lastSignedIn,
+          expiration_date: users.expiration_date,
         })
         .from(users)
         .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -1212,7 +1213,15 @@ export const appRouter = router({
         if (input.role !== undefined) updateData.role = input.role;
         if (input.unit_id !== undefined) updateData.unit_id = input.unit_id;
         if (input.isActive !== undefined) updateData.isActive = input.isActive;
-        if (input.expiration_date !== undefined) updateData.expiration_date = input.expiration_date || null;
+        if (input.expiration_date !== undefined) {
+          if (input.expiration_date) {
+            // Converter "YYYY-MM-DD" para timestamp BIGINT em ms (fim do dia UTC)
+            const d = new Date(input.expiration_date + 'T23:59:59.000Z');
+            updateData.expiration_date = isNaN(d.getTime()) ? null : d.getTime();
+          } else {
+            updateData.expiration_date = null;
+          }
+        }
         if (input.password) {
           const bcryptLib = await import('bcryptjs');
           updateData.password_hash = await bcryptLib.hash(input.password, 12);

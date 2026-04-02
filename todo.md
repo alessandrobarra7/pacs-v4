@@ -411,3 +411,8 @@
 
 ## AJUSTES TOOLBAR — Layout
 - [ ] Separar mais os botões de filtro (gap maior), mover Auto-Download para a direita junto à contagem de pacientes
+
+## BUG CORRIGIDO — Edição de Usuário (expiration_date)
+- [x] Corrigir conversão de expiration_date: string "YYYY-MM-DD" convertida para BIGINT (ms) na procedure admin.updateUser
+- [x] Adicionar expiration_date no select do listUsers (estava faltando na query)
+- [x] Corrigir UserFormDialog: converter BIGINT (ms) para YYYY-MM-DD ao popular o formulário de edição

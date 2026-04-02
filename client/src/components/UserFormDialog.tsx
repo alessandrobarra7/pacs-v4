@@ -111,7 +111,16 @@ export default function UserFormDialog({
         setPassword("");
         setRole(user.role);
         setIsActive(user.isActive);
-        setExpirationDate(user.expiration_date || "");
+        // expiration_date vem como BIGINT (ms) do banco — converter para YYYY-MM-DD para o input[type=date]
+        if (user.expiration_date) {
+          const d = new Date(Number(user.expiration_date));
+          const yyyy = d.getUTCFullYear();
+          const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+          const dd = String(d.getUTCDate()).padStart(2, '0');
+          setExpirationDate(`${yyyy}-${mm}-${dd}`);
+        } else {
+          setExpirationDate("");
+        }
         setPermissions(user.permissions || []);
       } else {
         setName(""); setEmail(""); setUsername(""); setPassword("");
