@@ -540,9 +540,14 @@ export function PacsQueryPage() {
 
   // Busca status real dos laudos
   const studyUids = useMemo(() => queryResults.map(s => s.studyInstanceUid).filter(Boolean), [queryResults]);
-  const { data: statusData } = trpc.reports.statusByStudyUids.useQuery(
+  const { data: statusData, refetch: refetchStatus } = trpc.reports.statusByStudyUids.useQuery(
     { studyUids },
-    { enabled: studyUids.length > 0 }
+    { 
+      enabled: studyUids.length > 0,
+      staleTime: 0,
+      refetchOnWindowFocus: true,
+      refetchInterval: 30_000, // atualiza a cada 30s
+    }
   );
   useEffect(() => {
     if (statusData) setReportStatusMap(statusData);

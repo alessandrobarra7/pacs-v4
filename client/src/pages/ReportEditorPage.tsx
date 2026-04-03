@@ -250,19 +250,34 @@ export default function ReportEditorPage() {
   }, [existingReport, studyUid, examTitle, studyInfo, updateReport, createReport]);
 
   // ── Assinar ──────────────────────────────────────────────────────────────
+  // Salva o laudo automaticamente (se necessário) e depois assina em um único clique
   const handleSign = useCallback(async () => {
-    if (!existingReport?.id) {
-      toast.error("Salve o laudo antes de assinar");
+    const body = docRef.current?.innerHTML || "";
+    if (!body.trim() || body.trim() === "<br>" || body.trim() === "<p></p>") {
+      toast.error("Digite o conteúdo do laudo antes de assinar");
       return;
     }
     try {
-      await signReport.mutateAsync({ id: existingReport.id });
+      let reportId = existingReport?.id;
+      // Se não existe laudo salvo ainda, criar primeiro
+      if (!reportId) {
+        const result = await createReport.mutateAsync({
+          study_instance_uid: studyUid,
+          body,
+        });
+        reportId = result.id;
+      } else {
+        // Atualizar o corpo do laudo antes de assinar
+        await updateReport.mutateAsync({ id: reportId, body });
+      }
+      // Agora assinar
+      await signReport.mutateAsync({ id: reportId });
       toast.success("Laudo assinado com sucesso!");
       navigate("/");
     } catch (e: any) {
       toast.error(e.message || "Erro ao assinar");
     }
-  }, [existingReport, signReport, navigate]);
+  }, [existingReport, studyUid, createReport, updateReport, signReport, navigate]);
 
   // ── Retificar laudo assinado ─────────────────────────────────────────────
   const handleRevise = useCallback(async () => {
@@ -494,12 +509,11 @@ export default function ReportEditorPage() {
               <Button
                 size="sm"
                 onClick={handleSign}
-                disabled={signReport.isPending || !existingReport?.id}
+                disabled={signReport.isPending || createReport.isPending || updateReport.isPending}
                 className="gap-1.5 text-xs bg-green-600 hover:bg-green-700 text-white disabled:opacity-50"
-                title={!existingReport?.id ? "Salve o rascunho antes de assinar" : ""}
               >
                 <CheckCircle className="h-3.5 w-3.5" />
-                {signReport.isPending ? "Assinando..." : "Assinar"}
+                {(signReport.isPending || createReport.isPending || updateReport.isPending) ? "Assinando..." : "Assinar"}
               </Button>
             </>
           )}

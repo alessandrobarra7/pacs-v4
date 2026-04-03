@@ -619,3 +619,10 @@
 - [x] Atualizar handlePrint (ReportEditorPage) para incluir carimbo/assinatura do médico no rodapé
 - [x] Adicionar badge "RETIFICADO" no rodapé do laudo impresso quando status = revised
 - [x] Adicionar status "Revisado" com badge ⚠ na lista de exames (PacsQueryPage)
+
+## BUG CRÍTICO — Botão Assinar não salva no banco
+
+- [x] Diagnosticar por que o botão Assinar não está funcionando (não salva o laudo no banco)
+- [x] Garantir que ao assinar, o laudo é criado/atualizado no banco com status "signed"
+- [x] Após assinar e voltar à lista, o botão Imprimir deve encontrar o laudo no banco
+- [x] Testar fluxo completo: Laudar → Assinar → Voltar → Imprimir pela lista
