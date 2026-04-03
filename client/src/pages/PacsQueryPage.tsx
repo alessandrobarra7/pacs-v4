@@ -754,7 +754,7 @@ export function PacsQueryPage() {
       </div>
     ` : '';
 
-    const printWindow = window.open('', '_blank', 'width=800,height=900');
+    const printWindow = window.open('', '_blank', 'width=850,height=1000');
     if (!printWindow) { toast.error('Bloqueador de pop-up ativo. Permita pop-ups para imprimir.'); return; }
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -762,33 +762,83 @@ export function PacsQueryPage() {
       <head>
         <meta charset="UTF-8">
         <title>Laudo - ${patientName}</title>
+        <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
         <style>
           @page { size: A4; margin: 0; }
-          body { margin: 0; font-family: 'Times New Roman', serif; font-size: 12pt; color: #000; }
-          .doc { position: relative; width: 210mm; min-height: 297mm; padding: 20mm 20mm 30mm 20mm; box-sizing: border-box; }
-          .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8mm; border-bottom: 1px solid #ccc; padding-bottom: 4mm; }
-          .patient { text-align: right; font-size: 10pt; line-height: 1.6; }
-          .exam-title { text-align: center; font-size: 14pt; font-weight: bold; text-transform: uppercase; margin: 6mm 0; }
-          .body { min-height: 100mm; line-height: 1.8; }
-          .footer { position: absolute; bottom: 10mm; left: 20mm; right: 20mm; border-top: 1px solid #eee; padding-top: 2mm; font-size: 7pt; color: #888; line-height: 1.4; }
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { margin: 0; font-family: 'Source Sans 3', 'Arial', sans-serif; font-size: 11pt; color: #1a1a1a; background: #fff; }
+          .doc { position: relative; width: 210mm; min-height: 297mm; padding: 18mm 22mm 32mm 22mm; }
+
+          /* ── Cabeçalho ── */
+          .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 6mm; border-bottom: 1.5px solid #d0d0d0; margin-bottom: 7mm; }
+          .header-logo { display: flex; align-items: center; }
+          .header-patient { text-align: right; font-size: 10pt; line-height: 1.9; color: #1a1a1a; }
+          .header-patient .label { font-weight: 700; }
+          .header-patient .row { display: block; }
+
+          /* ── Título do exame ── */
+          .exam-title { text-align: center; font-size: 13pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 7mm 0; color: #111; }
+
+          /* ── Corpo ── */
+          .body { min-height: 120mm; font-size: 11pt; line-height: 1.85; color: #1a1a1a; text-align: justify; white-space: pre-wrap; }
+
+          /* ── Assinatura ── */
+          .doctor-footer { margin-top: 12mm; display: flex; justify-content: center; }
+          .doctor-footer-inner { text-align: center; min-width: 180px; }
+          .doctor-footer-inner .sig-line { border-top: 1px solid #444; margin-top: 2mm; padding-top: 3mm; font-size: 10pt; }
+          .doctor-footer-inner .sig-name { font-weight: 700; font-size: 10.5pt; }
+          .doctor-footer-inner .sig-crm { font-size: 9.5pt; color: #333; margin-top: 1mm; }
+          .doctor-footer-inner .sig-date { font-size: 8.5pt; color: #666; margin-top: 1mm; }
+          .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 6px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
+
+          /* ── Rodapé legal ── */
+          .footer { position: absolute; bottom: 10mm; left: 22mm; right: 22mm; border-top: 1px solid #e0e0e0; padding-top: 3mm; font-size: 7pt; color: #888; line-height: 1.5; text-align: center; }
+
+          @media print {
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          }
         </style>
       </head>
       <body>
         <div class="doc">
+
+          <!-- Cabeçalho -->
           <div class="header">
-            <div>${logoHtml}</div>
-            <div class="patient">
-              <p><strong>Paciente:</strong> ${patientName}</p>
-              ${birthDateFormatted ? `<p><strong>Nascimento:</strong> ${birthDateFormatted}${sex ? ` &nbsp;|&nbsp; <strong>Sexo:</strong> ${sex}` : ''}</p>` : (sex ? `<p><strong>Sexo:</strong> ${sex}</p>` : '')}
-              <p><strong>Realizado em:</strong> ${studyDate}</p>
+            <div class="header-logo">${logoHtml}</div>
+            <div class="header-patient">
+              <span class="row"><span class="label">Paciente:</span> ${patientName}</span>
+              ${birthDateFormatted
+                ? `<span class="row"><span class="label">Nascimento:</span> ${birthDateFormatted}${sex ? ` &nbsp;|&nbsp; <span class="label">Sexo:</span> ${sex}` : ''}</span>`
+                : (sex ? `<span class="row"><span class="label">Sexo:</span> ${sex}</span>` : '')}
+              <span class="row"><span class="label">Realizado em:</span> ${studyDate}</span>
             </div>
           </div>
+
+          <!-- Título do exame -->
           <div class="exam-title">${reportTitle}</div>
+
+          <!-- Corpo do laudo -->
           <div class="body">${bodyHtml}</div>
-          ${doctorFooterHtml}
+
+          <!-- Assinatura do médico -->
+          ${isSignedOrRevised && doctorName ? `
+          <div class="doctor-footer">
+            <div class="doctor-footer-inner">
+              ${doctorStampUrl ? `<img src="${doctorStampUrl}" alt="Carimbo" style="max-height:80px;max-width:200px;object-fit:contain;display:block;margin:0 auto 3mm;" />` : ''}
+              ${doctorSignatureUrl ? `<img src="${doctorSignatureUrl}" alt="Assinatura" style="max-height:50px;max-width:180px;object-fit:contain;display:block;margin:0 auto 2mm;" />` : ''}
+              <div class="sig-line">
+                <div class="sig-name">${doctorName}${reportStatus === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
+                ${doctorCrm ? `<div class="sig-crm">CRM: ${doctorCrm}</div>` : ''}
+                ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
+              </div>
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- Rodapé legal -->
           <div class="footer">${LEGAL_FOOTER}</div>
         </div>
-        <script>setTimeout(() => window.print(), 300);<\/script>
+        <script>setTimeout(() => window.print(), 400);<\/script>
       </body>
       </html>
     `);

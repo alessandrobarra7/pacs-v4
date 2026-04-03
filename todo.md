@@ -632,3 +632,13 @@
 - [x] Header mais alto com imagem de fundo médica e gradiente teal escuro
 - [x] Linha de acento colorida abaixo do header
 - [x] Manter toda a lógica existente intacta
+
+## REDESIGN — Layout de Impressão de Laudos
+
+- [x] Novo layout de impressão: logo à esquerda + dados do paciente à direita (assimétrico)
+- [x] Separador horizontal fino entre cabeçalho e corpo
+- [x] Título do exame centralizado, negrito, maiúsculas, fonte maior
+- [x] Corpo do laudo com fonte limpa sem fundo cinza
+- [x] Rodapé legal completo (CNPJ, telefone, site, redes sociais)
+- [x] Assinatura do médico centralizada com linha acima
+- [x] Aplicar novo layout tanto na PacsQueryPage quanto no ReportEditorPage

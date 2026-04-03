@@ -319,61 +319,80 @@ export default function ReportEditorPage() {
     const logoHtml = medCtx?.unitLogoUrl
       ? `<img src="${medCtx.unitLogoUrl}" alt="Logo" style="max-height:75px;max-width:240px;object-fit:contain;" />`
       : `<div style="width:180px;height:60px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:9pt;">Logo da unidade</div>`;
-    const patientHtml = `
-      <div><strong>Paciente:</strong> ${patientName}</div>
-      ${studyInfo?.birthDate ? `<div><strong>Data Nasc:</strong> ${studyInfo.birthDate}</div>` : ""}
-      ${studyInfo?.age ? `<div><strong>Idade:</strong> ${studyInfo.age}</div>` : ""}
-      ${studyInfo?.sex ? `<div><strong>Sexo:</strong> ${formatSex(studyInfo.sex)}</div>` : ""}
-      ${studyInfo?.studyDate ? `<div><strong>Realizado em:</strong> ${formatDicomDate(studyInfo.studyDate)}</div>` : ""}
-    `;
+    const birthDateFormatted = studyInfo?.birthDate || '';
+    const sex = studyInfo?.sex ? formatSex(studyInfo.sex) : '';
+    const studyDateFormatted = studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : '';
+
     const titleHtml = examTitle
-      ? `<div style="text-align:center;font-weight:bold;font-size:14pt;margin-bottom:6mm;text-transform:uppercase;letter-spacing:0.5px;">${examTitle}</div>`
-      : "";
-    const bodyHtml = docRef.current?.innerHTML || "";
+      ? `<div class="exam-title">${examTitle}</div>`
+      : '';
+    const bodyHtml = docRef.current?.innerHTML || '';
     const draggableHtml = draggableImages.map(img =>
       `<img src="${img.src}" alt="${img.label}" style="position:absolute;left:${img.x}px;top:${img.y}px;width:${img.width}px;" />`
-    ).join("");
-    // Rodapé do médico assinante (carimbo + assinatura)
+    ).join('');
+
+    // Rodapé do médico assinante
     const isSignedOrRevised = existingReport?.status === 'signed' || existingReport?.status === 'revised';
     const signedAtFormatted = existingReport?.signedAt
       ? new Date(existingReport.signedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
       : '';
-    const revisedBadge = existingReport?.status === 'revised' ? `<span style="background:#f59e0b;color:#fff;font-size:7pt;padding:1px 6px;border-radius:3px;font-weight:bold;margin-left:6px;">RETIFICADO</span>` : '';
     const doctorFooterHtml = isSignedOrRevised && medCtx?.doctorName ? `
-      <div style="margin-top:8mm;border-top:1px solid #ccc;padding-top:4mm;display:flex;align-items:flex-end;justify-content:flex-end;gap:8mm;">
-        ${medCtx.stampUrl ? `<img src="${medCtx.stampUrl}" alt="Carimbo" style="max-height:80px;max-width:200px;object-fit:contain;" />` : ''}
-        <div style="text-align:center;">
+      <div class="doctor-footer">
+        <div class="doctor-footer-inner">
+          ${medCtx.stampUrl ? `<img src="${medCtx.stampUrl}" alt="Carimbo" style="max-height:80px;max-width:200px;object-fit:contain;display:block;margin:0 auto 3mm;" />` : ''}
           ${medCtx.signatureUrl ? `<img src="${medCtx.signatureUrl}" alt="Assinatura" style="max-height:50px;max-width:180px;object-fit:contain;display:block;margin:0 auto 2mm;" />` : ''}
-          <div style="border-top:1px solid #333;padding-top:2mm;font-size:9pt;">
-            <strong>${medCtx.doctorName}</strong>${revisedBadge}<br/>
-            ${medCtx.crm ? `CRM: ${medCtx.crm}<br/>` : ''}
-            ${signedAtFormatted ? `<span style="font-size:8pt;color:#555;">Assinado em: ${signedAtFormatted}</span>` : ''}
+          <div class="sig-line">
+            <div class="sig-name">${medCtx.doctorName}${existingReport?.status === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
+            ${medCtx.crm ? `<div class="sig-crm">CRM: ${medCtx.crm}</div>` : ''}
+            ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
           </div>
         </div>
       </div>
     ` : '';
-    // Nota: medCtx.signatureUrl e medCtx.stampUrl são os campos corretos conforme getReportContext
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Laudo</title>
-      <style>
-        @page { size: A4; margin: 0; }
-        body { margin: 0; font-family: 'Times New Roman', serif; font-size: 12pt; color: #000; }
-        .doc { position: relative; width: 210mm; min-height: 297mm; padding: 20mm 20mm 30mm 20mm; box-sizing: border-box; }
-        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8mm; border-bottom: 1px solid #ccc; padding-bottom: 4mm; }
-        .patient { text-align: right; font-size: 10pt; line-height: 1.6; }
-        .body { min-height: 100mm; line-height: 1.8; }
-        .footer { position: absolute; bottom: 10mm; left: 20mm; right: 20mm; border-top: 1px solid #eee; padding-top: 2mm; font-size: 7pt; color: #888; line-height: 1.4; }
-      </style></head><body>
-      <div class="doc">
-        ${draggableHtml}
-        <div class="header"><div>${logoHtml}</div><div class="patient">${patientHtml}</div></div>
-        ${titleHtml}
-        <div class="body">${bodyHtml}</div>
-        ${doctorFooterHtml}
-        <div class="footer">${LEGAL_FOOTER}</div>
+
+    const html = `<!DOCTYPE html>
+    <html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+      @page { size: A4; margin: 0; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { margin: 0; font-family: 'Source Sans 3', 'Arial', sans-serif; font-size: 11pt; color: #1a1a1a; background: #fff; }
+      .doc { position: relative; width: 210mm; min-height: 297mm; padding: 18mm 22mm 32mm 22mm; }
+      .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 6mm; border-bottom: 1.5px solid #d0d0d0; margin-bottom: 7mm; }
+      .header-logo { display: flex; align-items: center; }
+      .header-patient { text-align: right; font-size: 10pt; line-height: 1.9; color: #1a1a1a; }
+      .header-patient .label { font-weight: 700; }
+      .header-patient .row { display: block; }
+      .exam-title { text-align: center; font-size: 13pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 7mm 0; color: #111; }
+      .body { min-height: 120mm; font-size: 11pt; line-height: 1.85; color: #1a1a1a; text-align: justify; }
+      .doctor-footer { margin-top: 12mm; display: flex; justify-content: center; }
+      .doctor-footer-inner { text-align: center; min-width: 180px; }
+      .doctor-footer-inner .sig-line { border-top: 1px solid #444; margin-top: 2mm; padding-top: 3mm; font-size: 10pt; }
+      .doctor-footer-inner .sig-name { font-weight: 700; font-size: 10.5pt; }
+      .doctor-footer-inner .sig-crm { font-size: 9.5pt; color: #333; margin-top: 1mm; }
+      .doctor-footer-inner .sig-date { font-size: 8.5pt; color: #666; margin-top: 1mm; }
+      .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 6px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
+      .footer { position: absolute; bottom: 10mm; left: 22mm; right: 22mm; border-top: 1px solid #e0e0e0; padding-top: 3mm; font-size: 7pt; color: #888; line-height: 1.5; text-align: center; }
+      @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    </style></head><body>
+    <div class="doc">
+      ${draggableHtml}
+      <div class="header">
+        <div class="header-logo">${logoHtml}</div>
+        <div class="header-patient">
+          <span class="row"><span class="label">Paciente:</span> ${patientName}</span>
+          ${birthDateFormatted ? `<span class="row"><span class="label">Nascimento:</span> ${birthDateFormatted}${sex ? ` &nbsp;|&nbsp; <span class="label">Sexo:</span> ${sex}` : ''}</span>` : (sex ? `<span class="row"><span class="label">Sexo:</span> ${sex}</span>` : '')}
+          ${studyDateFormatted ? `<span class="row"><span class="label">Realizado em:</span> ${studyDateFormatted}</span>` : ''}
+        </div>
       </div>
-      <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
+      ${titleHtml}
+      <div class="body">${bodyHtml}</div>
+      ${doctorFooterHtml}
+      <div class="footer">${LEGAL_FOOTER}</div>
+    </div>
+    <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
     </body></html>`;
-    const win = window.open("", "_blank");
+    const win = window.open('', '_blank', 'width=850,height=1000');
     if (win) { win.document.write(html); win.document.close(); }
   }, [medCtx, patientName, studyInfo, examTitle, docRef, draggableImages, existingReport]);
 
