@@ -1756,15 +1756,16 @@ export const appRouter = router({
       .input(z.object({ unitId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getUserById, getUnitById } = await import('./db');
+        const { toProxyUrl } = await import('./mediaProxy');
         const user = await getUserById(ctx.user.id);
         const unit = await getUnitById(input.unitId);
         return {
           doctorName: user?.name ?? '',
           crm: user?.crm ?? '',
-          signatureUrl: user?.signature_url ?? null,
-          stampUrl: user?.stamp_url ?? null,
+          signatureUrl: toProxyUrl(user?.signature_url) ?? null,
+          stampUrl: toProxyUrl(user?.stamp_url) ?? null,
           unitName: unit?.name ?? '',
-          unitLogoUrl: unit?.logo_url ?? null,
+          unitLogoUrl: toProxyUrl(unit?.logo_url) ?? null,
           userId: user?.id ?? 0,
         };
       }),
