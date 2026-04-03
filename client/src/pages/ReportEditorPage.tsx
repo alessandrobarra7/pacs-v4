@@ -160,11 +160,15 @@ export default function ReportEditorPage() {
   const updateReport = trpc.reports.update.useMutation();
   const signReport = trpc.reports.sign.useMutation();
   const reviseReport = trpc.reports.revise.useMutation();
+  const deleteReport = trpc.reports.delete.useMutation();
 
   // Estado de retificação
   const [isRevising, setIsRevising] = useState(false);
   const [reviseReason, setReviseReason] = useState("");
   const [showReviseModal, setShowReviseModal] = useState(false);
+
+  // Estado de exclusão
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const isSigned = existingReport?.status === 'signed' || existingReport?.status === 'revised';
   const isEditable = !isSigned || isRevising;
@@ -280,7 +284,20 @@ export default function ReportEditorPage() {
     }
   }, [existingReport, reviseReason, reviseReport, navigate]);
 
-  // ── Imprimir ─────────────────────────────────────────────────────────────
+  // ── Apagar laudo ───────────────────────────────────────────────────────────────────────────────────────
+  const handleDelete = useCallback(async () => {
+    if (!existingReport?.id) return;
+    try {
+      await deleteReport.mutateAsync({ id: existingReport.id });
+      toast.success("Laudo apagado com sucesso!");
+      setShowDeleteModal(false);
+      navigate("/");
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao apagar laudo");
+    }
+  }, [existingReport, deleteReport, navigate]);
+
+  // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
   const patientName = formatPatientName(studyInfo?.patientName || "");
   const handlePrint = useCallback(() => {
     // Abre janela dedicada com o conteúdo do documento para impressão correta
@@ -393,6 +410,20 @@ export default function ReportEditorPage() {
             <Printer className="h-3.5 w-3.5" />
             Imprimir
           </Button>
+          {/* Botão Apagar — sempre visível quando há laudo salvo */}
+          {existingReport?.id && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDeleteModal(true)}
+              disabled={deleteReport.isPending}
+              className="gap-1.5 text-xs border-red-300 text-red-600 hover:bg-red-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Apagar
+            </Button>
+          )}
+
           {isSigned ? (
             isRevising ? (
               <>
@@ -419,22 +450,37 @@ export default function ReportEditorPage() {
               <Button
                 size="sm"
                 onClick={() => setIsRevising(true)}
-                className="gap-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                className="gap-1.5 text-xs bg-orange-600 hover:bg-orange-700 text-white"
               >
                 <Edit2 className="h-3.5 w-3.5" />
-                Editar
+                Retificar
               </Button>
             )
           ) : (
-            <Button
-              size="sm"
-              onClick={handleSign}
-              disabled={signReport.isPending}
-              className="gap-1.5 text-xs bg-green-600 hover:bg-green-700 text-white"
-            >
-              <CheckCircle className="h-3.5 w-3.5" />
-              {signReport.isPending ? "Assinando..." : "Assinar"}
-            </Button>
+            <>
+              {/* Editar rascunho — só aparece quando já existe laudo não assinado */}
+              {existingReport?.id && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { /* já editável, apenas foca o documento */ docRef.current?.focus(); }}
+                  className="gap-1.5 text-xs"
+                >
+                  <Edit2 className="h-3.5 w-3.5" />
+                  Editar
+                </Button>
+              )}
+              <Button
+                size="sm"
+                onClick={handleSign}
+                disabled={signReport.isPending || !existingReport?.id}
+                className="gap-1.5 text-xs bg-green-600 hover:bg-green-700 text-white disabled:opacity-50"
+                title={!existingReport?.id ? "Salve o rascunho antes de assinar" : ""}
+              >
+                <CheckCircle className="h-3.5 w-3.5" />
+                {signReport.isPending ? "Assinando..." : "Assinar"}
+              </Button>
+            </>
           )}
         </div>
       </header>
@@ -683,6 +729,41 @@ export default function ReportEditorPage() {
                 style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: reviseReason.trim().length < 5 ? '#ccc' : '#ea580c', color: '#fff', cursor: reviseReason.trim().length < 5 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600 }}
               >
                 {reviseReport.isPending ? 'Salvando...' : 'Confirmar Retificação'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmação de exclusão */}
+      {showDeleteModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, width: 420, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1a1a1a' }}>Apagar laudo</h3>
+                <p style={{ margin: 0, fontSize: 13, color: '#666' }}>Esta ação não pode ser desfeita.</p>
+              </div>
+            </div>
+            <p style={{ margin: '0 0 20px', fontSize: 13, color: '#374151', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px' }}>
+              O laudo de <strong>{patientName}</strong> será permanentemente excluído, incluindo todo o histórico de versões.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                style={{ padding: '8px 18px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleteReport.isPending}
+                style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: '#dc2626', color: '#fff', cursor: deleteReport.isPending ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: deleteReport.isPending ? 0.7 : 1 }}
+              >
+                {deleteReport.isPending ? 'Apagando...' : 'Confirmar Exclusão'}
               </button>
             </div>
           </div>

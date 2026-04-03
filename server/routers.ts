@@ -637,6 +637,35 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    // Apagar laudo (rascunho ou assinado)
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
+        const report = await getReportById(input.id, unitId);
+        if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
+        if (ctx.user.role !== 'admin_master' && report.unit_id !== ctx.user.unit_id) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        // Apagar versões históricas primeiro (FK)
+        const { report_versions } = await import('../drizzle/schema');
+        await db.delete(report_versions).where(eq(report_versions.report_id, input.id));
+        // Apagar o laudo
+        await db.delete(reports).where(eq(reports.id, input.id));
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: ctx.user.unit_id,
+          action: 'DELETE_REPORT',
+          target_type: 'REPORT',
+          target_id: String(input.id),
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+        });
+        return { success: true };
+      }),
+
     // Buscar histórico de versões de um laudo
     getVersions: protectedProcedure
       .input(z.object({ reportId: z.number() }))
