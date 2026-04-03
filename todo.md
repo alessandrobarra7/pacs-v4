@@ -597,3 +597,13 @@
 - [x] Adicionar seções por modalidade: Radiografias, Tomografias, Ultrassom, Ressonância
 - [x] Cada seção com subgrupos: Tórax, Seios da Face, Abdome, Crânio, Coluna
 - [x] Busca funcionando para filtrar templates por nome ou modalidade
+
+## LAYOUT — Árvore Hierárquica de Exames (Organograma)
+
+- [ ] Substituir lista plana de exames por árvore hierárquica visual com linhas de conexão
+- [ ] Nível 1: Modalidade (Radiografias, Tomografias, Ultrassom, Ressonância, Outros)
+- [ ] Nível 2: Região anatômica (Tórax, Crânio, Abdome, Coluna, etc.)
+- [ ] Nível 3: Nome do exame (folha clicável para selecionar)
+- [ ] Nós expansíveis/colapsáveis com chevron
+- [ ] Linhas de conexão verticais/horizontais estilo organograma
+- [ ] Busca filtra e expande automaticamente os nós relevantes

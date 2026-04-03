@@ -658,48 +658,249 @@ export default function ReportEditorPage() {
   );
 }
 
+// ─── Estrutura hierárquica de exames para a árvore ────────────────────────────
+const EXAM_TREE: { label: string; color: string; icon: string; regions: { label: string; exams: string[] }[] }[] = [
+  {
+    label: "Radiografias",
+    color: "#f59e0b",
+    icon: "RX",
+    regions: [
+      { label: "Tórax", exams: ["Radiografia de Tórax PA e Perfil", "Radiografia de Tórax PA"] },
+      { label: "Coluna", exams: ["Radiografia de Coluna Cervical AP e Perfil", "Radiografia de Coluna Lombar AP e Perfil"] },
+      { label: "Abdome", exams: ["Radiografia de Abdome sem Preparo"] },
+      { label: "Pelve / Bacia", exams: ["Radiografia de Bacia AP"] },
+      { label: "Extremidades", exams: ["Radiografia de Joelho AP e Perfil", "Radiografia de Ombro AP", "Radiografia de Mão AP e Oblíqua", "Radiografia de Pé AP e Perfil", "Radiografia de Tornozelo AP e Perfil"] },
+      { label: "Crânio", exams: ["Radiografia de Crânio AP e Perfil"] },
+      { label: "Mama", exams: ["Mamografia Bilateral"] },
+      { label: "Outros", exams: ["Densitometria Óssea", "Cintilografia Óssea"] },
+    ],
+  },
+  {
+    label: "Tomografias",
+    color: "#3b82f6",
+    icon: "TC",
+    regions: [
+      { label: "Crânio", exams: ["Tomografia Computadorizada de Crânio sem Contraste", "Tomografia Computadorizada de Crânio com Contraste"] },
+      { label: "Tórax", exams: ["Tomografia Computadorizada de Tórax sem Contraste", "Tomografia Computadorizada de Tórax com Contraste"] },
+      { label: "Abdome / Pelve", exams: ["Tomografia Computadorizada de Abdome e Pelve sem Contraste", "Tomografia Computadorizada de Abdome e Pelve com Contraste", "Tomografia Computadorizada de Pelve"] },
+      { label: "Coluna", exams: ["Tomografia Computadorizada de Coluna Cervical", "Tomografia Computadorizada de Coluna Lombar"] },
+      { label: "Seios da Face", exams: ["Tomografia Computadorizada de Seios da Face"] },
+      { label: "Cabeça / Pescoço", exams: ["Tomografia Computadorizada de Mastoides", "Tomografia Computadorizada de Órbitas", "Tomografia Computadorizada de Pescoço"] },
+      { label: "Extremidades", exams: ["Tomografia Computadorizada de Joelho", "Tomografia Computadorizada de Ombro"] },
+      { label: "Angio TC", exams: ["Angiotomografia de Coronárias", "Angiotomografia de Aorta", "Angiotomografia Cerebral"] },
+    ],
+  },
+  {
+    label: "Ultrassom",
+    color: "#10b981",
+    icon: "US",
+    regions: [
+      { label: "Abdome", exams: ["Ultrassonografia de Abdome Total", "Ultrassonografia de Abdome Superior"] },
+      { label: "Pelve", exams: ["Ultrassonografia Pélvica Transvaginal", "Ultrassonografia Pélvica Suprapúbica"] },
+      { label: "Mama", exams: ["Ultrassonografia de Mama Bilateral"] },
+      { label: "Tireoide", exams: ["Ultrassonografia de Tireoide"] },
+      { label: "Partes Moles", exams: ["Ultrassonografia de Partes Moles"] },
+      { label: "Doppler", exams: ["Ultrassonografia Doppler de Carótidas", "Ultrassonografia Doppler de Membros Inferiores", "Ultrassonografia Doppler de Membros Superiores"] },
+      { label: "Próstata", exams: ["Ultrassonografia de Próstata"] },
+      { label: "Obstétrico", exams: ["Ultrassonografia Obstétrica", "Ultrassonografia Morfológica"] },
+      { label: "Cardíaco", exams: ["Ecocardiograma Transtorácico"] },
+    ],
+  },
+  {
+    label: "Ressonância",
+    color: "#8b5cf6",
+    icon: "RM",
+    regions: [
+      { label: "Crânio", exams: ["Ressonância Magnética de Crânio sem Contraste", "Ressonância Magnética de Crânio com Contraste"] },
+      { label: "Coluna", exams: ["Ressonância Magnética de Coluna Cervical", "Ressonância Magnética de Coluna Torácica", "Ressonância Magnética de Coluna Lombar"] },
+      { label: "Extremidades", exams: ["Ressonância Magnética de Joelho", "Ressonância Magnética de Ombro", "Ressonância Magnética de Quadril"] },
+      { label: "Abdome / Pelve", exams: ["Ressonância Magnética de Abdome", "Ressonância Magnética de Pelve"] },
+      { label: "Angio RM", exams: ["Angiorressonância Cerebral", "Angiorressonância de Carótidas"] },
+    ],
+  },
+];
+
 // ─── Aba Exames ───────────────────────────────────────────────────────────────
 function ExamesTab({ onSelectExam, currentTitle }: { onSelectExam: (name: string) => void; currentTitle: string }) {
   const [search, setSearch] = useState("");
-  const filtered = EXAM_SUGGESTIONS.filter(e => e.toLowerCase().includes(search.toLowerCase()));
+  const [openModalities, setOpenModalities] = useState<Record<string, boolean>>({ Radiografias: true });
+  const [openRegions, setOpenRegions] = useState<Record<string, boolean>>({});
+
+  const normalize = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const searchLower = normalize(search.trim());
+
+  // Ao buscar, expande automaticamente os nós que têm resultados
+  const getMatchingExams = (exams: string[]) =>
+    searchLower ? exams.filter(e => normalize(e).includes(searchLower)) : exams;
+
+  const toggleModality = (label: string) =>
+    setOpenModalities(prev => ({ ...prev, [label]: !prev[label] }));
+  const toggleRegion = (key: string) =>
+    setOpenRegions(prev => ({ ...prev, [key]: !prev[key] }));
+
+  // Ao digitar na busca, expande tudo que tem resultado
+  const expandedModalities = searchLower
+    ? Object.fromEntries(
+        EXAM_TREE.map(m => [
+          m.label,
+          m.regions.some(r => getMatchingExams(r.exams).length > 0),
+        ])
+      )
+    : openModalities;
+
+  const expandedRegions = searchLower
+    ? Object.fromEntries(
+        EXAM_TREE.flatMap(m =>
+          m.regions.map(r => [`${m.label}__${r.label}`, getMatchingExams(r.exams).length > 0])
+        )
+      )
+    : openRegions;
+
+  const allSearchResults = searchLower
+    ? EXAM_TREE.flatMap(m => m.regions.flatMap(r => getMatchingExams(r.exams)))
+    : [];
+
   return (
-    <div className="p-3 space-y-2">
-      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Selecionar Exame</p>
-      <div className="relative">
-        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar exame..."
-          className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-        />
+    <div className="flex flex-col h-full">
+      {/* Campo de busca */}
+      <div className="p-3 border-b border-gray-200">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Selecionar Exame</p>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar exame..."
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+          />
+        </div>
       </div>
-      <div className="space-y-0.5">
-        {filtered.map((exam) => (
-          <button
-            key={exam}
-            onClick={() => onSelectExam(exam)}
-            className={`w-full text-left px-2 py-1.5 text-xs rounded transition-colors ${
-              currentTitle === exam
-                ? "bg-blue-100 text-blue-700 font-medium"
-                : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            {exam}
-          </button>
-        ))}
-        {filtered.length === 0 && (
-          <div className="text-center py-4">
+
+      {/* Árvore hierárquica */}
+      <div className="flex-1 overflow-y-auto px-2 py-2">
+        {/* Resultado de busca flat */}
+        {searchLower && allSearchResults.length === 0 && (
+          <div className="text-center py-6">
             <p className="text-xs text-gray-400">Nenhum exame encontrado</p>
-            <button
-              onClick={() => onSelectExam(search)}
-              className="mt-1 text-xs text-blue-600 hover:underline"
-            >
+            <button onClick={() => onSelectExam(search)} className="mt-1 text-xs text-blue-600 hover:underline">
               Usar "{search}" como título
             </button>
           </div>
         )}
+
+        {/* Árvore */}
+        {EXAM_TREE.map((modality, mIdx) => {
+          const isModalityOpen = expandedModalities[modality.label];
+          const visibleRegions = modality.regions.filter(r => !searchLower || getMatchingExams(r.exams).length > 0);
+          if (searchLower && visibleRegions.length === 0) return null;
+
+          const isLastModality = mIdx === EXAM_TREE.length - 1;
+
+          return (
+            <div key={modality.label} className="relative mb-1">
+              {/* Linha vertical da modalidade (conecta ao pai imaginário) */}
+              {!isLastModality && (
+                <div
+                  className="absolute left-[11px] top-[22px] w-px bg-gray-300"
+                  style={{ bottom: isModalityOpen ? undefined : "-4px", height: isModalityOpen ? undefined : "4px" }}
+                />
+              )}
+
+              {/* Nó de Modalidade (Nível 1) */}
+              <button
+                onClick={() => !searchLower && toggleModality(modality.label)}
+                className="w-full flex items-center gap-2 py-1.5 px-1 rounded hover:bg-gray-100 transition-colors group"
+              >
+                {/* Ícone colorido da modalidade */}
+                <span
+                  className="flex-shrink-0 w-[22px] h-[22px] rounded flex items-center justify-center text-[9px] font-bold text-white"
+                  style={{ backgroundColor: modality.color }}
+                >
+                  {modality.icon}
+                </span>
+                <span className="flex-1 text-left text-xs font-semibold text-gray-700">{modality.label}</span>
+                {!searchLower && (
+                  isModalityOpen
+                    ? <ChevronDown className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                    : <ChevronRight className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                )}
+              </button>
+
+              {/* Regiões (Nível 2) */}
+              {isModalityOpen && (
+                <div className="ml-[11px] border-l border-gray-300">
+                  {visibleRegions.map((region, rIdx) => {
+                    const regionKey = `${modality.label}__${region.label}`;
+                    const isRegionOpen = expandedRegions[regionKey];
+                    const matchingExams = getMatchingExams(region.exams);
+                    const isLastRegion = rIdx === visibleRegions.length - 1;
+
+                    return (
+                      <div key={region.label} className="relative">
+                        {/* Linha horizontal conectando ao pai */}
+                        <div className="absolute left-0 top-[14px] w-3 h-px bg-gray-300" />
+
+                        {/* Nó de Região (Nível 2) */}
+                        <button
+                          onClick={() => !searchLower && toggleRegion(regionKey)}
+                          className="w-full flex items-center gap-1.5 py-1 pl-4 pr-2 rounded hover:bg-gray-100 transition-colors"
+                        >
+                          <span
+                            className="flex-shrink-0 w-[14px] h-[14px] rounded-sm flex items-center justify-center"
+                            style={{ backgroundColor: modality.color + "33", border: `1px solid ${modality.color}66` }}
+                          >
+                            <span className="w-[6px] h-[6px] rounded-sm" style={{ backgroundColor: modality.color }} />
+                          </span>
+                          <span className="flex-1 text-left text-xs text-gray-600 font-medium">{region.label}</span>
+                          <span className="text-[10px] text-gray-400 flex-shrink-0">{matchingExams.length}</span>
+                          {!searchLower && (
+                            isRegionOpen
+                              ? <ChevronDown className="h-2.5 w-2.5 text-gray-400 flex-shrink-0" />
+                              : <ChevronRight className="h-2.5 w-2.5 text-gray-400 flex-shrink-0" />
+                          )}
+                        </button>
+
+                        {/* Exames (Nível 3) */}
+                        {isRegionOpen && (
+                          <div className="ml-4 border-l border-gray-200">
+                            {matchingExams.map((exam, eIdx) => {
+                              const isLastExam = eIdx === matchingExams.length - 1;
+                              return (
+                                <div key={exam} className="relative">
+                                  {/* Linha horizontal para o exame */}
+                                  <div className="absolute left-0 top-[13px] w-3 h-px bg-gray-200" />
+                                  <button
+                                    onClick={() => onSelectExam(exam)}
+                                    className={`w-full flex items-center gap-1.5 py-1 pl-4 pr-2 rounded text-left transition-colors ${
+                                      currentTitle === exam
+                                        ? "bg-blue-100 text-blue-700 font-medium"
+                                        : "text-gray-600 hover:bg-blue-50"
+                                    }`}
+                                  >
+                                    {/* Bolinha folha */}
+                                    <span
+                                      className="flex-shrink-0 w-[8px] h-[8px] rounded-full border-2"
+                                      style={{
+                                        borderColor: currentTitle === exam ? "#3b82f6" : modality.color,
+                                        backgroundColor: currentTitle === exam ? "#3b82f6" : "white",
+                                      }}
+                                    />
+                                    <span className="text-[11px] leading-tight">{exam}</span>
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
