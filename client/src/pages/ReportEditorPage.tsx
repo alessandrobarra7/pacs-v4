@@ -127,6 +127,9 @@ export default function ReportEditorPage() {
 
   // Título do exame no documento (definido pela aba Exames)
   const [examTitle, setExamTitle] = useState("");
+  // Edição inline do título
+  const [editingTitle, setEditingTitle] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   // Aba ativa da sidebar
   const [activeTab, setActiveTab] = useState<"exames" | "templates" | "frases" | "inserir">("exames");
@@ -566,10 +569,56 @@ export default function ReportEditorPage() {
                 </div>
               </div>
 
-              {/* Título do exame */}
+              {/* Título do exame — clicável para edição inline */}
               {examTitle && (
-                <div style={{ textAlign: "center", fontWeight: "bold", fontSize: "14pt", marginBottom: "6mm", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                  {examTitle}
+                <div style={{ textAlign: "center", marginBottom: "6mm", position: "relative" }}>
+                  {editingTitle ? (
+                    <input
+                      ref={titleInputRef}
+                      value={examTitle}
+                      onChange={e => setExamTitle(e.target.value)}
+                      onBlur={() => setEditingTitle(false)}
+                      onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setEditingTitle(false); }}
+                      autoFocus
+                      style={{
+                        width: "100%",
+                        textAlign: "center",
+                        fontWeight: "bold",
+                        fontSize: "14pt",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.5px",
+                        border: "2px solid #3b82f6",
+                        borderRadius: 6,
+                        padding: "4px 32px 4px 8px",
+                        outline: "none",
+                        background: "#eff6ff",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                  ) : (
+                    <div
+                      onClick={() => { setEditingTitle(true); }}
+                      title="Clique para editar o título"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        cursor: "pointer",
+                        fontWeight: "bold",
+                        fontSize: "14pt",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.5px",
+                        padding: "2px 6px",
+                        borderRadius: 4,
+                        transition: "background 0.15s",
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "#f0f9ff")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                    >
+                      {examTitle}
+                      <span title="Editar título" style={{ fontSize: "10pt", color: "#3b82f6", opacity: 0.7, flexShrink: 0 }}>✏️</span>
+                    </div>
+                  )}
                 </div>
               )}
 
