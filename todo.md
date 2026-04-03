@@ -607,3 +607,6 @@
 - [ ] Nós expansíveis/colapsáveis com chevron
 - [ ] Linhas de conexão verticais/horizontais estilo organograma
 - [ ] Busca filtra e expande automaticamente os nós relevantes
+- [x] Aumentar área de exibição da logo no documento em 50%
+- [x] Ocultar opção de logo/remover logo na aba Inserir para usuários não-admin-root
+- [x] Investigar e corrigir bug do botão Assinar laudo

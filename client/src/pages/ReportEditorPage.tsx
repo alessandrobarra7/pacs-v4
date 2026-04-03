@@ -302,8 +302,8 @@ export default function ReportEditorPage() {
   const handlePrint = useCallback(() => {
     // Abre janela dedicada com o conteúdo do documento para impressão correta
     const logoHtml = medCtx?.unitLogoUrl
-      ? `<img src="${medCtx.unitLogoUrl}" alt="Logo" style="max-height:50px;max-width:160px;object-fit:contain;" />`
-      : `<div style="width:120px;height:40px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:9pt;">Logo da unidade</div>`;
+      ? `<img src="${medCtx.unitLogoUrl}" alt="Logo" style="max-height:75px;max-width:240px;object-fit:contain;" />`
+      : `<div style="width:180px;height:60px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:9pt;">Logo da unidade</div>`;
     const patientHtml = `
       <div><strong>Paciente:</strong> ${patientName}</div>
       ${studyInfo?.birthDate ? `<div><strong>Data Nasc:</strong> ${studyInfo.birthDate}</div>` : ""}
@@ -599,7 +599,7 @@ export default function ReportEditorPage() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8mm", borderBottom: "1px solid #ccc", paddingBottom: "4mm" }}>
                 <div>
                   {medCtx?.unitLogoUrl ? (
-                    <img src={medCtx.unitLogoUrl} alt="Logo" style={{ maxHeight: "50px", maxWidth: "160px", objectFit: "contain" }} />
+                    <img src={medCtx.unitLogoUrl} alt="Logo" style={{ maxHeight: "75px", maxWidth: "240px", objectFit: "contain" }} />
                   ) : (
                     <div style={{ width: 120, height: 40, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", color: "#bbb", fontSize: "9pt" }}>
                       Logo da unidade
@@ -1734,8 +1734,8 @@ function InserirTab({
       <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Inserir no Documento</p>
       <p className="text-xs text-gray-500">Clique para inserir a imagem no documento. Após inserida, arraste para posicioná-la.</p>
 
-      {/* Logo da Unidade */}
-      {unitLogoUrl && (
+      {/* Logo da Unidade — visível apenas para admin_master */}
+      {unitLogoUrl && isAdmin && (
         <div className="border border-gray-200 rounded p-2 space-y-2">
           <p className="text-xs font-medium text-gray-700">Logo da Unidade</p>
           <div className="bg-white border border-gray-100 rounded p-2 flex items-center justify-center">
