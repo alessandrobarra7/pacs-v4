@@ -264,6 +264,7 @@ function EditableExamName({
 
 export function PacsQueryPage() {
   const [, navigate] = useLocation();
+  const trpcUtils = trpc.useUtils();
   const { data: user } = trpc.auth.me.useQuery();
 
   const userRole = (user?.role || 'viewer') as UserRole;
@@ -691,11 +692,27 @@ export function PacsQueryPage() {
     const studyDate = study.studyDate ? `${study.studyDate.slice(6,8)}/${study.studyDate.slice(4,6)}/${study.studyDate.slice(0,4)}` : '-';
     const modality = study.modality || '';
     const unitLabel = unitName || '';
-    // Buscar laudo salvo no banco
-    const reportData = reportStatusMap[study.studyInstanceUid];
-    const reportStatus = reportData || 'Pendente';
-    // Montar HTML de impressão (layout igual ao ReportEditorPage)
+    const logoUrl = unitData?.logo_url || '';
+
+    // Buscar laudo via tRPC no contexto autenticado antes de abrir a janela
+    toast.loading('Carregando laudo para impressão...', { id: 'print-loading' });
+    let reportBody = '';
+    let reportTitle = examLabel;
+    try {
+      const result = await trpcUtils.reports.getByStudyUid.fetch({ studyInstanceUid: study.studyInstanceUid });
+      reportBody = result?.body || '';
+      reportTitle = examLabel;
+    } catch (e) {
+      // laudo não encontrado — imprime com mensagem
+    }
+    toast.dismiss('print-loading');
+
     const LEGAL_FOOTER = 'Este documento foi gerado pela plataforma de sistema de laudos "Lauds", inscrita no CNPJ nº 12.345.678/0001-90. Em caso de dúvidas, entre em contato pelo número comercial 0800 896 555 489 625. Para mais informações, acesse nosso site www.lauds.com.br ou siga-nos no Instagram @lauds_radiologia.';
+    const logoHtml = logoUrl
+      ? `<img src="${logoUrl}" alt="Logo" style="max-height:75px;max-width:240px;object-fit:contain;" />`
+      : `<p style="font-size:9pt;color:#888;">Logo da unidade</p>`;
+    const bodyHtml = reportBody || '(Laudo não encontrado ou ainda não elaborado)';
+
     const printWindow = window.open('', '_blank', 'width=800,height=900');
     if (!printWindow) { toast.error('Bloqueador de pop-up ativo. Permita pop-ups para imprimir.'); return; }
     printWindow.document.write(`
@@ -710,6 +727,7 @@ export function PacsQueryPage() {
           .doc { position: relative; width: 210mm; min-height: 297mm; padding: 20mm 20mm 25mm 20mm; box-sizing: border-box; }
           .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8mm; border-bottom: 1px solid #ccc; padding-bottom: 4mm; }
           .patient { text-align: right; font-size: 10pt; }
+          .exam-title { text-align: center; font-size: 14pt; font-weight: bold; text-transform: uppercase; margin: 6mm 0; }
           .body { min-height: 120mm; line-height: 1.8; white-space: pre-wrap; }
           .footer { position: absolute; bottom: 20mm; left: 20mm; right: 20mm; border-top: 1px solid #eee; padding-top: 3mm; font-size: 7pt; color: #888; line-height: 1.4; }
         </style>
@@ -717,28 +735,17 @@ export function PacsQueryPage() {
       <body>
         <div class="doc">
           <div class="header">
-            <div><p style="font-size:9pt;color:#888;">Logo da unidade</p></div>
+            <div>${logoHtml}</div>
             <div class="patient">
               <p><strong>Paciente:</strong> ${patientName}</p>
               <p><strong>Realizado em:</strong> ${studyDate}</p>
             </div>
           </div>
-          <div class="body" id="report-body">Carregando laudo...</div>
+          <div class="exam-title">${reportTitle}</div>
+          <div class="body">${bodyHtml}</div>
           <div class="footer">${LEGAL_FOOTER}</div>
         </div>
-        <script>
-          fetch('/api/trpc/reports.getByStudyUid?input=' + encodeURIComponent(JSON.stringify({"0":{"json":{"studyUid":"${study.studyInstanceUid}"}}})))
-            .then(r => r.json())
-            .then(data => {
-              const body = data?.[0]?.result?.data?.json?.body || '';
-              document.getElementById('report-body').textContent = body || '(Laudo não encontrado ou ainda não elaborado)';
-              setTimeout(() => window.print(), 500);
-            })
-            .catch(() => {
-              document.getElementById('report-body').textContent = '(Erro ao carregar laudo)';
-              setTimeout(() => window.print(), 500);
-            });
-        <\/script>
+        <script>setTimeout(() => window.print(), 300);<\/script>
       </body>
       </html>
     `);
