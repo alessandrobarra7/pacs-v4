@@ -626,3 +626,9 @@
 - [x] Garantir que ao assinar, o laudo é criado/atualizado no banco com status "signed"
 - [x] Após assinar e voltar à lista, o botão Imprimir deve encontrar o laudo no banco
 - [x] Testar fluxo completo: Laudar → Assinar → Voltar → Imprimir pela lista
+
+## MELHORIA VISUAL — Header da PacsQueryPage
+
+- [x] Header mais alto com imagem de fundo médica e gradiente teal escuro
+- [x] Linha de acento colorida abaixo do header
+- [x] Manter toda a lógica existente intacta
