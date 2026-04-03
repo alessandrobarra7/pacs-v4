@@ -610,3 +610,12 @@
 - [x] Aumentar área de exibição da logo no documento em 50%
 - [x] Ocultar opção de logo/remover logo na aba Inserir para usuários não-admin-root
 - [x] Investigar e corrigir bug do botão Assinar laudo
+
+## IMPRESSÃO DE LAUDOS — Carimbo e Dados do Médico
+
+- [x] Adicionar procedure getByStudyUidWithDoctor que retorna laudo + dados do médico assinante
+- [x] Atualizar handlePrintReport (PacsQueryPage) para incluir carimbo/assinatura do médico no rodapé
+- [x] Adicionar data de nascimento e sexo do paciente no cabeçalho do laudo impresso (PacsQueryPage)
+- [x] Atualizar handlePrint (ReportEditorPage) para incluir carimbo/assinatura do médico no rodapé
+- [x] Adicionar badge "RETIFICADO" no rodapé do laudo impresso quando status = revised
+- [x] Adicionar status "Revisado" com badge ⚠ na lista de exames (PacsQueryPage)

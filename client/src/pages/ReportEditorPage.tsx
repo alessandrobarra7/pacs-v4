@@ -318,28 +318,49 @@ export default function ReportEditorPage() {
     const draggableHtml = draggableImages.map(img =>
       `<img src="${img.src}" alt="${img.label}" style="position:absolute;left:${img.x}px;top:${img.y}px;width:${img.width}px;" />`
     ).join("");
+    // Rodapé do médico assinante (carimbo + assinatura)
+    const isSignedOrRevised = existingReport?.status === 'signed' || existingReport?.status === 'revised';
+    const signedAtFormatted = existingReport?.signedAt
+      ? new Date(existingReport.signedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+    const revisedBadge = existingReport?.status === 'revised' ? `<span style="background:#f59e0b;color:#fff;font-size:7pt;padding:1px 6px;border-radius:3px;font-weight:bold;margin-left:6px;">RETIFICADO</span>` : '';
+    const doctorFooterHtml = isSignedOrRevised && medCtx?.doctorName ? `
+      <div style="margin-top:8mm;border-top:1px solid #ccc;padding-top:4mm;display:flex;align-items:flex-end;justify-content:flex-end;gap:8mm;">
+        ${medCtx.stampUrl ? `<img src="${medCtx.stampUrl}" alt="Carimbo" style="max-height:80px;max-width:200px;object-fit:contain;" />` : ''}
+        <div style="text-align:center;">
+          ${medCtx.signatureUrl ? `<img src="${medCtx.signatureUrl}" alt="Assinatura" style="max-height:50px;max-width:180px;object-fit:contain;display:block;margin:0 auto 2mm;" />` : ''}
+          <div style="border-top:1px solid #333;padding-top:2mm;font-size:9pt;">
+            <strong>${medCtx.doctorName}</strong>${revisedBadge}<br/>
+            ${medCtx.crm ? `CRM: ${medCtx.crm}<br/>` : ''}
+            ${signedAtFormatted ? `<span style="font-size:8pt;color:#555;">Assinado em: ${signedAtFormatted}</span>` : ''}
+          </div>
+        </div>
+      </div>
+    ` : '';
+    // Nota: medCtx.signatureUrl e medCtx.stampUrl são os campos corretos conforme getReportContext
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Laudo</title>
       <style>
         @page { size: A4; margin: 0; }
         body { margin: 0; font-family: 'Times New Roman', serif; font-size: 12pt; color: #000; }
-        .doc { position: relative; width: 210mm; min-height: 297mm; padding: 20mm 20mm 25mm 20mm; box-sizing: border-box; }
+        .doc { position: relative; width: 210mm; min-height: 297mm; padding: 20mm 20mm 30mm 20mm; box-sizing: border-box; }
         .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8mm; border-bottom: 1px solid #ccc; padding-bottom: 4mm; }
-        .patient { text-align: right; font-size: 10pt; }
-        .body { min-height: 120mm; line-height: 1.8; white-space: pre-wrap; }
-        .footer { position: absolute; bottom: 20mm; left: 20mm; right: 20mm; border-top: 1px solid #eee; padding-top: 3mm; font-size: 7pt; color: #888; line-height: 1.4; }
+        .patient { text-align: right; font-size: 10pt; line-height: 1.6; }
+        .body { min-height: 100mm; line-height: 1.8; }
+        .footer { position: absolute; bottom: 10mm; left: 20mm; right: 20mm; border-top: 1px solid #eee; padding-top: 2mm; font-size: 7pt; color: #888; line-height: 1.4; }
       </style></head><body>
       <div class="doc">
         ${draggableHtml}
         <div class="header"><div>${logoHtml}</div><div class="patient">${patientHtml}</div></div>
         ${titleHtml}
         <div class="body">${bodyHtml}</div>
+        ${doctorFooterHtml}
         <div class="footer">${LEGAL_FOOTER}</div>
       </div>
       <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
     </body></html>`;
     const win = window.open("", "_blank");
     if (win) { win.document.write(html); win.document.close(); }
-  }, [medCtx, patientName, studyInfo, examTitle, docRef, draggableImages]);
+  }, [medCtx, patientName, studyInfo, examTitle, docRef, draggableImages, existingReport]);
 
   // ── Drag de imagens sobre o documento ───────────────────────────────────
   const handleMouseDown = useCallback((e: React.MouseEvent, id: string) => {

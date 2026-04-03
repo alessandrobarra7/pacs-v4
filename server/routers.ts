@@ -564,6 +564,31 @@ export const appRouter = router({
           : await db.select().from(reports).where(eq(reports.study_instance_uid, input.studyInstanceUid));
         return rows[0] ?? null;
       }),
+
+    // Retorna laudo + dados do médico assinante (para impressão com carimbo)
+    getByStudyUidWithDoctor: protectedProcedure
+      .input(z.object({ studyInstanceUid: z.string() }))
+      .query(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
+        const rows = unitId
+          ? await db.select().from(reports).where(and(eq(reports.study_instance_uid, input.studyInstanceUid), eq(reports.unit_id, unitId)))
+          : await db.select().from(reports).where(eq(reports.study_instance_uid, input.studyInstanceUid));
+        const report = rows[0] ?? null;
+        if (!report) return null;
+        // Buscar dados do médico que assinou
+        const { getUserById } = await import('./db');
+        const signedByUserId = report.signedBy ?? report.author_user_id;
+        const doctor = await getUserById(signedByUserId);
+        return {
+          ...report,
+          doctorName: doctor?.name ?? '',
+          doctorCrm: doctor?.crm ?? '',
+          doctorStampUrl: doctor?.stamp_url ?? null,
+          doctorSignatureUrl: doctor?.signature_url ?? null,
+        };
+      }),
     
     create: protectedProcedure
       .input(z.object({

@@ -690,18 +690,34 @@ export function PacsQueryPage() {
     const patientName = (studyData.patientName || study.patientName || 'Não informado').replace(/\^/g, ' ').trim();
     const examLabel = localStorage.getItem(`exam_label_${study.studyInstanceUid}`) || study.studyDescription || 'Sem descrição';
     const studyDate = study.studyDate ? `${study.studyDate.slice(6,8)}/${study.studyDate.slice(4,6)}/${study.studyDate.slice(0,4)}` : '-';
-    const modality = study.modality || '';
-    const unitLabel = unitName || '';
+    // Data de nascimento formatada
+    const birthDateRaw = studyData.patientBirthDate || study.patientBirthDate || '';
+    const birthDateFormatted = birthDateRaw.length >= 8
+      ? `${birthDateRaw.slice(6,8)}/${birthDateRaw.slice(4,6)}/${birthDateRaw.slice(0,4)}`
+      : '';
+    const sex = formatSex(studyData.patientSex || study.patientSex || '');
     const logoUrl = unitData?.logo_url || '';
 
-    // Buscar laudo via tRPC no contexto autenticado antes de abrir a janela
+    // Buscar laudo + dados do médico via tRPC antes de abrir a janela
     toast.loading('Carregando laudo para impressão...', { id: 'print-loading' });
     let reportBody = '';
     let reportTitle = examLabel;
+    let doctorName = '';
+    let doctorCrm = '';
+    let doctorStampUrl: string | null = null;
+    let doctorSignatureUrl: string | null = null;
+    let reportStatus = '';
+    let signedAt: Date | null = null;
     try {
-      const result = await trpcUtils.reports.getByStudyUid.fetch({ studyInstanceUid: study.studyInstanceUid });
+      const result = await trpcUtils.reports.getByStudyUidWithDoctor.fetch({ studyInstanceUid: study.studyInstanceUid });
       reportBody = result?.body || '';
       reportTitle = examLabel;
+      doctorName = result?.doctorName || '';
+      doctorCrm = result?.doctorCrm || '';
+      doctorStampUrl = result?.doctorStampUrl || null;
+      doctorSignatureUrl = result?.doctorSignatureUrl || null;
+      reportStatus = result?.status || '';
+      signedAt = result?.signedAt ? new Date(result.signedAt) : null;
     } catch (e) {
       // laudo não encontrado — imprime com mensagem
     }
@@ -712,6 +728,26 @@ export function PacsQueryPage() {
       ? `<img src="${logoUrl}" alt="Logo" style="max-height:75px;max-width:240px;object-fit:contain;" />`
       : `<p style="font-size:9pt;color:#888;">Logo da unidade</p>`;
     const bodyHtml = reportBody || '(Laudo não encontrado ou ainda não elaborado)';
+
+    // Rodapé do médico assinante
+    const signedAtFormatted = signedAt
+      ? signedAt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+    const isSignedOrRevised = reportStatus === 'signed' || reportStatus === 'revised';
+    const revisedBadge = reportStatus === 'revised' ? `<span style="background:#f59e0b;color:#fff;font-size:7pt;padding:1px 6px;border-radius:3px;font-weight:bold;margin-left:6px;">RETIFICADO</span>` : '';
+    const doctorFooterHtml = isSignedOrRevised && doctorName ? `
+      <div style="margin-top:8mm;border-top:1px solid #ccc;padding-top:4mm;display:flex;align-items:flex-end;justify-content:flex-end;gap:8mm;">
+        ${doctorStampUrl ? `<img src="${doctorStampUrl}" alt="Carimbo" style="max-height:80px;max-width:200px;object-fit:contain;" />` : ''}
+        <div style="text-align:center;">
+          ${doctorSignatureUrl ? `<img src="${doctorSignatureUrl}" alt="Assinatura" style="max-height:50px;max-width:180px;object-fit:contain;display:block;margin:0 auto 2mm;" />` : ''}
+          <div style="border-top:1px solid #333;padding-top:2mm;font-size:9pt;">
+            <strong>${doctorName}</strong>${revisedBadge}<br/>
+            ${doctorCrm ? `CRM: ${doctorCrm}<br/>` : ''}
+            ${signedAtFormatted ? `<span style="font-size:8pt;color:#555;">Assinado em: ${signedAtFormatted}</span>` : ''}
+          </div>
+        </div>
+      </div>
+    ` : '';
 
     const printWindow = window.open('', '_blank', 'width=800,height=900');
     if (!printWindow) { toast.error('Bloqueador de pop-up ativo. Permita pop-ups para imprimir.'); return; }
@@ -724,12 +760,12 @@ export function PacsQueryPage() {
         <style>
           @page { size: A4; margin: 0; }
           body { margin: 0; font-family: 'Times New Roman', serif; font-size: 12pt; color: #000; }
-          .doc { position: relative; width: 210mm; min-height: 297mm; padding: 20mm 20mm 25mm 20mm; box-sizing: border-box; }
+          .doc { position: relative; width: 210mm; min-height: 297mm; padding: 20mm 20mm 30mm 20mm; box-sizing: border-box; }
           .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8mm; border-bottom: 1px solid #ccc; padding-bottom: 4mm; }
-          .patient { text-align: right; font-size: 10pt; }
+          .patient { text-align: right; font-size: 10pt; line-height: 1.6; }
           .exam-title { text-align: center; font-size: 14pt; font-weight: bold; text-transform: uppercase; margin: 6mm 0; }
-          .body { min-height: 120mm; line-height: 1.8; white-space: pre-wrap; }
-          .footer { position: absolute; bottom: 20mm; left: 20mm; right: 20mm; border-top: 1px solid #eee; padding-top: 3mm; font-size: 7pt; color: #888; line-height: 1.4; }
+          .body { min-height: 100mm; line-height: 1.8; }
+          .footer { position: absolute; bottom: 10mm; left: 20mm; right: 20mm; border-top: 1px solid #eee; padding-top: 2mm; font-size: 7pt; color: #888; line-height: 1.4; }
         </style>
       </head>
       <body>
@@ -738,11 +774,13 @@ export function PacsQueryPage() {
             <div>${logoHtml}</div>
             <div class="patient">
               <p><strong>Paciente:</strong> ${patientName}</p>
+              ${birthDateFormatted ? `<p><strong>Nascimento:</strong> ${birthDateFormatted}${sex ? ` &nbsp;|&nbsp; <strong>Sexo:</strong> ${sex}` : ''}</p>` : (sex ? `<p><strong>Sexo:</strong> ${sex}</p>` : '')}
               <p><strong>Realizado em:</strong> ${studyDate}</p>
             </div>
           </div>
           <div class="exam-title">${reportTitle}</div>
           <div class="body">${bodyHtml}</div>
+          ${doctorFooterHtml}
           <div class="footer">${LEGAL_FOOTER}</div>
         </div>
         <script>setTimeout(() => window.print(), 300);<\/script>
@@ -763,6 +801,7 @@ export function PacsQueryPage() {
     "Assinado":     { cls: "bg-emerald-100 text-emerald-700 border-emerald-300" },
     "Em Andamento": { cls: "bg-sky-100 text-sky-700 border-sky-300" },
     "Concluído":    { cls: "bg-emerald-100 text-emerald-700 border-emerald-300" },
+    "Revisado":     { cls: "bg-amber-100 text-amber-800 border-amber-400" },
   };
 
   const modalityColor: Record<string, string> = {
@@ -1116,7 +1155,8 @@ export function PacsQueryPage() {
                     </td>
                     {/* Status */}
                     <td className="px-4 py-3 text-center">
-                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full border whitespace-nowrap min-w-[100px] inline-block ${statusCls}`}>
+                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full border whitespace-nowrap inline-flex items-center gap-1 ${statusCls}`}>
+                        {status === 'Revisado' && <span title="Laudo retificado">&#9888;</span>}
                         {status}
                       </span>
                     </td>
