@@ -802,40 +802,15 @@ async function startServer() {
   // CRÍTICO 3: Rate limiting aplicado especificamente na rota de login
   app.use('/api/trpc/auth.login', loginRateLimiter);
 
-  // ── Proxy de mídia do MinIO ─────────────────────────────────────────────
-  // O MinIO está na rede interna (172.16.x.x) inacessível pelo browser.
-  // Este endpoint faz proxy das imagens (logos, carimbos, assinaturas) para o cliente.
-  app.get('/api/media/*', async (req, res) => {
-    try {
-      const key = (req.params as any)[0] as string;
-      if (!key) return res.status(400).send('Key required');
-
-      const minioEndpoint = process.env.MINIO_ENDPOINT || 'http://172.16.3.101:9000';
-      const bucket = process.env.MINIO_BUCKET || 'lauds';
-      const url = `${minioEndpoint}/${bucket}/${key}`;
-
-      const https = await import('https');
-      const http = await import('http');
-      const { URL: NodeURL } = await import('url');
-      const parsed = new NodeURL(url);
-      const lib = parsed.protocol === 'https:' ? https : http;
-
-      const proxyReq = lib.get(url, (proxyRes) => {
-        const contentType = proxyRes.headers['content-type'] || 'application/octet-stream';
-        res.setHeader('Content-Type', contentType);
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-        res.status(proxyRes.statusCode || 200);
-        proxyRes.pipe(res);
-      });
-      proxyReq.on('error', (err) => {
-        console.error('[media-proxy] error:', err.message);
-        res.status(502).send('Media not available');
-      });
-    } catch (err) {
-      console.error('[media-proxy] exception:', err);
-      res.status(500).send('Internal error');
-    }
-  });
+  // ── Arquivos estáticos de upload (logos, carimbos, assinaturas) ─────────
+  // Servidos diretamente da pasta local /uploads na VM1.
+  // Simples, rápido e sem dependência de serviços externos.
+  const uploadsDir = path.resolve(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+  app.use('/uploads', express.static(uploadsDir, {
+    maxAge: '1d',
+    etag: true,
+  }));
 
   // tRPC API
   app.use(
