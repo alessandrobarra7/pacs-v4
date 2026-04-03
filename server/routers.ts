@@ -388,6 +388,17 @@ export const appRouter = router({
   }),
 
   templates: router({
+    // Listar templates pessoais do usuário logado
+    listMine: protectedProcedure.query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const { templates } = await import('../drizzle/schema');
+      return await db.select().from(templates)
+        .where(and(eq(templates.owner_user_id, ctx.user.id), eq(templates.isActive, true)))
+        .orderBy(templates.updatedAt);
+    }),
+
+    // Listar templates globais da unidade (admin)
     list: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role === 'admin_master') {
         return await getGlobalTemplates();
@@ -408,6 +419,73 @@ export const appRouter = router({
         return template;
       }),
     
+    // Criar template pessoal
+    createPersonal: protectedProcedure
+      .input(z.object({
+        name: z.string().min(1, 'Nome obrigatório'),
+        modality: z.string().optional(),
+        exam_title: z.string().optional(),
+        bodyTemplate: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        const { templates } = await import('../drizzle/schema');
+        const [result] = await db.insert(templates).values({
+          name: input.name,
+          modality: input.modality,
+          exam_title: input.exam_title,
+          bodyTemplate: input.bodyTemplate,
+          owner_user_id: ctx.user.id,
+          unit_id: ctx.user.unit_id,
+          createdBy: ctx.user.id,
+          isGlobal: false,
+          isActive: true,
+        });
+        return { id: (result as any).insertId };
+      }),
+
+    // Atualizar template pessoal (só o dono pode editar)
+    updatePersonal: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        modality: z.string().optional(),
+        exam_title: z.string().optional(),
+        bodyTemplate: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        const { templates } = await import('../drizzle/schema');
+        const rows = await db.select().from(templates).where(eq(templates.id, input.id));
+        const template = rows[0];
+        if (!template) throw new TRPCError({ code: 'NOT_FOUND', message: 'Template não encontrado' });
+        if (template.owner_user_id !== ctx.user.id && ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Você só pode editar seus próprios templates' });
+        }
+        const { id, ...data } = input;
+        await db.update(templates).set(data).where(eq(templates.id, id));
+        return { success: true };
+      }),
+
+    // Apagar template pessoal (só o dono pode apagar)
+    deletePersonal: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        const { templates } = await import('../drizzle/schema');
+        const rows = await db.select().from(templates).where(eq(templates.id, input.id));
+        const template = rows[0];
+        if (!template) throw new TRPCError({ code: 'NOT_FOUND', message: 'Template não encontrado' });
+        if (template.owner_user_id !== ctx.user.id && ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Você só pode apagar seus próprios templates' });
+        }
+        await db.delete(templates).where(eq(templates.id, input.id));
+        return { success: true };
+      }),
+
     create: protectedProcedure
       .input(z.object({
         name: z.string(),

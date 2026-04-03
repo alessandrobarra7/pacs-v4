@@ -1290,71 +1290,113 @@ const MODALITY_TREE: { label: string; key: string; icon: string; regions: { labe
   },
 ];
 
-function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string) => void }) {
-  const { data: rawTemplates = [], refetch } = trpc.templates.list.useQuery();
-  const templates = rawTemplates.filter(Boolean);
-  const createTemplate = trpc.templates.create.useMutation({ onSuccess: () => { refetch(); toast.success("Template criado"); } });
-  const deleteTemplate = trpc.templates.delete.useMutation({ onSuccess: () => { refetch(); toast.success("Template excluído"); } });
+function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string, examTitle?: string) => void }) {
+  const { data: rawTemplates = [], refetch } = trpc.templates.listMine.useQuery();
+  const myTemplates = rawTemplates.filter(Boolean);
 
-  const [showNew, setShowNew] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newModality, setNewModality] = useState("");
-  const [newBody, setNewBody] = useState("");
+  const createTemplate = trpc.templates.createPersonal.useMutation({ onSuccess: () => { refetch(); toast.success("Template salvo!"); setShowForm(false); resetForm(); } });
+  const updateTemplate = trpc.templates.updatePersonal.useMutation({ onSuccess: () => { refetch(); toast.success("Template atualizado!"); setEditingId(null); setShowForm(false); resetForm(); } });
+  const deleteTemplate = trpc.templates.deletePersonal.useMutation({ onSuccess: () => { refetch(); toast.success("Template excluído"); } });
+
+  // Form state
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [formName, setFormName] = useState("");
+  const [formModality, setFormModality] = useState("");
+  const [formExamTitle, setFormExamTitle] = useState("");
+  const [formBody, setFormBody] = useState("");
   const [search, setSearch] = useState("");
   const [openModalities, setOpenModalities] = useState<Record<string, boolean>>({});
-  const [openRegions, setOpenRegions] = useState<Record<string, boolean>>({});
 
-  const toggleModality = (k: string) => setOpenModalities(prev => ({ ...prev, [k]: !prev[k] }));
-  const toggleRegion = (k: string) => setOpenRegions(prev => ({ ...prev, [k]: !prev[k] }));
+  const resetForm = () => { setFormName(""); setFormModality(""); setFormExamTitle(""); setFormBody(""); };
 
-  const handleCreate = () => {
-    if (!newName.trim() || !newBody.trim()) { toast.error("Preencha nome e conteúdo"); return; }
-    createTemplate.mutate({ name: newName.trim(), modality: newModality.trim() || undefined, bodyTemplate: newBody.trim(), isGlobal: false });
-    setShowNew(false); setNewName(""); setNewModality(""); setNewBody("");
+  const openNew = () => { setEditingId(null); resetForm(); setShowForm(true); };
+
+  const openEdit = (t: typeof myTemplates[0]) => {
+    setEditingId(t.id);
+    setFormName(t.name);
+    setFormModality(t.modality || "");
+    setFormExamTitle((t as any).exam_title || "");
+    setFormBody(t.bodyTemplate);
+    setShowForm(true);
   };
 
-  // Filtro de busca
-  const searchLower = search.toLowerCase();
+  const handleSubmit = () => {
+    if (!formName.trim() || !formBody.trim()) { toast.error("Preencha nome e conteúdo"); return; }
+    if (editingId) {
+      updateTemplate.mutate({ id: editingId, name: formName.trim(), modality: formModality.trim() || undefined, exam_title: formExamTitle.trim() || undefined, bodyTemplate: formBody.trim() });
+    } else {
+      createTemplate.mutate({ name: formName.trim(), modality: formModality.trim() || undefined, exam_title: formExamTitle.trim() || undefined, bodyTemplate: formBody.trim() });
+    }
+  };
+
+  const toggleModality = (k: string) => setOpenModalities(prev => ({ ...prev, [k]: !prev[k] }));
+
+  // Filtro de busca sem acento
+  const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const searchNorm = norm(search);
   const filteredTemplates = search
-    ? templates.filter(t => t.name.toLowerCase().includes(searchLower) || (t.modality || "").toLowerCase().includes(searchLower))
+    ? myTemplates.filter(t => norm(t.name).includes(searchNorm) || norm(t.modality || '').includes(searchNorm) || norm((t as any).exam_title || '').includes(searchNorm))
     : [];
 
-  // Agrupar templates por chave de região (modality field)
-  const getTemplatesForRegion = (regionKey: string) =>
-    templates.filter(t => (t.modality || "").toLowerCase() === regionKey.toLowerCase());
+  // Agrupar por modalidade (usando campo modality)
+  const MODALITY_KEYS: { key: string; label: string; icon: string; color: string }[] = [
+    { key: 'rx', label: 'Radiografia (Raio-X)', icon: 'RX', color: '#f59e0b' },
+    { key: 'tc', label: 'Tomografia (TC / CT)', icon: 'TC', color: '#3b82f6' },
+    { key: 'us', label: 'Ultrassom (US)', icon: 'US', color: '#10b981' },
+    { key: 'rm', label: 'Ressonância (RM / MRI)', icon: 'RM', color: '#8b5cf6' },
+  ];
 
-  // Templates sem modalidade mapeada na árvore
-  const mappedKeys = MODALITY_TREE.flatMap(m => m.regions.map(r => r.key.toLowerCase()));
-  const unmappedTemplates = templates.filter(t => !mappedKeys.includes((t.modality || "").toLowerCase()));
+  // Mapeia o valor do select ("rx", "tc", "us", "rm") para o campo modality
+  const getTemplatesForModality = (key: string) =>
+    myTemplates.filter(t => {
+      const m = norm(t.modality || '');
+      return m === norm(key) || m.startsWith(norm(key) + ' ') || m.startsWith(norm(key) + '-');
+    });
 
-  const renderTemplateItem = (t: typeof templates[0]) => (
-    <div key={t.id} className="flex items-center gap-1 px-3 py-1.5 hover:bg-blue-50 group">
+  const mappedIds = new Set(MODALITY_KEYS.flatMap(m => getTemplatesForModality(m.key).map(t => t.id)));
+  const unmapped = myTemplates.filter(t => !mappedIds.has(t.id));
+
+  const renderItem = (t: typeof myTemplates[0]) => (
+    <div key={t.id} className="flex items-start gap-1 px-3 py-2 hover:bg-blue-50 group border-b border-gray-100 last:border-0">
       <button
-        onClick={() => onApplyTemplate(t.bodyTemplate)}
-        className="flex-1 text-left text-xs text-gray-700"
+        onClick={() => onApplyTemplate(t.bodyTemplate, (t as any).exam_title || undefined)}
+        className="flex-1 text-left min-w-0"
       >
-        {t.name}
+        <div className="text-xs font-medium text-gray-800 truncate">{t.name}</div>
+        {(t as any).exam_title && (
+          <div className="text-[10px] text-gray-400 truncate">{(t as any).exam_title}</div>
+        )}
       </button>
-      <button
-        onClick={() => { if (confirm("Excluir template?")) deleteTemplate.mutate({ id: t.id }); }}
-        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity flex-shrink-0"
-      >
-        <Trash2 className="h-3 w-3" />
-      </button>
+      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5">
+        <button
+          onClick={() => openEdit(t)}
+          className="text-blue-400 hover:text-blue-600"
+          title="Editar"
+        >
+          <Edit2 className="h-3 w-3" />
+        </button>
+        <button
+          onClick={() => { if (confirm('Excluir template "' + t.name + '"?')) deleteTemplate.mutate({ id: t.id }); }}
+          className="text-red-400 hover:text-red-600"
+          title="Excluir"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
     </div>
   );
 
   return (
     <div className="flex flex-col h-full">
-      {/* Cabeçalho com busca e botão Novo */}
+      {/* Cabeçalho */}
       <div className="p-3 border-b border-gray-200 space-y-2">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Templates</p>
-          <button onClick={() => setShowNew(!showNew)} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700">
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Meus Templates</p>
+          <button onClick={openNew} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium">
             <Plus className="h-3.5 w-3.5" /> Novo
           </button>
         </div>
-        {/* Campo de busca */}
         <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
           <input
@@ -1366,20 +1408,59 @@ function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string) => 
         </div>
       </div>
 
-      {/* Formulário novo template */}
-      {showNew && (
-        <div className="p-3 border-b border-gray-200 bg-white space-y-1.5">
-          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nome do template" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400" />
-          <input value={newModality} onChange={e => setNewModality(e.target.value)} placeholder="Modalidade (ex: TC Tórax)" className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400" />
-          <textarea value={newBody} onChange={e => setNewBody(e.target.value)} placeholder="Conteúdo do template..." rows={4} className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none" />
-          <div className="flex gap-1">
-            <button onClick={handleCreate} className="flex-1 text-xs bg-blue-600 text-white rounded py-1 hover:bg-blue-700">Criar</button>
-            <button onClick={() => setShowNew(false)} className="flex-1 text-xs border border-gray-200 rounded py-1 hover:bg-gray-50">Cancelar</button>
+      {/* Formulário criar/editar */}
+      {showForm && (
+        <div className="p-3 border-b border-gray-200 bg-blue-50/40 space-y-1.5">
+          <p className="text-xs font-semibold text-gray-700">{editingId ? 'Editar Template' : 'Novo Template'}</p>
+          <input
+            value={formName}
+            onChange={e => setFormName(e.target.value)}
+            placeholder="Nome do template *"
+            className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+          />
+          <input
+            value={formExamTitle}
+            onChange={e => setFormExamTitle(e.target.value)}
+            placeholder="Título do exame (ex: Radiografia de Tórax PA)"
+            className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+          />
+          <select
+            value={formModality}
+            onChange={e => setFormModality(e.target.value)}
+            className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+          >
+            <option value="">Modalidade (opcional)</option>
+            <option value="rx">Radiografia (RX)</option>
+            <option value="tc">Tomografia (TC)</option>
+            <option value="us">Ultrassom (US)</option>
+            <option value="rm">Ressonância (RM)</option>
+          </select>
+          <textarea
+            value={formBody}
+            onChange={e => setFormBody(e.target.value)}
+            placeholder="Conteúdo do laudo favorito..."
+            rows={5}
+            className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white resize-none"
+          />
+          <div className="flex gap-1.5">
+            <button
+              onClick={handleSubmit}
+              disabled={createTemplate.isPending || updateTemplate.isPending}
+              className="flex-1 text-xs bg-blue-600 text-white rounded py-1.5 hover:bg-blue-700 disabled:opacity-60 font-medium"
+            >
+              {createTemplate.isPending || updateTemplate.isPending ? 'Salvando...' : (editingId ? 'Salvar Alterações' : 'Criar Template')}
+            </button>
+            <button
+              onClick={() => { setShowForm(false); setEditingId(null); resetForm(); }}
+              className="flex-1 text-xs border border-gray-200 rounded py-1.5 hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}
 
-      {/* Área de conteúdo com scroll */}
+      {/* Lista */}
       <div className="flex-1 overflow-y-auto">
         {/* Resultados de busca */}
         {search && (
@@ -1391,79 +1472,53 @@ function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string) => 
                 <div className="px-2 py-1.5 bg-blue-50 text-xs font-medium text-blue-700">
                   {filteredTemplates.length} resultado{filteredTemplates.length !== 1 ? 's' : ''}
                 </div>
-                <div className="divide-y divide-gray-100">
-                  {filteredTemplates.map(renderTemplateItem)}
-                </div>
+                {filteredTemplates.map(renderItem)}
               </div>
             )}
           </div>
         )}
 
-        {/* Árvore de modalidades (visível quando não há busca) */}
+        {/* Árvore por modalidade */}
         {!search && (
           <div className="p-2 space-y-1">
-            {MODALITY_TREE.map(modality => {
-              const modalityOpen = openModalities[modality.key];
-              const totalInModality = modality.regions.reduce((acc, r) => acc + getTemplatesForRegion(r.key).length, 0);
+            {MODALITY_KEYS.map(mod => {
+              const modTemplates = getTemplatesForModality(mod.key);
+              const isOpen = openModalities[mod.key];
               return (
-                <div key={modality.key} className="border border-gray-200 rounded overflow-hidden">
-                  {/* Cabeçalho da modalidade */}
+                <div key={mod.key} className="border border-gray-200 rounded overflow-hidden">
                   <button
-                    onClick={() => toggleModality(modality.key)}
+                    onClick={() => toggleModality(mod.key)}
                     className="w-full flex items-center justify-between px-3 py-2 bg-gray-100 hover:bg-gray-200 transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold bg-gray-700 text-white rounded px-1 py-0.5 leading-none">{modality.icon}</span>
-                      <span className="text-xs font-semibold text-gray-700">{modality.label}</span>
+                      <span
+                        className="text-[10px] font-bold rounded px-1 py-0.5 leading-none text-white"
+                        style={{ background: mod.color }}
+                      >{mod.icon}</span>
+                      <span className="text-xs font-semibold text-gray-700">{mod.label}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      {totalInModality > 0 && (
-                        <span className="text-[10px] bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5 font-medium">{totalInModality}</span>
+                      {modTemplates.length > 0 && (
+                        <span className="text-[10px] bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5 font-medium">{modTemplates.length}</span>
                       )}
-                      {modalityOpen ? <ChevronDown className="h-3 w-3 text-gray-500" /> : <ChevronRight className="h-3 w-3 text-gray-500" />}
+                      {isOpen ? <ChevronDown className="h-3 w-3 text-gray-500" /> : <ChevronRight className="h-3 w-3 text-gray-500" />}
                     </div>
                   </button>
-
-                  {/* Regiões dentro da modalidade */}
-                  {modalityOpen && (
-                    <div className="divide-y divide-gray-100 bg-white">
-                      {modality.regions.map(region => {
-                        const regionTemplates = getTemplatesForRegion(region.key);
-                        const regionOpen = openRegions[region.key];
-                        return (
-                          <div key={region.key}>
-                            <button
-                              onClick={() => toggleRegion(region.key)}
-                              className="w-full flex items-center justify-between px-4 py-1.5 hover:bg-gray-50 transition-colors"
-                            >
-                              <span className="text-xs text-gray-600">{region.label}</span>
-                              <div className="flex items-center gap-1.5">
-                                {regionTemplates.length > 0 && (
-                                  <span className="text-[10px] bg-green-100 text-green-700 rounded-full px-1.5 font-medium">{regionTemplates.length}</span>
-                                )}
-                                {regionOpen ? <ChevronDown className="h-3 w-3 text-gray-400" /> : <ChevronRight className="h-3 w-3 text-gray-400" />}
-                              </div>
-                            </button>
-                            {regionOpen && (
-                              <div className="bg-blue-50/30 divide-y divide-gray-100">
-                                {regionTemplates.length === 0 ? (
-                                  <p className="text-[11px] text-gray-400 px-5 py-2 italic">Nenhum template nesta categoria</p>
-                                ) : (
-                                  regionTemplates.map(renderTemplateItem)
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                  {isOpen && (
+                    <div className="bg-white">
+                      {modTemplates.length === 0 ? (
+                        <p className="text-[11px] text-gray-400 px-4 py-2.5 italic">Nenhum template nesta modalidade</p>
+                      ) : (
+                        modTemplates.map(renderItem)
+                      )}
                     </div>
                   )}
                 </div>
               );
             })}
 
-            {/* Templates sem categoria mapeada */}
-            {unmappedTemplates.length > 0 && (
+            {/* Sem modalidade */}
+            {unmapped.length > 0 && (
               <div className="border border-gray-200 rounded overflow-hidden">
                 <button
                   onClick={() => toggleModality('__outros')}
@@ -1471,20 +1526,24 @@ function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string) => 
                 >
                   <span className="text-xs font-semibold text-gray-700">Outros</span>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5 font-medium">{unmappedTemplates.length}</span>
+                    <span className="text-[10px] bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5 font-medium">{unmapped.length}</span>
                     {openModalities['__outros'] ? <ChevronDown className="h-3 w-3 text-gray-500" /> : <ChevronRight className="h-3 w-3 text-gray-500" />}
                   </div>
                 </button>
                 {openModalities['__outros'] && (
-                  <div className="divide-y divide-gray-100 bg-white">
-                    {unmappedTemplates.map(renderTemplateItem)}
-                  </div>
+                  <div className="bg-white">{unmapped.map(renderItem)}</div>
                 )}
               </div>
             )}
 
-            {templates.length === 0 && !showNew && (
-              <p className="text-xs text-gray-400 text-center py-6">Nenhum template criado ainda.<br/>Clique em "Novo" para criar.</p>
+            {myTemplates.length === 0 && !showForm && (
+              <div className="text-center py-8 px-3">
+                <div className="text-gray-300 mb-2">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                </div>
+                <p className="text-xs text-gray-400">Você ainda não tem templates.</p>
+                <p className="text-xs text-gray-400">Clique em <strong>Novo</strong> para criar seu primeiro laudo favorito.</p>
+              </div>
             )}
           </div>
         )}

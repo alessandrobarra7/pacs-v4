@@ -103,8 +103,12 @@ export type InsertStudyCache = typeof studies_cache.$inferInsert;
 export const templates = mysqlTable("templates", {
   id: int("id").autoincrement().primaryKey(),
   unit_id: int("unit_id"),
+  // owner_user_id: quando preenchido, o template é pessoal do médico; null = template da unidade
+  owner_user_id: int("owner_user_id"),
   name: varchar("name", { length: 255 }).notNull(),
   modality: varchar("modality", { length: 50 }),
+  // exam_title: título do exame associado (ex: "Radiografia de Tórax PA")
+  exam_title: varchar("exam_title", { length: 255 }),
   bodyTemplate: text("bodyTemplate").notNull(),
   fields: json("fields"),
   isGlobal: boolean("isGlobal").default(false).notNull(),
