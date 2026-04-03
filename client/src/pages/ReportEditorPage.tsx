@@ -661,61 +661,262 @@ export default function ReportEditorPage() {
 // ─── Estrutura hierárquica de exames para a árvore ────────────────────────────
 const EXAM_TREE: { label: string; color: string; icon: string; regions: { label: string; exams: string[] }[] }[] = [
   {
-    label: "Radiografias",
+    label: "Radiografia (Raio-X)",
     color: "#f59e0b",
     icon: "RX",
     regions: [
-      { label: "Tórax", exams: ["Radiografia de Tórax PA e Perfil", "Radiografia de Tórax PA"] },
-      { label: "Coluna", exams: ["Radiografia de Coluna Cervical AP e Perfil", "Radiografia de Coluna Lombar AP e Perfil"] },
-      { label: "Abdome", exams: ["Radiografia de Abdome sem Preparo"] },
-      { label: "Pelve / Bacia", exams: ["Radiografia de Bacia AP"] },
-      { label: "Extremidades", exams: ["Radiografia de Joelho AP e Perfil", "Radiografia de Ombro AP", "Radiografia de Mão AP e Oblíqua", "Radiografia de Pé AP e Perfil", "Radiografia de Tornozelo AP e Perfil"] },
-      { label: "Crânio", exams: ["Radiografia de Crânio AP e Perfil"] },
-      { label: "Mama", exams: ["Mamografia Bilateral"] },
-      { label: "Outros", exams: ["Densitometria Óssea", "Cintilografia Óssea"] },
+      {
+        label: "Tórax",
+        exams: ["Radiografia de Tórax", "Radiografia de Tórax PA", "Radiografia de Tórax PA e Perfil"],
+      },
+      {
+        label: "Abdome",
+        exams: [
+          "Radiografia de Abdome Superior",
+          "Radiografia de Abdome Inferior",
+          "Radiografia de Abdome Total",
+          "Radiografia de Abdome sem Preparo",
+        ],
+      },
+      {
+        label: "Coluna",
+        exams: [
+          "Radiografia de Coluna Cervical",
+          "Radiografia de Coluna Cervical Superior",
+          "Radiografia de Coluna Cervical Inferior",
+          "Radiografia de Coluna Dorsal",
+          "Radiografia de Coluna Torácica",
+          "Radiografia de Coluna Lombar",
+          "Radiografia de Coluna Lombossacral",
+          "Radiografia de Coluna Vertebral",
+          "Escanometria",
+        ],
+      },
+      {
+        label: "Membros Superiores",
+        exams: [
+          "Radiografia de Ombro",
+          "Radiografia de Braço Direito",
+          "Radiografia de Braço Esquerdo",
+          "Radiografia de Mão Direita",
+          "Radiografia de Mão Esquerda",
+          "Radiografia de Mão AP e Oblíqua",
+        ],
+      },
+      {
+        label: "Membros Inferiores",
+        exams: [
+          "Radiografia de Quadril",
+          "Radiografia de Bacia AP",
+          "Radiografia de Joelhos",
+          "Radiografia de Joelho Direito",
+          "Radiografia de Joelho Esquerdo",
+          "Radiografia de Joelho AP e Perfil",
+          "Radiografia de Perna Direita",
+          "Radiografia de Perna Esquerda",
+          "Radiografia de Pé Direito",
+          "Radiografia de Pé Esquerdo",
+          "Radiografia de Pé AP e Perfil",
+          "Radiografia de Tornozelo AP e Perfil",
+        ],
+      },
+      {
+        label: "Crânio / Cabeça",
+        exams: ["Radiografia de Crânio AP e Perfil"],
+      },
+      {
+        label: "Mama",
+        exams: ["Mamografia Bilateral"],
+      },
+      {
+        label: "Outros",
+        exams: ["Densitometria Óssea", "Cintilografia Óssea"],
+      },
     ],
   },
   {
-    label: "Tomografias",
+    label: "Tomografia (TC / CT)",
     color: "#3b82f6",
     icon: "TC",
     regions: [
-      { label: "Crânio", exams: ["Tomografia Computadorizada de Crânio sem Contraste", "Tomografia Computadorizada de Crânio com Contraste"] },
-      { label: "Tórax", exams: ["Tomografia Computadorizada de Tórax sem Contraste", "Tomografia Computadorizada de Tórax com Contraste"] },
-      { label: "Abdome / Pelve", exams: ["Tomografia Computadorizada de Abdome e Pelve sem Contraste", "Tomografia Computadorizada de Abdome e Pelve com Contraste", "Tomografia Computadorizada de Pelve"] },
-      { label: "Coluna", exams: ["Tomografia Computadorizada de Coluna Cervical", "Tomografia Computadorizada de Coluna Lombar"] },
-      { label: "Seios da Face", exams: ["Tomografia Computadorizada de Seios da Face"] },
-      { label: "Cabeça / Pescoço", exams: ["Tomografia Computadorizada de Mastoides", "Tomografia Computadorizada de Órbitas", "Tomografia Computadorizada de Pescoço"] },
-      { label: "Extremidades", exams: ["Tomografia Computadorizada de Joelho", "Tomografia Computadorizada de Ombro"] },
-      { label: "Angio TC", exams: ["Angiotomografia de Coronárias", "Angiotomografia de Aorta", "Angiotomografia Cerebral"] },
+      {
+        label: "Cabeça",
+        exams: [
+          "Tomografia Computadorizada de Cabeça",
+          "Tomografia Computadorizada de Crânio sem Contraste",
+          "Tomografia Computadorizada de Crânio com Contraste",
+          "Tomografia Computadorizada de Seios da Face",
+          "Tomografia Computadorizada de Mastoides",
+          "Tomografia Computadorizada de Órbitas",
+          "Tomografia Computadorizada de Pescoço",
+        ],
+      },
+      {
+        label: "Tórax",
+        exams: [
+          "Tomografia Computadorizada de Tórax",
+          "Tomografia Computadorizada de Tórax sem Contraste",
+          "Tomografia Computadorizada de Tórax com Contraste",
+        ],
+      },
+      {
+        label: "Abdome",
+        exams: [
+          "Tomografia Computadorizada de Abdome Superior",
+          "Tomografia Computadorizada de Abdome Inferior",
+          "Tomografia Computadorizada de Abdome Total",
+          "Tomografia Computadorizada de Abdome e Pelve sem Contraste",
+          "Tomografia Computadorizada de Abdome e Pelve com Contraste",
+          "Tomografia Computadorizada de Pelve",
+        ],
+      },
+      {
+        label: "Coluna",
+        exams: [
+          "Tomografia Computadorizada de Coluna Vertebral",
+          "Tomografia Computadorizada de Coluna Cervical",
+          "Tomografia Computadorizada de Coluna Torácica",
+          "Tomografia Computadorizada de Coluna Lombar",
+        ],
+      },
+      {
+        label: "Extremidades",
+        exams: [
+          "Tomografia Computadorizada de Joelho",
+          "Tomografia Computadorizada de Ombro",
+        ],
+      },
+      {
+        label: "Angio TC",
+        exams: [
+          "Angiotomografia de Coronárias",
+          "Angiotomografia de Aorta",
+          "Angiotomografia Cerebral",
+        ],
+      },
     ],
   },
   {
-    label: "Ultrassom",
+    label: "Ultrassom (US)",
     color: "#10b981",
     icon: "US",
     regions: [
-      { label: "Abdome", exams: ["Ultrassonografia de Abdome Total", "Ultrassonografia de Abdome Superior"] },
-      { label: "Pelve", exams: ["Ultrassonografia Pélvica Transvaginal", "Ultrassonografia Pélvica Suprapúbica"] },
-      { label: "Mama", exams: ["Ultrassonografia de Mama Bilateral"] },
-      { label: "Tireoide", exams: ["Ultrassonografia de Tireoide"] },
-      { label: "Partes Moles", exams: ["Ultrassonografia de Partes Moles"] },
-      { label: "Doppler", exams: ["Ultrassonografia Doppler de Carótidas", "Ultrassonografia Doppler de Membros Inferiores", "Ultrassonografia Doppler de Membros Superiores"] },
-      { label: "Próstata", exams: ["Ultrassonografia de Próstata"] },
-      { label: "Obstétrico", exams: ["Ultrassonografia Obstétrica", "Ultrassonografia Morfológica"] },
-      { label: "Cardíaco", exams: ["Ecocardiograma Transtorácico"] },
+      {
+        label: "Abdome",
+        exams: [
+          "Ultrassonografia de Abdome",
+          "Ultrassonografia de Abdome Superior",
+          "Ultrassonografia de Abdome Inferior",
+          "Ultrassonografia de Abdome Total",
+        ],
+      },
+      {
+        label: "Gestacional / Obstétrico",
+        exams: [
+          "Ultrassonografia Gestacional",
+          "Ultrassonografia Obstétrica",
+          "Ultrassonografia Morfológica",
+        ],
+      },
+      {
+        label: "Tireoide",
+        exams: ["Ultrassonografia de Tireoide"],
+      },
+      {
+        label: "Articulações",
+        exams: [
+          "Ultrassonografia de Joelhos",
+          "Ultrassonografia de Articulações",
+          "Ultrassonografia de Partes Moles",
+        ],
+      },
+      {
+        label: "Cardíaco",
+        exams: [
+          "Ultrassonografia Cardíaca",
+          "Ecocardiograma Transtorácico",
+        ],
+      },
+      {
+        label: "Órgãos",
+        exams: [
+          "Ultrassonografia de Rins",
+          "Ultrassonografia de Fígado",
+          "Ultrassonografia de Baço",
+          "Ultrassonografia de Próstata",
+        ],
+      },
+      {
+        label: "Pelve / Mama",
+        exams: [
+          "Ultrassonografia Pélvica Transvaginal",
+          "Ultrassonografia Pélvica Suprapúbica",
+          "Ultrassonografia de Mama Bilateral",
+        ],
+      },
+      {
+        label: "Doppler",
+        exams: [
+          "Ultrassonografia Doppler de Carótidas",
+          "Ultrassonografia Doppler de Membros Inferiores",
+          "Ultrassonografia Doppler de Membros Superiores",
+        ],
+      },
     ],
   },
   {
-    label: "Ressonância",
+    label: "Ressonância (RM / MRI)",
     color: "#8b5cf6",
     icon: "RM",
     regions: [
-      { label: "Crânio", exams: ["Ressonância Magnética de Crânio sem Contraste", "Ressonância Magnética de Crânio com Contraste"] },
-      { label: "Coluna", exams: ["Ressonância Magnética de Coluna Cervical", "Ressonância Magnética de Coluna Torácica", "Ressonância Magnética de Coluna Lombar"] },
-      { label: "Extremidades", exams: ["Ressonância Magnética de Joelho", "Ressonância Magnética de Ombro", "Ressonância Magnética de Quadril"] },
-      { label: "Abdome / Pelve", exams: ["Ressonância Magnética de Abdome", "Ressonância Magnética de Pelve"] },
-      { label: "Angio RM", exams: ["Angiorressonância Cerebral", "Angiorressonância de Carótidas"] },
+      {
+        label: "Crânio",
+        exams: [
+          "Ressonância Magnética de Crânio",
+          "Ressonância Magnética de Crânio sem Contraste",
+          "Ressonância Magnética de Crânio com Contraste",
+        ],
+      },
+      {
+        label: "Tórax",
+        exams: ["Ressonância Magnética de Tórax"],
+      },
+      {
+        label: "Abdome",
+        exams: [
+          "Ressonância Magnética de Abdome",
+          "Ressonância Magnética de Pelve",
+        ],
+      },
+      {
+        label: "Coluna",
+        exams: [
+          "Ressonância Magnética de Coluna Cervical",
+          "Ressonância Magnética de Coluna Torácica",
+          "Ressonância Magnética de Coluna Lombar",
+          "Ressonância Magnética de Coluna Vertebral",
+        ],
+      },
+      {
+        label: "Extremidades",
+        exams: [
+          "Ressonância Magnética de Joelho",
+          "Ressonância Magnética de Joelhos",
+          "Ressonância Magnética de Quadril",
+          "Ressonância Magnética de Ombro",
+        ],
+      },
+      {
+        label: "Cardíaco",
+        exams: ["Ressonância Magnética de Coração"],
+      },
+      {
+        label: "Angio RM",
+        exams: [
+          "Angiorressonância Cerebral",
+          "Angiorressonância de Carótidas",
+        ],
+      },
     ],
   },
 ];
