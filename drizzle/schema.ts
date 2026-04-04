@@ -361,3 +361,19 @@ export const report_sections = mysqlTable("report_sections", {
 
 export type ReportSection = typeof report_sections.$inferSelect;
 export type InsertReportSection = typeof report_sections.$inferInsert;
+
+/**
+ * Study Labels — Exam labels defined by the operator for each study
+ * Operator selects exam titles from catalog before doctor opens the editor
+ */
+export const study_labels = mysqlTable("study_labels", {
+  id: int("id").autoincrement().primaryKey(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
+  unit_id: int("unit_id").notNull(),
+  labels: text("labels").notNull(), // JSON: [{title: string, modality: string, order: number}]
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type StudyLabel = typeof study_labels.$inferSelect;
+export type InsertStudyLabel = typeof study_labels.$inferInsert;

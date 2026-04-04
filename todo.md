@@ -702,3 +702,15 @@
 - [x] Adaptar ReportEditorPage para suportar múltiplas seções independentes
 - [x] Adaptar template de impressão para renderizar múltiplas seções
 - [x] Testes de integração: 71 testes passando (6 arquivos)
+
+## Fluxo Colaborativo Operador→Médico (04/04/2026)
+
+- [ ] Criar tabela study_labels no banco (study_instance_uid, labels JSON, unit_id, created_by, updated_at)
+- [ ] Criar endpoints tRPC: studyLabels.save, studyLabels.getByStudy, studyLabels.getByStudies
+- [ ] Criar modal DefinirExamesModal para o operador (busca no catálogo, seleção múltipla)
+- [ ] Adicionar botão "Definir Exames" visível apenas para operador/unit_admin/admin_master na tabela
+- [ ] Exibir legendas salvas na coluna da tabela de estudos (substituindo código DICOM bruto)
+- [ ] Adaptar handleReport: ao médico clicar Laudar, carregar legendas do banco e passar para o editor
+- [ ] Reescrever editor multi-seção: N folhas separadas com título editável e editor independente por folha
+- [ ] Adaptar template de impressão: N páginas com quebra de página entre elas
+- [ ] Garantir que operador NÃO vê botão Laudar e médico vê botão Laudar (RBAC)

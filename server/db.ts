@@ -835,3 +835,64 @@ export async function deleteReportSection(sectionId: number, reportId: number) {
   await db.delete(report_sections)
     .where(and(eq(report_sections.id, sectionId), eq(report_sections.report_id, reportId)));
 }
+
+// ─── Study Labels ─────────────────────────────────────────────────────────────
+
+export interface StudyLabelItem {
+  title: string;
+  modality: string;
+  order: number;
+}
+
+export async function getStudyLabels(studyInstanceUid: string, unitId: number): Promise<StudyLabelItem[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const { study_labels } = await import("../drizzle/schema");
+  const rows = await db.select()
+    .from(study_labels)
+    .where(and(eq(study_labels.study_instance_uid, studyInstanceUid), eq(study_labels.unit_id, unitId)))
+    .limit(1);
+  if (rows.length === 0) return [];
+  try { return JSON.parse(rows[0].labels) as StudyLabelItem[]; } catch { return []; }
+}
+
+export async function getStudyLabelsBulk(studyUids: string[], unitId: number): Promise<Record<string, StudyLabelItem[]>> {
+  if (studyUids.length === 0) return {};
+  const db = await getDb();
+  if (!db) return {};
+  const { study_labels } = await import("../drizzle/schema");
+  const rows = await db.select()
+    .from(study_labels)
+    .where(and(inArray(study_labels.study_instance_uid, studyUids), eq(study_labels.unit_id, unitId)));
+  const result: Record<string, StudyLabelItem[]> = {};
+  for (const row of rows) {
+    try { result[row.study_instance_uid] = JSON.parse(row.labels) as StudyLabelItem[]; } catch { result[row.study_instance_uid] = []; }
+  }
+  return result;
+}
+
+export async function saveStudyLabels(data: {
+  studyInstanceUid: string;
+  unitId: number;
+  labels: StudyLabelItem[];
+  createdBy: number;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { study_labels } = await import("../drizzle/schema");
+  const labelsJson = JSON.stringify(data.labels);
+  const existing = await db.select({ id: study_labels.id })
+    .from(study_labels)
+    .where(and(eq(study_labels.study_instance_uid, data.studyInstanceUid), eq(study_labels.unit_id, data.unitId)))
+    .limit(1);
+  if (existing.length > 0) {
+    await db.update(study_labels).set({ labels: labelsJson }).where(eq(study_labels.id, existing[0].id));
+  } else {
+    await db.insert(study_labels).values({
+      study_instance_uid: data.studyInstanceUid,
+      unit_id: data.unitId,
+      labels: labelsJson,
+      created_by: data.createdBy,
+    });
+  }
+}

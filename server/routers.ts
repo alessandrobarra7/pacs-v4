@@ -1910,5 +1910,54 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+
+  // ─── Study Labels ─────────────────────────────────────────────────────────
+  studyLabels: router({
+    // Get labels for a single study
+    get: protectedProcedure
+      .input(z.object({ studyInstanceUid: z.string() }))
+      .query(async ({ input, ctx }) => {
+        const { getStudyLabels } = await import('./db');
+        const unitId = ctx.user.unit_id ?? 0;
+        const labels = await getStudyLabels(input.studyInstanceUid, unitId);
+        return { labels };
+      }),
+
+    // Get labels for multiple studies at once (bulk for table display)
+    getBulk: protectedProcedure
+      .input(z.object({ studyUids: z.array(z.string()) }))
+      .query(async ({ input, ctx }) => {
+        const { getStudyLabelsBulk } = await import('./db');
+        const unitId = ctx.user.unit_id ?? 0;
+        const result = await getStudyLabelsBulk(input.studyUids, unitId);
+        return result;
+      }),
+
+    // Save labels for a study (operator/unit_admin/admin_master only)
+    save: protectedProcedure
+      .input(z.object({
+        studyInstanceUid: z.string(),
+        labels: z.array(z.object({
+          title: z.string(),
+          modality: z.string(),
+          order: z.number(),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const role = ctx.user.role as string;
+        if (!['admin_master', 'unit_admin', 'medico', 'operador'].includes(role)) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para definir legendas' });
+        }
+        const { saveStudyLabels } = await import('./db');
+        const unitId = ctx.user.unit_id ?? 0;
+        await saveStudyLabels({
+          studyInstanceUid: input.studyInstanceUid,
+          unitId,
+          labels: input.labels,
+          createdBy: ctx.user.id,
+        });
+        return { success: true };
+      }),
+  }),
 });
 export type AppRouter = typeof appRouter;

@@ -4,12 +4,13 @@ import {
   Search, Eye, FileText, Printer,
   Clipboard, Settings,
   ChevronLeft, ChevronRight, Clock, Pencil, Check, X,
-  Download, Loader2, CalendarDays,
+  Download, Loader2, CalendarDays, Tag,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
+import { DefineLabelsModal } from "@/components/DefineLabelsModal";
 import { ExamSelectionModal, type StudyForSelection } from "@/components/ExamSelectionModal";
 import { canReport, canAccessAdmin, canFillAnamnesis, canViewDICOM, type UserRole } from "../../../shared/permissions";
 import { Calendar } from "@/components/ui/calendar";
@@ -335,6 +336,10 @@ export function PacsQueryPage() {
   // Modal de seleção múltipla de exames
   const [isExamSelectionOpen, setIsExamSelectionOpen] = useState(false);
   const [examSelectionPatient, setExamSelectionPatient] = useState<{ patientName: string; patientID: string; studies: StudyForSelection[] } | null>(null);
+  // Modal de definição de legendas (operador)
+  const [isDefineLabelsOpen, setIsDefineLabelsOpen] = useState(false);
+  const [defineLabelsStudy, setDefineLabelsStudy] = useState<any>(null);
+  const [studyLabelsMap, setStudyLabelsMap] = useState<Record<string, { title: string; modality: string; order: number }[]>>({});
   const [currentPage, setCurrentPage] = useState(1);
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, string>>({});
 
@@ -698,38 +703,39 @@ export function PacsQueryPage() {
   };
 
   /**
-   * Verifica se o paciente tem outros estudos no resultado atual.
-   * Se sim, abre o modal de seleção múltipla.
-   * Se não, vai direto para o editor.
+   * Busca legendas definidas pelo operador no banco.
+   * Se houver legendas, monta as seções no sessionStorage e navega para o editor.
+   * Se não houver legendas, vai direto para o editor (comportamento legado).
    */
-  const handleReport = (study: any) => {
-    // Buscar outros estudos do mesmo paciente na lista atual
-    const samePatientStudies = filteredResults.filter(
-      (s: any) => s.patientID && s.patientID === study.patientID && s.studyInstanceUid !== study.studyInstanceUid
-    );
-
-    if (samePatientStudies.length > 0) {
-      // Múltiplos estudos — abrir modal de seleção
-      const allStudies: StudyForSelection[] = [study, ...samePatientStudies].map((s: any) => ({
-        studyInstanceUid: s.studyInstanceUid,
-        modality: s.modality || '',
-        studyDescription: s.studyDescription || '',
-        studyDate: s.studyDate || '',
-        numberOfInstances: s.numberOfInstances,
-        accessionNumber: s.accessionNumber,
-      }));
-      setExamSelectionPatient({
-        patientName: study.patientName || '',
-        patientID: study.patientID || '',
-        studies: allStudies,
-      });
-      setIsExamSelectionOpen(true);
-    } else {
-      // Estudo único — ir direto para o editor
-      saveStudyToSession(study);
-      navigate(`/reports/create/${study.studyInstanceUid}`);
+  const handleReport = async (study: any) => {
+    saveStudyToSession(study);
+    try {
+      // Buscar legendas definidas pelo operador para este estudo
+      const labelsResult = await trpcUtils.studyLabels.get.fetch({ studyInstanceUid: study.studyInstanceUid });
+      const labels = labelsResult?.labels ?? [];
+      if (labels.length > 0) {
+        // Montar multi_studies a partir das legendas definidas pelo operador
+        const multiStudiesData = labels
+          .sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0))
+          .map((l: any) => ({
+            studyInstanceUid: study.studyInstanceUid,
+            examTitle: l.title,
+            modality: l.modality,
+          }));
+        sessionStorage.setItem(
+          `multi_studies_${study.studyInstanceUid}`,
+          JSON.stringify(multiStudiesData)
+        );
+      } else {
+        // Sem legendas — remover qualquer multi_studies anterior
+        sessionStorage.removeItem(`multi_studies_${study.studyInstanceUid}`);
+      }
+    } catch {
+      // Em caso de erro, continua sem multi-seções
+      sessionStorage.removeItem(`multi_studies_${study.studyInstanceUid}`);
     }
-  };
+    navigate(`/reports/create/${study.studyInstanceUid}`);
+  };;
 
   /**
    * Callback do modal de seleção: salva todos os estudos selecionados
@@ -1254,6 +1260,24 @@ export function PacsQueryPage() {
                       )}
                     </td>
 
+                    {/* Definir Legendas (operador/admin/medico) */}
+                    <td className="px-4 py-3 text-center">
+                      {(canCID || canLaudo || isAdmin) ? (
+                        <button
+                          onClick={() => { setDefineLabelsStudy(study); setIsDefineLabelsOpen(true); }}
+                          title="Definir legendas de exames"
+                          className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
+                            studyLabelsMap[study.studyInstanceUid]?.length > 0
+                              ? 'bg-blue-50 border-blue-300 text-blue-600 hover:bg-blue-100'
+                              : 'border-gray-200 bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-600'
+                          }`}
+                        >
+                          <Tag className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
                     {/* Laudar */}
                     <td className="px-4 py-3 text-center">
                       {canLaudo ? (
@@ -1357,6 +1381,21 @@ export function PacsQueryPage() {
           studies={examSelectionPatient.studies}
           onConfirm={handleExamSelectionConfirm}
           onCancel={() => { setIsExamSelectionOpen(false); setExamSelectionPatient(null); }}
+        />
+      )}
+      {isDefineLabelsOpen && defineLabelsStudy && (
+        <DefineLabelsModal
+          open={isDefineLabelsOpen}
+          onClose={() => { setIsDefineLabelsOpen(false); setDefineLabelsStudy(null); }}
+          studyInstanceUid={defineLabelsStudy.studyInstanceUid || ''}
+          studyModality={defineLabelsStudy.modality || ''}
+          patientName={defineLabelsStudy.patientName || ''}
+          onSaved={(labels) => {
+            setStudyLabelsMap(prev => ({
+              ...prev,
+              [defineLabelsStudy.studyInstanceUid]: labels,
+            }));
+          }}
         />
       )}
     </div>
