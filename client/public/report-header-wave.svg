@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 794 60" preserveAspectRatio="none">
+  <defs>
+    <linearGradient id="hg" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#1a6b8a;stop-opacity:1" />
+      <stop offset="60%" style="stop-color:#4ca8c4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6fb7c5;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Faixa principal -->
+  <rect x="0" y="0" width="794" height="60" fill="url(#hg)" />
+  <!-- Curva decorativa na borda inferior -->
+  <path d="M0,60 Q200,38 400,48 Q600,58 794,36 L794,60 Z" fill="#ffffff" />
+</svg>

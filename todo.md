@@ -660,3 +660,4 @@
 - [x] Novo layout de impressão de laudos: cabeçalho profissional com logo e dados do paciente, tabela clínica estruturada, tipografia melhorada, rodapé com carimbo/assinatura e dados legais, suporte a impressão otimizada @page CSS
 - [x] Unificar layout do editor de laudos (ReportDocument.tsx) com o layout de impressão — WYSIWYG
 - [x] Novo layout clássico radiológico: logo topo-esquerdo + linha divisória, título centralizado, grid 2 colunas (PACIENTE/CONVÊNIO/SOLICITANTE/SETOR | IDADE/SEXO/DATA/ATENDIMENTO), corpo do laudo, rodapé médico centralizado com assinatura+carimbo, rodapé institucional com faixa colorida
+- [x] Layout institucional completo do laudo: 6 zonas (cabeçalho logo+faixa SVG, título, grid 2 colunas, corpo, assinatura, rodapé SVG), paleta azul/turquesa, tipografia serifada, WYSIWYG

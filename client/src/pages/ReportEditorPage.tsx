@@ -86,6 +86,8 @@ interface StudyInfo {
   sex: string;
   studyInstanceUid: string;
   unitId: number | null;
+  modality?: string;
+  accessionNumber?: string;
 }
 
 interface DraggableImage {
@@ -315,10 +317,6 @@ export default function ReportEditorPage() {
   // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
   const patientName = formatPatientName(studyInfo?.patientName || "");
   const handlePrint = useCallback(() => {
-    const logoHtml = medCtx?.unitLogoUrl
-      ? `<img src="${medCtx.unitLogoUrl}" alt="Logo" style="max-height:80px;max-width:260px;object-fit:contain;" />`
-      : `<div style="font-size:18pt;font-weight:700;color:#1a6b8a;">${medCtx?.unitName || 'Unidade de Saúde'}</div>`;
-    const birthDateFormatted = studyInfo?.birthDate || '';
     const sex = studyInfo?.sex ? (studyInfo.sex.toUpperCase() === 'M' ? 'MASCULINO' : studyInfo.sex.toUpperCase() === 'F' ? 'FEMININO' : studyInfo.sex) : '';
     const studyDateFormatted = studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : '';
     const bodyHtml = docRef.current?.innerHTML || '';
@@ -331,8 +329,14 @@ export default function ReportEditorPage() {
       : '';
     const unitName = medCtx?.unitName || '';
     const generatedAt = new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const baseUrl = window.location.origin;
 
-    // Rodapé médico centralizado com assinatura + carimbo
+    // Logo: imagem da unidade ou inicial
+    const logoHtml = medCtx?.unitLogoUrl
+      ? `<img src="${medCtx.unitLogoUrl}" alt="${unitName}" style="max-height:70px;max-width:200px;object-fit:contain;display:block;" />`
+      : `<div style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#1a6b8a 0%,#6fb7c5 100%);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22pt;font-weight:700;font-family:Arial,sans-serif;">${(unitName || 'U').charAt(0).toUpperCase()}</div>`;
+
+    // ZONA 05: Rodapé médico centralizado
     const doctorFooterHtml = isSignedOrRevised && medCtx?.doctorName ? `
       <div class="doctor-footer">
         ${medCtx.signatureUrl ? `<img src="${medCtx.signatureUrl}" alt="Assinatura" class="sig-img" />` : ''}
@@ -345,110 +349,122 @@ export default function ReportEditorPage() {
       </div>
     ` : '';
 
-    // Rodapé institucional com faixa colorida
-    const institutionalFooterHtml = `
-      <div class="inst-footer">
-        <div class="inst-footer-bar"></div>
-        <div class="inst-footer-text">${LEGAL_FOOTER}</div>
-        <div class="inst-footer-date">Documento gerado em ${generatedAt}</div>
-      </div>
-    `;
-
     const html = `<!DOCTYPE html>
-    <html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Times+New+Roman&display=swap" rel="stylesheet">
-    <style>
-      @page { size: A4; margin: 20mm 20mm 25mm 20mm; }
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; color: #000; background: #fff; }
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
+<style>
+  @page { size: A4 portrait; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; color: #111; background: #fff; }
 
-      /* ── Cabeçalho: logo + linha ── */
-      .doc-header { padding-bottom: 4mm; margin-bottom: 8mm; border-bottom: 3px solid #1a6b8a; }
-      .doc-header-inner { display: flex; align-items: flex-end; justify-content: space-between; }
-      .doc-header-logo { display: flex; align-items: center; }
-      .doc-header-unit { text-align: right; font-size: 9pt; color: #555; }
+  /* ZONA 01: Cabeçalho */
+  .zone-header { position: relative; overflow: hidden; min-height: 90px; }
+  .header-wave { position: absolute; top: 0; right: 0; width: 55%; height: 100%; object-fit: cover; object-position: right top; }
+  .header-content { position: relative; z-index: 1; display: flex; align-items: center; padding: 10mm 18mm 6mm 18mm; gap: 6mm; }
+  .header-logo { flex-shrink: 0; }
+  .header-name { font-family: Arial, Helvetica, sans-serif; font-size: 16pt; font-weight: 700; color: #1a6b8a; line-height: 1.15; }
+  .header-subtitle { font-family: Arial, Helvetica, sans-serif; font-size: 8.5pt; color: #4ca8c4; letter-spacing: 0.12em; text-transform: uppercase; margin-top: 2px; }
+  .header-divider { height: 1.5px; background: #1a6b8a; margin: 0 18mm; }
 
-      /* ── Título do exame ── */
-      .exam-title { text-align: center; font-size: 13pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 8mm 0; }
+  /* ZONA 02: Título */
+  .zone-title { padding: 8mm 18mm 4mm 18mm; text-align: center; font-size: 14pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #111; }
 
-      /* ── Grid de dados do paciente ── */
-      .patient-grid { width: 100%; border-collapse: collapse; margin-bottom: 8mm; }
-      .patient-grid td { padding: 1.5mm 0; font-size: 10.5pt; vertical-align: top; width: 50%; }
-      .patient-grid .lbl { font-weight: normal; color: #000; }
-      .patient-grid .lbl::after { content: " "; }
-      .patient-grid .val { font-weight: bold; }
-      .patient-grid tr { border-bottom: 1px solid #ddd; }
+  /* ZONA 03: Dados do paciente */
+  .zone-patient { padding: 4mm 18mm; }
+  .patient-table { width: 100%; border-collapse: collapse; }
+  .patient-table td { padding: 2.5mm 4mm 2.5mm 0; font-size: 11pt; vertical-align: top; width: 50%; border-bottom: 1px solid #e0e0e0; }
+  .patient-table td.right { padding-left: 4mm; padding-right: 0; }
+  .patient-table tr:last-child td { border-bottom: none; }
+  .lbl { font-weight: 400; color: #333; }
+  .val { font-weight: 700; color: #111; }
+  .data-divider { height: 1px; background: #e0e0e0; margin: 2mm 18mm 4mm 18mm; }
 
-      /* ── Corpo do laudo ── */
-      .body { font-size: 11pt; line-height: 1.7; color: #000; text-align: justify; margin-bottom: 10mm; }
-      .body p { margin-bottom: 3mm; }
+  /* ZONA 04: Corpo */
+  .zone-body { padding: 0 18mm 6mm 18mm; font-size: 11pt; line-height: 1.45; color: #111; }
+  .zone-body p { margin-bottom: 3mm; }
 
-      /* ── Rodapé médico ── */
-      .doctor-footer { text-align: center; margin: 15mm auto 8mm; max-width: 220px; }
-      .sig-img { max-height: 50px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-      .stamp-img { max-height: 100px; max-width: 220px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-      .sig-line { border-top: 1.5px solid #333; margin-bottom: 3mm; }
-      .sig-name { font-weight: bold; font-size: 10.5pt; text-transform: uppercase; }
-      .sig-role { font-size: 9pt; color: #333; margin-top: 1mm; }
-      .sig-crm { font-size: 9pt; color: #333; margin-top: 1mm; }
-      .sig-date { font-size: 8pt; color: #666; margin-top: 2mm; }
-      .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 6px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
+  /* ZONA 05: Assinatura */
+  .doctor-footer { text-align: center; margin: 12mm auto 8mm; max-width: 260px; break-inside: avoid; }
+  .sig-img { max-height: 55px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; filter: hue-rotate(200deg) saturate(1.5); }
+  .stamp-img { max-height: 110px; max-width: 240px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .sig-line { border-top: 1.5px solid #333; width: 100%; margin-bottom: 3mm; }
+  .sig-name { font-weight: 700; font-size: 10.5pt; text-transform: uppercase; color: #111; letter-spacing: 0.02em; }
+  .sig-role { font-size: 9pt; color: #444; margin-top: 2px; letter-spacing: 0.04em; }
+  .sig-crm { font-size: 9pt; color: #444; margin-top: 1px; }
+  .sig-date { font-size: 8pt; color: #666; margin-top: 3px; }
+  .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 6px; border-radius: 3px; font-weight: 700; margin-left: 6px; vertical-align: middle; }
 
-      /* ── Rodapé institucional ── */
-      .inst-footer { position: fixed; bottom: 0; left: 0; right: 0; }
-      .inst-footer-bar { height: 8mm; background: linear-gradient(90deg, #1a6b8a 0%, #5bb8d4 100%); }
-      .inst-footer-text { background: #f0f8fb; padding: 2mm 6mm; font-size: 8pt; color: #333; text-align: center; line-height: 1.5; }
-      .inst-footer-date { background: #f0f8fb; padding: 0 6mm 2mm; font-size: 7pt; color: #888; text-align: center; }
+  /* ZONA 06: Rodapé institucional */
+  .zone-footer { position: fixed; bottom: 0; left: 0; right: 0; }
+  .footer-wave { width: 100%; display: block; height: 55px; }
+  .footer-text { background: linear-gradient(90deg, #1a6b8a 0%, #4ca8c4 50%, #6fb7c5 100%); padding: 2mm 18mm 4mm 18mm; font-size: 8.5pt; color: #fff; text-align: center; line-height: 1.6; font-family: Arial, Helvetica, sans-serif; }
+  .footer-date { font-size: 7.5pt; color: rgba(255,255,255,0.75); margin-top: 1px; }
 
-      @media print {
-        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .inst-footer { position: fixed; bottom: -20mm; left: -20mm; right: -20mm; }
-        .inst-footer-bar { height: 10mm; }
-        .doctor-footer { break-inside: avoid; }
-      }
-    </style></head><body>
-    <div style="position:relative;">
-      ${draggableHtml}
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .zone-footer { position: fixed; bottom: 0; left: 0; right: 0; }
+    .doctor-footer { break-inside: avoid; }
+  }
+</style></head><body>
+<div style="position:relative;">
+  ${draggableHtml}
 
-      <!-- Cabeçalho: logo + linha azul -->
-      <div class="doc-header">
-        <div class="doc-header-inner">
-          <div class="doc-header-logo">${logoHtml}</div>
-          ${unitName && medCtx?.unitLogoUrl ? `<div class="doc-header-unit">${unitName}</div>` : ''}
-        </div>
+  <!-- ZONA 01: Cabeçalho institucional -->
+  <div class="zone-header">
+    <img src="${baseUrl}/report-header-wave.svg" alt="" class="header-wave" />
+    <div class="header-content">
+      <div class="header-logo">${logoHtml}</div>
+      <div>
+        <div class="header-name">${unitName || 'Unidade de Saúde'}</div>
+        <div class="header-subtitle">Laudo de Exame de Imagem</div>
       </div>
-
-      <!-- Título do exame -->
-      ${examTitle ? `<div class="exam-title">${examTitle}</div>` : ''}
-
-      <!-- Grid de dados do paciente -->
-      <table class="patient-grid">
-        <tr>
-          <td><span class="lbl">PACIENTE:</span><span class="val">${patientName || '—'}</span></td>
-          <td>${birthDateFormatted ? `<span class="lbl">DATA NASC.:</span><span class="val">${birthDateFormatted}</span>` : ''}</td>
-        </tr>
-        <tr>
-          <td>${medCtx?.doctorName ? `<span class="lbl">MÉDICO:</span><span class="val">${medCtx.doctorName}</span>` : ''}</td>
-          <td>${sex ? `<span class="lbl">SEXO:</span><span class="val">${sex}</span>` : ''}</td>
-        </tr>
-        <tr>
-          <td>${unitName ? `<span class="lbl">UNIDADE:</span><span class="val">${unitName}</span>` : ''}</td>
-          <td>${studyDateFormatted ? `<span class="lbl">DATA DO LAUDO:</span><span class="val">${studyDateFormatted}</span>` : ''}</td>
-        </tr>
-      </table>
-
-      <!-- Corpo do laudo -->
-      <div class="body">${bodyHtml}</div>
-
-      <!-- Rodapé médico -->
-      ${doctorFooterHtml}
-
-      <!-- Rodapé institucional -->
-      ${institutionalFooterHtml}
     </div>
-    <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
-    </body></html>`;
-    const win = window.open('', '_blank', 'width=850,height=1000');
+  </div>
+  <div class="header-divider"></div>
+
+  <!-- ZONA 02: Título do exame -->
+  ${examTitle ? `<div class="zone-title">${examTitle}</div>` : ''}
+
+  <!-- ZONA 03: Dados do paciente -->
+  <div class="zone-patient">
+    <table class="patient-table">
+      <tr>
+        <td><span class="lbl">PACIENTE: </span><span class="val">${patientName || '—'}</span></td>
+        <td class="right">${studyInfo?.birthDate ? `<span class="lbl">NASCIMENTO: </span><span class="val">${studyInfo.birthDate}</span>` : ''}</td>
+      </tr>
+      <tr>
+        <td>${medCtx?.doctorName ? `<span class="lbl">SOLICITANTE: </span><span class="val">${medCtx.doctorName}</span>` : ''}</td>
+        <td class="right">${sex ? `<span class="lbl">SEXO: </span><span class="val">${sex}</span>` : ''}</td>
+      </tr>
+      <tr>
+        <td>${studyInfo?.modality ? `<span class="lbl">SETOR: </span><span class="val">${studyInfo.modality}</span>` : (unitName ? `<span class="lbl">UNIDADE: </span><span class="val">${unitName}</span>` : '')}</td>
+        <td class="right">${studyDateFormatted ? `<span class="lbl">DATA DO LAUDO: </span><span class="val">${studyDateFormatted}</span>` : ''}</td>
+      </tr>
+      <tr>
+        <td>${studyInfo?.accessionNumber ? `<span class="lbl">ATENDIMENTO: </span><span class="val">${studyInfo.accessionNumber}</span>` : ''}</td>
+        <td class="right"></td>
+      </tr>
+    </table>
+  </div>
+  <div class="data-divider"></div>
+
+  <!-- ZONA 04: Corpo do laudo -->
+  <div class="zone-body">${bodyHtml}</div>
+
+  <!-- ZONA 05: Assinatura / Carimbo -->
+  ${doctorFooterHtml}
+
+  <!-- ZONA 06: Rodapé institucional -->
+  <div class="zone-footer">
+    <img src="${baseUrl}/report-footer-wave.svg" alt="" class="footer-wave" />
+    <div class="footer-text">
+      <div>${LEGAL_FOOTER}</div>
+      <div class="footer-date">Documento gerado em ${generatedAt}</div>
+    </div>
+  </div>
+</div>
+<script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
+</body></html>`;
+    const win = window.open('', '_blank', 'width=850,height=1100');
     if (win) { win.document.write(html); win.document.close(); }
   }, [medCtx, patientName, studyInfo, examTitle, docRef, draggableImages, existingReport]);
 
@@ -703,29 +719,87 @@ export default function ReportEditorPage() {
               </div>
             ))}
 
-            {/* Conteúdo do documento — layout clássico radiológico (WYSIWYG) */}
-            <div style={{ padding: "20mm 20mm 30mm 20mm", fontFamily: "'Times New Roman', Times, serif", fontSize: "11pt", color: "#000", boxSizing: "border-box" }}>
+            {/* ═══════════════════════════════════════════════════════════
+                 DOCUMENTO LAUDO — Layout Institucional (WYSIWYG)
+                 6 Zonas: Cabeçalho | Título | Dados | Corpo | Assinatura | Rodapé
+            ═══════════════════════════════════════════════════════════ */}
+            <div style={{
+              width: "794px",
+              minHeight: "1123px",
+              background: "#fff",
+              fontFamily: "'Times New Roman', Times, serif",
+              fontSize: "11pt",
+              color: "#111",
+              boxSizing: "border-box",
+              position: "relative",
+              display: "flex",
+              flexDirection: "column",
+            }}>
 
-              {/* ── Cabeçalho: logo + linha azul ── */}
-              <div style={{ paddingBottom: "4mm", marginBottom: "8mm", borderBottom: "3px solid #1a6b8a" }}>
-                <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
-                  <div>
+              {/* ══ ZONA 01 — CABEÇALHO INSTITUCIONAL ══════════════════════════ */}
+              <div style={{ position: "relative", overflow: "hidden", minHeight: 90 }}>
+                {/* Faixa decorativa SVG no topo */}
+                <img
+                  src="/report-header-wave.svg"
+                  alt=""
+                  aria-hidden="true"
+                  style={{ position: "absolute", top: 0, right: 0, width: "55%", height: "100%", objectFit: "cover", objectPosition: "right top", pointerEvents: "none" }}
+                />
+                {/* Conteúdo do cabeçalho */}
+                <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", padding: "10mm 18mm 6mm 18mm", gap: "6mm" }}>
+                  {/* Logo da unidade */}
+                  <div style={{ flexShrink: 0 }}>
                     {medCtx?.unitLogoUrl ? (
-                      <img src={medCtx.unitLogoUrl} alt="Logo" style={{ maxHeight: 80, maxWidth: 260, objectFit: "contain" }} />
+                      <img
+                        src={medCtx.unitLogoUrl}
+                        alt={medCtx.unitName || "Logo"}
+                        style={{ maxHeight: 70, maxWidth: 200, objectFit: "contain", display: "block" }}
+                      />
                     ) : (
-                      <div style={{ fontSize: "18pt", fontWeight: 700, color: "#1a6b8a" }}>{medCtx?.unitName || "Unidade de Saúde"}</div>
+                      <div style={{
+                        width: 64, height: 64, borderRadius: "50%",
+                        background: "linear-gradient(135deg, #1a6b8a 0%, #6fb7c5 100%)",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        color: "#fff", fontSize: "22pt", fontWeight: 700,
+                        fontFamily: "Arial, sans-serif", letterSpacing: "-1px",
+                      }}>
+                        {(medCtx?.unitName || "U").charAt(0).toUpperCase()}
+                      </div>
                     )}
                   </div>
-                  {medCtx?.unitLogoUrl && medCtx?.unitName && (
-                    <div style={{ textAlign: "right", fontSize: "9pt", color: "#555" }}>{medCtx.unitName}</div>
-                  )}
+                  {/* Nome e subtítulo da instituição */}
+                  <div style={{ flex: 1 }}>
+                    <div style={{
+                      fontFamily: "Arial, Helvetica, sans-serif",
+                      fontSize: "16pt",
+                      fontWeight: 700,
+                      color: "#1a6b8a",
+                      lineHeight: 1.15,
+                      letterSpacing: "0.01em",
+                    }}>
+                      {medCtx?.unitName || "Unidade de Saúde"}
+                    </div>
+                    <div style={{
+                      fontFamily: "Arial, Helvetica, sans-serif",
+                      fontSize: "8.5pt",
+                      color: "#4ca8c4",
+                      letterSpacing: "0.12em",
+                      textTransform: "uppercase",
+                      marginTop: 2,
+                    }}>
+                      Laudo de Exame de Imagem
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* ── Título do exame — clicável para edição inline ── */}
-              {examTitle && (
-                <div style={{ marginBottom: "8mm" }}>
-                  {editingTitle ? (
+              {/* Separador fino abaixo do cabeçalho */}
+              <div style={{ height: 1.5, background: "#1a6b8a", margin: "0 18mm 0 18mm" }} />
+
+              {/* ══ ZONA 02 — TÍTULO DO EXAME ══════════════════════════════════ */}
+              <div style={{ padding: "8mm 18mm 4mm 18mm" }}>
+                {examTitle ? (
+                  editingTitle ? (
                     <input
                       ref={titleInputRef}
                       value={examTitle}
@@ -737,9 +811,9 @@ export default function ReportEditorPage() {
                         width: "100%",
                         textAlign: "center",
                         fontWeight: "bold",
-                        fontSize: "13pt",
+                        fontSize: "14pt",
                         textTransform: "uppercase",
-                        letterSpacing: "0.04em",
+                        letterSpacing: "0.05em",
                         fontFamily: "'Times New Roman', Times, serif",
                         border: "2px solid #1a6b8a",
                         borderRadius: 4,
@@ -747,6 +821,7 @@ export default function ReportEditorPage() {
                         outline: "none",
                         background: "#f0f8fb",
                         boxSizing: "border-box",
+                        color: "#111",
                       }}
                     />
                   ) : (
@@ -756,117 +831,191 @@ export default function ReportEditorPage() {
                       style={{
                         textAlign: "center",
                         fontWeight: "bold",
-                        fontSize: "13pt",
+                        fontSize: "14pt",
                         textTransform: "uppercase",
-                        letterSpacing: "0.04em",
+                        letterSpacing: "0.05em",
                         cursor: "pointer",
-                        padding: "2px 24px 2px 4px",
+                        color: "#111",
                         position: "relative",
                         display: "inline-block",
                         width: "100%",
                       }}
                     >
                       {examTitle}
-                      <span style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", fontSize: "9pt", color: "#1a6b8a", opacity: 0.5 }}>✏️</span>
+                      <span style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", fontSize: "9pt", color: "#1a6b8a", opacity: 0.4 }}>✏</span>
                     </div>
-                  )}
-                </div>
-              )}
+                  )
+                ) : (
+                  <div style={{ textAlign: "center", color: "#aaa", fontSize: "11pt", fontStyle: "italic" }}>Selecione o tipo de exame na barra lateral</div>
+                )}
+              </div>
 
-              {/* ── Grid de dados do paciente em 2 colunas ── */}
-              <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "8mm" }}>
-                <tbody>
-                  <tr style={{ borderBottom: "1px solid #ddd" }}>
-                    <td style={{ padding: "1.5mm 0", fontSize: "10.5pt", width: "50%" }}>
-                      <span>PACIENTE: </span><strong>{patientName || "—"}</strong>
-                    </td>
-                    <td style={{ padding: "1.5mm 0", fontSize: "10.5pt", width: "50%" }}>
-                      {studyInfo?.birthDate && <><span>DATA NASC.: </span><strong>{studyInfo.birthDate}</strong></>}
-                    </td>
-                  </tr>
-                  <tr style={{ borderBottom: "1px solid #ddd" }}>
-                    <td style={{ padding: "1.5mm 0", fontSize: "10.5pt" }}>
-                      {medCtx?.doctorName && <><span>MÉDICO: </span><strong>{medCtx.doctorName}</strong></>}
-                    </td>
-                    <td style={{ padding: "1.5mm 0", fontSize: "10.5pt" }}>
-                      {studyInfo?.sex && <><span>SEXO: </span><strong>{studyInfo.sex.toUpperCase() === "M" ? "MASCULINO" : studyInfo.sex.toUpperCase() === "F" ? "FEMININO" : studyInfo.sex}</strong></>}
-                    </td>
-                  </tr>
-                  <tr style={{ borderBottom: "1px solid #ddd" }}>
-                    <td style={{ padding: "1.5mm 0", fontSize: "10.5pt" }}>
-                      {medCtx?.unitName && <><span>UNIDADE: </span><strong>{medCtx.unitName}</strong></>}
-                    </td>
-                    <td style={{ padding: "1.5mm 0", fontSize: "10.5pt" }}>
-                      {studyInfo?.studyDate && <><span>DATA DO LAUDO: </span><strong>{formatDicomDate(studyInfo.studyDate)}</strong></>}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              {/* ══ ZONA 03 — IDENTIFICAÇÃO DO PACIENTE E EXAME ════════════════ */}
+              <div style={{ padding: "4mm 18mm 4mm 18mm" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <tbody>
+                    {/* Linha 1: Paciente | Idade */}
+                    <tr>
+                      <td style={{ padding: "2.5mm 4mm 2.5mm 0", fontSize: "11pt", width: "52%", verticalAlign: "top", borderBottom: "1px solid #e0e0e0" }}>
+                        <span style={{ fontWeight: 400, color: "#333" }}>PACIENTE: </span>
+                        <strong style={{ color: "#111" }}>{patientName || "—"}</strong>
+                      </td>
+                      <td style={{ padding: "2.5mm 0 2.5mm 4mm", fontSize: "11pt", width: "48%", verticalAlign: "top", borderBottom: "1px solid #e0e0e0" }}>
+                        {studyInfo?.birthDate && (
+                          <><span style={{ fontWeight: 400, color: "#333" }}>NASCIMENTO: </span><strong style={{ color: "#111" }}>{studyInfo.birthDate}</strong></>
+                        )}
+                      </td>
+                    </tr>
+                    {/* Linha 2: Convênio/Solicitante | Sexo */}
+                    <tr>
+                      <td style={{ padding: "2.5mm 4mm 2.5mm 0", fontSize: "11pt", verticalAlign: "top", borderBottom: "1px solid #e0e0e0" }}>
+                        {medCtx?.doctorName && (
+                          <><span style={{ fontWeight: 400, color: "#333" }}>SOLICITANTE: </span><strong style={{ color: "#111" }}>{medCtx.doctorName}</strong></>
+                        )}
+                      </td>
+                      <td style={{ padding: "2.5mm 0 2.5mm 4mm", fontSize: "11pt", verticalAlign: "top", borderBottom: "1px solid #e0e0e0" }}>
+                        {studyInfo?.sex && (
+                          <><span style={{ fontWeight: 400, color: "#333" }}>SEXO: </span><strong style={{ color: "#111" }}>{studyInfo.sex.toUpperCase() === "M" ? "MASCULINO" : studyInfo.sex.toUpperCase() === "F" ? "FEMININO" : studyInfo.sex}</strong></>
+                        )}
+                      </td>
+                    </tr>
+                    {/* Linha 3: Setor/Modalidade | Data do Laudo */}
+                    <tr>
+                      <td style={{ padding: "2.5mm 4mm 2.5mm 0", fontSize: "11pt", verticalAlign: "top", borderBottom: "1px solid #e0e0e0" }}>
+                        {studyInfo?.modality && (
+                          <><span style={{ fontWeight: 400, color: "#333" }}>SETOR: </span><strong style={{ color: "#111" }}>{studyInfo.modality}</strong></>
+                        )}
+                      </td>
+                      <td style={{ padding: "2.5mm 0 2.5mm 4mm", fontSize: "11pt", verticalAlign: "top", borderBottom: "1px solid #e0e0e0" }}>
+                        {studyInfo?.studyDate && (
+                          <><span style={{ fontWeight: 400, color: "#333" }}>DATA DO LAUDO: </span><strong style={{ color: "#111" }}>{formatDicomDate(studyInfo.studyDate)}</strong></>
+                        )}
+                      </td>
+                    </tr>
+                    {/* Linha 4: Unidade | Atendimento */}
+                    <tr>
+                      <td style={{ padding: "2.5mm 4mm 2.5mm 0", fontSize: "11pt", verticalAlign: "top" }}>
+                        {medCtx?.unitName && (
+                          <><span style={{ fontWeight: 400, color: "#333" }}>UNIDADE: </span><strong style={{ color: "#111" }}>{medCtx.unitName}</strong></>
+                        )}
+                      </td>
+                      <td style={{ padding: "2.5mm 0 2.5mm 4mm", fontSize: "11pt", verticalAlign: "top" }}>
+                        {studyInfo?.accessionNumber && (
+                          <><span style={{ fontWeight: 400, color: "#333" }}>ATENDIMENTO: </span><strong style={{ color: "#111" }}>{studyInfo.accessionNumber}</strong></>
+                        )}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
 
-              {/* ── Banner de laudo assinado (apenas na tela) ── */}
-              {isSigned && !isRevising && (
-                <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "8px 12px", marginBottom: 12, fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8 }}>
-                  <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
-                  <span>Laudo <strong>{existingReport?.status === "revised" ? "retificado" : "assinado"}</strong> — clique em <strong>Retificar</strong> para editar.</span>
-                </div>
-              )}
+              {/* Separador antes do corpo */}
+              <div style={{ height: 1, background: "#e0e0e0", margin: "2mm 18mm 4mm 18mm" }} />
 
-              {/* ── Corpo editável ── */}
-              <div
-                ref={docRef}
-                contentEditable={isEditable}
-                suppressContentEditableWarning
-                onMouseUp={isEditable ? saveSelection : undefined}
-                onKeyUp={isEditable ? saveSelection : undefined}
-                data-placeholder="Digite o laudo aqui..."
-                style={{
-                  minHeight: "100mm",
-                  outline: "none",
-                  lineHeight: 1.7,
-                  fontSize: "11pt",
-                  color: "#000",
-                  textAlign: "justify",
-                  whiteSpace: "pre-wrap",
-                  cursor: isEditable ? "text" : "default",
-                  fontFamily: "'Times New Roman', Times, serif",
-                  marginBottom: "10mm",
-                }}
-              />
+              {/* ══ ZONA 04 — CORPO DO LAUDO ═══════════════════════════════════ */}
+              <div style={{ flex: 1, padding: "0 18mm 6mm 18mm" }}>
 
-              {/* ── Rodapé médico centralizado (só quando assinado) ── */}
+                {/* Banner de laudo assinado (apenas na tela) */}
+                {isSigned && !isRevising && (
+                  <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "7px 12px", marginBottom: 12, fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8 }}>
+                    <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
+                    <span>Laudo <strong>{existingReport?.status === "revised" ? "retificado" : "assinado"}</strong> — clique em <strong>Retificar</strong> para editar.</span>
+                  </div>
+                )}
+
+                {/* Área editável do laudo */}
+                <div
+                  ref={docRef}
+                  contentEditable={isEditable}
+                  suppressContentEditableWarning
+                  onMouseUp={isEditable ? saveSelection : undefined}
+                  onKeyUp={isEditable ? saveSelection : undefined}
+                  data-placeholder="Digite o laudo aqui..."
+                  style={{
+                    minHeight: "80mm",
+                    outline: "none",
+                    lineHeight: 1.45,
+                    fontSize: "11pt",
+                    color: "#111",
+                    textAlign: "left",
+                    whiteSpace: "pre-wrap",
+                    cursor: isEditable ? "text" : "default",
+                    fontFamily: "'Times New Roman', Times, serif",
+                  }}
+                />
+              </div>
+
+              {/* ══ ZONA 05 — ASSINATURA / CARIMBO MÉDICO ══════════════════════ */}
               {isSigned && medCtx?.doctorName && (
-                <div style={{ textAlign: "center", margin: "15mm auto 8mm", maxWidth: 220 }}>
-                  {medCtx.signatureUrl && (
-                    <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 50, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />
-                  )}
-                  {medCtx.stampUrl && (
-                    <img src={medCtx.stampUrl} alt="Carimbo" style={{ maxHeight: 100, maxWidth: 220, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />
-                  )}
-                  <div style={{ borderTop: "1.5px solid #333", marginBottom: "3mm" }} />
-                  <div style={{ fontWeight: "bold", fontSize: "10.5pt", textTransform: "uppercase" }}>
-                    {medCtx.doctorName}
-                    {existingReport?.status === "revised" && (
-                      <span style={{ background: "#f59e0b", color: "#fff", fontSize: "7pt", padding: "1px 6px", borderRadius: 3, fontWeight: 700, marginLeft: 5, verticalAlign: "middle" }}>RETIFICADO</span>
+                <div style={{ padding: "8mm 18mm 6mm 18mm", display: "flex", justifyContent: "center" }}>
+                  <div style={{ textAlign: "center", minWidth: 180, maxWidth: 260 }}>
+                    {/* Assinatura digitalizada */}
+                    {medCtx.signatureUrl && (
+                      <img
+                        src={medCtx.signatureUrl}
+                        alt="Assinatura"
+                        style={{ maxHeight: 55, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2mm", filter: "hue-rotate(200deg) saturate(1.5)" }}
+                      />
+                    )}
+                    {/* Carimbo */}
+                    {medCtx.stampUrl && (
+                      <img
+                        src={medCtx.stampUrl}
+                        alt="Carimbo"
+                        style={{ maxHeight: 110, maxWidth: 240, objectFit: "contain", display: "block", margin: "0 auto 2mm" }}
+                      />
+                    )}
+                    {/* Linha de assinatura */}
+                    <div style={{ borderTop: "1.5px solid #333", width: "100%", marginBottom: "3mm" }} />
+                    {/* Nome do médico */}
+                    <div style={{ fontWeight: 700, fontSize: "10.5pt", textTransform: "uppercase", color: "#111", letterSpacing: "0.02em" }}>
+                      {medCtx.doctorName}
+                      {existingReport?.status === "revised" && (
+                        <span style={{ background: "#f59e0b", color: "#fff", fontSize: "7pt", padding: "1px 6px", borderRadius: 3, fontWeight: 700, marginLeft: 6, verticalAlign: "middle" }}>RETIFICADO</span>
+                      )}
+                    </div>
+                    {/* Especialidade */}
+                    <div style={{ fontSize: "9pt", color: "#444", marginTop: 2, letterSpacing: "0.04em" }}>MÉDICO RADIOLOGISTA</div>
+                    {/* CRM */}
+                    {medCtx.crm && (
+                      <div style={{ fontSize: "9pt", color: "#444", marginTop: 1 }}>CRM: {medCtx.crm}</div>
+                    )}
+                    {/* Data de assinatura */}
+                    {existingReport?.signedAt && (
+                      <div style={{ fontSize: "8pt", color: "#666", marginTop: 3 }}>
+                        Assinado em: {new Date(existingReport.signedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </div>
                     )}
                   </div>
-                  <div style={{ fontSize: "9pt", color: "#333", marginTop: 1 }}>MÉDICO RADIOLOGISTA</div>
-                  {medCtx.crm && <div style={{ fontSize: "9pt", color: "#333", marginTop: 1 }}>CRM: {medCtx.crm}</div>}
-                  {existingReport?.signedAt && (
-                    <div style={{ fontSize: "8pt", color: "#666", marginTop: 2 }}>
-                      Assinado em: {new Date(existingReport.signedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                    </div>
-                  )}
                 </div>
               )}
 
-              {/* ── Rodapé institucional com faixa colorida ── */}
-              <div style={{ marginTop: "8mm" }}>
-                <div style={{ height: 8, background: "linear-gradient(90deg, #1a6b8a 0%, #5bb8d4 100%)", marginLeft: "-20mm", marginRight: "-20mm" }} />
-                <div style={{ background: "#f0f8fb", padding: "2mm 0", fontSize: "8pt", color: "#333", textAlign: "center", lineHeight: 1.5, marginLeft: "-20mm", marginRight: "-20mm", paddingLeft: "20mm", paddingRight: "20mm" }}>
-                  {LEGAL_FOOTER}
-                  <div style={{ fontSize: "7pt", color: "#888", marginTop: 1 }}>Documento gerado em {new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+              {/* ══ ZONA 06 — RODAPÉ INSTITUCIONAL ════════════════════════════ */}
+              <div style={{ marginTop: "auto" }}>
+                {/* Faixa SVG curva */}
+                <img
+                  src="/report-footer-wave.svg"
+                  alt=""
+                  aria-hidden="true"
+                  style={{ width: "100%", display: "block", height: 55 }}
+                />
+                {/* Texto institucional sobre a faixa */}
+                <div style={{
+                  background: "linear-gradient(90deg, #1a6b8a 0%, #4ca8c4 50%, #6fb7c5 100%)",
+                  padding: "2mm 18mm 4mm 18mm",
+                  fontSize: "8.5pt",
+                  color: "#fff",
+                  textAlign: "center",
+                  lineHeight: 1.6,
+                  fontFamily: "Arial, Helvetica, sans-serif",
+                }}>
+                  <div>{LEGAL_FOOTER}</div>
+                  <div style={{ fontSize: "7.5pt", color: "rgba(255,255,255,0.75)", marginTop: 1 }}>
+                    Documento gerado em {new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </div>
                 </div>
               </div>
+
             </div>
           </div>
         </main>
