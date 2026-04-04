@@ -339,8 +339,8 @@ export default function ReportEditorPage() {
     const doctorFooterHtml = isSignedOrRevised && medCtx?.doctorName ? `
       <div class="doctor-footer">
         <div class="doctor-footer-inner">
-          ${medCtx.stampUrl ? `<img src="${medCtx.stampUrl}" alt="Carimbo" style="max-height:80px;max-width:200px;object-fit:contain;display:block;margin:0 auto 3mm;" />` : ''}
-          ${medCtx.signatureUrl ? `<img src="${medCtx.signatureUrl}" alt="Assinatura" style="max-height:50px;max-width:180px;object-fit:contain;display:block;margin:0 auto 2mm;" />` : ''}
+          ${medCtx.stampUrl ? `<img src="${medCtx.stampUrl}" alt="Carimbo" class="stamp-img" />` : ''}
+          ${medCtx.signatureUrl ? `<img src="${medCtx.signatureUrl}" alt="Assinatura" class="sig-img" />` : ''}
           <div class="sig-line">
             <div class="sig-name">${medCtx.doctorName}${existingReport?.status === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
             ${medCtx.crm ? `<div class="sig-crm">CRM: ${medCtx.crm}</div>` : ''}
@@ -350,45 +350,97 @@ export default function ReportEditorPage() {
       </div>
     ` : '';
 
+    // Nome da unidade para o cabeçalho
+    const unitName = medCtx?.unitName || '';
+    const generatedAt = new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
     const html = `<!DOCTYPE html>
     <html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-      @page { size: A4; margin: 0; }
+      @page { size: A4; margin: 15mm 18mm 20mm 18mm; }
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { margin: 0; font-family: 'Source Sans 3', 'Arial', sans-serif; font-size: 11pt; color: #1a1a1a; background: #fff; }
-      .doc { position: relative; width: 210mm; min-height: 297mm; padding: 18mm 22mm 32mm 22mm; }
-      .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 6mm; border-bottom: 1.5px solid #d0d0d0; margin-bottom: 7mm; }
-      .header-logo { display: flex; align-items: center; }
-      .header-patient { text-align: right; font-size: 10pt; line-height: 1.9; color: #1a1a1a; }
-      .header-patient .label { font-weight: 700; }
-      .header-patient .row { display: block; }
-      .exam-title { text-align: center; font-size: 13pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 7mm 0; color: #111; }
-      .body { min-height: 120mm; font-size: 11pt; line-height: 1.85; color: #1a1a1a; text-align: justify; }
-      .doctor-footer { margin-top: 12mm; display: flex; justify-content: center; }
-      .doctor-footer-inner { text-align: center; min-width: 180px; }
-      .doctor-footer-inner .sig-line { border-top: 1px solid #444; margin-top: 2mm; padding-top: 3mm; font-size: 10pt; }
-      .doctor-footer-inner .sig-name { font-weight: 700; font-size: 10.5pt; }
-      .doctor-footer-inner .sig-crm { font-size: 9.5pt; color: #333; margin-top: 1mm; }
-      .doctor-footer-inner .sig-date { font-size: 8.5pt; color: #666; margin-top: 1mm; }
+      body { font-family: 'Inter', 'Arial', sans-serif; font-size: 10.5pt; color: #111; background: #fff; }
+
+      /* ── Cabeçalho ── */
+      .header { display: flex; align-items: stretch; gap: 0; margin-bottom: 6mm; border: 1px solid #d4d4d4; border-radius: 4px; overflow: hidden; }
+      .header-logo-col { display: flex; align-items: center; justify-content: center; padding: 5mm 6mm; background: #f8f9fa; border-right: 1px solid #d4d4d4; min-width: 52mm; }
+      .header-info-col { flex: 1; padding: 4mm 6mm; }
+      .header-unit-name { font-size: 12pt; font-weight: 700; color: #1a3a5c; margin-bottom: 1mm; }
+      .header-unit-sub { font-size: 8.5pt; color: #666; letter-spacing: 0.03em; text-transform: uppercase; }
+      .header-divider { width: 1px; background: #d4d4d4; margin: 4mm 0; }
+      .header-patient-col { padding: 4mm 6mm; min-width: 68mm; }
+      .header-patient-col .pt-row { display: flex; gap: 2mm; font-size: 9.5pt; line-height: 1.75; }
+      .header-patient-col .pt-label { font-weight: 600; color: #444; white-space: nowrap; }
+      .header-patient-col .pt-value { color: #111; }
+      .pt-name { font-size: 10.5pt; font-weight: 700; color: #111; margin-bottom: 1.5mm; }
+
+      /* ── Título do exame ── */
+      .exam-title-wrap { margin: 5mm 0 4mm 0; }
+      .exam-title { display: block; text-align: center; font-size: 11.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #1a3a5c; padding: 2.5mm 0; border-top: 2px solid #1a3a5c; border-bottom: 2px solid #1a3a5c; }
+
+      /* ── Seção LAUDO ── */
+      .section-label { font-size: 8pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #1a3a5c; margin: 5mm 0 2mm 0; padding-bottom: 1mm; border-bottom: 1px solid #1a3a5c; }
+      .body { min-height: 100mm; font-size: 10.5pt; line-height: 1.9; color: #111; text-align: justify; }
+      .body p { margin-bottom: 2mm; }
+
+      /* ── Rodapé médico ── */
+      .doctor-footer { margin-top: 10mm; display: flex; justify-content: center; }
+      .doctor-footer-inner { text-align: center; min-width: 200px; max-width: 260px; }
+      .stamp-img { max-height: 90px; max-width: 220px; object-fit: contain; display: block; margin: 0 auto 3mm; }
+      .sig-img { max-height: 45px; max-width: 180px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+      .sig-line { border-top: 1.5px solid #333; margin-top: 2mm; padding-top: 3mm; }
+      .sig-name { font-weight: 700; font-size: 10pt; color: #111; }
+      .sig-crm { font-size: 9pt; color: #444; margin-top: 1mm; }
+      .sig-date { font-size: 8pt; color: #666; margin-top: 1mm; }
       .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 6px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
-      .footer { position: absolute; bottom: 10mm; left: 22mm; right: 22mm; border-top: 1px solid #e0e0e0; padding-top: 3mm; font-size: 7pt; color: #888; line-height: 1.5; text-align: center; }
-      @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+
+      /* ── Rodapé legal ── */
+      .legal-footer { margin-top: 8mm; padding-top: 3mm; border-top: 1px solid #e0e0e0; font-size: 7pt; color: #999; line-height: 1.55; text-align: center; }
+      .legal-footer .gen-date { font-size: 7pt; color: #bbb; margin-top: 1.5mm; }
+
+      @media print {
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .header { break-inside: avoid; }
+        .doctor-footer { break-inside: avoid; }
+      }
     </style></head><body>
-    <div class="doc">
+    <div style="position:relative;">
       ${draggableHtml}
+
+      <!-- Cabeçalho -->
       <div class="header">
-        <div class="header-logo">${logoHtml}</div>
-        <div class="header-patient">
-          <span class="row"><span class="label">Paciente:</span> ${patientName}</span>
-          ${birthDateFormatted ? `<span class="row"><span class="label">Nascimento:</span> ${birthDateFormatted}${sex ? ` &nbsp;|&nbsp; <span class="label">Sexo:</span> ${sex}` : ''}</span>` : (sex ? `<span class="row"><span class="label">Sexo:</span> ${sex}</span>` : '')}
-          ${studyDateFormatted ? `<span class="row"><span class="label">Realizado em:</span> ${studyDateFormatted}</span>` : ''}
+        <div class="header-logo-col">
+          ${logoHtml}
+        </div>
+        <div class="header-info-col">
+          <div class="header-unit-name">${unitName || 'Unidade de Saúde'}</div>
+          <div class="header-unit-sub">Laudo de Exame de Imagem</div>
+        </div>
+        <div class="header-divider"></div>
+        <div class="header-patient-col">
+          <div class="pt-name">${patientName || '—'}</div>
+          ${birthDateFormatted ? `<div class="pt-row"><span class="pt-label">Nasc.:</span><span class="pt-value">${birthDateFormatted}${sex ? ` &nbsp;·&nbsp; Sexo: ${sex}` : ''}</span></div>` : (sex ? `<div class="pt-row"><span class="pt-label">Sexo:</span><span class="pt-value">${sex}</span></div>` : '')}
+          ${studyDateFormatted ? `<div class="pt-row"><span class="pt-label">Realizado:</span><span class="pt-value">${studyDateFormatted}</span></div>` : ''}
+          ${medCtx?.doctorName ? `<div class="pt-row"><span class="pt-label">Médico:</span><span class="pt-value">${medCtx.doctorName}</span></div>` : ''}
         </div>
       </div>
-      ${titleHtml}
+
+      <!-- Título do Exame -->
+      ${examTitle ? `<div class="exam-title-wrap"><span class="exam-title">${examTitle}</span></div>` : ''}
+
+      <!-- Corpo do Laudo -->
+      <div class="section-label">Laudo</div>
       <div class="body">${bodyHtml}</div>
+
+      <!-- Assinatura -->
       ${doctorFooterHtml}
-      <div class="footer">${LEGAL_FOOTER}</div>
+
+      <!-- Rodapé legal -->
+      <div class="legal-footer">
+        ${LEGAL_FOOTER}
+        <div class="gen-date">Documento gerado em ${generatedAt}</div>
+      </div>
     </div>
     <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
     </body></html>`;
