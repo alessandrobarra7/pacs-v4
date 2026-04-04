@@ -135,10 +135,9 @@ export default function UnitFormDialog({
     if (!pacsIp.trim()) { toast.error("Informe o IP do PACS"); return; }
     const port = parseInt(pacsPort);
     if (isNaN(port) || port < 1 || port > 65535) { toast.error("Porta PACS inválida"); return; }
-    // Upload do logo se houver novo arquivo
-    if (unit?.id && logoFile) {
-      updateLogo.mutate({ unitId: unit.id, logoFile });
-    }
+    // Bug fix 4.3: não chamar updateLogo aqui diretamente
+    // O logo é passado via _logoFile para o parent (AdminPage) que faz o upload
+    // após obter o ID da unidade (necessário para novas unidades)
     onSave({
       id: unit?.id,
       name: name.trim(),
@@ -150,7 +149,8 @@ export default function UnitFormDialog({
       pacs_ae_title: pacsAeTitle.trim(),
       pacs_local_ae_title: pacsLocalAeTitle.trim() || "LAUDS",
       isActive,
-    });
+      _logoFile: logoFile || undefined,
+    } as any);
   };
 
   return (

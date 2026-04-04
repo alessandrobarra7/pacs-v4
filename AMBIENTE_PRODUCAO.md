@@ -23,7 +23,7 @@ cd /var/www/pacs-portal && git log -1 --format="%H | %ad | %s" --date=format:"%d
 
 # Atualizar código + recompilar + reiniciar (comando completo)
 cd /var/www/pacs-portal \
-  && git remote set-url github https://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@github.com/alessandrobarra7/pacs-v4.git 2>/dev/null || true \
+  && git remote set-url github https://[TOKEN]@github.com/alessandrobarra7/pacs-v4.git 2>/dev/null || true \
   && git pull github main \
   && pnpm build \
   && pm2 restart all
@@ -61,7 +61,7 @@ mysql -u pacs_user -pPacsPortal2025 -h 172.16.3.101 pacs_portal -e "SHOW TABLES;
 ## GitHub
 
 - **Repositório:** https://github.com/alessandrobarra7/pacs-v4
-- **Token PAT:** `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`
+- **Token PAT:** `[REDACTED — ver PRODUCTION_CREDENTIALS.md local]`
 - **Branch principal:** `main`
 
 ### Push manual para o GitHub (executar no sandbox Manus)

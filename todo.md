@@ -662,3 +662,15 @@
 - [x] Novo layout clássico radiológico: logo topo-esquerdo + linha divisória, título centralizado, grid 2 colunas (PACIENTE/CONVÊNIO/SOLICITANTE/SETOR | IDADE/SEXO/DATA/ATENDIMENTO), corpo do laudo, rodapé médico centralizado com assinatura+carimbo, rodapé institucional com faixa colorida
 - [x] Layout institucional completo do laudo: 6 zonas (cabeçalho logo+faixa SVG, título, grid 2 colunas, corpo, assinatura, rodapé SVG), paleta azul/turquesa, tipografia serifada, WYSIWYG
 - [x] Redesenho do layout do laudo: cabeçalho com box de logo + dados mínimos do paciente (nome, data realização, data nascimento), área central com seletor de exame + editor, rodapé inalterado
+
+## Auditoria de Upload de Imagens (04/04/2026)
+
+- [x] [CRÍTICO] Corrigir signatureFile: undefined → signatureFile: signatureFile ?? undefined em UserFormDialog.tsx:297
+- [x] [CRÍTICO] Passar _signatureFile no onSave para novos usuários em UserFormDialog.tsx
+- [x] [CRÍTICO] Tratar upload de assinatura pós-criação em AdminPage.tsx
+- [x] [CRÍTICO] Passar _logoFile no onSave de UnitFormDialog.tsx
+- [x] [CRÍTICO] Declarar updateLogo e tratar upload de logo pós-criação/edição em AdminPage.tsx
+- [x] [MÉDIO] Corrigir regex base64 nos 3 endpoints de upload em routers.ts (linhas 1702, 1724, 1763)
+- [x] [MÉDIO] Adicionar validação de magic bytes server-side em routers.ts
+- [x] [MÉDIO] Adicionar limite de tamanho server-side (2 MB) em routers.ts
+- [x] [ESTRUTURAL] Documentar volume persistente para ./uploads/ em DEPLOY.md

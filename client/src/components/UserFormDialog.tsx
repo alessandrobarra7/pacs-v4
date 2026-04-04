@@ -293,8 +293,11 @@ export default function UserFormDialog({
     // Username obrigatório apenas para novos usuários locais (não para edição de usuários OAuth)
     if (!isEditing && !username.trim()) { toast.error("Informe o nome de usuário (login)"); return; }
     if (!isEditing && !password.trim()) { toast.error("Defina uma senha para o novo usuário"); return; }
-    if (isEditing && user?.id && (role === "medico" || role === "unit_admin") && crm.trim()) {
-      updateMedical.mutate({ userId: user.id, crm: crm.trim() || undefined, signatureFile: undefined });
+    if (isEditing && user?.id && (role === "medico" || role === "unit_admin")) {
+      // Bug fix 4.1: signatureFile era sempre undefined — agora envia o arquivo selecionado
+      if (crm.trim() || signatureFile) {
+        updateMedical.mutate({ userId: user.id, crm: crm.trim() || undefined, signatureFile: signatureFile ?? undefined });
+      }
     }
     if (isEditing && user?.id && stampFile) {
       updateStamp.mutate({ userId: user.id, stampFile });
@@ -311,8 +314,10 @@ export default function UserFormDialog({
       expiration_date: expirationDate,
       permissions,
       crm: crm.trim() || undefined,
-      // Pass stampFile so parent can upload after user creation
+      // Pass stampFile e signatureFile para o parent fazer upload após criação do usuário
+      // Bug fix 4.2: _signatureFile agora é passado para novos usuários
       _stampFile: !isEditing ? stampFile || undefined : undefined,
+      _signatureFile: !isEditing ? signatureFile || undefined : undefined,
     } as any);
   };
 

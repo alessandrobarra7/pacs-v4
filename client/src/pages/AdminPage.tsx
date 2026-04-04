@@ -228,6 +228,7 @@ export default function AdminPage() {
 
   // ── Handlers ──
   const handleSaveUnit = (data: UnitFormData) => {
+    const anyData = data as any;
     if (data.id) {
       updateUnit.mutate({
         id: data.id,
@@ -240,6 +241,13 @@ export default function AdminPage() {
         address: data.address,
         equipment_info: data.equipment_info,
         isActive: data.isActive,
+      }, {
+        onSuccess: () => {
+          // Bug fix 4.3: fazer upload do logo após salvar unidade existente
+          if (anyData._logoFile) {
+            updateLogo.mutate({ unitId: data.id!, logoFile: anyData._logoFile });
+          }
+        },
       });
     } else {
       createUnit.mutate({
@@ -252,6 +260,14 @@ export default function AdminPage() {
         address: data.address,
         equipment_info: data.equipment_info,
         isActive: data.isActive,
+      }, {
+        onSuccess: (result: any) => {
+          // Bug fix 4.3: fazer upload do logo após criar nova unidade (ID só existe aqui)
+          const newUnitId = result?.id;
+          if (newUnitId && anyData._logoFile) {
+            updateLogo.mutate({ unitId: newUnitId, logoFile: anyData._logoFile });
+          }
+        },
       });
     }
   };
@@ -266,6 +282,11 @@ export default function AdminPage() {
 
   const updateMedical = trpc.medicalData.updateUserMedical.useMutation({
     onError: (e) => toast.error(`Erro ao salvar dados médicos: ${e.message}`),
+  });
+
+  // Bug fix 4.3: declarar updateLogo para uso no handleSaveUnit
+  const updateLogo = trpc.medicalData.updateUnitLogo.useMutation({
+    onError: (e) => toast.error(`Erro ao salvar logo da unidade: ${e.message}`),
   });
 
   const handleSaveUser = (data: UserFormData) => {
@@ -300,13 +321,16 @@ export default function AdminPage() {
           if (newUserId && data.permissions && data.permissions.length > 0) {
             setPermissions.mutate({ userId: newUserId, permissions: data.permissions });
           }
-          // Upload stamp if provided during user creation
+          // Upload stamp e assinatura se fornecidos na criação do usuário
           const anyData = data as any;
           if (newUserId && anyData._stampFile) {
             updateStamp.mutate({ userId: newUserId, stampFile: anyData._stampFile });
           }
-          // Save CRM if provided
-          if (newUserId && anyData.crm) {
+          // Bug fix 4.2: tratar upload de assinatura pós-criação
+          if (newUserId && anyData._signatureFile) {
+            updateMedical.mutate({ userId: newUserId, crm: anyData.crm, signatureFile: anyData._signatureFile });
+          } else if (newUserId && anyData.crm) {
+            // Salvar apenas CRM sem assinatura
             updateMedical.mutate({ userId: newUserId, crm: anyData.crm, signatureFile: undefined });
           }
         },

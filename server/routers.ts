@@ -47,6 +47,23 @@ import { eq, and, like } from "drizzle-orm";
 import { getDicomWebUrl } from "./orthanc";
 import { cFind } from "./dicom.service";
 
+/**
+ * Bug fix 5.2: Valida magic bytes para garantir que o buffer é uma imagem real.
+ * Aceita PNG, JPEG, GIF e WebP.
+ */
+function isValidImageBuffer(buf: Buffer): boolean {
+  if (buf.length < 12) return false;
+  // PNG: 89 50 4E 47
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return true;
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return true;
+  // GIF: 47 49 46 38
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return true;
+  // WebP: RIFF....WEBP
+  if (buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP') return true;
+  return false;
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -1699,8 +1716,17 @@ export const appRouter = router({
         let signature_url: string | null | undefined = undefined;
         if (input.signatureFile) {
           const { storagePut } = await import('./storage');
-          const base64Data = input.signatureFile.replace(/^data:image\/\w+;base64,/, '');
+          // Bug fix 5.1: regex corrigida para suportar image/svg+xml e outros MIME com '+'
+          const base64Data = input.signatureFile.replace(/^data:[^;]+;base64,/, '');
           const buffer = Buffer.from(base64Data, 'base64');
+          // Bug fix 5.2: limite de tamanho server-side (2 MB)
+          if (buffer.length > 2 * 1024 * 1024) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'Arquivo muito grande. Máximo 2 MB.' });
+          }
+          // Bug fix 5.2: validação de magic bytes
+          if (!isValidImageBuffer(buffer)) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'Formato de imagem inválido. Envie PNG, JPEG, GIF ou WebP.' });
+          }
           const key = `signatures/user_${input.userId}_${Date.now()}.png`;
           const { url } = await storagePut(key, buffer, 'image/png');
           signature_url = url;
@@ -1721,8 +1747,17 @@ export const appRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const { updateUnitLogo } = await import('./db');
         const { storagePut } = await import('./storage');
-        const base64Data = input.logoFile.replace(/^data:image\/\w+;base64,/, '');
+        // Bug fix 5.1: regex corrigida para suportar image/svg+xml e outros MIME com '+'
+        const base64Data = input.logoFile.replace(/^data:[^;]+;base64,/, '');
         const buffer = Buffer.from(base64Data, 'base64');
+        // Bug fix 5.2: limite de tamanho server-side (2 MB)
+        if (buffer.length > 2 * 1024 * 1024) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Arquivo muito grande. Máximo 2 MB.' });
+        }
+        // Bug fix 5.2: validação de magic bytes
+        if (!isValidImageBuffer(buffer)) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Formato de imagem inválido. Envie PNG, JPEG, GIF ou WebP.' });
+        }
         const key = `logos/unit_${input.unitId}_${Date.now()}.png`;
         const { url } = await storagePut(key, buffer, 'image/png');
         await updateUnitLogo(input.unitId, url);
@@ -1760,8 +1795,17 @@ export const appRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const { updateUserMedicalData } = await import('./db');
         const { storagePut } = await import('./storage');
-        const base64Data = input.stampFile.replace(/^data:image\/\w+;base64,/, '');
+        // Bug fix 5.1: regex corrigida para suportar image/svg+xml e outros MIME com '+'
+        const base64Data = input.stampFile.replace(/^data:[^;]+;base64,/, '');
         const buffer = Buffer.from(base64Data, 'base64');
+        // Bug fix 5.2: limite de tamanho server-side (2 MB)
+        if (buffer.length > 2 * 1024 * 1024) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Arquivo muito grande. Máximo 2 MB.' });
+        }
+        // Bug fix 5.2: validação de magic bytes
+        if (!isValidImageBuffer(buffer)) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Formato de imagem inválido. Envie PNG, JPEG, GIF ou WebP.' });
+        }
         const key = `stamps/user_${input.userId}_${Date.now()}.png`;
         const { url } = await storagePut(key, buffer, 'image/png');
         await updateUserMedicalData(input.userId, { stamp_url: url });

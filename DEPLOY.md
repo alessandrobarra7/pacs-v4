@@ -427,6 +427,61 @@ mysqldump -u pacs_user -pPacsPortal2025 pacs_portal > /backup/pacs_portal_$(date
 
 ---
 
+## ⚠️ Volume Persistente para Uploads (CRÍTICO)
+
+### Problema
+
+Todos os uploads de imagens (logos de unidades, assinaturas e carimbos de médicos) são salvos em `./uploads/` relativo ao diretório do projeto (`/var/www/pacs-portal/uploads/`). Este diretório **não é versionado no git** e pode ser perdido em:
+
+- Redeploys com `rm -rf` no diretório do projeto
+- Ambientes containerizados (Docker/Kubernetes) sem volume montado
+- Ambientes com múltiplas instâncias (load balancer)
+
+### Regra de ouro
+
+> **Nunca execute `rm -rf /var/www/pacs-portal/uploads`**. O fluxo de deploy recomendado (`git pull` + `pnpm build` + `pm2 restart`) preserva o diretório automaticamente.
+
+### Backup de uploads
+
+Incluir o diretório `uploads/` no backup da VM1. **Execute na VM1:**
+
+```bash
+tar -czf /backup/pacs-uploads-$(date +%Y%m%d).tar.gz /var/www/pacs-portal/uploads/
+```
+
+Cron job recomendado para backup diário automático (adicionar em `crontab -e` na VM1):
+
+```cron
+0 2 * * * tar -czf /backup/pacs-uploads-$(date +\%Y\%m\%d).tar.gz /var/www/pacs-portal/uploads/ 2>/dev/null
+```
+
+### Para ambientes Docker
+
+Montar o diretório como volume persistente no `docker-compose.yml`:
+
+```yaml
+services:
+  pacs-portal:
+    volumes:
+      - /data/pacs-uploads:/app/uploads
+```
+
+### Migração futura para MinIO (recomendado)
+
+O projeto já possui `server/minio.ts` com cliente MinIO configurado para `172.16.3.101:9000`. Para migrar os uploads para MinIO:
+
+1. Ativar as variáveis de ambiente no `.env` da VM1:
+   ```
+   MINIO_ENDPOINT=http://172.16.3.101:9000
+   MINIO_ACCESS_KEY=lauds_admin
+   MINIO_SECRET_KEY=<senha>
+   MINIO_BUCKET=lauds
+   ```
+2. Substituir as chamadas `storagePut()` em `server/routers.ts` por `minioUpload()` de `server/minio.ts`.
+3. Migrar os arquivos existentes do diretório `uploads/` para o bucket MinIO.
+
+---
+
 ## Solução de Problemas
 
 | Sintoma | Causa Provável | Solução |
