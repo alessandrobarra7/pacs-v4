@@ -4,14 +4,12 @@ import {
   Search, Eye, FileText, Printer,
   Clipboard, Settings,
   ChevronLeft, ChevronRight, Clock, Pencil, Check, X,
-  Download, Loader2, CalendarDays, Tag,
+  Download, Loader2, CalendarDays,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
-import { DefineLabelsModal } from "@/components/DefineLabelsModal";
-import { ExamSelectionModal, type StudyForSelection } from "@/components/ExamSelectionModal";
 import { canReport, canAccessAdmin, canFillAnamnesis, canViewDICOM, type UserRole } from "../../../shared/permissions";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -333,13 +331,6 @@ export function PacsQueryPage() {
   const [isQuerying, setIsQuerying] = useState(false);
   const [isAnamnesisModalOpen, setIsAnamnesisModalOpen] = useState(false);
   const [selectedStudy, setSelectedStudy] = useState<any>(null);
-  // Modal de seleção múltipla de exames
-  const [isExamSelectionOpen, setIsExamSelectionOpen] = useState(false);
-  const [examSelectionPatient, setExamSelectionPatient] = useState<{ patientName: string; patientID: string; studies: StudyForSelection[] } | null>(null);
-  // Modal de definição de legendas (operador)
-  const [isDefineLabelsOpen, setIsDefineLabelsOpen] = useState(false);
-  const [defineLabelsStudy, setDefineLabelsStudy] = useState<any>(null);
-  const [studyLabelsMap, setStudyLabelsMap] = useState<Record<string, { title: string; modality: string; order: number }[]>>({});
   const [currentPage, setCurrentPage] = useState(1);
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, string>>({});
 
@@ -682,10 +673,7 @@ export function PacsQueryPage() {
     navigate(`/dicom-viewer/${uid}${unitParam}`);
   };
 
-  /**
-   * Salva dados de um estudo no sessionStorage (usado pelo editor de laudo).
-   */
-  const saveStudyToSession = (study: any) => {
+  const handleReport = (study: any) => {
     sessionStorage.setItem(`study_${study.studyInstanceUid}`, JSON.stringify({
       patientName: study.patientName || '',
       patientID: study.patientID || '',
@@ -700,69 +688,7 @@ export function PacsQueryPage() {
       unitName: unitName,
       unitId: effectiveUnitId ? Number(effectiveUnitId) : null,
     }));
-  };
-
-  /**
-   * Busca legendas definidas pelo operador no banco.
-   * Se houver legendas, monta as seções no sessionStorage e navega para o editor.
-   * Se não houver legendas, vai direto para o editor (comportamento legado).
-   */
-  const handleReport = async (study: any) => {
-    saveStudyToSession(study);
-    try {
-      // Buscar legendas definidas pelo operador para este estudo
-      const labelsResult = await trpcUtils.studyLabels.get.fetch({ studyInstanceUid: study.studyInstanceUid });
-      const labels = labelsResult?.labels ?? [];
-      if (labels.length > 0) {
-        // Montar multi_studies a partir das legendas definidas pelo operador
-        const multiStudiesData = labels
-          .sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0))
-          .map((l: any) => ({
-            studyInstanceUid: study.studyInstanceUid,
-            examTitle: l.title,
-            modality: l.modality,
-          }));
-        sessionStorage.setItem(
-          `multi_studies_${study.studyInstanceUid}`,
-          JSON.stringify(multiStudiesData)
-        );
-      } else {
-        // Sem legendas — remover qualquer multi_studies anterior
-        sessionStorage.removeItem(`multi_studies_${study.studyInstanceUid}`);
-      }
-    } catch {
-      // Em caso de erro, continua sem multi-seções
-      sessionStorage.removeItem(`multi_studies_${study.studyInstanceUid}`);
-    }
     navigate(`/reports/create/${study.studyInstanceUid}`);
-  };;
-
-  /**
-   * Callback do modal de seleção: salva todos os estudos selecionados
-   * no sessionStorage e navega para o editor com o primeiro estudo como âncora.
-   * Os demais UIDs são passados via sessionStorage como "companion studies".
-   */
-  const handleExamSelectionConfirm = (selectedStudies: StudyForSelection[]) => {
-    if (selectedStudies.length === 0) return;
-    // Salvar dados de todos os estudos selecionados no sessionStorage
-    const allStudiesInResult = filteredResults as any[];
-    selectedStudies.forEach((sel) => {
-      const full = allStudiesInResult.find((s: any) => s.studyInstanceUid === sel.studyInstanceUid);
-      if (full) saveStudyToSession(full);
-    });
-    // Salvar lista de UIDs selecionados para o editor montar as seções
-    const primaryUid = selectedStudies[0].studyInstanceUid;
-    sessionStorage.setItem(
-      `multi_studies_${primaryUid}`,
-      JSON.stringify(selectedStudies.map((s) => ({
-        studyInstanceUid: s.studyInstanceUid,
-        examTitle: s.studyDescription || s.modality,
-        modality: s.modality,
-      })))
-    );
-    setIsExamSelectionOpen(false);
-    setExamSelectionPatient(null);
-    navigate(`/reports/create/${primaryUid}`);
   };
 
   const handlePrintReport = async (study: any) => {
@@ -1173,44 +1099,18 @@ export function PacsQueryPage() {
                       <span className="text-sm text-gray-600">{age || '-'}</span>
                     </td>
 
-                    {/* Exame — editável (persiste no banco) + botão de seleção de exames para laudar */}
+                    {/* Exame — editável (persiste no banco) */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${modalityCls}`}>{modality}</span>
-                        <div className="flex-1 min-w-0">
-                          <EditableExamName
-                            value={study.studyDescription || ''}
-                            studyUid={study.studyInstanceUid || `${idx}`}
-                            rawDescription={study.studyDescription || ''}
-                            dbOverride={meta?.description_override || null}
-                            onSaved={() => refetchMetadata()}
-                            canEdit={canCID}
-                          />
-                          {/* Exames definidos para laudar */}
-                          {studyLabelsMap[study.studyInstanceUid]?.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {studyLabelsMap[study.studyInstanceUid].map((lbl, li) => (
-                                <span key={li} className="text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded px-1.5 py-0.5 font-medium">
-                                  {lbl.title}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        {/* Botão Definir Exames — visível apenas para operador/admin */}
-                        {(canCID || isAdmin) && (
-                          <button
-                            onClick={() => { setDefineLabelsStudy(study); setIsDefineLabelsOpen(true); }}
-                            title="Definir exames para laudar"
-                            className={`w-7 h-7 rounded-lg border inline-flex items-center justify-center transition-colors shrink-0 ${
-                              studyLabelsMap[study.studyInstanceUid]?.length > 0
-                                ? 'bg-blue-50 border-blue-300 text-blue-600 hover:bg-blue-100'
-                                : 'border-gray-200 bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-600'
-                            }`}
-                          >
-                            <Tag className="h-3 w-3" />
-                          </button>
-                        )}
+                        <EditableExamName
+                          value={study.studyDescription || ''}
+                          studyUid={study.studyInstanceUid || `${idx}`}
+                          rawDescription={study.studyDescription || ''}
+                          dbOverride={meta?.description_override || null}
+                          onSaved={() => refetchMetadata()}
+                          canEdit={canCID}
+                        />
                       </div>
                     </td>
 
@@ -1379,31 +1279,6 @@ export function PacsQueryPage() {
           studyInstanceUid={selectedStudy?.studyInstanceUid || ''}
           patientName={selectedStudy?.patientName || ''}
           onSave={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); }}
-        />
-      )}
-      {isExamSelectionOpen && examSelectionPatient && (
-        <ExamSelectionModal
-          open={isExamSelectionOpen}
-          patientName={examSelectionPatient.patientName}
-          patientID={examSelectionPatient.patientID}
-          studies={examSelectionPatient.studies}
-          onConfirm={handleExamSelectionConfirm}
-          onCancel={() => { setIsExamSelectionOpen(false); setExamSelectionPatient(null); }}
-        />
-      )}
-      {isDefineLabelsOpen && defineLabelsStudy && (
-        <DefineLabelsModal
-          open={isDefineLabelsOpen}
-          onClose={() => { setIsDefineLabelsOpen(false); setDefineLabelsStudy(null); }}
-          studyInstanceUid={defineLabelsStudy.studyInstanceUid || ''}
-          studyModality={defineLabelsStudy.modality || ''}
-          patientName={defineLabelsStudy.patientName || ''}
-          onSaved={(labels) => {
-            setStudyLabelsMap(prev => ({
-              ...prev,
-              [defineLabelsStudy.studyInstanceUid]: labels,
-            }));
-          }}
         />
       )}
     </div>

@@ -910,9 +910,9 @@ export const appRouter = router({
           let truncated = false;
           let timedOut = false;
 
-          // MODO ÚNICO: C-FIND DICOM DIRETO
+          // MODO ÚNCO: C-FIND DICOM DIRETO
           console.log(`[PACS Query] C-FIND → ${unit.pacs_ip}:${unit.pacs_port} AE=${unit.pacs_ae_title}`);
-          const cFindResult = await cFind(
+          const cFindResult: CFindResult = await cFind(
             {
               ip: unit.pacs_ip!,
               port: unit.pacs_port!,
@@ -920,7 +920,7 @@ export const appRouter = router({
               localAeTitle: unit.pacs_local_ae_title || 'LAUDS',
             },
             {
-              // Bug fix A4: wildcard DICOM adicionado apenas em dicom.service.ts (linha 96).
+              // Bug fix A4: wildcard DICOM adicionado apenas em dicom.service.ts.
               // Adicionar aqui também resultava em '**JOSE**' enviado ao PACS, causando zero resultados.
               patientName: filters.patientName || undefined,
               patientID: filters.patientId,
@@ -1860,103 +1860,6 @@ export const appRouter = router({
           unitLogoUrl: unit?.logo_url ?? null,
           userId: user?.id ?? 0,
         };
-      }),
-  }),
-
-  // ─── Exam Catalog ─────────────────────────────────────────────────────────
-  catalog: router({
-    list: protectedProcedure
-      .input(z.object({ modality: z.string().optional(), query: z.string().optional() }))
-      .query(async ({ input }) => {
-        const { searchExamCatalog, getExamCatalog } = await import('./db');
-        if (input.query) return searchExamCatalog(input.query, input.modality);
-        return getExamCatalog(input.modality);
-      }),
-    mapTitle: protectedProcedure
-      .input(z.object({ modality: z.string(), studyDescription: z.string() }))
-      .query(async ({ input }) => {
-        const { mapDicomToExamTitle } = await import('./db');
-        const title = await mapDicomToExamTitle(input.modality, input.studyDescription);
-        return { title };
-      }),
-  }),
-
-  // ─── Report Sections ─────────────────────────────────────────────────────────
-  sections: router({
-    getByReport: protectedProcedure
-      .input(z.object({ reportId: z.number() }))
-      .query(async ({ input }) => {
-        const { getReportSections } = await import('./db');
-        return getReportSections(input.reportId);
-      }),
-    save: protectedProcedure
-      .input(z.object({
-        reportId: z.number(),
-        studyInstanceUid: z.string(),
-        examTitle: z.string(),
-        body: z.string().nullable(),
-        sortOrder: z.number().default(0),
-      }))
-      .mutation(async ({ input }) => {
-        const { upsertReportSection } = await import('./db');
-        const id = await upsertReportSection(input);
-        return { id };
-      }),
-    delete: protectedProcedure
-      .input(z.object({ sectionId: z.number(), reportId: z.number() }))
-      .mutation(async ({ input }) => {
-        const { deleteReportSection } = await import('./db');
-        await deleteReportSection(input.sectionId, input.reportId);
-        return { success: true };
-      }),
-  }),
-
-  // ─── Study Labels ─────────────────────────────────────────────────────────
-  studyLabels: router({
-    // Get labels for a single study
-    get: protectedProcedure
-      .input(z.object({ studyInstanceUid: z.string() }))
-      .query(async ({ input, ctx }) => {
-        const { getStudyLabels } = await import('./db');
-        const unitId = ctx.user.unit_id ?? 0;
-        const labels = await getStudyLabels(input.studyInstanceUid, unitId);
-        return { labels };
-      }),
-
-    // Get labels for multiple studies at once (bulk for table display)
-    getBulk: protectedProcedure
-      .input(z.object({ studyUids: z.array(z.string()) }))
-      .query(async ({ input, ctx }) => {
-        const { getStudyLabelsBulk } = await import('./db');
-        const unitId = ctx.user.unit_id ?? 0;
-        const result = await getStudyLabelsBulk(input.studyUids, unitId);
-        return result;
-      }),
-
-    // Save labels for a study (operator/unit_admin/admin_master only)
-    save: protectedProcedure
-      .input(z.object({
-        studyInstanceUid: z.string(),
-        labels: z.array(z.object({
-          title: z.string(),
-          modality: z.string(),
-          order: z.number(),
-        })),
-      }))
-      .mutation(async ({ input, ctx }) => {
-        const role = ctx.user.role as string;
-        if (!['admin_master', 'unit_admin', 'medico', 'operador'].includes(role)) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para definir legendas' });
-        }
-        const { saveStudyLabels } = await import('./db');
-        const unitId = ctx.user.unit_id ?? 0;
-        await saveStudyLabels({
-          studyInstanceUid: input.studyInstanceUid,
-          unitId,
-          labels: input.labels,
-          createdBy: ctx.user.id,
-        });
-        return { success: true };
       }),
   }),
 });

@@ -174,9 +174,6 @@ export default function ReportEditorPage() {
 
   // Estado de exclusão
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  // Estudos múltiplos selecionados no modal do buscador
-  const [multiStudies, setMultiStudies] = useState<{ studyInstanceUid: string; examTitle: string; modality: string }[]>([]);
-  const isMultiSection = multiStudies.length > 1;
 
   const isSigned = existingReport?.status === 'signed' || existingReport?.status === 'revised';
   const isEditable = !isSigned || isRevising;
@@ -191,13 +188,6 @@ export default function ReportEditorPage() {
         setExamTitle(info.studyDescription || "");
       } catch { /* ignore */ }
     }
-    const multiRaw = sessionStorage.getItem(`multi_studies_${studyUid}`);
-    if (multiRaw) {
-      try {
-        const studies = JSON.parse(multiRaw);
-        if (Array.isArray(studies) && studies.length > 1) setMultiStudies(studies);
-      } catch { /* ignore */ }
-    }
   }, [studyUid]);
 
   // ── Carregar laudo existente no documento ────────────────────────────────
@@ -206,21 +196,6 @@ export default function ReportEditorPage() {
       docRef.current.innerHTML = existingReport.body;
     }
   }, [existingReport]);
-
-  // Inicializar documento com template multi-seção (apenas para novos laudos)
-  useEffect(() => {
-    if (!isMultiSection || !docRef.current) return;
-    if (existingReport?.body) return; // laudo já existe, não sobrescrever
-    const template = multiStudies.map((s) =>
-      `<div class="report-section" data-uid="${s.studyInstanceUid}" style="margin-bottom:24px;">`
-      + `<div class="section-title" style="font-weight:bold;font-size:13pt;text-transform:uppercase;`
-      + `letter-spacing:0.05em;border-bottom:1px solid #1a6b8a;padding-bottom:4px;margin-bottom:10px;color:#1a6b8a;">`
-      + `${s.examTitle}</div>`
-      + `<div class="section-body" style="min-height:40mm;"><br/></div>`
-      + `</div>`
-    ).join('');
-    docRef.current.innerHTML = template;
-  }, [isMultiSection, multiStudies, existingReport]);
 
   // ── Salvar seleção antes de interagir com sidebar ────────────────────────
   const saveSelection = useCallback(() => {
@@ -416,16 +391,10 @@ export default function ReportEditorPage() {
   .footer-text { background: linear-gradient(90deg, #1a6b8a 0%, #4ca8c4 50%, #6fb7c5 100%); padding: 2mm 18mm 4mm 18mm; font-size: 8.5pt; color: #fff; text-align: center; line-height: 1.6; font-family: Arial, Helvetica, sans-serif; }
   .footer-date { font-size: 7.5pt; color: rgba(255,255,255,0.75); margin-top: 1px; }
 
-  /* MULTI-SEÇÃO: cada exame em folha separada */
-  .report-section { break-before: auto; }
-  .report-section + .report-section { break-before: page; page-break-before: always; }
-  .section-title { text-align: center; font-weight: bold; font-size: 13pt; text-transform: uppercase; letter-spacing: 0.05em; color: #1a6b8a; padding-bottom: 6px; border-bottom: 2px solid #1a6b8a; margin-bottom: 12px; }
-  .section-body { font-size: 11pt; line-height: 1.6; color: #111; min-height: 60mm; }
   @media print {
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .zone-footer { position: fixed; bottom: 0; left: 0; right: 0; }
     .doctor-footer { break-inside: avoid; }
-    .report-section + .report-section { break-before: page; page-break-before: always; }
   }
 </style></head><body>
 <div style="position:relative;display:flex;flex-direction:column;min-height:100vh;">
@@ -445,10 +414,8 @@ export default function ReportEditorPage() {
 
   <!-- CORPO: Título do exame + Laudo -->
   <div class="body">
-    ${isMultiSection
-      ? bodyHtml  /* multi-seção: títulos já embutidos no HTML do docRef */
-      : (examTitle ? `<div class="exam-title">${examTitle}</div>` : '') + `<div class="report-body">${bodyHtml}</div>`
-    }
+    ${examTitle ? `<div class="exam-title">${examTitle}</div>` : ''}
+    <div class="report-body">${bodyHtml}</div>
   </div>
 
   <!-- ASSINATURA / CARIMBO -->
@@ -817,18 +784,7 @@ export default function ReportEditorPage() {
 
                 {/* Título do exame (selecionado na barra lateral) */}
                 <div>
-                  {isMultiSection ? (
-                    <div style={{ textAlign: "center", padding: "6px 0 8px", borderBottom: "2px solid #1a6b8a" }}>
-                      <div style={{ fontSize: "9pt", color: "#1a6b8a", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>
-                        LAUDO COM {multiStudies.length} EXAMES
-                      </div>
-                      <div style={{ fontSize: "8.5pt", color: "#555", lineHeight: 1.6 }}>
-                        {multiStudies.map((s, i) => (
-                          <span key={i}>{i > 0 && <span style={{ color: "#1a6b8a", margin: "0 6px" }}>·</span>}<strong>{s.examTitle}</strong></span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : examTitle ? (
+                  {examTitle ? (
                     editingTitle ? (
                       <input
                         ref={titleInputRef}

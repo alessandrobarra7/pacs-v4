@@ -143,7 +143,7 @@ export function cFind(
             retrieveAeTitle: getField(el, 'RetrieveAETitle'),
           };
 
-          if (study.studyInstanceUID) {
+            if (study.studyInstanceUID) {
             studies.push(study);
             if (studies.length >= maxResults && !resolved) {
               // Bug fix A3: sinalizar truncamento ao atingir o limite de resultados
