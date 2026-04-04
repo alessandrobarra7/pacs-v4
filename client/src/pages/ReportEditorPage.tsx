@@ -455,7 +455,8 @@ export default function ReportEditorPage() {
     window.addEventListener("mouseup", onUp);
   }, [draggableImages]);
 
-  const addDraggableImage = useCallback((src: string, label: string) => {
+  const addDraggableImage = useCallback((src: string | null, label: string) => {
+    if (!src) { toast.error("Imagem não disponível para inserir."); return; }
     setDraggableImages(prev => [...prev, {
       id: `img_${Date.now()}`,
       src,
@@ -659,7 +660,7 @@ export default function ReportEditorPage() {
             style={{ width: "210mm", minHeight: "297mm" }}
           >
             {/* Imagens arrastáveis */}
-            {draggableImages.map((img) => (
+            {draggableImages.filter(img => img != null && img.id != null).map((img) => (
               <div
                 key={img.id}
                 style={{ position: "absolute", left: img.x, top: img.y, width: img.width, zIndex: 10, cursor: "grab" }}
