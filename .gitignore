@@ -111,3 +111,4 @@ temp/
 *.backup
 *.bak
 *.orig
+PRODUCTION_CREDENTIALS.md
