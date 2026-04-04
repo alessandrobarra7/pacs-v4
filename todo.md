@@ -659,3 +659,4 @@
 - [ ] Verificar se o erro de `user_unit_permissions` foi resolvido após a migração das colunas createdAt/updatedAt
 - [x] Novo layout de impressão de laudos: cabeçalho profissional com logo e dados do paciente, tabela clínica estruturada, tipografia melhorada, rodapé com carimbo/assinatura e dados legais, suporte a impressão otimizada @page CSS
 - [x] Unificar layout do editor de laudos (ReportDocument.tsx) com o layout de impressão — WYSIWYG
+- [x] Novo layout clássico radiológico: logo topo-esquerdo + linha divisória, título centralizado, grid 2 colunas (PACIENTE/CONVÊNIO/SOLICITANTE/SETOR | IDADE/SEXO/DATA/ATENDIMENTO), corpo do laudo, rodapé médico centralizado com assinatura+carimbo, rodapé institucional com faixa colorida
