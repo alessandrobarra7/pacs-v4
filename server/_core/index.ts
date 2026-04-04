@@ -63,6 +63,10 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
+  // Configurar trust proxy para funcionar corretamente com Nginx como reverse proxy
+  // Isso permite que req.ip retorne o IP real do cliente via X-Forwarded-For
+  app.set('trust proxy', 1);
+
   // MELHORIA: Headers de segurança HTTP com helmet.js
   app.use(helmet({
     contentSecurityPolicy: false, // desativado para compatibilidade com OHIF/Cornerstone

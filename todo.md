@@ -642,3 +642,18 @@
 - [x] Rodapé legal completo (CNPJ, telefone, site, redes sociais)
 - [x] Assinatura do médico centralizada com linha acima
 - [x] Aplicar novo layout tanto na PacsQueryPage quanto no ReportEditorPage
+
+## BUG — Migração de Banco (VM1)
+
+- [ ] Coluna `manage_templates` ausente na tabela `user_unit_permissions` na VM1
+- [ ] Gerar SQL de migração e aplicar na VM1
+
+## BUG — Schema Drizzle dessincronizado (VM2)
+
+- [ ] Tabela `user_unit_permissions`: banco tem `created_at` (bigint) mas schema define `createdAt`/`updatedAt` (timestamp)
+- [ ] Corrigir schema Drizzle para usar `created_at` bigint e adicionar `updatedAt` timestamp no banco da VM2
+
+## BUG — Permissões de Unidade para Usuários
+
+- [ ] Testar e corrigir o fluxo de edição de permissões (view_studies, edit_reports, view_anamnesis, print_reports, manage_templates)
+- [ ] Verificar se o erro de `user_unit_permissions` foi resolvido após a migração das colunas createdAt/updatedAt

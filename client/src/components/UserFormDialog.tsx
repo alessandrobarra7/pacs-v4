@@ -290,7 +290,8 @@ export default function UserFormDialog({
 
   const handleSave = () => {
     if (!name.trim()) { toast.error("Informe o nome do usuário"); return; }
-    if (!username.trim()) { toast.error("Informe o nome de usuário (login)"); return; }
+    // Username obrigatório apenas para novos usuários locais (não para edição de usuários OAuth)
+    if (!isEditing && !username.trim()) { toast.error("Informe o nome de usuário (login)"); return; }
     if (!isEditing && !password.trim()) { toast.error("Defina uma senha para o novo usuário"); return; }
     if (isEditing && user?.id && (role === "medico" || role === "unit_admin") && crm.trim()) {
       updateMedical.mutate({ userId: user.id, crm: crm.trim() || undefined, signatureFile: undefined });

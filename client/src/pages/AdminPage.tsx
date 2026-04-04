@@ -296,7 +296,7 @@ export default function AdminPage() {
         unit_id: data.unit_id ?? undefined,
       }, {
         onSuccess: (result: any) => {
-          const newUserId = result?.userId;
+          const newUserId = result?.id;
           if (newUserId && data.permissions && data.permissions.length > 0) {
             setPermissions.mutate({ userId: newUserId, permissions: data.permissions });
           }
