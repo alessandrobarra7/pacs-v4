@@ -10,6 +10,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
+import { ExamSelectionModal, type StudyForSelection } from "@/components/ExamSelectionModal";
 import { canReport, canAccessAdmin, canFillAnamnesis, canViewDICOM, type UserRole } from "../../../shared/permissions";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -331,6 +332,9 @@ export function PacsQueryPage() {
   const [isQuerying, setIsQuerying] = useState(false);
   const [isAnamnesisModalOpen, setIsAnamnesisModalOpen] = useState(false);
   const [selectedStudy, setSelectedStudy] = useState<any>(null);
+  // Modal de seleção múltipla de exames
+  const [isExamSelectionOpen, setIsExamSelectionOpen] = useState(false);
+  const [examSelectionPatient, setExamSelectionPatient] = useState<{ patientName: string; patientID: string; studies: StudyForSelection[] } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, string>>({});
 
@@ -673,7 +677,10 @@ export function PacsQueryPage() {
     navigate(`/dicom-viewer/${uid}${unitParam}`);
   };
 
-  const handleReport = (study: any) => {
+  /**
+   * Salva dados de um estudo no sessionStorage (usado pelo editor de laudo).
+   */
+  const saveStudyToSession = (study: any) => {
     sessionStorage.setItem(`study_${study.studyInstanceUid}`, JSON.stringify({
       patientName: study.patientName || '',
       patientID: study.patientID || '',
@@ -688,7 +695,68 @@ export function PacsQueryPage() {
       unitName: unitName,
       unitId: effectiveUnitId ? Number(effectiveUnitId) : null,
     }));
-    navigate(`/reports/create/${study.studyInstanceUid}`);
+  };
+
+  /**
+   * Verifica se o paciente tem outros estudos no resultado atual.
+   * Se sim, abre o modal de seleção múltipla.
+   * Se não, vai direto para o editor.
+   */
+  const handleReport = (study: any) => {
+    // Buscar outros estudos do mesmo paciente na lista atual
+    const samePatientStudies = filteredResults.filter(
+      (s: any) => s.patientID && s.patientID === study.patientID && s.studyInstanceUid !== study.studyInstanceUid
+    );
+
+    if (samePatientStudies.length > 0) {
+      // Múltiplos estudos — abrir modal de seleção
+      const allStudies: StudyForSelection[] = [study, ...samePatientStudies].map((s: any) => ({
+        studyInstanceUid: s.studyInstanceUid,
+        modality: s.modality || '',
+        studyDescription: s.studyDescription || '',
+        studyDate: s.studyDate || '',
+        numberOfInstances: s.numberOfInstances,
+        accessionNumber: s.accessionNumber,
+      }));
+      setExamSelectionPatient({
+        patientName: study.patientName || '',
+        patientID: study.patientID || '',
+        studies: allStudies,
+      });
+      setIsExamSelectionOpen(true);
+    } else {
+      // Estudo único — ir direto para o editor
+      saveStudyToSession(study);
+      navigate(`/reports/create/${study.studyInstanceUid}`);
+    }
+  };
+
+  /**
+   * Callback do modal de seleção: salva todos os estudos selecionados
+   * no sessionStorage e navega para o editor com o primeiro estudo como âncora.
+   * Os demais UIDs são passados via sessionStorage como "companion studies".
+   */
+  const handleExamSelectionConfirm = (selectedStudies: StudyForSelection[]) => {
+    if (selectedStudies.length === 0) return;
+    // Salvar dados de todos os estudos selecionados no sessionStorage
+    const allStudiesInResult = filteredResults as any[];
+    selectedStudies.forEach((sel) => {
+      const full = allStudiesInResult.find((s: any) => s.studyInstanceUid === sel.studyInstanceUid);
+      if (full) saveStudyToSession(full);
+    });
+    // Salvar lista de UIDs selecionados para o editor montar as seções
+    const primaryUid = selectedStudies[0].studyInstanceUid;
+    sessionStorage.setItem(
+      `multi_studies_${primaryUid}`,
+      JSON.stringify(selectedStudies.map((s) => ({
+        studyInstanceUid: s.studyInstanceUid,
+        examTitle: s.studyDescription || s.modality,
+        modality: s.modality,
+      })))
+    );
+    setIsExamSelectionOpen(false);
+    setExamSelectionPatient(null);
+    navigate(`/reports/create/${primaryUid}`);
   };
 
   const handlePrintReport = async (study: any) => {
@@ -1279,6 +1347,16 @@ export function PacsQueryPage() {
           studyInstanceUid={selectedStudy?.studyInstanceUid || ''}
           patientName={selectedStudy?.patientName || ''}
           onSave={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); }}
+        />
+      )}
+      {isExamSelectionOpen && examSelectionPatient && (
+        <ExamSelectionModal
+          open={isExamSelectionOpen}
+          patientName={examSelectionPatient.patientName}
+          patientID={examSelectionPatient.patientID}
+          studies={examSelectionPatient.studies}
+          onConfirm={handleExamSelectionConfirm}
+          onCancel={() => { setIsExamSelectionOpen(false); setExamSelectionPatient(null); }}
         />
       )}
     </div>

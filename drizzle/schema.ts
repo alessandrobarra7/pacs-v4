@@ -327,3 +327,37 @@ export const report_versions = mysqlTable("report_versions", {
 
 export type ReportVersion = typeof report_versions.$inferSelect;
 export type InsertReportVersion = typeof report_versions.$inferInsert;
+
+/**
+ * Exam Catalog — Standardized exam names for reports
+ * Maps DICOM modality codes to human-readable Portuguese titles
+ */
+export const exam_catalog = mysqlTable("exam_catalog", {
+  id: int("id").autoincrement().primaryKey(),
+  modality: varchar("modality", { length: 20 }).notNull(),
+  title: varchar("title", { length: 300 }).notNull(),
+  keywords: varchar("keywords", { length: 500 }),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type ExamCatalog = typeof exam_catalog.$inferSelect;
+export type InsertExamCatalog = typeof exam_catalog.$inferInsert;
+
+/**
+ * Report Sections — Individual exam sections within a multi-exam report
+ * Each section maps to one study_instance_uid and has its own body content
+ */
+export const report_sections = mysqlTable("report_sections", {
+  id: int("id").autoincrement().primaryKey(),
+  report_id: int("report_id").notNull(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
+  exam_title: varchar("exam_title", { length: 300 }).notNull(),
+  body: text("body"),
+  sort_order: int("sort_order").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ReportSection = typeof report_sections.$inferSelect;
+export type InsertReportSection = typeof report_sections.$inferInsert;

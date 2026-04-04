@@ -174,6 +174,9 @@ export default function ReportEditorPage() {
 
   // Estado de exclusão
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  // Estudos múltiplos selecionados no modal do buscador
+  const [multiStudies, setMultiStudies] = useState<{ studyInstanceUid: string; examTitle: string; modality: string }[]>([]);
+  const isMultiSection = multiStudies.length > 1;
 
   const isSigned = existingReport?.status === 'signed' || existingReport?.status === 'revised';
   const isEditable = !isSigned || isRevising;
@@ -188,6 +191,13 @@ export default function ReportEditorPage() {
         setExamTitle(info.studyDescription || "");
       } catch { /* ignore */ }
     }
+    const multiRaw = sessionStorage.getItem(`multi_studies_${studyUid}`);
+    if (multiRaw) {
+      try {
+        const studies = JSON.parse(multiRaw);
+        if (Array.isArray(studies) && studies.length > 1) setMultiStudies(studies);
+      } catch { /* ignore */ }
+    }
   }, [studyUid]);
 
   // ── Carregar laudo existente no documento ────────────────────────────────
@@ -196,6 +206,21 @@ export default function ReportEditorPage() {
       docRef.current.innerHTML = existingReport.body;
     }
   }, [existingReport]);
+
+  // Inicializar documento com template multi-seção (apenas para novos laudos)
+  useEffect(() => {
+    if (!isMultiSection || !docRef.current) return;
+    if (existingReport?.body) return; // laudo já existe, não sobrescrever
+    const template = multiStudies.map((s) =>
+      `<div class="report-section" data-uid="${s.studyInstanceUid}" style="margin-bottom:24px;">`
+      + `<div class="section-title" style="font-weight:bold;font-size:13pt;text-transform:uppercase;`
+      + `letter-spacing:0.05em;border-bottom:1px solid #1a6b8a;padding-bottom:4px;margin-bottom:10px;color:#1a6b8a;">`
+      + `${s.examTitle}</div>`
+      + `<div class="section-body" style="min-height:40mm;"><br/></div>`
+      + `</div>`
+    ).join('');
+    docRef.current.innerHTML = template;
+  }, [isMultiSection, multiStudies, existingReport]);
 
   // ── Salvar seleção antes de interagir com sidebar ────────────────────────
   const saveSelection = useCallback(() => {
@@ -414,8 +439,10 @@ export default function ReportEditorPage() {
 
   <!-- CORPO: Título do exame + Laudo -->
   <div class="body">
-    ${examTitle ? `<div class="exam-title">${examTitle}</div>` : ''}
-    <div class="report-body">${bodyHtml}</div>
+    ${isMultiSection
+      ? bodyHtml  /* multi-seção: títulos já embutidos no HTML do docRef */
+      : (examTitle ? `<div class="exam-title">${examTitle}</div>` : '') + `<div class="report-body">${bodyHtml}</div>`
+    }
   </div>
 
   <!-- ASSINATURA / CARIMBO -->

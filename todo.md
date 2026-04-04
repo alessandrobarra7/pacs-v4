@@ -690,3 +690,15 @@
 - [x] [A2 CRÍTICO] Alinhar toast com filteredResults.length (fonte única de contagem)
 - [x] [A3 MÉDIO] Refatorar cFind() para retornar { studies, truncated, timedOut } e exibir aviso
 - [x] [A5 MÉDIO] Sinalizar timeout parcial com timedOut: true e exibir aviso diferenciado no frontend
+
+## Catálogo de Exames + Modal de Seleção Múltipla (04/04/2026)
+
+- [x] Atualizar drizzle/schema.ts com tabelas exam_catalog e report_sections
+- [x] Popular exam_catalog com os ~500 nomes do catálogo via script seed (370 exames em scripts/seed-exam-catalog.sql)
+- [x] Criar helpers de banco em server/db.ts para exam_catalog e report_sections
+- [x] Criar função de mapeamento DICOM modality+description → título padronizado (mapDicomToExamTitle)
+- [x] Criar endpoints tRPC: catalog.list, catalog.mapTitle, sections.save, sections.getByReport, sections.delete
+- [x] Implementar modal de seleção múltipla de exames no PacsQueryPage (ExamSelectionModal.tsx)
+- [x] Adaptar ReportEditorPage para suportar múltiplas seções independentes
+- [x] Adaptar template de impressão para renderizar múltiplas seções
+- [x] Testes de integração: 71 testes passando (6 arquivos)

@@ -717,3 +717,121 @@ export async function updateUnitLogo(unitId: number, logoUrl: string | null) {
   const { eq } = await import("drizzle-orm");
   await db.update(units).set({ logo_url: logoUrl }).where(eq(units.id, unitId));
 }
+
+// ─── Exam Catalog ─────────────────────────────────────────────────────────────
+export async function getExamCatalog(modality?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { exam_catalog } = await import("../drizzle/schema");
+  const { eq, and } = await import("drizzle-orm");
+  if (modality) {
+    return db.select().from(exam_catalog)
+      .where(and(eq(exam_catalog.active, true), eq(exam_catalog.modality, modality)))
+      .orderBy(exam_catalog.title);
+  }
+  return db.select().from(exam_catalog).where(eq(exam_catalog.active, true)).orderBy(exam_catalog.title);
+}
+
+export async function searchExamCatalog(query: string, modality?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { exam_catalog } = await import("../drizzle/schema");
+  const { eq, and, or, like } = await import("drizzle-orm");
+  const searchFilter = query
+    ? or(like(exam_catalog.title, `%${query}%`), like(exam_catalog.keywords, `%${query}%`))
+    : undefined;
+  if (modality && searchFilter) {
+    return db.select().from(exam_catalog)
+      .where(and(eq(exam_catalog.active, true), eq(exam_catalog.modality, modality), searchFilter))
+      .orderBy(exam_catalog.title).limit(50);
+  }
+  if (modality) {
+    return db.select().from(exam_catalog)
+      .where(and(eq(exam_catalog.active, true), eq(exam_catalog.modality, modality)))
+      .orderBy(exam_catalog.title).limit(50);
+  }
+  if (searchFilter) {
+    return db.select().from(exam_catalog)
+      .where(and(eq(exam_catalog.active, true), searchFilter))
+      .orderBy(exam_catalog.title).limit(50);
+  }
+  return db.select().from(exam_catalog).where(eq(exam_catalog.active, true)).orderBy(exam_catalog.title).limit(50);
+}
+
+/**
+ * Maps a DICOM modality code + study description to a standardized catalog title.
+ * Returns the best match or falls back to the raw description.
+ */
+export async function mapDicomToExamTitle(modality: string, studyDescription: string): Promise<string> {
+  if (!studyDescription) return modality;
+  const db = await getDb();
+  if (!db) return studyDescription;
+  const { exam_catalog } = await import("../drizzle/schema");
+  const { eq, and, like } = await import("drizzle-orm");
+  // Try exact match first
+  const exact = await db.select().from(exam_catalog)
+    .where(and(eq(exam_catalog.active, true), eq(exam_catalog.title, studyDescription)))
+    .limit(1);
+  if (exact.length > 0) return exact[0].title;
+  // Try keyword match
+  const keyword = await db.select().from(exam_catalog)
+    .where(and(eq(exam_catalog.active, true), like(exam_catalog.keywords, `%${studyDescription.toLowerCase().substring(0, 20)}%`)))
+    .limit(1);
+  if (keyword.length > 0) return keyword[0].title;
+  return studyDescription;
+}
+
+// ─── Report Sections ──────────────────────────────────────────────────────────
+export async function getReportSections(reportId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { report_sections } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  return db.select().from(report_sections)
+    .where(eq(report_sections.report_id, reportId))
+    .orderBy(report_sections.sort_order);
+}
+
+export async function upsertReportSection(data: {
+  reportId: number;
+  studyInstanceUid: string;
+  examTitle: string;
+  body: string | null;
+  sortOrder: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { report_sections } = await import("../drizzle/schema");
+  const { eq, and } = await import("drizzle-orm");
+  const existing = await db.select({ id: report_sections.id })
+    .from(report_sections)
+    .where(and(
+      eq(report_sections.report_id, data.reportId),
+      eq(report_sections.study_instance_uid, data.studyInstanceUid)
+    ))
+    .limit(1);
+  if (existing.length > 0) {
+    await db.update(report_sections)
+      .set({ body: data.body, exam_title: data.examTitle, sort_order: data.sortOrder })
+      .where(eq(report_sections.id, existing[0].id));
+    return existing[0].id;
+  } else {
+    const result = await db.insert(report_sections).values({
+      report_id: data.reportId,
+      study_instance_uid: data.studyInstanceUid,
+      exam_title: data.examTitle,
+      body: data.body,
+      sort_order: data.sortOrder,
+    });
+    return Number(result[0].insertId);
+  }
+}
+
+export async function deleteReportSection(sectionId: number, reportId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { report_sections } = await import("../drizzle/schema");
+  const { eq, and } = await import("drizzle-orm");
+  await db.delete(report_sections)
+    .where(and(eq(report_sections.id, sectionId), eq(report_sections.report_id, reportId)));
+}

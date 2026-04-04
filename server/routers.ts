@@ -1862,5 +1862,53 @@ export const appRouter = router({
         };
       }),
   }),
+
+  // ─── Exam Catalog ─────────────────────────────────────────────────────────
+  catalog: router({
+    list: protectedProcedure
+      .input(z.object({ modality: z.string().optional(), query: z.string().optional() }))
+      .query(async ({ input }) => {
+        const { searchExamCatalog, getExamCatalog } = await import('./db');
+        if (input.query) return searchExamCatalog(input.query, input.modality);
+        return getExamCatalog(input.modality);
+      }),
+    mapTitle: protectedProcedure
+      .input(z.object({ modality: z.string(), studyDescription: z.string() }))
+      .query(async ({ input }) => {
+        const { mapDicomToExamTitle } = await import('./db');
+        const title = await mapDicomToExamTitle(input.modality, input.studyDescription);
+        return { title };
+      }),
+  }),
+
+  // ─── Report Sections ─────────────────────────────────────────────────────────
+  sections: router({
+    getByReport: protectedProcedure
+      .input(z.object({ reportId: z.number() }))
+      .query(async ({ input }) => {
+        const { getReportSections } = await import('./db');
+        return getReportSections(input.reportId);
+      }),
+    save: protectedProcedure
+      .input(z.object({
+        reportId: z.number(),
+        studyInstanceUid: z.string(),
+        examTitle: z.string(),
+        body: z.string().nullable(),
+        sortOrder: z.number().default(0),
+      }))
+      .mutation(async ({ input }) => {
+        const { upsertReportSection } = await import('./db');
+        const id = await upsertReportSection(input);
+        return { id };
+      }),
+    delete: protectedProcedure
+      .input(z.object({ sectionId: z.number(), reportId: z.number() }))
+      .mutation(async ({ input }) => {
+        const { deleteReportSection } = await import('./db');
+        await deleteReportSection(input.sectionId, input.reportId);
+        return { success: true };
+      }),
+  }),
 });
 export type AppRouter = typeof appRouter;
