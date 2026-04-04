@@ -699,31 +699,53 @@ export default function ReportEditorPage() {
               </div>
             ))}
 
-            {/* Conteúdo do documento */}
-            <div style={{ padding: "20mm 20mm 25mm 20mm", fontFamily: "Times New Roman, serif", fontSize: "12pt", color: "#000" }}>
-              {/* Cabeçalho: Logo + dados do paciente */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8mm", borderBottom: "1px solid #ccc", paddingBottom: "4mm" }}>
-                <div>
+            {/* Conteúdo do documento — layout idêntico ao de impressão */}
+            <div style={{ padding: "15mm 18mm 20mm 18mm", fontFamily: "'Inter', 'Arial', sans-serif", fontSize: "10.5pt", color: "#111", boxSizing: "border-box" }}>
+
+              {/* ── Cabeçalho em 3 colunas ── */}
+              <div style={{ display: "flex", alignItems: "stretch", gap: 0, marginBottom: "6mm", border: "1px solid #d4d4d4", borderRadius: 4, overflow: "hidden" }}>
+                {/* Col 1: Logo */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "5mm 6mm", background: "#f8f9fa", borderRight: "1px solid #d4d4d4", minWidth: 140 }}>
                   {medCtx?.unitLogoUrl ? (
-                    <img src={medCtx.unitLogoUrl} alt="Logo" style={{ maxHeight: "75px", maxWidth: "240px", objectFit: "contain" }} />
+                    <img src={medCtx.unitLogoUrl} alt="Logo" style={{ maxHeight: 75, maxWidth: 200, objectFit: "contain" }} />
                   ) : (
-                    <div style={{ width: 120, height: 40, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", color: "#bbb", fontSize: "9pt" }}>
-                      Logo da unidade
+                    <div style={{ width: 120, height: 50, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", color: "#bbb", fontSize: "8pt", borderRadius: 3 }}>Logo da unidade</div>
+                  )}
+                </div>
+                {/* Col 2: Nome da unidade */}
+                <div style={{ flex: 1, padding: "4mm 6mm", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                  <div style={{ fontSize: "12pt", fontWeight: 700, color: "#1a3a5c", marginBottom: 2 }}>{medCtx?.unitName || "Unidade de Saúde"}</div>
+                  <div style={{ fontSize: "8.5pt", color: "#666", letterSpacing: "0.03em", textTransform: "uppercase" }}>Laudo de Exame de Imagem</div>
+                </div>
+                {/* Divisor */}
+                <div style={{ width: 1, background: "#d4d4d4", margin: "4mm 0" }} />
+                {/* Col 3: Dados do paciente */}
+                <div style={{ padding: "4mm 6mm", minWidth: 180 }}>
+                  <div style={{ fontSize: "10.5pt", fontWeight: 700, color: "#111", marginBottom: 3 }}>{patientName || "—"}</div>
+                  {studyInfo?.birthDate && (
+                    <div style={{ display: "flex", gap: 4, fontSize: "9.5pt", lineHeight: 1.75 }}>
+                      <span style={{ fontWeight: 600, color: "#444", whiteSpace: "nowrap" }}>Nasc.:</span>
+                      <span>{studyInfo.birthDate}{studyInfo?.sex ? ` · Sexo: ${formatSex(studyInfo.sex)}` : ""}</span>
+                    </div>
+                  )}
+                  {studyInfo?.studyDate && (
+                    <div style={{ display: "flex", gap: 4, fontSize: "9.5pt", lineHeight: 1.75 }}>
+                      <span style={{ fontWeight: 600, color: "#444", whiteSpace: "nowrap" }}>Realizado:</span>
+                      <span>{formatDicomDate(studyInfo.studyDate)}</span>
+                    </div>
+                  )}
+                  {medCtx?.doctorName && (
+                    <div style={{ display: "flex", gap: 4, fontSize: "9.5pt", lineHeight: 1.75 }}>
+                      <span style={{ fontWeight: 600, color: "#444", whiteSpace: "nowrap" }}>Médico:</span>
+                      <span>{medCtx.doctorName}</span>
                     </div>
                   )}
                 </div>
-                <div style={{ textAlign: "right", fontSize: "10pt" }}>
-                  <div><strong>Paciente:</strong> {patientName}</div>
-                  {studyInfo?.birthDate && <div><strong>Data Nasc:</strong> {studyInfo.birthDate}</div>}
-                  {studyInfo?.age && <div><strong>Idade:</strong> {studyInfo.age}</div>}
-                  {studyInfo?.sex && <div><strong>Sexo:</strong> {formatSex(studyInfo.sex)}</div>}
-                  {studyInfo?.studyDate && <div><strong>Realizado em:</strong> {formatDicomDate(studyInfo.studyDate)}</div>}
-                </div>
               </div>
 
-              {/* Título do exame — clicável para edição inline */}
+              {/* ── Título do exame — clicável para edição inline ── */}
               {examTitle && (
-                <div style={{ textAlign: "center", marginBottom: "6mm", position: "relative" }}>
+                <div style={{ margin: "5mm 0 4mm 0" }}>
                   {editingTitle ? (
                     <input
                       ref={titleInputRef}
@@ -735,13 +757,14 @@ export default function ReportEditorPage() {
                       style={{
                         width: "100%",
                         textAlign: "center",
-                        fontWeight: "bold",
-                        fontSize: "14pt",
+                        fontWeight: 700,
+                        fontSize: "11.5pt",
                         textTransform: "uppercase",
-                        letterSpacing: "0.5px",
+                        letterSpacing: "0.06em",
+                        color: "#1a3a5c",
                         border: "2px solid #3b82f6",
-                        borderRadius: 6,
-                        padding: "4px 32px 4px 8px",
+                        borderRadius: 4,
+                        padding: "4px 8px",
                         outline: "none",
                         background: "#eff6ff",
                         boxSizing: "border-box",
@@ -749,40 +772,42 @@ export default function ReportEditorPage() {
                     />
                   ) : (
                     <div
-                      onClick={() => { setEditingTitle(true); }}
+                      onClick={() => setEditingTitle(true)}
                       title="Clique para editar o título"
                       style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        cursor: "pointer",
-                        fontWeight: "bold",
-                        fontSize: "14pt",
+                        display: "block",
+                        textAlign: "center",
+                        fontWeight: 700,
+                        fontSize: "11.5pt",
                         textTransform: "uppercase",
-                        letterSpacing: "0.5px",
-                        padding: "2px 6px",
-                        borderRadius: 4,
-                        transition: "background 0.15s",
+                        letterSpacing: "0.06em",
+                        color: "#1a3a5c",
+                        padding: "2.5mm 0",
+                        borderTop: "2px solid #1a3a5c",
+                        borderBottom: "2px solid #1a3a5c",
+                        cursor: "pointer",
+                        position: "relative",
                       }}
-                      onMouseEnter={e => (e.currentTarget.style.background = "#f0f9ff")}
-                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                     >
                       {examTitle}
-                      <span title="Editar título" style={{ fontSize: "10pt", color: "#3b82f6", opacity: 0.7, flexShrink: 0 }}>✏️</span>
+                      <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: "9pt", color: "#3b82f6", opacity: 0.6 }}>✏️</span>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Banner de laudo assinado */}
+              {/* ── Label LAUDO com linha divisória ── */}
+              <div style={{ fontSize: "8pt", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#1a3a5c", margin: "5mm 0 2mm 0", paddingBottom: 2, borderBottom: "1px solid #1a3a5c" }}>Laudo</div>
+
+              {/* ── Banner de laudo assinado ── */}
               {isSigned && !isRevising && (
-                <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 6, padding: '8px 12px', marginBottom: 8, fontSize: '10pt', color: '#92400e', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "8px 12px", marginBottom: 8, fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8 }}>
                   <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
-                  <span>Laudo <strong>{existingReport?.status === 'revised' ? 'retificado' : 'assinado'}</strong> — clique em <strong>Editar</strong> para retificar.</span>
+                  <span>Laudo <strong>{existingReport?.status === "revised" ? "retificado" : "assinado"}</strong> — clique em <strong>Retificar</strong> para editar.</span>
                 </div>
               )}
 
-              {/* Corpo editável */}
+              {/* ── Corpo editável ── */}
               <div
                 ref={docRef}
                 contentEditable={isEditable}
@@ -791,18 +816,50 @@ export default function ReportEditorPage() {
                 onKeyUp={isEditable ? saveSelection : undefined}
                 data-placeholder="Digite o laudo aqui..."
                 style={{
-                  minHeight: "120mm",
+                  minHeight: "100mm",
                   outline: "none",
-                  lineHeight: 1.8,
+                  lineHeight: 1.9,
+                  fontSize: "10.5pt",
+                  color: "#111",
+                  textAlign: "justify",
                   whiteSpace: "pre-wrap",
-                  cursor: isEditable ? 'text' : 'default',
-                  background: isEditable ? 'transparent' : '#fafafa',
+                  cursor: isEditable ? "text" : "default",
+                  fontFamily: "'Inter', 'Arial', sans-serif",
                 }}
               />
 
-              {/* Rodapé legal fixo na parte inferior */}
-              <div style={{ position: "absolute", bottom: "20mm", left: "20mm", right: "20mm", borderTop: "1px solid #eee", paddingTop: "3mm", fontSize: "7pt", color: "#888", lineHeight: 1.4 }}>
+              {/* ── Rodapé médico (só quando assinado) ── */}
+              {isSigned && medCtx?.doctorName && (
+                <div style={{ marginTop: "10mm", display: "flex", justifyContent: "center" }}>
+                  <div style={{ textAlign: "center", minWidth: 200, maxWidth: 260 }}>
+                    {medCtx.stampUrl && (
+                      <img src={medCtx.stampUrl} alt="Carimbo" style={{ maxHeight: 90, maxWidth: 220, objectFit: "contain", display: "block", margin: "0 auto 3mm" }} />
+                    )}
+                    {medCtx.signatureUrl && (
+                      <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 45, maxWidth: 180, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />
+                    )}
+                    <div style={{ borderTop: "1.5px solid #333", marginTop: 2, paddingTop: "3mm" }}>
+                      <div style={{ fontWeight: 700, fontSize: "10pt", color: "#111" }}>
+                        {medCtx.doctorName}
+                        {existingReport?.status === "revised" && (
+                          <span style={{ background: "#f59e0b", color: "#fff", fontSize: "7pt", padding: "1px 6px", borderRadius: 3, fontWeight: 700, marginLeft: 5, verticalAlign: "middle" }}>RETIFICADO</span>
+                        )}
+                      </div>
+                      {medCtx.crm && <div style={{ fontSize: "9pt", color: "#444", marginTop: 1 }}>CRM: {medCtx.crm}</div>}
+                      {existingReport?.signedAt && (
+                        <div style={{ fontSize: "8pt", color: "#666", marginTop: 1 }}>
+                          Assinado em: {new Date(existingReport.signedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Rodapé legal ── */}
+              <div style={{ marginTop: "8mm", paddingTop: "3mm", borderTop: "1px solid #e0e0e0", fontSize: "7pt", color: "#999", lineHeight: 1.55, textAlign: "center" }}>
                 {LEGAL_FOOTER}
+                <div style={{ fontSize: "7pt", color: "#bbb", marginTop: 2 }}>Documento gerado em {new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
               </div>
             </div>
           </div>

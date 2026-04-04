@@ -658,3 +658,4 @@
 - [ ] Testar e corrigir o fluxo de edição de permissões (view_studies, edit_reports, view_anamnesis, print_reports, manage_templates)
 - [ ] Verificar se o erro de `user_unit_permissions` foi resolvido após a migração das colunas createdAt/updatedAt
 - [x] Novo layout de impressão de laudos: cabeçalho profissional com logo e dados do paciente, tabela clínica estruturada, tipografia melhorada, rodapé com carimbo/assinatura e dados legais, suporte a impressão otimizada @page CSS
+- [x] Unificar layout do editor de laudos (ReportDocument.tsx) com o layout de impressão — WYSIWYG
