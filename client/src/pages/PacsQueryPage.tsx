@@ -1173,18 +1173,44 @@ export function PacsQueryPage() {
                       <span className="text-sm text-gray-600">{age || '-'}</span>
                     </td>
 
-                    {/* Exame — editável (persiste no banco) */}
+                    {/* Exame — editável (persiste no banco) + botão de seleção de exames para laudar */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${modalityCls}`}>{modality}</span>
-                        <EditableExamName
-                          value={study.studyDescription || ''}
-                          studyUid={study.studyInstanceUid || `${idx}`}
-                          rawDescription={study.studyDescription || ''}
-                          dbOverride={meta?.description_override || null}
-                          onSaved={() => refetchMetadata()}
-                          canEdit={canCID}
-                        />
+                        <div className="flex-1 min-w-0">
+                          <EditableExamName
+                            value={study.studyDescription || ''}
+                            studyUid={study.studyInstanceUid || `${idx}`}
+                            rawDescription={study.studyDescription || ''}
+                            dbOverride={meta?.description_override || null}
+                            onSaved={() => refetchMetadata()}
+                            canEdit={canCID}
+                          />
+                          {/* Exames definidos para laudar */}
+                          {studyLabelsMap[study.studyInstanceUid]?.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {studyLabelsMap[study.studyInstanceUid].map((lbl, li) => (
+                                <span key={li} className="text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded px-1.5 py-0.5 font-medium">
+                                  {lbl.title}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        {/* Botão Definir Exames — visível apenas para operador/admin */}
+                        {(canCID || isAdmin) && (
+                          <button
+                            onClick={() => { setDefineLabelsStudy(study); setIsDefineLabelsOpen(true); }}
+                            title="Definir exames para laudar"
+                            className={`w-7 h-7 rounded-lg border inline-flex items-center justify-center transition-colors shrink-0 ${
+                              studyLabelsMap[study.studyInstanceUid]?.length > 0
+                                ? 'bg-blue-50 border-blue-300 text-blue-600 hover:bg-blue-100'
+                                : 'border-gray-200 bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-600'
+                            }`}
+                          >
+                            <Tag className="h-3 w-3" />
+                          </button>
+                        )}
                       </div>
                     </td>
 
@@ -1260,24 +1286,6 @@ export function PacsQueryPage() {
                       )}
                     </td>
 
-                    {/* Definir Legendas (operador/admin/medico) */}
-                    <td className="px-4 py-3 text-center">
-                      {(canCID || canLaudo || isAdmin) ? (
-                        <button
-                          onClick={() => { setDefineLabelsStudy(study); setIsDefineLabelsOpen(true); }}
-                          title="Definir legendas de exames"
-                          className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
-                            studyLabelsMap[study.studyInstanceUid]?.length > 0
-                              ? 'bg-blue-50 border-blue-300 text-blue-600 hover:bg-blue-100'
-                              : 'border-gray-200 bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-600'
-                          }`}
-                        >
-                          <Tag className="h-3.5 w-3.5" />
-                        </button>
-                      ) : (
-                        <span className="text-gray-300">—</span>
-                      )}
-                    </td>
                     {/* Laudar */}
                     <td className="px-4 py-3 text-center">
                       {canLaudo ? (

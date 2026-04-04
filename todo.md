@@ -714,3 +714,9 @@
 - [ ] Reescrever editor multi-seção: N folhas separadas com título editável e editor independente por folha
 - [ ] Adaptar template de impressão: N páginas com quebra de página entre elas
 - [ ] Garantir que operador NÃO vê botão Laudar e médico vê botão Laudar (RBAC)
+
+## CORREÇÃO: Botão de Seleção de Exames na Coluna EXAME (04/04/2026)
+- [x] Na célula da coluna EXAME da tabela de estudos, adicionar botão que abre DefineLabelsModal
+- [x] Botão visível apenas para operador/unit_admin/admin_master
+- [x] DefineLabelsModal: busca no catálogo de 370 exames, seleção múltipla, salva na tabela study_labels
+- [x] Coluna separada de Definir Legendas removida da tabela
