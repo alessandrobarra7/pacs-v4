@@ -674,3 +674,11 @@
 - [x] [MÉDIO] Adicionar validação de magic bytes server-side em routers.ts
 - [x] [MÉDIO] Adicionar limite de tamanho server-side (2 MB) em routers.ts
 - [x] [ESTRUTURAL] Documentar volume persistente para ./uploads/ em DEPLOY.md
+
+## Auditoria de Retificação de Laudos (04/04/2026)
+
+- [x] [B1 CRÍTICO] Bloquear laudos assinados/revisados no endpoint reports.update (routers.ts)
+- [x] [B2 CRÍTICO] Ocultar botão "Salvar Rascunho" quando laudo está assinado (ReportEditorPage.tsx)
+- [x] [B3 MÉDIO] Capturar body do DOM ao abrir o modal de retificação, não ao confirmar (ReportEditorPage.tsx)
+- [x] [B4 MÉDIO] Atualizar signedAt e signedBy na mutation reports.revise (routers.ts)
+- [x] [TESTES] Adicionar testes de integração cobrindo os 4 cenários de erro (6 testes, todos passando)

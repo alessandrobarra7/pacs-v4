@@ -656,6 +656,14 @@ export const appRouter = router({
         if (ctx.user.role !== 'admin_master' && report.unit_id !== ctx.user.unit_id) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
+        // Bug fix B1: bloquear atualização direta de laudos assinados ou retificados.
+        // Laudos nesse estado só podem ser alterados via reports.revise (com histórico e motivo).
+        if (report.status === 'signed' || report.status === 'revised') {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Laudos assinados só podem ser editados via retificação.',
+          });
+        }
         await updateReport(id, data);
         
         await createAuditLog({
@@ -739,10 +747,14 @@ export const appRouter = router({
           saved_by_user_id: ctx.user.id,
         });
         // 2. Atualizar laudo com novo corpo e status 'revised'
+        // Bug fix B4: atualizar signedAt e signedBy para refletir quem retificou e quando,
+        // garantindo rastreabilidade médico-legal correta no laudo impresso e no histórico.
         await updateReport(input.id, {
           body: input.body,
           status: 'revised',
           version: (report.version ?? 1) + 1,
+          signedAt: new Date(),
+          signedBy: ctx.user.id,
         });
         await createAuditLog({
           user_id: ctx.user.id,

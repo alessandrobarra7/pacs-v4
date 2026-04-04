@@ -168,6 +168,9 @@ export default function ReportEditorPage() {
   const [isRevising, setIsRevising] = useState(false);
   const [reviseReason, setReviseReason] = useState("");
   const [showReviseModal, setShowReviseModal] = useState(false);
+  // Bug fix B3: capturar body no momento de abertura do modal (não ao confirmar),
+  // evitando race condition caso o usuário edite o documento enquanto o modal está aberto.
+  const [pendingReviseBody, setPendingReviseBody] = useState<string>("");
 
   // Estado de exclusão
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -288,18 +291,21 @@ export default function ReportEditorPage() {
       toast.error("Informe o motivo da retificação (mínimo 5 caracteres)");
       return;
     }
-    const body = docRef.current?.innerHTML || "";
+    // Bug fix B3: usar pendingReviseBody (capturado ao abrir o modal) em vez de ler o DOM ao vivo,
+    // garantindo que o conteúdo salvo é exatamente o que o usuário viu ao clicar 'Salvar Retificação'.
+    const body = pendingReviseBody || docRef.current?.innerHTML || "";
     try {
       await reviseReport.mutateAsync({ id: existingReport.id, body, reason: reviseReason });
       toast.success("Laudo retificado com sucesso!");
       setIsRevising(false);
       setShowReviseModal(false);
       setReviseReason("");
+      setPendingReviseBody("");
       navigate("/");
     } catch (e: any) {
       toast.error(e.message || "Erro ao retificar");
     }
-  }, [existingReport, reviseReason, reviseReport, navigate]);
+  }, [existingReport, reviseReason, pendingReviseBody, reviseReport, navigate]);
 
   // ── Apagar laudo ───────────────────────────────────────────────────────────────────────────────────────
   const handleDelete = useCallback(async () => {
@@ -528,7 +534,11 @@ export default function ReportEditorPage() {
                 </Button>
                 <Button
                   size="sm"
-                  onClick={() => setShowReviseModal(true)}
+                  onClick={() => {
+                    // Bug fix B3: capturar body do DOM neste exato momento
+                    setPendingReviseBody(docRef.current?.innerHTML || "");
+                    setShowReviseModal(true);
+                  }}
                   disabled={reviseReport.isPending}
                   className="gap-1.5 text-xs bg-orange-600 hover:bg-orange-700 text-white"
                 >
@@ -639,18 +649,21 @@ export default function ReportEditorPage() {
             )}
           </div>
 
-          {/* Botão salvar rascunho no rodapé da sidebar */}
-          <div className="p-3 border-t border-gray-200 bg-white">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full text-xs"
-              onClick={handleSave}
-              disabled={createReport.isPending || updateReport.isPending}
-            >
-              {(createReport.isPending || updateReport.isPending) ? "Salvando..." : "Salvar Rascunho"}
-            </Button>
-          </div>
+          {/* Bug fix B2: ocultar botão Salvar Rascunho quando laudo está assinado/retificado.
+               Laudos nesse estado só podem ser salvos via fluxo de retificação (com histórico). */}
+          {!isSigned && (
+            <div className="p-3 border-t border-gray-200 bg-white">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-xs"
+                onClick={handleSave}
+                disabled={createReport.isPending || updateReport.isPending}
+              >
+                {(createReport.isPending || updateReport.isPending) ? "Salvando..." : "Salvar Rascunho"}
+              </Button>
+            </div>
+          )}
         </aside>
 
         {/* ── ÁREA DO DOCUMENTO ────────────────────────────────────────── */}
