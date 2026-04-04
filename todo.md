@@ -682,3 +682,11 @@
 - [x] [B3 MÉDIO] Capturar body do DOM ao abrir o modal de retificação, não ao confirmar (ReportEditorPage.tsx)
 - [x] [B4 MÉDIO] Atualizar signedAt e signedBy na mutation reports.revise (routers.ts)
 - [x] [TESTES] Adicionar testes de integração cobrindo os 4 cenários de erro (6 testes, todos passando)
+
+## Auditoria do Buscador PACS (04/04/2026)
+
+- [x] [A4 MÉDIO] Remover wildcard duplo em routers.ts linha 921 — delegar ao dicom.service.ts
+- [x] [A1 CRÍTICO] Corrigir handleLast7Days: enviar 'LAST_7_DAYS' em vez de 'LAST_30_DAYS'
+- [x] [A2 CRÍTICO] Alinhar toast com filteredResults.length (fonte única de contagem)
+- [x] [A3 MÉDIO] Refatorar cFind() para retornar { studies, truncated, timedOut } e exibir aviso
+- [x] [A5 MÉDIO] Sinalizar timeout parcial com timedOut: true e exibir aviso diferenciado no frontend

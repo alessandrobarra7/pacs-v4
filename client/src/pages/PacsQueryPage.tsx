@@ -513,24 +513,9 @@ export function PacsQueryPage() {
   // Ordenar por data mais recente primeiro
   const sortedResults = useMemo(() => sortByDateDesc(queryResults), [queryResults]);
 
-  // Filtro "Últimos 7 dias" aplicado sobre os resultados
-  const [showLast7Days, setShowLast7Days] = useState(false);
-  const filteredResults = useMemo(() => {
-    if (!showLast7Days) return sortedResults;
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 7);
-    cutoff.setHours(0, 0, 0, 0);
-    return sortedResults.filter(s => {
-      if (!s.studyDate) return false;
-      // studyDate vem no formato YYYYMMDD
-      const raw = String(s.studyDate);
-      const year = parseInt(raw.slice(0, 4), 10);
-      const month = parseInt(raw.slice(4, 6), 10) - 1;
-      const day = parseInt(raw.slice(6, 8), 10);
-      const studyDateObj = new Date(year, month, day);
-      return studyDateObj >= cutoff;
-    });
-  }, [sortedResults, showLast7Days]);
+  // Bug fix A1: filtro local de 7 dias removido — o servidor já resolve 'LAST_7_DAYS' corretamente.
+  // Antes: enviava 'LAST_30_DAYS' e filtrava localmente, causando divergência entre toast e tela.
+  const filteredResults = useMemo(() => sortedResults, [sortedResults]);
 
   const totalPages = Math.max(1, Math.ceil(filteredResults.length / PAGE_SIZE));
   const pagedResults = useMemo(() => {
@@ -566,11 +551,31 @@ export function PacsQueryPage() {
 
   // logout handled by AppHeader
 
+  // Bug fix A2: estado para controlar exibição do toast após filtros serem aplicados
+  const [pendingToastCount, setPendingToastCount] = useState<number | null>(null);
+  const [pendingToastType, setPendingToastType] = useState<'success' | 'warning' | 'timeout'>('success');
+
+  // Bug fix A2: toast disparado após filteredResults ser calculado (fonte única de contagem)
+  useEffect(() => {
+    if (pendingToastCount === null) return;
+    if (pendingToastType === 'timeout') {
+      toast.warning(`Busca interrompida por tempo limite. ${pendingToastCount} estudo${pendingToastCount !== 1 ? 's' : ''} exibido${pendingToastCount !== 1 ? 's' : ''} — resultado pode estar incompleto.`);
+    } else if (pendingToastType === 'warning') {
+      toast.warning(`Exibindo os primeiros ${pendingToastCount} estudo${pendingToastCount !== 1 ? 's' : ''}. Refine a busca para ver mais resultados.`);
+    } else {
+      toast.success(`${pendingToastCount} estudo${pendingToastCount !== 1 ? 's' : ''} encontrado${pendingToastCount !== 1 ? 's' : ''}`);
+    }
+    setPendingToastCount(null);
+  }, [filteredResults, pendingToastCount, pendingToastType]);
+
   const queryPacs = trpc.pacs.query.useMutation({
     onSuccess: (data: any) => {
       setQueryResults(data.studies || []);
       setCurrentPage(1);
-      toast.success(`${data.studies?.length || 0} estudos encontrados`);
+      // Bug fix A2: não usar data.studies.length (bruto) — aguardar filteredResults via useEffect
+      const type = data.timedOut ? 'timeout' : data.truncated ? 'warning' : 'success';
+      setPendingToastType(type);
+      setPendingToastCount(data.studies?.length || 0);
       setIsQuerying(false);
     },
     onError: (error: any) => {
@@ -597,7 +602,6 @@ export function PacsQueryPage() {
   };
 
   const handlePeriodChange = (period: string) => {
-    setShowLast7Days(false);
     setSelectedDate(undefined);
     let studyDate = '';
     if (period === 'today') studyDate = 'TODAY';
@@ -612,7 +616,6 @@ export function PacsQueryPage() {
   };
 
   const handleCalendarSelect = (date: Date | undefined) => {
-    setShowLast7Days(false);
     setSelectedDate(date);
     setCalendarOpen(false);
     if (!date) {
@@ -626,16 +629,16 @@ export function PacsQueryPage() {
   };
 
   const handleLast7Days = () => {
-    setShowLast7Days(true);
+    // Bug fix A1: enviar 'LAST_7_DAYS' diretamente ao servidor (que já resolve o período correto).
+    // Antes: enviava 'LAST_30_DAYS' e filtrava localmente, causando divergência entre toast e tela.
     setSelectedDate(undefined);
     setFilters(f => ({ ...f, period: 'last7days' }));
-    // Busca os últimos 30 dias e filtra localmente pelos últimos 7 dias
     setIsQuerying(true);
     queryPacs.mutate({
       patientName: filters.patientName,
       patientId: "",
       modality: "",
-      studyDate: 'LAST_30_DAYS',
+      studyDate: 'LAST_7_DAYS',
       accessionNumber: "",
       unit_id: effectiveUnitId || undefined,
     });

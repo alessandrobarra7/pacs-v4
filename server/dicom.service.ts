@@ -80,13 +80,24 @@ function cleanPatientName(raw: string): string {
 }
 
 /**
+ * Resultado do C-FIND com flags de truncamento e timeout
+ * Bug fix A3/A5: retornar objeto com flags em vez de array puro,
+ * permitindo ao frontend diferenciar resultado completo, truncado (limite) ou parcial (timeout).
+ */
+export interface CFindResult {
+  studies: DicomStudy[];
+  truncated: boolean; // true quando maxResults foi atingido
+  timedOut: boolean;  // true quando o timeout de 60s foi atingido
+}
+
+/**
  * Executa C-FIND no nível STUDY contra um servidor PACS
  */
 export function cFind(
   config: CFindConfig,
   filters: CFindFilters = {},
   maxResults = 500
-): Promise<DicomStudy[]> {
+): Promise<CFindResult> {
   return new Promise((resolve, reject) => {
     const client = new Client();
     const studies: DicomStudy[] = [];
@@ -135,9 +146,10 @@ export function cFind(
           if (study.studyInstanceUID) {
             studies.push(study);
             if (studies.length >= maxResults && !resolved) {
+              // Bug fix A3: sinalizar truncamento ao atingir o limite de resultados
               resolved = true;
               try { client.abort(); } catch { /* ignore */ }
-              resolve(studies);
+              resolve({ studies, truncated: true, timedOut: false });
             }
           }
         }
@@ -156,7 +168,7 @@ export function cFind(
     client.on('closed', () => {
       if (!resolved) {
         resolved = true;
-        resolve(studies);
+        resolve({ studies, truncated: false, timedOut: false });
       }
     });
 
@@ -164,12 +176,13 @@ export function cFind(
 
     const timeout = setTimeout(() => {
       if (!resolved) {
+        // Bug fix A5: sinalizar timeout com flag timedOut em vez de rejeitar ou resolver silenciosamente.
+        // Antes: resolve(studies) sem indicar que o resultado pode estar incompleto.
         resolved = true;
+        try { client.abort(); } catch { /* ignore */ }
         if (studies.length > 0) {
-          try { client.abort(); } catch { /* ignore */ }
-          resolve(studies);
+          resolve({ studies, truncated: false, timedOut: true });
         } else {
-          try { client.abort(); } catch { /* ignore */ }
           reject(new Error(`C-FIND timeout após 60s para ${config.ip}:${config.port}`));
         }
       }

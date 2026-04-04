@@ -46,6 +46,7 @@ import { eq, and, like } from "drizzle-orm";
 // orthanc.ts mantido para visualização futura via DICOMweb, não mais usado na pesquisa
 import { getDicomWebUrl } from "./orthanc";
 import { cFind } from "./dicom.service";
+import type { CFindResult } from "./dicom.service";
 
 /**
  * Bug fix 5.2: Valida magic bytes para garantir que o buffer é uma imagem real.
@@ -906,10 +907,12 @@ export const appRouter = router({
         
         try {
           let studies: any[] = [];
-          
+          let truncated = false;
+          let timedOut = false;
+
           // MODO ÚNICO: C-FIND DICOM DIRETO
           console.log(`[PACS Query] C-FIND → ${unit.pacs_ip}:${unit.pacs_port} AE=${unit.pacs_ae_title}`);
-          studies = await cFind(
+          const cFindResult = await cFind(
             {
               ip: unit.pacs_ip!,
               port: unit.pacs_port!,
@@ -917,7 +920,9 @@ export const appRouter = router({
               localAeTitle: unit.pacs_local_ae_title || 'LAUDS',
             },
             {
-              patientName: filters.patientName ? `*${filters.patientName}*` : undefined,
+              // Bug fix A4: wildcard DICOM adicionado apenas em dicom.service.ts (linha 96).
+              // Adicionar aqui também resultava em '**JOSE**' enviado ao PACS, causando zero resultados.
+              patientName: filters.patientName || undefined,
               patientID: filters.patientId,
               studyDate: filters.studyDate,
               // Não enviar modality se for vazio ou 'ALL' — C-FIND retorna todos quando omitido
@@ -925,7 +930,11 @@ export const appRouter = router({
               accessionNumber: filters.accessionNumber,
             }
           );
-          console.log(`[PACS Query] C-FIND retornou ${studies.length} estudos`);
+          // Bug fix A3/A5: extrair flags de truncamento e timeout do resultado
+          studies = cFindResult.studies;
+          truncated = cFindResult.truncated;
+          timedOut = cFindResult.timedOut;
+          console.log(`[PACS Query] C-FIND retornou ${studies.length} estudos${truncated ? ' (TRUNCADO)' : ''}${timedOut ? ' (TIMEOUT)' : ''}`);
           // Normaliza campos para o frontend
           studies = studies.map((s: any) => ({
             studyInstanceUid: s.studyInstanceUID || s.studyInstanceUid || '',
@@ -965,6 +974,9 @@ export const appRouter = router({
             success: true,
             studies,
             count: studies.length,
+            // Bug fix A3/A5: propagar flags de truncamento e timeout ao frontend
+            truncated,
+            timedOut,
           };
           
         } catch (error: any) {
