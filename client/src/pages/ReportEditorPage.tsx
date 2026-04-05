@@ -737,8 +737,8 @@ export default function ReportEditorPage() {
         {/* ── ÁREA DO DOCUMENTO ────────────────────────────────────────── */}
         <main className="flex-1 overflow-y-auto bg-gray-100 flex justify-center py-8 print:bg-white print:p-0 print:block">
           <div
-            className="relative bg-white shadow-md print:shadow-none"
-            style={{ width: "210mm", minHeight: "297mm" }}
+            className={isMultiSection ? "relative" : "relative bg-white shadow-md print:shadow-none"}
+            style={isMultiSection ? { width: "794px" } : { width: "210mm", minHeight: "297mm" }}
           >
             {/* Imagens arrastáveis */}
             {draggableImages.filter(img => img != null && img.id != null).map((img) => (
