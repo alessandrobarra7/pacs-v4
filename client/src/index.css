@@ -175,3 +175,14 @@
     }
   }
 }
+/* ── Impressão: cada folha A4 do laudo multi-página começa em nova página ── */
+@media print {
+  .report-page {
+    page-break-after: always;
+    break-after: page;
+  }
+  .report-page:last-child {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+}
