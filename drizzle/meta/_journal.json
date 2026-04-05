@@ -120,6 +120,13 @@
       "when": 1775225479854,
       "tag": "0016_absurd_dark_beast",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1775389234588,
+      "tag": "0017_outstanding_frightful_four",
+      "breakpoints": true
     }
   ]
 }

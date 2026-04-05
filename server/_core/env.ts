@@ -7,4 +7,6 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  // Bug fix N6: duração da sessão configurável via env (padrão: 24h)
+  sessionDurationHours: parseInt(process.env.SESSION_DURATION_HOURS ?? "24", 10),
 };

@@ -4,6 +4,7 @@
  */
 
 import { createRequire } from 'module';
+import { PACS_MAX_RESULTS } from '../shared/const';
 const _require = createRequire(import.meta.url);
 const dcmjsDimse = _require('dcmjs-dimse');
 
@@ -96,7 +97,7 @@ export interface CFindResult {
 export function cFind(
   config: CFindConfig,
   filters: CFindFilters = {},
-  maxResults = 500
+  maxResults = PACS_MAX_RESULTS // M4: usa constante centralizada de shared/const.ts
 ): Promise<CFindResult> {
   return new Promise((resolve, reject) => {
     const client = new Client();

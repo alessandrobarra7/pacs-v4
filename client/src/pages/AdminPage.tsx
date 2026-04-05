@@ -226,6 +226,11 @@ export default function AdminPage() {
     { enabled: activeTab === "audit" }
   );
 
+  // Bug fix N3: declarar updateLogo ANTES de handleSaveUnit para evitar dependência de ordem.
+  const updateLogo = trpc.medicalData.updateUnitLogo.useMutation({
+    onError: (e) => toast.error(`Erro ao salvar logo da unidade: ${e.message}`),
+  });
+
   // ── Handlers ──
   const handleSaveUnit = (data: UnitFormData) => {
     const anyData = data as any;
@@ -284,10 +289,7 @@ export default function AdminPage() {
     onError: (e) => toast.error(`Erro ao salvar dados médicos: ${e.message}`),
   });
 
-  // Bug fix 4.3: declarar updateLogo para uso no handleSaveUnit
-  const updateLogo = trpc.medicalData.updateUnitLogo.useMutation({
-    onError: (e) => toast.error(`Erro ao salvar logo da unidade: ${e.message}`),
-  });
+  // (updateLogo foi movido para antes de handleSaveUnit — Bug fix N3)
 
   const handleSaveUser = (data: UserFormData) => {
     if (data.id) {

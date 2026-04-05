@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, date, json, decimal } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, date, json, decimal, uniqueIndex } from "drizzle-orm/mysql-core";
 
 /**
  * Units (Medical facilities) - Each unit has its own Orthanc instance
@@ -139,7 +139,10 @@ export const reports = mysqlTable("reports", {
   signedBy: int("signedBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  // N5 — Bug fix: garante um laudo por estudo por unidade, evitando duplicatas por race condition.
+  uidUnitIdx: uniqueIndex("reports_uid_unit_idx").on(table.study_instance_uid, table.unit_id),
+}));
 
 export type Report = typeof reports.$inferSelect;
 export type InsertReport = typeof reports.$inferInsert;

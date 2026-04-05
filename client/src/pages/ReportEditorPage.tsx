@@ -291,9 +291,15 @@ export default function ReportEditorPage() {
       toast.error("Informe o motivo da retificação (mínimo 5 caracteres)");
       return;
     }
-    // Bug fix B3: usar pendingReviseBody (capturado ao abrir o modal) em vez de ler o DOM ao vivo,
-    // garantindo que o conteúdo salvo é exatamente o que o usuário viu ao clicar 'Salvar Retificação'.
-    const body = pendingReviseBody || docRef.current?.innerHTML || "";
+    // Bug fix N2: remover fallback ao DOM — bloquear se pendingReviseBody estiver vazio.
+    // O fallback anterior (|| docRef.current?.innerHTML) reintroduzia o risco do Bug B3:
+    // se o usuário editasse o documento enquanto o modal estava aberto, o DOM ao vivo seria lido.
+    if (!pendingReviseBody) {
+      toast.error("Erro interno: conteúdo não capturado. Feche o modal e tente novamente.");
+      setShowReviseModal(false);
+      return;
+    }
+    const body = pendingReviseBody; // sem fallback ao DOM
     try {
       await reviseReport.mutateAsync({ id: existingReport.id, body, reason: reviseReason });
       toast.success("Laudo retificado com sucesso!");

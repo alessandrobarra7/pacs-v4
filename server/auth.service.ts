@@ -19,7 +19,9 @@ function getJwtSecret(): string {
 }
 
 const JWT_SECRET = getJwtSecret();
-const SESSION_DURATION = 24 * 60 * 60 * 1000;
+// Bug fix N6: SESSION_DURATION agora lido de ENV.sessionDurationHours (padrão: 24h)
+// Para alterar: defina SESSION_DURATION_HOURS=8 no .env da VM1
+const SESSION_DURATION = ENV.sessionDurationHours * 60 * 60 * 1000;
 
 export interface SessionPayload {
   userId: number;

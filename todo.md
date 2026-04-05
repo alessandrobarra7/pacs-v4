@@ -682,3 +682,16 @@
 - [x] [B3 MÉDIO] Capturar body do DOM ao abrir o modal de retificação, não ao confirmar (ReportEditorPage.tsx)
 - [x] [B4 MÉDIO] Atualizar signedAt e signedBy na mutation reports.revise (routers.ts)
 - [x] [TESTES] Adicionar testes de integração cobrindo os 4 cenários de erro (6 testes, todos passando)
+
+## Dossiê de Auditoria — Problemas Residuais e Melhorias (05/04/2026)
+
+- [x] N5 — UNIQUE constraint (study_instance_uid, unit_id) na tabela reports + migration aplicada
+- [x] N2 — Remover fallback ao DOM em handleRevise (ReportEditorPage.tsx)
+- [x] N1 — Inferir extensão real do arquivo nos 3 endpoints de upload
+- [x] N4 — Apagar arquivo antigo do S3 ao re-fazer upload
+- [x] N3 — Reorganizar ordem de declaração: updateLogo antes de handleSaveUnit
+- [x] N6 — SESSION_DURATION via variável de ambiente SESSION_DURATION_HOURS
+- [x] M3 — Criar ENV_REFERENCE.md documentado
+- [x] M4 — Centralizar constantes em shared/const.ts (PACS_MAX_RESULTS, MAX_UPLOAD_BYTES)
+- [x] M1 — Criar testes: upload.test.ts, pacs.query.test.ts, auth.session.test.ts (104 testes)
+- [x] M2 — Script de limpeza de arquivos orfãos (scripts/cleanup-orphaned-files.mjs)

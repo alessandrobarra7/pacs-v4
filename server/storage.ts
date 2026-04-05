@@ -51,6 +51,23 @@ export async function storagePut(
 }
 
 /**
+ * Bug fix N4: Remove um arquivo do disco local.
+ * Chamado antes de salvar novo upload para evitar acúmulo de arquivos orfãos.
+ * @param urlOrKey URL pública (/uploads/logos/...) ou chave relativa (logos/...)
+ */
+export function storageDelete(urlOrKey: string): void {
+  try {
+    const key = urlOrKey.replace(/^\/uploads\//, '').replace(/^\/+/, '');
+    const filePath = path.join(UPLOADS_DIR, key);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch {
+    // Ignora se o arquivo já foi removido ou não existe
+  }
+}
+
+/**
  * Retorna a URL pública de um arquivo já salvo.
  * @param relKey Caminho relativo (ex: "logos/unit_1_123.png")
  */
