@@ -88,6 +88,8 @@ interface StudyInfo {
   unitId: number | null;
   modality?: string;
   accessionNumber?: string;
+  examCount?: number;
+  examNames?: string[];
 }
 
 interface DraggableImage {
@@ -136,9 +138,17 @@ export default function ReportEditorPage() {
   // Aba ativa da sidebar
   const [activeTab, setActiveTab] = useState<"exames" | "templates" | "frases" | "inserir">("exames");
 
-  // Referência ao documento editável
+  // Referência ao documento editável (seção única)
   const docRef = useRef<HTMLDivElement>(null);
   const savedSelection = useRef<Range | null>(null);
+
+  // Suporte a múltiplos exames (multi-seção)
+  // examNames: array de nomes dos exames (ex: ['RX TÓRAX PA E PERFIL', 'SEIOS DA FACE'])
+  // sectionBodies: array de HTML de cada seção, indexado por posição
+  const [examNames, setExamNames] = useState<string[]>([]);
+  const [sectionBodies, setSectionBodies] = useState<string[]>([]);
+  const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const isMultiSection = examNames.length > 1;
 
   // Imagens arrastáveis sobre o documento
   const [draggableImages, setDraggableImages] = useState<DraggableImage[]>([]);
@@ -186,16 +196,43 @@ export default function ReportEditorPage() {
         const info = JSON.parse(raw);
         setStudyInfo(info);
         setExamTitle(info.studyDescription || "");
+        // Configura multi-seção se houver mais de 1 exame
+        if (info.examNames && info.examNames.length > 1) {
+          setExamNames(info.examNames);
+          setSectionBodies(info.examNames.map(() => ""));
+        } else {
+          setExamNames([]);
+          setSectionBodies([]);
+        }
       } catch { /* ignore */ }
     }
   }, [studyUid]);
 
   // ── Carregar laudo existente no documento ────────────────────────────────
   useEffect(() => {
-    if (existingReport?.body && docRef.current) {
+    if (!existingReport?.body) return;
+    if (isMultiSection && sectionRefs.current.length > 0) {
+      // Laudo multi-seção: parsear as divs exam-section do HTML salvo
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(existingReport.body, "text/html");
+      const sections = doc.querySelectorAll(".exam-section");
+      if (sections.length > 0) {
+        sections.forEach((sec, i) => {
+          const bodyDiv = sec.querySelector(".exam-section-body, div:last-child");
+          if (sectionRefs.current[i] && bodyDiv) {
+            sectionRefs.current[i]!.innerHTML = bodyDiv.innerHTML;
+          }
+        });
+      } else {
+        // Laudo antigo sem seções — colocar tudo na primeira seção
+        if (sectionRefs.current[0]) {
+          sectionRefs.current[0].innerHTML = existingReport.body;
+        }
+      }
+    } else if (docRef.current) {
       docRef.current.innerHTML = existingReport.body;
     }
-  }, [existingReport]);
+  }, [existingReport, isMultiSection]);
 
   // ── Salvar seleção antes de interagir com sidebar ────────────────────────
   const saveSelection = useCallback(() => {
@@ -237,8 +274,19 @@ export default function ReportEditorPage() {
   }, []);
 
   // ── Salvar rascunho ──────────────────────────────────────────────────────
+  // ── Coletar body (simples ou multi-seção) ──────────────────────────────
+  const collectBody = useCallback(() => {
+    if (isMultiSection && sectionRefs.current.length > 0) {
+      return examNames.map((name, i) => {
+        const html = sectionRefs.current[i]?.innerHTML || "";
+        return `<div class="exam-section"><h3 style="text-align:center;font-weight:bold;font-size:11pt;text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid #d0d0d0;padding-bottom:4px;margin-bottom:8px;font-family:'Times New Roman',Times,serif;color:#111">${name}</h3><div class="exam-section-body">${html}</div></div>`;
+      }).join('<hr style="border:none;border-top:2px dashed #d0d0d0;margin:8mm 0">');
+    }
+    return docRef.current?.innerHTML || "";
+  }, [isMultiSection, examNames]);
+
   const handleSave = useCallback(async () => {
-    const body = docRef.current?.innerHTML || "";
+    const body = collectBody();
     try {
       if (existingReport?.id) {
         await updateReport.mutateAsync({ id: existingReport.id, body });
@@ -252,12 +300,12 @@ export default function ReportEditorPage() {
     } catch (e: any) {
       toast.error(e.message || "Erro ao salvar");
     }
-  }, [existingReport, studyUid, examTitle, studyInfo, updateReport, createReport]);
+  }, [existingReport, studyUid, examTitle, studyInfo, updateReport, createReport, collectBody]);
 
   // ── Assinar ──────────────────────────────────────────────────────────────
   // Salva o laudo automaticamente (se necessário) e depois assina em um único clique
   const handleSign = useCallback(async () => {
-    const body = docRef.current?.innerHTML || "";
+    const body = collectBody();
     if (!body.trim() || body.trim() === "<br>" || body.trim() === "<p></p>") {
       toast.error("Digite o conteúdo do laudo antes de assinar");
       return;
@@ -282,7 +330,7 @@ export default function ReportEditorPage() {
     } catch (e: any) {
       toast.error(e.message || "Erro ao assinar");
     }
-  }, [existingReport, studyUid, createReport, updateReport, signReport, navigate]);
+  }, [existingReport, studyUid, createReport, updateReport, signReport, navigate, collectBody]);
 
   // ── Retificar laudo assinado ─────────────────────────────────────────────
   const handleRevise = useCallback(async () => {
@@ -331,7 +379,7 @@ export default function ReportEditorPage() {
   const handlePrint = useCallback(() => {
     const birthDate = studyInfo?.birthDate || '';
     const studyDateFormatted = studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : '';
-    const bodyHtml = docRef.current?.innerHTML || '';
+    const bodyHtml = collectBody();
     const draggableHtml = draggableImages.map(img =>
       `<img src="${img.src}" alt="${img.label}" style="position:absolute;left:${img.x}px;top:${img.y}px;width:${img.width}px;" />`
     ).join('');
@@ -542,7 +590,7 @@ export default function ReportEditorPage() {
                   size="sm"
                   onClick={() => {
                     // Bug fix B3: capturar body do DOM neste exato momento
-                    setPendingReviseBody(docRef.current?.innerHTML || "");
+                    setPendingReviseBody(collectBody());
                     setShowReviseModal(true);
                   }}
                   disabled={reviseReport.isPending}
@@ -852,27 +900,75 @@ export default function ReportEditorPage() {
                   </div>
                 )}
 
-                {/* Área editável do laudo */}
-                <div
-                  ref={docRef}
-                  contentEditable={isEditable}
-                  suppressContentEditableWarning
-                  onMouseUp={isEditable ? saveSelection : undefined}
-                  onKeyUp={isEditable ? saveSelection : undefined}
-                  data-placeholder="Digite o laudo aqui..."
-                  style={{
-                    flex: 1,
-                    minHeight: "60mm",
-                    outline: "none",
-                    lineHeight: 1.6,
-                    fontSize: "11pt",
-                    color: "#111",
-                    textAlign: "left",
-                    whiteSpace: "pre-wrap",
-                    cursor: isEditable ? "text" : "default",
-                    fontFamily: "'Times New Roman', Times, serif",
-                  }}
-                />
+                {/* Área editável do laudo — simples ou multi-seção */}
+                {isMultiSection ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+                    {examNames.map((name, i) => (
+                      <div key={i} style={{ marginBottom: i < examNames.length - 1 ? "8mm" : 0 }}>
+                        {/* Título da seção */}
+                        <div style={{
+                          textAlign: "center",
+                          fontWeight: 700,
+                          fontSize: "11pt",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                          borderBottom: "1px solid #d0d0d0",
+                          paddingBottom: "4px",
+                          marginBottom: "8px",
+                          fontFamily: "'Times New Roman', Times, serif",
+                          color: "#111",
+                        }}>
+                          {name}
+                        </div>
+                        {/* Editor da seção */}
+                        <div
+                          ref={el => { sectionRefs.current[i] = el; }}
+                          contentEditable={isEditable}
+                          suppressContentEditableWarning
+                          onMouseUp={isEditable ? saveSelection : undefined}
+                          onKeyUp={isEditable ? saveSelection : undefined}
+                          data-placeholder={`Digite o laudo de ${name}...`}
+                          style={{
+                            minHeight: "40mm",
+                            outline: "none",
+                            lineHeight: 1.6,
+                            fontSize: "11pt",
+                            color: "#111",
+                            textAlign: "left",
+                            whiteSpace: "pre-wrap",
+                            cursor: isEditable ? "text" : "default",
+                            fontFamily: "'Times New Roman', Times, serif",
+                          }}
+                        />
+                        {/* Separador entre seções */}
+                        {i < examNames.length - 1 && (
+                          <hr style={{ border: "none", borderTop: "2px dashed #d0d0d0", margin: "8mm 0" }} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    ref={docRef}
+                    contentEditable={isEditable}
+                    suppressContentEditableWarning
+                    onMouseUp={isEditable ? saveSelection : undefined}
+                    onKeyUp={isEditable ? saveSelection : undefined}
+                    data-placeholder="Digite o laudo aqui..."
+                    style={{
+                      flex: 1,
+                      minHeight: "60mm",
+                      outline: "none",
+                      lineHeight: 1.6,
+                      fontSize: "11pt",
+                      color: "#111",
+                      textAlign: "left",
+                      whiteSpace: "pre-wrap",
+                      cursor: isEditable ? "text" : "default",
+                      fontFamily: "'Times New Roman', Times, serif",
+                    }}
+                  />
+                )}
               </div>
 
               {/* ══ ZONA 05 — ASSINATURA / CARIMBO MÉDICO ══════════════════════ */}

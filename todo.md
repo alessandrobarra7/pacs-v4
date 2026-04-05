@@ -695,3 +695,14 @@
 - [x] M4 — Centralizar constantes em shared/const.ts (PACS_MAX_RESULTS, MAX_UPLOAD_BYTES)
 - [x] M1 — Criar testes: upload.test.ts, pacs.query.test.ts, auth.session.test.ts (104 testes)
 - [x] M2 — Script de limpeza de arquivos orfãos (scripts/cleanup-orphaned-files.mjs)
+
+## Modal de Seleção de Exames (ExamPickerModal)
+
+- [ ] Criar ExamPickerModal com buscador e catálogo de 60 exames (RX, TC, RM, US, Mamografia)
+- [ ] Seleção múltipla — cada exame selecionado é um item; texto livre conta como "outro" (1 unidade)
+- [ ] Integrar modal no EditableExamName — substituir input simples pelo modal
+- [ ] Salvar contagem de exames junto com a descrição no banco (study_metadata)
+- [ ] Exibir texto composto na tabela: "RX TÓRAX + SEIOS DA FACE" (sem número visível)
+- [ ] Passar contagem de exames ao ReportEditorPage via URL/state
+- [ ] Renderizar múltiplas folhas de laudo no editor (1 folha por exame selecionado)
+- [ ] Garantir que múltiplas folhas contam como 1 único laudo para fins financeiros

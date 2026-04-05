@@ -10,6 +10,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
+import { ExamPickerModal, ALL_CATALOG_EXAMS } from "@/components/ExamPickerModal";
 import { canReport, canAccessAdmin, canFillAnamnesis, canViewDICOM, type UserRole } from "../../../shared/permissions";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -124,73 +125,49 @@ const EXAM_SUGGESTIONS = [
   "DENSITOMETRIA ÓSSEA COLUNA E FÊMUR",
 ];
 
-// Componente para edição inline do nome do exame com sugestões + persistência no banco
+// Componente para edição do nome do exame via modal de seleção múltipla
 function EditableExamName({
-  value, studyUid, rawDescription, dbOverride, onSaved, canEdit
+  value, studyUid, rawDescription, dbOverride, dbExamCount, onSaved, canEdit
 }: {
   value: string;
   studyUid: string;
   rawDescription?: string;
   dbOverride?: string | null;
+  dbExamCount?: number | null;
   onSaved?: () => void;
   canEdit?: boolean;
 }) {
   const storageKey = `exam_label_${studyUid}`;
-  const [editing, setEditing] = useState(false);
   // Prioridade: banco > localStorage > PACS
   const [label, setLabel] = useState(() =>
     dbOverride || localStorage.getItem(storageKey) || value || 'Sem descrição'
   );
-  const [draft, setDraft] = useState(label);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
   const [saving, setSaving] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const saveMutation = trpc.studyMetadata.save.useMutation();
 
   // Sincroniza quando o banco retorna um override atualizado
   useEffect(() => {
-    if (dbOverride) {
-      setLabel(dbOverride);
-      setDraft(dbOverride);
-    }
+    if (dbOverride) setLabel(dbOverride);
   }, [dbOverride]);
 
-  useEffect(() => {
-    if (editing) { inputRef.current?.focus(); setShowSuggestions(true); }
-  }, [editing]);
+  // Converte o label atual em array de exames para pré-selecionar no modal
+  const currentExams = label && label !== 'Sem descrição'
+    ? label.split(' + ').map(e => e.trim()).filter(Boolean)
+    : [];
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const allSuggestions = rawDescription && rawDescription.trim() && rawDescription.toUpperCase() !== label.toUpperCase()
-    ? [rawDescription.toUpperCase(), ...EXAM_SUGGESTIONS.filter(s => s.toUpperCase() !== rawDescription.toUpperCase())]
-    : EXAM_SUGGESTIONS;
-  const filtered = draft.trim().length > 0
-    ? allSuggestions.filter(s => s.toLowerCase().includes(draft.toLowerCase()))
-    : allSuggestions;
-
-  const save = async (val?: string) => {
-    const trimmed = (val ?? draft).trim() || value || 'Sem descrição';
-    setLabel(trimmed);
-    setDraft(trimmed);
-    localStorage.setItem(storageKey, trimmed);
-    setEditing(false);
-    setShowSuggestions(false);
-    // Persiste no banco
+  const handlePickerConfirm = async (exams: string[], examCount: number) => {
+    const composed = exams.join(' + ');
+    setLabel(composed);
+    localStorage.setItem(storageKey, composed);
+    setShowPicker(false);
     if (studyUid && studyUid.length > 5) {
       setSaving(true);
       try {
         await saveMutation.mutateAsync({
           studyInstanceUid: studyUid,
-          descriptionOverride: trimmed,
+          descriptionOverride: composed,
+          examCount,
         });
         onSaved?.();
       } catch {
@@ -201,64 +178,31 @@ function EditableExamName({
     }
   };
 
-  const cancel = () => {
-    setDraft(label);
-    setEditing(false);
-    setShowSuggestions(false);
-  };
-
-  if (editing) {
-    return (
-      <div ref={containerRef} className="relative">
-        <div className="flex items-center gap-1">
-          <input
-            ref={inputRef}
-            value={draft}
-            onChange={e => { setDraft(e.target.value); setShowSuggestions(true); }}
-            onFocus={() => setShowSuggestions(true)}
-            onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel(); }}
-            className="text-sm border border-amber-400 rounded px-1.5 py-0.5 w-52 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white text-gray-800"
-            placeholder="Buscar ou digitar exame..."
-          />
-          <button onClick={() => save()} disabled={saving} className="text-emerald-600 hover:text-emerald-700 shrink-0" title="Salvar">
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-          </button>
-          <button onClick={cancel} className="text-red-400 hover:text-red-500 shrink-0" title="Cancelar">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-        {showSuggestions && filtered.length > 0 && (
-          <div className="absolute top-7 left-0 z-50 w-72 max-h-48 overflow-y-auto bg-white border border-amber-300 rounded shadow-lg">
-            {filtered.slice(0, 25).map(s => (
-              <button
-                key={s}
-                onMouseDown={() => save(s)}
-                className="w-full text-left px-3 py-1.5 text-xs text-gray-800 hover:bg-amber-50 border-b border-gray-100 last:border-0"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
   const isEdited = !!dbOverride;
   return (
-    <div className="flex items-center gap-1 group">
-      <span className={`text-sm ${isEdited ? 'text-amber-700 font-medium' : 'text-gray-800'}`}>{label}</span>
-      {isEdited && <span className="text-xs text-amber-500" title="Editado pelo técnico">✏️</span>}
-      {canEdit !== false && (
-        <button
-          onClick={() => { setDraft(label); setEditing(true); }}
-          className="opacity-0 group-hover:opacity-60 hover:!opacity-100 text-gray-400 hover:text-amber-600 transition-opacity"
-          title="Editar nome do exame"
-        >
-          <Pencil className="h-3 w-3" />
-        </button>
+    <>
+      <div className="flex items-center gap-1 group">
+        <span className={`text-sm ${isEdited ? 'text-amber-700 font-medium' : 'text-gray-800'}`}>{label}</span>
+        {isEdited && <span className="text-xs text-amber-500" title="Editado pelo técnico">✏️</span>}
+        {saving && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
+        {canEdit !== false && (
+          <button
+            onClick={() => setShowPicker(true)}
+            className="opacity-0 group-hover:opacity-60 hover:!opacity-100 text-gray-400 hover:text-amber-600 transition-opacity"
+            title="Selecionar exames"
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+      {showPicker && (
+        <ExamPickerModal
+          initialExams={currentExams}
+          onConfirm={handlePickerConfirm}
+          onClose={() => setShowPicker(false)}
+        />
       )}
-    </div>
+    </>
   );
 }
 
@@ -674,6 +618,16 @@ export function PacsQueryPage() {
   };
 
   const handleReport = (study: any) => {
+    // Busca o exam_count do metadado em memória para passar ao editor de laudos
+    const meta = metadataMap?.[study.studyInstanceUid];
+    const examCount = meta?.exam_count ?? 1;
+    // Monta o label composto (banco > localStorage > PACS)
+    const examLabel = meta?.description_override
+      || localStorage.getItem(`exam_label_${study.studyInstanceUid}`)
+      || study.studyDescription
+      || 'Sem descrição';
+    // Decompoe em array de exames individuais
+    const examNames = examLabel.split(' + ').map((e: string) => e.trim()).filter(Boolean);
     sessionStorage.setItem(`study_${study.studyInstanceUid}`, JSON.stringify({
       patientName: study.patientName || '',
       patientID: study.patientID || '',
@@ -682,11 +636,13 @@ export function PacsQueryPage() {
       studyDate: study.studyDate || '',
       studyTime: study.studyTime || '',
       modality: study.modality || '',
-      studyDescription: study.studyDescription || '',
+      studyDescription: examLabel,
       accessionNumber: study.accessionNumber || '',
       numberOfInstances: study.numberOfInstances || 0,
       unitName: unitName,
       unitId: effectiveUnitId ? Number(effectiveUnitId) : null,
+      examCount,
+      examNames,
     }));
     navigate(`/reports/create/${study.studyInstanceUid}`);
   };
@@ -1108,6 +1064,7 @@ export function PacsQueryPage() {
                           studyUid={study.studyInstanceUid || `${idx}`}
                           rawDescription={study.studyDescription || ''}
                           dbOverride={meta?.description_override || null}
+                          dbExamCount={meta?.exam_count ?? 1}
                           onSaved={() => refetchMetadata()}
                           canEdit={canCID}
                         />
