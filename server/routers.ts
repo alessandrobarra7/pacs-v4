@@ -1674,7 +1674,6 @@ export const appRouter = router({
         studyInstanceUid: z.string(),
         patientNameOverride: z.string().nullable().optional(),
         descriptionOverride: z.string().nullable().optional(),
-        examCount: z.number().int().min(1).nullable().optional(),
         notes: z.string().nullable().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -1685,7 +1684,6 @@ export const appRouter = router({
           unit_id: unitId,
           patient_name_override: input.patientNameOverride ?? null,
           description_override: input.descriptionOverride ?? null,
-          exam_count: input.examCount ?? 1,
           notes: input.notes ?? null,
           edited_by_user_id: ctx.user.id,
           edited_by_name: ctx.user.name ?? ctx.user.username ?? null,
