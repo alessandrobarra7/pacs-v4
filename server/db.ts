@@ -536,6 +536,7 @@ export async function upsertStudyMetadata(data: {
   unit_id: number;
   patient_name_override?: string | null;
   description_override?: string | null;
+  exam_count?: number | null;
   notes?: string | null;
   edited_by_user_id: number;
   edited_by_name?: string | null;
@@ -549,6 +550,7 @@ export async function upsertStudyMetadata(data: {
       unit_id: data.unit_id,
       patient_name_override: data.patient_name_override ?? null,
       description_override: data.description_override ?? null,
+      exam_count: data.exam_count ?? 1,
       notes: data.notes ?? null,
       edited_by_user_id: data.edited_by_user_id,
       edited_by_name: data.edited_by_name ?? null,
@@ -557,6 +559,7 @@ export async function upsertStudyMetadata(data: {
       set: {
         patient_name_override: data.patient_name_override ?? null,
         description_override: data.description_override ?? null,
+        exam_count: data.exam_count ?? 1,
         notes: data.notes ?? null,
         edited_by_user_id: data.edited_by_user_id,
         edited_by_name: data.edited_by_name ?? null,

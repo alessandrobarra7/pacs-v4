@@ -1,0 +1,1 @@
+ALTER TABLE `study_metadata` ADD `exam_count` int DEFAULT 1;

@@ -127,6 +127,13 @@
       "when": 1775389234588,
       "tag": "0017_outstanding_frightful_four",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1775408339545,
+      "tag": "0018_dizzy_moon_knight",
+      "breakpoints": true
     }
   ]
 }

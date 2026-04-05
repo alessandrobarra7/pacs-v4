@@ -701,3 +701,10 @@
 - [x] Remover separador tracejado entre seções — usar page-break visual (borda de página separada)
 - [x] Assinatura/carimbo exibida apenas na última página do laudo multi-exame
 - [x] collectBody() concatena HTML de todas as seções com |||SECTION||| para salvar como laudo único
+
+## Restauração ExamPickerModal (05/04/2026)
+- [x] Restaurar ExamPickerModal.tsx removido pelo processo de checkpoint
+- [x] Restaurar PacsQueryPage.tsx com integração do ExamPickerModal (EditableExamName com modal)
+- [x] Restaurar ReportEditorPage.tsx com suporte multi-seção (examNames, sectionBodies, isMultiSection)
+- [x] Restaurar schema.ts, db.ts e routers.ts com coluna exam_count na tabela study_metadata
+- [x] Confirmar que coluna exam_count já existe no banco (migration 0018 já aplicada)

@@ -138,12 +138,16 @@ export default function ReportEditorPage() {
   // Aba ativa da sidebar
   const [activeTab, setActiveTab] = useState<"exames" | "templates" | "frases" | "inserir">("exames");
 
-  // Referência ao documento editável
+  // Referência ao documento editável (seção única)
   const docRef = useRef<HTMLDivElement>(null);
   const savedSelection = useRef<Range | null>(null);
-  // Multi-seção: refs para cada página de exame
-  const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Suporte a múltiplos exames (multi-seção)
+  // examNames: array de nomes dos exames (ex: ['RX TÓRAX PA E PERFIL', 'SEIOS DA FACE'])
+  // sectionBodies: array de HTML de cada seção, indexado por posição
   const [examNames, setExamNames] = useState<string[]>([]);
+  const [sectionBodies, setSectionBodies] = useState<string[]>([]);
+  const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
   const isMultiSection = examNames.length > 1;
 
   // Imagens arrastáveis sobre o documento
@@ -191,13 +195,14 @@ export default function ReportEditorPage() {
       try {
         const info = JSON.parse(raw);
         setStudyInfo(info);
-        // Multi-seção: extrair nomes dos exames
-        if (info.examCount && info.examCount > 1 && info.examNames?.length > 0) {
+        setExamTitle(info.studyDescription || "");
+        // Configura multi-seção se houver mais de 1 exame
+        if (info.examNames && info.examNames.length > 1) {
           setExamNames(info.examNames);
-          setExamTitle(info.studyDescription || "");
+          setSectionBodies(info.examNames.map(() => ""));
         } else {
           setExamNames([]);
-          setExamTitle(info.studyDescription || "");
+          setSectionBodies([]);
         }
       } catch { /* ignore */ }
     }
@@ -205,22 +210,29 @@ export default function ReportEditorPage() {
 
   // ── Carregar laudo existente no documento ────────────────────────────────
   useEffect(() => {
-    if (existingReport?.body) {
-      const sections = existingReport.body.split("|||SECTION|||");
-      if (sections.length > 1) {
-        // Multi-seção: popular cada ref
-        setTimeout(() => {
-          sections.forEach((sec, i) => {
-            if (sectionRefs.current[i]) {
-              sectionRefs.current[i]!.innerHTML = sec;
-            }
-          });
-        }, 100);
-      } else if (docRef.current) {
-        docRef.current.innerHTML = existingReport.body;
+    if (!existingReport?.body) return;
+    if (isMultiSection && sectionRefs.current.length > 0) {
+      // Laudo multi-seção: parsear as divs exam-section do HTML salvo
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(existingReport.body, "text/html");
+      const sections = doc.querySelectorAll(".exam-section");
+      if (sections.length > 0) {
+        sections.forEach((sec, i) => {
+          const bodyDiv = sec.querySelector(".exam-section-body, div:last-child");
+          if (sectionRefs.current[i] && bodyDiv) {
+            sectionRefs.current[i]!.innerHTML = bodyDiv.innerHTML;
+          }
+        });
+      } else {
+        // Laudo antigo sem seções — colocar tudo na primeira seção
+        if (sectionRefs.current[0]) {
+          sectionRefs.current[0].innerHTML = existingReport.body;
+        }
       }
+    } else if (docRef.current) {
+      docRef.current.innerHTML = existingReport.body;
     }
-  }, [existingReport]);
+  }, [existingReport, isMultiSection]);
 
   // ── Salvar seleção antes de interagir com sidebar ────────────────────────
   const saveSelection = useCallback(() => {
@@ -265,10 +277,13 @@ export default function ReportEditorPage() {
   // ── Coletar body (simples ou multi-seção) ──────────────────────────────
   const collectBody = useCallback(() => {
     if (isMultiSection && sectionRefs.current.length > 0) {
-      return sectionRefs.current.map((ref) => ref?.innerHTML || "").join("|||SECTION|||");
+      return examNames.map((name, i) => {
+        const html = sectionRefs.current[i]?.innerHTML || "";
+        return `<div class="exam-section"><h3 style="text-align:center;font-weight:bold;font-size:11pt;text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid #d0d0d0;padding-bottom:4px;margin-bottom:8px;font-family:'Times New Roman',Times,serif;color:#111">${name}</h3><div class="exam-section-body">${html}</div></div>`;
+      }).join('<hr style="border:none;border-top:2px dashed #d0d0d0;margin:8mm 0">');
     }
     return docRef.current?.innerHTML || "";
-  }, [isMultiSection]);
+  }, [isMultiSection, examNames]);
 
   const handleSave = useCallback(async () => {
     const body = collectBody();
@@ -315,7 +330,7 @@ export default function ReportEditorPage() {
     } catch (e: any) {
       toast.error(e.message || "Erro ao assinar");
     }
-  }, [existingReport, studyUid, createReport, updateReport, signReport, navigate]);
+  }, [existingReport, studyUid, createReport, updateReport, signReport, navigate, collectBody]);
 
   // ── Retificar laudo assinado ─────────────────────────────────────────────
   const handleRevise = useCallback(async () => {
@@ -364,7 +379,7 @@ export default function ReportEditorPage() {
   const handlePrint = useCallback(() => {
     const birthDate = studyInfo?.birthDate || '';
     const studyDateFormatted = studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : '';
-    const bodyHtml = docRef.current?.innerHTML || '';
+    const bodyHtml = collectBody();
     const draggableHtml = draggableImages.map(img =>
       `<img src="${img.src}" alt="${img.label}" style="position:absolute;left:${img.x}px;top:${img.y}px;width:${img.width}px;" />`
     ).join('');
@@ -735,135 +750,10 @@ export default function ReportEditorPage() {
             ))}
 
             {/* ═══════════════════════════════════════════════════════════
-                 DOCUMENTO LAUDO — Layout Multi-Página (WYSIWYG)
-                 isMultiSection: N páginas completas | padrão: 1 página
+                 DOCUMENTO LAUDO — Layout Simplificado (WYSIWYG)
+                 Cabeçalho: Logo + Dados mínimos | Corpo: Seletor + Editor | Rodapé: Assinatura + Legal
             ═══════════════════════════════════════════════════════════ */}
-
-            {/* ── MODO MULTI-PÁGINA: N páginas independentes ─────────────── */}
-            {isMultiSection && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-                {examNames.map((examName, idx) => (
-                  <div key={idx} style={{
-                    width: "794px",
-                    minHeight: "1123px",
-                    background: "#fff",
-                    fontFamily: "'Times New Roman', Times, serif",
-                    fontSize: "11pt",
-                    color: "#111",
-                    boxSizing: "border-box",
-                    position: "relative",
-                    display: "flex",
-                    flexDirection: "column",
-                    boxShadow: "0 2px 12px rgba(0,0,0,0.10)",
-                  }}>
-                    {/* Cabeçalho */}
-                    <div style={{ display: "flex", alignItems: "stretch", borderBottom: "2px solid #1a6b8a", minHeight: 90 }}>
-                      <div style={{ width: 180, minHeight: 90, flexShrink: 0, borderRight: "1.5px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 12px", background: "#fafafa" }}>
-                        {medCtx?.unitLogoUrl ? (
-                          <img src={medCtx.unitLogoUrl} alt={medCtx.unitName || "Logo"} style={{ maxHeight: 70, maxWidth: 155, objectFit: "contain", display: "block" }} />
-                        ) : (
-                          <div style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg, #1a6b8a 0%, #6fb7c5 100%)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "20pt", fontWeight: 700, fontFamily: "Arial, sans-serif" }}>
-                            {(medCtx?.unitName || "U").charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ flex: 1, padding: "10px 20px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 5 }}>
-                        <div style={{ fontSize: "12pt", fontWeight: 700, color: "#111", textTransform: "uppercase", letterSpacing: "0.02em" }}>
-                          {patientName || "—"}
-                        </div>
-                        <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
-                          {studyInfo?.birthDate && (
-                            <div style={{ fontSize: "9.5pt", color: "#444" }}>
-                              <span style={{ fontWeight: 400 }}>Nascimento: </span>
-                              <strong style={{ color: "#111" }}>{studyInfo.birthDate}</strong>
-                            </div>
-                          )}
-                          {studyInfo?.studyDate && (
-                            <div style={{ fontSize: "9.5pt", color: "#444" }}>
-                              <span style={{ fontWeight: 400 }}>Realizado em: </span>
-                              <strong style={{ color: "#111" }}>{formatDicomDate(studyInfo.studyDate)}</strong>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Corpo */}
-                    <div style={{ flex: 1, padding: "16px 24px 12px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
-                      <div style={{ textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", color: "#111", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
-                        {examName}
-                      </div>
-                      {isSigned && !isRevising && (
-                        <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8 }}>
-                          <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
-                          <span>Laudo <strong>{existingReport?.status === "revised" ? "retificado" : "assinado"}</strong> — clique em <strong>Retificar</strong> para editar.</span>
-                        </div>
-                      )}
-                      <div
-                        ref={el => { sectionRefs.current[idx] = el; }}
-                        contentEditable={isEditable}
-                        suppressContentEditableWarning
-                        data-placeholder={`Digite o laudo de ${examName}...`}
-                        style={{
-                          flex: 1,
-                          minHeight: "60mm",
-                          outline: "none",
-                          lineHeight: 1.6,
-                          fontSize: "11pt",
-                          color: "#111",
-                          textAlign: "left",
-                          whiteSpace: "pre-wrap",
-                          cursor: isEditable ? "text" : "default",
-                          fontFamily: "'Times New Roman', Times, serif",
-                        }}
-                      />
-                    </div>
-
-                    {/* Assinatura — apenas na última página */}
-                    {idx === examNames.length - 1 && isSigned && medCtx?.doctorName && (
-                      <div style={{ padding: "8mm 18mm 6mm 18mm", display: "flex", justifyContent: "center" }}>
-                        <div style={{ textAlign: "center", minWidth: 180, maxWidth: 260 }}>
-                          {medCtx.signatureUrl && (
-                            <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 55, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2mm", filter: "hue-rotate(200deg) saturate(1.5)" }} />
-                          )}
-                          {medCtx.stampUrl && (
-                            <img src={medCtx.stampUrl} alt="Carimbo" style={{ maxHeight: 110, maxWidth: 240, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />
-                          )}
-                          <div style={{ borderTop: "1.5px solid #333", width: "100%", marginBottom: "3mm" }} />
-                          <div style={{ fontWeight: 700, fontSize: "10.5pt", textTransform: "uppercase", color: "#111", letterSpacing: "0.02em" }}>
-                            {medCtx.doctorName}
-                            {existingReport?.status === "revised" && (
-                              <span style={{ background: "#f59e0b", color: "#fff", fontSize: "7pt", padding: "1px 6px", borderRadius: 3, fontWeight: 700, marginLeft: 6, verticalAlign: "middle" }}>RETIFICADO</span>
-                            )}
-                          </div>
-                          <div style={{ fontSize: "9pt", color: "#444", marginTop: 2, letterSpacing: "0.04em" }}>MÉDICO RADIOLOGISTA</div>
-                          {medCtx.crm && <div style={{ fontSize: "9pt", color: "#444", marginTop: 1 }}>CRM: {medCtx.crm}</div>}
-                          {existingReport?.signedAt && (
-                            <div style={{ fontSize: "8pt", color: "#666", marginTop: 3 }}>
-                              Assinado em: {new Date(existingReport.signedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Rodapé */}
-                    <div style={{ marginTop: "auto" }}>
-                      <img src="/report-footer-wave.svg" alt="" aria-hidden="true" style={{ width: "100%", display: "block", height: 55 }} />
-                      <div style={{ background: "linear-gradient(90deg, #1a6b8a 0%, #4ca8c4 50%, #6fb7c5 100%)", padding: "2mm 18mm 4mm 18mm", fontSize: "8.5pt", color: "#fff", textAlign: "center", lineHeight: 1.6, fontFamily: "Arial, Helvetica, sans-serif" }}>
-                        <div>{LEGAL_FOOTER}</div>
-                        <div style={{ fontSize: "7.5pt", color: "rgba(255,255,255,0.75)", marginTop: 1 }}>
-                          Documento gerado em {new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* ── MODO PÁGINA ÚNICA: layout padrão ───────────────────────── */}
-            {!isMultiSection && <div style={{
+            <div style={{
               width: "794px",
               minHeight: "1123px",
               background: "#fff",
@@ -1010,27 +900,75 @@ export default function ReportEditorPage() {
                   </div>
                 )}
 
-                {/* Área editável do laudo */}
-                <div
-                  ref={docRef}
-                  contentEditable={isEditable}
-                  suppressContentEditableWarning
-                  onMouseUp={isEditable ? saveSelection : undefined}
-                  onKeyUp={isEditable ? saveSelection : undefined}
-                  data-placeholder="Digite o laudo aqui..."
-                  style={{
-                    flex: 1,
-                    minHeight: "60mm",
-                    outline: "none",
-                    lineHeight: 1.6,
-                    fontSize: "11pt",
-                    color: "#111",
-                    textAlign: "left",
-                    whiteSpace: "pre-wrap",
-                    cursor: isEditable ? "text" : "default",
-                    fontFamily: "'Times New Roman', Times, serif",
-                  }}
-                />
+                {/* Área editável do laudo — simples ou multi-seção */}
+                {isMultiSection ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+                    {examNames.map((name, i) => (
+                      <div key={i} style={{ marginBottom: i < examNames.length - 1 ? "8mm" : 0 }}>
+                        {/* Título da seção */}
+                        <div style={{
+                          textAlign: "center",
+                          fontWeight: 700,
+                          fontSize: "11pt",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                          borderBottom: "1px solid #d0d0d0",
+                          paddingBottom: "4px",
+                          marginBottom: "8px",
+                          fontFamily: "'Times New Roman', Times, serif",
+                          color: "#111",
+                        }}>
+                          {name}
+                        </div>
+                        {/* Editor da seção */}
+                        <div
+                          ref={el => { sectionRefs.current[i] = el; }}
+                          contentEditable={isEditable}
+                          suppressContentEditableWarning
+                          onMouseUp={isEditable ? saveSelection : undefined}
+                          onKeyUp={isEditable ? saveSelection : undefined}
+                          data-placeholder={`Digite o laudo de ${name}...`}
+                          style={{
+                            minHeight: "40mm",
+                            outline: "none",
+                            lineHeight: 1.6,
+                            fontSize: "11pt",
+                            color: "#111",
+                            textAlign: "left",
+                            whiteSpace: "pre-wrap",
+                            cursor: isEditable ? "text" : "default",
+                            fontFamily: "'Times New Roman', Times, serif",
+                          }}
+                        />
+                        {/* Separador entre seções */}
+                        {i < examNames.length - 1 && (
+                          <hr style={{ border: "none", borderTop: "2px dashed #d0d0d0", margin: "8mm 0" }} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    ref={docRef}
+                    contentEditable={isEditable}
+                    suppressContentEditableWarning
+                    onMouseUp={isEditable ? saveSelection : undefined}
+                    onKeyUp={isEditable ? saveSelection : undefined}
+                    data-placeholder="Digite o laudo aqui..."
+                    style={{
+                      flex: 1,
+                      minHeight: "60mm",
+                      outline: "none",
+                      lineHeight: 1.6,
+                      fontSize: "11pt",
+                      color: "#111",
+                      textAlign: "left",
+                      whiteSpace: "pre-wrap",
+                      cursor: isEditable ? "text" : "default",
+                      fontFamily: "'Times New Roman', Times, serif",
+                    }}
+                  />
+                )}
               </div>
 
               {/* ══ ZONA 05 — ASSINATURA / CARIMBO MÉDICO ══════════════════════ */}
@@ -1095,7 +1033,7 @@ export default function ReportEditorPage() {
                 </div>
               </div>
 
-            </div>}
+            </div>
           </div>
         </main>
       </div>

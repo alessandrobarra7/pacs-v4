@@ -267,6 +267,8 @@ export const study_metadata = mysqlTable("study_metadata", {
   // Overrides — null means "use original PACS value"
   patient_name_override: varchar("patient_name_override", { length: 255 }),
   description_override: varchar("description_override", { length: 255 }),
+  // exam_count: número de exames selecionados pelo operador (para múltiplas folhas no editor de laudos)
+  exam_count: int("exam_count").default(1),
   notes: text("notes"),
   // Audit
   edited_by_user_id: int("edited_by_user_id").notNull(),
