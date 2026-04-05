@@ -708,3 +708,7 @@
 - [x] Restaurar ReportEditorPage.tsx com suporte multi-seção (examNames, sectionBodies, isMultiSection)
 - [x] Restaurar schema.ts, db.ts e routers.ts com coluna exam_count na tabela study_metadata
 - [x] Confirmar que coluna exam_count já existe no banco (migration 0018 já aplicada)
+## Ícone Anatômico na Linha do Exame (05/04/2026)
+- [x] Remover emoji ✏️ duplicado (indicador de editado) da linha do exame
+- [x] Substituir botão Pencil por ícone anatômico SVG baseado na descrição do exame
+- [x] Ícone anatômico sempre visível, ao clicar abre ExamPickerModal

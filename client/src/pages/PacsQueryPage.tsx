@@ -125,6 +125,109 @@ const EXAM_SUGGESTIONS = [
   "DENSITOMETRIA ÓSSEA COLUNA E FÊMUR",
 ];
 
+/** Ícone SVG representando a região anatômica detectada no texto do exame */
+function AnatomicIcon({ label, className = '' }: { label: string; className?: string }) {
+  const t = label.toUpperCase();
+  if (/T[ÓO]RAX|PULM[ÃA]O|PULMAO|PLEURA|BR[ÔO]NQUIO|BRONQUIO|TRAQUEIA|TR[ÁA]QUEIA/.test(t)) {
+    // Pulmão / Tórax
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3v5" />
+        <path d="M9 8C7 8 4 9.5 4 13c0 3 1.5 5 3.5 6 1.5.7 2.5 0 2.5-2V9" />
+        <path d="M15 8c2 0 5 1.5 5 5 0 3-1.5 5-3.5 6-1.5.7-2.5 0-2.5-2V9" />
+      </svg>
+    );
+  }
+  if (/CR[ÂA]NIO|CRANIO|C[ÉE]REBRO|CEREBRO|SEIOS DA FACE|SEIO|MASTOID|SELA TURCICA|HIPOFISE|HIP[ÓO]FISE|ORBITA|[ÓO]RBITA/.test(t)) {
+    // Crânio / Cabeça
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3a7 7 0 0 1 7 7c0 3.2-1.8 5.8-4.5 6.8V19a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-2.2C6.8 15.8 5 13.2 5 10a7 7 0 0 1 7-7z" />
+        <line x1="9" y1="20" x2="15" y2="20" />
+      </svg>
+    );
+  }
+  if (/COLUNA|V[ÉE]RTEBRA|VERTEBRA|LOMBAR|CERVICAL|TOR[ÁA]CICA|TORACICA|SACRO|C[ÓO]CCIX|COCCIX|DISCO/.test(t)) {
+    // Coluna vertebral
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="2" width="6" height="3.5" rx="1" />
+        <rect x="9" y="7.5" width="6" height="3.5" rx="1" />
+        <rect x="9" y="13" width="6" height="3.5" rx="1" />
+        <rect x="9" y="18.5" width="6" height="3.5" rx="1" />
+        <line x1="12" y1="5.5" x2="12" y2="7.5" />
+        <line x1="12" y1="11" x2="12" y2="13" />
+        <line x1="12" y1="16.5" x2="12" y2="18.5" />
+      </svg>
+    );
+  }
+  if (/ABDOME|ABD[ÔO]MEN|ABDOMEN|F[ÍI]GADO|FIGADO|RIM|RINS|PELVE|BEXIGA|[ÚU]TERO|UTERO|OV[ÁA]RIO|OVARIO|P[ÂA]NCREAS|PANCREAS|BA[ÇC]O|BACO|VES[ÍI]CULA|VESICULA/.test(t)) {
+    // Abdome / órgãos abdominais
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <ellipse cx="12" cy="13" rx="7" ry="8" />
+        <path d="M8 8.5c1.2-2 6.8-2 8 0" />
+        <path d="M9.5 13c0 2 1 3.5 2.5 3.5s2.5-1.5 2.5-3.5" />
+      </svg>
+    );
+  }
+  if (/CORA[ÇC][ÃA]O|CORACAO|CARD[ÍI]ACO|CARDIACO|AORTA|CORON[ÁA]RIA|CORONARIA/.test(t)) {
+    // Coração
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 21C12 21 4 14 4 8.5a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 8.5C20 14 12 21 12 21z" />
+      </svg>
+    );
+  }
+  if (/OMBRO|COTOVELO|PUNHO|M[ÃA]O|MAO|[ÚU]MERO|UMERO|R[ÁA]DIO|RADIO|ULNA|CARPO|METACARPO|FALANGES|MEMBRO SUPERIOR|BRACO|BRA[ÇC]O/.test(t)) {
+    // Membro superior
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 4c0 0 .5 4 .5 8S9 20 9 20" />
+        <path d="M15 4c0 0-.5 4-.5 8s.5 8 .5 8" />
+        <path d="M9 12h6" />
+        <path d="M7 20c1.5 1.5 9.5 1.5 10 0" />
+      </svg>
+    );
+  }
+  if (/QUADRIL|JOELHO|TORNOZELO|P[ÉE]|PE |F[ÊE]MUR|FEMUR|T[ÍI]BIA|TIBIA|F[ÍI]BULA|FIBULA|MEMBRO INFERIOR|PERNA|COXA/.test(t)) {
+    // Membro inferior
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10 3v8l-2.5 10" />
+        <path d="M14 3v8l2.5 10" />
+        <path d="M7.5 21h9" />
+        <path d="M10 11h4" />
+      </svg>
+    );
+  }
+  if (/MAMA|MAMOGRAFIA|MAMOGR/.test(t)) {
+    // Mama
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M5 14c0-4.5 3-8 7-8s7 3.5 7 8c0 3.5-2.5 6-7 6S5 17.5 5 14z" />
+      </svg>
+    );
+  }
+  if (/PESCO[ÇC]O|PESCOCO|TIREOIDE|TIR[ÓO]I|LARINGE|FARINGE/.test(t)) {
+    // Pescoço / Tireoide
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10 3h4v4a2 2 0 0 1-4 0V3z" />
+        <path d="M8 7c-1.5 1-2.5 3-2.5 5h13C18.5 10 17.5 8 16 7" />
+        <path d="M8 12v6h8v-6" />
+      </svg>
+    );
+  }
+  // Ícone genérico (imagem médica / raio-x)
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M12 8v8M8 12h8" />
+    </svg>
+  );
+}
+
 // Componente para edição do nome do exame via modal de seleção múltipla
 function EditableExamName({
   value, studyUid, rawDescription, dbOverride, dbExamCount, onSaved, canEdit
@@ -181,19 +284,30 @@ function EditableExamName({
   const isEdited = !!dbOverride;
   return (
     <>
-      <div className="flex items-center gap-1 group">
-        <span className={`text-sm ${isEdited ? 'text-amber-700 font-medium' : 'text-gray-800'}`}>{label}</span>
-        {isEdited && <span className="text-xs text-amber-500" title="Editado pelo técnico">✏️</span>}
-        {saving && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
-        {canEdit !== false && (
+      <div className="flex items-center gap-2">
+        {/* Ícone anatômico — clicável (técnico) ou apenas visual (outros perfis) */}
+        {canEdit !== false ? (
           <button
             onClick={() => setShowPicker(true)}
-            className="opacity-0 group-hover:opacity-60 hover:!opacity-100 text-gray-400 hover:text-amber-600 transition-opacity"
-            title="Selecionar exames"
+            title="Clique para selecionar / alterar exames"
+            className={`shrink-0 w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
+              isEdited
+                ? 'bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-200'
+                : 'bg-blue-50 text-blue-500 hover:bg-blue-100 border border-blue-100'
+            }`}
           >
-            <Pencil className="h-3 w-3" />
+            <AnatomicIcon label={label} className="w-4 h-4" />
           </button>
+        ) : (
+          <span className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center bg-gray-50 text-gray-400 border border-gray-100">
+            <AnatomicIcon label={label} className="w-4 h-4" />
+          </span>
         )}
+        {/* Nome do exame */}
+        <div className="flex flex-col min-w-0">
+          <span className={`text-sm leading-tight ${isEdited ? 'text-amber-700 font-medium' : 'text-gray-800'}`}>{label}</span>
+          {saving && <Loader2 className="h-3 w-3 animate-spin text-gray-400 mt-0.5" />}
+        </div>
       </div>
       {showPicker && (
         <ExamPickerModal
