@@ -1,6 +1,6 @@
 # LAUDS — Documentação de Infraestrutura da VM2
 **Gerado em:** 02/04/2026  
-**Atualizado em:** 07/04/2026  
+**Atualizado em:** 07/04/2026 (verificado com estado real da VM2)  
 **Projeto:** Sistema de Laudos Radiológicos — LAUDS  
 **Responsável técnico:** StudioBarra7
 
@@ -298,6 +298,8 @@ Dentro do MySQL, cole o SQL da migration e pressione Enter.
 
 ### Migrations já aplicadas
 
+> Estado verificado em 07/04/2026 com `SHOW TABLES`, `DESCRIBE` e `SHOW INDEX` diretamente no banco `pacs_portal` da VM2.
+
 | Migration | Data aplicada | Descrição |
 |---|---|---|
 | `0000` a `0009` | 21/03/2026 | Schema inicial: `units`, `users`, `studies_cache`, `templates`, `reports`, `audit_log`, `anamnesis`, `dicom_annotations`, `anamnesis_simple` |
@@ -306,68 +308,52 @@ Dentro do MySQL, cole o SQL da migration e pressione Enter.
 | `0012` | 21/03/2026 | Tabela `user_unit_permissions` criada |
 | `0013` | 21/03/2026 | Tabelas `phrase_groups` e `phrases` criadas; `logo_url` em `units`; `crm`, `signature_url` em `users` |
 | `0014` | 02/04/2026 | Tabela `report_versions` criada; `stamp_url` em `users` |
+| `0015` | Antes de 07/04/2026 | `DELETE_REPORT` adicionado ao enum `audit_log.action` |
+| `0016` | Antes de 07/04/2026 | Colunas `owner_user_id` e `exam_title` adicionadas em `templates` |
+| `0017` (parcial) | Antes de 07/04/2026 | Constraint `reports_uid_unit_idx` criada em `reports` |
 
 ---
 
 ### Migrations PENDENTES — aplicar na VM2
 
-> **Atenção:** Execute os SQLs abaixo na VM2 em ordem. Cada bloco é independente mas deve ser aplicado na sequência indicada.
+> **Verificado em 07/04/2026.** Apenas 2 operações estão pendentes. Execute na VM2 com `mysql -u root -p137946 pacs_portal`.
 
-#### Migration 0015 — Adicionar DELETE_REPORT ao enum audit_log
+#### Migration 0017 (complemento) — Remover tabelas antigas
 
-```sql
-ALTER TABLE `audit_log` MODIFY COLUMN `action` enum(
-  'LOGIN','LOGOUT','VIEW_STUDY','OPEN_VIEWER',
-  'CREATE_REPORT','UPDATE_REPORT','SIGN_REPORT','DELETE_REPORT',
-  'CREATE_USER','UPDATE_USER','DELETE_USER',
-  'CREATE_UNIT','UPDATE_UNIT','DELETE_UNIT',
-  'PACS_QUERY','PACS_DOWNLOAD',
-  'CREATE_ANAMNESIS','EDIT_STUDY_METADATA'
-) NOT NULL;
-```
-
-#### Migration 0016 — Adicionar colunas em templates
+> As tabelas `exam_catalog`, `report_sections` e `study_labels` ainda existem no banco mas não são mais usadas pelo portal. Removê-las é seguro pois não há referências ativas.
 
 ```sql
-ALTER TABLE `templates` ADD `owner_user_id` int;
-ALTER TABLE `templates` ADD `exam_title` varchar(255);
-```
-
-#### Migration 0017 — Remover tabelas antigas e adicionar constraint única em reports
-
-> **Atenção:** Este bloco remove as tabelas `exam_catalog`, `report_sections` e `study_labels` caso existam, e adiciona uma constraint de unicidade em `reports`.
-
-```sql
+-- Executar no MySQL da VM2: mysql -u root -p137946 pacs_portal
 DROP TABLE IF EXISTS `exam_catalog`;
 DROP TABLE IF EXISTS `report_sections`;
 DROP TABLE IF EXISTS `study_labels`;
-ALTER TABLE `reports` ADD CONSTRAINT `reports_uid_unit_idx` UNIQUE(`study_instance_uid`, `unit_id`);
 ```
 
 #### Migration 0018 — Adicionar exam_count em study_metadata
 
-> Esta coluna registra quantos exames foram selecionados para um laudo (ex: 2 para "RX TÓRAX + SEIOS DA FACE"). Não altera a lógica de cobrança — o laudo continua sendo 1 registro por estudo.
+> Esta coluna registra quantos exames foram selecionados para um laudo (ex: 2 para "RX TÓRAX + SEIOS DA FACE"). **Obrigatória** para o funcionamento do editor multi-página. Não altera a lógica de cobrança — o laudo continua sendo 1 registro por estudo.
 
 ```sql
+-- Executar no MySQL da VM2: mysql -u root -p137946 pacs_portal
 ALTER TABLE `study_metadata` ADD `exam_count` int DEFAULT 1;
 ```
 
 ---
 
-### Verificar se as migrations foram aplicadas
+### Verificar se as migrations pendentes foram aplicadas
 
 ```bash
-# Verificar colunas da tabela study_metadata (deve ter exam_count)
-mysql -u root -p137946 pacs_portal -e "DESCRIBE study_metadata;"
+# Executar na VM2 (terminal root@pacs)
 
-# Verificar colunas da tabela templates (deve ter owner_user_id e exam_title)
-mysql -u root -p137946 pacs_portal -e "DESCRIBE templates;"
+# Verificar se exam_count foi adicionada em study_metadata
+mysql -u root -p137946 pacs_portal -e "SHOW COLUMNS FROM study_metadata LIKE 'exam_count';"
+# Resultado esperado: 1 linha com Field=exam_count, Type=int, Default=1
 
-# Verificar constraint única em reports
-mysql -u root -p137946 pacs_portal -e "SHOW INDEX FROM reports WHERE Key_name = 'reports_uid_unit_idx';"
-
-# Verificar enum de audit_log (deve ter DELETE_REPORT)
-mysql -u root -p137946 pacs_portal -e "SHOW COLUMNS FROM audit_log LIKE 'action';"
+# Verificar se as tabelas antigas foram removidas
+mysql -u root -p137946 pacs_portal -e "SHOW TABLES LIKE 'exam_catalog';"
+mysql -u root -p137946 pacs_portal -e "SHOW TABLES LIKE 'report_sections';"
+mysql -u root -p137946 pacs_portal -e "SHOW TABLES LIKE 'study_labels';"
+# Resultado esperado: 0 linhas (tabelas não existem mais)
 ```
 
 ---
@@ -383,7 +369,9 @@ mysql -u root -p137946 pacs_portal -e "SHOW COLUMNS FROM audit_log LIKE 'action'
 | 02/04/2026 | `server/storage.ts` adaptado para MinIO |
 | 02/04/2026 | Tabela `report_versions` criada |
 | 02/04/2026 | Backup automático diário configurado |
-| 07/04/2026 | Migrations 0015–0018 documentadas como pendentes |
+| 07/04/2026 | Estado real do banco verificado com DESCRIBE/SHOW TABLES |
+| 07/04/2026 | Migrations 0015, 0016, 0017 (parcial) confirmadas como já aplicadas |
+| 07/04/2026 | Migrations 0017 (DROP tabelas) e 0018 (exam_count) identificadas como pendentes |
 | 07/04/2026 | Ícone anatômico SVG implementado na lista de estudos |
 | 07/04/2026 | Editor de laudos multi-página (N folhas A4 independentes) implementado |
 
