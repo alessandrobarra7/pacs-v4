@@ -712,3 +712,37 @@
 - [x] Remover emoji ✏️ duplicado (indicador de editado) da linha do exame
 - [x] Substituir botão Pencil por ícone anatômico SVG baseado na descrição do exame
 - [x] Ícone anatômico sempre visível, ao clicar abre ExamPickerModal
+
+## Módulo Financeiro — Etapa 1 (07/04/2026)
+
+### Schema e banco
+- [ ] Adicionar 5 tabelas de billing ao drizzle/schema.ts
+- [ ] Gerar migration SQL com pnpm drizzle-kit generate
+- [ ] Aplicar migration via webdev_execute_sql
+
+### Backend
+- [ ] Criar helpers de billing em server/db.ts
+- [ ] Criar server/routers/billing.ts com procedures tRPC
+- [ ] Registrar billing router em server/routers.ts
+
+### Frontend
+- [ ] Criar BillingAdminPage.tsx (admin_master)
+- [ ] Criar BillingUnitPage.tsx (unit_admin)
+- [ ] Criar BillingDoctorPage.tsx (médico)
+- [ ] Registrar rotas /billing/* em App.tsx
+- [ ] Adicionar item "Financeiro" na navegação por perfil
+
+## MÓDULO FINANCEIRO — Etapa 1
+
+- [x] Criar 5 tabelas de billing no schema Drizzle (billing_unit_prices, billing_doctor_prices, billing_monthly_unit, billing_monthly_doctor, billing_report_items)
+- [x] Gerar migration 0019 e aplicar no banco da VM2
+- [x] Adicionar helpers de billing em server/db.ts (upsertUnitPrice, upsertDoctorPrice, getOrCreateMonthlyUnit, getOrCreateMonthlyDoctor, listBillingItems, listMonthlyUnit, listMonthlyDoctor, listMonthlyDoctorsByUnit, closeMonthlyUnit, recalculateMonthlyUnit, recalculateMonthlyDoctor, createBillingReportItem)
+- [x] Criar billing router em server/routers.ts com procedures: setUnitPrice, listUnitPrices, setDoctorPrice, listDoctorPrices, getMonthlyUnit, listMonthlyUnit, closeMonthlyUnit, getMonthlyDoctor, listMonthlyDoctor, listAllUnitsMonthly
+- [x] Criar BillingAdminPage.tsx — painel admin_master com KPIs, tabela de unidades, drill-down e configuração de preços
+- [x] Criar BillingUnitPage.tsx — painel unit_admin com resumo mensal, laudos por médico, histórico
+- [x] Criar BillingDoctorPage.tsx — painel médico com laudos assinados e valores a receber
+- [x] Registrar rotas /billing/admin, /billing/unit, /billing/doctor no App.tsx
+- [x] Atualizar DashboardLayout com menu de navegação PACS filtrado por role (inclui links de billing)
+- [ ] Integrar criação automática de billing_report_item ao assinar laudo no ReportEditorPage
+- [ ] Criar testes unitários para os helpers de billing
+- [ ] Documentar módulo financeiro no GUIA_VM2_BANCO_MESTRE.md

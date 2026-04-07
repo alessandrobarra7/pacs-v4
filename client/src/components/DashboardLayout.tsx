@@ -21,15 +21,20 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, Search, FileText, Settings, DollarSign, Building2 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 
-const menuItems = [
-  { icon: LayoutDashboard, label: "Page 1", path: "/" },
-  { icon: Users, label: "Page 2", path: "/some-path" },
+const ALL_MENU_ITEMS = [
+  { icon: Search, label: "Busca PACS", path: "/", roles: ['admin_master', 'unit_admin', 'medico', 'operador', 'viewer'] },
+  { icon: FileText, label: "Templates", path: "/templates", roles: ['admin_master', 'unit_admin', 'medico'] },
+  { icon: Building2, label: "Unidades", path: "/units", roles: ['admin_master'] },
+  { icon: Users, label: "Administração", path: "/admin", roles: ['admin_master'] },
+  { icon: DollarSign, label: "Financeiro (Master)", path: "/billing/admin", roles: ['admin_master'] },
+  { icon: DollarSign, label: "Financeiro (Unidade)", path: "/billing/unit", roles: ['unit_admin'] },
+  { icon: DollarSign, label: "Meu Financeiro", path: "/billing/doctor", roles: ['medico'] },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -112,6 +117,7 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const menuItems = ALL_MENU_ITEMS.filter(item => !user?.role || item.roles.includes(user.role as string));
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
 

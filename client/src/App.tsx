@@ -15,6 +15,9 @@ import { PacsQueryPage } from "./pages/PacsQueryPage";
 import ReportEditorPage from "./pages/ReportEditorPage";
 import { DicomViewerPage } from "./pages/DicomViewerPage";
 import AdminPage from "./pages/AdminPage";
+import BillingAdminPage from "./pages/BillingAdminPage";
+import BillingUnitPage from "./pages/BillingUnitPage";
+import BillingDoctorPage from "./pages/BillingDoctorPage";
 import { useLocation } from "wouter";
 
 function ProtectedRoute({ component: Component, ...rest }: any) {
@@ -54,6 +57,9 @@ function Router() {
       <Route path="/reports/create/:studyInstanceUid" component={() => <ProtectedRoute component={ReportEditorPage} />} />
       <Route path="/dicom-viewer/:studyUid" component={() => <ProtectedRoute component={DicomViewerPage} />} />
       <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
+      <Route path="/billing/admin" component={() => <ProtectedRoute component={BillingAdminPage} />} />
+      <Route path="/billing/unit" component={() => <ProtectedRoute component={BillingUnitPage} />} />
+      <Route path="/billing/doctor" component={() => <ProtectedRoute component={BillingDoctorPage} />} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

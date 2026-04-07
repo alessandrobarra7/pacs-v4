@@ -1892,5 +1892,144 @@ export const appRouter = router({
         };
       }),
   }),
+
+  // ─── Billing ──────────────────────────────────────────────────────────────
+  billing: router({
+
+    // --- Preços da plataforma (admin_master) ---
+    setUnitPrice: protectedProcedure
+      .input(z.object({
+        unitId: z.number(),
+        pricePerReport: z.string().regex(/^\d+(\.\d{1,2})?$/),
+        startsAt: z.number(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { upsertUnitPrice } = await import('./db');
+        const id = await upsertUnitPrice({
+          unit_id: input.unitId,
+          price_per_report: input.pricePerReport as any,
+          starts_at: input.startsAt,
+          created_by: ctx.user.id,
+          created_at: Date.now(),
+        });
+        return { id };
+      }),
+
+    listUnitPrices: protectedProcedure
+      .input(z.object({ unitId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.unit_id !== input.unitId) throw new TRPCError({ code: 'FORBIDDEN' });
+        const { listUnitPrices } = await import('./db');
+        return await listUnitPrices(input.unitId);
+      }),
+
+    // --- Preços médico (unit_admin) ---
+    setDoctorPrice: protectedProcedure
+      .input(z.object({
+        unitId: z.number(),
+        doctorUserId: z.number(),
+        pricePerReport: z.string().regex(/^\d+(\.\d{1,2})?$/),
+        startsAt: z.number(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && (ctx.user.role !== 'unit_admin' || ctx.user.unit_id !== input.unitId)) {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { upsertDoctorPrice } = await import('./db');
+        const id = await upsertDoctorPrice({
+          unit_id: input.unitId,
+          doctor_user_id: input.doctorUserId,
+          price_per_report: input.pricePerReport as any,
+          starts_at: input.startsAt,
+          created_by: ctx.user.id,
+          created_at: Date.now(),
+        });
+        return { id };
+      }),
+
+    listDoctorPrices: protectedProcedure
+      .input(z.object({ unitId: z.number(), doctorUserId: z.number().optional() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.unit_id !== input.unitId && ctx.user.id !== input.doctorUserId) {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { listDoctorPrices } = await import('./db');
+        return await listDoctorPrices(input.unitId, input.doctorUserId);
+      }),
+
+    // --- Consolidado mensal da unidade ---
+    getMonthlyUnit: protectedProcedure
+      .input(z.object({ unitId: z.number(), year: z.number(), month: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.unit_id !== input.unitId) throw new TRPCError({ code: 'FORBIDDEN' });
+        const { getOrCreateMonthlyUnit, listBillingItems, listMonthlyDoctorsByUnit } = await import('./db');
+        const monthly = await getOrCreateMonthlyUnit(input.unitId, input.year, input.month);
+        const items = await listBillingItems(input.unitId, input.year, input.month);
+        const doctors = await listMonthlyDoctorsByUnit(input.unitId, input.year, input.month);
+        return { monthly, items, doctors };
+      }),
+
+    listMonthlyUnit: protectedProcedure
+      .input(z.object({ unitId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.unit_id !== input.unitId) throw new TRPCError({ code: 'FORBIDDEN' });
+        const { listMonthlyUnit } = await import('./db');
+        return await listMonthlyUnit(input.unitId);
+      }),
+
+    closeMonthlyUnit: protectedProcedure
+      .input(z.object({ unitId: z.number(), year: z.number(), month: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && (ctx.user.role !== 'unit_admin' || ctx.user.unit_id !== input.unitId)) {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { closeMonthlyUnit } = await import('./db');
+        await closeMonthlyUnit(input.unitId, input.year, input.month, ctx.user.id);
+        return { success: true };
+      }),
+
+    // --- Consolidado mensal do médico ---
+    getMonthlyDoctor: protectedProcedure
+      .input(z.object({ unitId: z.number(), doctorUserId: z.number(), year: z.number(), month: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const isOwn = ctx.user.id === input.doctorUserId;
+        const isAdmin = ctx.user.role === 'admin_master' || (ctx.user.role === 'unit_admin' && ctx.user.unit_id === input.unitId);
+        if (!isOwn && !isAdmin) throw new TRPCError({ code: 'FORBIDDEN' });
+        const { getOrCreateMonthlyDoctor } = await import('./db');
+        return await getOrCreateMonthlyDoctor(input.unitId, input.doctorUserId, input.year, input.month);
+      }),
+
+    listMonthlyDoctor: protectedProcedure
+      .input(z.object({ unitId: z.number(), doctorUserId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const isOwn = ctx.user.id === input.doctorUserId;
+        const isAdmin = ctx.user.role === 'admin_master' || (ctx.user.role === 'unit_admin' && ctx.user.unit_id === input.unitId);
+        if (!isOwn && !isAdmin) throw new TRPCError({ code: 'FORBIDDEN' });
+        const { listMonthlyDoctor } = await import('./db');
+        return await listMonthlyDoctor(input.unitId, input.doctorUserId);
+      }),
+
+    // --- Painel admin_master: todas as unidades ---
+    listAllUnitsMonthly: protectedProcedure
+      .input(z.object({ year: z.number(), month: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { getAllUnits } = await import('./db');
+        const { billing_monthly_unit } = await import('../drizzle/schema');
+        const { eq, and } = await import('drizzle-orm');
+        const db = await getDb();
+        if (!db) return [];
+        const allUnits = await getAllUnits();
+        const monthlyRows = await db
+          .select()
+          .from(billing_monthly_unit)
+          .where(and(eq(billing_monthly_unit.competence_year, input.year), eq(billing_monthly_unit.competence_month, input.month)));
+        return allUnits.map(unit => ({
+          unit,
+          monthly: monthlyRows.find(r => r.unit_id === unit.id) ?? null,
+        }));
+      }),
+  }),
 });
 export type AppRouter = typeof appRouter;

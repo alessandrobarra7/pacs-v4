@@ -18,7 +18,22 @@ import {
   DicomAnnotation,
   anamnesis_simple,
   study_metadata,
-  StudyMetadata
+  StudyMetadata,
+  billing_unit_prices,
+  billing_doctor_prices,
+  billing_monthly_unit,
+  billing_monthly_doctor,
+  billing_report_items,
+  BillingUnitPrice,
+  BillingDoctorPrice,
+  BillingMonthlyUnit,
+  BillingMonthlyDoctor,
+  BillingReportItem,
+  InsertBillingUnitPrice,
+  InsertBillingDoctorPrice,
+  InsertBillingMonthlyUnit,
+  InsertBillingMonthlyDoctor,
+  InsertBillingReportItem,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -719,4 +734,295 @@ export async function updateUnitLogo(unitId: number, logoUrl: string | null) {
   const { units } = await import("../drizzle/schema");
   const { eq } = await import("drizzle-orm");
   await db.update(units).set({ logo_url: logoUrl }).where(eq(units.id, unitId));
+}
+
+// ─── Billing Helpers ─────────────────────────────────────────────────────────
+
+/** Retorna o preço vigente da plataforma para uma unidade em um dado timestamp */
+export async function getActiveUnitPrice(unitId: number, atMs: number): Promise<BillingUnitPrice | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const { lte, isNull } = await import("drizzle-orm");
+  const results = await db
+    .select()
+    .from(billing_unit_prices)
+    .where(
+      and(
+        eq(billing_unit_prices.unit_id, unitId),
+        lte(billing_unit_prices.starts_at, atMs),
+        or(isNull(billing_unit_prices.ends_at), lte(billing_unit_prices.ends_at as any, atMs))
+      )
+    )
+    .orderBy(billing_unit_prices.starts_at)
+    .limit(1);
+  return results[0];
+}
+
+/** Retorna o preço vigente que a unidade paga ao médico em um dado timestamp */
+export async function getActiveDoctorPrice(unitId: number, doctorUserId: number, atMs: number): Promise<BillingDoctorPrice | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const { lte, isNull } = await import("drizzle-orm");
+  const results = await db
+    .select()
+    .from(billing_doctor_prices)
+    .where(
+      and(
+        eq(billing_doctor_prices.unit_id, unitId),
+        eq(billing_doctor_prices.doctor_user_id, doctorUserId),
+        lte(billing_doctor_prices.starts_at, atMs),
+        or(isNull(billing_doctor_prices.ends_at), lte(billing_doctor_prices.ends_at as any, atMs))
+      )
+    )
+    .orderBy(billing_doctor_prices.starts_at)
+    .limit(1);
+  return results[0];
+}
+
+/** Insere ou atualiza o preço da plataforma para uma unidade */
+export async function upsertUnitPrice(data: InsertBillingUnitPrice): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(billing_unit_prices).values(data);
+  return Number(result[0].insertId);
+}
+
+/** Insere ou atualiza o preço que a unidade paga ao médico */
+export async function upsertDoctorPrice(data: InsertBillingDoctorPrice): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(billing_doctor_prices).values(data);
+  return Number(result[0].insertId);
+}
+
+/** Lista todos os preços da plataforma para uma unidade */
+export async function listUnitPrices(unitId: number): Promise<BillingUnitPrice[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(billing_unit_prices).where(eq(billing_unit_prices.unit_id, unitId)).orderBy(billing_unit_prices.starts_at);
+}
+
+/** Lista todos os preços que a unidade paga a um médico */
+export async function listDoctorPrices(unitId: number, doctorUserId?: number): Promise<BillingDoctorPrice[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(billing_doctor_prices.unit_id, unitId)];
+  if (doctorUserId !== undefined) conditions.push(eq(billing_doctor_prices.doctor_user_id, doctorUserId));
+  return await db.select().from(billing_doctor_prices).where(and(...conditions)).orderBy(billing_doctor_prices.starts_at);
+}
+
+/** Obtém ou cria o consolidado mensal da unidade */
+export async function getOrCreateMonthlyUnit(unitId: number, year: number, month: number): Promise<BillingMonthlyUnit> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db
+    .select()
+    .from(billing_monthly_unit)
+    .where(
+      and(
+        eq(billing_monthly_unit.unit_id, unitId),
+        eq(billing_monthly_unit.competence_year, year),
+        eq(billing_monthly_unit.competence_month, month)
+      )
+    )
+    .limit(1);
+  if (existing[0]) return existing[0];
+  const now = Date.now();
+  const result = await db.insert(billing_monthly_unit).values({
+    unit_id: unitId,
+    competence_year: year,
+    competence_month: month,
+    reports_count: 0,
+    status: "open",
+    generated_at: now,
+  });
+  return (await db.select().from(billing_monthly_unit).where(eq(billing_monthly_unit.id, Number(result[0].insertId))).limit(1))[0];
+}
+
+/** Obtém ou cria o consolidado mensal do médico em uma unidade */
+export async function getOrCreateMonthlyDoctor(unitId: number, doctorUserId: number, year: number, month: number): Promise<BillingMonthlyDoctor> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db
+    .select()
+    .from(billing_monthly_doctor)
+    .where(
+      and(
+        eq(billing_monthly_doctor.unit_id, unitId),
+        eq(billing_monthly_doctor.doctor_user_id, doctorUserId),
+        eq(billing_monthly_doctor.competence_year, year),
+        eq(billing_monthly_doctor.competence_month, month)
+      )
+    )
+    .limit(1);
+  if (existing[0]) return existing[0];
+  const now = Date.now();
+  const result = await db.insert(billing_monthly_doctor).values({
+    unit_id: unitId,
+    doctor_user_id: doctorUserId,
+    competence_year: year,
+    competence_month: month,
+    reports_count: 0,
+    status: "open",
+    generated_at: now,
+  });
+  return (await db.select().from(billing_monthly_doctor).where(eq(billing_monthly_doctor.id, Number(result[0].insertId))).limit(1))[0];
+}
+
+/** Registra um item de billing ao assinar um laudo */
+export async function createBillingReportItem(data: InsertBillingReportItem): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(billing_report_items).values(data).onDuplicateKeyUpdate({ set: { created_at: data.created_at } });
+  return Number(result[0].insertId);
+}
+
+/** Lista itens de billing de uma competência para uma unidade (com dados do laudo e paciente) */
+export async function listBillingItems(unitId: number, year: number, month: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const items = await db
+    .select()
+    .from(billing_report_items)
+    .where(
+      and(
+        eq(billing_report_items.unit_id, unitId),
+        eq(billing_report_items.competence_year, year),
+        eq(billing_report_items.competence_month, month)
+      )
+    );
+  // Enriquecer com dados do laudo (patient_name via study_instance_uid)
+  const enriched = await Promise.all(items.map(async (item) => {
+    const report = await db!.select().from(reports).where(eq(reports.id, item.report_id)).limit(1);
+    const r = report[0];
+    let patient_name: string | null = null;
+    if (r && r.study_id !== null && r.study_id !== undefined) {
+      const study = await db!.select().from(studies_cache).where(eq(studies_cache.id, r.study_id as number)).limit(1);
+      patient_name = study[0]?.patient_name ?? null;
+    }
+    return {
+      ...item,
+      patient_name,
+      exam_names: null as string | null,
+      price_charged: item.system_price_applied,
+      signed_at: item.report_signed_at,
+    };
+  }));
+  return enriched;
+}
+
+/** Lista consolidados mensais da unidade */
+export async function listMonthlyUnit(unitId: number): Promise<BillingMonthlyUnit[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const { desc } = await import("drizzle-orm");
+  return await db
+    .select()
+    .from(billing_monthly_unit)
+    .where(eq(billing_monthly_unit.unit_id, unitId))
+    .orderBy(desc(billing_monthly_unit.competence_year), desc(billing_monthly_unit.competence_month));
+}
+
+/** Lista consolidados mensais de um médico em uma unidade */
+export async function listMonthlyDoctor(unitId: number, doctorUserId: number): Promise<BillingMonthlyDoctor[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const { desc } = await import("drizzle-orm");
+  return await db
+    .select()
+    .from(billing_monthly_doctor)
+    .where(and(eq(billing_monthly_doctor.unit_id, unitId), eq(billing_monthly_doctor.doctor_user_id, doctorUserId)))
+    .orderBy(desc(billing_monthly_doctor.competence_year), desc(billing_monthly_doctor.competence_month));
+}
+
+/** Lista consolidados de todos os médicos de uma unidade em uma competência */
+export async function listMonthlyDoctorsByUnit(unitId: number, year: number, month: number): Promise<BillingMonthlyDoctor[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return await db
+    .select()
+    .from(billing_monthly_doctor)
+    .where(
+      and(
+        eq(billing_monthly_doctor.unit_id, unitId),
+        eq(billing_monthly_doctor.competence_year, year),
+        eq(billing_monthly_doctor.competence_month, month)
+      )
+    );
+}
+
+/** Fecha uma competência da unidade (status open → closed) */
+export async function closeMonthlyUnit(unitId: number, year: number, month: number, closedBy: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const now = Date.now();
+  await db
+    .update(billing_monthly_unit)
+    .set({ status: "closed", closed_at: now, closed_by: closedBy })
+    .where(
+      and(
+        eq(billing_monthly_unit.unit_id, unitId),
+        eq(billing_monthly_unit.competence_year, year),
+        eq(billing_monthly_unit.competence_month, month)
+      )
+    );
+}
+
+/** Recalcula e atualiza os totais do consolidado mensal da unidade */
+export async function recalculateMonthlyUnit(unitId: number, year: number, month: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const items = await listBillingItems(unitId, year, month);
+  const count = items.length;
+  const total = items.reduce((acc, item) => acc + parseFloat(String(item.system_price_applied ?? 0)), 0);
+  const unitPrice = count > 0 ? (total / count) : null;
+  await db
+    .update(billing_monthly_unit)
+    .set({
+      reports_count: count,
+      unit_price_applied: unitPrice !== null ? String(unitPrice.toFixed(2)) as any : null,
+      system_total_due: String(total.toFixed(2)) as any,
+    })
+    .where(
+      and(
+        eq(billing_monthly_unit.unit_id, unitId),
+        eq(billing_monthly_unit.competence_year, year),
+        eq(billing_monthly_unit.competence_month, month)
+      )
+    );
+}
+
+/** Recalcula e atualiza os totais do consolidado mensal do médico */
+export async function recalculateMonthlyDoctor(unitId: number, doctorUserId: number, year: number, month: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const items = await db
+    .select()
+    .from(billing_report_items)
+    .where(
+      and(
+        eq(billing_report_items.unit_id, unitId),
+        eq(billing_report_items.doctor_user_id, doctorUserId),
+        eq(billing_report_items.competence_year, year),
+        eq(billing_report_items.competence_month, month)
+      )
+    );
+  const count = items.length;
+  const total = items.reduce((acc, item) => acc + parseFloat(String(item.doctor_price_applied ?? 0)), 0);
+  const doctorPrice = count > 0 ? (total / count) : null;
+  await db
+    .update(billing_monthly_doctor)
+    .set({
+      reports_count: count,
+      doctor_price_applied: doctorPrice !== null ? String(doctorPrice.toFixed(2)) as any : null,
+      doctor_total_due: String(total.toFixed(2)) as any,
+    })
+    .where(
+      and(
+        eq(billing_monthly_doctor.unit_id, unitId),
+        eq(billing_monthly_doctor.doctor_user_id, doctorUserId),
+        eq(billing_monthly_doctor.competence_year, year),
+        eq(billing_monthly_doctor.competence_month, month)
+      )
+    );
 }

@@ -332,3 +332,104 @@ export const report_versions = mysqlTable("report_versions", {
 
 export type ReportVersion = typeof report_versions.$inferSelect;
 export type InsertReportVersion = typeof report_versions.$inferInsert;
+
+// ============================================================
+// MÓDULO FINANCEIRO — Etapa 1
+// ============================================================
+
+/**
+ * billing_unit_prices — Valor cobrado pela plataforma de cada unidade por laudo
+ * Definido pelo admin_master. Vigência por starts_at/ends_at.
+ */
+export const billing_unit_prices = mysqlTable("billing_unit_prices", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  price_per_report: decimal("price_per_report", { precision: 10, scale: 2 }).notNull(),
+  starts_at: int("starts_at").notNull(),   // timestamp UTC ms
+  ends_at: int("ends_at"),                 // NULL = vigência aberta
+  created_by: int("created_by").notNull(),
+  created_at: int("created_at").notNull(),
+});
+export type BillingUnitPrice = typeof billing_unit_prices.$inferSelect;
+export type InsertBillingUnitPrice = typeof billing_unit_prices.$inferInsert;
+
+/**
+ * billing_doctor_prices — Valor pago pela unidade a cada médico por laudo
+ * Definido pelo unit_admin. Vigência por unit_id + doctor_user_id.
+ */
+export const billing_doctor_prices = mysqlTable("billing_doctor_prices", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  doctor_user_id: int("doctor_user_id").notNull(),
+  price_per_report: decimal("price_per_report", { precision: 10, scale: 2 }).notNull(),
+  starts_at: int("starts_at").notNull(),
+  ends_at: int("ends_at"),
+  created_by: int("created_by").notNull(),
+  created_at: int("created_at").notNull(),
+});
+export type BillingDoctorPrice = typeof billing_doctor_prices.$inferSelect;
+export type InsertBillingDoctorPrice = typeof billing_doctor_prices.$inferInsert;
+
+/**
+ * billing_monthly_unit — Consolidado mensal: quanto a unidade deve ao sistema
+ */
+export const billing_monthly_unit = mysqlTable("billing_monthly_unit", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  competence_year: int("competence_year").notNull(),
+  competence_month: int("competence_month").notNull(),
+  reports_count: int("reports_count").notNull().default(0),
+  unit_price_applied: decimal("unit_price_applied", { precision: 10, scale: 2 }),
+  system_total_due: decimal("system_total_due", { precision: 10, scale: 2 }),
+  status: mysqlEnum("status", ["open", "closed"]).notNull().default("open"),
+  generated_at: int("generated_at").notNull(),
+  closed_at: int("closed_at"),
+  closed_by: int("closed_by"),
+}, (t) => ({
+  uq_unit_competence: uniqueIndex("uq_unit_competence").on(t.unit_id, t.competence_year, t.competence_month),
+}));
+export type BillingMonthlyUnit = typeof billing_monthly_unit.$inferSelect;
+export type InsertBillingMonthlyUnit = typeof billing_monthly_unit.$inferInsert;
+
+/**
+ * billing_monthly_doctor — Consolidado mensal: quanto a unidade deve a cada médico
+ */
+export const billing_monthly_doctor = mysqlTable("billing_monthly_doctor", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  doctor_user_id: int("doctor_user_id").notNull(),
+  competence_year: int("competence_year").notNull(),
+  competence_month: int("competence_month").notNull(),
+  reports_count: int("reports_count").notNull().default(0),
+  doctor_price_applied: decimal("doctor_price_applied", { precision: 10, scale: 2 }),
+  doctor_total_due: decimal("doctor_total_due", { precision: 10, scale: 2 }),
+  status: mysqlEnum("status", ["open", "closed"]).notNull().default("open"),
+  generated_at: int("generated_at").notNull(),
+  closed_at: int("closed_at"),
+  closed_by: int("closed_by"),
+}, (t) => ({
+  uq_doctor_unit_competence: uniqueIndex("uq_doctor_unit_competence").on(t.unit_id, t.doctor_user_id, t.competence_year, t.competence_month),
+}));
+export type BillingMonthlyDoctor = typeof billing_monthly_doctor.$inferSelect;
+export type InsertBillingMonthlyDoctor = typeof billing_monthly_doctor.$inferInsert;
+
+/**
+ * billing_report_items — Itemização auditável: um registro por laudo faturável
+ * Garante rastreabilidade completa até o laudo individual.
+ */
+export const billing_report_items = mysqlTable("billing_report_items", {
+  id: int("id").autoincrement().primaryKey(),
+  report_id: int("report_id").notNull(),
+  unit_id: int("unit_id").notNull(),
+  doctor_user_id: int("doctor_user_id").notNull(),
+  competence_year: int("competence_year").notNull(),
+  competence_month: int("competence_month").notNull(),
+  system_price_applied: decimal("system_price_applied", { precision: 10, scale: 2 }),
+  doctor_price_applied: decimal("doctor_price_applied", { precision: 10, scale: 2 }),
+  report_signed_at: int("report_signed_at").notNull(),
+  created_at: int("created_at").notNull(),
+}, (t) => ({
+  uq_report_item: uniqueIndex("uq_report_item").on(t.report_id),
+}));
+export type BillingReportItem = typeof billing_report_items.$inferSelect;
+export type InsertBillingReportItem = typeof billing_report_items.$inferInsert;
