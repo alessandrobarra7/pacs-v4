@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Search, Eye, FileText, Printer,
-  Clipboard, Settings,
+  Clipboard, Settings, DollarSign,
   ChevronLeft, ChevronRight, Clock, Pencil, Check, X,
   Download, Loader2, CalendarDays,
 } from "lucide-react";
@@ -988,6 +988,33 @@ export function PacsQueryPage() {
               >
                 <Settings className="h-3.5 w-3.5" />
                 Administração
+              </button>
+            )}
+            {isAdminMaster && (
+              <button
+                onClick={() => navigate('/billing/admin')}
+                className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
+              >
+                <DollarSign className="h-3.5 w-3.5" />
+                Financeiro
+              </button>
+            )}
+            {userRole === 'unit_admin' && (
+              <button
+                onClick={() => navigate('/billing/unit')}
+                className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
+              >
+                <DollarSign className="h-3.5 w-3.5" />
+                Financeiro
+              </button>
+            )}
+            {userRole === 'medico' && (
+              <button
+                onClick={() => navigate('/billing/doctor')}
+                className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
+              >
+                <DollarSign className="h-3.5 w-3.5" />
+                Financeiro
               </button>
             )}
           </>
