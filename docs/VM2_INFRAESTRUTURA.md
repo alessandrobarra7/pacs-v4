@@ -1,6 +1,6 @@
 # LAUDS — Documentação de Infraestrutura da VM2
 **Gerado em:** 02/04/2026  
-**Atualizado em:** 02/04/2026  
+**Atualizado em:** 07/04/2026  
 **Projeto:** Sistema de Laudos Radiológicos — LAUDS  
 **Responsável técnico:** StudioBarra7
 
@@ -282,7 +282,97 @@ echo "0 2 * * * root /usr/local/bin/backup-lauds.sh >> /var/log/backup-lauds.log
 
 ---
 
-## 8. HISTÓRICO DE INSTALAÇÕES
+## 8. MIGRATIONS DO BANCO DE DADOS
+
+Esta seção registra todas as alterações de schema aplicadas ou pendentes no banco `pacs_portal` da VM2. Execute os SQLs abaixo **em ordem** para manter o banco sincronizado com o código do portal.
+
+### Como aplicar uma migration na VM2
+
+```bash
+mysql -u root -p137946 pacs_portal
+```
+
+Dentro do MySQL, cole o SQL da migration e pressione Enter.
+
+---
+
+### Migrations já aplicadas
+
+| Migration | Data aplicada | Descrição |
+|---|---|---|
+| `0000` a `0009` | 21/03/2026 | Schema inicial: `units`, `users`, `studies_cache`, `templates`, `reports`, `audit_log`, `anamnesis`, `dicom_annotations`, `anamnesis_simple` |
+| `0010` | 21/03/2026 | Tabela `study_metadata` criada |
+| `0011` | 21/03/2026 | Enum `audit_log.action` expandido; colunas `address`, `equipment_info` em `units`; `expiration_date` em `users` |
+| `0012` | 21/03/2026 | Tabela `user_unit_permissions` criada |
+| `0013` | 21/03/2026 | Tabelas `phrase_groups` e `phrases` criadas; `logo_url` em `units`; `crm`, `signature_url` em `users` |
+| `0014` | 02/04/2026 | Tabela `report_versions` criada; `stamp_url` em `users` |
+
+---
+
+### Migrations PENDENTES — aplicar na VM2
+
+> **Atenção:** Execute os SQLs abaixo na VM2 em ordem. Cada bloco é independente mas deve ser aplicado na sequência indicada.
+
+#### Migration 0015 — Adicionar DELETE_REPORT ao enum audit_log
+
+```sql
+ALTER TABLE `audit_log` MODIFY COLUMN `action` enum(
+  'LOGIN','LOGOUT','VIEW_STUDY','OPEN_VIEWER',
+  'CREATE_REPORT','UPDATE_REPORT','SIGN_REPORT','DELETE_REPORT',
+  'CREATE_USER','UPDATE_USER','DELETE_USER',
+  'CREATE_UNIT','UPDATE_UNIT','DELETE_UNIT',
+  'PACS_QUERY','PACS_DOWNLOAD',
+  'CREATE_ANAMNESIS','EDIT_STUDY_METADATA'
+) NOT NULL;
+```
+
+#### Migration 0016 — Adicionar colunas em templates
+
+```sql
+ALTER TABLE `templates` ADD `owner_user_id` int;
+ALTER TABLE `templates` ADD `exam_title` varchar(255);
+```
+
+#### Migration 0017 — Remover tabelas antigas e adicionar constraint única em reports
+
+> **Atenção:** Este bloco remove as tabelas `exam_catalog`, `report_sections` e `study_labels` caso existam, e adiciona uma constraint de unicidade em `reports`.
+
+```sql
+DROP TABLE IF EXISTS `exam_catalog`;
+DROP TABLE IF EXISTS `report_sections`;
+DROP TABLE IF EXISTS `study_labels`;
+ALTER TABLE `reports` ADD CONSTRAINT `reports_uid_unit_idx` UNIQUE(`study_instance_uid`, `unit_id`);
+```
+
+#### Migration 0018 — Adicionar exam_count em study_metadata
+
+> Esta coluna registra quantos exames foram selecionados para um laudo (ex: 2 para "RX TÓRAX + SEIOS DA FACE"). Não altera a lógica de cobrança — o laudo continua sendo 1 registro por estudo.
+
+```sql
+ALTER TABLE `study_metadata` ADD `exam_count` int DEFAULT 1;
+```
+
+---
+
+### Verificar se as migrations foram aplicadas
+
+```bash
+# Verificar colunas da tabela study_metadata (deve ter exam_count)
+mysql -u root -p137946 pacs_portal -e "DESCRIBE study_metadata;"
+
+# Verificar colunas da tabela templates (deve ter owner_user_id e exam_title)
+mysql -u root -p137946 pacs_portal -e "DESCRIBE templates;"
+
+# Verificar constraint única em reports
+mysql -u root -p137946 pacs_portal -e "SHOW INDEX FROM reports WHERE Key_name = 'reports_uid_unit_idx';"
+
+# Verificar enum de audit_log (deve ter DELETE_REPORT)
+mysql -u root -p137946 pacs_portal -e "SHOW COLUMNS FROM audit_log LIKE 'action';"
+```
+
+---
+
+## 9. HISTÓRICO DE INSTALAÇÕES
 
 | Data | Ação |
 |---|---|
@@ -293,6 +383,9 @@ echo "0 2 * * * root /usr/local/bin/backup-lauds.sh >> /var/log/backup-lauds.log
 | 02/04/2026 | `server/storage.ts` adaptado para MinIO |
 | 02/04/2026 | Tabela `report_versions` criada |
 | 02/04/2026 | Backup automático diário configurado |
+| 07/04/2026 | Migrations 0015–0018 documentadas como pendentes |
+| 07/04/2026 | Ícone anatômico SVG implementado na lista de estudos |
+| 07/04/2026 | Editor de laudos multi-página (N folhas A4 independentes) implementado |
 
 ---
 
