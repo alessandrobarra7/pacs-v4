@@ -1,8 +1,12 @@
 # LAUDS — Documentação de Infraestrutura da VM2
 **Gerado em:** 02/04/2026  
 **Atualizado em:** 07/04/2026 (verificado com estado real da VM2)  
-**Projeto:** Sistema de Laudos Radiológicos — LAUDS  
+**Projeto:** Sistema de Laudos Radiologicos — LAUDS  
 **Responsável técnico:** StudioBarra7
+
+> **Referência principal:** Para a estrutura canônica do banco de dados, criação da VM2 do zero e lista oficial de migrations, consulte **[GUIA_VM2_BANCO_MESTRE.md](./GUIA_VM2_BANCO_MESTRE.md)**. Em caso de divergência entre este arquivo e o guia mestre, **prevalece o guia mestre**.
+
+> **Finalidade deste arquivo:** documenta a infraestrutura operacional da VM2 (MySQL, MinIO, firewall, backup, histórico de instalações e credenciais de acesso direto).
 
 ---
 
