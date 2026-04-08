@@ -999,7 +999,7 @@ export function PacsQueryPage() {
                 Financeiro
               </button>
             )}
-            {userRole === 'unit_admin' && (
+            {(userRole === 'unit_admin' || userRole === 'responsavel_financeiro') && (
               <button
                 onClick={() => navigate('/billing/unit')}
                 className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"

@@ -19,21 +19,6 @@ import {
   anamnesis_simple,
   study_metadata,
   StudyMetadata,
-  billing_unit_prices,
-  billing_doctor_prices,
-  billing_monthly_unit,
-  billing_monthly_doctor,
-  billing_report_items,
-  BillingUnitPrice,
-  BillingDoctorPrice,
-  BillingMonthlyUnit,
-  BillingMonthlyDoctor,
-  BillingReportItem,
-  InsertBillingUnitPrice,
-  InsertBillingDoctorPrice,
-  InsertBillingMonthlyUnit,
-  InsertBillingMonthlyDoctor,
-  InsertBillingReportItem,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -150,7 +135,7 @@ export async function createLocalUser(data: {
   email?: string;
   name: string;
   password_hash: string;
-  role: 'admin_master' | 'unit_admin' | 'medico' | 'viewer' | 'operador';
+  role: 'admin_master' | 'unit_admin' | 'medico' | 'viewer' | 'operador' | 'responsavel_financeiro';
   unit_id?: number;
 }) {
   const db = await getDb();
@@ -736,293 +721,597 @@ export async function updateUnitLogo(unitId: number, logoUrl: string | null) {
   await db.update(units).set({ logo_url: logoUrl }).where(eq(units.id, unitId));
 }
 
-// ─── Billing Helpers ─────────────────────────────────────────────────────────
 
-/** Retorna o preço vigente da plataforma para uma unidade em um dado timestamp */
-export async function getActiveUnitPrice(unitId: number, atMs: number): Promise<BillingUnitPrice | undefined> {
-  const db = await getDb();
-  if (!db) return undefined;
-  const { lte, isNull } = await import("drizzle-orm");
-  const results = await db
-    .select()
-    .from(billing_unit_prices)
-    .where(
-      and(
-        eq(billing_unit_prices.unit_id, unitId),
-        lte(billing_unit_prices.starts_at, atMs),
-        or(isNull(billing_unit_prices.ends_at), lte(billing_unit_prices.ends_at as any, atMs))
-      )
-    )
-    .orderBy(billing_unit_prices.starts_at)
-    .limit(1);
-  return results[0];
-}
+// ─── Billing Helpers V2 ───────────────────────────────────────────────────────
+// Modelagem correta: responsável financeiro como entidade pagadora central.
+// Tabelas: financial_responsibles, financial_responsible_users,
+//          financial_responsible_units, billing_system_unit_prices,
+//          billing_doctor_unit_prices, billing_report_items,
+//          billing_monthly_system_by_unit, billing_monthly_doctor_by_unit
 
-/** Retorna o preço vigente que a unidade paga ao médico em um dado timestamp */
-export async function getActiveDoctorPrice(unitId: number, doctorUserId: number, atMs: number): Promise<BillingDoctorPrice | undefined> {
-  const db = await getDb();
-  if (!db) return undefined;
-  const { lte, isNull } = await import("drizzle-orm");
-  const results = await db
-    .select()
-    .from(billing_doctor_prices)
-    .where(
-      and(
-        eq(billing_doctor_prices.unit_id, unitId),
-        eq(billing_doctor_prices.doctor_user_id, doctorUserId),
-        lte(billing_doctor_prices.starts_at, atMs),
-        or(isNull(billing_doctor_prices.ends_at), lte(billing_doctor_prices.ends_at as any, atMs))
-      )
-    )
-    .orderBy(billing_doctor_prices.starts_at)
-    .limit(1);
-  return results[0];
-}
+import {
+  financial_responsibles,
+  financial_responsible_users,
+  financial_responsible_units,
+  billing_system_unit_prices,
+  billing_doctor_unit_prices,
+  billing_report_items,
+  billing_monthly_system_by_unit,
+  billing_monthly_doctor_by_unit,
+  FinancialResponsible,
+  InsertFinancialResponsible,
+  FinancialResponsibleUser,
+  FinancialResponsibleUnit,
+  BillingSystemUnitPrice,
+  BillingDoctorUnitPrice,
+  BillingReportItem,
+  InsertBillingReportItem,
+  BillingMonthlySystemByUnit,
+  BillingMonthlyDoctorByUnit,
+} from "../drizzle/schema";
 
-/** Insere ou atualiza o preço da plataforma para uma unidade */
-export async function upsertUnitPrice(data: InsertBillingUnitPrice): Promise<number> {
+// ─── Responsáveis Financeiros ─────────────────────────────────────────────────
+
+export async function listFinancialResponsibles(): Promise<FinancialResponsible[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(billing_unit_prices).values(data);
-  return Number(result[0].insertId);
+  const { eq } = await import("drizzle-orm");
+  return db.select().from(financial_responsibles).orderBy(financial_responsibles.legal_name);
 }
 
-/** Insere ou atualiza o preço que a unidade paga ao médico */
-export async function upsertDoctorPrice(data: InsertBillingDoctorPrice): Promise<number> {
+export async function getFinancialResponsibleById(id: number): Promise<FinancialResponsible | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(billing_doctor_prices).values(data);
-  return Number(result[0].insertId);
+  const { eq } = await import("drizzle-orm");
+  const rows = await db.select().from(financial_responsibles).where(eq(financial_responsibles.id, id)).limit(1);
+  return rows[0];
 }
 
-/** Lista todos os preços da plataforma para uma unidade */
-export async function listUnitPrices(unitId: number): Promise<BillingUnitPrice[]> {
-  const db = await getDb();
-  if (!db) return [];
-  return await db.select().from(billing_unit_prices).where(eq(billing_unit_prices.unit_id, unitId)).orderBy(billing_unit_prices.starts_at);
-}
-
-/** Lista todos os preços que a unidade paga a um médico */
-export async function listDoctorPrices(unitId: number, doctorUserId?: number): Promise<BillingDoctorPrice[]> {
-  const db = await getDb();
-  if (!db) return [];
-  const conditions = [eq(billing_doctor_prices.unit_id, unitId)];
-  if (doctorUserId !== undefined) conditions.push(eq(billing_doctor_prices.doctor_user_id, doctorUserId));
-  return await db.select().from(billing_doctor_prices).where(and(...conditions)).orderBy(billing_doctor_prices.starts_at);
-}
-
-/** Obtém ou cria o consolidado mensal da unidade */
-export async function getOrCreateMonthlyUnit(unitId: number, year: number, month: number): Promise<BillingMonthlyUnit> {
+export async function createFinancialResponsible(data: InsertFinancialResponsible): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const existing = await db
-    .select()
-    .from(billing_monthly_unit)
-    .where(
-      and(
-        eq(billing_monthly_unit.unit_id, unitId),
-        eq(billing_monthly_unit.competence_year, year),
-        eq(billing_monthly_unit.competence_month, month)
-      )
-    )
-    .limit(1);
-  if (existing[0]) return existing[0];
-  const now = Date.now();
-  const result = await db.insert(billing_monthly_unit).values({
+  const result = await db.insert(financial_responsibles).values(data);
+  return (result[0] as any).insertId as number;
+}
+
+export async function updateFinancialResponsible(id: number, data: Partial<InsertFinancialResponsible>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { eq } = await import("drizzle-orm");
+  await db.update(financial_responsibles).set(data).where(eq(financial_responsibles.id, id));
+}
+
+// ─── Vínculos Usuário → Responsável ──────────────────────────────────────────
+
+export async function linkUserToResponsible(financialResponsibleId: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(financial_responsible_users).values({ financial_responsible_id: financialResponsibleId, user_id: userId }).onDuplicateKeyUpdate({ set: { user_id: userId } });
+}
+
+export async function unlinkUserFromResponsible(financialResponsibleId: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { and, eq } = await import("drizzle-orm");
+  await db.delete(financial_responsible_users).where(and(eq(financial_responsible_users.financial_responsible_id, financialResponsibleId), eq(financial_responsible_users.user_id, userId)));
+}
+
+export async function getResponsibleIdForUser(userId: number): Promise<number | undefined> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { eq } = await import("drizzle-orm");
+  const rows = await db.select({ id: financial_responsible_users.financial_responsible_id }).from(financial_responsible_users).where(eq(financial_responsible_users.user_id, userId)).limit(1);
+  return rows[0]?.id;
+}
+
+export async function listUsersForResponsible(financialResponsibleId: number): Promise<FinancialResponsibleUser[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { eq } = await import("drizzle-orm");
+  return db.select().from(financial_responsible_users).where(eq(financial_responsible_users.financial_responsible_id, financialResponsibleId));
+}
+
+// ─── Vínculos Unidade → Responsável ──────────────────────────────────────────
+
+export async function linkUnitToResponsible(financialResponsibleId: number, unitId: number, startsAt: Date, endsAt?: Date, createdBy?: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(financial_responsible_units).values({
+    financial_responsible_id: financialResponsibleId,
     unit_id: unitId,
-    competence_year: year,
-    competence_month: month,
-    reports_count: 0,
-    status: "open",
-    generated_at: now,
+    starts_at: startsAt,
+    ends_at: endsAt ?? null,
+    created_by: createdBy ?? 0,
   });
-  return (await db.select().from(billing_monthly_unit).where(eq(billing_monthly_unit.id, Number(result[0].insertId))).limit(1))[0];
 }
 
-/** Obtém ou cria o consolidado mensal do médico em uma unidade */
-export async function getOrCreateMonthlyDoctor(unitId: number, doctorUserId: number, year: number, month: number): Promise<BillingMonthlyDoctor> {
+export async function getActiveResponsibleForUnit(unitId: number, atDate?: Date): Promise<FinancialResponsibleUnit | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const existing = await db
-    .select()
-    .from(billing_monthly_doctor)
-    .where(
-      and(
-        eq(billing_monthly_doctor.unit_id, unitId),
-        eq(billing_monthly_doctor.doctor_user_id, doctorUserId),
-        eq(billing_monthly_doctor.competence_year, year),
-        eq(billing_monthly_doctor.competence_month, month)
-      )
-    )
+  const { and, eq, isNull, or, lte } = await import("drizzle-orm");
+  const at = atDate ?? new Date();
+  const rows = await db.select().from(financial_responsible_units)
+    .where(and(
+      eq(financial_responsible_units.unit_id, unitId),
+      lte(financial_responsible_units.starts_at, at),
+      or(isNull(financial_responsible_units.ends_at), lte(financial_responsible_units.ends_at as any, at))
+    ))
+    .orderBy(financial_responsible_units.starts_at)
     .limit(1);
-  if (existing[0]) return existing[0];
-  const now = Date.now();
-  const result = await db.insert(billing_monthly_doctor).values({
-    unit_id: unitId,
-    doctor_user_id: doctorUserId,
-    competence_year: year,
-    competence_month: month,
-    reports_count: 0,
-    status: "open",
-    generated_at: now,
-  });
-  return (await db.select().from(billing_monthly_doctor).where(eq(billing_monthly_doctor.id, Number(result[0].insertId))).limit(1))[0];
+  return rows[0];
 }
 
-/** Registra um item de billing ao assinar um laudo */
-export async function createBillingReportItem(data: InsertBillingReportItem): Promise<number> {
+export async function listUnitsForResponsible(financialResponsibleId: number): Promise<FinancialResponsibleUnit[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(billing_report_items).values(data).onDuplicateKeyUpdate({ set: { created_at: data.created_at } });
-  return Number(result[0].insertId);
+  const { eq, isNull } = await import("drizzle-orm");
+  return db.select().from(financial_responsible_units)
+    .where(eq(financial_responsible_units.financial_responsible_id, financialResponsibleId));
 }
 
-/** Lista itens de billing de uma competência para uma unidade (com dados do laudo e paciente) */
-export async function listBillingItems(unitId: number, year: number, month: number) {
+// ─── Preços do Sistema por Unidade ───────────────────────────────────────────
+
+export async function getActiveSystemPrice(financialResponsibleId: number, unitId: number, atDate?: Date): Promise<BillingSystemUnitPrice | undefined> {
   const db = await getDb();
-  if (!db) return [];
-  const items = await db
-    .select()
-    .from(billing_report_items)
-    .where(
-      and(
-        eq(billing_report_items.unit_id, unitId),
-        eq(billing_report_items.competence_year, year),
-        eq(billing_report_items.competence_month, month)
-      )
-    );
-  // Enriquecer com dados do laudo (patient_name via study_instance_uid)
-  const enriched = await Promise.all(items.map(async (item) => {
-    const report = await db!.select().from(reports).where(eq(reports.id, item.report_id)).limit(1);
-    const r = report[0];
-    let patient_name: string | null = null;
-    if (r && r.study_id !== null && r.study_id !== undefined) {
-      const study = await db!.select().from(studies_cache).where(eq(studies_cache.id, r.study_id as number)).limit(1);
-      patient_name = study[0]?.patient_name ?? null;
+  if (!db) throw new Error("Database not available");
+  const { and, eq, isNull, or, lte } = await import("drizzle-orm");
+  const at = atDate ?? new Date();
+  const rows = await db.select().from(billing_system_unit_prices)
+    .where(and(
+      eq(billing_system_unit_prices.financial_responsible_id, financialResponsibleId),
+      eq(billing_system_unit_prices.unit_id, unitId),
+      lte(billing_system_unit_prices.starts_at, at),
+      or(isNull(billing_system_unit_prices.ends_at), lte(billing_system_unit_prices.ends_at as any, at))
+    ))
+    .orderBy(billing_system_unit_prices.starts_at)
+    .limit(1);
+  return rows[0];
+}
+
+export async function listSystemPricesForUnit(financialResponsibleId: number, unitId: number): Promise<BillingSystemUnitPrice[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { and, eq } = await import("drizzle-orm");
+  return db.select().from(billing_system_unit_prices)
+    .where(and(
+      eq(billing_system_unit_prices.financial_responsible_id, financialResponsibleId),
+      eq(billing_system_unit_prices.unit_id, unitId)
+    ))
+    .orderBy(billing_system_unit_prices.starts_at);
+}
+
+export async function upsertSystemUnitPrice(data: {
+  financial_responsible_id: number;
+  unit_id: number;
+  price_per_report: string;
+  starts_at: Date;
+  ends_at?: Date | null;
+  created_by: number;
+}): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(billing_system_unit_prices).values(data);
+  return (result[0] as any).insertId as number;
+}
+
+// ─── Preços do Médico por Unidade ─────────────────────────────────────────────
+
+export async function getActiveDoctorPrice(financialResponsibleId: number, unitId: number, doctorUserId: number, atDate?: Date): Promise<BillingDoctorUnitPrice | undefined> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { and, eq, isNull, or, lte } = await import("drizzle-orm");
+  const at = atDate ?? new Date();
+  const rows = await db.select().from(billing_doctor_unit_prices)
+    .where(and(
+      eq(billing_doctor_unit_prices.financial_responsible_id, financialResponsibleId),
+      eq(billing_doctor_unit_prices.unit_id, unitId),
+      eq(billing_doctor_unit_prices.doctor_user_id, doctorUserId),
+      lte(billing_doctor_unit_prices.starts_at, at),
+      or(isNull(billing_doctor_unit_prices.ends_at), lte(billing_doctor_unit_prices.ends_at as any, at))
+    ))
+    .orderBy(billing_doctor_unit_prices.starts_at)
+    .limit(1);
+  return rows[0];
+}
+
+export async function listDoctorPricesForUnit(financialResponsibleId: number, unitId: number): Promise<BillingDoctorUnitPrice[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { and, eq } = await import("drizzle-orm");
+  return db.select().from(billing_doctor_unit_prices)
+    .where(and(
+      eq(billing_doctor_unit_prices.financial_responsible_id, financialResponsibleId),
+      eq(billing_doctor_unit_prices.unit_id, unitId)
+    ))
+    .orderBy(billing_doctor_unit_prices.starts_at);
+}
+
+export async function upsertDoctorUnitPrice(data: {
+  financial_responsible_id: number;
+  unit_id: number;
+  doctor_user_id: number;
+  price_per_report: string;
+  starts_at: Date;
+  ends_at?: Date | null;
+  created_by: number;
+}): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(billing_doctor_unit_prices).values(data);
+  return (result[0] as any).insertId as number;
+}
+
+// ─── Itens de Apuração (billing_report_items) ─────────────────────────────────
+
+/**
+ * Cria ou atualiza um item financeiro para um laudo.
+ * Regra: signedBy ?? author_user_id para o médico financeiro.
+ * Só entra laudo com status signed ou revised.
+ */
+export async function upsertBillingReportItem(data: InsertBillingReportItem): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(billing_report_items).values(data).onDuplicateKeyUpdate({
+    set: {
+      financial_responsible_id: data.financial_responsible_id,
+      system_price_applied: data.system_price_applied,
+      doctor_price_applied: data.doctor_price_applied,
+      system_amount_due: data.system_amount_due,
+      doctor_amount_due: data.doctor_amount_due,
+      pricing_status: data.pricing_status,
     }
-    return {
-      ...item,
-      patient_name,
-      exam_names: null as string | null,
-      price_charged: item.system_price_applied,
-      signed_at: item.report_signed_at,
-    };
-  }));
-  return enriched;
+  });
 }
 
-/** Lista consolidados mensais da unidade */
-export async function listMonthlyUnit(unitId: number): Promise<BillingMonthlyUnit[]> {
-  const db = await getDb();
-  if (!db) return [];
-  const { desc } = await import("drizzle-orm");
-  return await db
-    .select()
-    .from(billing_monthly_unit)
-    .where(eq(billing_monthly_unit.unit_id, unitId))
-    .orderBy(desc(billing_monthly_unit.competence_year), desc(billing_monthly_unit.competence_month));
-}
-
-/** Lista consolidados mensais de um médico em uma unidade */
-export async function listMonthlyDoctor(unitId: number, doctorUserId: number): Promise<BillingMonthlyDoctor[]> {
-  const db = await getDb();
-  if (!db) return [];
-  const { desc } = await import("drizzle-orm");
-  return await db
-    .select()
-    .from(billing_monthly_doctor)
-    .where(and(eq(billing_monthly_doctor.unit_id, unitId), eq(billing_monthly_doctor.doctor_user_id, doctorUserId)))
-    .orderBy(desc(billing_monthly_doctor.competence_year), desc(billing_monthly_doctor.competence_month));
-}
-
-/** Lista consolidados de todos os médicos de uma unidade em uma competência */
-export async function listMonthlyDoctorsByUnit(unitId: number, year: number, month: number): Promise<BillingMonthlyDoctor[]> {
-  const db = await getDb();
-  if (!db) return [];
-  return await db
-    .select()
-    .from(billing_monthly_doctor)
-    .where(
-      and(
-        eq(billing_monthly_doctor.unit_id, unitId),
-        eq(billing_monthly_doctor.competence_year, year),
-        eq(billing_monthly_doctor.competence_month, month)
-      )
-    );
-}
-
-/** Fecha uma competência da unidade (status open → closed) */
-export async function closeMonthlyUnit(unitId: number, year: number, month: number, closedBy: number): Promise<void> {
+export async function listBillingReportItems(filters: {
+  financial_responsible_id?: number;
+  unit_id?: number;
+  doctor_user_id?: number;
+  competence_year: number;
+  competence_month: number;
+}): Promise<(BillingReportItem & { patient_name?: string | null; study_description?: string | null; doctor_name?: string | null })[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const now = Date.now();
-  await db
-    .update(billing_monthly_unit)
-    .set({ status: "closed", closed_at: now, closed_by: closedBy })
-    .where(
-      and(
-        eq(billing_monthly_unit.unit_id, unitId),
-        eq(billing_monthly_unit.competence_year, year),
-        eq(billing_monthly_unit.competence_month, month)
-      )
-    );
-}
+  const { and, eq } = await import("drizzle-orm");
 
-/** Recalcula e atualiza os totais do consolidado mensal da unidade */
-export async function recalculateMonthlyUnit(unitId: number, year: number, month: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const items = await listBillingItems(unitId, year, month);
-  const count = items.length;
-  const total = items.reduce((acc, item) => acc + parseFloat(String(item.system_price_applied ?? 0)), 0);
-  const unitPrice = count > 0 ? (total / count) : null;
-  await db
-    .update(billing_monthly_unit)
-    .set({
-      reports_count: count,
-      unit_price_applied: unitPrice !== null ? String(unitPrice.toFixed(2)) as any : null,
-      system_total_due: String(total.toFixed(2)) as any,
+  const conditions: any[] = [
+    eq(billing_report_items.competence_year, filters.competence_year),
+    eq(billing_report_items.competence_month, filters.competence_month),
+  ];
+  if (filters.financial_responsible_id) conditions.push(eq(billing_report_items.financial_responsible_id, filters.financial_responsible_id));
+  if (filters.unit_id) conditions.push(eq(billing_report_items.unit_id, filters.unit_id));
+  if (filters.doctor_user_id) conditions.push(eq(billing_report_items.doctor_user_id, filters.doctor_user_id));
+
+  const rows = await db
+    .select({
+      item: billing_report_items,
+      patient_name: studies_cache.patient_name,
+      study_description: studies_cache.description,
+      doctor_name: users.name,
     })
-    .where(
-      and(
-        eq(billing_monthly_unit.unit_id, unitId),
-        eq(billing_monthly_unit.competence_year, year),
-        eq(billing_monthly_unit.competence_month, month)
-      )
-    );
-}
-
-/** Recalcula e atualiza os totais do consolidado mensal do médico */
-export async function recalculateMonthlyDoctor(unitId: number, doctorUserId: number, year: number, month: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const items = await db
-    .select()
     .from(billing_report_items)
-    .where(
-      and(
-        eq(billing_report_items.unit_id, unitId),
-        eq(billing_report_items.doctor_user_id, doctorUserId),
-        eq(billing_report_items.competence_year, year),
-        eq(billing_report_items.competence_month, month)
-      )
-    );
-  const count = items.length;
-  const total = items.reduce((acc, item) => acc + parseFloat(String(item.doctor_price_applied ?? 0)), 0);
-  const doctorPrice = count > 0 ? (total / count) : null;
-  await db
-    .update(billing_monthly_doctor)
-    .set({
-      reports_count: count,
-      doctor_price_applied: doctorPrice !== null ? String(doctorPrice.toFixed(2)) as any : null,
-      doctor_total_due: String(total.toFixed(2)) as any,
-    })
-    .where(
-      and(
-        eq(billing_monthly_doctor.unit_id, unitId),
-        eq(billing_monthly_doctor.doctor_user_id, doctorUserId),
-        eq(billing_monthly_doctor.competence_year, year),
-        eq(billing_monthly_doctor.competence_month, month)
-      )
-    );
+    .leftJoin(studies_cache, eq(billing_report_items.study_instance_uid, studies_cache.study_instance_uid))
+    .leftJoin(users, eq(billing_report_items.doctor_user_id, users.id))
+    .where(and(...conditions))
+    .orderBy(billing_report_items.report_signed_at);
+
+  return rows.map(r => ({
+    ...r.item,
+    patient_name: r.patient_name,
+    study_description: r.study_description,
+    doctor_name: r.doctor_name,
+  }));
+}
+
+// ─── Apuração de Competência ──────────────────────────────────────────────────
+
+/**
+ * Apura todos os laudos signed/revised de uma competência (mês/ano) e
+ * cria/atualiza os billing_report_items e os consolidados mensais.
+ * Retorna um resumo com contagens de itens ok e pendentes.
+ */
+export async function calculateCompetence(year: number, month: number, createdBy: number): Promise<{
+  total: number;
+  ok: number;
+  pending: number;
+  errors: string[];
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { and, eq, inArray, isNull, or, lte } = await import("drizzle-orm");
+
+  // Intervalo da competência em UTC
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 1));
+
+  // Buscar laudos signed/revised com signedAt no período
+  const faultableReports = await db.select().from(reports)
+    .where(and(
+      inArray(reports.status, ["signed", "revised"]),
+      lte(reports.signedAt, end),
+      lte(start as any, reports.signedAt as any),
+    ));
+
+  // Filtrar pelo mês correto (signedAt >= start e < end)
+  const periodReports = faultableReports.filter(r => {
+    if (!r.signedAt) return false;
+    const d = new Date(r.signedAt);
+    return d >= start && d < end;
+  });
+
+  let ok = 0;
+  let pending = 0;
+  const errors: string[] = [];
+
+  for (const report of periodReports) {
+    try {
+      const doctorUserId = report.signedBy ?? report.author_user_id;
+      const signedAt = new Date(report.signedAt!);
+
+      // Descobrir responsável ativo para a unidade
+      const respUnit = await getActiveResponsibleForUnit(report.unit_id, signedAt);
+      const financialResponsibleId = respUnit?.financial_responsible_id ?? null;
+
+      // Buscar preços vigentes
+      let systemPrice: string | null = null;
+      let doctorPrice: string | null = null;
+
+      if (financialResponsibleId) {
+        const sp = await getActiveSystemPrice(financialResponsibleId, report.unit_id, signedAt);
+        const dp = await getActiveDoctorPrice(financialResponsibleId, report.unit_id, doctorUserId, signedAt);
+        systemPrice = sp?.price_per_report ?? null;
+        doctorPrice = dp?.price_per_report ?? null;
+      }
+
+      // Determinar pricing_status
+      const hasSys = systemPrice !== null;
+      const hasDoc = doctorPrice !== null;
+      let pricingStatus: "ok" | "pending_system_price" | "pending_doctor_price" | "pending_both";
+      if (hasSys && hasDoc) pricingStatus = "ok";
+      else if (!hasSys && !hasDoc) pricingStatus = "pending_both";
+      else if (!hasSys) pricingStatus = "pending_system_price";
+      else pricingStatus = "pending_doctor_price";
+
+      const item: InsertBillingReportItem = {
+        report_id: report.id,
+        study_instance_uid: report.study_instance_uid ?? null,
+        financial_responsible_id: financialResponsibleId,
+        unit_id: report.unit_id,
+        doctor_user_id: doctorUserId,
+        competence_year: year,
+        competence_month: month,
+        report_status_snapshot: report.status as "signed" | "revised",
+        report_signed_at: signedAt,
+        system_price_applied: systemPrice,
+        doctor_price_applied: doctorPrice,
+        system_amount_due: systemPrice,
+        doctor_amount_due: doctorPrice,
+        pricing_status: pricingStatus,
+      };
+
+      await upsertBillingReportItem(item);
+
+      if (pricingStatus === "ok") ok++;
+      else pending++;
+    } catch (e: any) {
+      errors.push(`report ${report.id}: ${e.message}`);
+      pending++;
+    }
+  }
+
+  // Recalcular consolidados mensais
+  await recalculateMonthlyConsolidates(year, month, createdBy);
+
+  return { total: periodReports.length, ok, pending, errors };
+}
+
+/**
+ * Recalcula os consolidados mensais a partir dos billing_report_items.
+ */
+async function recalculateMonthlyConsolidates(year: number, month: number, closedBy: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { and, eq } = await import("drizzle-orm");
+
+  const items = await db.select().from(billing_report_items)
+    .where(and(
+      eq(billing_report_items.competence_year, year),
+      eq(billing_report_items.competence_month, month),
+    ));
+
+  // Agrupar por (financial_responsible_id, unit_id) para sistema
+  const sysMap = new Map<string, { responsible: number | null; unit: number; count: number; amount: number; pending: number }>();
+  // Agrupar por (financial_responsible_id, unit_id, doctor_user_id) para médico
+  const docMap = new Map<string, { responsible: number | null; unit: number; doctor: number; count: number; amount: number; pending: number }>();
+
+  for (const item of items) {
+    const sysKey = `${item.financial_responsible_id}_${item.unit_id}`;
+    const docKey = `${item.financial_responsible_id}_${item.unit_id}_${item.doctor_user_id}`;
+
+    if (!sysMap.has(sysKey)) sysMap.set(sysKey, { responsible: item.financial_responsible_id, unit: item.unit_id, count: 0, amount: 0, pending: 0 });
+    const sysEntry = sysMap.get(sysKey)!;
+    sysEntry.count++;
+    sysEntry.amount += parseFloat(item.system_amount_due ?? "0");
+    if (item.pricing_status !== "ok") sysEntry.pending++;
+
+    if (!docMap.has(docKey)) docMap.set(docKey, { responsible: item.financial_responsible_id, unit: item.unit_id, doctor: item.doctor_user_id, count: 0, amount: 0, pending: 0 });
+    const docEntry = docMap.get(docKey)!;
+    docEntry.count++;
+    docEntry.amount += parseFloat(item.doctor_amount_due ?? "0");
+    if (item.pricing_status !== "ok") docEntry.pending++;
+  }
+
+  // Upsert billing_monthly_system_by_unit
+  for (const [, v] of Array.from(sysMap)) {
+    if (!v.responsible) continue;
+    await db.insert(billing_monthly_system_by_unit).values({
+      financial_responsible_id: v.responsible,
+      unit_id: v.unit,
+      competence_year: year,
+      competence_month: month,
+      reports_count: v.count,
+      amount_due: v.amount.toFixed(2),
+      pending_items_count: v.pending,
+      status: "open",
+    }).onDuplicateKeyUpdate({
+      set: {
+        reports_count: v.count,
+        amount_due: v.amount.toFixed(2),
+        pending_items_count: v.pending,
+      }
+    });
+  }
+
+  // Upsert billing_monthly_doctor_by_unit
+  for (const [, v] of Array.from(docMap)) {
+    if (!v.responsible) continue;
+    await db.insert(billing_monthly_doctor_by_unit).values({
+      financial_responsible_id: v.responsible,
+      unit_id: v.unit,
+      doctor_user_id: v.doctor,
+      competence_year: year,
+      competence_month: month,
+      reports_count: v.count,
+      amount_due: v.amount.toFixed(2),
+      pending_items_count: v.pending,
+      status: "open",
+    }).onDuplicateKeyUpdate({
+      set: {
+        reports_count: v.count,
+        amount_due: v.amount.toFixed(2),
+        pending_items_count: v.pending,
+      }
+    });
+  }
+}
+
+// ─── Fechamento de Competência ────────────────────────────────────────────────
+
+export async function closeCompetence(financialResponsibleId: number, year: number, month: number, closedBy: number): Promise<{ success: boolean; reason?: string }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { and, eq } = await import("drizzle-orm");
+
+  // Verificar se há itens pendentes
+  const pending = await db.select().from(billing_report_items)
+    .where(and(
+      eq(billing_report_items.financial_responsible_id, financialResponsibleId),
+      eq(billing_report_items.competence_year, year),
+      eq(billing_report_items.competence_month, month),
+      // pricing_status != 'ok'
+    ));
+  const pendingItems = pending.filter(i => i.pricing_status !== "ok");
+  if (pendingItems.length > 0) {
+    return { success: false, reason: `Há ${pendingItems.length} item(ns) com preço pendente. Resolva antes de fechar.` };
+  }
+
+  const now = new Date();
+  await db.update(billing_monthly_system_by_unit)
+    .set({ status: "closed", closedAt: now, closedBy })
+    .where(and(
+      eq(billing_monthly_system_by_unit.financial_responsible_id, financialResponsibleId),
+      eq(billing_monthly_system_by_unit.competence_year, year),
+      eq(billing_monthly_system_by_unit.competence_month, month),
+    ));
+
+  await db.update(billing_monthly_doctor_by_unit)
+    .set({ status: "closed", closedAt: now, closedBy })
+    .where(and(
+      eq(billing_monthly_doctor_by_unit.financial_responsible_id, financialResponsibleId),
+      eq(billing_monthly_doctor_by_unit.competence_year, year),
+      eq(billing_monthly_doctor_by_unit.competence_month, month),
+    ));
+
+  return { success: true };
+}
+
+export async function reopenCompetence(financialResponsibleId: number, year: number, month: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { and, eq } = await import("drizzle-orm");
+
+  await db.update(billing_monthly_system_by_unit)
+    .set({ status: "open", closedAt: null, closedBy: null })
+    .where(and(
+      eq(billing_monthly_system_by_unit.financial_responsible_id, financialResponsibleId),
+      eq(billing_monthly_system_by_unit.competence_year, year),
+      eq(billing_monthly_system_by_unit.competence_month, month),
+    ));
+
+  await db.update(billing_monthly_doctor_by_unit)
+    .set({ status: "open", closedAt: null, closedBy: null })
+    .where(and(
+      eq(billing_monthly_doctor_by_unit.financial_responsible_id, financialResponsibleId),
+      eq(billing_monthly_doctor_by_unit.competence_year, year),
+      eq(billing_monthly_doctor_by_unit.competence_month, month),
+    ));
+}
+
+// ─── Consultas de Consolidados ────────────────────────────────────────────────
+
+export async function getMonthlySystemSummary(financialResponsibleId: number, year: number, month: number): Promise<BillingMonthlySystemByUnit[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { and, eq } = await import("drizzle-orm");
+  return db.select().from(billing_monthly_system_by_unit)
+    .where(and(
+      eq(billing_monthly_system_by_unit.financial_responsible_id, financialResponsibleId),
+      eq(billing_monthly_system_by_unit.competence_year, year),
+      eq(billing_monthly_system_by_unit.competence_month, month),
+    ));
+}
+
+export async function getMonthlyDoctorSummary(financialResponsibleId: number, year: number, month: number): Promise<BillingMonthlyDoctorByUnit[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { and, eq } = await import("drizzle-orm");
+  return db.select().from(billing_monthly_doctor_by_unit)
+    .where(and(
+      eq(billing_monthly_doctor_by_unit.financial_responsible_id, financialResponsibleId),
+      eq(billing_monthly_doctor_by_unit.competence_year, year),
+      eq(billing_monthly_doctor_by_unit.competence_month, month),
+    ));
+}
+
+export async function getDoctorMonthlySummary(doctorUserId: number, year: number, month: number): Promise<BillingMonthlyDoctorByUnit[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { and, eq } = await import("drizzle-orm");
+  return db.select().from(billing_monthly_doctor_by_unit)
+    .where(and(
+      eq(billing_monthly_doctor_by_unit.doctor_user_id, doctorUserId),
+      eq(billing_monthly_doctor_by_unit.competence_year, year),
+      eq(billing_monthly_doctor_by_unit.competence_month, month),
+    ));
+}
+
+export async function getAdminConsolidated(year: number, month: number): Promise<{
+  responsibles: (FinancialResponsible & { system_total: number; doctor_total: number; reports_count: number; pending_count: number })[];
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { and, eq } = await import("drizzle-orm");
+
+  const responsibles = await listFinancialResponsibles();
+  const result = [];
+
+  for (const resp of responsibles) {
+    const sysSummary = await getMonthlySystemSummary(resp.id, year, month);
+    const docSummary = await getMonthlyDoctorSummary(resp.id, year, month);
+
+    const systemTotal = sysSummary.reduce((s, r) => s + parseFloat(r.amount_due ?? "0"), 0);
+    const doctorTotal = docSummary.reduce((s, r) => s + parseFloat(r.amount_due ?? "0"), 0);
+    const reportsCount = sysSummary.reduce((s, r) => s + r.reports_count, 0);
+    const pendingCount = sysSummary.reduce((s, r) => s + r.pending_items_count, 0);
+
+    result.push({
+      ...resp,
+      system_total: systemTotal,
+      doctor_total: doctorTotal,
+      reports_count: reportsCount,
+      pending_count: pendingCount,
+    });
+  }
+
+  return { responsibles: result };
 }

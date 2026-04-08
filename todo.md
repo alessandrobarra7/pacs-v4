@@ -746,3 +746,45 @@
 - [ ] Integrar criação automática de billing_report_item ao assinar laudo no ReportEditorPage
 - [ ] Criar testes unitários para os helpers de billing
 - [ ] Documentar módulo financeiro no GUIA_VM2_BANCO_MESTRE.md
+
+## MÓDULO FINANCEIRO V2 — Reimplementação Correta (ORIENTACAO_MODULO_FINANCEIRO_PACS_V4.txt)
+
+### ETAPA 1 — Base estrutural
+- [x] Remover tabelas antigas de billing do schema (billing_unit_prices, billing_doctor_prices, billing_monthly_unit, billing_monthly_doctor, billing_report_items)
+- [x] Remover telas antigas (BillingAdminPage, BillingUnitPage) e renomear BillingDoctorPage
+- [x] Adicionar role responsavel_financeiro no enum de roles
+- [x] Criar tabela financial_responsibles (PF/PJ, legal_name, trade_name, cpf_cnpj, email, phone, isActive)
+- [x] Criar tabela financial_responsible_users (vinculo usuario -> responsavel)
+- [x] Criar tabela financial_responsible_units (vinculo unidade -> responsavel com vigência starts_at/ends_at)
+- [x] Atualizar shared/permissions.ts com nova role
+- [ ] Atualizar UserFormDialog.tsx e AdminPage.tsx com nova role
+
+### ETAPA 2 — Precificação
+- [x] Criar tabela billing_system_unit_prices (responsible + unit + price_per_report + vigência)
+- [x] Criar tabela billing_doctor_unit_prices (responsible + unit + doctor + price_per_report + vigência)
+- [ ] Validar sobreposição de vigência nos helpers
+- [ ] Criar telas de configuração de preço no painel admin_master
+
+### ETAPA 3 — Apuração
+- [x] Criar tabela billing_report_items (report_id, study_instance_uid, financial_responsible_id, unit_id, doctor_user_id, competence_year/month, pricing_status, system_amount_due, doctor_amount_due)
+- [ ] Criar tabela billing_monthly_system_by_unit (consolidado sistema por unidade)
+- [x] Criar tabela billing_monthly_doctor_by_unit (consolidado médico por unidade)
+- [x] Implementar billing.calculateCompetence (apuração completa por mês/ano)
+- [ ] Implementar billing.closeCompetence (com bloqueio se houver pendências)
+- [ ] Implementar billing.reopenCompetence (apenas admin_master)
+
+### ETAPA 4 — Visualização
+- [x] Criar BillingAdminPage.tsx (visão root: responsáveis, totais, detalhamento por unidade)
+- [x] Criar BillingResponsiblePage.tsx (visão pagador: o que deve ao sistema + médicos)
+- [x] Criar BillingDoctorPage.tsx (visão médico: o que tem a receber por unidade)
+- [ ] Registrar rotas /financeiro/admin, /financeiro/responsavel, /financeiro/medico
+- [x] Atualizar AppHeader com link Financeiro por role
+
+### ETAPA 5 — Testes
+- [ ] Testes: laudo signed gera item financeiro
+- [ ] Testes: laudo revised mantém apenas um item
+- [ ] Testes: laudo draft não entra no cálculo
+- [ ] Testes: signedBy vence author_user_id para médico financeiro
+- [ ] Testes: falta de preço gera pricing_status pendente
+- [ ] Testes: competência não fecha com pendências
+- [ ] Testes: responsavel_financeiro não vê dados de outro responsável

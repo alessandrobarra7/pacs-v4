@@ -1,417 +1,165 @@
 /**
- * BillingUnitPage — Painel Financeiro do unit_admin
- *
- * Funcionalidades:
- * - Resumo mensal da unidade
- * - Lista de laudos cobrados no período
- * - Detalhamento por médico
- * - Configuração de preço por médico
- * - Fechar competência
+ * BillingUnitPage V2 — Painel Financeiro do responsavel_financeiro
+ * Acesso: role === 'responsavel_financeiro'
  */
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
-import DashboardLayout from "@/components/DashboardLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { DollarSign, FileText, Users, Settings } from "lucide-react";
+import { DollarSign, ChevronLeft, Building2, FileText, Users } from "lucide-react";
 
-const MONTHS = [
-  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
-];
+const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+const fmt = (v: number | string | null | undefined) =>
+  v == null ? "\u2014" : `R$ ${parseFloat(String(v)).toFixed(2).replace(".", ",")}`;
 
-function fmtCurrency(val: string | number | null | undefined): string {
-  if (val === null || val === undefined) return "—";
-  const n = typeof val === "string" ? parseFloat(val) : val;
-  if (isNaN(n)) return "—";
-  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function fmtStatus(status: string | null | undefined) {
-  if (!status || status === "open") return <Badge variant="outline">Aberto</Badge>;
-  if (status === "closed") return <Badge className="bg-amber-500 text-white">Fechado</Badge>;
-  if (status === "paid") return <Badge className="bg-green-600 text-white">Pago</Badge>;
-  return <Badge variant="secondary">{status}</Badge>;
-}
-
-// ─── Modal de configuração de preço por médico ──────────────────────────────
-function SetDoctorPriceModal({
-  unitId,
-  doctorUserId,
-  doctorName,
-  onClose,
-}: {
-  unitId: number;
-  doctorUserId: number;
-  doctorName: string;
-  onClose: () => void;
-}) {
-  const [price, setPrice] = useState("");
-  const utils = trpc.useUtils();
-  const { toast } = useToast();
-  const { data: prices } = trpc.billing.listDoctorPrices.useQuery({ unitId, doctorUserId });
-  const mutation = trpc.billing.setDoctorPrice.useMutation({
-    onSuccess: () => {
-      toast({ title: "Preço configurado com sucesso." });
-      utils.billing.listDoctorPrices.invalidate({ unitId, doctorUserId });
-      setPrice("");
-    },
-    onError: (e) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
-  });
-
-  const handleSave = () => {
-    if (!price || isNaN(parseFloat(price))) {
-      toast({ title: "Informe um valor válido.", variant: "destructive" });
-      return;
-    }
-    mutation.mutate({
-      unitId,
-      doctorUserId,
-      pricePerReport: parseFloat(price).toFixed(2),
-      startsAt: Date.now(),
-    });
-  };
-
-  return (
-    <DialogContent className="max-w-md">
-      <DialogHeader>
-        <DialogTitle>Preço por Laudo — {doctorName}</DialogTitle>
-      </DialogHeader>
-      <div className="space-y-4 py-2">
-        <div>
-          <label className="text-sm font-medium">Valor pago ao médico por laudo (R$)</label>
-          <Input
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="Ex: 15.00"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            className="mt-1"
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            Vigência a partir de agora. Laudos já registrados mantêm o preço original.
-          </p>
-        </div>
-        {prices && prices.length > 0 && (
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1">Histórico:</p>
-            <div className="space-y-1">
-              {prices.slice(0, 5).map((p: any) => (
-                <div key={p.id} className="flex justify-between text-xs text-muted-foreground">
-                  <span>{new Date(p.starts_at).toLocaleDateString("pt-BR")}</span>
-                  <span>{fmtCurrency(p.price_per_report)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-      <DialogFooter>
-        <Button variant="outline" onClick={onClose}>Cancelar</Button>
-        <Button onClick={handleSave} disabled={mutation.isPending}>Salvar</Button>
-      </DialogFooter>
-    </DialogContent>
-  );
-}
-
-// ─── Componente principal ────────────────────────────────────────────────────
 export default function BillingUnitPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading } = useAuth();
   const [, navigate] = useLocation();
+  const { toast } = useToast();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [priceDoctor, setPriceDoctor] = useState<{ id: number; name: string } | null>(null);
-
-  const unitId = user?.unit_id ?? 0;
-
-  const { data, isLoading } = trpc.billing.getMonthlyUnit.useQuery(
-    { unitId, year, month },
-    { enabled: !!user && unitId > 0 }
-  );
-
-  const { data: history } = trpc.billing.listMonthlyUnit.useQuery(
-    { unitId },
-    { enabled: !!user && unitId > 0 }
-  );
+  const [tab, setTab] = useState("overview");
 
   const utils = trpc.useUtils();
-  const { toast } = useToast();
-  const closeMutation = trpc.billing.closeMonthlyUnit.useMutation({
-    onSuccess: () => {
-      toast({ title: "Competência fechada com sucesso." });
-      utils.billing.getMonthlyUnit.invalidate({ unitId, year, month });
-      utils.billing.listMonthlyUnit.invalidate({ unitId });
-    },
-    onError: (e) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
-  });
 
-  const years = useMemo(() => {
-    const y = now.getFullYear();
-    return [y - 1, y, y + 1];
-  }, []);
+  const { data: myResponsible } = trpc.billing.getMyResponsible.useQuery(undefined, { enabled: !loading && !!user });
+  const financialResponsibleId = myResponsible?.id ?? 0;
 
-  if (authLoading) return null;
-  if (!user || (user.role !== "unit_admin" && user.role !== "admin_master")) {
-    navigate("/");
-    return null;
-  }
+  const { data: responsibleSummary, isLoading: loadingSummary } = trpc.billing.getResponsibleSummary.useQuery(
+    { financialResponsibleId, year, month },
+    { enabled: financialResponsibleId > 0 }
+  );
+  const { data: reportItems = [], isLoading: loadingItems } = trpc.billing.getReportItems.useQuery(
+    { financialResponsibleId, year, month },
+    { enabled: financialResponsibleId > 0 }
+  );
+  const { data: allUnits = [] } = trpc.units.list.useQuery();
+  const yearOptions = useMemo(() => Array.from({ length: 5 }, (_, i) => now.getFullYear() - i), []);
 
-  const { monthly, items, doctors } = data ?? { monthly: null, items: [], doctors: [] };
+  if (loading) return <div className="flex items-center justify-center h-screen text-muted-foreground">Carregando...</div>;
+  if (!user || user.role !== "responsavel_financeiro") { navigate("/"); return null; }
+
+  const totalSystem = (responsibleSummary?.systemSummary as any[] | undefined)?.reduce((s, r) => s + parseFloat(r.amount_due ?? "0"), 0) ?? 0;
+  const totalDoctor = (responsibleSummary?.doctorSummary as any[] | undefined)?.reduce((s, r) => s + parseFloat(r.amount_due ?? "0"), 0) ?? 0;
+  const totalReports = (responsibleSummary?.systemSummary as any[] | undefined)?.reduce((s, r) => s + r.reports_count, 0) ?? 0;
+  const totalPending = (responsibleSummary?.systemSummary as any[] | undefined)?.reduce((s, r) => s + r.pending_items_count, 0) ?? 0;
 
   return (
-    <DashboardLayout>
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="border-b bg-card px-6 py-4 flex items-center gap-4">
+        <Button variant="ghost" size="icon" onClick={() => navigate("/")}><ChevronLeft className="h-5 w-5" /></Button>
+        <div>
+          <h1 className="text-xl font-semibold flex items-center gap-2"><DollarSign className="h-5 w-5 text-primary" />Financeiro</h1>
+          <p className="text-sm text-muted-foreground">{myResponsible?.trade_name || myResponsible?.legal_name || "Carregando..."}</p>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <Select value={String(month)} onValueChange={v => setMonth(Number(v))}>
+            <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+            <SelectContent>{MONTHS.map((m, i) => <SelectItem key={i+1} value={String(i+1)}>{m}</SelectItem>)}</SelectContent>
+          </Select>
+          <Select value={String(year)} onValueChange={v => setYear(Number(v))}>
+            <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+            <SelectContent>{yearOptions.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      </div>
+
       <div className="p-6 space-y-6">
-        {/* Cabeçalho */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Financeiro da Unidade</h1>
-            <p className="text-muted-foreground text-sm">Acompanhe o faturamento mensal</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
-              <SelectTrigger className="w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MONTHS.map((m, i) => (
-                  <SelectItem key={i + 1} value={String(i + 1)}>{m}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-              <SelectTrigger className="w-24">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {years.map((y) => (
-                  <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Laudos</p><p className="text-2xl font-bold">{loadingSummary ? "..." : totalReports}</p></CardContent></Card>
+          <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total Sistema</p><p className="text-2xl font-bold text-primary">{loadingSummary ? "..." : fmt(totalSystem)}</p></CardContent></Card>
+          <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total Médicos</p><p className="text-2xl font-bold text-blue-500">{loadingSummary ? "..." : fmt(totalDoctor)}</p></CardContent></Card>
+          <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Pendentes</p><p className="text-2xl font-bold text-destructive">{loadingSummary ? "..." : totalPending}</p></CardContent></Card>
         </div>
 
-        {/* KPIs */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <FileText className="h-4 w-4" /> Laudos no Período
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold">{monthly?.reports_count ?? 0}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <DollarSign className="h-4 w-4" /> Valor Total
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold text-green-600">{fmtCurrency(monthly?.system_total_due)}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <Users className="h-4 w-4" /> Status
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex items-center gap-3 pt-1">
-              {fmtStatus(monthly?.status)}
-              {(!monthly?.status || monthly.status === "open") && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => closeMutation.mutate({ unitId, year, month })}
-                  disabled={closeMutation.isPending}
-                >
-                  Fechar
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Tabs */}
-        <Tabs defaultValue="doctors">
+        <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
-            <TabsTrigger value="doctors">Por Médico</TabsTrigger>
-            <TabsTrigger value="items">Laudos</TabsTrigger>
-            <TabsTrigger value="history">Histórico</TabsTrigger>
+            <TabsTrigger value="overview"><Building2 className="h-4 w-4 mr-1" />Por Unidade</TabsTrigger>
+            <TabsTrigger value="items"><FileText className="h-4 w-4 mr-1" />Laudos</TabsTrigger>
+            <TabsTrigger value="doctors"><Users className="h-4 w-4 mr-1" />Por Médico</TabsTrigger>
           </TabsList>
 
-          {/* Aba: Por Médico */}
-          <TabsContent value="doctors">
-            <Card>
-              <CardContent className="pt-4">
-                {isLoading ? (
-                  <div className="text-center py-8 text-muted-foreground">Carregando...</div>
-                ) : !doctors || doctors.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    Nenhum laudo registrado neste período.
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Médico</TableHead>
-                        <TableHead className="text-right">Laudos</TableHead>
-                        <TableHead className="text-right">Valor</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Ações</TableHead>
+          <TabsContent value="overview" className="mt-4">
+            {!(responsibleSummary?.systemSummary as any[] | undefined)?.length ? (
+              <div className="text-center py-12 text-muted-foreground"><Building2 className="h-8 w-8 mx-auto mb-2 opacity-30" /><p>Nenhum dado para {MONTHS[month-1]}/{year}.</p></div>
+            ) : (
+              <Table>
+                <TableHeader><TableRow><TableHead>Unidade</TableHead><TableHead className="text-right">Laudos</TableHead><TableHead className="text-right">Sistema</TableHead><TableHead className="text-right">Médicos</TableHead><TableHead className="text-right">Pendentes</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {(responsibleSummary?.systemSummary as any[]).map((row) => {
+                    const unit = (allUnits as any[]).find((u) => u.id === row.unit_id);
+                    const docRow = (responsibleSummary?.doctorSummary as any[]).find((d: any) => d.unit_id === row.unit_id);
+                    return (
+                      <TableRow key={row.id}>
+                        <TableCell className="font-medium">{unit?.name || `Unidade ${row.unit_id}`}</TableCell>
+                        <TableCell className="text-right">{row.reports_count}</TableCell>
+                        <TableCell className="text-right text-primary font-medium">{fmt(row.amount_due)}</TableCell>
+                        <TableCell className="text-right text-blue-500 font-medium">{fmt(docRow?.amount_due)}</TableCell>
+                        <TableCell className="text-right">{row.pending_items_count > 0 ? <Badge variant="destructive">{row.pending_items_count}</Badge> : <Badge variant="outline" className="text-green-600">0</Badge>}</TableCell>
+                        <TableCell><Badge variant={row.status === "closed" ? "secondary" : "outline"}>{row.status === "closed" ? "Fechado" : "Aberto"}</Badge></TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {doctors.map((d: any) => (
-                        <TableRow key={d.id}>
-                          <TableCell className="font-medium">{d.doctor_user_id}</TableCell>
-                          <TableCell className="text-right">{d.total_reports}</TableCell>
-                          <TableCell className="text-right">{fmtCurrency(d.total_amount)}</TableCell>
-                          <TableCell>{fmtStatus(d.status)}</TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              title="Configurar preço"
-                              onClick={() => setPriceDoctor({ id: d.doctor_user_id, name: `Médico #${d.doctor_user_id}` })}
-                            >
-                              <Settings className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
           </TabsContent>
 
-          {/* Aba: Laudos */}
-          <TabsContent value="items">
-            <Card>
-              <CardContent className="pt-4">
-                {isLoading ? (
-                  <div className="text-center py-8 text-muted-foreground">Carregando...</div>
-                ) : !items || items.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    Nenhum laudo registrado neste período.
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Paciente</TableHead>
-                        <TableHead>Exame(s)</TableHead>
-                        <TableHead className="text-right">Valor</TableHead>
-                        <TableHead>Assinado em</TableHead>
+          <TabsContent value="items" className="mt-4">
+            {loadingItems ? <p className="text-center text-muted-foreground py-8">Carregando...</p>
+              : (reportItems as any[]).length === 0 ? <div className="text-center py-12 text-muted-foreground"><FileText className="h-8 w-8 mx-auto mb-2 opacity-30" /><p>Nenhum laudo apurado.</p></div>
+              : (
+                <Table>
+                  <TableHeader><TableRow><TableHead>Paciente</TableHead><TableHead>Médico</TableHead><TableHead>Assinado em</TableHead><TableHead className="text-right">Sistema</TableHead><TableHead className="text-right">Médico</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {(reportItems as any[]).map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>{item.patient_name || "\u2014"}</TableCell>
+                        <TableCell>{item.doctor_name || `ID ${item.doctor_user_id}`}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{item.report_signed_at ? new Date(item.report_signed_at).toLocaleDateString("pt-BR") : "\u2014"}</TableCell>
+                        <TableCell className="text-right text-primary">{fmt(item.system_amount_due)}</TableCell>
+                        <TableCell className="text-right text-blue-500">{fmt(item.doctor_amount_due)}</TableCell>
+                        <TableCell><Badge variant={item.pricing_status === "ok" ? "outline" : "destructive"} className="text-xs">{item.pricing_status === "ok" ? "OK" : item.pricing_status.replace("pending_","").replace("_"," ")}</Badge></TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {items.map((item: any) => (
-                        <TableRow key={item.id}>
-                          <TableCell>{item.patient_name ?? "—"}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{item.exam_names ?? "—"}</TableCell>
-                          <TableCell className="text-right">{fmtCurrency(item.price_charged)}</TableCell>
-                          <TableCell className="text-xs">
-                            {item.signed_at ? new Date(item.signed_at).toLocaleDateString("pt-BR") : "—"}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
           </TabsContent>
 
-          {/* Aba: Histórico */}
-          <TabsContent value="history">
-            <Card>
-              <CardContent className="pt-4">
-                {!history || history.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">Nenhum histórico.</div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Competência</TableHead>
-                        <TableHead className="text-right">Laudos</TableHead>
-                        <TableHead className="text-right">Valor</TableHead>
-                        <TableHead>Status</TableHead>
+          <TabsContent value="doctors" className="mt-4">
+            {!(responsibleSummary?.doctorSummary as any[] | undefined)?.length ? (
+              <div className="text-center py-12 text-muted-foreground"><Users className="h-8 w-8 mx-auto mb-2 opacity-30" /><p>Nenhum dado de médico.</p></div>
+            ) : (
+              <Table>
+                <TableHeader><TableRow><TableHead>Médico</TableHead><TableHead>Unidade</TableHead><TableHead className="text-right">Laudos</TableHead><TableHead className="text-right">Valor</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {(responsibleSummary?.doctorSummary as any[]).map((row) => {
+                    const unit = (allUnits as any[]).find((u) => u.id === row.unit_id);
+                    return (
+                      <TableRow key={row.id}>
+                        <TableCell className="font-medium">{row.doctor_name || `ID ${row.doctor_user_id}`}</TableCell>
+                        <TableCell>{unit?.name || `Unidade ${row.unit_id}`}</TableCell>
+                        <TableCell className="text-right">{row.reports_count}</TableCell>
+                        <TableCell className="text-right text-blue-500 font-medium">{fmt(row.amount_due)}</TableCell>
+                        <TableCell><Badge variant={row.status === "closed" ? "secondary" : "outline"}>{row.status === "closed" ? "Fechado" : "Aberto"}</Badge></TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {history.map((h: any) => (
-                        <TableRow
-                          key={h.id}
-                          className="cursor-pointer hover:bg-muted/50"
-                          onClick={() => {
-                            setYear(h.competence_year);
-                            setMonth(h.competence_month);
-                          }}
-                        >
-                          <TableCell>
-                            {MONTHS[h.competence_month - 1]} / {h.competence_year}
-                          </TableCell>
-                          <TableCell className="text-right">{h.total_reports}</TableCell>
-                          <TableCell className="text-right">{fmtCurrency(h.total_amount)}</TableCell>
-                          <TableCell>{fmtStatus(h.status)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
           </TabsContent>
         </Tabs>
-
-        {/* Modal de preço por médico */}
-        <Dialog open={!!priceDoctor} onOpenChange={(open) => !open && setPriceDoctor(null)}>
-          {priceDoctor && (
-            <SetDoctorPriceModal
-              unitId={unitId}
-              doctorUserId={priceDoctor.id}
-              doctorName={priceDoctor.name}
-              onClose={() => setPriceDoctor(null)}
-            />
-          )}
-        </Dialog>
       </div>
-    </DashboardLayout>
+    </div>
   );
 }

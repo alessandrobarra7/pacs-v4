@@ -3,7 +3,7 @@
  * Sistema de 5 perfis conforme guia LAUDS
  */
 
-export type UserRole = 'admin_master' | 'unit_admin' | 'medico' | 'viewer' | 'operador';
+export type UserRole = 'admin_master' | 'unit_admin' | 'medico' | 'viewer' | 'operador' | 'responsavel_financeiro';
 
 export interface PermissionCheck {
   role: UserRole;
@@ -177,6 +177,22 @@ export const PERMISSIONS_MATRIX = {
     createReport: false,
     signReport: false,
     printReport: true,
+    fillAnamnesis: false,
+    managePresets: false,
+    manageUnits: false,
+    manageUsers: false,
+    manageTemplates: false,
+    viewAudit: false,
+    configurePACS: false,
+    queryPACS: false,
+    accessAllUnits: false,
+  },
+  responsavel_financeiro: {
+    viewStudies: false,
+    openViewer: false,
+    createReport: false,
+    signReport: false,
+    printReport: false,
     fillAnamnesis: false,
     managePresets: false,
     manageUnits: false,

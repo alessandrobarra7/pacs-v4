@@ -42,7 +42,7 @@ export const users = mysqlTable("users", {
   username: varchar("username", { length: 64 }).unique(),
   password_hash: varchar("password_hash", { length: 255 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["admin_master", "unit_admin", "medico", "viewer", "operador"]).default("viewer").notNull(),
+  role: mysqlEnum("role", ["admin_master", "unit_admin", "medico", "viewer", "operador", "responsavel_financeiro"]).default("viewer").notNull(),
   isActive: boolean("isActive").default(true).notNull(),
   expiration_date: date("expiration_date"),
   crm: varchar("crm", { length: 50 }),
@@ -333,103 +333,167 @@ export const report_versions = mysqlTable("report_versions", {
 export type ReportVersion = typeof report_versions.$inferSelect;
 export type InsertReportVersion = typeof report_versions.$inferInsert;
 
+
 // ============================================================
-// MÓDULO FINANCEIRO — Etapa 1
+// MÓDULO FINANCEIRO V2 — Modelagem correta com responsável pelo gasto
 // ============================================================
 
 /**
- * billing_unit_prices — Valor cobrado pela plataforma de cada unidade por laudo
- * Definido pelo admin_master. Vigência por starts_at/ends_at.
+ * financial_responsibles — Entidade pagadora central (PF ou PJ)
+ * Independente de users. Um responsável pode ter várias unidades.
  */
-export const billing_unit_prices = mysqlTable("billing_unit_prices", {
+export const financial_responsibles = mysqlTable("financial_responsibles", {
   id: int("id").autoincrement().primaryKey(),
+  person_type: mysqlEnum("person_type", ["PF", "PJ"]).notNull().default("PJ"),
+  legal_name: varchar("legal_name", { length: 255 }).notNull(),
+  trade_name: varchar("trade_name", { length: 255 }),
+  cpf_cnpj: varchar("cpf_cnpj", { length: 18 }).unique(),
+  email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 30 }),
+  notes: text("notes"),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type FinancialResponsible = typeof financial_responsibles.$inferSelect;
+export type InsertFinancialResponsible = typeof financial_responsibles.$inferInsert;
+
+/**
+ * financial_responsible_users — Vincula usuários ao responsável financeiro
+ * Permite que múltiplos logins consultem o painel do mesmo responsável.
+ */
+export const financial_responsible_users = mysqlTable("financial_responsible_users", {
+  id: int("id").autoincrement().primaryKey(),
+  financial_responsible_id: int("financial_responsible_id").notNull(),
+  user_id: int("user_id").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uq_resp_user: uniqueIndex("uq_resp_user").on(t.financial_responsible_id, t.user_id),
+}));
+export type FinancialResponsibleUser = typeof financial_responsible_users.$inferSelect;
+export type InsertFinancialResponsibleUser = typeof financial_responsible_users.$inferInsert;
+
+/**
+ * financial_responsible_units — Vincula unidades ao responsável com histórico de vigência
+ * Uma unidade tem apenas um responsável ativo por vez.
+ */
+export const financial_responsible_units = mysqlTable("financial_responsible_units", {
+  id: int("id").autoincrement().primaryKey(),
+  financial_responsible_id: int("financial_responsible_id").notNull(),
+  unit_id: int("unit_id").notNull(),
+  starts_at: timestamp("starts_at").notNull(),
+  ends_at: timestamp("ends_at"),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type FinancialResponsibleUnit = typeof financial_responsible_units.$inferSelect;
+export type InsertFinancialResponsibleUnit = typeof financial_responsible_units.$inferInsert;
+
+/**
+ * billing_system_unit_prices — Preço cobrado pelo sistema por unidade com vigência
+ * Configurado pelo admin_master. Não pode haver sobreposição de vigência.
+ */
+export const billing_system_unit_prices = mysqlTable("billing_system_unit_prices", {
+  id: int("id").autoincrement().primaryKey(),
+  financial_responsible_id: int("financial_responsible_id").notNull(),
   unit_id: int("unit_id").notNull(),
   price_per_report: decimal("price_per_report", { precision: 10, scale: 2 }).notNull(),
-  starts_at: int("starts_at").notNull(),   // timestamp UTC ms
-  ends_at: int("ends_at"),                 // NULL = vigência aberta
+  starts_at: timestamp("starts_at").notNull(),
+  ends_at: timestamp("ends_at"),
   created_by: int("created_by").notNull(),
-  created_at: int("created_at").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
-export type BillingUnitPrice = typeof billing_unit_prices.$inferSelect;
-export type InsertBillingUnitPrice = typeof billing_unit_prices.$inferInsert;
+export type BillingSystemUnitPrice = typeof billing_system_unit_prices.$inferSelect;
+export type InsertBillingSystemUnitPrice = typeof billing_system_unit_prices.$inferInsert;
 
 /**
- * billing_doctor_prices — Valor pago pela unidade a cada médico por laudo
- * Definido pelo unit_admin. Vigência por unit_id + doctor_user_id.
+ * billing_doctor_unit_prices — Preço do médico por responsável + unidade + médico com vigência
+ * Configurado pelo admin_master. Mesmo médico pode ter valores diferentes por unidade.
  */
-export const billing_doctor_prices = mysqlTable("billing_doctor_prices", {
+export const billing_doctor_unit_prices = mysqlTable("billing_doctor_unit_prices", {
   id: int("id").autoincrement().primaryKey(),
+  financial_responsible_id: int("financial_responsible_id").notNull(),
   unit_id: int("unit_id").notNull(),
   doctor_user_id: int("doctor_user_id").notNull(),
   price_per_report: decimal("price_per_report", { precision: 10, scale: 2 }).notNull(),
-  starts_at: int("starts_at").notNull(),
-  ends_at: int("ends_at"),
+  starts_at: timestamp("starts_at").notNull(),
+  ends_at: timestamp("ends_at"),
   created_by: int("created_by").notNull(),
-  created_at: int("created_at").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
-export type BillingDoctorPrice = typeof billing_doctor_prices.$inferSelect;
-export type InsertBillingDoctorPrice = typeof billing_doctor_prices.$inferInsert;
-
-/**
- * billing_monthly_unit — Consolidado mensal: quanto a unidade deve ao sistema
- */
-export const billing_monthly_unit = mysqlTable("billing_monthly_unit", {
-  id: int("id").autoincrement().primaryKey(),
-  unit_id: int("unit_id").notNull(),
-  competence_year: int("competence_year").notNull(),
-  competence_month: int("competence_month").notNull(),
-  reports_count: int("reports_count").notNull().default(0),
-  unit_price_applied: decimal("unit_price_applied", { precision: 10, scale: 2 }),
-  system_total_due: decimal("system_total_due", { precision: 10, scale: 2 }),
-  status: mysqlEnum("status", ["open", "closed"]).notNull().default("open"),
-  generated_at: int("generated_at").notNull(),
-  closed_at: int("closed_at"),
-  closed_by: int("closed_by"),
-}, (t) => ({
-  uq_unit_competence: uniqueIndex("uq_unit_competence").on(t.unit_id, t.competence_year, t.competence_month),
-}));
-export type BillingMonthlyUnit = typeof billing_monthly_unit.$inferSelect;
-export type InsertBillingMonthlyUnit = typeof billing_monthly_unit.$inferInsert;
-
-/**
- * billing_monthly_doctor — Consolidado mensal: quanto a unidade deve a cada médico
- */
-export const billing_monthly_doctor = mysqlTable("billing_monthly_doctor", {
-  id: int("id").autoincrement().primaryKey(),
-  unit_id: int("unit_id").notNull(),
-  doctor_user_id: int("doctor_user_id").notNull(),
-  competence_year: int("competence_year").notNull(),
-  competence_month: int("competence_month").notNull(),
-  reports_count: int("reports_count").notNull().default(0),
-  doctor_price_applied: decimal("doctor_price_applied", { precision: 10, scale: 2 }),
-  doctor_total_due: decimal("doctor_total_due", { precision: 10, scale: 2 }),
-  status: mysqlEnum("status", ["open", "closed"]).notNull().default("open"),
-  generated_at: int("generated_at").notNull(),
-  closed_at: int("closed_at"),
-  closed_by: int("closed_by"),
-}, (t) => ({
-  uq_doctor_unit_competence: uniqueIndex("uq_doctor_unit_competence").on(t.unit_id, t.doctor_user_id, t.competence_year, t.competence_month),
-}));
-export type BillingMonthlyDoctor = typeof billing_monthly_doctor.$inferSelect;
-export type InsertBillingMonthlyDoctor = typeof billing_monthly_doctor.$inferInsert;
+export type BillingDoctorUnitPrice = typeof billing_doctor_unit_prices.$inferSelect;
+export type InsertBillingDoctorUnitPrice = typeof billing_doctor_unit_prices.$inferInsert;
 
 /**
  * billing_report_items — Itemização auditável: um registro por laudo faturável
- * Garante rastreabilidade completa até o laudo individual.
+ * Fato gerador: reports com status signed ou revised.
+ * Médico financeiro: signedBy ?? author_user_id.
  */
 export const billing_report_items = mysqlTable("billing_report_items", {
   id: int("id").autoincrement().primaryKey(),
   report_id: int("report_id").notNull(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }),
+  financial_responsible_id: int("financial_responsible_id"),
   unit_id: int("unit_id").notNull(),
   doctor_user_id: int("doctor_user_id").notNull(),
   competence_year: int("competence_year").notNull(),
   competence_month: int("competence_month").notNull(),
+  report_status_snapshot: mysqlEnum("report_status_snapshot", ["signed", "revised"]).notNull(),
+  report_signed_at: timestamp("report_signed_at").notNull(),
   system_price_applied: decimal("system_price_applied", { precision: 10, scale: 2 }),
   doctor_price_applied: decimal("doctor_price_applied", { precision: 10, scale: 2 }),
-  report_signed_at: int("report_signed_at").notNull(),
-  created_at: int("created_at").notNull(),
+  system_amount_due: decimal("system_amount_due", { precision: 10, scale: 2 }),
+  doctor_amount_due: decimal("doctor_amount_due", { precision: 10, scale: 2 }),
+  pricing_status: mysqlEnum("pricing_status", ["ok", "pending_system_price", "pending_doctor_price", "pending_both"]).notNull().default("pending_both"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({
   uq_report_item: uniqueIndex("uq_report_item").on(t.report_id),
 }));
 export type BillingReportItem = typeof billing_report_items.$inferSelect;
 export type InsertBillingReportItem = typeof billing_report_items.$inferInsert;
+
+/**
+ * billing_monthly_system_by_unit — Consolidado mensal: responsável deve ao sistema por unidade
+ */
+export const billing_monthly_system_by_unit = mysqlTable("billing_monthly_system_by_unit", {
+  id: int("id").autoincrement().primaryKey(),
+  financial_responsible_id: int("financial_responsible_id").notNull(),
+  unit_id: int("unit_id").notNull(),
+  competence_year: int("competence_year").notNull(),
+  competence_month: int("competence_month").notNull(),
+  reports_count: int("reports_count").notNull().default(0),
+  amount_due: decimal("amount_due", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  pending_items_count: int("pending_items_count").notNull().default(0),
+  status: mysqlEnum("status", ["open", "closed"]).notNull().default("open"),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  closedAt: timestamp("closedAt"),
+  closedBy: int("closedBy"),
+}, (t) => ({
+  uq_sys_resp_unit_comp: uniqueIndex("uq_sys_resp_unit_comp").on(t.financial_responsible_id, t.unit_id, t.competence_year, t.competence_month),
+}));
+export type BillingMonthlySystemByUnit = typeof billing_monthly_system_by_unit.$inferSelect;
+export type InsertBillingMonthlySystemByUnit = typeof billing_monthly_system_by_unit.$inferInsert;
+
+/**
+ * billing_monthly_doctor_by_unit — Consolidado mensal: responsável deve ao médico por unidade
+ */
+export const billing_monthly_doctor_by_unit = mysqlTable("billing_monthly_doctor_by_unit", {
+  id: int("id").autoincrement().primaryKey(),
+  financial_responsible_id: int("financial_responsible_id").notNull(),
+  unit_id: int("unit_id").notNull(),
+  doctor_user_id: int("doctor_user_id").notNull(),
+  competence_year: int("competence_year").notNull(),
+  competence_month: int("competence_month").notNull(),
+  reports_count: int("reports_count").notNull().default(0),
+  amount_due: decimal("amount_due", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  pending_items_count: int("pending_items_count").notNull().default(0),
+  status: mysqlEnum("status", ["open", "closed"]).notNull().default("open"),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  closedAt: timestamp("closedAt"),
+  closedBy: int("closedBy"),
+}, (t) => ({
+  uq_doc_resp_unit_comp: uniqueIndex("uq_doc_resp_unit_comp").on(t.financial_responsible_id, t.unit_id, t.doctor_user_id, t.competence_year, t.competence_month),
+}));
+export type BillingMonthlyDoctorByUnit = typeof billing_monthly_doctor_by_unit.$inferSelect;
+export type InsertBillingMonthlyDoctorByUnit = typeof billing_monthly_doctor_by_unit.$inferInsert;

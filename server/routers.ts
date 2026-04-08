@@ -125,7 +125,7 @@ export const appRouter = router({
         email: z.string().email().optional(),
         name: z.string().min(1),
         password: z.string().min(6),
-        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador']),
+        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador', 'responsavel_financeiro']),
         unit_id: z.number().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -1449,7 +1449,7 @@ export const appRouter = router({
         id: z.number(),
         name: z.string().min(1).max(255).optional(),
         email: z.string().optional().nullable(),
-        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador']).optional(),
+        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador', 'responsavel_financeiro']).optional(),
         unit_id: z.number().optional().nullable(),
         isActive: z.boolean().optional(),
         expiration_date: z.string().optional().nullable(),
@@ -1893,142 +1893,297 @@ export const appRouter = router({
       }),
   }),
 
-  // ─── Billing ──────────────────────────────────────────────────────────────
+  // ─── Billing V2 ────────────────────────────────────────────────────────────
+  // Modelagem correta: responsável financeiro como entidade pagadora central.
   billing: router({
 
-    // --- Preços da plataforma (admin_master) ---
-    setUnitPrice: protectedProcedure
+    // ── Responsáveis Financeiros ──────────────────────────────────────────────
+    listResponsibles: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { listFinancialResponsibles } = await import('./db');
+        return await listFinancialResponsibles();
+      }),
+
+    getResponsible: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') {
+          const { getResponsibleIdForUser } = await import('./db');
+          const respId = await getResponsibleIdForUser(ctx.user.id);
+          if (respId !== input.id) throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { getFinancialResponsibleById } = await import('./db');
+        return await getFinancialResponsibleById(input.id);
+      }),
+
+    createResponsible: protectedProcedure
       .input(z.object({
-        unitId: z.number(),
-        pricePerReport: z.string().regex(/^\d+(\.\d{1,2})?$/),
-        startsAt: z.number(),
+        person_type: z.enum(['PF', 'PJ']),
+        legal_name: z.string().min(2),
+        trade_name: z.string().optional(),
+        cpf_cnpj: z.string().optional(),
+        email: z.string().email().optional(),
+        phone: z.string().optional(),
+        notes: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { upsertUnitPrice } = await import('./db');
-        const id = await upsertUnitPrice({
+        const { createFinancialResponsible } = await import('./db');
+        const id = await createFinancialResponsible({ ...input, isActive: true });
+        return { id };
+      }),
+
+    updateResponsible: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        legal_name: z.string().min(2).optional(),
+        trade_name: z.string().optional(),
+        cpf_cnpj: z.string().optional(),
+        email: z.string().email().optional(),
+        phone: z.string().optional(),
+        notes: z.string().optional(),
+        isActive: z.boolean().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { id, ...data } = input;
+        const { updateFinancialResponsible } = await import('./db');
+        await updateFinancialResponsible(id, data);
+        return { success: true };
+      }),
+
+    // ── Vínculos Usuário → Responsável ────────────────────────────────────────
+    linkUser: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number(), userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { linkUserToResponsible } = await import('./db');
+        await linkUserToResponsible(input.financialResponsibleId, input.userId);
+        return { success: true };
+      }),
+
+    unlinkUser: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number(), userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { unlinkUserFromResponsible } = await import('./db');
+        await unlinkUserFromResponsible(input.financialResponsibleId, input.userId);
+        return { success: true };
+      }),
+
+    listUsersForResponsible: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { listUsersForResponsible } = await import('./db');
+        return await listUsersForResponsible(input.financialResponsibleId);
+      }),
+
+    // ── Vínculos Unidade → Responsável ────────────────────────────────────────
+    linkUnit: protectedProcedure
+      .input(z.object({
+        financialResponsibleId: z.number(),
+        unitId: z.number(),
+        startsAt: z.string(),
+        endsAt: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { linkUnitToResponsible } = await import('./db');
+        await linkUnitToResponsible(
+          input.financialResponsibleId,
+          input.unitId,
+          new Date(input.startsAt),
+          input.endsAt ? new Date(input.endsAt) : undefined,
+          ctx.user.id,
+        );
+        return { success: true };
+      }),
+
+    listUnitsForResponsible: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') {
+          const { getResponsibleIdForUser } = await import('./db');
+          const respId = await getResponsibleIdForUser(ctx.user.id);
+          if (respId !== input.financialResponsibleId) throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { listUnitsForResponsible } = await import('./db');
+        return await listUnitsForResponsible(input.financialResponsibleId);
+      }),
+
+    // ── Preços do Sistema ──────────────────────────────────────────────────────
+    setSystemPrice: protectedProcedure
+      .input(z.object({
+        financialResponsibleId: z.number(),
+        unitId: z.number(),
+        pricePerReport: z.string(),
+        startsAt: z.string(),
+        endsAt: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { upsertSystemUnitPrice } = await import('./db');
+        const id = await upsertSystemUnitPrice({
+          financial_responsible_id: input.financialResponsibleId,
           unit_id: input.unitId,
-          price_per_report: input.pricePerReport as any,
-          starts_at: input.startsAt,
+          price_per_report: input.pricePerReport,
+          starts_at: new Date(input.startsAt),
+          ends_at: input.endsAt ? new Date(input.endsAt) : null,
           created_by: ctx.user.id,
-          created_at: Date.now(),
         });
         return { id };
       }),
 
-    listUnitPrices: protectedProcedure
-      .input(z.object({ unitId: z.number() }))
+    listSystemPrices: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number(), unitId: z.number() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master' && ctx.user.unit_id !== input.unitId) throw new TRPCError({ code: 'FORBIDDEN' });
-        const { listUnitPrices } = await import('./db');
-        return await listUnitPrices(input.unitId);
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { listSystemPricesForUnit } = await import('./db');
+        return await listSystemPricesForUnit(input.financialResponsibleId, input.unitId);
       }),
 
-    // --- Preços médico (unit_admin) ---
+    // ── Preços do Médico ───────────────────────────────────────────────────────
     setDoctorPrice: protectedProcedure
       .input(z.object({
+        financialResponsibleId: z.number(),
         unitId: z.number(),
         doctorUserId: z.number(),
-        pricePerReport: z.string().regex(/^\d+(\.\d{1,2})?$/),
-        startsAt: z.number(),
+        pricePerReport: z.string(),
+        startsAt: z.string(),
+        endsAt: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master' && (ctx.user.role !== 'unit_admin' || ctx.user.unit_id !== input.unitId)) {
-          throw new TRPCError({ code: 'FORBIDDEN' });
-        }
-        const { upsertDoctorPrice } = await import('./db');
-        const id = await upsertDoctorPrice({
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { upsertDoctorUnitPrice } = await import('./db');
+        const id = await upsertDoctorUnitPrice({
+          financial_responsible_id: input.financialResponsibleId,
           unit_id: input.unitId,
           doctor_user_id: input.doctorUserId,
-          price_per_report: input.pricePerReport as any,
-          starts_at: input.startsAt,
+          price_per_report: input.pricePerReport,
+          starts_at: new Date(input.startsAt),
+          ends_at: input.endsAt ? new Date(input.endsAt) : null,
           created_by: ctx.user.id,
-          created_at: Date.now(),
         });
         return { id };
       }),
 
     listDoctorPrices: protectedProcedure
-      .input(z.object({ unitId: z.number(), doctorUserId: z.number().optional() }))
+      .input(z.object({ financialResponsibleId: z.number(), unitId: z.number() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master' && ctx.user.unit_id !== input.unitId && ctx.user.id !== input.doctorUserId) {
-          throw new TRPCError({ code: 'FORBIDDEN' });
-        }
-        const { listDoctorPrices } = await import('./db');
-        return await listDoctorPrices(input.unitId, input.doctorUserId);
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { listDoctorPricesForUnit } = await import('./db');
+        return await listDoctorPricesForUnit(input.financialResponsibleId, input.unitId);
       }),
 
-    // --- Consolidado mensal da unidade ---
-    getMonthlyUnit: protectedProcedure
-      .input(z.object({ unitId: z.number(), year: z.number(), month: z.number() }))
-      .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master' && ctx.user.unit_id !== input.unitId) throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getOrCreateMonthlyUnit, listBillingItems, listMonthlyDoctorsByUnit } = await import('./db');
-        const monthly = await getOrCreateMonthlyUnit(input.unitId, input.year, input.month);
-        const items = await listBillingItems(input.unitId, input.year, input.month);
-        const doctors = await listMonthlyDoctorsByUnit(input.unitId, input.year, input.month);
-        return { monthly, items, doctors };
-      }),
-
-    listMonthlyUnit: protectedProcedure
-      .input(z.object({ unitId: z.number() }))
-      .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master' && ctx.user.unit_id !== input.unitId) throw new TRPCError({ code: 'FORBIDDEN' });
-        const { listMonthlyUnit } = await import('./db');
-        return await listMonthlyUnit(input.unitId);
-      }),
-
-    closeMonthlyUnit: protectedProcedure
-      .input(z.object({ unitId: z.number(), year: z.number(), month: z.number() }))
+    // ── Apuração de Competência ────────────────────────────────────────────────
+    calculateCompetence: protectedProcedure
+      .input(z.object({ year: z.number(), month: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master' && (ctx.user.role !== 'unit_admin' || ctx.user.unit_id !== input.unitId)) {
-          throw new TRPCError({ code: 'FORBIDDEN' });
-        }
-        const { closeMonthlyUnit } = await import('./db');
-        await closeMonthlyUnit(input.unitId, input.year, input.month, ctx.user.id);
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { calculateCompetence } = await import('./db');
+        return await calculateCompetence(input.year, input.month, ctx.user.id);
+      }),
+
+    closeCompetence: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number(), year: z.number(), month: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { closeCompetence } = await import('./db');
+        return await closeCompetence(input.financialResponsibleId, input.year, input.month, ctx.user.id);
+      }),
+
+    reopenCompetence: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number(), year: z.number(), month: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { reopenCompetence } = await import('./db');
+        await reopenCompetence(input.financialResponsibleId, input.year, input.month);
         return { success: true };
       }),
 
-    // --- Consolidado mensal do médico ---
-    getMonthlyDoctor: protectedProcedure
-      .input(z.object({ unitId: z.number(), doctorUserId: z.number(), year: z.number(), month: z.number() }))
+    // ── Consultas de Itens e Consolidados ─────────────────────────────────────
+    getReportItems: protectedProcedure
+      .input(z.object({
+        financialResponsibleId: z.number().optional(),
+        unitId: z.number().optional(),
+        doctorUserId: z.number().optional(),
+        year: z.number(),
+        month: z.number(),
+      }))
       .query(async ({ input, ctx }) => {
-        const isOwn = ctx.user.id === input.doctorUserId;
-        const isAdmin = ctx.user.role === 'admin_master' || (ctx.user.role === 'unit_admin' && ctx.user.unit_id === input.unitId);
-        if (!isOwn && !isAdmin) throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getOrCreateMonthlyDoctor } = await import('./db');
-        return await getOrCreateMonthlyDoctor(input.unitId, input.doctorUserId, input.year, input.month);
+        // admin_master: vê tudo
+        // responsavel_financeiro: só seu próprio
+        // medico: só seus próprios laudos
+        if (ctx.user.role === 'responsavel_financeiro') {
+          const { getResponsibleIdForUser } = await import('./db');
+          const respId = await getResponsibleIdForUser(ctx.user.id);
+          if (!respId || (input.financialResponsibleId && respId !== input.financialResponsibleId)) {
+            throw new TRPCError({ code: 'FORBIDDEN' });
+          }
+          input.financialResponsibleId = respId;
+        } else if (ctx.user.role === 'medico') {
+          if (input.doctorUserId && input.doctorUserId !== ctx.user.id) {
+            throw new TRPCError({ code: 'FORBIDDEN' });
+          }
+          input.doctorUserId = ctx.user.id;
+        } else if (ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { listBillingReportItems } = await import('./db');
+        return await listBillingReportItems({
+          financial_responsible_id: input.financialResponsibleId,
+          unit_id: input.unitId,
+          doctor_user_id: input.doctorUserId,
+          competence_year: input.year,
+          competence_month: input.month,
+        });
       }),
 
-    listMonthlyDoctor: protectedProcedure
-      .input(z.object({ unitId: z.number(), doctorUserId: z.number() }))
-      .query(async ({ input, ctx }) => {
-        const isOwn = ctx.user.id === input.doctorUserId;
-        const isAdmin = ctx.user.role === 'admin_master' || (ctx.user.role === 'unit_admin' && ctx.user.unit_id === input.unitId);
-        if (!isOwn && !isAdmin) throw new TRPCError({ code: 'FORBIDDEN' });
-        const { listMonthlyDoctor } = await import('./db');
-        return await listMonthlyDoctor(input.unitId, input.doctorUserId);
-      }),
-
-    // --- Painel admin_master: todas as unidades ---
-    listAllUnitsMonthly: protectedProcedure
+    getAdminSummary: protectedProcedure
       .input(z.object({ year: z.number(), month: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getAllUnits } = await import('./db');
-        const { billing_monthly_unit } = await import('../drizzle/schema');
-        const { eq, and } = await import('drizzle-orm');
-        const db = await getDb();
-        if (!db) return [];
-        const allUnits = await getAllUnits();
-        const monthlyRows = await db
-          .select()
-          .from(billing_monthly_unit)
-          .where(and(eq(billing_monthly_unit.competence_year, input.year), eq(billing_monthly_unit.competence_month, input.month)));
-        return allUnits.map(unit => ({
-          unit,
-          monthly: monthlyRows.find(r => r.unit_id === unit.id) ?? null,
-        }));
+        const { getAdminConsolidated } = await import('./db');
+        return await getAdminConsolidated(input.year, input.month);
+      }),
+
+    getResponsibleSummary: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number(), year: z.number(), month: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') {
+          const { getResponsibleIdForUser } = await import('./db');
+          const respId = await getResponsibleIdForUser(ctx.user.id);
+          if (respId !== input.financialResponsibleId) throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { getMonthlySystemSummary, getMonthlyDoctorSummary } = await import('./db');
+        const [systemSummary, doctorSummary] = await Promise.all([
+          getMonthlySystemSummary(input.financialResponsibleId, input.year, input.month),
+          getMonthlyDoctorSummary(input.financialResponsibleId, input.year, input.month),
+        ]);
+        return { systemSummary, doctorSummary };
+      }),
+
+    getDoctorSummary: protectedProcedure
+      .input(z.object({ year: z.number(), month: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { getDoctorMonthlySummary, listBillingReportItems } = await import('./db');
+        const [byResponsible, items] = await Promise.all([
+          getDoctorMonthlySummary(ctx.user.id, input.year, input.month),
+          listBillingReportItems({ doctor_user_id: ctx.user.id, competence_year: input.year, competence_month: input.month }),
+        ]);
+        return { byResponsible, items };
+      }),
+    getMyResponsible: protectedProcedure
+      .query(async ({ ctx }) => {
+        const { getResponsibleIdForUser, getFinancialResponsibleById } = await import('./db');
+        const respId = await getResponsibleIdForUser(ctx.user.id);
+        if (!respId) return null;
+        return await getFinancialResponsibleById(respId) ?? null;
       }),
   }),
 });
