@@ -791,13 +791,13 @@
 
 ## CORREÇÕES LÓGICA FINANCEIRA V4 (LOGICA_FINANCEIRA_CORRIGIDA_PACS_V4.txt)
 
-- [ ] Corrigir getActiveResponsibleForUnit: starts_at <= data, ends_at IS NULL OU ends_at >= data, orderBy starts_at DESC
-- [ ] Corrigir getActiveSystemPrice: mesma regra de vigência ativa
-- [ ] Corrigir getActiveDoctorPrice: mesma regra de vigência ativa
-- [ ] Adicionar validação de sobreposição em linkUnitToResponsible (fechar vigência anterior automaticamente)
-- [ ] Adicionar validação de sobreposição em upsertSystemUnitPrice
-- [ ] Adicionar validação de sobreposição em upsertDoctorUnitPrice
-- [ ] Proteger calculateCompetence: não recalcular competência fechada
-- [ ] Proteger recalculateMonthlyConsolidates: não atualizar consolidado fechado
-- [ ] Corrigir BillingUnitPage: coluna Médicos deve somar todos os doctorSummary da mesma unit_id
-- [ ] Melhorar retorno do getResponsibleSummary: total_system_overall, total_doctor_overall, total_reports_overall, system_by_unit[], doctor_by_unit[], doctor_by_unit_and_doctor[]
+- [x] Corrigir getActiveResponsibleForUnit: starts_at <= data, ends_at IS NULL OU ends_at >= data, orderBy starts_at DESC
+- [x] Corrigir getActiveSystemPrice: mesma regra de vigência ativa
+- [x] Corrigir getActiveDoctorPrice: mesma regra de vigência ativa
+- [x] Adicionar validação de sobreposição em linkUnitToResponsible (fechar vigência anterior automaticamente)
+- [x] Adicionar validação de sobreposição em upsertSystemUnitPrice
+- [x] Adicionar validação de sobreposição em upsertDoctorUnitPrice
+- [x] Proteger calculateCompetence: não recalcular competência fechada
+- [x] Proteger recalculateMonthlyConsolidates: não atualizar consolidado fechado
+- [x] Corrigir BillingUnitPage: coluna Médicos deve somar todos os doctorSummary da mesma unit_id
+- [x] Melhorar retorno do getResponsibleSummary: total_system_overall, total_doctor_overall, total_reports_overall, system_by_unit[], doctor_by_unit[], doctor_by_unit_and_doctor[]
