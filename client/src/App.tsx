@@ -19,10 +19,18 @@ import BillingAdminPage from "./pages/BillingAdminPage";
 import BillingUnitPage from "./pages/BillingUnitPage";
 import BillingDoctorPage from "./pages/BillingDoctorPage";
 import { useLocation } from "wouter";
+import { useEffect } from "react";
 
 function ProtectedRoute({ component: Component, ...rest }: any) {
   const { isAuthenticated, loading } = useAuth();
   const [, setLocation] = useLocation();
+
+  // Bug fix: nunca chamar setLocation durante o render — usar useEffect
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      setLocation("/login");
+    }
+  }, [loading, isAuthenticated, setLocation]);
 
   if (loading) {
     return (
@@ -36,7 +44,7 @@ function ProtectedRoute({ component: Component, ...rest }: any) {
   }
 
   if (!isAuthenticated) {
-    setLocation("/login");
+    // Retorna null enquanto o useEffect acima executa o redirect
     return null;
   }
 

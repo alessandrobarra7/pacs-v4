@@ -892,3 +892,7 @@
 - [x] Investigar por que o logout não redireciona para a tela de login
 - [x] Corrigir fluxo: após logout, limpar sessão/cookie e redirecionar para /login
 - [x] Garantir que ao acessar / sem sessão válida, o usuário seja redirecionado para /login
+
+## BUG — ProtectedRoute setState durante render
+
+- [x] Corrigir ProtectedRoute no App.tsx: mover setLocation para useEffect (proibido chamar setState durante render)
