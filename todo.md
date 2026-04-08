@@ -856,6 +856,6 @@
 
 ## CORREÇÕES TELA DE ADMINISTRAÇÃO
 
-- [ ] Adicionar responsavel_financeiro ao seletor de Perfil no formulário de usuário
-- [ ] Corrigir coluna Unidade na lista de usuários para mostrar unidades vinculadas
-- [ ] Verificar e corrigir botão > de permissões por unidade no formulário de edição
+- [x] Adicionar responsavel_financeiro ao seletor de Perfil no formulário de usuário
+- [x] Corrigir coluna Unidade na lista de usuários para mostrar unidades vinculadas (linked_units via permissões)
+- [x] Verificar botão > de permissões por unidade no formulário de edição (já funciona corretamente)
