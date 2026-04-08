@@ -1693,14 +1693,16 @@ async function updateCycleSummaries(
  */
 export async function getDoctorFinancialSummary(doctorUserId: number) {
   const db = await getDb();
-  if (!db) return { currentCycles: [], history: [] };
+  if (!db) return { currentCycles: [], history: [], totalOpen: "0.00", totalUnits: 0 };
 
-  // Ciclos abertos do médico
+  // Ciclos abertos do médico com nome da unidade
   const currentCycles = await db.select({
     summary: billing_cycle_doctor_summary,
     cycle: billing_cycles,
+    unit_name: units.name,
   }).from(billing_cycle_doctor_summary)
     .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .innerJoin(units, eq(billing_cycle_doctor_summary.unit_id, units.id))
     .where(
       and(
         eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
@@ -1708,12 +1710,14 @@ export async function getDoctorFinancialSummary(doctorUserId: number) {
       )
     );
 
-  // Histórico de ciclos fechados
+  // Histórico de ciclos fechados com nome da unidade
   const history = await db.select({
     summary: billing_cycle_doctor_summary,
     cycle: billing_cycles,
+    unit_name: units.name,
   }).from(billing_cycle_doctor_summary)
     .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .innerJoin(units, eq(billing_cycle_doctor_summary.unit_id, units.id))
     .where(
       and(
         eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
@@ -1723,7 +1727,11 @@ export async function getDoctorFinancialSummary(doctorUserId: number) {
     .orderBy(desc(billing_cycles.ends_at))
     .limit(24);
 
-  return { currentCycles, history };
+  // Totais gerais dos ciclos abertos
+  const totalOpen = currentCycles.reduce((sum, r) => sum + parseFloat(r.summary.amount_due ?? "0"), 0);
+  const totalUnits = new Set(currentCycles.map(r => r.summary.unit_id)).size;
+
+  return { currentCycles, history, totalOpen: totalOpen.toFixed(2), totalUnits };
 }
 
 /**
@@ -1769,23 +1777,43 @@ export async function markDoctorCycleReceived(
  */
 export async function getResponsibleCycleSummary(financialResponsibleId: number) {
   const db = await getDb();
-  if (!db) return { systemCycles: [], doctorCycles: [] };
+  if (!db) return { systemCycles: [], doctorCycles: [], totalSystem: "0.00", totalDoctors: "0.00", totalGeral: "0.00" };
 
   const systemCycles = await db.select({
     summary: billing_cycle_system_summary,
     cycle: billing_cycles,
+    unit_name: units.name,
   }).from(billing_cycle_system_summary)
     .innerJoin(billing_cycles, eq(billing_cycle_system_summary.system_cycle_id, billing_cycles.id))
+    .innerJoin(units, eq(billing_cycle_system_summary.unit_id, units.id))
     .where(eq(billing_cycle_system_summary.financial_responsible_id, financialResponsibleId));
 
   const doctorCycles = await db.select({
     summary: billing_cycle_doctor_summary,
     cycle: billing_cycles,
+    unit_name: units.name,
+    doctor_name: users.name,
   }).from(billing_cycle_doctor_summary)
     .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .innerJoin(units, eq(billing_cycle_doctor_summary.unit_id, units.id))
+    .innerJoin(users, eq(billing_cycle_doctor_summary.doctor_user_id, users.id))
     .where(eq(billing_cycle_doctor_summary.financial_responsible_id, financialResponsibleId));
 
-  return { systemCycles, doctorCycles };
+  // Totais
+  const totalSystem = systemCycles
+    .filter(r => r.cycle.status === "open")
+    .reduce((sum, r) => sum + parseFloat(r.summary.amount_due ?? "0"), 0);
+  const totalDoctors = doctorCycles
+    .filter(r => r.cycle.status === "open")
+    .reduce((sum, r) => sum + parseFloat(r.summary.amount_due ?? "0"), 0);
+
+  return {
+    systemCycles,
+    doctorCycles,
+    totalSystem: totalSystem.toFixed(2),
+    totalDoctors: totalDoctors.toFixed(2),
+    totalGeral: (totalSystem + totalDoctors).toFixed(2),
+  };
 }
 
 /**

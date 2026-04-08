@@ -859,3 +859,30 @@
 - [x] Adicionar responsavel_financeiro ao seletor de Perfil no formulário de usuário
 - [x] Corrigir coluna Unidade na lista de usuários para mostrar unidades vinculadas (linked_units via permissões)
 - [x] Verificar botão > de permissões por unidade no formulário de edição (já funciona corretamente)
+
+## MÓDULO FINANCEIRO EMBUTIDO V4
+
+### Backend
+- [ ] Item financeiro nasce apenas em status signed/revised (não em rascunho/em edição)
+- [ ] Retificação não duplica item financeiro — se report_id já existe, atualiza sem criar novo
+- [ ] createVisitEvent protegido: idempotente por report_id
+- [ ] Ciclo de 30 dias: começa no dia configurado (ex: dia 20), fecha no dia 19 do mês seguinte
+- [ ] Procedure getDoctorFinancialSummary: retorna resumo, por unidade, extrato, fechamentos do médico logado
+- [ ] Procedure getResponsibleDebtSummary: retorna total ao sistema, total aos médicos, por unidade, por médico, extrato
+- [ ] Procedure getAdminGovernance: responsáveis, preços, pendências, ciclos abertos/fechados
+
+### Médico — Financeiro Embutido
+- [ ] Seletor de unidades: valor por laudo + saldo parcial do ciclo atual (discreto, abaixo do nome)
+- [ ] Banner na fila de trabalho: laudos válidos do ciclo, saldo da unidade atual, saldo total
+- [x] BillingDoctorPage V4: Bloco 1 Resumo, Bloco 2 Ganhos por Unidade, Bloco 3 Extrato, Bloco 4 Fechamentos
+- [x] Médico logado é identificado pelo login — sem seleção manual
+
+### Responsável — Painel de Dívida
+- [x] BillingUnitPage V4: começa pelos valores (devo ao sistema, devo aos médicos, total)
+- [x] Visão por unidade e por médico
+- [x] Extrato detalhado por laudo
+- [x] Fechamento por ciclo com botão gerar extrato
+
+### Root/Admin — Retaguarda
+- [x] BillingAdminPage V4: cadastro de responsáveis, vínculo unidades, configuração preços, auditoria, fechar ciclos
+- [x] Configurar dia de fechamento por unidade (sistema e médico podem ser diferentes)

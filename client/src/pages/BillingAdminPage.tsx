@@ -1,144 +1,188 @@
 /**
- * BillingAdminPage V3 — Governança Financeira (admin_master)
- * - Configurar dia de fechamento de ciclo por unidade
- * - Visão consolidada de todas as unidades
- * - Criar/gerenciar responsáveis financeiros
+ * BillingAdminPage V4 — Retaguarda Financeira
+ *
+ * Visão do admin_master: cadastro de responsáveis financeiros, vínculo com
+ * unidades, configuração de preços e ciclos, fechamento de ciclos.
+ *
+ * Roles com acesso: admin_master
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowLeft, Settings, Building2, DollarSign, Users, Calendar, TrendingUp, TrendingDown, Plus } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
+import {
+  ArrowLeft,
+  Plus,
+  Settings,
+  Users,
+  Building2,
+  DollarSign,
+  Edit,
+  Link as LinkIcon,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
+  ShieldCheck,
+} from "lucide-react";
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtBRL(val: string | number | null | undefined) {
-  const n = typeof val === "string" ? parseFloat(val) : (val ?? 0);
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
+  const n = parseFloat(String(val ?? "0"));
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-// ─── Modal: Configurar Ciclo ──────────────────────────────────────────────────
-function CycleConfigModal({ unit, onClose, onSaved }: {
-  unit: { id: number; name: string };
+function fmtDate(d: Date | string | null | undefined) {
+  if (!d) return "—";
+  const dt = typeof d === "string" ? new Date(d + (d.includes("T") ? "" : "T00:00:00")) : d;
+  return dt.toLocaleDateString("pt-BR");
+}
+
+// ─── Tipos locais ──────────────────────────────────────────────────────────────
+type Responsible = {
+  id: number;
+  legal_name: string;
+  trade_name: string | null;
+  cpf_cnpj: string | null;
+  email: string | null;
+  phone: string | null;
+  person_type: "PF" | "PJ";
+  isActive: boolean;
+};
+
+type Unit = { id: number; name: string };
+
+// ─── Formulário de criação de responsável ─────────────────────────────────────
+function CreateResponsibleDialog({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onCreated: () => void;
 }) {
-  const { data: config } = trpc.billing.getCycleConfig.useQuery({ unit_id: unit.id });
-  const [doctorDay, setDoctorDay] = useState<string>("");
-  const [systemDay, setSystemDay] = useState<string>("");
-
-  if (config && doctorDay === "" && systemDay === "") {
-    setDoctorDay(String(config.doctor_cycle_day ?? "20"));
-    setSystemDay(String(config.system_cycle_day ?? "20"));
-  }
-
-  const setCycleConfig = trpc.billing.setCycleConfig.useMutation({
-    onSuccess: () => { toast.success("Configuração salva!"); onSaved(); onClose(); },
-    onError: (e) => toast.error(e.message || "Erro ao salvar"),
-  });
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Configurar Ciclo — {unit.name}</DialogTitle>
-        </DialogHeader>
-        <div className="py-4 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Dia de fechamento — Médicos</Label>
-              <Input type="number" min={1} max={28} value={doctorDay} onChange={e => setDoctorDay(e.target.value)} placeholder="Ex: 20" />
-              <p className="text-xs text-muted-foreground">Todo dia {doctorDay || "?"} os médicos recebem.</p>
-            </div>
-            <div className="space-y-2">
-              <Label>Dia de fechamento — Sistema</Label>
-              <Input type="number" min={1} max={28} value={systemDay} onChange={e => setSystemDay(e.target.value)} placeholder="Ex: 5" />
-              <p className="text-xs text-muted-foreground">Todo dia {systemDay || "?"} a unidade paga o sistema.</p>
-            </div>
-          </div>
-          <div className="bg-muted rounded-lg p-3 text-xs text-muted-foreground space-y-1">
-            <p>• O ciclo do médico vai do dia {doctorDay || "?"} ao dia {doctorDay || "?"} do mês seguinte.</p>
-            <p>• O ciclo do sistema vai do dia {systemDay || "?"} ao dia {systemDay || "?"} do mês seguinte.</p>
-            <p>• Cada unidade pode ter dias diferentes.</p>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button
-            onClick={() => {
-              const dd = parseInt(doctorDay), sd = parseInt(systemDay);
-              if (isNaN(dd) || dd < 1 || dd > 28) { toast.error("Dia do médico deve ser entre 1 e 28"); return; }
-              if (isNaN(sd) || sd < 1 || sd > 28) { toast.error("Dia do sistema deve ser entre 1 e 28"); return; }
-              setCycleConfig.mutate({ unit_id: unit.id, doctor_cycle_day: dd, system_cycle_day: sd });
-            }}
-            disabled={setCycleConfig.isPending}
-          >
-            {setCycleConfig.isPending ? "Salvando..." : "Salvar"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─── Modal: Criar Responsável ─────────────────────────────────────────────────
-function CreateResponsibleModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState({
-    legal_name: "", trade_name: "", cpf_cnpj: "", email: "", phone: "",
     person_type: "PJ" as "PF" | "PJ",
+    legal_name: "",
+    trade_name: "",
+    cpf_cnpj: "",
+    email: "",
+    phone: "",
+    notes: "",
   });
-  const createResp = trpc.billing.createResponsible.useMutation({
-    onSuccess: () => { toast.success("Responsável criado!"); onCreated(); onClose(); },
-    onError: (e) => toast.error(e.message || "Erro ao criar"),
+
+  const create = trpc.billing.createResponsible.useMutation({
+    onSuccess: () => {
+      toast.success("Responsável criado com sucesso!");
+      onCreated();
+      onClose();
+      setForm({ person_type: "PJ", legal_name: "", trade_name: "", cpf_cnpj: "", email: "", phone: "", notes: "" });
+    },
+    onError: (e) => toast.error(e.message || "Erro ao criar responsável"),
   });
 
   return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Novo Responsável Financeiro</DialogTitle></DialogHeader>
-        <div className="py-4 space-y-3">
-          <div className="flex gap-2">
-            {(["PF", "PJ"] as const).map(t => (
-              <Button key={t} size="sm" variant={form.person_type === t ? "default" : "outline"} onClick={() => setForm(f => ({ ...f, person_type: t }))}>{t}</Button>
-            ))}
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Novo Responsável Financeiro</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Tipo</Label>
+              <Select
+                value={form.person_type}
+                onValueChange={(v) => setForm({ ...form, person_type: v as "PF" | "PJ" })}
+              >
+                <SelectTrigger className="h-9 mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PJ">Pessoa Jurídica</SelectItem>
+                  <SelectItem value="PF">Pessoa Física</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">CPF / CNPJ</Label>
+              <Input
+                className="h-9 mt-1"
+                placeholder={form.person_type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"}
+                value={form.cpf_cnpj}
+                onChange={(e) => setForm({ ...form, cpf_cnpj: e.target.value })}
+              />
+            </div>
           </div>
-          <div className="space-y-1">
-            <Label>Razão Social / Nome *</Label>
-            <Input value={form.legal_name} onChange={e => setForm(f => ({ ...f, legal_name: e.target.value }))} />
+          <div>
+            <Label className="text-xs">Razão Social / Nome</Label>
+            <Input
+              className="h-9 mt-1"
+              placeholder="Nome completo ou razão social"
+              value={form.legal_name}
+              onChange={(e) => setForm({ ...form, legal_name: e.target.value })}
+            />
           </div>
-          <div className="space-y-1">
-            <Label>Nome Fantasia</Label>
-            <Input value={form.trade_name} onChange={e => setForm(f => ({ ...f, trade_name: e.target.value }))} />
+          <div>
+            <Label className="text-xs">Nome Fantasia</Label>
+            <Input
+              className="h-9 mt-1"
+              placeholder="Opcional"
+              value={form.trade_name}
+              onChange={(e) => setForm({ ...form, trade_name: e.target.value })}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>CPF/CNPJ</Label>
-              <Input value={form.cpf_cnpj} onChange={e => setForm(f => ({ ...f, cpf_cnpj: e.target.value }))} />
+            <div>
+              <Label className="text-xs">E-mail</Label>
+              <Input
+                className="h-9 mt-1"
+                type="email"
+                placeholder="email@exemplo.com"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
             </div>
-            <div className="space-y-1">
-              <Label>E-mail</Label>
-              <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            <div>
+              <Label className="text-xs">Telefone</Label>
+              <Input
+                className="h-9 mt-1"
+                placeholder="(00) 00000-0000"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
             </div>
-          </div>
-          <div className="space-y-1">
-            <Label>Telefone</Label>
-            <Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button
-            onClick={() => { if (!form.legal_name.trim()) { toast.error("Razão social obrigatória"); return; } createResp.mutate(form); }}
-            disabled={createResp.isPending}
+            disabled={!form.legal_name || create.isPending}
+            onClick={() => create.mutate(form)}
           >
-            {createResp.isPending ? "Criando..." : "Criar"}
+            {create.isPending ? "Criando..." : "Criar Responsável"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -146,260 +190,637 @@ function CreateResponsibleModal({ onClose, onCreated }: { onClose: () => void; o
   );
 }
 
-// ─── Sub-componente: Linha de unidade com ciclo ───────────────────────────────
-function UnitCycleRow({ unit, onConfigure }: { unit: { id: number; name: string }; onConfigure: () => void }) {
-  const { data: config } = trpc.billing.getCycleConfig.useQuery({ unit_id: unit.id });
+// ─── Painel de detalhes de um responsável ─────────────────────────────────────
+function ResponsiblePanel({
+  responsible,
+  units,
+  onRefresh,
+}: {
+  responsible: Responsible;
+  units: Unit[];
+  onRefresh: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [showLinkUnit, setShowLinkUnit] = useState(false);
+  const [showSetPrice, setShowSetPrice] = useState(false);
+  const [showSetCycle, setShowSetCycle] = useState(false);
+  const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
+
+  // Formulário de vínculo de unidade
+  const [linkForm, setLinkForm] = useState({ unitId: "", startsAt: new Date().toISOString().slice(0, 10) });
+  // Formulário de preço do sistema
+  const [priceForm, setPriceForm] = useState({ unitId: "", pricePerReport: "", startsAt: new Date().toISOString().slice(0, 10) });
+  // Formulário de ciclo
+  const [cycleForm, setCycleForm] = useState({ unitId: "", doctor_cycle_day: "20", system_cycle_day: "5" });
+
+  const { data: linkedUnits, refetch: refetchUnits } = trpc.billing.listUnitsForResponsible.useQuery(
+    { financialResponsibleId: responsible.id },
+    { enabled: expanded }
+  );
+
+  const linkUnit = trpc.billing.linkUnit.useMutation({
+    onSuccess: () => {
+      toast.success("Unidade vinculada!");
+      setShowLinkUnit(false);
+      refetchUnits();
+      onRefresh();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const setSystemPrice = trpc.billing.setSystemPrice.useMutation({
+    onSuccess: () => {
+      toast.success("Preço do sistema configurado!");
+      setShowSetPrice(false);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const setCycleConfig = trpc.billing.setCycleConfig.useMutation({
+    onSuccess: () => {
+      toast.success("Ciclo configurado!");
+      setShowSetCycle(false);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   return (
-    <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/30 transition-colors">
-      <div className="flex items-center gap-3">
-        <Building2 className="h-4 w-4 text-muted-foreground" />
-        <div>
-          <p className="font-medium text-sm">{unit.name}</p>
-          {config ? (
-            <p className="text-xs text-muted-foreground">Médicos: dia {config.doctor_cycle_day} · Sistema: dia {config.system_cycle_day}</p>
-          ) : (
-            <p className="text-xs text-amber-600">Ciclo não configurado</p>
-          )}
+    <Card className="border border-border/60">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
+              {responsible.legal_name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <p className="font-semibold text-sm">{responsible.trade_name || responsible.legal_name}</p>
+              {responsible.trade_name && (
+                <p className="text-xs text-muted-foreground">{responsible.legal_name}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs">
+              {responsible.person_type === "PJ" ? "PJ" : "PF"}
+            </Badge>
+            <Badge
+              variant="outline"
+              className={responsible.isActive
+                ? "text-green-600 border-green-600 text-xs"
+                : "text-muted-foreground text-xs"}
+            >
+              {responsible.isActive ? "Ativo" : "Inativo"}
+            </Badge>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </Button>
+          </div>
         </div>
+        {(responsible.email || responsible.phone || responsible.cpf_cnpj) && (
+          <div className="flex flex-wrap gap-3 mt-1">
+            {responsible.cpf_cnpj && (
+              <span className="text-xs text-muted-foreground">{responsible.cpf_cnpj}</span>
+            )}
+            {responsible.email && (
+              <span className="text-xs text-muted-foreground">{responsible.email}</span>
+            )}
+            {responsible.phone && (
+              <span className="text-xs text-muted-foreground">{responsible.phone}</span>
+            )}
+          </div>
+        )}
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="pt-0">
+          <div className="border-t pt-4 space-y-4">
+            {/* Ações */}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={() => setShowLinkUnit(true)}
+              >
+                <LinkIcon className="h-3.5 w-3.5 mr-1" />
+                Vincular Unidade
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={() => setShowSetPrice(true)}
+              >
+                <DollarSign className="h-3.5 w-3.5 mr-1" />
+                Configurar Preço Sistema
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={() => setShowSetCycle(true)}
+              >
+                <Calendar className="h-3.5 w-3.5 mr-1" />
+                Configurar Ciclo
+              </Button>
+            </div>
+
+            {/* Unidades vinculadas */}
+            {linkedUnits && linkedUnits.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Unidades Vinculadas</p>
+                <div className="space-y-1">
+                  {(linkedUnits as Array<{
+                    unit_id: number;
+                    starts_at: Date | string;
+                    ends_at: Date | string | null;
+                  }>).map((lu) => {
+                    const unit = units.find((u) => u.id === lu.unit_id);
+                    return (
+                      <div
+                        key={lu.unit_id}
+                        className="flex items-center justify-between text-xs bg-muted/30 rounded px-3 py-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-3 w-3 text-muted-foreground" />
+                          <span className="font-medium">{unit?.name ?? `Unidade #${lu.unit_id}`}</span>
+                        </div>
+                        <span className="text-muted-foreground">
+                          desde {fmtDate(lu.starts_at)}
+                          {lu.ends_at ? ` até ${fmtDate(lu.ends_at)}` : ""}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Modal: Vincular Unidade */}
+          <Dialog open={showLinkUnit} onOpenChange={setShowLinkUnit}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Vincular Unidade</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                <div>
+                  <Label className="text-xs">Unidade</Label>
+                  <Select
+                    value={linkForm.unitId}
+                    onValueChange={(v) => setLinkForm({ ...linkForm, unitId: v })}
+                  >
+                    <SelectTrigger className="h-9 mt-1">
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {units.map((u) => (
+                        <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Vigência a partir de</Label>
+                  <Input
+                    type="date"
+                    className="h-9 mt-1"
+                    value={linkForm.startsAt}
+                    onChange={(e) => setLinkForm({ ...linkForm, startsAt: e.target.value })}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowLinkUnit(false)}>Cancelar</Button>
+                <Button
+                  disabled={!linkForm.unitId || linkUnit.isPending}
+                  onClick={() => linkUnit.mutate({
+                    financialResponsibleId: responsible.id,
+                    unitId: parseInt(linkForm.unitId),
+                    startsAt: linkForm.startsAt,
+                  })}
+                >
+                  {linkUnit.isPending ? "Vinculando..." : "Vincular"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Modal: Configurar Preço Sistema */}
+          <Dialog open={showSetPrice} onOpenChange={setShowSetPrice}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Preço do Sistema por Visita</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                <div>
+                  <Label className="text-xs">Unidade</Label>
+                  <Select
+                    value={priceForm.unitId}
+                    onValueChange={(v) => setPriceForm({ ...priceForm, unitId: v })}
+                  >
+                    <SelectTrigger className="h-9 mt-1">
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {units.map((u) => (
+                        <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Valor por Visita (R$)</Label>
+                  <Input
+                    className="h-9 mt-1"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Ex: 25.00"
+                    value={priceForm.pricePerReport}
+                    onChange={(e) => setPriceForm({ ...priceForm, pricePerReport: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Vigência a partir de</Label>
+                  <Input
+                    type="date"
+                    className="h-9 mt-1"
+                    value={priceForm.startsAt}
+                    onChange={(e) => setPriceForm({ ...priceForm, startsAt: e.target.value })}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowSetPrice(false)}>Cancelar</Button>
+                <Button
+                  disabled={!priceForm.unitId || !priceForm.pricePerReport || setSystemPrice.isPending}
+                  onClick={() => setSystemPrice.mutate({
+                    financialResponsibleId: responsible.id,
+                    unitId: parseInt(priceForm.unitId),
+                    pricePerReport: priceForm.pricePerReport,
+                    startsAt: priceForm.startsAt,
+                  })}
+                >
+                  {setSystemPrice.isPending ? "Salvando..." : "Salvar Preço"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Modal: Configurar Ciclo */}
+          <Dialog open={showSetCycle} onOpenChange={setShowSetCycle}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Configurar Ciclo Financeiro</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                <div>
+                  <Label className="text-xs">Unidade</Label>
+                  <Select
+                    value={cycleForm.unitId}
+                    onValueChange={(v) => setCycleForm({ ...cycleForm, unitId: v })}
+                  >
+                    <SelectTrigger className="h-9 mt-1">
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {units.map((u) => (
+                        <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Fechamento Médico (dia)</Label>
+                    <Input
+                      className="h-9 mt-1"
+                      type="number"
+                      min="1"
+                      max="28"
+                      value={cycleForm.doctor_cycle_day}
+                      onChange={(e) => setCycleForm({ ...cycleForm, doctor_cycle_day: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">Dia do mês que o ciclo do médico fecha</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Fechamento Sistema (dia)</Label>
+                    <Input
+                      className="h-9 mt-1"
+                      type="number"
+                      min="1"
+                      max="28"
+                      value={cycleForm.system_cycle_day}
+                      onChange={(e) => setCycleForm({ ...cycleForm, system_cycle_day: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">Dia do mês que o ciclo do sistema fecha</p>
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowSetCycle(false)}>Cancelar</Button>
+                <Button
+                  disabled={!cycleForm.unitId || setCycleConfig.isPending}
+                  onClick={() => setCycleConfig.mutate({
+                    unit_id: parseInt(cycleForm.unitId),
+                    doctor_cycle_day: parseInt(cycleForm.doctor_cycle_day),
+                    system_cycle_day: parseInt(cycleForm.system_cycle_day),
+                  })}
+                >
+                  {setCycleConfig.isPending ? "Salvando..." : "Salvar Ciclo"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+// ─── Painel de ciclos abertos (para fechar) ────────────────────────────────────
+function OpenCyclesPanel({ units }: { units: Unit[] }) {
+  const [selectedUnit, setSelectedUnit] = useState<number | null>(null);
+  const utils = trpc.useUtils();
+
+  const { data: cycles, isLoading } = trpc.billing.listUnitCycles.useQuery(
+    { unit_id: selectedUnit!, cycle_type: undefined },
+    { enabled: selectedUnit !== null }
+  );
+
+  const closeCycle = trpc.billing.closeCycle.useMutation({
+    onSuccess: () => {
+      toast.success("Ciclo fechado com sucesso!");
+      utils.billing.listUnitCycles.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Label className="text-sm whitespace-nowrap">Unidade:</Label>
+        <Select
+          value={selectedUnit ? String(selectedUnit) : ""}
+          onValueChange={(v) => setSelectedUnit(parseInt(v))}
+        >
+          <SelectTrigger className="h-9 max-w-xs">
+            <SelectValue placeholder="Selecione uma unidade..." />
+          </SelectTrigger>
+          <SelectContent>
+            {units.map((u) => (
+              <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
-      <div className="flex items-center gap-2">
-        <Badge variant="outline" className={config ? "text-emerald-600 border-emerald-300 text-xs" : "text-amber-600 border-amber-300 text-xs"}>
-          {config ? "Configurado" : "Pendente"}
-        </Badge>
-        <Button size="sm" variant="outline" onClick={onConfigure}>
-          <Settings className="h-3 w-3 mr-1" />{config ? "Editar" : "Configurar"}
-        </Button>
-      </div>
+
+      {selectedUnit === null ? (
+        <Card>
+          <CardContent className="py-10 text-center">
+            <Building2 className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+            <p className="text-muted-foreground text-sm">Selecione uma unidade para ver os ciclos.</p>
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
+        <Skeleton className="h-48 w-full" />
+      ) : !cycles || cycles.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center">
+            <ShieldCheck className="h-10 w-10 mx-auto text-green-500/40 mb-3" />
+            <p className="text-muted-foreground text-sm">Nenhum ciclo encontrado para esta unidade.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="pt-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-muted-foreground">
+                    <th className="text-left pb-3 font-medium">Tipo</th>
+                    <th className="text-left pb-3 font-medium">Período</th>
+                    <th className="text-center pb-3 font-medium">Status</th>
+                    <th className="text-right pb-3 font-medium">Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(cycles as unknown as Array<{
+                    id: number;
+                    cycle_type: string;
+                    starts_at: Date | string;
+                    ends_at: Date | string;
+                    status: string;
+                    closed_at: Date | string | null;
+                  }>).map((cycle) => (
+                    <tr key={cycle.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="py-3">
+                        <Badge variant="outline" className="text-xs">
+                          {cycle.cycle_type === "doctor" ? "Médico" : "Sistema"}
+                        </Badge>
+                      </td>
+                      <td className="py-3 text-muted-foreground text-xs">
+                        {fmtDate(cycle.starts_at)} – {fmtDate(cycle.ends_at)}
+                      </td>
+                      <td className="py-3 text-center">
+                        <Badge
+                          variant="outline"
+                          className={cycle.status === "open"
+                            ? "text-amber-600 border-amber-600 text-xs"
+                            : "text-green-600 border-green-600 text-xs"}
+                        >
+                          {cycle.status === "open" ? "Aberto" : "Fechado"}
+                        </Badge>
+                      </td>
+                      <td className="py-3 text-right">
+                        {cycle.status === "open" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs text-red-600 border-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                            disabled={closeCycle.isPending}
+                            onClick={() => closeCycle.mutate({ cycle_id: cycle.id })}
+                          >
+                            Fechar Ciclo
+                          </Button>
+                        )}
+                        {cycle.status === "closed" && cycle.closed_at && (
+                          <span className="text-xs text-muted-foreground">
+                            Fechado em {fmtDate(cycle.closed_at)}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
 
-// ─── Componente Principal ─────────────────────────────────────────────────────
+// ─── Página principal ──────────────────────────────────────────────────────────
 export default function BillingAdminPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
-  const [tab, setTab] = useState("units");
-  const [configUnit, setConfigUnit] = useState<{ id: number; name: string } | null>(null);
-  const [showCreateResp, setShowCreateResp] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const utils = trpc.useUtils();
 
-  const { data: units, isLoading: loadingUnits, refetch: refetchUnits } = trpc.units.list.useQuery(
-    undefined, { enabled: !!user && user.role === "admin_master" }
-  );
-  const { data: responsibles, isLoading: loadingResp, refetch: refetchResp } = trpc.billing.listResponsibles.useQuery(
-    undefined, { enabled: !!user && user.role === "admin_master" }
-  );
-  const { data: adminSummary, isLoading: loadingAdmin } = trpc.billing.getAdminSummary.useQuery(
-    { year: new Date().getFullYear(), month: new Date().getMonth() + 1 },
-    { enabled: !!user && user.role === "admin_master" }
-  );
+  const { data: responsibles, isLoading: loadingResp } = trpc.billing.listResponsibles.useQuery(undefined, {
+    enabled: !!user && user.role === "admin_master",
+  });
+
+  const { data: unitsData } = trpc.units.list.useQuery(undefined, {
+    enabled: !!user && user.role === "admin_master",
+  });
 
   if (!user || user.role !== "admin_master") {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
-        <p className="text-muted-foreground">Acesso restrito ao administrador master.</p>
+        <p className="text-muted-foreground">Acesso restrito ao administrador.</p>
       </div>
     );
   }
 
-  type AdminRow = {
-    id: number;
-    legal_name: string;
-    trade_name?: string | null;
-    system_total: number;
-    doctor_total: number;
-    reports_count: number;
-    pending_count: number;
-  };
+  const units: Unit[] = (unitsData ?? []) as Unit[];
+  const resp = ((responsibles ?? []) as unknown) as Responsible[];
 
-  const adminRows = (adminSummary?.responsibles ?? []) as AdminRow[];
-  const totalSystem = adminRows.reduce((s, r) => s + (r.system_total ?? 0), 0);
-  const totalDoctor = adminRows.reduce((s, r) => s + (r.doctor_total ?? 0), 0);
-  const totalReports = adminRows.reduce((s, r) => s + (r.reports_count ?? 0), 0);
-
-  const unitList = (units ?? []) as Array<{ id: number; name: string }>;
-  const respList = ((responsibles ?? []) as unknown) as Array<{
-    id: number; legal_name: string; trade_name?: string | null;
-    person_type: string; cpf_cnpj?: string | null; email?: string | null; isActive: boolean;
-  }>;
+  const activeCount = resp.filter((r) => r.isActive).length;
 
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b bg-card sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/")}><ArrowLeft className="h-4 w-4" /></Button>
-          <div>
-            <h1 className="text-lg font-semibold">Governança Financeira</h1>
-            <p className="text-xs text-muted-foreground">Configuração de ciclos, responsáveis e visão consolidada</p>
+      <div className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={() => navigate("/")}>
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Voltar
+          </Button>
+          <div className="flex items-center gap-2">
+            <Settings className="h-5 w-5 text-primary" />
+            <h1 className="text-lg font-semibold">Retaguarda Financeira</h1>
           </div>
+          <Badge variant="secondary" className="ml-auto text-xs">
+            Admin Master
+          </Badge>
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* KPIs */}
+      <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+
+        {/* Cards de resumo */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card><CardContent className="pt-5">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30"><DollarSign className="h-5 w-5 text-blue-600" /></div>
-              <div>
-                <p className="text-xs text-muted-foreground">Total Sistema (mês)</p>
-                <p className="text-xl font-bold text-blue-600">{loadingAdmin ? "..." : fmtBRL(totalSystem)}</p>
+          <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
+            <CardContent className="pt-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Responsáveis Ativos</p>
+                  <p className="text-2xl font-bold text-primary mt-1">{activeCount}</p>
+                  <p className="text-xs text-muted-foreground mt-1">de {resp.length} cadastrados</p>
+                </div>
+                <Users className="h-8 w-8 text-primary/30" />
               </div>
-            </div>
-          </CardContent></Card>
-          <Card><CardContent className="pt-5">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/30"><TrendingUp className="h-5 w-5 text-emerald-600" /></div>
-              <div>
-                <p className="text-xs text-muted-foreground">Total Médicos (mês)</p>
-                <p className="text-xl font-bold text-emerald-600">{loadingAdmin ? "..." : fmtBRL(totalDoctor)}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 border-blue-500/20">
+            <CardContent className="pt-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Unidades Cadastradas</p>
+                  <p className="text-2xl font-bold text-blue-600 mt-1">{units.length}</p>
+                  <p className="text-xs text-muted-foreground mt-1">no sistema</p>
+                </div>
+                <Building2 className="h-8 w-8 text-blue-500/30" />
               </div>
-            </div>
-          </CardContent></Card>
-          <Card><CardContent className="pt-5">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30"><TrendingDown className="h-5 w-5 text-purple-600" /></div>
-              <div>
-                <p className="text-xs text-muted-foreground">Laudos (mês)</p>
-                <p className="text-xl font-bold text-purple-600">{loadingAdmin ? "..." : totalReports}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-green-500/10 to-green-500/5 border-green-500/20">
+            <CardContent className="pt-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Módulo Financeiro</p>
+                  <p className="text-lg font-bold text-green-600 mt-1">Operacional</p>
+                  <p className="text-xs text-muted-foreground mt-1">V4 — Ciclos por Unidade</p>
+                </div>
+                <ShieldCheck className="h-8 w-8 text-green-500/30" />
               </div>
-            </div>
-          </CardContent></Card>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Abas */}
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
-            <TabsTrigger value="units"><Calendar className="h-4 w-4 mr-1" />Ciclos por Unidade</TabsTrigger>
-            <TabsTrigger value="responsibles"><Users className="h-4 w-4 mr-1" />Responsáveis</TabsTrigger>
-            <TabsTrigger value="overview"><Building2 className="h-4 w-4 mr-1" />Consolidado</TabsTrigger>
+        <Tabs defaultValue="responsibles">
+          <TabsList className="grid w-full grid-cols-2 max-w-sm">
+            <TabsTrigger value="responsibles" className="text-xs">
+              <Users className="h-3.5 w-3.5 mr-1.5" />
+              Responsáveis
+            </TabsTrigger>
+            <TabsTrigger value="cycles" className="text-xs">
+              <Calendar className="h-3.5 w-3.5 mr-1.5" />
+              Ciclos
+            </TabsTrigger>
           </TabsList>
 
-          {/* Ciclos por Unidade */}
-          <TabsContent value="units" className="mt-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Settings className="h-4 w-4" />Configuração de Dias de Fechamento
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Defina o dia de fechamento do ciclo financeiro para cada unidade. Cada unidade pode ter dias diferentes para médicos e para o sistema.
-                </p>
-                {loadingUnits ? (
-                  <p className="text-sm text-muted-foreground text-center py-6">Carregando unidades...</p>
-                ) : unitList.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-6">Nenhuma unidade cadastrada.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {unitList.map(unit => (
-                      <UnitCycleRow key={unit.id} unit={unit} onConfigure={() => setConfigUnit(unit)} />
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+          {/* Aba: Responsáveis */}
+          <TabsContent value="responsibles" className="mt-4 space-y-3">
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setShowCreate(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                Novo Responsável
+              </Button>
+            </div>
+
+            {loadingResp ? (
+              <div className="space-y-3">
+                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-20 w-full" />
+              </div>
+            ) : resp.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <Users className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                  <p className="text-muted-foreground text-sm">Nenhum responsável financeiro cadastrado.</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Clique em "Novo Responsável" para começar.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              resp.map((r) => (
+                <ResponsiblePanel
+                  key={r.id}
+                  responsible={r}
+                  units={units}
+                  onRefresh={() => utils.billing.listResponsibles.invalidate()}
+                />
+              ))
+            )}
           </TabsContent>
 
-          {/* Responsáveis */}
-          <TabsContent value="responsibles" className="mt-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-base">Responsáveis Financeiros</CardTitle>
-                <Button size="sm" onClick={() => setShowCreateResp(true)}><Plus className="h-4 w-4 mr-1" />Novo Responsável</Button>
-              </CardHeader>
-              <CardContent>
-                {loadingResp ? (
-                  <p className="text-sm text-muted-foreground text-center py-6">Carregando...</p>
-                ) : respList.length === 0 ? (
-                  <div className="text-center py-10 text-muted-foreground">
-                    <Users className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">Nenhum responsável financeiro cadastrado.</p>
-                    <Button size="sm" variant="outline" className="mt-3" onClick={() => setShowCreateResp(true)}>
-                      <Plus className="h-4 w-4 mr-1" />Criar o primeiro
-                    </Button>
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">Nome</TableHead>
-                        <TableHead className="text-xs">Tipo</TableHead>
-                        <TableHead className="text-xs">CPF/CNPJ</TableHead>
-                        <TableHead className="text-xs">E-mail</TableHead>
-                        <TableHead className="text-xs">Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {respList.map(resp => (
-                        <TableRow key={resp.id}>
-                          <TableCell className="text-sm font-medium">
-                            {resp.trade_name || resp.legal_name}
-                            {resp.trade_name && <p className="text-xs text-muted-foreground">{resp.legal_name}</p>}
-                          </TableCell>
-                          <TableCell><Badge variant="outline" className="text-xs">{resp.person_type}</Badge></TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{resp.cpf_cnpj || "—"}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{resp.email || "—"}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={resp.isActive ? "text-emerald-600 border-emerald-300 text-xs" : "text-xs"}>
-                              {resp.isActive ? "Ativo" : "Inativo"}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Consolidado */}
-          <TabsContent value="overview" className="mt-4">
-            <Card>
-              <CardHeader><CardTitle className="text-base">Consolidado do Mês Atual</CardTitle></CardHeader>
-              <CardContent>
-                {loadingAdmin ? (
-                  <p className="text-sm text-muted-foreground text-center py-6">Carregando...</p>
-                ) : adminRows.length === 0 ? (
-                  <div className="text-center py-10 text-muted-foreground">
-                    <DollarSign className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">Nenhum dado financeiro no mês atual.</p>
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">Responsável</TableHead>
-                        <TableHead className="text-xs text-right">Laudos</TableHead>
-                        <TableHead className="text-xs text-right">Sistema</TableHead>
-                        <TableHead className="text-xs text-right">Médicos</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {adminRows.map((row, i) => (
-                        <TableRow key={i}>
-                          <TableCell className="text-sm font-medium">
-                            {row.trade_name || row.legal_name}
-                            {row.trade_name && <p className="text-xs text-muted-foreground">{row.legal_name}</p>}
-                          </TableCell>
-                          <TableCell className="text-sm text-right">{row.reports_count}</TableCell>
-                          <TableCell className="text-sm text-right font-medium text-blue-600">{fmtBRL(row.system_total)}</TableCell>
-                          <TableCell className="text-sm text-right font-medium text-emerald-600">{fmtBRL(row.doctor_total)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
+          {/* Aba: Ciclos */}
+          <TabsContent value="cycles" className="mt-4">
+            <OpenCyclesPanel units={units} />
           </TabsContent>
         </Tabs>
       </div>
 
-      {configUnit && <CycleConfigModal unit={configUnit} onClose={() => setConfigUnit(null)} onSaved={() => refetchUnits()} />}
-      {showCreateResp && <CreateResponsibleModal onClose={() => setShowCreateResp(false)} onCreated={() => refetchResp()} />}
+      {/* Modal de criação */}
+      <CreateResponsibleDialog
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={() => utils.billing.listResponsibles.invalidate()}
+      />
     </div>
   );
 }
