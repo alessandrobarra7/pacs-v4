@@ -1371,7 +1371,7 @@ export const appRouter = router({
       }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
-      const { users } = await import("../drizzle/schema");
+      const { users, user_unit_permissions, units: unitsTable } = await import("../drizzle/schema");
       const { desc, eq: eqOp, and } = await import("drizzle-orm");
       
       const conditions = [];
@@ -1395,7 +1395,27 @@ export const appRouter = router({
         .from(users)
         .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(users.createdAt));
-      return result;
+
+      // Buscar unidades vinculadas via permissões para cada usuário
+      const allPerms = await db
+        .select({
+          user_id: user_unit_permissions.user_id,
+          unit_id: user_unit_permissions.unit_id,
+          unit_name: unitsTable.name,
+        })
+        .from(user_unit_permissions)
+        .innerJoin(unitsTable, eqOp(unitsTable.id, user_unit_permissions.unit_id));
+
+      const permsByUser: Record<number, { unit_id: number; unit_name: string }[]> = {};
+      for (const p of allPerms) {
+        if (!permsByUser[p.user_id]) permsByUser[p.user_id] = [];
+        permsByUser[p.user_id].push({ unit_id: p.unit_id, unit_name: p.unit_name });
+      }
+
+      return result.map(u => ({
+        ...u,
+        linked_units: permsByUser[u.id] ?? [],
+      }));
     }),
 
     listAuditLog: protectedProcedure

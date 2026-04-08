@@ -21,6 +21,7 @@ const ROLE_LABELS: Record<string, string> = {
   admin_master: "Admin Master",
   unit_admin: "Admin Unidade",
   medico: "Médico",
+  responsavel_financeiro: "Resp. Financeiro",
   viewer: "Visualizador",
   operador: "Operador",
 };
@@ -29,6 +30,7 @@ const ROLE_COLORS: Record<string, string> = {
   admin_master: "border-red-200 text-red-700 bg-red-50",
   unit_admin: "border-orange-200 text-orange-700 bg-orange-50",
   medico: "border-blue-200 text-blue-700 bg-blue-50",
+  responsavel_financeiro: "border-emerald-200 text-emerald-700 bg-emerald-50",
   viewer: "border-gray-200 text-gray-600 bg-gray-50",
   operador: "border-purple-200 text-purple-700 bg-purple-50",
 };
@@ -569,7 +571,21 @@ export default function AdminPage() {
                         <TableCell className="py-3 text-sm font-medium text-gray-900">{u.name || "—"}</TableCell>
                         <TableCell className="py-3 text-sm text-gray-600 font-mono">{u.username || "—"}</TableCell>
                         <TableCell className="py-3 text-xs text-gray-500">
-                          {u.unit_id ? (unitMap[u.unit_id] || `#${u.unit_id}`) : <span className="text-gray-300">—</span>}
+                          {u.linked_units && u.linked_units.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {u.linked_units.map((lu: any) => (
+                                <Badge key={lu.unit_id} variant="outline" className="text-xs border-blue-100 text-blue-600 bg-blue-50">
+                                  {lu.unit_name}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : u.unit_id ? (
+                            <Badge variant="outline" className="text-xs border-blue-100 text-blue-600 bg-blue-50">
+                              {unitMap[u.unit_id] || `#${u.unit_id}`}
+                            </Badge>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
                         </TableCell>
                         <TableCell className="py-3">
                           <Badge variant="outline" className={`text-xs ${ROLE_COLORS[u.role] || ""}`}>

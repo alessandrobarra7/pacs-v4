@@ -16,6 +16,7 @@ const ROLES = [
   { value: "admin_master", label: "Admin Master" },
   { value: "unit_admin", label: "Admin Unidade" },
   { value: "medico", label: "Médico" },
+  { value: "responsavel_financeiro", label: "Responsável Financeiro" },
   { value: "viewer", label: "Visualizador" },
   { value: "operador", label: "Operador" },
 ] as const;
@@ -61,6 +62,7 @@ const ROLE_COLORS: Record<string, string> = {
   admin_master: "border-red-200 text-red-700 bg-red-50",
   unit_admin: "border-orange-200 text-orange-700 bg-orange-50",
   medico: "border-blue-200 text-blue-700 bg-blue-50",
+  responsavel_financeiro: "border-emerald-200 text-emerald-700 bg-emerald-50",
   viewer: "border-gray-200 text-gray-600 bg-gray-50",
   operador: "border-green-200 text-green-700 bg-green-50",
 };

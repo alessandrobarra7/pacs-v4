@@ -853,3 +853,9 @@
 ### Controle de acesso
 - [x] Módulo financeiro visível apenas para: medico, responsavel_financeiro, admin_master, unit_admin
 - [x] Ocultar para: operador, viewer
+
+## CORREÇÕES TELA DE ADMINISTRAÇÃO
+
+- [ ] Adicionar responsavel_financeiro ao seletor de Perfil no formulário de usuário
+- [ ] Corrigir coluna Unidade na lista de usuários para mostrar unidades vinculadas
+- [ ] Verificar e corrigir botão > de permissões por unidade no formulário de edição
