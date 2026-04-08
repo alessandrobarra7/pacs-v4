@@ -19,6 +19,11 @@ import {
   anamnesis_simple,
   study_metadata,
   StudyMetadata,
+  billing_cycle_configs,
+  billing_cycles,
+  billing_visit_events,
+  billing_cycle_doctor_summary,
+  billing_cycle_system_summary,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -1377,4 +1382,482 @@ export async function getAdminConsolidated(year: number, month: number): Promise
   }
 
   return { responsibles: result };
+}
+
+// ─── Billing Cycle Helpers (V3 Operacional) ──────────────────────────────────
+
+import { gte, lte, isNull, desc, sql as drizzleSql } from "drizzle-orm";
+
+/**
+ * Retorna a configuração de ciclo de uma unidade.
+ * Se não existir, retorna os defaults (dia 1 para ambos).
+ */
+export async function getCycleConfig(unitId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(billing_cycle_configs)
+    .where(eq(billing_cycle_configs.unit_id, unitId)).limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Cria ou atualiza a configuração de ciclo de uma unidade.
+ */
+export async function upsertCycleConfig(data: {
+  unit_id: number;
+  doctor_cycle_day: number;
+  system_cycle_day: number;
+  created_by?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(billing_cycle_configs).values({
+    unit_id: data.unit_id,
+    doctor_cycle_day: data.doctor_cycle_day,
+    system_cycle_day: data.system_cycle_day,
+    created_by: data.created_by ?? null,
+    is_active: true,
+  }).onDuplicateKeyUpdate({
+    set: {
+      doctor_cycle_day: data.doctor_cycle_day,
+      system_cycle_day: data.system_cycle_day,
+      is_active: true,
+    },
+  });
+}
+
+/**
+ * Calcula as datas de início e fim do ciclo ativo para uma unidade e tipo,
+ * com base no dia de fechamento configurado e na data de referência.
+ *
+ * Exemplo: cycleDay=20, refDate=2026-04-08
+ *   → starts_at = 2026-03-20, ends_at = 2026-04-19
+ *
+ * Exemplo: cycleDay=20, refDate=2026-04-20
+ *   → starts_at = 2026-04-20, ends_at = 2026-05-19
+ */
+export function computeCycleDates(cycleDay: number, refDate: Date): { starts_at: string; ends_at: string } {
+  const day = refDate.getDate();
+  const month = refDate.getMonth(); // 0-indexed
+  const year = refDate.getFullYear();
+
+  let startYear = year;
+  let startMonth = month;
+
+  if (day < cycleDay) {
+    // Estamos antes do dia de fechamento: ciclo começou no mês anterior
+    startMonth = month - 1;
+    if (startMonth < 0) {
+      startMonth = 11;
+      startYear = year - 1;
+    }
+  }
+
+  const starts = new Date(startYear, startMonth, cycleDay);
+  const ends = new Date(startYear, startMonth + 1, cycleDay - 1);
+
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  return { starts_at: fmt(starts), ends_at: fmt(ends) };
+}
+
+/**
+ * Retorna o ciclo ativo para uma unidade e tipo.
+ * Se não existir, cria um novo com base na configuração de ciclo.
+ */
+export async function getOrCreateActiveCycle(
+  unitId: number,
+  cycleType: "doctor" | "system",
+  refDate: Date,
+  financialResponsibleId?: number | null
+): Promise<typeof billing_cycles.$inferSelect> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Busca ciclo aberto que contém a data de referência
+  const refDateStr = refDate.toISOString().slice(0, 10);
+  // Use raw SQL for date string comparison (drizzle date columns expect Date objects for lte/gte)
+  const existing = await db.select().from(billing_cycles).where(
+    and(
+      eq(billing_cycles.unit_id, unitId),
+      eq(billing_cycles.cycle_type, cycleType),
+      eq(billing_cycles.status, "open"),
+      drizzleSql`${billing_cycles.starts_at} <= ${refDateStr}`,
+      drizzleSql`${billing_cycles.ends_at} >= ${refDateStr}`,
+    )
+  ).limit(1);
+
+  if (existing.length > 0) return existing[0];
+
+  // Busca configuração de ciclo da unidade
+  const config = await getCycleConfig(unitId);
+  const cycleDay = cycleType === "doctor"
+    ? (config?.doctor_cycle_day ?? 1)
+    : (config?.system_cycle_day ?? 1);
+
+  const { starts_at, ends_at } = computeCycleDates(cycleDay, refDate);
+
+  // Verifica se já existe ciclo com esse starts_at (pode ter sido fechado)
+  const existingByStart = await db.select().from(billing_cycles).where(
+    and(
+      eq(billing_cycles.unit_id, unitId),
+      eq(billing_cycles.cycle_type, cycleType),
+      drizzleSql`${billing_cycles.starts_at} = ${starts_at}`,
+    )
+  ).limit(1);
+
+  if (existingByStart.length > 0) return existingByStart[0];
+
+  // Cria novo ciclo
+  // Convert date strings to Date objects for Drizzle's date column type
+  const startsDate = new Date(starts_at + 'T00:00:00Z');
+  const endsDate = new Date(ends_at + 'T00:00:00Z');
+  const result = await db.insert(billing_cycles).values({
+    unit_id: unitId,
+    financial_responsible_id: financialResponsibleId ?? null,
+    cycle_type: cycleType,
+    starts_at: startsDate,
+    ends_at: endsDate,
+    status: "open",
+    total_visits: 0,
+    total_amount: "0.00",
+  } as any);
+
+  const newId = Number(result[0].insertId);
+  const newCycle = await db.select().from(billing_cycles).where(eq(billing_cycles.id, newId)).limit(1);
+  return newCycle[0];
+}
+
+/**
+ * Cria um evento financeiro por visita (deduplicado).
+ * visit_key = `${patientName}|${studyDate}|${unitId}|${doctorUserId}`
+ *
+ * Se já existir um evento para essa visita, retorna o existente sem criar duplicata.
+ */
+export async function createBillingVisitEvent(data: {
+  report_id: number;
+  study_instance_uid?: string | null;
+  unit_id: number;
+  doctor_user_id: number;
+  financial_responsible_id?: number | null;
+  patient_name?: string | null;
+  study_date?: string | null;
+  signed_at: Date;
+}): Promise<{ event: typeof billing_visit_events.$inferSelect; created: boolean }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Normaliza patient_name: remove ^ e espaços extras
+  const normalizedName = (data.patient_name ?? "UNKNOWN")
+    .replace(/\^/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+  const studyDate = data.study_date ?? data.signed_at.toISOString().slice(0, 10);
+
+  const visitKey = `${normalizedName}|${studyDate}|${data.unit_id}|${data.doctor_user_id}`;
+
+  // Verifica se já existe
+  const existing = await db.select().from(billing_visit_events)
+    .where(eq(billing_visit_events.visit_key, visitKey)).limit(1);
+
+  if (existing.length > 0) {
+    return { event: existing[0], created: false };
+  }
+
+  // Busca ciclos ativos
+  const doctorCycle = await getOrCreateActiveCycle(
+    data.unit_id, "doctor", data.signed_at, data.financial_responsible_id
+  );
+  const systemCycle = await getOrCreateActiveCycle(
+    data.unit_id, "system", data.signed_at, data.financial_responsible_id
+  );
+
+  // Busca preços ativos
+  const { getActiveSystemPrice, getActiveDoctorPrice, getActiveResponsibleForUnit } = await import("./db");
+
+  const responsible = data.financial_responsible_id
+    ? { id: data.financial_responsible_id }
+    : await getActiveResponsibleForUnit(data.unit_id, data.signed_at);
+
+  const responsibleId = responsible?.id ?? null;
+
+  const systemPrice = responsibleId
+    ? await getActiveSystemPrice(responsibleId, data.unit_id, data.signed_at)
+    : null;
+  const doctorPrice = responsibleId
+    ? await getActiveDoctorPrice(responsibleId, data.unit_id, data.doctor_user_id, data.signed_at)
+    : null;
+
+  const systemAmt = systemPrice ? parseFloat(systemPrice.price_per_report ?? "0") : null;
+  const doctorAmt = doctorPrice ? parseFloat(doctorPrice.price_per_report ?? "0") : null;
+
+  const pricingStatus =
+    systemAmt !== null && doctorAmt !== null ? "ok" :
+    systemAmt !== null ? "pending_doctor_price" :
+    doctorAmt !== null ? "pending_system_price" : "pending_both";
+
+  const insertResult = await db.insert(billing_visit_events).values({
+    report_id: data.report_id,
+    study_instance_uid: data.study_instance_uid ?? null,
+    unit_id: data.unit_id,
+    doctor_user_id: data.doctor_user_id,
+    financial_responsible_id: responsibleId,
+    visit_key: visitKey,
+    patient_name: normalizedName,
+    study_date: studyDate ? new Date(studyDate + 'T00:00:00Z') : null,
+    doctor_cycle_id: doctorCycle.id,
+    system_cycle_id: systemCycle.id,
+    system_price_applied: systemAmt !== null ? String(systemAmt) : null,
+    doctor_price_applied: doctorAmt !== null ? String(doctorAmt) : null,
+    system_amount_due: systemAmt !== null ? String(systemAmt) : null,
+    doctor_amount_due: doctorAmt !== null ? String(doctorAmt) : null,
+    pricing_status: pricingStatus,
+  });
+
+  const newId = Number(insertResult[0].insertId);
+
+  // Atualiza consolidados
+  await updateCycleSummaries(doctorCycle.id, systemCycle.id, data.unit_id, data.doctor_user_id, responsibleId, doctorAmt, systemAmt);
+
+  const newEvent = await db.select().from(billing_visit_events)
+    .where(eq(billing_visit_events.id, newId)).limit(1);
+  return { event: newEvent[0], created: true };
+}
+
+/**
+ * Atualiza os consolidados de ciclo após um novo evento de visita.
+ */
+async function updateCycleSummaries(
+  doctorCycleId: number,
+  systemCycleId: number,
+  unitId: number,
+  doctorUserId: number,
+  financialResponsibleId: number | null,
+  doctorAmt: number | null,
+  systemAmt: number | null
+) {
+  const db = await getDb();
+  if (!db) return;
+
+  // Doctor summary
+  const doctorAmtStr = String(doctorAmt ?? 0);
+  const isPendingDoctor = doctorAmt === null ? 1 : 0;
+
+  await db.insert(billing_cycle_doctor_summary).values({
+    doctor_cycle_id: doctorCycleId,
+    unit_id: unitId,
+    doctor_user_id: doctorUserId,
+    financial_responsible_id: financialResponsibleId,
+    visits_count: 1,
+    amount_due: doctorAmtStr,
+    pending_pricing_count: isPendingDoctor,
+  }).onDuplicateKeyUpdate({
+    set: {
+      visits_count: drizzleSql`visits_count + 1`,
+      amount_due: drizzleSql`amount_due + ${doctorAmtStr}`,
+      pending_pricing_count: drizzleSql`pending_pricing_count + ${isPendingDoctor}`,
+    },
+  });
+
+  // System summary
+  const systemAmtStr = String(systemAmt ?? 0);
+  const isPendingSystem = systemAmt === null ? 1 : 0;
+
+  await db.insert(billing_cycle_system_summary).values({
+    system_cycle_id: systemCycleId,
+    unit_id: unitId,
+    financial_responsible_id: financialResponsibleId,
+    visits_count: 1,
+    amount_due: systemAmtStr,
+    pending_pricing_count: isPendingSystem,
+  }).onDuplicateKeyUpdate({
+    set: {
+      visits_count: drizzleSql`visits_count + 1`,
+      amount_due: drizzleSql`amount_due + ${systemAmtStr}`,
+      pending_pricing_count: drizzleSql`pending_pricing_count + ${isPendingSystem}`,
+    },
+  });
+
+  // Atualiza totais do ciclo
+  await db.update(billing_cycles).set({
+    total_visits: drizzleSql`total_visits + 1`,
+    total_amount: drizzleSql`total_amount + ${doctorAmtStr}`,
+  }).where(eq(billing_cycles.id, doctorCycleId));
+
+  await db.update(billing_cycles).set({
+    total_visits: drizzleSql`total_visits + 1`,
+    total_amount: drizzleSql`total_amount + ${systemAmtStr}`,
+  }).where(eq(billing_cycles.id, systemCycleId));
+}
+
+/**
+ * Retorna o resumo financeiro do médico logado:
+ * ciclo atual por unidade + histórico de ciclos fechados.
+ */
+export async function getDoctorFinancialSummary(doctorUserId: number) {
+  const db = await getDb();
+  if (!db) return { currentCycles: [], history: [] };
+
+  // Ciclos abertos do médico
+  const currentCycles = await db.select({
+    summary: billing_cycle_doctor_summary,
+    cycle: billing_cycles,
+  }).from(billing_cycle_doctor_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .where(
+      and(
+        eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
+        eq(billing_cycles.status, "open"),
+      )
+    );
+
+  // Histórico de ciclos fechados
+  const history = await db.select({
+    summary: billing_cycle_doctor_summary,
+    cycle: billing_cycles,
+  }).from(billing_cycle_doctor_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .where(
+      and(
+        eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
+        eq(billing_cycles.status, "closed"),
+      )
+    )
+    .orderBy(desc(billing_cycles.ends_at))
+    .limit(24);
+
+  return { currentCycles, history };
+}
+
+/**
+ * Retorna os eventos de visita de um médico em um ciclo específico.
+ */
+export async function getDoctorCycleEvents(doctorUserId: number, doctorCycleId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(billing_visit_events).where(
+    and(
+      eq(billing_visit_events.doctor_user_id, doctorUserId),
+      eq(billing_visit_events.doctor_cycle_id, doctorCycleId),
+    )
+  ).orderBy(desc(billing_visit_events.createdAt));
+}
+
+/**
+ * Médico sinaliza que recebeu o valor de um ciclo/unidade.
+ */
+export async function markDoctorCycleReceived(
+  doctorCycleId: number,
+  unitId: number,
+  doctorUserId: number,
+  receivedBy: number
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(billing_cycle_doctor_summary).set({
+    received_at: new Date(),
+    received_by: receivedBy,
+  }).where(
+    and(
+      eq(billing_cycle_doctor_summary.doctor_cycle_id, doctorCycleId),
+      eq(billing_cycle_doctor_summary.unit_id, unitId),
+      eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
+    )
+  );
+}
+
+/**
+ * Retorna o resumo financeiro do responsável:
+ * ciclos abertos por unidade + totais.
+ */
+export async function getResponsibleCycleSummary(financialResponsibleId: number) {
+  const db = await getDb();
+  if (!db) return { systemCycles: [], doctorCycles: [] };
+
+  const systemCycles = await db.select({
+    summary: billing_cycle_system_summary,
+    cycle: billing_cycles,
+  }).from(billing_cycle_system_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_system_summary.system_cycle_id, billing_cycles.id))
+    .where(eq(billing_cycle_system_summary.financial_responsible_id, financialResponsibleId));
+
+  const doctorCycles = await db.select({
+    summary: billing_cycle_doctor_summary,
+    cycle: billing_cycles,
+  }).from(billing_cycle_doctor_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .where(eq(billing_cycle_doctor_summary.financial_responsible_id, financialResponsibleId));
+
+  return { systemCycles, doctorCycles };
+}
+
+/**
+ * Retorna info financeira discreta para o seletor de unidades:
+ * valor/laudo do médico e acumulado no ciclo atual.
+ */
+export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const now = new Date();
+  const refDateStr = now.toISOString().slice(0, 10);
+
+  // Ciclo ativo do médico nessa unidade
+  const activeCycle = await db.select().from(billing_cycles).where(
+    and(
+      eq(billing_cycles.unit_id, unitId),
+      eq(billing_cycles.cycle_type, "doctor"),
+      eq(billing_cycles.status, "open"),
+      drizzleSql`${billing_cycles.starts_at} <= ${refDateStr}`,
+      drizzleSql`${billing_cycles.ends_at} >= ${refDateStr}`,
+    )
+  ).limit(1);
+
+  if (activeCycle.length === 0) return { price_per_report: null, cycle_visits: 0, cycle_amount: "0.00", cycle_period: null };
+
+  const cycle = activeCycle[0];
+
+  const summary = await db.select().from(billing_cycle_doctor_summary).where(
+    and(
+      eq(billing_cycle_doctor_summary.doctor_cycle_id, cycle.id),
+      eq(billing_cycle_doctor_summary.unit_id, unitId),
+      eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
+    )
+  ).limit(1);
+
+  // Busca preço ativo do médico
+  const responsible = await getActiveResponsibleForUnit(unitId, now);
+  const doctorPrice = responsible
+    ? await getActiveDoctorPrice(responsible.id, unitId, doctorUserId, now)
+    : null;
+
+  return {
+    price_per_report: doctorPrice?.price_per_report ?? null,
+    cycle_visits: summary[0]?.visits_count ?? 0,
+    cycle_amount: summary[0]?.amount_due ?? "0.00",
+    cycle_period: { starts_at: cycle.starts_at, ends_at: cycle.ends_at },
+  };
+}
+
+/**
+ * Fecha um ciclo manualmente (admin_master).
+ */
+export async function closeBillingCycle(cycleId: number, closedBy: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(billing_cycles).set({
+    status: "closed",
+    closedAt: new Date(),
+    closedBy,
+  }).where(eq(billing_cycles.id, cycleId));
+}
+
+/**
+ * Lista todos os ciclos de uma unidade.
+ */
+export async function listUnitCycles(unitId: number, cycleType?: "doctor" | "system") {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(billing_cycles.unit_id, unitId)];
+  if (cycleType) conditions.push(eq(billing_cycles.cycle_type, cycleType));
+  return await db.select().from(billing_cycles)
+    .where(and(...conditions))
+    .orderBy(desc(billing_cycles.starts_at));
 }

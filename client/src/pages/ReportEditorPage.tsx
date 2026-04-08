@@ -171,6 +171,7 @@ export default function ReportEditorPage() {
   const createReport = trpc.reports.create.useMutation();
   const updateReport = trpc.reports.update.useMutation();
   const signReport = trpc.reports.sign.useMutation();
+  const createVisitEvent = trpc.billing.createVisitEvent.useMutation();
   const reviseReport = trpc.reports.revise.useMutation();
   const deleteReport = trpc.reports.delete.useMutation();
 
@@ -339,12 +340,27 @@ export default function ReportEditorPage() {
       }
       // Agora assinar
       await signReport.mutateAsync({ id: reportId });
+
+      // Registrar evento financeiro por visita (deduplicado automaticamente pelo visit_key)
+      // Falha silenciosa: não impede a assinatura se o billing falhar
+      try {
+        if (studyInfo?.unitId && studyInfo.unitId > 0 && reportId) {
+          await createVisitEvent.mutateAsync({
+            report_id: reportId,
+            study_instance_uid: studyUid || undefined,
+            unit_id: studyInfo.unitId,
+            patient_name: studyInfo.patientName || undefined,
+            study_date: studyInfo.studyDate || undefined,
+          });
+        }
+      } catch { /* billing não bloqueia assinatura */ }
+
       toast.success("Laudo assinado com sucesso!");
       navigate("/");
     } catch (e: any) {
       toast.error(e.message || "Erro ao assinar");
     }
-  }, [existingReport, studyUid, createReport, updateReport, signReport, navigate, collectBody]);
+  }, [existingReport, studyUid, studyInfo, createReport, updateReport, signReport, createVisitEvent, navigate, collectBody]);
 
   // ── Retificar laudo assinado ─────────────────────────────────────────────
   const handleRevise = useCallback(async () => {

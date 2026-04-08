@@ -497,3 +497,126 @@ export const billing_monthly_doctor_by_unit = mysqlTable("billing_monthly_doctor
 }));
 export type BillingMonthlyDoctorByUnit = typeof billing_monthly_doctor_by_unit.$inferSelect;
 export type InsertBillingMonthlyDoctorByUnit = typeof billing_monthly_doctor_by_unit.$inferInsert;
+
+
+/**
+ * billing_cycle_configs — Configuração do ciclo financeiro por unidade
+ * O root define o dia de fechamento para médicos e para o sistema separadamente.
+ * Exemplo: médicos fecham todo dia 20, sistema fecha todo dia 1.
+ */
+export const billing_cycle_configs = mysqlTable("billing_cycle_configs", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  /** Dia do mês em que o ciclo dos médicos fecha (1-28) */
+  doctor_cycle_day: int("doctor_cycle_day").notNull().default(1),
+  /** Dia do mês em que o ciclo do sistema fecha (1-28) */
+  system_cycle_day: int("system_cycle_day").notNull().default(1),
+  is_active: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  created_by: int("created_by"),
+}, (t) => ({
+  uq_unit_config: uniqueIndex("uq_unit_config").on(t.unit_id),
+}));
+export type BillingCycleConfig = typeof billing_cycle_configs.$inferSelect;
+export type InsertBillingCycleConfig = typeof billing_cycle_configs.$inferInsert;
+
+/**
+ * billing_cycles — Ciclos financeiros abertos/fechados por unidade e tipo
+ * cycle_type: 'doctor' (pagamento ao médico) | 'system' (pagamento ao sistema)
+ */
+export const billing_cycles = mysqlTable("billing_cycles", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  financial_responsible_id: int("financial_responsible_id"),
+  cycle_type: mysqlEnum("cycle_type", ["doctor", "system"]).notNull(),
+  starts_at: date("starts_at").notNull(),
+  ends_at: date("ends_at").notNull(),
+  status: mysqlEnum("status", ["open", "closed"]).notNull().default("open"),
+  total_visits: int("total_visits").notNull().default(0),
+  total_amount: decimal("total_amount", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  closedAt: timestamp("closedAt"),
+  closedBy: int("closedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uq_cycle: uniqueIndex("uq_cycle").on(t.unit_id, t.cycle_type, t.starts_at),
+}));
+export type BillingCycle = typeof billing_cycles.$inferSelect;
+export type InsertBillingCycle = typeof billing_cycles.$inferInsert;
+
+/**
+ * billing_visit_events — Evento financeiro por visita (paciente + data + unidade)
+ * Um evento por visita, independente do número de exames.
+ * Chave de deduplicação: patient_name + study_date + unit_id + doctor_user_id
+ */
+export const billing_visit_events = mysqlTable("billing_visit_events", {
+  id: int("id").autoincrement().primaryKey(),
+  report_id: int("report_id").notNull(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }),
+  unit_id: int("unit_id").notNull(),
+  doctor_user_id: int("doctor_user_id").notNull(),
+  financial_responsible_id: int("financial_responsible_id"),
+  /** Chave de deduplicação: patient_name|study_date|unit_id|doctor_user_id */
+  visit_key: varchar("visit_key", { length: 300 }).notNull(),
+  patient_name: varchar("patient_name", { length: 200 }),
+  study_date: date("study_date"),
+  doctor_cycle_id: int("doctor_cycle_id"),
+  system_cycle_id: int("system_cycle_id"),
+  system_price_applied: decimal("system_price_applied", { precision: 10, scale: 2 }),
+  doctor_price_applied: decimal("doctor_price_applied", { precision: 10, scale: 2 }),
+  system_amount_due: decimal("system_amount_due", { precision: 10, scale: 2 }),
+  doctor_amount_due: decimal("doctor_amount_due", { precision: 10, scale: 2 }),
+  pricing_status: mysqlEnum("pricing_status", ["ok", "pending_system_price", "pending_doctor_price", "pending_both"]).notNull().default("pending_both"),
+  doctor_received_at: timestamp("doctor_received_at"),
+  system_paid_at: timestamp("system_paid_at"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uq_visit_event: uniqueIndex("uq_visit_event").on(t.visit_key),
+}));
+export type BillingVisitEvent = typeof billing_visit_events.$inferSelect;
+export type InsertBillingVisitEvent = typeof billing_visit_events.$inferInsert;
+
+/**
+ * billing_cycle_doctor_summary — Consolidado do médico por ciclo e unidade
+ */
+export const billing_cycle_doctor_summary = mysqlTable("billing_cycle_doctor_summary", {
+  id: int("id").autoincrement().primaryKey(),
+  doctor_cycle_id: int("doctor_cycle_id").notNull(),
+  unit_id: int("unit_id").notNull(),
+  doctor_user_id: int("doctor_user_id").notNull(),
+  financial_responsible_id: int("financial_responsible_id"),
+  visits_count: int("visits_count").notNull().default(0),
+  amount_due: decimal("amount_due", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  pending_pricing_count: int("pending_pricing_count").notNull().default(0),
+  received_at: timestamp("received_at"),
+  received_by: int("received_by"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uq_cycle_doc_unit: uniqueIndex("uq_cycle_doc_unit").on(t.doctor_cycle_id, t.unit_id, t.doctor_user_id),
+}));
+export type BillingCycleDoctorSummary = typeof billing_cycle_doctor_summary.$inferSelect;
+export type InsertBillingCycleDoctorSummary = typeof billing_cycle_doctor_summary.$inferInsert;
+
+/**
+ * billing_cycle_system_summary — Consolidado do sistema por ciclo e unidade
+ */
+export const billing_cycle_system_summary = mysqlTable("billing_cycle_system_summary", {
+  id: int("id").autoincrement().primaryKey(),
+  system_cycle_id: int("system_cycle_id").notNull(),
+  unit_id: int("unit_id").notNull(),
+  financial_responsible_id: int("financial_responsible_id"),
+  visits_count: int("visits_count").notNull().default(0),
+  amount_due: decimal("amount_due", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  pending_pricing_count: int("pending_pricing_count").notNull().default(0),
+  paid_at: timestamp("paid_at"),
+  paid_by: int("paid_by"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uq_cycle_sys_unit: uniqueIndex("uq_cycle_sys_unit").on(t.system_cycle_id, t.unit_id),
+}));
+export type BillingCycleSystemSummary = typeof billing_cycle_system_summary.$inferSelect;
+export type InsertBillingCycleSystemSummary = typeof billing_cycle_system_summary.$inferInsert;

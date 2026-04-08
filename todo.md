@@ -801,3 +801,55 @@
 - [x] Proteger recalculateMonthlyConsolidates: não atualizar consolidado fechado
 - [x] Corrigir BillingUnitPage: coluna Médicos deve somar todos os doctorSummary da mesma unit_id
 - [x] Melhorar retorno do getResponsibleSummary: total_system_overall, total_doctor_overall, total_reports_overall, system_by_unit[], doctor_by_unit[], doctor_by_unit_and_doctor[]
+
+## MÓDULO FINANCEIRO OPERACIONAL V3 (modulo_financeiro_frontend.txt)
+
+### Fase 1 — Schema e Migration
+- [x] Criar tabela billing_cycle_configs (unit_id, cycle_day_start, system_cycle_day_start, is_active)
+- [x] Criar tabela billing_cycles (unit_id, cycle_type: system|doctor, starts_at, ends_at, status: open|closed)
+- [x] Ajustar billing_report_items: adicionar visit_key (patient_name+study_date) para deduplicação por visita
+- [x] Adicionar campo received_at e received_by em billing_monthly_doctor_by_unit (marcar recebimento)
+
+### Fase 2 — Backend
+- [x] Helper: getOrCreateActiveCycle(unit_id, cycle_type, date) — retorna ciclo ativo ou cria novo
+- [x] Helper: createBillingEventForVisit(report_id, unit_id, doctor_user_id, patient_name, study_date) — deduplicação por visita
+- [x] Helper: getDoctorFinancialSummary(doctor_user_id) — ciclo atual por unidade + histórico
+- [x] Helper: markCycleItemReceived(cycle_id, doctor_user_id, unit_id) — médico sinaliza recebimento
+- [x] Procedure: billing.getCycleConfig — configuração de ciclo por unidade
+- [x] Procedure: billing.setCycleConfig — root define dia de fechamento por unidade
+- [x] Procedure: billing.getDoctorProduction — produção do médico logado
+- [x] Procedure: billing.markReceived — médico sinaliza valor recebido
+- [x] Procedure: billing.getUnitFinancialInfo — info discreta para seletor de unidades
+
+### Fase 3 — Integração ao fluxo de assinatura
+- [x] Em ReportEditorPage: ao assinar laudo, chamar billing.createBillingEvent automaticamente
+- [x] Deduplicação: mesmo patient_name + study_date na mesma unidade = 1 evento financeiro
+
+### Fase 4 — BillingDoctorPage redesenhada
+- [x] Partir do médico logado (sem seleção manual)
+- [x] Cards: Total do Ciclo, Laudos Válidos, Unidades Ativas, Período do Fechamento
+- [x] Tabela: por unidade (valor/laudo, qtd laudos, total, status recebimento)
+- [x] Extrato detalhado por laudo (paciente, unidade, data, valor, status)
+- [x] Histórico de ciclos fechados com status de recebimento
+- [x] Botão "Marcar como Recebido" por ciclo/unidade
+
+### Fase 5 — BillingUnitPage redesenhada (responsável)
+- [x] Cards: Devo ao Sistema, Devo aos Médicos, Total Geral, Pendências
+- [x] Aba Por Unidade: sistema + médicos + laudos + subtotal por médico
+- [x] Aba Por Médico: total + unidades + laudos + subtotal por unidade
+- [x] Aba Extrato: laudo + unidade + médico + valor sistema + valor médico + data + status
+- [x] Histórico de ciclos com status
+
+### Fase 6 — BillingAdminPage redesenhada (governança)
+- [x] Configurar dia de fechamento de ciclo por unidade (sistema e médico podem ser diferentes)
+- [x] Painel de pendências: unidades sem preço, responsáveis sem vínculo, laudos sem preço
+- [x] Recalcular competência por unidade
+- [x] Fechar ciclo manualmente
+
+### Fase 7 — Info financeira discreta no PacsQueryPage
+- [x] Ao lado de cada unidade no seletor: valor/laudo e saldo parcial do médico no ciclo atual
+- [x] Bloco contextual ao entrar na unidade: valor/laudo, laudos no ciclo, acumulado, período
+
+### Controle de acesso
+- [x] Módulo financeiro visível apenas para: medico, responsavel_financeiro, admin_master, unit_admin
+- [x] Ocultar para: operador, viewer

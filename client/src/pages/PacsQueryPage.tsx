@@ -72,6 +72,39 @@ function formatSex(sex: string): string {
   return sex;
 }
 
+/** Componente: Banner financeiro discreto para médicos e responsáveis */
+function FinancialBanner({ unitId, userRole }: { unitId: number; userRole: string }) {
+  const { data: info } = trpc.billing.getUnitFinancialInfo.useQuery(
+    { unit_id: unitId },
+    { staleTime: 60_000 }
+  );
+
+  if (!info) return null;
+
+  const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+  const amount = parseFloat(info.cycle_amount ?? '0');
+  const visits = info.cycle_visits ?? 0;
+  const endsAt = info.cycle_period?.ends_at;
+
+  if (userRole === 'medico') {
+    return (
+      <div className="bg-emerald-50 border-b border-emerald-200 px-5 py-1.5 flex items-center gap-4 text-xs text-emerald-800">
+        <span className="font-semibold">Ciclo atual:</span>
+        <span>Laudos: <strong>{visits}</strong></span>
+        <span>A receber: <strong className="text-emerald-700">{fmtBRL(amount)}</strong></span>
+        {info.price_per_report && (
+          <span className="text-emerald-600">R$ {info.price_per_report}/laudo</span>
+        )}
+        {endsAt && (
+          <span className="text-emerald-600">Fecha em: {new Date(endsAt).toLocaleDateString('pt-BR')}</span>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
+
 /** Ordena estudos do mais recente para o mais antigo */
 function sortByDateDesc(studies: any[]): any[] {
   return [...studies].sort((a, b) => {
@@ -1020,6 +1053,11 @@ export function PacsQueryPage() {
           </>
         }
       />
+
+      {/* ── BLOCO FINANCEIRO DISCRETO ── */}
+      {(userRole === 'medico' || userRole === 'responsavel_financeiro') && effectiveUnitId && (
+        <FinancialBanner unitId={effectiveUnitId} userRole={userRole} />
+      )}
 
       {/* ── FILTROS ── */}
       <div className="bg-white border-b border-gray-200 px-5 py-2.5 flex items-center gap-3 shrink-0">

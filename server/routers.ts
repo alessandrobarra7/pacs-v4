@@ -2150,19 +2150,45 @@ export const appRouter = router({
       }),
 
     getResponsibleSummary: protectedProcedure
-      .input(z.object({ financialResponsibleId: z.number(), year: z.number(), month: z.number() }))
-      .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master') {
-          const { getResponsibleIdForUser } = await import('./db');
-          const respId = await getResponsibleIdForUser(ctx.user.id);
-          if (respId !== input.financialResponsibleId) throw new TRPCError({ code: 'FORBIDDEN' });
+      .query(async ({ ctx }) => {
+        const ALLOWED = ['responsavel_financeiro', 'unit_admin', 'admin_master'];
+        if (!ALLOWED.includes(ctx.user.role)) throw new TRPCError({ code: 'FORBIDDEN' });
+        const { getResponsibleIdForUser, getResponsibleCycleSummary } = await import('./db');
+        const respId = await getResponsibleIdForUser(ctx.user.id);
+        if (!respId) return { byUnit: [], byDoctor: [] };
+        const { systemCycles, doctorCycles } = await getResponsibleCycleSummary(respId);
+        // Agregar por unidade
+        const byUnitMap = new Map<number, { unit_id: number; visits_count: number; system_amount_due: number; doctor_amount_due: number; cycle?: object }>();
+        for (const row of systemCycles) {
+          const uid = row.summary.unit_id;
+          const existing = byUnitMap.get(uid) ?? { unit_id: uid, visits_count: 0, system_amount_due: 0, doctor_amount_due: 0, cycle: row.cycle };
+          existing.visits_count += row.summary.visits_count ?? 0;
+          existing.system_amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
+          byUnitMap.set(uid, existing);
         }
-        const { getMonthlySystemSummary, getMonthlyDoctorSummary } = await import('./db');
-        const [systemSummary, doctorSummary] = await Promise.all([
-          getMonthlySystemSummary(input.financialResponsibleId, input.year, input.month),
-          getMonthlyDoctorSummary(input.financialResponsibleId, input.year, input.month),
-        ]);
-        return { systemSummary, doctorSummary };
+        for (const row of doctorCycles) {
+          const uid = row.summary.unit_id;
+          const existing = byUnitMap.get(uid) ?? { unit_id: uid, visits_count: 0, system_amount_due: 0, doctor_amount_due: 0 };
+          existing.doctor_amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
+          byUnitMap.set(uid, existing);
+        }
+        const byUnit = Array.from(byUnitMap.values()).map(r => ({
+          ...r,
+          system_amount_due: r.system_amount_due.toFixed(2),
+          doctor_amount_due: r.doctor_amount_due.toFixed(2),
+        }));
+        // Agregar por médico
+        type DRow = { unit_id: number; doctor_user_id: number; visits_count: number; amount_due: number };
+        const byDoctorMap = new Map<string, DRow>();
+        for (const row of doctorCycles) {
+          const key = `${row.summary.unit_id}-${row.summary.doctor_user_id}`;
+          const existing = byDoctorMap.get(key) ?? { unit_id: row.summary.unit_id, doctor_user_id: row.summary.doctor_user_id, visits_count: 0, amount_due: 0 };
+          existing.visits_count += row.summary.visits_count ?? 0;
+          existing.amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
+          byDoctorMap.set(key, existing);
+        }
+        const byDoctor = Array.from(byDoctorMap.values()).map(r => ({ ...r, amount_due: r.amount_due.toFixed(2) }));
+        return { byUnit, byDoctor };
       }),
 
     getDoctorSummary: protectedProcedure
@@ -2184,6 +2210,131 @@ export const appRouter = router({
         const respId = await getResponsibleIdForUser(ctx.user.id);
         if (!respId) return null;
         return await getFinancialResponsibleById(respId) ?? null;
+      }),
+
+    // ─── V3 Operacional: Ciclos Financeiros ──────────────────────────────────
+
+    getCycleConfig: protectedProcedure
+      .input(z.object({ unit_id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'responsavel_financeiro' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { getCycleConfig } = await import('./db');
+        return await getCycleConfig(input.unit_id);
+      }),
+
+    setCycleConfig: protectedProcedure
+      .input(z.object({
+        unit_id: z.number(),
+        doctor_cycle_day: z.number().min(1).max(28),
+        system_cycle_day: z.number().min(1).max(28),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { upsertCycleConfig } = await import('./db');
+        await upsertCycleConfig({ ...input, created_by: ctx.user.id });
+        return { success: true };
+      }),
+
+    createVisitEvent: protectedProcedure
+      .input(z.object({
+        report_id: z.number(),
+        study_instance_uid: z.string().optional(),
+        unit_id: z.number(),
+        patient_name: z.string().optional(),
+        study_date: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { createBillingVisitEvent } = await import('./db');
+        return await createBillingVisitEvent({
+          ...input,
+          doctor_user_id: ctx.user.id, // sempre o médico logado
+          signed_at: new Date(),
+        });
+      }),
+
+    getDoctorProduction: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { getDoctorFinancialSummary } = await import('./db');
+        return await getDoctorFinancialSummary(ctx.user.id);
+      }),
+
+    getDoctorCycleEvents: protectedProcedure
+      .input(z.object({ doctor_cycle_id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { getDoctorCycleEvents } = await import('./db');
+        return await getDoctorCycleEvents(ctx.user.id, input.doctor_cycle_id);
+      }),
+
+    markReceived: protectedProcedure
+      .input(z.object({
+        doctor_cycle_id: z.number(),
+        unit_id: z.number(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { markDoctorCycleReceived } = await import('./db');
+        await markDoctorCycleReceived(input.doctor_cycle_id, input.unit_id, ctx.user.id, ctx.user.id);
+        return { success: true };
+      }),
+
+    getResponsibleCycles: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== 'responsavel_financeiro' && ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { getResponsibleIdForUser, getResponsibleCycleSummary } = await import('./db');
+        const respId = await getResponsibleIdForUser(ctx.user.id);
+        if (!respId) return { systemCycles: [], doctorCycles: [] };
+        return await getResponsibleCycleSummary(respId);
+      }),
+
+    getUnitFinancialInfo: protectedProcedure
+      .input(z.object({ unit_id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
+          return null;
+        }
+        const { getDoctorUnitFinancialInfo } = await import('./db');
+        return await getDoctorUnitFinancialInfo(ctx.user.id, input.unit_id);
+      }),
+
+    closeCycle: protectedProcedure
+      .input(z.object({ cycle_id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { closeBillingCycle } = await import('./db');
+        await closeBillingCycle(input.cycle_id, ctx.user.id);
+        return { success: true };
+      }),
+
+    listUnitCycles: protectedProcedure
+      .input(z.object({
+        unit_id: z.number(),
+        cycle_type: z.enum(['doctor', 'system']).optional(),
+      }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'responsavel_financeiro' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { listUnitCycles } = await import('./db');
+        return await listUnitCycles(input.unit_id, input.cycle_type);
       }),
   }),
 });
