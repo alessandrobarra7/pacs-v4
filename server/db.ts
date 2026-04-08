@@ -812,10 +812,23 @@ export async function listUsersForResponsible(financialResponsibleId: number): P
 }
 
 // ─── Vínculos Unidade → Responsável ──────────────────────────────────────────
-
 export async function linkUnitToResponsible(financialResponsibleId: number, unitId: number, startsAt: Date, endsAt?: Date, createdBy?: number): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const { and, eq, isNull, or, gte } = await import("drizzle-orm");
+
+  // Encerrar automaticamente qualquer vigência ativa anterior para essa unidade
+  const existing = await getActiveResponsibleForUnit(unitId, startsAt);
+  if (existing) {
+    // Fechar a vigência anterior na data de início da nova
+    const endDate = new Date(startsAt.getTime() - 1000); // 1 segundo antes
+    await db.update(financial_responsible_units)
+      .set({ ends_at: endDate })
+      .where(and(
+        eq(financial_responsible_units.id, existing.id)
+      ));
+  }
+
   await db.insert(financial_responsible_units).values({
     financial_responsible_id: financialResponsibleId,
     unit_id: unitId,
@@ -828,15 +841,17 @@ export async function linkUnitToResponsible(financialResponsibleId: number, unit
 export async function getActiveResponsibleForUnit(unitId: number, atDate?: Date): Promise<FinancialResponsibleUnit | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq, isNull, or, lte } = await import("drizzle-orm");
+  const { and, eq, isNull, or, lte, gte, desc } = await import("drizzle-orm");
   const at = atDate ?? new Date();
+  // Regra correta: starts_at <= data E (ends_at IS NULL OU ends_at >= data)
+  // Ordenar starts_at DESC para pegar a vigência mais recente
   const rows = await db.select().from(financial_responsible_units)
     .where(and(
       eq(financial_responsible_units.unit_id, unitId),
       lte(financial_responsible_units.starts_at, at),
-      or(isNull(financial_responsible_units.ends_at), lte(financial_responsible_units.ends_at as any, at))
+      or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, at))
     ))
-    .orderBy(financial_responsible_units.starts_at)
+    .orderBy(desc(financial_responsible_units.starts_at))
     .limit(1);
   return rows[0];
 }
@@ -854,16 +869,18 @@ export async function listUnitsForResponsible(financialResponsibleId: number): P
 export async function getActiveSystemPrice(financialResponsibleId: number, unitId: number, atDate?: Date): Promise<BillingSystemUnitPrice | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq, isNull, or, lte } = await import("drizzle-orm");
+  const { and, eq, isNull, or, lte, gte, desc } = await import("drizzle-orm");
   const at = atDate ?? new Date();
+  // Regra correta: starts_at <= data E (ends_at IS NULL OU ends_at >= data)
+  // Ordenar starts_at DESC para pegar a vigência mais recente
   const rows = await db.select().from(billing_system_unit_prices)
     .where(and(
       eq(billing_system_unit_prices.financial_responsible_id, financialResponsibleId),
       eq(billing_system_unit_prices.unit_id, unitId),
       lte(billing_system_unit_prices.starts_at, at),
-      or(isNull(billing_system_unit_prices.ends_at), lte(billing_system_unit_prices.ends_at as any, at))
+      or(isNull(billing_system_unit_prices.ends_at), gte(billing_system_unit_prices.ends_at as any, at))
     ))
-    .orderBy(billing_system_unit_prices.starts_at)
+    .orderBy(desc(billing_system_unit_prices.starts_at))
     .limit(1);
   return rows[0];
 }
@@ -890,6 +907,17 @@ export async function upsertSystemUnitPrice(data: {
 }): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const { and, eq } = await import("drizzle-orm");
+
+  // Encerrar automaticamente qualquer preço ativo anterior para esse responsável/unidade
+  const existing = await getActiveSystemPrice(data.financial_responsible_id, data.unit_id, data.starts_at);
+  if (existing) {
+    const endDate = new Date(data.starts_at.getTime() - 1000);
+    await db.update(billing_system_unit_prices)
+      .set({ ends_at: endDate })
+      .where(eq(billing_system_unit_prices.id, existing.id));
+  }
+
   const result = await db.insert(billing_system_unit_prices).values(data);
   return (result[0] as any).insertId as number;
 }
@@ -899,17 +927,19 @@ export async function upsertSystemUnitPrice(data: {
 export async function getActiveDoctorPrice(financialResponsibleId: number, unitId: number, doctorUserId: number, atDate?: Date): Promise<BillingDoctorUnitPrice | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq, isNull, or, lte } = await import("drizzle-orm");
+  const { and, eq, isNull, or, lte, gte, desc } = await import("drizzle-orm");
   const at = atDate ?? new Date();
+  // Regra correta: starts_at <= data E (ends_at IS NULL OU ends_at >= data)
+  // Ordenar starts_at DESC para pegar a vigência mais recente
   const rows = await db.select().from(billing_doctor_unit_prices)
     .where(and(
       eq(billing_doctor_unit_prices.financial_responsible_id, financialResponsibleId),
       eq(billing_doctor_unit_prices.unit_id, unitId),
       eq(billing_doctor_unit_prices.doctor_user_id, doctorUserId),
       lte(billing_doctor_unit_prices.starts_at, at),
-      or(isNull(billing_doctor_unit_prices.ends_at), lte(billing_doctor_unit_prices.ends_at as any, at))
+      or(isNull(billing_doctor_unit_prices.ends_at), gte(billing_doctor_unit_prices.ends_at as any, at))
     ))
-    .orderBy(billing_doctor_unit_prices.starts_at)
+    .orderBy(desc(billing_doctor_unit_prices.starts_at))
     .limit(1);
   return rows[0];
 }
@@ -937,6 +967,17 @@ export async function upsertDoctorUnitPrice(data: {
 }): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const { eq } = await import("drizzle-orm");
+
+  // Encerrar automaticamente qualquer preço ativo anterior para esse responsável/unidade/médico
+  const existing = await getActiveDoctorPrice(data.financial_responsible_id, data.unit_id, data.doctor_user_id, data.starts_at);
+  if (existing) {
+    const endDate = new Date(data.starts_at.getTime() - 1000);
+    await db.update(billing_doctor_unit_prices)
+      .set({ ends_at: endDate })
+      .where(eq(billing_doctor_unit_prices.id, existing.id));
+  }
+
   const result = await db.insert(billing_doctor_unit_prices).values(data);
   return (result[0] as any).insertId as number;
 }
@@ -1099,7 +1140,7 @@ export async function calculateCompetence(year: number, month: number, createdBy
     }
   }
 
-  // Recalcular consolidados mensais
+  // Recalcular consolidados mensais (apenas se a competência não estiver fechada)
   await recalculateMonthlyConsolidates(year, month, createdBy);
 
   return { total: periodReports.length, ok, pending, errors };
@@ -1107,11 +1148,12 @@ export async function calculateCompetence(year: number, month: number, createdBy
 
 /**
  * Recalcula os consolidados mensais a partir dos billing_report_items.
+ * Não atualiza consolidados que já estão fechados.
  */
 async function recalculateMonthlyConsolidates(year: number, month: number, closedBy: number): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq } = await import("drizzle-orm");
+  const { and, eq, ne } = await import("drizzle-orm");
 
   const items = await db.select().from(billing_report_items)
     .where(and(
@@ -1141,9 +1183,19 @@ async function recalculateMonthlyConsolidates(year: number, month: number, close
     if (item.pricing_status !== "ok") docEntry.pending++;
   }
 
-  // Upsert billing_monthly_system_by_unit
+  // Upsert billing_monthly_system_by_unit (apenas se não estiver fechado)
   for (const [, v] of Array.from(sysMap)) {
     if (!v.responsible) continue;
+    // Verificar se já existe e está fechado
+    const existingSys = await db.select().from(billing_monthly_system_by_unit)
+      .where(and(
+        eq(billing_monthly_system_by_unit.financial_responsible_id, v.responsible),
+        eq(billing_monthly_system_by_unit.unit_id, v.unit),
+        eq(billing_monthly_system_by_unit.competence_year, year),
+        eq(billing_monthly_system_by_unit.competence_month, month),
+      )).limit(1);
+    if (existingSys[0]?.status === "closed") continue; // Não atualizar competencia fechada
+
     await db.insert(billing_monthly_system_by_unit).values({
       financial_responsible_id: v.responsible,
       unit_id: v.unit,
@@ -1162,9 +1214,20 @@ async function recalculateMonthlyConsolidates(year: number, month: number, close
     });
   }
 
-  // Upsert billing_monthly_doctor_by_unit
+  // Upsert billing_monthly_doctor_by_unit (apenas se não estiver fechado)
   for (const [, v] of Array.from(docMap)) {
     if (!v.responsible) continue;
+    // Verificar se já existe e está fechado
+    const existingDoc = await db.select().from(billing_monthly_doctor_by_unit)
+      .where(and(
+        eq(billing_monthly_doctor_by_unit.financial_responsible_id, v.responsible),
+        eq(billing_monthly_doctor_by_unit.unit_id, v.unit),
+        eq(billing_monthly_doctor_by_unit.doctor_user_id, v.doctor),
+        eq(billing_monthly_doctor_by_unit.competence_year, year),
+        eq(billing_monthly_doctor_by_unit.competence_month, month),
+      )).limit(1);
+    if (existingDoc[0]?.status === "closed") continue; // Não atualizar competencia fechada
+
     await db.insert(billing_monthly_doctor_by_unit).values({
       financial_responsible_id: v.responsible,
       unit_id: v.unit,

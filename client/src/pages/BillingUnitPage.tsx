@@ -96,13 +96,15 @@ export default function BillingUnitPage() {
                 <TableBody>
                   {(responsibleSummary?.systemSummary as any[]).map((row) => {
                     const unit = (allUnits as any[]).find((u) => u.id === row.unit_id);
-                    const docRow = (responsibleSummary?.doctorSummary as any[]).find((d: any) => d.unit_id === row.unit_id);
+                    // Somar todos os médicos da mesma unidade (não apenas o primeiro)
+                    const docRowsForUnit = (responsibleSummary?.doctorSummary as any[]).filter((d: any) => d.unit_id === row.unit_id);
+                    const totalDoctorForUnit = docRowsForUnit.reduce((s: number, d: any) => s + parseFloat(d.amount_due ?? "0"), 0);
                     return (
                       <TableRow key={row.id}>
                         <TableCell className="font-medium">{unit?.name || `Unidade ${row.unit_id}`}</TableCell>
                         <TableCell className="text-right">{row.reports_count}</TableCell>
                         <TableCell className="text-right text-primary font-medium">{fmt(row.amount_due)}</TableCell>
-                        <TableCell className="text-right text-blue-500 font-medium">{fmt(docRow?.amount_due)}</TableCell>
+                        <TableCell className="text-right text-blue-500 font-medium">{fmt(totalDoctorForUnit)}</TableCell>
                         <TableCell className="text-right">{row.pending_items_count > 0 ? <Badge variant="destructive">{row.pending_items_count}</Badge> : <Badge variant="outline" className="text-green-600">0</Badge>}</TableCell>
                         <TableCell><Badge variant={row.status === "closed" ? "secondary" : "outline"}>{row.status === "closed" ? "Fechado" : "Aberto"}</Badge></TableCell>
                       </TableRow>
