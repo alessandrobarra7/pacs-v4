@@ -1,6 +1,7 @@
 import { useLocation } from "wouter";
 import { LogOut, Settings } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useCallback } from "react";
 
 const LOGO_URL =
   "https://d2xsxph8kpxj0f.cloudfront.net/310419663028509564/cTdrattvNQ95XCgX9zeyNM/lauds_logo_branco_final_c960f283.png";
@@ -20,14 +21,27 @@ interface AppHeaderProps {
 export function AppHeader({ nav, rightSlot, unitSlot }: AppHeaderProps) {
   const [, navigate] = useLocation();
   const { data: user } = trpc.auth.me.useQuery();
-  const logoutMutation = trpc.auth.logout.useMutation({
-    onSuccess: () => {
+  const utils = trpc.useUtils();
+  const logoutMutation = trpc.auth.logout.useMutation();
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await logoutMutation.mutateAsync();
+    } catch {
+      // ignora erro de rede — o cookie já foi limpo no servidor
+    } finally {
+      // Limpar cache do tRPC (auth.me) ANTES de navegar
+      utils.auth.me.setData(undefined, null);
+      await utils.auth.me.invalidate();
+      // Limpar cache local de resultados PACS
       Object.keys(localStorage)
         .filter((k) => k.startsWith("pacs_query_results"))
         .forEach((k) => localStorage.removeItem(k));
-      navigate("/login");
-    },
-  });
+      // Usar window.location para forçar reload completo da SPA
+      // Isso garante que nenhum estado React residual permaneça
+      window.location.href = "/login";
+    }
+  }, [logoutMutation, utils]);
 
   return (
     <header
@@ -92,7 +106,7 @@ export function AppHeader({ nav, rightSlot, unitSlot }: AppHeaderProps) {
           {rightSlot}
           <span className="text-white/80 text-sm drop-shadow">{user?.name || "Usuário"}</span>
           <button
-            onClick={() => logoutMutation.mutate()}
+            onClick={handleLogout}
             className="p-1.5 rounded text-white/50 hover:text-white hover:bg-white/10 transition-colors"
             title="Sair"
           >

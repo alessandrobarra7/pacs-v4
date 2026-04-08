@@ -36,12 +36,15 @@ export function useAuth(options?: UseAuthOptions) {
         error instanceof TRPCClientError &&
         error.data?.code === "UNAUTHORIZED"
       ) {
-        return;
+        // sessão já inválida, continua o fluxo de logout
+      } else {
+        // ignora outros erros de rede — o cookie já foi limpo no servidor
       }
-      throw error;
     } finally {
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
+      // Forçar reload completo para limpar todo o estado React em memória
+      window.location.href = "/login";
     }
   }, [logoutMutation, utils]);
 

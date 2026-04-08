@@ -886,3 +886,9 @@
 ### Root/Admin — Retaguarda
 - [x] BillingAdminPage V4: cadastro de responsáveis, vínculo unidades, configuração preços, auditoria, fechar ciclos
 - [x] Configurar dia de fechamento por unidade (sistema e médico podem ser diferentes)
+
+## BUG — Logout / Troca de Usuário
+
+- [x] Investigar por que o logout não redireciona para a tela de login
+- [x] Corrigir fluxo: após logout, limpar sessão/cookie e redirecionar para /login
+- [x] Garantir que ao acessar / sem sessão válida, o usuário seja redirecionado para /login
