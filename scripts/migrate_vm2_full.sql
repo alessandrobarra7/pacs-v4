@@ -1,78 +1,160 @@
 -- ============================================================
 -- SCRIPT DE MIGRAÇÃO COMPLETA — VM2 (pacs_portal)
+-- Compatível com MySQL 8.0 (sem ADD COLUMN IF NOT EXISTS)
 -- Gerado em: 2026-04-08
--- Aplica TODAS as alterações pendentes de forma segura (idempotente)
--- Execute na VM2: mysql -u root -p137946 pacs_portal < migrate_vm2_full.sql
+-- Execute: mysql -u root -p137946 pacs_portal < migrate_vm2_full.sql
 -- ============================================================
 
 SET NAMES utf8mb4;
 SET foreign_key_checks = 0;
 
 -- ============================================================
--- BLOCO 1 — Tabela units: colunas novas
+-- BLOCO 1 — units: adicionar logo_url
+-- ============================================================
+DROP PROCEDURE IF EXISTS _add_col;
+DELIMITER //
+CREATE PROCEDURE _add_col()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'units' AND column_name = 'logo_url'
+  ) THEN
+    ALTER TABLE `units` ADD COLUMN `logo_url` TEXT NULL;
+  END IF;
+END //
+DELIMITER ;
+CALL _add_col();
+DROP PROCEDURE IF EXISTS _add_col;
+
+-- ============================================================
+-- BLOCO 2 — users: ENUM + colunas
 -- ============================================================
 
-ALTER TABLE `units`
-  ADD COLUMN IF NOT EXISTS `logo_url` TEXT NULL;
-
--- ============================================================
--- BLOCO 2 — Tabela users: ENUM + colunas novas
--- ============================================================
-
--- Adicionar responsavel_financeiro ao ENUM de role
+-- 2a. Adicionar responsavel_financeiro ao ENUM role
 ALTER TABLE `users`
   MODIFY COLUMN `role` ENUM('admin_master','unit_admin','medico','viewer','operador','responsavel_financeiro') NOT NULL DEFAULT 'viewer';
 
--- Adicionar colunas que podem estar faltando (crm, signature_url, stamp_url já existem — IF NOT EXISTS é seguro)
-ALTER TABLE `users`
-  ADD COLUMN IF NOT EXISTS `crm` VARCHAR(50) NULL,
-  ADD COLUMN IF NOT EXISTS `signature_url` TEXT NULL,
-  ADD COLUMN IF NOT EXISTS `stamp_url` TEXT NULL;
+-- 2b. Corrigir expiration_date de BIGINT para DATE
+DROP PROCEDURE IF EXISTS _fix_expdate;
+DELIMITER //
+CREATE PROCEDURE _fix_expdate()
+BEGIN
+  DECLARE col_type VARCHAR(64);
+  SELECT DATA_TYPE INTO col_type
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'expiration_date';
+  IF col_type = 'bigint' THEN
+    ALTER TABLE `users` MODIFY COLUMN `expiration_date` DATE NULL;
+  END IF;
+END //
+DELIMITER ;
+CALL _fix_expdate();
+DROP PROCEDURE IF EXISTS _fix_expdate;
 
--- Corrigir expiration_date: no schema atual é DATE, não BIGINT
-ALTER TABLE `users`
-  MODIFY COLUMN `expiration_date` DATE NULL;
+-- 2c. crm
+DROP PROCEDURE IF EXISTS _add_col;
+DELIMITER //
+CREATE PROCEDURE _add_col()
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='users' AND column_name='crm') THEN
+    ALTER TABLE `users` ADD COLUMN `crm` VARCHAR(50) NULL;
+  END IF;
+END //
+DELIMITER ;
+CALL _add_col();
+DROP PROCEDURE IF EXISTS _add_col;
+
+-- 2d. signature_url
+DROP PROCEDURE IF EXISTS _add_col;
+DELIMITER //
+CREATE PROCEDURE _add_col()
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='users' AND column_name='signature_url') THEN
+    ALTER TABLE `users` ADD COLUMN `signature_url` TEXT NULL;
+  END IF;
+END //
+DELIMITER ;
+CALL _add_col();
+DROP PROCEDURE IF EXISTS _add_col;
+
+-- 2e. stamp_url
+DROP PROCEDURE IF EXISTS _add_col;
+DELIMITER //
+CREATE PROCEDURE _add_col()
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='users' AND column_name='stamp_url') THEN
+    ALTER TABLE `users` ADD COLUMN `stamp_url` TEXT NULL;
+  END IF;
+END //
+DELIMITER ;
+CALL _add_col();
+DROP PROCEDURE IF EXISTS _add_col;
 
 -- ============================================================
--- BLOCO 3 — Tabela user_unit_permissions: colunas novas
+-- BLOCO 3 — user_unit_permissions: createdAt / updatedAt
 -- ============================================================
-
-ALTER TABLE `user_unit_permissions`
-  ADD COLUMN IF NOT EXISTS `createdAt` TIMESTAMP NOT NULL DEFAULT (now()),
-  ADD COLUMN IF NOT EXISTS `updatedAt` TIMESTAMP NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP;
-
--- ============================================================
--- BLOCO 4 — Tabela templates: colunas novas
--- ============================================================
-
-ALTER TABLE `templates`
-  ADD COLUMN IF NOT EXISTS `owner_user_id` INT NULL,
-  ADD COLUMN IF NOT EXISTS `exam_title` VARCHAR(255) NULL;
-
--- ============================================================
--- BLOCO 5 — Tabela reports: unique index
--- ============================================================
-
--- Adicionar unique index (ignorar se já existir)
-SET @idx_exists = (
-  SELECT COUNT(*)
-  FROM information_schema.statistics
-  WHERE table_schema = DATABASE()
-    AND table_name = 'reports'
-    AND index_name = 'reports_uid_unit_idx'
-);
-SET @sql = IF(@idx_exists = 0,
-  'ALTER TABLE `reports` ADD UNIQUE INDEX `reports_uid_unit_idx` (`study_instance_uid`, `unit_id`)',
-  'SELECT "reports_uid_unit_idx already exists"'
-);
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
+DROP PROCEDURE IF EXISTS _add_col;
+DELIMITER //
+CREATE PROCEDURE _add_col()
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='user_unit_permissions' AND column_name='createdAt') THEN
+    ALTER TABLE `user_unit_permissions`
+      ADD COLUMN `createdAt` TIMESTAMP NOT NULL DEFAULT (now()),
+      ADD COLUMN `updatedAt` TIMESTAMP NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP;
+  END IF;
+END //
+DELIMITER ;
+CALL _add_col();
+DROP PROCEDURE IF EXISTS _add_col;
 
 -- ============================================================
--- BLOCO 6 — Tabela audit_log: atualizar ENUM de action
+-- BLOCO 4 — templates: owner_user_id / exam_title
 -- ============================================================
+DROP PROCEDURE IF EXISTS _add_col;
+DELIMITER //
+CREATE PROCEDURE _add_col()
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='templates' AND column_name='owner_user_id') THEN
+    ALTER TABLE `templates` ADD COLUMN `owner_user_id` INT NULL;
+  END IF;
+END //
+DELIMITER ;
+CALL _add_col();
+DROP PROCEDURE IF EXISTS _add_col;
 
+DROP PROCEDURE IF EXISTS _add_col;
+DELIMITER //
+CREATE PROCEDURE _add_col()
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='templates' AND column_name='exam_title') THEN
+    ALTER TABLE `templates` ADD COLUMN `exam_title` VARCHAR(255) NULL;
+  END IF;
+END //
+DELIMITER ;
+CALL _add_col();
+DROP PROCEDURE IF EXISTS _add_col;
+
+-- ============================================================
+-- BLOCO 5 — reports: unique index reports_uid_unit_idx
+-- ============================================================
+DROP PROCEDURE IF EXISTS _add_idx;
+DELIMITER //
+CREATE PROCEDURE _add_idx()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.statistics
+    WHERE table_schema=DATABASE() AND table_name='reports' AND index_name='reports_uid_unit_idx'
+  ) THEN
+    ALTER TABLE `reports` ADD UNIQUE INDEX `reports_uid_unit_idx` (`study_instance_uid`, `unit_id`);
+  END IF;
+END //
+DELIMITER ;
+CALL _add_idx();
+DROP PROCEDURE IF EXISTS _add_idx;
+
+-- ============================================================
+-- BLOCO 6 — audit_log: atualizar ENUM action
+-- ============================================================
 ALTER TABLE `audit_log`
   MODIFY COLUMN `action` ENUM(
     'LOGIN','LOGOUT','VIEW_STUDY','OPEN_VIEWER',
@@ -84,50 +166,49 @@ ALTER TABLE `audit_log`
   ) NOT NULL;
 
 -- ============================================================
--- BLOCO 7 — Tabela study_metadata: coluna exam_count
+-- BLOCO 7 — study_metadata: exam_count
 -- ============================================================
-
-ALTER TABLE `study_metadata`
-  ADD COLUMN IF NOT EXISTS `exam_count` INT DEFAULT 1;
-
--- ============================================================
--- BLOCO 8 — Tabela report_versions: recriar com schema correto
--- ============================================================
-
--- A tabela existente tem schema antigo (sem coluna version e status)
--- Verificar se a coluna version existe; se não, recriar
-SET @col_exists = (
-  SELECT COUNT(*)
-  FROM information_schema.columns
-  WHERE table_schema = DATABASE()
-    AND table_name = 'report_versions'
-    AND column_name = 'version'
-);
-
-SET @sql2 = IF(@col_exists = 0,
-  'ALTER TABLE `report_versions`
-    ADD COLUMN `version` INT NOT NULL DEFAULT 1 AFTER `report_id`,
-    ADD COLUMN `status` ENUM(''draft'',''signed'',''revised'') NOT NULL DEFAULT ''signed'' AFTER `body`,
-    ADD COLUMN `saved_by_user_id` INT NOT NULL DEFAULT 0 AFTER `reason`,
-    ADD COLUMN `saved_at` TIMESTAMP NOT NULL DEFAULT (now())',
-  'SELECT "report_versions already has version column"'
-);
-PREPARE stmt2 FROM @sql2;
-EXECUTE stmt2;
-DEALLOCATE PREPARE stmt2;
+DROP PROCEDURE IF EXISTS _add_col;
+DELIMITER //
+CREATE PROCEDURE _add_col()
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='study_metadata' AND column_name='exam_count') THEN
+    ALTER TABLE `study_metadata` ADD COLUMN `exam_count` INT DEFAULT 1;
+  END IF;
+END //
+DELIMITER ;
+CALL _add_col();
+DROP PROCEDURE IF EXISTS _add_col;
 
 -- ============================================================
--- BLOCO 9 — Tabelas antigas: remover se existirem
+-- BLOCO 8 — report_versions: colunas novas
 -- ============================================================
+DROP PROCEDURE IF EXISTS _add_col;
+DELIMITER //
+CREATE PROCEDURE _add_col()
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='report_versions' AND column_name='version') THEN
+    ALTER TABLE `report_versions`
+      ADD COLUMN `version` INT NOT NULL DEFAULT 1,
+      ADD COLUMN `status` ENUM('draft','signed','revised') NOT NULL DEFAULT 'signed',
+      ADD COLUMN `saved_by_user_id` INT NOT NULL DEFAULT 0,
+      ADD COLUMN `saved_at` TIMESTAMP NOT NULL DEFAULT (now());
+  END IF;
+END //
+DELIMITER ;
+CALL _add_col();
+DROP PROCEDURE IF EXISTS _add_col;
 
+-- ============================================================
+-- BLOCO 9 — Remover tabelas antigas
+-- ============================================================
 DROP TABLE IF EXISTS `exam_catalog`;
 DROP TABLE IF EXISTS `report_sections`;
 DROP TABLE IF EXISTS `study_labels`;
 
 -- ============================================================
--- BLOCO 10 — Módulo Financeiro V2: criar tabelas novas
+-- BLOCO 10 — Módulo Financeiro V2
 -- ============================================================
-
 CREATE TABLE IF NOT EXISTS `financial_responsibles` (
   `id` INT AUTO_INCREMENT NOT NULL,
   `person_type` ENUM('PF','PJ') NOT NULL DEFAULT 'PJ',
@@ -249,7 +330,6 @@ CREATE TABLE IF NOT EXISTS `billing_monthly_doctor_by_unit` (
 -- ============================================================
 -- BLOCO 11 — Módulo Financeiro V3: ciclos operacionais
 -- ============================================================
-
 CREATE TABLE IF NOT EXISTS `billing_cycle_configs` (
   `id` INT AUTO_INCREMENT PRIMARY KEY NOT NULL,
   `unit_id` INT NOT NULL,
@@ -337,9 +417,7 @@ CREATE TABLE IF NOT EXISTS `billing_cycle_system_summary` (
 -- ============================================================
 -- VERIFICAÇÃO FINAL
 -- ============================================================
-
 SET foreign_key_checks = 1;
-
-SELECT 'Migração concluída!' AS status;
+SELECT 'Migracao concluida com sucesso!' AS status;
 SHOW TABLES;
 SHOW COLUMNS FROM users WHERE Field = 'role';
