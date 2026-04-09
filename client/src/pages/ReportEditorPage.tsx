@@ -168,6 +168,7 @@ export default function ReportEditorPage() {
   );
 
   // Mutations
+  const utils = trpc.useUtils();
   const createReport = trpc.reports.create.useMutation();
   const updateReport = trpc.reports.update.useMutation();
   const signReport = trpc.reports.sign.useMutation();
@@ -341,21 +342,34 @@ export default function ReportEditorPage() {
       // Agora assinar
       await signReport.mutateAsync({ id: reportId });
 
-      // Registrar evento financeiro por visita (deduplicado automaticamente pelo visit_key)
-      // Falha silenciosa: não impede a assinatura se o billing falhar
-      try {
-        if (studyInfo?.unitId && studyInfo.unitId > 0 && reportId) {
-          await createVisitEvent.mutateAsync({
+      // Registrar evento financeiro por laudo (deduplicado automaticamente pelo report_key)
+      if (studyInfo?.unitId && studyInfo.unitId > 0 && reportId) {
+        try {
+          const billingResult = await createVisitEvent.mutateAsync({
             report_id: reportId,
             study_instance_uid: studyUid || undefined,
             unit_id: studyInfo.unitId,
             patient_name: studyInfo.patientName || undefined,
             study_date: studyInfo.studyDate || undefined,
           });
+          // Invalidar queries financeiras para atualizar saldo imediatamente
+          void utils.billing.getUnitFinancialInfo.invalidate();
+          void utils.billing.getDoctorSummary.invalidate();
+          // Toast informativo com valor gerado
+          const amt = billingResult?.doctor_amount_due;
+          if (amt && parseFloat(amt) > 0) {
+            toast.success(`Laudo assinado! +R\$ ${parseFloat(amt).toFixed(2)} adicionados ao saldo`);
+          } else {
+            toast.success("Laudo assinado com sucesso!");
+          }
+        } catch (billingErr: any) {
+          // Billing não bloqueia a assinatura, mas avisa o usuário
+          toast.success("Laudo assinado com sucesso!");
+          toast.warning(`Aviso financeiro: ${billingErr?.message ?? 'evento não registrado'}`);
         }
-      } catch { /* billing não bloqueia assinatura */ }
-
-      toast.success("Laudo assinado com sucesso!");
+      } else {
+        toast.success("Laudo assinado com sucesso!");
+      };
       navigate("/");
     } catch (e: any) {
       toast.error(e.message || "Erro ao assinar");

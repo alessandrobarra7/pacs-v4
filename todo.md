@@ -896,3 +896,13 @@
 ## BUG — ProtectedRoute setState durante render
 
 - [x] Corrigir ProtectedRoute no App.tsx: mover setLocation para useEffect (proibido chamar setState durante render)
+
+## Módulo Financeiro — Correções do Diagnóstico (2026-04-08)
+
+- [x] Alterar deduplicação de billing_visit_events: de visit_key (paciente+data+unidade+médico) para report_id (cada laudo = um evento)
+- [ ] Remover catch silencioso do billing em ReportEditorPage: mostrar toast de aviso se createVisitEvent falhar
+- [ ] Invalidar queries financeiras após assinar laudo (getUnitFinancialInfo, getDoctorProduction, getDoctorCycleEvents)
+- [ ] Reduzir staleTime do banner financeiro de 60s para 0 no PacsQueryPage
+- [ ] Corrigir getDoctorUnitFinancialInfo no db.ts: retornar preço ativo mesmo sem ciclo aberto
+- [x] Enriquecer retorno de createVisitEvent com doctorAmountDue para toast informativo
+- [ ] Melhorar toast pós-assinatura: mostrar valor gerado ("Laudo assinado. +R$ 30,00 adicionados ao saldo")

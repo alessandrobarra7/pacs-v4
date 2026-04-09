@@ -68,7 +68,7 @@ type CycleRow = {
   summary: {
     doctor_cycle_id: number;
     unit_id: number;
-    visits_count: number | null;
+    reports_count: number | null;
     amount_due: string | null;
     received_at: Date | string | null;
   };
@@ -125,7 +125,7 @@ function CycleCard({
           <div className="flex gap-6">
             <div>
               <p className="text-xs text-muted-foreground">Visitas</p>
-              <p className="text-xl font-bold">{row.summary.visits_count ?? 0}</p>
+              <p className="text-xl font-bold">{row.summary.reports_count ?? 0}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Valor</p>
@@ -408,7 +408,7 @@ export default function BillingDoctorPage() {
                             <td className="py-3 text-muted-foreground text-xs">
                               {fmtPeriod(row.cycle.starts_at, row.cycle.ends_at)}
                             </td>
-                            <td className="py-3 text-right">{row.summary.visits_count ?? 0}</td>
+                            <td className="py-3 text-right">{row.summary.reports_count ?? 0}</td>
                             <td className="py-3 text-right font-semibold">{fmtBRL(row.summary.amount_due)}</td>
                             <td className="py-3 text-center">
                               {row.summary.received_at ? (

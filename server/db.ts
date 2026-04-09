@@ -1518,7 +1518,7 @@ export async function getOrCreateActiveCycle(
     starts_at: startsDate,
     ends_at: endsDate,
     status: "open",
-    total_visits: 0,
+    total_reports: 0,
     total_amount: "0.00",
   } as any);
 
@@ -1528,10 +1528,10 @@ export async function getOrCreateActiveCycle(
 }
 
 /**
- * Cria um evento financeiro por visita (deduplicado).
- * visit_key = `${patientName}|${studyDate}|${unitId}|${doctorUserId}`
+ * Cria um evento financeiro por laudo assinado.
+ * report_key = `report_${report_id}` — cada laudo gera exatamente 1 evento financeiro.
  *
- * Se já existir um evento para essa visita, retorna o existente sem criar duplicata.
+ * Se já existir um evento para esse laudo (report_id), retorna o existente sem criar duplicata.
  */
 export async function createBillingVisitEvent(data: {
   report_id: number;
@@ -1542,23 +1542,22 @@ export async function createBillingVisitEvent(data: {
   patient_name?: string | null;
   study_date?: string | null;
   signed_at: Date;
-}): Promise<{ event: typeof billing_visit_events.$inferSelect; created: boolean }> {
+}): Promise<{ event: typeof billing_visit_events.$inferSelect; created: boolean; doctor_amount_due: string | null }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Normaliza patient_name: remove ^ e espaços extras
+  // Chave de deduplicação: um evento por laudo
+  const reportKey = `report_${data.report_id}`;
   const normalizedName = (data.patient_name ?? "UNKNOWN")
     .replace(/\^/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
   const studyDate = data.study_date ?? data.signed_at.toISOString().slice(0, 10);
 
-  const visitKey = `${normalizedName}|${studyDate}|${data.unit_id}|${data.doctor_user_id}`;
-
-  // Verifica se já existe
+  // Verifica se já existe evento para esse laudo
   const existing = await db.select().from(billing_visit_events)
-    .where(eq(billing_visit_events.visit_key, visitKey)).limit(1);
+    .where(eq(billing_visit_events.report_key, reportKey)).limit(1);
 
   if (existing.length > 0) {
-    return { event: existing[0], created: false };
+    return { event: existing[0], created: false, doctor_amount_due: existing[0].doctor_amount_due };
   }
 
   // Busca ciclos ativos
@@ -1599,7 +1598,7 @@ export async function createBillingVisitEvent(data: {
     unit_id: data.unit_id,
     doctor_user_id: data.doctor_user_id,
     financial_responsible_id: responsibleId,
-    visit_key: visitKey,
+    report_key: reportKey,
     patient_name: normalizedName,
     study_date: studyDate ? new Date(studyDate + 'T00:00:00Z') : null,
     doctor_cycle_id: doctorCycle.id,
@@ -1618,11 +1617,11 @@ export async function createBillingVisitEvent(data: {
 
   const newEvent = await db.select().from(billing_visit_events)
     .where(eq(billing_visit_events.id, newId)).limit(1);
-  return { event: newEvent[0], created: true };
+  return { event: newEvent[0], created: true, doctor_amount_due: doctorAmt !== null ? String(doctorAmt) : null };
 }
 
 /**
- * Atualiza os consolidados de ciclo após um novo evento de visita.
+ * Atualiza os consolidados de ciclo após um novo evento de laudo.
  */
 async function updateCycleSummaries(
   doctorCycleId: number,
@@ -1645,12 +1644,12 @@ async function updateCycleSummaries(
     unit_id: unitId,
     doctor_user_id: doctorUserId,
     financial_responsible_id: financialResponsibleId,
-    visits_count: 1,
+    reports_count: 1,
     amount_due: doctorAmtStr,
     pending_pricing_count: isPendingDoctor,
   }).onDuplicateKeyUpdate({
     set: {
-      visits_count: drizzleSql`visits_count + 1`,
+      reports_count: drizzleSql`reports_count + 1`,
       amount_due: drizzleSql`amount_due + ${doctorAmtStr}`,
       pending_pricing_count: drizzleSql`pending_pricing_count + ${isPendingDoctor}`,
     },
@@ -1664,12 +1663,12 @@ async function updateCycleSummaries(
     system_cycle_id: systemCycleId,
     unit_id: unitId,
     financial_responsible_id: financialResponsibleId,
-    visits_count: 1,
+    reports_count: 1,
     amount_due: systemAmtStr,
     pending_pricing_count: isPendingSystem,
   }).onDuplicateKeyUpdate({
     set: {
-      visits_count: drizzleSql`visits_count + 1`,
+      reports_count: drizzleSql`reports_count + 1`,
       amount_due: drizzleSql`amount_due + ${systemAmtStr}`,
       pending_pricing_count: drizzleSql`pending_pricing_count + ${isPendingSystem}`,
     },
@@ -1677,12 +1676,12 @@ async function updateCycleSummaries(
 
   // Atualiza totais do ciclo
   await db.update(billing_cycles).set({
-    total_visits: drizzleSql`total_visits + 1`,
+    total_reports: drizzleSql`total_reports + 1`,
     total_amount: drizzleSql`total_amount + ${doctorAmtStr}`,
   }).where(eq(billing_cycles.id, doctorCycleId));
 
   await db.update(billing_cycles).set({
-    total_visits: drizzleSql`total_visits + 1`,
+    total_reports: drizzleSql`total_reports + 1`,
     total_amount: drizzleSql`total_amount + ${systemAmtStr}`,
   }).where(eq(billing_cycles.id, systemCycleId));
 }
@@ -1858,7 +1857,7 @@ export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: n
 
   return {
     price_per_report: doctorPrice?.price_per_report ?? null,
-    cycle_visits: summary[0]?.visits_count ?? 0,
+    cycle_visits: summary[0]?.reports_count ?? 0,
     cycle_amount: summary[0]?.amount_due ?? "0.00",
     cycle_period: { starts_at: cycle.starts_at, ends_at: cycle.ends_at },
   };

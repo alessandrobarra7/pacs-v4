@@ -76,7 +76,7 @@ function formatSex(sex: string): string {
 function FinancialBanner({ unitId, userRole }: { unitId: number; userRole: string }) {
   const { data: info } = trpc.billing.getUnitFinancialInfo.useQuery(
     { unit_id: unitId },
-    { staleTime: 60_000 }
+    { staleTime: 0 }
   );
 
   if (!info) return null;

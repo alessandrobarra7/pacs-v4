@@ -533,7 +533,7 @@ export const billing_cycles = mysqlTable("billing_cycles", {
   starts_at: date("starts_at").notNull(),
   ends_at: date("ends_at").notNull(),
   status: mysqlEnum("status", ["open", "closed"]).notNull().default("open"),
-  total_visits: int("total_visits").notNull().default(0),
+  total_reports: int("total_reports").notNull().default(0),
   total_amount: decimal("total_amount", { precision: 10, scale: 2 }).notNull().default("0.00"),
   closedAt: timestamp("closedAt"),
   closedBy: int("closedBy"),
@@ -546,9 +546,9 @@ export type BillingCycle = typeof billing_cycles.$inferSelect;
 export type InsertBillingCycle = typeof billing_cycles.$inferInsert;
 
 /**
- * billing_visit_events — Evento financeiro por visita (paciente + data + unidade)
- * Um evento por visita, independente do número de exames.
- * Chave de deduplicação: patient_name + study_date + unit_id + doctor_user_id
+ * billing_visit_events — Evento financeiro por laudo assinado.
+ * Cada laudo assinado gera exatamente 1 evento financeiro.
+ * Chave de deduplicação: report_id (um evento por laudo)
  */
 export const billing_visit_events = mysqlTable("billing_visit_events", {
   id: int("id").autoincrement().primaryKey(),
@@ -557,8 +557,8 @@ export const billing_visit_events = mysqlTable("billing_visit_events", {
   unit_id: int("unit_id").notNull(),
   doctor_user_id: int("doctor_user_id").notNull(),
   financial_responsible_id: int("financial_responsible_id"),
-  /** Chave de deduplicação: patient_name|study_date|unit_id|doctor_user_id */
-  visit_key: varchar("visit_key", { length: 300 }).notNull(),
+  /** Chave de deduplicação: report_id — um evento por laudo */
+  report_key: varchar("report_key", { length: 100 }).notNull(),
   patient_name: varchar("patient_name", { length: 200 }),
   study_date: date("study_date"),
   doctor_cycle_id: int("doctor_cycle_id"),
@@ -573,7 +573,7 @@ export const billing_visit_events = mysqlTable("billing_visit_events", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({
-  uq_visit_event: uniqueIndex("uq_visit_event").on(t.visit_key),
+  uq_report_event: uniqueIndex("uq_report_event").on(t.report_key),
 }));
 export type BillingVisitEvent = typeof billing_visit_events.$inferSelect;
 export type InsertBillingVisitEvent = typeof billing_visit_events.$inferInsert;
@@ -587,7 +587,7 @@ export const billing_cycle_doctor_summary = mysqlTable("billing_cycle_doctor_sum
   unit_id: int("unit_id").notNull(),
   doctor_user_id: int("doctor_user_id").notNull(),
   financial_responsible_id: int("financial_responsible_id"),
-  visits_count: int("visits_count").notNull().default(0),
+  reports_count: int("reports_count").notNull().default(0),
   amount_due: decimal("amount_due", { precision: 10, scale: 2 }).notNull().default("0.00"),
   pending_pricing_count: int("pending_pricing_count").notNull().default(0),
   received_at: timestamp("received_at"),
@@ -608,7 +608,7 @@ export const billing_cycle_system_summary = mysqlTable("billing_cycle_system_sum
   system_cycle_id: int("system_cycle_id").notNull(),
   unit_id: int("unit_id").notNull(),
   financial_responsible_id: int("financial_responsible_id"),
-  visits_count: int("visits_count").notNull().default(0),
+  reports_count: int("reports_count").notNull().default(0),
   amount_due: decimal("amount_due", { precision: 10, scale: 2 }).notNull().default("0.00"),
   pending_pricing_count: int("pending_pricing_count").notNull().default(0),
   paid_at: timestamp("paid_at"),

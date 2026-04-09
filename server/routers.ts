@@ -2178,17 +2178,17 @@ export const appRouter = router({
         if (!respId) return { byUnit: [], byDoctor: [], totalSystem: '0.00', totalDoctors: '0.00', totalGeral: '0.00' };
         const { systemCycles, doctorCycles, totalSystem, totalDoctors, totalGeral } = await getResponsibleCycleSummary(respId);
         // Agregar por unidade
-        const byUnitMap = new Map<number, { unit_id: number; unit_name: string; visits_count: number; system_amount_due: number; doctor_amount_due: number; cycle?: object }>();
+        const byUnitMap = new Map<number, { unit_id: number; unit_name: string; reports_count: number; system_amount_due: number; doctor_amount_due: number; cycle?: object }>();
         for (const row of systemCycles) {
           const uid = row.summary.unit_id;
-          const existing = byUnitMap.get(uid) ?? { unit_id: uid, unit_name: row.unit_name ?? '', visits_count: 0, system_amount_due: 0, doctor_amount_due: 0, cycle: row.cycle };
-          existing.visits_count += row.summary.visits_count ?? 0;
+          const existing = byUnitMap.get(uid) ?? { unit_id: uid, unit_name: row.unit_name ?? '', reports_count: 0, system_amount_due: 0, doctor_amount_due: 0, cycle: row.cycle };
+          existing.reports_count += row.summary.reports_count ?? 0;
           existing.system_amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
           byUnitMap.set(uid, existing);
         }
         for (const row of doctorCycles) {
           const uid = row.summary.unit_id;
-          const existing = byUnitMap.get(uid) ?? { unit_id: uid, unit_name: row.unit_name ?? '', visits_count: 0, system_amount_due: 0, doctor_amount_due: 0 };
+          const existing = byUnitMap.get(uid) ?? { unit_id: uid, unit_name: row.unit_name ?? '', reports_count: 0, system_amount_due: 0, doctor_amount_due: 0 };
           existing.doctor_amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
           byUnitMap.set(uid, existing);
         }
@@ -2198,12 +2198,12 @@ export const appRouter = router({
           doctor_amount_due: r.doctor_amount_due.toFixed(2),
         }));
         // Agregar por médico
-        type DRow = { unit_id: number; unit_name: string; doctor_user_id: number; doctor_name: string; visits_count: number; amount_due: number };
+        type DRow = { unit_id: number; unit_name: string; doctor_user_id: number; doctor_name: string; reports_count: number; amount_due: number };
         const byDoctorMap = new Map<string, DRow>();
         for (const row of doctorCycles) {
           const key = `${row.summary.unit_id}-${row.summary.doctor_user_id}`;
-          const existing = byDoctorMap.get(key) ?? { unit_id: row.summary.unit_id, unit_name: row.unit_name ?? '', doctor_user_id: row.summary.doctor_user_id, doctor_name: row.doctor_name ?? '', visits_count: 0, amount_due: 0 };
-          existing.visits_count += row.summary.visits_count ?? 0;
+          const existing = byDoctorMap.get(key) ?? { unit_id: row.summary.unit_id, unit_name: row.unit_name ?? '', doctor_user_id: row.summary.doctor_user_id, doctor_name: row.doctor_name ?? '', reports_count: 0, amount_due: 0 };
+          existing.reports_count += row.summary.reports_count ?? 0;
           existing.amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
           byDoctorMap.set(key, existing);
         }

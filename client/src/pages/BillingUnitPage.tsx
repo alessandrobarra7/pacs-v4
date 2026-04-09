@@ -35,7 +35,7 @@ function fmtBRL(val: string | number | null | undefined) {
 type ByUnitRow = {
   unit_id: number;
   unit_name: string;
-  visits_count: number;
+  reports_count: number;
   system_amount_due: string;
   doctor_amount_due: string;
 };
@@ -45,7 +45,7 @@ type ByDoctorRow = {
   unit_name: string;
   doctor_user_id: number;
   doctor_name: string;
-  visits_count: number;
+  reports_count: number;
   amount_due: string;
 };
 
@@ -216,7 +216,7 @@ export default function BillingUnitPage() {
                                   <span className="font-medium">{row.unit_name || `Unidade #${row.unit_id}`}</span>
                                 </div>
                               </td>
-                              <td className="py-3 text-right text-muted-foreground">{row.visits_count}</td>
+                              <td className="py-3 text-right text-muted-foreground">{row.reports_count}</td>
                               <td className="py-3 text-right text-blue-600 font-medium">{fmtBRL(sysAmt)}</td>
                               <td className="py-3 text-right text-purple-600 font-medium">{fmtBRL(docAmt)}</td>
                               <td className="py-3 text-right font-bold">{fmtBRL(total)}</td>
@@ -228,7 +228,7 @@ export default function BillingUnitPage() {
                         <tr className="border-t-2 bg-muted/20">
                           <td className="py-3 font-bold">Total</td>
                           <td className="py-3 text-right text-muted-foreground font-medium">
-                            {byUnit.reduce((s, r) => s + r.visits_count, 0)}
+                            {byUnit.reduce((s, r) => s + r.reports_count, 0)}
                           </td>
                           <td className="py-3 text-right text-blue-600 font-bold">{fmtBRL(totalSystemNum)}</td>
                           <td className="py-3 text-right text-purple-600 font-bold">{fmtBRL(totalDoctorsNum)}</td>
@@ -280,7 +280,7 @@ export default function BillingUnitPage() {
                             <td className="py-3 text-muted-foreground text-xs">
                               {row.unit_name || `Unidade #${row.unit_id}`}
                             </td>
-                            <td className="py-3 text-right text-muted-foreground">{row.visits_count}</td>
+                            <td className="py-3 text-right text-muted-foreground">{row.reports_count}</td>
                             <td className="py-3 text-right font-bold text-purple-600">{fmtBRL(row.amount_due)}</td>
                           </tr>
                         ))}
@@ -289,7 +289,7 @@ export default function BillingUnitPage() {
                         <tr className="border-t-2 bg-muted/20">
                           <td className="py-3 font-bold" colSpan={2}>Total Médicos</td>
                           <td className="py-3 text-right text-muted-foreground font-medium">
-                            {byDoctor.reduce((s, r) => s + r.visits_count, 0)}
+                            {byDoctor.reduce((s, r) => s + r.reports_count, 0)}
                           </td>
                           <td className="py-3 text-right font-bold text-lg text-purple-600">{fmtBRL(totalDoctorsNum)}</td>
                         </tr>
