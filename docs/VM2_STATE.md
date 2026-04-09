@@ -1,60 +1,82 @@
 # VM2 — Estado do Banco de Dados (pacs_portal)
 
-> **Atualizado em:** 2026-04-08  
+> **Última atualização:** 2026-04-08  
 > **Versão do código:** pacs-v4 (branch `main`)  
 > **MySQL:** 8.0.45-0ubuntu0.22.04.1  
 > **Host:** VM2 — `172.16.3.101`  
 > **Banco:** `pacs_portal`  
-> **Usuário da aplicação:** `pacs_user@localhost`
+> **Usuário da aplicação:** `pacs_user@localhost` e `pacs_user@172.16.3.100`
 
 ---
 
 ## Resumo das Migrações Aplicadas
 
-| ID | Hash | Data |
-|----|------|------|
-| 1 | `814a08e4...` | Migração inicial |
-| 2 | `5f4fdb86...` | Permissões e unidades |
-| 3 | `15d2d450...` | Anamnese e anotações |
-| 4 | `314284d2...` | Frases e grupos |
-| 5 | `06a907ca...` | Versões de laudos |
+| ID | Hash | Observação |
+|----|------|------------|
+| 1 | `814a08e40d7fc2bcfd458759d18319198ca8ae394f2fa15617a78678e9c9c93b` | Migração inicial |
+| 2 | `5f4fdb867c4aaae952be974b17d32f6c93852a770b837396c972b4c9a0a87854` | Permissões e unidades |
+| 3 | `15d2d45071a1f39a9480e64354e1305a3724148d2e5a835fff0720f4bb20078e` | Anamnese e anotações |
+| 4 | `314284d29a6b11d963787590f28693db0ca1b0d148d72af45d01e8fa48694ef7` | Frases e grupos |
+| 5 | `06a907ca6b73c956202494796aeada24699761107dd1e2f8d772e4ec07938942` | Versões de laudos |
 
-> As migrações acima foram aplicadas via Drizzle Kit. As alterações posteriores (v4) foram aplicadas manualmente via SQL direto, conforme descrito abaixo.
+> As migrações acima foram aplicadas via Drizzle Kit. As alterações posteriores (v4) foram aplicadas manualmente via scripts SQL em 2026-04-08.
 
 ---
 
 ## Alterações Manuais Aplicadas em 2026-04-08
 
-### 1. `users.expiration_date` — Conversão de tipo
+### 1. Tabelas removidas (obsoletas)
+- `exam_catalog` — removida
+- `report_sections` — removida
+- `study_labels` — removida
 
-- **Antes:** `BIGINT` (timestamp Unix em milissegundos)
-- **Depois:** `DATE` (formato `YYYY-MM-DD`)
-- **Dado convertido:** usuário `lima` tinha `1775606399000` → convertido para `2026-04-07`
+### 2. Colunas adicionadas
+| Tabela | Coluna | Tipo |
+|--------|--------|------|
+| `units` | `logo_url` | TEXT NULL |
+| `study_metadata` | `exam_count` | INT DEFAULT 1 |
+| `templates` | `owner_user_id` | INT NULL |
+| `templates` | `exam_title` | VARCHAR(255) NULL |
+| `report_versions` | `version` | INT |
+| `report_versions` | `status` | VARCHAR(50) |
+| `report_versions` | `saved_by_user_id` | INT NULL |
+| `report_versions` | `saved_at` | TIMESTAMP NULL |
 
-### 2. `study_metadata.exam_count` — Nova coluna
+### 3. Colunas modificadas
+| Tabela | Coluna | De | Para |
+|--------|--------|----|------|
+| `users` | `expiration_date` | BIGINT (ms epoch) | DATE NULL |
+| `users` | `role` ENUM | sem `responsavel_financeiro` | com `responsavel_financeiro` |
+| `audit_log` | `action` ENUM | valores antigos | valores atualizados com novos eventos |
 
-```sql
-ALTER TABLE study_metadata ADD COLUMN exam_count INT DEFAULT 1;
-```
+### 4. Índices adicionados
+| Tabela | Índice | Colunas |
+|--------|--------|---------|
+| `reports` | `reports_uid_unit_idx` (UNIQUE) | `study_instance_uid`, `unit_id` |
 
-### 3. `reports` — Índice único
+### 5. Tabelas criadas (módulo financeiro V2/V3)
+- `financial_responsibles`
+- `financial_responsible_users`
+- `financial_responsible_units`
+- `billing_system_unit_prices`
+- `billing_doctor_unit_prices`
+- `billing_report_items`
+- `billing_visit_events`
+- `billing_monthly_doctor_by_unit`
+- `billing_monthly_system_by_unit`
+- `billing_cycle_configs`
+- `billing_cycles`
+- `billing_cycle_doctor_summary`
+- `billing_cycle_system_summary`
 
-```sql
-ALTER TABLE reports ADD UNIQUE INDEX reports_uid_unit_idx (study_instance_uid, unit_id);
-```
-> Já existia — confirmado sem erro.
-
-### 4. `user_unit_permissions.createdAt/updatedAt` — Colunas de auditoria
-
-> Já existiam — confirmado sem erro.
-
-### 5. Tabelas removidas
-
-```sql
-DROP TABLE IF EXISTS exam_catalog;
-DROP TABLE IF EXISTS report_sections;
-DROP TABLE IF EXISTS study_labels;
-```
+### 6. Renomeação de colunas (migração visit → report)
+| Tabela | Coluna antiga | Coluna nova |
+|--------|---------------|-------------|
+| `billing_visit_events` | `visit_key` | `report_key` |
+| `billing_cycle_doctor_summary` | `visits_count` | `reports_count` |
+| `billing_cycle_system_summary` | `visits_count` | `reports_count` |
+| `billing_monthly_doctor_by_unit` | `total_visits` | `total_reports` |
+| `billing_monthly_system_by_unit` | `total_visits` | `total_reports` |
 
 ---
 
@@ -62,89 +84,50 @@ DROP TABLE IF EXISTS study_labels;
 
 ### Tabelas do sistema principal
 
-| Tabela | Descrição |
-|--------|-----------|
-| `__drizzle_migrations` | Controle de migrações do Drizzle |
-| `units` | Unidades de saúde (clínicas/hospitais) |
-| `users` | Usuários do sistema (RBAC) |
-| `user_unit_permissions` | Permissões granulares por usuário/unidade |
-| `studies_cache` | Cache local de estudos DICOM do Orthanc |
-| `templates` | Templates de laudos por unidade/modalidade |
-| `reports` | Laudos radiológicos |
-| `report_versions` | Histórico de versões dos laudos |
-| `audit_log` | Log de auditoria completo |
-| `anamnesis` | Anamnese clínica detalhada |
-| `anamnesis_simple` | Indicação clínica simplificada |
-| `study_metadata` | Metadados editáveis dos estudos |
-| `phrase_groups` | Grupos de frases pré-definidas |
-| `phrases` | Frases pré-definidas para laudos |
-| `dicom_annotations` | Anotações DICOM persistentes do viewer |
-| `user` | Tabela legada (OAuth Manus — não remover) |
+| Tabela | Colunas relevantes |
+|--------|--------------------|
+| `__drizzle_migrations` | `id`, `hash`, `created_at` |
+| `anamnesis` | `id`, `study_instance_uid`, `unit_id`, `created_by_user_id`, `exam_area`, `main_symptom`, `symptom_duration_days`, `symptom_intensity`, `has_fever`, `fever_temperature`, `has_dyspnea`, `has_chest_pain`, `associated_symptoms`, `has_hypertension`, `has_diabetes`, `has_anxiety`, `has_previous_lung_disease`, `uses_continuous_medication`, `medications_list`, `exam_purpose`, `suggested_cid`, `suggested_cid_description`, `anamnesis_data`, `createdAt`, `updatedAt` |
+| `anamnesis_simple` | `id`, `study_instance_uid`, `unit_id`, `created_by_user_id`, `patient_name`, `presets`, `manual_text`, `createdAt`, `updatedAt` |
+| `audit_log` | `id`, `user_id`, `unit_id`, `action` (ENUM), `target_type`, `target_id`, `ip_address`, `user_agent`, `metadata`, `timestamp` |
+| `dicom_annotations` | `id`, `study_instance_uid`, `series_instance_uid`, `user_id`, `tool_name`, `annotation_uid`, `annotation_data`, `createdAt`, `updatedAt` |
+| `phrase_groups` | `id`, `name`, `color`, `sort_order`, `is_global`, `created_by_user_id`, `isActive`, `createdAt` |
+| `phrases` | `id`, `group_id`, `user_id`, `content`, `is_global`, `is_favorite`, `sort_order`, `isActive`, `createdAt`, `updatedAt` |
+| `report_versions` | `id`, `report_id`, `version`, `body`, `status`, `reason`, `saved_by_user_id`, `saved_at`, `revised_by`, `created_at` |
+| `reports` | `id`, `unit_id`, `study_id`, `study_instance_uid`, `template_id`, `author_user_id`, `body`, `status`, `version`, `previousVersionId`, `signedAt`, `signedBy`, `createdAt`, `updatedAt` |
+| `studies_cache` | `id`, `unit_id`, `orthanc_study_id`, `study_instance_uid`, `patient_name`, `patient_id`, `accession_number`, `study_date`, `modality`, `description`, `studyMetadata`, `createdAt`, `updatedAt` |
+| `study_metadata` | `id`, `study_instance_uid`, `unit_id`, `patient_name_override`, `description_override`, `notes`, `edited_by_user_id`, `edited_by_name`, `exam_count`, `createdAt`, `updatedAt` |
+| `templates` | `id`, `unit_id`, `name`, `modality`, `bodyTemplate`, `fields`, `isGlobal`, `isActive`, `createdBy`, `owner_user_id`, `exam_title`, `createdAt`, `updatedAt` |
+| `units` | `id`, `name`, `slug`, `isActive`, `orthanc_base_url`, `orthanc_public_url`, `orthanc_basic_user`, `orthanc_basic_pass`, `logoUrl`, `logo_url`, `pacs_ip`, `pacs_port`, `pacs_ae_title`, `pacs_local_ae_title`, `address`, `equipment_info`, `createdAt`, `updatedAt` |
+| `user` | `id`, `open_id`, `name`, `email`, `avatar`, `role`, `unit_id`, `username`, `password_hash`, `created_at`, `updated_at` *(tabela legada OAuth — não remover)* |
+| `user_unit_permissions` | `id`, `user_id`, `unit_id`, `view_studies`, `edit_reports`, `view_anamnesis`, `print_reports`, `manage_templates`, `created_at`, `createdAt`, `updatedAt` |
+| `users` | `id`, `openId`, `name`, `email`, `loginMethod`, `role` (ENUM), `createdAt`, `updatedAt`, `lastSignedIn`, `unit_id`, `isActive`, `username`, `password_hash`, `crm`, `signature_url`, `stamp_url`, `expiration_date` (DATE) |
 
-### Tabelas do módulo financeiro V2/V3
+### Tabelas do módulo financeiro
 
-| Tabela | Descrição |
-|--------|-----------|
-| `financial_responsibles` | Entidade pagadora (PF ou PJ) |
-| `financial_responsible_users` | Vínculo usuário ↔ responsável financeiro |
-| `financial_responsible_units` | Vínculo unidade ↔ responsável com vigência |
-| `billing_system_unit_prices` | Preço do sistema por unidade com vigência |
-| `billing_doctor_unit_prices` | Preço do médico por unidade com vigência |
-| `billing_report_items` | Itemização auditável por laudo faturável |
-| `billing_monthly_system_by_unit` | Consolidado mensal sistema por unidade |
-| `billing_monthly_doctor_by_unit` | Consolidado mensal médico por unidade |
-| `billing_cycle_configs` | Configuração do ciclo financeiro por unidade |
-| `billing_cycles` | Ciclos financeiros abertos/fechados |
-| `billing_visit_events` | Evento financeiro por visita (paciente+data) |
-| `billing_cycle_doctor_summary` | Consolidado do médico por ciclo e unidade |
-| `billing_cycle_system_summary` | Consolidado do sistema por ciclo e unidade |
+| Tabela | Colunas relevantes |
+|--------|--------------------|
+| `billing_cycle_configs` | `id`, `unit_id`, `doctor_cycle_day`, `system_cycle_day`, `is_active`, `created_by`, `createdAt`, `updatedAt` |
+| `billing_cycle_doctor_summary` | `id`, `doctor_cycle_id`, `unit_id`, `doctor_user_id`, `financial_responsible_id`, `reports_count`, `amount_due`, `pending_pricing_count`, `received_at`, `received_by`, `createdAt`, `updatedAt` |
+| `billing_cycle_system_summary` | `id`, `system_cycle_id`, `unit_id`, `financial_responsible_id`, `reports_count`, `amount_due`, `pending_pricing_count`, `paid_at`, `paid_by`, `createdAt`, `updatedAt` |
+| `billing_cycles` | `id`, `unit_id`, `financial_responsible_id`, `cycle_type` (doctor/system), `starts_at`, `ends_at`, `status` (open/closed), `total_visits`, `total_amount`, `closedAt`, `closedBy`, `createdAt`, `updatedAt` |
+| `billing_doctor_unit_prices` | `id`, `financial_responsible_id`, `unit_id`, `doctor_user_id`, `price_per_report`, `starts_at`, `ends_at`, `created_by`, `createdAt` |
+| `billing_monthly_doctor_by_unit` | `id`, `financial_responsible_id`, `unit_id`, `doctor_user_id`, `competence_year`, `competence_month`, `reports_count`, `amount_due`, `pending_items_count`, `status`, `generatedAt`, `closedAt`, `closedBy` |
+| `billing_monthly_system_by_unit` | `id`, `financial_responsible_id`, `unit_id`, `competence_year`, `competence_month`, `reports_count`, `amount_due`, `pending_items_count`, `status`, `generatedAt`, `closedAt`, `closedBy` |
+| `billing_report_items` | `id`, `report_id`, `study_instance_uid`, `financial_responsible_id`, `unit_id`, `doctor_user_id`, `competence_year`, `competence_month`, `report_status_snapshot`, `report_signed_at`, `system_price_applied`, `doctor_price_applied`, `system_amount_due`, `doctor_amount_due`, `pricing_status`, `createdAt`, `updatedAt` |
+| `billing_system_unit_prices` | `id`, `financial_responsible_id`, `unit_id`, `price_per_report`, `starts_at`, `ends_at`, `created_by`, `createdAt` |
+| `billing_visit_events` | `id`, `report_id`, `study_instance_uid`, `unit_id`, `doctor_user_id`, `financial_responsible_id`, `report_key` (UNIQUE), `patient_name`, `study_date`, `doctor_cycle_id`, `system_cycle_id`, `system_price_applied`, `doctor_price_applied`, `system_amount_due`, `doctor_amount_due`, `pricing_status`, `doctor_received_at`, `system_paid_at`, `createdAt`, `updatedAt` |
+| `financial_responsible_units` | `id`, `financial_responsible_id`, `unit_id`, `starts_at`, `ends_at`, `created_by`, `createdAt` |
+| `financial_responsible_users` | `id`, `financial_responsible_id`, `user_id`, `createdAt` |
+| `financial_responsibles` | `id`, `person_type` (PF/PJ), `legal_name`, `trade_name`, `cpf_cnpj` (UNIQUE), `email`, `phone`, `notes`, `isActive`, `createdAt`, `updatedAt` |
 
 ---
 
-## Detalhamento das Colunas Críticas
+## ENUM de `users.role`
 
-### `users`
-
-| Coluna | Tipo | Observação |
-|--------|------|-----------|
-| `id` | INT AUTO_INCREMENT | PK |
-| `openId` | VARCHAR(64) UNIQUE | ID OAuth Manus |
-| `unit_id` | INT NULL | Unidade principal |
-| `name` | TEXT NULL | Nome completo |
-| `email` | VARCHAR(320) NULL | |
-| `username` | VARCHAR(64) UNIQUE NULL | Login local |
-| `password_hash` | VARCHAR(255) NULL | Senha local (bcrypt) |
-| `loginMethod` | VARCHAR(64) NULL | `oauth` ou `local` |
-| `role` | ENUM | `admin_master`, `unit_admin`, `medico`, `viewer`, `operador`, `responsavel_financeiro` |
-| `isActive` | BOOLEAN | Default `TRUE` |
-| `expiration_date` | **DATE NULL** | Convertido de BIGINT em 2026-04-08 |
-| `crm` | VARCHAR(50) NULL | CRM do médico |
-| `signature_url` | TEXT NULL | URL da assinatura (S3) |
-| `stamp_url` | TEXT NULL | URL do carimbo (S3) |
-| `createdAt` | TIMESTAMP | |
-| `updatedAt` | TIMESTAMP | |
-| `lastSignedIn` | TIMESTAMP | |
-
-### `units`
-
-| Coluna | Tipo | Observação |
-|--------|------|-----------|
-| `id` | INT AUTO_INCREMENT | PK |
-| `name` | VARCHAR(255) | |
-| `slug` | VARCHAR(100) UNIQUE | |
-| `isActive` | BOOLEAN | |
-| `orthanc_base_url` | VARCHAR(500) NULL | URL interna do Orthanc |
-| `orthanc_public_url` | VARCHAR(500) NULL | URL pública via NAT |
-| `orthanc_basic_user` | VARCHAR(100) NULL | |
-| `orthanc_basic_pass` | VARCHAR(255) NULL | |
-| `pacs_ip` | VARCHAR(45) NULL | IP do PACS/DICOM |
-| `pacs_port` | INT NULL | Porta DICOM |
-| `pacs_ae_title` | VARCHAR(16) NULL | AE Title do PACS |
-| `pacs_local_ae_title` | VARCHAR(16) NULL | Default: `PACSMANUS` |
-| `address` | VARCHAR(255) NULL | |
-| `equipment_info` | TEXT NULL | |
-| `logoUrl` | VARCHAR(500) NULL | Logo (campo legado) |
-| `logo_url` | TEXT NULL | Logo (campo atual) |
+```
+admin_master | unit_admin | medico | viewer | operador | responsavel_financeiro
+```
 
 ---
 
@@ -155,23 +138,21 @@ Host:     172.16.3.101 (VM2)
 Porta:    3306
 Banco:    pacs_portal
 Usuário:  pacs_user
-Senha:    (configurada no .env da VM1)
 ```
 
-A string de conexão usada no código (`.env` da VM1):
-
+String de conexão usada no `.env` da VM1:
 ```
-DATABASE_URL=mysql://pacs_user:SENHA@172.16.3.101:3306/pacs_portal
+DATABASE_URL=mysql://pacs_user:PacsPortal2025@172.16.3.101:3306/pacs_portal
 ```
 
 ---
 
-## Próximos Passos
+## Próximas Migrações Pendentes
 
-Após atualizar a VM1 com o código v4, as migrações futuras devem ser geradas via:
+**Nenhuma.** O banco está 100% alinhado com o schema do código na branch `main` do repositório `pacs-v4`.
 
+Para futuras alterações de schema, gerar a migration via:
 ```bash
 pnpm drizzle-kit generate
 ```
-
-E aplicadas diretamente na VM2 via SQL (não usar `drizzle-kit push` em produção).
+E aplicar o SQL gerado diretamente na VM2 (não usar `drizzle-kit push` em produção).
