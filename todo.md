@@ -906,3 +906,15 @@
 - [ ] Corrigir getDoctorUnitFinancialInfo no db.ts: retornar preço ativo mesmo sem ciclo aberto
 - [x] Enriquecer retorno de createVisitEvent com doctorAmountDue para toast informativo
 - [ ] Melhorar toast pós-assinatura: mostrar valor gerado ("Laudo assinado. +R$ 30,00 adicionados ao saldo")
+
+## BUG — Desaparecimento Silencioso do Banner Financeiro
+
+- [x] FinancialBanner: adicionar estado loading (skeleton)
+- [x] FinancialBanner: adicionar estado de erro ("Não foi possível carregar o resumo financeiro")
+- [x] FinancialBanner: adicionar estado sem-unidade ("Selecione uma unidade para visualizar seu saldo")
+- [x] FinancialBanner: adicionar estado sem-configuração ("Esta unidade ainda não possui preço configurado")
+- [x] FinancialBanner: nunca retornar null silenciosamente — sempre mostrar estrutura mínima
+- [x] Menu lateral: manter "Meu Financeiro" visível para role medico mesmo sem effectiveUnitId
+- [x] Botão de acesso rápido ao financeiro: mesma lógica do menu — não sumir silenciosamente
+- [x] Procedure getUnitFinancialInfo: retornar status explícito (no_unit, no_config, ok) em vez de null
+- [x] Corrigir conflito modelo antigo (unit_id) vs modelo novo (permissões multiunidade)

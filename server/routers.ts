@@ -2326,11 +2326,16 @@ export const appRouter = router({
     getUnitFinancialInfo: protectedProcedure
       .input(z.object({ unit_id: z.number() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
-          return null;
+        const allowedRoles = ['medico', 'admin_master', 'responsavel_financeiro', 'unit_admin'];
+        if (!allowedRoles.includes(ctx.user.role)) {
+          return { status: 'no_access' as const, cycle_period: null, cycle_amount: null, cycle_visits: null, price_per_report: null };
         }
         const { getDoctorUnitFinancialInfo } = await import('./db');
-        return await getDoctorUnitFinancialInfo(ctx.user.id, input.unit_id);
+        const result = await getDoctorUnitFinancialInfo(ctx.user.id, input.unit_id);
+        if (!result) {
+          return { status: 'no_config' as const, cycle_period: null, cycle_amount: null, cycle_visits: null, price_per_report: null };
+        }
+        return { status: 'ok' as const, ...result };
       }),
 
     closeCycle: protectedProcedure
