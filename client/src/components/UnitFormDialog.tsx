@@ -8,8 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Upload, Building2, Trash2, ImageOff } from "lucide-react";
+import { Upload, Building2, Trash2, ImageOff, Settings2, Stethoscope } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import UnitDoctorsTab from "./UnitDoctorsTab";
 
 export interface UnitFormData {
   id?: number;
@@ -33,9 +34,12 @@ interface UnitFormDialogProps {
   loading?: boolean;
 }
 
+type DialogTab = "dados" | "medicos";
+
 export default function UnitFormDialog({
   open, onOpenChange, unit, onSave, loading = false,
 }: UnitFormDialogProps) {
+  const [activeTab, setActiveTab] = useState<DialogTab>("dados");
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [address, setAddress] = useState("");
@@ -77,6 +81,8 @@ export default function UnitFormDialog({
 
   useEffect(() => {
     if (open) {
+      // Ao abrir o diálogo, sempre começa na aba Dados
+      setActiveTab("dados");
       if (unit) {
         setName(unit.name);
         setSlug(unit.slug);
@@ -153,129 +159,193 @@ export default function UnitFormDialog({
     } as any);
   };
 
+  // Abas disponíveis: "Médicos" só aparece ao editar unidade existente
+  const tabs: { key: DialogTab; label: string; icon: React.ReactNode }[] = [
+    { key: "dados", label: "Dados", icon: <Settings2 className="h-3.5 w-3.5" /> },
+    ...(unit?.id ? [{ key: "medicos" as DialogTab, label: "Médicos", icon: <Stethoscope className="h-3.5 w-3.5" /> }] : []),
+  ];
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold">
             {unit ? "Editar Unidade" : "Nova Unidade"}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          {/* Nome e Slug */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label className="text-sm font-medium">Nome da Unidade</Label>
-              <Input
-                value={name}
-                onChange={e => handleNameChange(e.target.value)}
-                className="mt-1"
-                placeholder="Ex: Clínica Central"
-              />
-            </div>
-            <div>
-              <Label className="text-sm font-medium">
-                Slug / ID
-                <span className="text-xs text-muted-foreground ml-1">(gerado automaticamente)</span>
-              </Label>
-              <Input
-                value={slug}
-                onChange={e => setSlug(e.target.value)}
-                className="mt-1 font-mono text-sm"
-                placeholder="clinica-central"
-              />
-            </div>
+        {/* Abas de navegação */}
+        {tabs.length > 1 && (
+          <div className="flex gap-1 border-b border-border pb-0 -mb-1">
+            {tabs.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={[
+                  "flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-t-md border-b-2 transition-colors",
+                  activeTab === tab.key
+                    ? "border-primary text-primary bg-primary/5"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                ].join(" ")}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
           </div>
+        )}
 
-          {/* Endereço */}
-          <div>
-            <Label className="text-sm font-medium">Endereço</Label>
-            <Input
-              value={address}
-              onChange={e => setAddress(e.target.value)}
-              className="mt-1"
-              placeholder="Rua, número — Bairro, Cidade"
-            />
-          </div>
+        {/* Conteúdo com scroll */}
+        <div className="flex-1 overflow-y-auto">
+          {/* ── Aba Dados ── */}
+          {activeTab === "dados" && (
+            <div className="space-y-4 py-2">
+              {/* Nome e Slug */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Nome da Unidade</Label>
+                  <Input
+                    value={name}
+                    onChange={e => handleNameChange(e.target.value)}
+                    className="mt-1"
+                    placeholder="Ex: Clínica Central"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">
+                    Slug / ID
+                    <span className="text-xs text-muted-foreground ml-1">(gerado automaticamente)</span>
+                  </Label>
+                  <Input
+                    value={slug}
+                    onChange={e => setSlug(e.target.value)}
+                    className="mt-1 font-mono text-sm"
+                    placeholder="clinica-central"
+                  />
+                </div>
+              </div>
 
-          {/* Equipamentos */}
-          <div>
-            <Label className="text-sm font-medium">Informações do Equipamento</Label>
-            <Textarea
-              value={equipmentInfo}
-              onChange={e => setEquipmentInfo(e.target.value)}
-              className="mt-1 min-h-[60px] resize-none"
-              placeholder="Ex: Raio-X CR Agfa, Tomógrafo Siemens 64 canais..."
-            />
-          </div>
-
-          {/* Configuração PACS */}
-          <div className="border-t border-border pt-4">
-            <p className="text-sm font-semibold text-foreground mb-3">Configuração PACS / DICOM</p>
-            <div className="grid grid-cols-2 gap-4">
+              {/* Endereço */}
               <div>
-                <Label className="text-xs text-muted-foreground">IP do PACS</Label>
+                <Label className="text-sm font-medium">Endereço</Label>
                 <Input
-                  value={pacsIp}
-                  onChange={e => setPacsIp(e.target.value)}
-                  className="mt-1 font-mono text-sm"
-                  placeholder="192.168.1.100"
+                  value={address}
+                  onChange={e => setAddress(e.target.value)}
+                  className="mt-1"
+                  placeholder="Rua, número — Bairro, Cidade"
                 />
               </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Porta</Label>
-                <Input
-                  value={pacsPort}
-                  onChange={e => setPacsPort(e.target.value)}
-                  className="mt-1 font-mono text-sm"
-                  placeholder="11112"
-                />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">AE Title (remoto)</Label>
-                <Input
-                  value={pacsAeTitle}
-                  onChange={e => setPacsAeTitle(e.target.value)}
-                  className="mt-1 font-mono text-sm"
-                  placeholder="PACSML"
-                />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">AE Title (local)</Label>
-                <Input
-                  value={pacsLocalAeTitle}
-                  onChange={e => setPacsLocalAeTitle(e.target.value)}
-                  className="mt-1 font-mono text-sm"
-                  placeholder="LAUDS"
-                />
-              </div>
-            </div>
-          </div>
 
-          {/* Logo da Unidade */}
-          <div className="border-t border-border pt-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-amber-600" />
-              <Label className="text-sm font-semibold">Logo da Unidade</Label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Aparece no cabeçalho do laudo. Recomendado: PNG com fundo branco, máx. 2 MB.
-            </p>
-
-            {/* Preview atual */}
-            {logoPreview ? (
-              <div className="flex items-start gap-3">
-                <img
-                  src={logoPreview}
-                  alt="Logo da unidade"
-                  className="h-20 max-w-[180px] object-contain border border-gray-200 rounded p-2 bg-white"
+              {/* Equipamentos */}
+              <div>
+                <Label className="text-sm font-medium">Informações do Equipamento</Label>
+                <Textarea
+                  value={equipmentInfo}
+                  onChange={e => setEquipmentInfo(e.target.value)}
+                  className="mt-1 min-h-[60px] resize-none"
+                  placeholder="Ex: Raio-X CR Agfa, Tomógrafo Siemens 64 canais..."
                 />
-                <div className="flex flex-col gap-2 mt-1">
-                  {/* Trocar logo */}
-                  <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 text-xs border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                    <Upload className="h-3.5 w-3.5 text-gray-400" />
-                    <span className="text-gray-600">Trocar logo</span>
+              </div>
+
+              {/* Configuração PACS */}
+              <div className="border-t border-border pt-4">
+                <p className="text-sm font-semibold text-foreground mb-3">Configuração PACS / DICOM</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">IP do PACS</Label>
+                    <Input
+                      value={pacsIp}
+                      onChange={e => setPacsIp(e.target.value)}
+                      className="mt-1 font-mono text-sm"
+                      placeholder="192.168.1.100"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Porta</Label>
+                    <Input
+                      value={pacsPort}
+                      onChange={e => setPacsPort(e.target.value)}
+                      className="mt-1 font-mono text-sm"
+                      placeholder="11112"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">AE Title (remoto)</Label>
+                    <Input
+                      value={pacsAeTitle}
+                      onChange={e => setPacsAeTitle(e.target.value)}
+                      className="mt-1 font-mono text-sm"
+                      placeholder="PACSML"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">AE Title (local)</Label>
+                    <Input
+                      value={pacsLocalAeTitle}
+                      onChange={e => setPacsLocalAeTitle(e.target.value)}
+                      className="mt-1 font-mono text-sm"
+                      placeholder="LAUDS"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Logo da Unidade */}
+              <div className="border-t border-border pt-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-amber-600" />
+                  <Label className="text-sm font-semibold">Logo da Unidade</Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Aparece no cabeçalho do laudo. Recomendado: PNG com fundo branco, máx. 2 MB.
+                </p>
+
+                {/* Preview atual */}
+                {logoPreview ? (
+                  <div className="flex items-start gap-3">
+                    <img
+                      src={logoPreview}
+                      alt="Logo da unidade"
+                      className="h-20 max-w-[180px] object-contain border border-gray-200 rounded p-2 bg-white"
+                    />
+                    <div className="flex flex-col gap-2 mt-1">
+                      {/* Trocar logo */}
+                      <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 text-xs border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
+                        <Upload className="h-3.5 w-3.5 text-gray-400" />
+                        <span className="text-gray-600">Trocar logo</span>
+                        <input
+                          ref={logoInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleLogoChange}
+                        />
+                      </label>
+                      {/* Remover logo (apenas ao editar unidade existente) */}
+                      {unit?.id && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveLogo}
+                          disabled={removingLogo || removeLogo.isPending}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-50"
+                        >
+                          {removingLogo ? (
+                            <span className="animate-spin h-3.5 w-3.5 border-2 border-red-400 border-t-transparent rounded-full" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                          Remover logo
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <label className="flex items-center gap-2 cursor-pointer px-3 py-3 border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
+                    <ImageOff className="h-5 w-5 text-gray-300" />
+                    <div>
+                      <p className="text-sm text-gray-600">Nenhum logo cadastrado</p>
+                      <p className="text-xs text-gray-400">Clique para fazer upload</p>
+                    </div>
                     <input
                       ref={logoInputRef}
                       type="file"
@@ -284,70 +354,58 @@ export default function UnitFormDialog({
                       onChange={handleLogoChange}
                     />
                   </label>
-                  {/* Remover logo (apenas ao editar unidade existente) */}
-                  {unit?.id && (
-                    <button
-                      type="button"
-                      onClick={handleRemoveLogo}
-                      disabled={removingLogo || removeLogo.isPending}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-50"
-                    >
-                      {removingLogo ? (
-                        <span className="animate-spin h-3.5 w-3.5 border-2 border-red-400 border-t-transparent rounded-full" />
-                      ) : (
-                        <Trash2 className="h-3.5 w-3.5" />
-                      )}
-                      Remover logo
-                    </button>
-                  )}
+                )}
+
+                {/* Indicador de novo logo pendente de salvar */}
+                {logoFile && (
+                  <p className="text-xs text-amber-600 flex items-center gap-1">
+                    <Upload className="h-3 w-3" />
+                    Novo logo será salvo ao clicar em "Salvar Alterações"
+                  </p>
+                )}
+              </div>
+
+              {/* Status */}
+              <div className="flex items-center gap-3 border-t border-border pt-4">
+                <Switch checked={isActive} onCheckedChange={setIsActive} />
+                <div>
+                  <span className="text-sm font-medium">{isActive ? "Unidade Ativa" : "Unidade Desativada"}</span>
+                  <p className="text-xs text-muted-foreground">
+                    {isActive ? "Novos exames podem ser recebidos" : "Unidade bloqueada para novos exames"}
+                  </p>
                 </div>
               </div>
-            ) : (
-              <label className="flex items-center gap-2 cursor-pointer px-3 py-3 border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                <ImageOff className="h-5 w-5 text-gray-300" />
-                <div>
-                  <p className="text-sm text-gray-600">Nenhum logo cadastrado</p>
-                  <p className="text-xs text-gray-400">Clique para fazer upload</p>
-                </div>
-                <input
-                  ref={logoInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleLogoChange}
-                />
-              </label>
-            )}
-
-            {/* Indicador de novo logo pendente de salvar */}
-            {logoFile && (
-              <p className="text-xs text-amber-600 flex items-center gap-1">
-                <Upload className="h-3 w-3" />
-                Novo logo será salvo ao clicar em "Salvar Alterações"
-              </p>
-            )}
-          </div>
-
-          {/* Status */}
-          <div className="flex items-center gap-3 border-t border-border pt-4">
-            <Switch checked={isActive} onCheckedChange={setIsActive} />
-            <div>
-              <span className="text-sm font-medium">{isActive ? "Unidade Ativa" : "Unidade Desativada"}</span>
-              <p className="text-xs text-muted-foreground">
-                {isActive ? "Novos exames podem ser recebidos" : "Unidade bloqueada para novos exames"}
-              </p>
             </div>
-          </div>
+          )}
+
+          {/* ── Aba Médicos ── */}
+          {activeTab === "medicos" && unit?.id && (
+            <div className="py-2">
+              <UnitDoctorsTab unitId={unit.id} />
+            </div>
+          )}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-            Cancelar
-          </Button>
-          <Button onClick={handleSave} disabled={loading || updateLogo.isPending}>
-            {loading || updateLogo.isPending ? "Salvando..." : unit ? "Salvar Alterações" : "Criar Unidade"}
-          </Button>
-        </DialogFooter>
+        {/* Footer: botões de ação apenas na aba Dados */}
+        {activeTab === "dados" && (
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSave} disabled={loading || updateLogo.isPending}>
+              {loading || updateLogo.isPending ? "Salvando..." : unit ? "Salvar Alterações" : "Criar Unidade"}
+            </Button>
+          </DialogFooter>
+        )}
+
+        {/* Footer: botão fechar na aba Médicos */}
+        {activeTab === "medicos" && (
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -302,6 +302,108 @@ export const appRouter = router({
         });
         return { success: true };
       }),
+
+    /** Lista médicos vinculados a uma unidade via user_unit_permissions */
+    listDoctors: protectedProcedure
+      .input(z.object({ unitId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { users: usersTable, user_unit_permissions } = await import('../drizzle/schema');
+        const { eq: eqOp, and: andOp, inArray } = await import('drizzle-orm');
+        const perms = await db
+          .select({ user_id: user_unit_permissions.user_id })
+          .from(user_unit_permissions)
+          .where(eqOp(user_unit_permissions.unit_id, input.unitId));
+        const userIds = perms.map(p => p.user_id);
+        if (userIds.length === 0) return [];
+        return await db
+          .select({ id: usersTable.id, name: usersTable.name, username: usersTable.username, role: usersTable.role, isActive: usersTable.isActive, crm: usersTable.crm })
+          .from(usersTable)
+          .where(andOp(inArray(usersTable.id, userIds), eqOp(usersTable.role, 'medico')));
+      }),
+
+    /** Lista todos os médicos do sistema (para adicionar à unidade) */
+    listAllDoctors: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { users: usersTable } = await import('../drizzle/schema');
+        const { eq: eqOp } = await import('drizzle-orm');
+        return await db
+          .select({ id: usersTable.id, name: usersTable.name, username: usersTable.username, role: usersTable.role, isActive: usersTable.isActive, crm: usersTable.crm })
+          .from(usersTable)
+          .where(eqOp(usersTable.role, 'medico'));
+      }),
+
+    /** Vincula médico a uma unidade (cria user_unit_permissions se não existir) */
+    addDoctor: protectedProcedure
+      .input(z.object({ unitId: z.number(), doctorUserId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { user_unit_permissions } = await import('../drizzle/schema');
+        const { eq: eqOp, and: andOp } = await import('drizzle-orm');
+        const existing = await db
+          .select({ id: user_unit_permissions.id })
+          .from(user_unit_permissions)
+          .where(andOp(eqOp(user_unit_permissions.user_id, input.doctorUserId), eqOp(user_unit_permissions.unit_id, input.unitId)));
+        if (existing.length > 0) return { success: true, alreadyLinked: true };
+        await db.insert(user_unit_permissions).values({
+          user_id: input.doctorUserId,
+          unit_id: input.unitId,
+          view_studies: true,
+          edit_reports: true,
+          view_anamnesis: true,
+          print_reports: true,
+          manage_templates: false,
+        });
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: input.unitId,
+          action: 'UPDATE_UNIT',
+          target_type: 'USER',
+          target_id: String(input.doctorUserId),
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+        });
+        return { success: true, alreadyLinked: false };
+      }),
+
+    /** Remove vínculo de médico com uma unidade */
+    removeDoctor: protectedProcedure
+      .input(z.object({ unitId: z.number(), doctorUserId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { user_unit_permissions } = await import('../drizzle/schema');
+        const { eq: eqOp, and: andOp } = await import('drizzle-orm');
+        await db
+          .delete(user_unit_permissions)
+          .where(andOp(eqOp(user_unit_permissions.user_id, input.doctorUserId), eqOp(user_unit_permissions.unit_id, input.unitId)));
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: input.unitId,
+          action: 'UPDATE_UNIT',
+          target_type: 'USER',
+          target_id: String(input.doctorUserId),
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+        });
+        return { success: true };
+      }),
   }),
 
   studies: router({

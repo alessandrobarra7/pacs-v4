@@ -918,3 +918,16 @@
 - [x] Botão de acesso rápido ao financeiro: mesma lógica do menu — não sumir silenciosamente
 - [x] Procedure getUnitFinancialInfo: retornar status explícito (no_unit, no_config, ok) em vez de null
 - [x] Corrigir conflito modelo antigo (unit_id) vs modelo novo (permissões multiunidade)
+
+## Melhoria — Vínculo Médico-Unidade na Tela de Edição
+
+- [ ] Adicionar aba "Médicos" na tela de edição de unidades (AdminPage) com listagem e vínculo de médicos
+- [ ] A aba deve listar todos os usuários com role=medico e permitir vincular/desvincular da unidade via user_unit_permissions
+
+## ABA MÉDICOS NA EDIÇÃO DE UNIDADES
+
+- [x] Criar procedures tRPC: units.listDoctors, units.listAllDoctors, units.addDoctor, units.removeDoctor
+- [x] Criar componente UnitDoctorsTab.tsx (lista médicos vinculados, adicionar/remover)
+- [x] Integrar UnitDoctorsTab no UnitFormDialog com abas Dados / Médicos
+- [x] Aba Médicos só aparece ao editar unidade existente (não ao criar nova)
+- [x] Zero erros TypeScript, 104 testes passando
