@@ -1823,44 +1823,58 @@ export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: n
   const db = await getDb();
   if (!db) return null;
 
-  const now = new Date();
-  const refDateStr = now.toISOString().slice(0, 10);
+  try {
+    const now = new Date();
+    const refDateStr = now.toISOString().slice(0, 10);
 
-  // Ciclo ativo do médico nessa unidade
-  const activeCycle = await db.select().from(billing_cycles).where(
-    and(
-      eq(billing_cycles.unit_id, unitId),
-      eq(billing_cycles.cycle_type, "doctor"),
-      eq(billing_cycles.status, "open"),
-      drizzleSql`${billing_cycles.starts_at} <= ${refDateStr}`,
-      drizzleSql`${billing_cycles.ends_at} >= ${refDateStr}`,
-    )
-  ).limit(1);
+    // Ciclo ativo do médico nessa unidade
+    // Seleciona apenas colunas necessárias para evitar erro com colunas renomeadas (total_visits → total_reports)
+    const activeCycle = await db.select({
+      id: billing_cycles.id,
+      unit_id: billing_cycles.unit_id,
+      cycle_type: billing_cycles.cycle_type,
+      status: billing_cycles.status,
+      starts_at: billing_cycles.starts_at,
+      ends_at: billing_cycles.ends_at,
+    }).from(billing_cycles).where(
+      and(
+        eq(billing_cycles.unit_id, unitId),
+        eq(billing_cycles.cycle_type, "doctor"),
+        eq(billing_cycles.status, "open"),
+        drizzleSql`${billing_cycles.starts_at} <= ${refDateStr}`,
+        drizzleSql`${billing_cycles.ends_at} >= ${refDateStr}`,
+      )
+    ).limit(1);
 
-  if (activeCycle.length === 0) return { price_per_report: null, cycle_visits: 0, cycle_amount: "0.00", cycle_period: null };
+    if (activeCycle.length === 0) return { price_per_report: null, cycle_visits: 0, cycle_amount: "0.00", cycle_period: null };
 
-  const cycle = activeCycle[0];
+    const cycle = activeCycle[0];
 
-  const summary = await db.select().from(billing_cycle_doctor_summary).where(
-    and(
-      eq(billing_cycle_doctor_summary.doctor_cycle_id, cycle.id),
-      eq(billing_cycle_doctor_summary.unit_id, unitId),
-      eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
-    )
-  ).limit(1);
+    const summary = await db.select().from(billing_cycle_doctor_summary).where(
+      and(
+        eq(billing_cycle_doctor_summary.doctor_cycle_id, cycle.id),
+        eq(billing_cycle_doctor_summary.unit_id, unitId),
+        eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
+      )
+    ).limit(1);
 
-  // Busca preço ativo do médico
-  const responsible = await getActiveResponsibleForUnit(unitId, now);
-  const doctorPrice = responsible
-    ? await getActiveDoctorPrice(responsible.id, unitId, doctorUserId, now)
-    : null;
+    // Busca preço ativo do médico
+    const responsible = await getActiveResponsibleForUnit(unitId, now);
+    const doctorPrice = responsible
+      ? await getActiveDoctorPrice(responsible.id, unitId, doctorUserId, now)
+      : null;
 
-  return {
-    price_per_report: doctorPrice?.price_per_report ?? null,
-    cycle_visits: summary[0]?.reports_count ?? 0,
-    cycle_amount: summary[0]?.amount_due ?? "0.00",
-    cycle_period: { starts_at: cycle.starts_at, ends_at: cycle.ends_at },
-  };
+    return {
+      price_per_report: doctorPrice?.price_per_report ?? null,
+      cycle_visits: summary[0]?.reports_count ?? 0,
+      cycle_amount: summary[0]?.amount_due ?? "0.00",
+      cycle_period: { starts_at: cycle.starts_at, ends_at: cycle.ends_at },
+    };
+  } catch (err) {
+    // Retorna null silenciosamente se o banco estiver com schema desatualizado (ex: total_visits vs total_reports)
+    console.error('[getDoctorUnitFinancialInfo] Erro ao buscar resumo financeiro:', err);
+    return null;
+  }
 }
 
 /**
