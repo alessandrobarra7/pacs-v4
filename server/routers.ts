@@ -420,13 +420,25 @@ export const appRouter = router({
         accession_number: z.string().optional(),
         page: z.number().default(1),
         pageSize: z.number().default(20),
+        unit_id: z.number().optional(), // multi-unidade: médico pode filtrar por unidade específica
       }))
       .query(async ({ input, ctx }) => {
-        if (!ctx.user.unit_id && ctx.user.role !== 'admin_master') {
+        // PASSO 4: Resolver unitId via user_unit_permissions (multi-unidade)
+        let unitId: number;
+        if (ctx.user.role === 'admin_master') {
+          unitId = input.unit_id || 0;
+        } else if (input.unit_id) {
+          // Verificar permissão na unidade solicitada
+          const { getUserUnitPermission } = await import('./db');
+          const perm = await getUserUnitPermission(ctx.user.id, input.unit_id);
+          unitId = (perm || ctx.user.unit_id === input.unit_id) ? input.unit_id : (ctx.user.unit_id || 0);
+        } else {
+          unitId = ctx.user.unit_id || 0;
+        }
+
+        if (!unitId && ctx.user.role !== 'admin_master') {
           return { items: [], total: 0, page: input.page, pageSize: input.pageSize };
         }
-        
-        const unitId = ctx.user.unit_id || 0;
         const offset = (input.page - 1) * input.pageSize;
         
         const db = await getDb();
@@ -541,6 +553,21 @@ export const appRouter = router({
       if (ctx.user.role === 'admin_master') {
         return await getGlobalTemplates();
       }
+      // PASSO 4: Buscar templates de todas as unidades que o médico tem acesso
+      const { getUserUnitPermissions } = await import('./db');
+      const userPerms = await getUserUnitPermissions(ctx.user.id);
+      if (userPerms.length > 0) {
+        // Buscar templates de todas as unidades vinculadas (deduplicar por id)
+        const allTemplates = await Promise.all(userPerms.map(p => getTemplatesByUnitId(p.unit_id)));
+        const seen = new Set<number>();
+        const merged = allTemplates.flat().filter(t => {
+          if (seen.has(t.id)) return false;
+          seen.add(t.id);
+          return true;
+        });
+        return merged;
+      }
+      // Fallback para unit_id legado
       if (ctx.user.unit_id) {
         return await getTemplatesByUnitId(ctx.user.unit_id);
       }

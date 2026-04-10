@@ -56,7 +56,7 @@ export default function BillingUnitPage() {
 
   const ALLOWED = ["responsavel_financeiro", "unit_admin", "admin_master"];
 
-  const { data, isLoading } = trpc.billing.getResponsibleSummary.useQuery(undefined, {
+  const { data, isLoading, isError } = trpc.billing.getResponsibleSummary.useQuery(undefined, {
     enabled: !!user && ALLOWED.includes(user.role),
   });
 
@@ -68,6 +68,15 @@ export default function BillingUnitPage() {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <p className="text-muted-foreground">Acesso restrito a responsáveis financeiros.</p>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-background gap-3">
+        <p className="text-destructive font-medium">Erro ao carregar dados financeiros.</p>
+        <p className="text-muted-foreground text-sm">Tente recarregar a página ou contate o suporte.</p>
       </div>
     );
   }

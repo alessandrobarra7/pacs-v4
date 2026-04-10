@@ -1,0 +1,445 @@
+ANÁLISE DOS TRECHOS ERRADOS E SUGESTÕES DE MELHORIA
+MÓDULO FINANCEIRO DO PACS
+====================================================
+
+OBJETIVO
+--------
+Este documento relata os principais trechos conceituais e estruturais que estão impedindo o módulo financeiro de chegar a um resultado lógico e prático.
+
+O foco aqui não é apenas apontar bugs isolados.
+O foco é identificar onde a lógica do produto está fragmentada entre:
+- front-end
+- back-end
+- banco de dados
+- protótipos antigos
+- e regras de negócio ainda não unificadas
+
+Ao final, são sugeridas melhorias objetivas para reorganizar o módulo financeiro.
+
+
+1. RESUMO EXECUTIVO
+-------------------
+O módulo financeiro atual não está ilógico por causa de um único erro.
+Ele está ilógico porque várias camadas do sistema estão seguindo lógicas diferentes ao mesmo tempo.
+
+Hoje existem pelo menos quatro conflitos centrais:
+
+1. conflito entre financeiro por ciclo e financeiro por competência mensal
+2. conflito entre front antigo com mockData e implementação real com banco
+3. conflito entre visão operacional do médico e visão de fechamento administrativo
+4. conflito entre lógica multiunidade nova e validações antigas por unit_id
+
+Enquanto esses conflitos coexistirem, o sistema até pode funcionar em partes, mas continuará parecendo incoerente para o usuário.
+
+
+2. PRIMEIRO ERRO: DOIS MODELOS FINANCEIROS AO MESMO TEMPO
+---------------------------------------------------------
+Hoje o projeto sustenta, ao mesmo tempo, dois modelos de apuração:
+
+MODELO A - POR CICLO
+Tabelas relacionadas:
+- billing_cycles
+- billing_cycle_doctor_summary
+- billing_cycle_system_summary
+- billing_visit_events
+- billing_cycle_configs
+
+MODELO B - POR COMPETÊNCIA MENSAL
+Tabelas relacionadas:
+- billing_report_items
+- billing_monthly_doctor_by_unit
+- billing_monthly_system_by_unit
+
+Problema:
+o sistema não deixou explícito qual desses dois modelos é a verdade principal.
+
+Consequência:
+- uma tela pode consultar ciclo
+- outra tela pode consultar competência mensal
+- o médico pode ver uma lógica
+- o responsável pode ver outra
+- o admin pode fechar em uma base diferente da base que o médico acompanha no dia a dia
+
+Isso quebra a coerência do produto.
+
+MELHORIA SUGERIDA
+Definir oficialmente:
+
+A) FINANCEIRO OPERACIONAL
+- sobe no dia a dia
+- é o saldo que o médico acompanha
+- nasce do laudo válido
+- usa ciclo
+
+B) FINANCEIRO OFICIAL DE FECHAMENTO
+- consolida e congela período
+- serve para conferência e cobrança
+- pode usar competência mensal ou fechamento de ciclo
+
+Sem essa separação formal, sempre haverá inconsistência.
+
+
+3. SEGUNDO ERRO: FRONT ANTIGO E FRONT REAL NÃO ESTÃO NA MESMA FASE
+------------------------------------------------------------------
+Foram usados arquivos/protótipos com mockData e páginas isoladas para o financeiro:
+- CadastroPrecos
+- BillingResponsiblePage
+- BillingAdminPage
+- Dashboard
+- versões antigas de BillingDoctorPage
+
+Ao mesmo tempo, o projeto atual já possui:
+- rotas reais no servidor
+- queries TRPC
+- evento financeiro na assinatura do laudo
+- tabelas reais no banco
+
+Problema:
+uma parte da análise e da implementação foi guiada por um front “vitrine”, enquanto a aplicação real já está em outro estágio.
+
+Consequência:
+- a lógica discutida com base em mockData não reflete exatamente o comportamento real
+- decisões visuais foram tomadas em cima de protótipos
+- isso atrasou a definição de uma arquitetura estável
+
+MELHORIA SUGERIDA
+Parar de usar como referência principal telas financeiras alimentadas por mockData.
+A referência oficial deve ser:
+- banco real
+- rotas reais
+- telas reais conectadas ao TRPC
+
+
+4. TERCEIRO ERRO: O NOME billing_visit_events NÃO CONDIZ MAIS COM A REGRA ATUAL
+--------------------------------------------------------------------------------
+O projeto já avançou da lógica antiga de “evento por visita” para uma lógica mais próxima de “evento por laudo”.
+
+Hoje existe:
+- report_id
+- report_key
+- study_instance_uid
+- doctor_user_id
+- doctor_amount_due
+- system_amount_due
+
+Isso indica que a estrutura já caminha para uma relação direta com o laudo.
+
+Problema:
+a tabela continua se chamando billing_visit_events, nome que induz interpretação errada.
+
+Consequência:
+- a nomenclatura do banco não reflete claramente a regra de negócio
+- qualquer pessoa que entrar no projeto pode entender erroneamente que a cobrança continua sendo por visita
+- a manutenção fica mais difícil
+
+MELHORIA SUGERIDA
+Escolher uma das opções:
+1. renomear semanticamente a tabela e o código associado para refletir evento por laudo
+2. ou documentar de forma muito explícita que billing_visit_events hoje é usado como evento financeiro por laudo
+
+A melhor opção técnica é alinhar o nome ao comportamento real.
+
+
+5. QUARTO ERRO: O SALDO DO MÉDICO DEPENDE DEMAIS DE CICLO ABERTO
+----------------------------------------------------------------
+Na experiência desejada, o médico deve ver:
+- o valor por laudo da unidade
+- o saldo parcial da unidade
+- o saldo total do ciclo
+
+Mesmo antes de emitir o primeiro laudo, ele já deveria saber:
+“nesta unidade meu laudo vale R$ X”
+
+Problema atual:
+a lógica do banner e da consulta financeira ainda fica acoplada à existência de ciclo aberto.
+
+Consequência:
+- o preço pode não aparecer antes do primeiro evento
+- o banner pode parecer quebrado
+- o médico não entende se a unidade está sem preço ou se o sistema está com erro
+
+MELHORIA SUGERIDA
+Separar duas coisas:
+1. preço vigente da unidade para aquele médico
+2. saldo acumulado do ciclo
+
+Regra correta:
+- o preço deve aparecer independentemente do ciclo existir
+- o saldo pode começar em zero quando ainda não houver produção
+
+
+6. QUINTO ERRO: O FRONT ESCONDE O PROBLEMA EM VEZ DE EXPLICAR
+-------------------------------------------------------------
+Hoje o comportamento visual está muito frágil.
+
+Quando algo falha:
+- unidade efetiva não definida
+- role não reconhecida
+- query sem resultado
+- erro de permissão
+- ausência de configuração financeira
+
+o sistema simplesmente deixa de renderizar o componente.
+
+Consequência:
+para o usuário, parece que:
+- o financeiro sumiu
+- o saldo deixou de existir
+- o menu desapareceu
+- o sistema está “sem lógica”
+
+Na verdade, muitas vezes o recurso ainda existe, mas o front esconde tudo silenciosamente.
+
+MELHORIA SUGERIDA
+Todo componente financeiro precisa ter, no mínimo, quatro estados explícitos:
+1. carregando
+2. sem unidade selecionada
+3. sem configuração financeira
+4. erro ao carregar
+5. pronto para exibir
+
+Ou seja:
+nunca mais deixar o componente desaparecer sem explicação.
+
+
+7. SEXTO ERRO: A LÓGICA MULTIUNIDADE AINDA CONVIVE COM O unit_id LEGADO
+------------------------------------------------------------------------
+O sistema já possui:
+- user_unit_permissions
+- acesso por várias unidades
+- necessidade real de médico atuar em mais de uma unidade
+
+Mas ainda existem pontos do projeto que parecem validar acesso com base apenas em:
+- user.unit_id
+
+Problema:
+o sistema está em transição entre:
+- modelo antigo de unidade fixa
+- modelo novo de múltiplas permissões
+
+Consequência:
+- uma parte do sistema entende que o médico pode acessar várias unidades
+- outra parte continua tratando o usuário como pertencente a uma única unidade
+- isso gera falhas intermitentes de carregamento, saldo e permissão
+
+MELHORIA SUGERIDA
+Definir uma regra única:
+toda validação de acesso à unidade deve usar o modelo de permissões multiunidade.
+O campo unit_id legado não pode mais ser a base principal de autorização, salvo quando explicitamente documentado como fallback temporário.
+
+
+8. SÉTIMO ERRO: O FINANCEIRO DO MÉDICO ESTÁ FRAGMENTADO DEMAIS
+--------------------------------------------------------------
+Hoje a experiência do médico está espalhada em camadas separadas:
+- banner discreto em uma página
+- assinatura do laudo em outra
+- página “Meu Financeiro” em outra rota
+- saldo e histórico em outra lógica
+
+Problema:
+a experiência fica quebrada.
+O médico não percebe de forma direta:
+“assinei um laudo e meu saldo aumentou”
+
+Consequência:
+o produto não entrega a sensação de causa e efeito.
+
+MELHORIA SUGERIDA
+Definir esta cadeia obrigatória:
+
+1. médico escolhe unidade
+2. médico vê quanto vale o laudo naquela unidade
+3. médico assina laudo
+4. evento financeiro é gerado
+5. saldo daquela unidade sobe
+6. saldo total do ciclo sobe
+7. usuário recebe feedback visual imediato
+8. o histórico financeiro confirma depois
+
+Isso precisa virar a espinha dorsal do fluxo.
+
+
+9. OITAVO ERRO: O FEEDBACK APÓS ASSINATURA NÃO É SUFICIENTE
+-----------------------------------------------------------
+Hoje existe base para gerar evento financeiro na assinatura.
+Mas, mesmo quando a lógica funciona, a experiência ainda pode parecer falha.
+
+Problemas comuns:
+- erro financeiro sendo capturado de forma silenciosa
+- cache atrasando atualização do saldo
+- redirecionamento rápido demais
+- ausência de confirmação financeira explícita
+
+Consequência:
+o médico assina o laudo e não “sente” que o saldo subiu.
+
+MELHORIA SUGERIDA
+Após a assinatura:
+- invalidar queries financeiras
+- atualizar banner/resumo
+- mostrar mensagem explícita
+- não engolir falhas do billing
+
+Exemplo de retorno esperado:
+“Laudo assinado com sucesso. +R$ 30,00 adicionados ao seu saldo nesta unidade.”
+
+
+10. NONO ERRO: O PRODUTO AINDA NÃO SEPAROU BEM VISÃO OPERACIONAL E VISÃO ADMINISTRATIVA
+----------------------------------------------------------------------------------------
+A lógica do médico e a lógica do responsável pelo gasto não são iguais.
+A lógica do admin também não é igual às duas anteriores.
+
+Hoje isso ainda aparece misturado.
+
+O médico quer ver:
+- quanto vale o laudo
+- quanto acumulou
+- quanto fechou
+- extrato
+
+O responsável quer ver:
+- quanto deve ao sistema
+- quanto deve a cada médico
+- quanto deve por unidade
+- extrato para conferência
+
+O admin quer ver:
+- preços configurados
+- pendências
+- fechamento
+- auditoria
+- relatórios consolidados
+
+Problema:
+o produto ainda não declarou formalmente qual camada é:
+- acompanhamento operacional
+- conferência
+- fechamento oficial
+- administração
+
+MELHORIA SUGERIDA
+Separar oficialmente as três visões:
+
+CAMADA MÉDICO
+- acompanhamento operacional e extrato pessoal
+
+CAMADA RESPONSÁVEL
+- dívida consolidada e conferência
+
+CAMADA ADMIN/ROOT
+- configuração, auditoria e fechamento
+
+
+11. DÉCIMO ERRO: EXISTEM INDÍCIOS DE ESTRUTURA LEGADA CONVIVENDO NO BANCO
+--------------------------------------------------------------------------
+No banco aparecem estruturas como:
+- user
+- users
+
+Isso não prova sozinho um bug, mas é um forte indício de legado convivendo lado a lado.
+
+Problema:
+em projetos com legado estrutural, é comum surgir desencontro entre:
+- autenticação
+- permissões
+- perfil do usuário
+- origem da role
+- origem da unidade
+- origem dos dados financeiros
+
+Consequência:
+parte do sistema pode estar lendo informações de uma fonte e outra parte de outra.
+
+MELHORIA SUGERIDA
+Fazer uma revisão de origem de verdade para:
+- autenticação
+- role
+- unidade principal
+- permissões multiunidade
+- identificação do médico
+
+Se necessário, documentar:
+- qual tabela é oficial
+- qual tabela é legado
+- qual tabela será mantida
+- qual será desativada futuramente
+
+
+12. MELHORIAS ESTRUTURAIS RECOMENDADAS
+--------------------------------------
+Abaixo está a sequência recomendada para reorganizar o módulo financeiro.
+
+PASSO 1 - UNIFICAR A REGRA-MESTRA
+Definir oficialmente:
+- qual é a visão operacional
+- qual é a visão oficial de fechamento
+- qual é a base que sobe no dia a dia
+- qual é a base que fecha o período
+
+PASSO 2 - LIMPAR NOMENCLATURA E DOCUMENTAÇÃO
+Ajustar nomes, descrições e documentação para refletir o comportamento real do sistema.
+
+PASSO 3 - DESACOPLAR PREÇO DE CICLO
+O médico deve enxergar o valor por laudo da unidade mesmo sem produção no período.
+
+PASSO 4 - UNIFICAR MULTIUNIDADE
+Eliminar dependências antigas que ainda tratam o usuário como preso a uma única unidade.
+
+PASSO 5 - FORTALECER FEEDBACK DO FRONT
+Nunca ocultar o financeiro sem explicação.
+Criar estados explícitos de carregamento, ausência de configuração e erro.
+
+PASSO 6 - FECHAR O FLUXO OPERACIONAL DO MÉDICO
+A assinatura do laudo deve produzir:
+- evento financeiro
+- atualização do saldo
+- confirmação visível
+
+PASSO 7 - SEPARAR AS CAMADAS DO PRODUTO
+Médico, responsável e admin não podem compartilhar a mesma lógica visual e operacional.
+
+PASSO 8 - FAZER UMA REVISÃO DE FONTE DE VERDADE
+Garantir que:
+- autenticação
+- role
+- unidade
+- permissões
+- saldo
+- fechamento
+todos usem estruturas coerentes entre si
+
+
+13. DIREÇÃO FINAL CORRETA
+-------------------------
+A direção correta do produto é esta:
+
+O financeiro do médico deve ser operacional e visível no fluxo do trabalho.
+O financeiro do responsável deve ser uma visão clara de dívida e conferência.
+O financeiro do admin deve ser uma camada de gestão, preço, auditoria e fechamento.
+
+Em resumo:
+- o médico precisa sentir o saldo subir
+- o responsável precisa entender o que deve
+- o admin precisa controlar o sistema
+- o banco precisa refletir uma única verdade por camada
+- o front precisa parar de esconder falhas silenciosamente
+
+
+14. CONCLUSÃO FINAL
+-------------------
+O sistema ainda não chega a um resultado lógico porque os trechos errados não são apenas erros de código.
+São conflitos de direção entre partes do projeto.
+
+Os principais pontos errados hoje são:
+- coexistência de dois modelos financeiros sem hierarquia clara
+- uso simultâneo de protótipos antigos e implementação real
+- dependência excessiva de ciclo para mostrar preço
+- renderização silenciosa no front
+- transição incompleta entre unidade fixa e multiunidade
+- experiência do médico fragmentada
+- falta de separação formal entre visão operacional e fechamento
+- indícios de legado estrutural sem documentação de verdade oficial
+
+As melhorias sugeridas neste documento visam organizar o módulo financeiro para que ele finalmente se comporte como produto coerente, e não apenas como um conjunto de telas e cálculos soltos.
+
+FIM

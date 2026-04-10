@@ -944,3 +944,14 @@
 
 - [x] Corrigir lógica de consulta de estudos para médico vinculado a múltiplas unidades via user_unit_permissions
 - [x] Unificar as duas formas de vínculo (painel de usuário e aba Médicos da unidade) para usar a mesma tabela
+
+## PLANO FINANCEIRO — Reorganização do Módulo (ver docs/PLANO_FINANCEIRO.md)
+
+- [x] PASSO 1: Definir modelo financeiro oficial e fonte de verdade (docs/PLANO_FINANCEIRO.md)
+- [x] PASSO 3: Desacoplar preço de ciclo — banner mostra preço mesmo sem ciclo aberto
+- [x] PASSO 5: Fortalecer feedback do front — estados explícitos em componentes financeiros
+- [x] PASSO 4: Unificar multi-unidade — eliminar dependências de unit_id legado
+- [x] PASSO 6: Fechar fluxo operacional do médico — feedback explícito após assinatura
+- [x] PASSO 7: Separar camadas médico/responsável/admin
+- [ ] PASSO 2: Renomear billing_visit_events → billing_report_events (baixa prioridade)
+- [ ] PASSO 8: Revisão de fonte de verdade (baixa prioridade)

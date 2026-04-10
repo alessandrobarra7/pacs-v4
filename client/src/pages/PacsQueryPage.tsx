@@ -81,7 +81,7 @@ function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefin
 
   const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
-  // Sem unidade selecionada
+  // ESTADO 1: Sem unidade selecionada
   if (!unitId) {
     return (
       <div className="bg-amber-50 border-b border-amber-200 px-5 py-1.5 flex items-center gap-2 text-xs text-amber-700">
@@ -91,11 +91,11 @@ function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefin
     );
   }
 
-  // Carregando
+  // ESTADO 2: Carregando
   if (isLoading) {
     return (
       <div className="bg-emerald-50 border-b border-emerald-200 px-5 py-1.5 flex items-center gap-4 text-xs text-emerald-600 animate-pulse">
-        <span className="font-semibold">Ciclo atual:</span>
+        <span className="font-semibold">Carregando resumo financeiro...</span>
         <span className="bg-emerald-200 rounded h-3 w-16 inline-block" />
         <span className="bg-emerald-200 rounded h-3 w-24 inline-block" />
         <span className="bg-emerald-200 rounded h-3 w-20 inline-block" />
@@ -103,41 +103,72 @@ function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefin
     );
   }
 
-  // Erro na consulta
+  // ESTADO 3: Erro ao carregar
   if (isError) {
     return (
       <div className="bg-red-50 border-b border-red-200 px-5 py-1.5 flex items-center gap-2 text-xs text-red-600">
         <span>⚠</span>
-        <span>Não foi possível carregar o resumo financeiro. Tente recarregar a página.</span>
+        <span>Erro ao carregar dados financeiros. Tente recarregar a página.</span>
       </div>
     );
   }
 
-  // Sem configuração financeira para esta unidade
-  if (!info || !info.cycle_period) {
+  // ESTADO 4: Sem configuração de preço para esta unidade
+  // (info existe mas price_per_report é null — não há preço configurado)
+  if (!info || info.price_per_report === null) {
     return (
-      <div className="bg-gray-50 border-b border-gray-200 px-5 py-1.5 flex items-center gap-2 text-xs text-gray-500">
+      <div className="bg-blue-50 border-b border-blue-200 px-5 py-1.5 flex items-center gap-2 text-xs text-blue-600">
         <span>ℹ</span>
-        <span>Esta unidade ainda não possui configuração financeira. Contate o administrador.</span>
+        <span>Esta unidade ainda não possui configuração de preço para laudos. Contate o administrador.</span>
       </div>
     );
   }
 
+  // ESTADO 5: Pronto para exibir
+  // Preço sempre visível; saldo do ciclo zero se não houver ciclo aberto
   const amount = parseFloat(info.cycle_amount ?? '0');
   const visits = info.cycle_visits ?? 0;
   const endsAt = info.cycle_period?.ends_at;
+  const hasOpenCycle = info.has_open_cycle ?? false;
 
   if (userRole === 'medico') {
     return (
       <div className="bg-emerald-50 border-b border-emerald-200 px-5 py-1.5 flex items-center gap-4 text-xs text-emerald-800">
-        <span className="font-semibold">Ciclo atual:</span>
-        <span>Laudos: <strong>{visits}</strong></span>
-        <span>A receber: <strong className="text-emerald-700">{fmtBRL(amount)}</strong></span>
-        {info.price_per_report && (
-          <span className="text-emerald-600">R$ {info.price_per_report}/laudo</span>
+        <span className="font-semibold text-emerald-700">
+          R$ {parseFloat(info.price_per_report).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/laudo
+        </span>
+        <span className="text-emerald-600">•</span>
+        {hasOpenCycle ? (
+          <>
+            <span>Laudos no ciclo: <strong>{visits}</strong></span>
+            <span>A receber: <strong className="text-emerald-700">{fmtBRL(amount)}</strong></span>
+            {endsAt && (
+              <span className="text-emerald-600">Fecha em: {new Date(endsAt).toLocaleDateString('pt-BR')}</span>
+            )}
+          </>
+        ) : (
+          <span className="text-emerald-600">Nenhum ciclo aberto nesta unidade — saldo: {fmtBRL(0)}</span>
         )}
-        {endsAt && (
-          <span className="text-emerald-600">Fecha em: {new Date(endsAt).toLocaleDateString('pt-BR')}</span>
+      </div>
+    );
+  }
+
+  // PASSO 7: Responsável financeiro vê resumo da unidade
+  if (userRole === 'responsavel_financeiro') {
+    return (
+      <div className="bg-blue-50 border-b border-blue-200 px-5 py-1.5 flex items-center gap-4 text-xs text-blue-800">
+        <span className="font-semibold text-blue-700">Unidade</span>
+        <span className="text-blue-600">•</span>
+        {hasOpenCycle ? (
+          <>
+            <span>Laudos no ciclo: <strong>{visits}</strong></span>
+            <span>Total a pagar médicos: <strong className="text-blue-700">{fmtBRL(amount)}</strong></span>
+            {endsAt && (
+              <span className="text-blue-600">Fecha em: {new Date(endsAt).toLocaleDateString('pt-BR')}</span>
+            )}
+          </>
+        ) : (
+          <span className="text-blue-600">Nenhum ciclo aberto nesta unidade</span>
         )}
       </div>
     );
