@@ -955,3 +955,9 @@
 - [x] PASSO 7: Separar camadas médico/responsável/admin
 - [ ] PASSO 2: Renomear billing_visit_events → billing_report_events (baixa prioridade)
 - [ ] PASSO 8: Revisão de fonte de verdade (baixa prioridade)
+
+## TELA DE CONFIGURAÇÃO DE PREÇOS POR MÉDICO
+
+- [ ] Procedures tRPC: getDoctorPrices, setDoctorPrice, endDoctorPrice
+- [ ] Componente DoctorPriceManager na BillingAdminPage
+- [ ] Integração com seletor de unidade e lista de médicos vinculados

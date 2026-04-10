@@ -45,7 +45,9 @@ import {
   ChevronDown,
   ChevronUp,
   ShieldCheck,
+  UserCheck,
 } from "lucide-react";
+import { DoctorPriceManager } from "@/components/DoctorPriceManager";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtBRL(val: string | number | null | undefined) {
@@ -761,10 +763,14 @@ export default function BillingAdminPage() {
 
         {/* Abas */}
         <Tabs defaultValue="responsibles">
-          <TabsList className="grid w-full grid-cols-2 max-w-sm">
+          <TabsList className="grid w-full grid-cols-3 max-w-lg">
             <TabsTrigger value="responsibles" className="text-xs">
               <Users className="h-3.5 w-3.5 mr-1.5" />
               Responsáveis
+            </TabsTrigger>
+            <TabsTrigger value="doctor-prices" className="text-xs">
+              <UserCheck className="h-3.5 w-3.5 mr-1.5" />
+              Preços Médicos
             </TabsTrigger>
             <TabsTrigger value="cycles" className="text-xs">
               <Calendar className="h-3.5 w-3.5 mr-1.5" />
@@ -805,6 +811,23 @@ export default function BillingAdminPage() {
                   onRefresh={() => utils.billing.listResponsibles.invalidate()}
                 />
               ))
+            )}
+          </TabsContent>
+
+          {/* Aba: Preços por Médico */}
+          <TabsContent value="doctor-prices" className="mt-4">
+            {!loadingResp && resp.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <DollarSign className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                  <p className="text-muted-foreground text-sm">Cadastre um responsável financeiro primeiro.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <DoctorPriceManager
+                financialResponsibleId={resp[0]?.id ?? 0}
+                units={units}
+              />
             )}
           </TabsContent>
 
