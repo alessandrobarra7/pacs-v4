@@ -931,3 +931,11 @@
 - [x] Integrar UnitDoctorsTab no UnitFormDialog com abas Dados / Médicos
 - [x] Aba Médicos só aparece ao editar unidade existente (não ao criar nova)
 - [x] Zero erros TypeScript, 104 testes passando
+
+## BUG: Erro "Não foi possível carregar o resumo financeiro"
+
+- [x] Diagnosticar causa raiz: VM2 tem coluna `total_visits`, schema Drizzle usa `total_reports` — SELECT explícito do Drizzle falha com "Unknown column"
+- [x] Corrigir getDoctorUnitFinancialInfo: usar SELECT com colunas explícitas (sem total_reports/total_visits)
+- [x] Adicionar try/catch resiliente: retorna null silenciosamente em vez de propagar erro para o frontend
+- [x] Frontend exibe "sem configuração financeira" em vez de mensagem de erro vermelha
+- [ ] Migrar VM2: renomear total_visits → total_reports (ver scripts/VM2_MIGRATION_2026_04_09.md)
