@@ -961,3 +961,13 @@
 - [ ] Procedures tRPC: getDoctorPrices, setDoctorPrice, endDoctorPrice
 - [ ] Componente DoctorPriceManager na BillingAdminPage
 - [ ] Integração com seletor de unidade e lista de médicos vinculados
+
+## BUG: Função de laudar não funciona para médicos multi-unidade (2026-04-10)
+- [x] Diagnosticar causa raiz: procedures reports.create/update/sign/revise/delete usam ctx.user.unit_id legado que é null para médicos multi-unidade
+- [x] Adicionar função resolveEffectiveUnitId no db.ts (prioridade: legado > input.unit_id via permissões > primeira unidade)
+- [x] Corrigir reports.create: aceita unit_id no input, resolve via resolveEffectiveUnitId
+- [x] Corrigir reports.update: busca laudo sem filtro de unit_id, verifica acesso via getUserUnitPermission
+- [x] Corrigir reports.sign: busca laudo sem filtro de unit_id, verifica acesso via getUserUnitPermission
+- [x] Corrigir reports.revise: busca laudo sem filtro de unit_id, verifica acesso via getUserUnitPermission
+- [x] Corrigir reports.delete: busca laudo sem filtro de unit_id, verifica acesso via getUserUnitPermission
+- [x] Frontend ReportEditorPage: passar unit_id ao criar laudo (salvar rascunho e assinar)

@@ -596,6 +596,31 @@ export async function getUserUnitPermission(userId: number, unitId: number) {
   return rows[0] ?? null;
 }
 
+/**
+ * Resolve o unit_id efetivo para um usuário.
+ * Prioridade: (1) unit_id legado do campo users.unit_id,
+ *             (2) inputUnitId se o usuário tiver permissão nela,
+ *             (3) primeira unidade em user_unit_permissions.
+ * Retorna null se o usuário não tiver acesso a nenhuma unidade.
+ */
+export async function resolveEffectiveUnitId(
+  userId: number,
+  legacyUnitId: number | null | undefined,
+  inputUnitId?: number | null
+): Promise<number | null> {
+  // Prioridade 1: campo legado
+  if (legacyUnitId) return legacyUnitId;
+  // Prioridade 2: inputUnitId com verificação de permissão
+  if (inputUnitId) {
+    const perm = await getUserUnitPermission(userId, inputUnitId);
+    if (perm) return inputUnitId;
+  }
+  // Prioridade 3: primeira unidade nas permissões
+  const perms = await getUserUnitPermissions(userId);
+  if (perms.length > 0) return perms[0].unit_id;
+  return null;
+}
+
 /** Define (replace) as permissões de um usuário para uma lista de unidades.
  *  Unidades não incluídas na lista terão seus registros removidos. */
 export async function setUserUnitPermissions(

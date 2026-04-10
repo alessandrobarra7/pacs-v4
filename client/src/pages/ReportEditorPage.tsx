@@ -310,6 +310,7 @@ export default function ReportEditorPage() {
         await createReport.mutateAsync({
           study_instance_uid: studyUid,
           body,
+          unit_id: studyInfo?.unitId ?? undefined, // multi-unidade: passa a unidade selecionada
         });
       }
       toast.success("Rascunho salvo");
@@ -333,6 +334,7 @@ export default function ReportEditorPage() {
         const result = await createReport.mutateAsync({
           study_instance_uid: studyUid,
           body,
+          unit_id: studyInfo?.unitId ?? undefined, // multi-unidade: passa a unidade selecionada
         });
         reportId = result.id;
       } else {

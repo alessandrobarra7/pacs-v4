@@ -40,6 +40,7 @@ import {
   getStudyMetadata,
   getStudyMetadataBatch,
   upsertStudyMetadata,
+  resolveEffectiveUnitId,
 } from "./db";
 import { units, studies_cache, reports } from "../drizzle/schema";
 import { eq, and, like } from "drizzle-orm";
@@ -761,22 +762,28 @@ export const appRouter = router({
         study_instance_uid: z.string().optional(),
         template_id: z.number().optional(),
         body: z.string(),
+        unit_id: z.number().optional(), // multi-unidade: médico passa a unidade selecionada
       }))
       .mutation(async ({ input, ctx }) => {
-        if (!ctx.user.unit_id) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'User must be assigned to a unit' });
+        // Resolver unit_id efetivo: campo legado > input.unit_id via permissões > primeira unidade
+        const effectiveUnitId = ctx.user.role === 'admin_master'
+          ? (input.unit_id ?? ctx.user.unit_id)
+          : await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id, input.unit_id);
+        if (!effectiveUnitId) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário não está vinculado a nenhuma unidade' });
         }
         
+        const { unit_id: _unitInput, ...restInput } = input;
         const id = await createReport({
-          ...input,
-          unit_id: ctx.user.unit_id,
+          ...restInput,
+          unit_id: effectiveUnitId,
           author_user_id: ctx.user.id,
           status: 'draft',
         });
         
         await createAuditLog({
           user_id: ctx.user.id,
-          unit_id: ctx.user.unit_id,
+          unit_id: effectiveUnitId,
           action: 'CREATE_REPORT',
           target_type: 'REPORT',
           target_id: String(id),
@@ -795,14 +802,17 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
-        // CORREÇÃO BUG: usar getReportById (por ID do laudo), não getReportByStudyId
-        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
-        const report = await getReportById(id, unitId);
+        // Buscar laudo sem filtro de unit_id para suportar médicos multi-unidade
+        const report = await getReportById(id, undefined);
         if (!report) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
         }
-        if (ctx.user.role !== 'admin_master' && report.unit_id !== ctx.user.unit_id) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        // Verificar acesso: admin_master tem acesso total; outros verificam via unit_id legado ou permissões
+        if (ctx.user.role !== 'admin_master') {
+          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+          const hasAccess = effectiveUnitId === report.unit_id ||
+            !!(await import('./db').then(db => db.getUserUnitPermission(ctx.user.id, report.unit_id ?? 0)));
+          if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
         // Bug fix B1: bloquear atualização direta de laudos assinados ou retificados.
         // Laudos nesse estado só podem ser alterados via reports.revise (com histórico e motivo).
@@ -830,14 +840,17 @@ export const appRouter = router({
     sign: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        // CORREÇÃO BUG: usar getReportById (por ID do laudo), não getReportByStudyId
-        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
-        const report = await getReportById(input.id, unitId);
+        // Buscar laudo sem filtro de unit_id para suportar médicos multi-unidade
+        const report = await getReportById(input.id, undefined);
         if (!report) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
         }
-        if (ctx.user.role !== 'admin_master' && report.unit_id !== ctx.user.unit_id) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        // Verificar acesso: admin_master tem acesso total; outros verificam via unit_id legado ou permissões
+        if (ctx.user.role !== 'admin_master') {
+          const { getUserUnitPermission: getUnitPerm } = await import('./db');
+          const hasAccess = ctx.user.unit_id === report.unit_id ||
+            !!(await getUnitPerm(ctx.user.id, report.unit_id ?? 0));
+          if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
         await updateReport(input.id, {
           status: 'signed',
@@ -845,9 +858,10 @@ export const appRouter = router({
           signedBy: ctx.user.id,
         });
         
+        const effectiveUnitId = ctx.user.unit_id ?? report.unit_id;
         await createAuditLog({
           user_id: ctx.user.id,
-          unit_id: ctx.user.unit_id,
+          unit_id: effectiveUnitId,
           action: 'SIGN_REPORT',
           target_type: 'REPORT',
           target_id: String(input.id),
@@ -875,11 +889,13 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
-        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
-        const report = await getReportById(input.id, unitId);
+        const report = await getReportById(input.id, undefined);
         if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
-        if (ctx.user.role !== 'admin_master' && report.unit_id !== ctx.user.unit_id) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        if (ctx.user.role !== 'admin_master') {
+          const { getUserUnitPermission: getUnitPerm } = await import('./db');
+          const hasAccess = ctx.user.unit_id === report.unit_id ||
+            !!(await getUnitPerm(ctx.user.id, report.unit_id ?? 0));
+          if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
         if (report.status !== 'signed' && report.status !== 'revised') {
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Apenas laudos assinados podem ser retificados' });
@@ -923,20 +939,23 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
-        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
-        const report = await getReportById(input.id, unitId);
+        const report = await getReportById(input.id, undefined);
         if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
-        if (ctx.user.role !== 'admin_master' && report.unit_id !== ctx.user.unit_id) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        if (ctx.user.role !== 'admin_master') {
+          const { getUserUnitPermission: getUnitPerm } = await import('./db');
+          const hasAccess = ctx.user.unit_id === report.unit_id ||
+            !!(await getUnitPerm(ctx.user.id, report.unit_id ?? 0));
+          if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
         // Apagar versões históricas primeiro (FK)
         const { report_versions } = await import('../drizzle/schema');
         await db.delete(report_versions).where(eq(report_versions.report_id, input.id));
         // Apagar o laudo
         await db.delete(reports).where(eq(reports.id, input.id));
+        const effectiveUnitId = ctx.user.unit_id ?? report.unit_id;
         await createAuditLog({
           user_id: ctx.user.id,
-          unit_id: ctx.user.unit_id,
+          unit_id: effectiveUnitId,
           action: 'DELETE_REPORT',
           target_type: 'REPORT',
           target_id: String(input.id),
