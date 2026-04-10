@@ -220,7 +220,12 @@ export const appRouter = router({
         if (!unit) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unit not found' });
         
         if (ctx.user.role !== 'admin_master' && ctx.user.unit_id !== unit.id) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
+          // Verificar permissão via user_unit_permissions (multi-unidade)
+          const { getUserUnitPermission } = await import('./db');
+          const perm = await getUserUnitPermission(ctx.user.id, unit.id);
+          if (!perm) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
+          }
         }
         
         return unit;
@@ -949,10 +954,23 @@ export const appRouter = router({
           });
         }
 
-        // admin_master pode especificar unit_id; demais usuários usam a própria unidade
-        const targetUnitId = (ctx.user.role === 'admin_master' && input.unit_id)
-          ? input.unit_id
-          : ctx.user.unit_id;
+        // Determinar a unidade alvo:
+        // - admin_master pode passar qualquer unit_id
+        // - demais usuários podem passar unit_id se tiverem permissão via user_unit_permissions
+        // - fallback: unit_id legado do campo users.unit_id
+        let targetUnitId: number | null | undefined = ctx.user.unit_id;
+        if (input.unit_id) {
+          if (ctx.user.role === 'admin_master') {
+            targetUnitId = input.unit_id;
+          } else {
+            // Verificar se o usuário tem permissão nessa unidade
+            const { getUserUnitPermission } = await import('./db');
+            const perm = await getUserUnitPermission(ctx.user.id, input.unit_id);
+            if (perm) {
+              targetUnitId = input.unit_id;
+            }
+          }
+        }
 
         // Busca unidade do usuário
         if (!targetUnitId) {

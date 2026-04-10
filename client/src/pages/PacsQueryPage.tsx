@@ -413,11 +413,12 @@ export function PacsQueryPage() {
     return saved ? parseInt(saved, 10) : null;
   });
   // Carregar unidades acessíveis pelo usuário (admin_master vê todas, outros vêem apenas as que têm permissão)
-  const canSelectUnit = isAdminMaster || user?.role === 'unit_admin';
   const { data: allUnits = [] } = trpc.units.list.useQuery(undefined, { enabled: !!user });
+  // Pode selecionar unidade: admin, unit_admin, ou qualquer usuário com acesso a múltiplas unidades
+  const canSelectUnit = isAdminMaster || user?.role === 'unit_admin' || allUnits.length > 1;
 
   // Para usuários com múltiplas unidades (via permissões), usa selectedUnitId; caso contrário usa unit_id legado
-  const effectiveUnitId = (canSelectUnit || allUnits.length > 1)
+  const effectiveUnitId = canSelectUnit
     ? selectedUnitId
     : (user?.unit_id || (allUnits.length > 0 ? allUnits[0].id : null));
 
@@ -1036,7 +1037,7 @@ export function PacsQueryPage() {
 
       <AppHeader
         unitSlot={
-          isAdminMaster && allUnits.length > 0 ? (
+          canSelectUnit && allUnits.length > 0 ? (
             <select
               value={selectedUnitId || ''}
               onChange={(e) => handleSelectUnit(Number(e.target.value))}

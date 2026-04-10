@@ -939,3 +939,8 @@
 - [x] Adicionar try/catch resiliente: retorna null silenciosamente em vez de propagar erro para o frontend
 - [x] Frontend exibe "sem configuração financeira" em vez de mensagem de erro vermelha
 - [ ] Migrar VM2: renomear total_visits → total_reports (ver scripts/VM2_MIGRATION_2026_04_09.md)
+
+## BUG: Médico não vê estudos de múltiplas unidades
+
+- [x] Corrigir lógica de consulta de estudos para médico vinculado a múltiplas unidades via user_unit_permissions
+- [x] Unificar as duas formas de vínculo (painel de usuário e aba Médicos da unidade) para usar a mesma tabela
