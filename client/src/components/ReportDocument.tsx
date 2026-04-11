@@ -1,4 +1,24 @@
 import { forwardRef, useImperativeHandle, useRef, useCallback } from "react";
+import DOMPurify from 'dompurify';
+
+// F1-4: Sanitiza HTML antes de atribuir ao innerHTML (previne XSS no visualizador de laudos)
+function sanitizeForDisplay(html: string): string {
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [
+      'p', 'br', 'strong', 'em', 'u', 's', 'sub', 'sup', 'span', 'div',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr',
+      'ul', 'ol', 'li', 'a', 'img',
+      'table', 'thead', 'tbody', 'tr', 'th', 'td', 'colgroup', 'col',
+    ],
+    ALLOWED_ATTR: [
+      'style', 'class', 'id', 'align', 'valign',
+      'href', 'target', 'rel',
+      'src', 'alt', 'width', 'height',
+      'colspan', 'rowspan', 'span',
+    ],
+    ALLOW_DATA_ATTR: false,
+  });
+}
 
 export interface ReportDocumentHandle {
   insertAtCursor: (text: string) => void;
@@ -88,12 +108,14 @@ const ReportDocument = forwardRef<ReportDocumentHandle, ReportDocumentProps>(
       setContent(html: string) {
         if (editorRef.current) {
           if (!html.includes("<")) {
+            // Texto puro: envolver em parágrafos (sem HTML, sem risco de XSS)
             editorRef.current.innerHTML = html
               .split("\n\n")
               .map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`)
               .join("");
           } else {
-            editorRef.current.innerHTML = html;
+            // F1-4: Sanitizar HTML antes de atribuir ao innerHTML
+            editorRef.current.innerHTML = sanitizeForDisplay(html);
           }
         }
       },

@@ -122,11 +122,37 @@ async function startServer() {
   }
   setInterval(cleanOldDicomCaches, 5 * 60 * 1000); // verifica a cada 5 minutos
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // STATUS DO CACHE — verifica se um estudo já está baixado no servidor
+  // F1-1: Middleware de autenticação para rotas DICOM
+  // Verifica o cookie de sessão e retorna 401 se não autenticado
+  async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: 'Não autenticado' });
+      (req as any).dicomUser = ctx.user;
+      next();
+    } catch {
+      return res.status(401).json({ error: 'Não autenticado' });
+    }
+  }
+
+  // F1-2: Middleware de autenticação admin_master para rotas administrativas DICOM
+  async function requireAdminAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: 'Não autenticado' });
+      if (ctx.user.role !== 'admin_master') return res.status(403).json({ error: 'Acesso restrito a administradores' });
+      (req as any).dicomUser = ctx.user;
+      next();
+    } catch {
+      return res.status(401).json({ error: 'Não autenticado' });
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────────
+  // STATUS DO CACHE— verifica se um estudo já está baixado no servidor
   // Usado pela listagem para manter o botão verde ao voltar do viewer
   // ─────────────────────────────────────────────────────────────────────────────
-  app.get('/api/dicom-cache-status/:studyUid', async (req, res) => {
+  app.get('/api/dicom-cache-status/:studyUid', requireAuth, async (req, res) => {
     const { studyUid } = req.params;
     if (!studyUid || studyUid.includes('..') || studyUid.includes('/')) {
       return res.status(400).json({ cached: false, count: 0 });
@@ -145,7 +171,7 @@ async function startServer() {
   });
 
   // Serve DICOM files from cache
-  app.get('/api/dicom-files/:studyUid/:filename', (req, res) => {
+  app.get('/api/dicom-files/:studyUid/:filename', requireAuth, (req, res) => {
     const { studyUid, filename } = req.params;
     if (filename.includes('..') || filename.includes('/') || studyUid.includes('..') || studyUid.includes('/')) {
       return res.status(400).send('Invalid path');
@@ -159,7 +185,7 @@ async function startServer() {
   });
 
   // Lista arquivos DICOM de um estudo no cache + extrai metadados do primeiro arquivo
-  app.get('/api/dicom-files/:studyUid', async (req, res) => {
+  app.get('/api/dicom-files/:studyUid', requireAuth, async (req, res) => {
     const { studyUid } = req.params;
     if (studyUid.includes('..') || studyUid.includes('/')) {
       return res.status(400).json({ success: false, error: 'Invalid studyUid' });
@@ -222,7 +248,7 @@ async function startServer() {
   });
 
   // Remove cache DICOM ao fechar o viewer
-  app.delete('/api/dicom-files/:studyUid', async (req, res) => {
+  app.delete('/api/dicom-files/:studyUid', requireAuth, async (req, res) => {
     const { studyUid } = req.params;
     if (studyUid.includes('..') || studyUid.includes('/')) {
       return res.status(400).json({ success: false, error: 'Invalid studyUid' });
@@ -240,7 +266,7 @@ async function startServer() {
 
   // Lista séries DICOM de um estudo agrupadas por SeriesInstanceUID
   // Retorna: { series: [{ seriesUid, description, modality, files: string[], thumbnail: string }] }
-  app.get('/api/dicom-series/:studyUid', async (req, res) => {
+  app.get('/api/dicom-series/:studyUid', requireAuth, async (req, res) => {
     const { studyUid } = req.params;
     if (studyUid.includes('..') || studyUid.includes('/')) {
       return res.status(400).json({ success: false, error: 'Invalid studyUid' });
@@ -319,7 +345,7 @@ async function startServer() {
   // ── Thumbnail DICOM ────────────────────────────────────────────────────────
   // Gera miniatura PNG 64x64 via script Python (pydicom) para leitura correta
   // de todos os formatos DICOM (MONOCHROME1/2, Window Center/Width como string, etc.)
-  app.get('/api/dicom-thumbnail/:studyUid/:filename', async (req, res) => {
+  app.get('/api/dicom-thumbnail/:studyUid/:filename', requireAuth, async (req, res) => {
     const { studyUid, filename } = req.params;
     if (studyUid.includes('..') || studyUid.includes('/') || filename.includes('..') || filename.includes('/')) {
       return res.status(400).json({ error: 'Invalid path' });
@@ -417,9 +443,13 @@ async function startServer() {
     return fallback;
   }
   
-  // OPTIONS preflight para CORS
+  // OPTIONS preflight para CORS — F1-7: restringir às origens permitidas (sem wildcard)
   app.options('/api/dicomweb/*', (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization, multipart/related');
     res.status(204).send();
@@ -455,8 +485,12 @@ async function startServer() {
       
       const response = await fetch(targetUrl, fetchOptions);
       
-      // Copia todos os headers relevantes da resposta do Orthanc
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      // Copia todos os headers relevantes da resposta do Orthanc — F1-7: sem wildcard
+      const reqOrigin = req.headers.origin;
+      if (reqOrigin && allowedOrigins.includes(reqOrigin)) {
+        res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      }
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization');
       
@@ -479,11 +513,8 @@ async function startServer() {
     } catch (error: any) {
       console.error('[DICOMweb Proxy] Erro:', error.message);
       if (!res.headersSent) {
-        res.status(502).json({ 
-          error: 'DICOMweb Proxy Error', 
-          message: error.message,
-          orthanc: 'http://172.16.3.241:8042'
-        });
+        // F1-8: Não expor IP interno nem detalhes do erro ao cliente
+        res.status(502).json({ error: 'DICOMweb Proxy Error' });
       }
     }
   });
@@ -693,7 +724,7 @@ async function startServer() {
   // EXPORTAÇÃO ZIP — baixa todos os arquivos DICOM do cache como .zip
   // Para abrir em RadiAnt, OsiriX, Horos, etc.
   // ─────────────────────────────────────────────────────────────────────────────
-  app.get('/api/dicom-export/:studyUid', async (req, res) => {
+  app.get('/api/dicom-export/:studyUid', requireAuth, async (req, res) => {
     const { studyUid } = req.params;
     if (!studyUid || studyUid.includes('..') || studyUid.includes('/')) {
       return res.status(400).json({ error: 'Invalid studyUid' });
@@ -743,8 +774,8 @@ async function startServer() {
     }
   });
 
-  // Endpoint: informações gerais do cache DICOM (tamanho total, estudos, etc.)
-  app.get('/api/dicom-cache-info', async (_req, res) => {
+  // Endpoint: informações gerais do cache DICOM (tamanho total, estudos, etc.) — restrito a admin_master
+  app.get('/api/dicom-cache-info', requireAdminAuth, async (_req, res) => {
     try {
       if (!fs.existsSync(DICOM_CACHE_ROOT)) {
         return res.json({ totalSizeBytes: 0, totalSizeMB: 0, studyCount: 0, studies: [] });
@@ -780,8 +811,8 @@ async function startServer() {
     }
   });
 
-  // Endpoint: limpar todo o cache DICOM manualmente
-  app.delete('/api/dicom-cache-clear', async (_req, res) => {
+  // Endpoint: limpar todo o cache DICOM manualmente — restrito a admin_master
+  app.delete('/api/dicom-cache-clear', requireAdminAuth, async (_req, res) => {
     try {
       if (!fs.existsSync(DICOM_CACHE_ROOT)) {
         return res.json({ success: true, removed: 0 });

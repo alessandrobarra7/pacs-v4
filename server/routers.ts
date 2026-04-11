@@ -49,6 +49,28 @@ import { getDicomWebUrl } from "./orthanc";
 import { cFind } from "./dicom.service";
 import type { CFindResult } from "./dicom.service";
 import { MAX_UPLOAD_BYTES } from '../shared/const'; // M4: constante centralizada
+import sanitizeHtml from 'sanitize-html';
+
+// F1-3: Configuração de sanitização HTML para laudos — permite tags de formatação médica
+// mas bloqueia qualquer script, handler de evento ou atributo perigoso (previne XSS armazenado)
+const REPORT_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: sanitizeHtml.defaults.allowedTags.concat([
+    'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'colgroup', 'col',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'div', 'p', 'br',
+    'strong', 'em', 'u', 's', 'sub', 'sup', 'blockquote', 'hr',
+    'ul', 'ol', 'li', 'a',
+  ]),
+  allowedAttributes: {
+    '*': ['style', 'class', 'id', 'align', 'valign'],
+    'a': ['href', 'target', 'rel'],
+    'img': ['src', 'alt', 'width', 'height'],
+    'td': ['colspan', 'rowspan'],
+    'th': ['colspan', 'rowspan'],
+    'col': ['width', 'span'],
+  },
+  allowedSchemes: ['http', 'https', 'data'],
+  disallowedTagsMode: 'discard',
+};
 
 /**
  * Bug fix N1: Infere a extensão real do arquivo a partir do data URI.
@@ -774,8 +796,11 @@ export const appRouter = router({
         }
         
         const { unit_id: _unitInput, ...restInput } = input;
+        // F1-3: Sanitizar HTML do body antes de persistir (previne XSS armazenado)
+        const safeBody = sanitizeHtml(restInput.body, REPORT_SANITIZE_OPTIONS);
         const id = await createReport({
           ...restInput,
+          body: safeBody,
           unit_id: effectiveUnitId,
           author_user_id: ctx.user.id,
           status: 'draft',
@@ -822,7 +847,11 @@ export const appRouter = router({
             message: 'Laudos assinados só podem ser editados via retificação.',
           });
         }
-        await updateReport(id, data);
+        // F1-3: Sanitizar HTML do body antes de persistir (previne XSS armazenado)
+        const safeUpdateData = data.body !== undefined
+          ? { ...data, body: sanitizeHtml(data.body, REPORT_SANITIZE_OPTIONS) }
+          : data;
+        await updateReport(id, safeUpdateData);
         
         await createAuditLog({
           user_id: ctx.user.id,
@@ -913,8 +942,10 @@ export const appRouter = router({
         // 2. Atualizar laudo com novo corpo e status 'revised'
         // Bug fix B4: atualizar signedAt e signedBy para refletir quem retificou e quando,
         // garantindo rastreabilidade médico-legal correta no laudo impresso e no histórico.
+        // F1-3: Sanitizar HTML do body antes de persistir (previne XSS armazenado)
+        const safeReviseBody = sanitizeHtml(input.body, REPORT_SANITIZE_OPTIONS);
         await updateReport(input.id, {
-          body: input.body,
+          body: safeReviseBody,
           status: 'revised',
           version: (report.version ?? 1) + 1,
           signedAt: new Date(),
@@ -1514,16 +1545,37 @@ export const appRouter = router({
 
     getByStudyId: protectedProcedure
       .input(z.object({ study_instance_uid: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        // F1-6: Verificar permissão view_anamnesis antes de retornar dados sensíveis
+        if (ctx.user.role !== 'admin_master') {
+          const { getUserUnitPermission } = await import('./db');
+          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+          if (effectiveUnitId) {
+            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
+            // Fallback para unit_id legado: se não tem perm mas tem unit_id legado, permite
+            if (perm && !perm.view_anamnesis) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para visualizar anamnese' });
+            }
+          }
+        }
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { anamnesis } = await import("../drizzle/schema");
-        const { eq } = await import("drizzle-orm");
+        const { eq, and: andOp } = await import("drizzle-orm");
+        
+        // F1-6: Filtrar por unit_id do usuário para evitar acesso cross-unidade
+        const effectiveUnitId = ctx.user.role === 'admin_master'
+          ? undefined
+          : await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+        
+        const whereClause = effectiveUnitId
+          ? andOp(eq(anamnesis.study_instance_uid, input.study_instance_uid), eq(anamnesis.unit_id, effectiveUnitId))
+          : eq(anamnesis.study_instance_uid, input.study_instance_uid);
         
         const results = await db
           .select()
           .from(anamnesis)
-          .where(eq(anamnesis.study_instance_uid, input.study_instance_uid))
+          .where(whereClause)
           .limit(1);
         
         return results[0] || null;
@@ -1652,6 +1704,18 @@ export const appRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { users } = await import("../drizzle/schema");
         const { eq: eqOp } = await import("drizzle-orm");
+        // F1-5: unit_admin só pode editar usuários da sua própria unidade
+        if (ctx.user.role === 'unit_admin') {
+          const targetUser = await db.select().from(users).where(eqOp(users.id, input.id)).limit(1);
+          const targetUnitId = targetUser[0]?.unit_id;
+          const adminUnitId = ctx.user.unit_id;
+          if (!adminUnitId || targetUnitId !== adminUnitId) {
+            // Verificar também via user_unit_permissions
+            const { getUserUnitPermission: getUnitPerm } = await import('./db');
+            const hasScope = targetUnitId ? !!(await getUnitPerm(ctx.user.id, targetUnitId)) : false;
+            if (!hasScope) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin só pode editar usuários da sua unidade' });
+          }
+        }
         const updateData: Record<string, unknown> = {};
         if (input.name !== undefined) updateData.name = input.name;
         if (input.email !== undefined) updateData.email = input.email || null;
@@ -1697,6 +1761,17 @@ export const appRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { users } = await import("../drizzle/schema");
         const { eq: eqOp } = await import("drizzle-orm");
+        // F1-5: unit_admin só pode ativar/desativar usuários da sua própria unidade
+        if (ctx.user.role === 'unit_admin') {
+          const targetUser = await db.select().from(users).where(eqOp(users.id, input.id)).limit(1);
+          const targetUnitId = targetUser[0]?.unit_id;
+          const adminUnitId = ctx.user.unit_id;
+          if (!adminUnitId || targetUnitId !== adminUnitId) {
+            const { getUserUnitPermission: getUnitPerm } = await import('./db');
+            const hasScope = targetUnitId ? !!(await getUnitPerm(ctx.user.id, targetUnitId)) : false;
+            if (!hasScope) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin só pode gerenciar usuários da sua unidade' });
+          }
+        }
         await db.update(users).set({ isActive: input.isActive }).where(eqOp(users.id, input.id));
         return { success: true };
       }),
@@ -1726,6 +1801,17 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        // F1-5: unit_admin só pode definir permissões para unidades às quais ele próprio tem acesso
+        if (ctx.user.role === 'unit_admin') {
+          const { getUserUnitPermission: getUnitPerm } = await import('./db');
+          for (const perm of input.permissions) {
+            const adminHasAccess = ctx.user.unit_id === perm.unit_id ||
+              !!(await getUnitPerm(ctx.user.id, perm.unit_id));
+            if (!adminHasAccess) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: `Unit admin não tem acesso à unidade ${perm.unit_id}` });
+            }
+          }
         }
         const { setUserUnitPermissions } = await import('./db');
         await setUserUnitPermissions(input.userId, input.permissions);

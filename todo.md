@@ -973,14 +973,14 @@
 - [x] Frontend ReportEditorPage: passar unit_id ao criar laudo (salvar rascunho e assinar)
 
 ## SEGURANÇA — Fase 1 (Imediata)
-- [ ] F1-1: Criar middleware requireAuth e aplicar nas 9 rotas DICOM sem autenticação
-- [ ] F1-2: Restringir dicom-cache-clear e dicom-cache-info a admin_master
-- [ ] F1-3: Instalar sanitize-html no backend e sanitizar body em reports.create e reports.update
-- [ ] F1-4: Instalar dompurify no frontend e sanitizar innerHTML em ReportDocument.tsx e ReportEditorPage.tsx
-- [ ] F1-5: Criar helper assertUserInScope e aplicar em updateUser, toggleUserActive e setUserPermissions
-- [ ] F1-6: Filtrar anamnesis.getByStudyId por unit_id e verificar permissão view_anamnesis
-- [ ] F1-7: Corrigir CORS do handler OPTIONS do DICOMweb (remover Access-Control-Allow-Origin: *)
-- [ ] F1-8: Remover IP interno da resposta de erro do DICOMweb proxy
+- [x] F1-1: Criar middleware requireAuth e aplicar nas 9 rotas DICOM sem autenticação
+- [x] F1-2: Restringir dicom-cache-clear e dicom-cache-info a admin_master
+- [x] F1-3: Instalar sanitize-html no backend e sanitizar body em reports.create e reports.update
+- [x] F1-4: Instalar dompurify no frontend e sanitizar innerHTML em ReportDocument.tsx e ReportEditorPage.tsx
+- [x] F1-5: Criar helper assertUserInScope e aplicar em updateUser, toggleUserActive e setUserPermissions
+- [x] F1-6: Filtrar anamnesis.getByStudyId por unit_id e verificar permissão view_anamnesis
+- [x] F1-7: Corrigir CORS do handler OPTIONS do DICOMweb (remover Access-Control-Allow-Origin: *)
+- [x] F1-8: Remover IP interno da resposta de erro do DICOMweb proxy
 
 ## SEGURANÇA — Fase 2 (Consistência)
 - [ ] F2-1: Corrigir getOrthancUrl para resolver pela unidade do usuário autenticado

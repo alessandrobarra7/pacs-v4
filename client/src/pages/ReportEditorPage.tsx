@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import DOMPurify from 'dompurify';
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -10,6 +11,25 @@ import {
   Plus, Trash2, Star, StarOff, GripVertical, Image as ImageIcon, FileText,
   MessageSquare, Layers, X, Edit2, Check,
 } from "lucide-react";
+
+// F1-4: Sanitiza HTML antes de atribuir ao innerHTML (previne XSS no editor de laudos)
+function sanitizeHtmlForEditor(html: string): string {
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [
+      'p', 'br', 'strong', 'em', 'u', 's', 'sub', 'sup', 'span', 'div',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr',
+      'ul', 'ol', 'li', 'a', 'img',
+      'table', 'thead', 'tbody', 'tr', 'th', 'td', 'colgroup', 'col',
+    ],
+    ALLOWED_ATTR: [
+      'style', 'class', 'id', 'align', 'valign',
+      'href', 'target', 'rel',
+      'src', 'alt', 'width', 'height',
+      'colspan', 'rowspan', 'span',
+    ],
+    ALLOW_DATA_ATTR: false,
+  });
+}
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const LEGAL_FOOTER = `Este documento foi gerado pela plataforma de sistema de laudos "Lauds", inscrita no CNPJ nº 12.345.678/0001-90. Em caso de dúvidas, entre em contato pelo número comercial 0800 896 555 489 625. Para mais informações, acesse nosso site www.lauds.com.br ou siga-nos no Instagram @lauds_radiologia.`;
@@ -220,7 +240,7 @@ export default function ReportEditorPage() {
         if (Array.isArray(pages)) {
           pages.forEach((page, i) => {
             if (sectionRefs.current[i]) {
-              sectionRefs.current[i]!.innerHTML = page.body || "";
+              sectionRefs.current[i]!.innerHTML = sanitizeHtmlForEditor(page.body || "");
             }
           });
           return;
@@ -234,17 +254,17 @@ export default function ReportEditorPage() {
         sections.forEach((sec, i) => {
           const bodyDiv = sec.querySelector(".exam-section-body, div:last-child");
           if (sectionRefs.current[i] && bodyDiv) {
-            sectionRefs.current[i]!.innerHTML = bodyDiv.innerHTML;
+            sectionRefs.current[i]!.innerHTML = sanitizeHtmlForEditor(bodyDiv.innerHTML);
           }
         });
       } else {
         // Laudo antigo sem seções — colocar tudo na primeira página
         if (sectionRefs.current[0]) {
-          sectionRefs.current[0].innerHTML = existingReport.body;
+          sectionRefs.current[0].innerHTML = sanitizeHtmlForEditor(existingReport.body);
         }
       }
     } else if (docRef.current) {
-      docRef.current.innerHTML = existingReport.body;
+      docRef.current.innerHTML = sanitizeHtmlForEditor(existingReport.body);
     }
   }, [existingReport, isMultiSection]);// ── Salvar seleção antes de interagir com sidebar ────────────────────────
   const saveSelection = useCallback(() => {
@@ -726,7 +746,7 @@ export default function ReportEditorPage() {
             {activeTab === "templates" && (
               <TemplatesTab
                 onApplyTemplate={(body) => {
-                  if (docRef.current) docRef.current.innerHTML = body;
+                  if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
                 }}
               />
             )}
