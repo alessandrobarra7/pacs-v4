@@ -1012,3 +1012,6 @@
 - [x] F2-5: Filtrar listUsersWithPermissions e listAuditLog por unidade para unit_admin
 - [x] F2-6: Verificar permissão manage_templates em templates.create, update e delete
 - [x] F3-2: Criar testes de autorização negativa (cross-unit, XSS, endpoints sem auth, expiração)
+- [x] F3-1: Refatorar routers.ts (2754 linhas) em 13 módulos por domínio (server/routers/)
+- [x] 4a: Corrigir admin.listUsers para suporte multi-unidade (unit_admin sem unit_id legado)
+- [x] F2-7: Verificar escopo em setUserPermissions — confirmado implementado na F1-5
