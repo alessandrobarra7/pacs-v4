@@ -332,6 +332,8 @@ export default function ReportEditorPage() {
           body,
           unit_id: studyInfo?.unitId ?? undefined, // multi-unidade: passa a unidade selecionada
         });
+        // Forçar refetch imediato para que cliques subsequentes usem update em vez de create
+        await utils.reports.getByStudyUid.invalidate({ studyInstanceUid: studyUid });
       }
       toast.success("Rascunho salvo");
     } catch (e: any) {
