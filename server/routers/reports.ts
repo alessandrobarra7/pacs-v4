@@ -256,6 +256,9 @@ export const reportsRouter = router({
             !!(await getUnitPerm(ctx.user.id, report.unit_id ?? 0));
           if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
+        // Remover evento financeiro e decrementar consolidados de ciclo (se laudo estava assinado)
+        const { removeVisitEventForReport } = await import('../db');
+        await removeVisitEventForReport(input.id);
         // Apagar versões históricas primeiro (FK)
         const { report_versions } = await import('../../drizzle/schema');
         await db.delete(report_versions).where(eq(report_versions.report_id, input.id));

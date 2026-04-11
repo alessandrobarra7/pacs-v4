@@ -1712,6 +1712,74 @@ async function updateCycleSummaries(
 }
 
 /**
+ * Remove o billing_visit_event de um laudo e decrementa os consolidados de ciclo.
+ * Chamado ao excluir um laudo assinado.
+ */
+export async function removeVisitEventForReport(reportId: number) {
+  const db = await getDb();
+  if (!db) return;
+
+  // Buscar o evento existente para este laudo
+  const events = await db.select().from(billing_visit_events)
+    .where(eq(billing_visit_events.report_id, reportId))
+    .limit(1);
+
+  if (events.length === 0) return; // Laudo não tinha evento financeiro (ex: não estava assinado)
+
+  const evt = events[0];
+  const doctorAmt = parseFloat(evt.doctor_amount_due ?? "0");
+  const systemAmt = parseFloat(evt.system_amount_due ?? "0");
+  const doctorAmtStr = String(doctorAmt);
+  const systemAmtStr = String(systemAmt);
+  const isPendingDoctor = evt.doctor_amount_due === null ? 1 : 0;
+  const isPendingSystem = evt.system_amount_due === null ? 1 : 0;
+
+  // Decrementar billing_cycle_doctor_summary
+  if (evt.doctor_cycle_id) {
+    await db.update(billing_cycle_doctor_summary).set({
+      reports_count: drizzleSql`GREATEST(0, reports_count - 1)`,
+      amount_due: drizzleSql`GREATEST(0, amount_due - ${doctorAmtStr})`,
+      pending_pricing_count: drizzleSql`GREATEST(0, pending_pricing_count - ${isPendingDoctor})`,
+    }).where(
+      and(
+        eq(billing_cycle_doctor_summary.doctor_cycle_id, evt.doctor_cycle_id),
+        eq(billing_cycle_doctor_summary.unit_id, evt.unit_id),
+        eq(billing_cycle_doctor_summary.doctor_user_id, evt.doctor_user_id),
+      )
+    );
+
+    // Decrementar billing_cycles (doctor)
+    await db.update(billing_cycles).set({
+      total_reports: drizzleSql`GREATEST(0, total_reports - 1)`,
+      total_amount: drizzleSql`GREATEST(0, total_amount - ${doctorAmtStr})`,
+    }).where(eq(billing_cycles.id, evt.doctor_cycle_id));
+  }
+
+  // Decrementar billing_cycle_system_summary
+  if (evt.system_cycle_id) {
+    await db.update(billing_cycle_system_summary).set({
+      reports_count: drizzleSql`GREATEST(0, reports_count - 1)`,
+      amount_due: drizzleSql`GREATEST(0, amount_due - ${systemAmtStr})`,
+      pending_pricing_count: drizzleSql`GREATEST(0, pending_pricing_count - ${isPendingSystem})`,
+    }).where(
+      and(
+        eq(billing_cycle_system_summary.system_cycle_id, evt.system_cycle_id),
+        eq(billing_cycle_system_summary.unit_id, evt.unit_id),
+      )
+    );
+
+    // Decrementar billing_cycles (system)
+    await db.update(billing_cycles).set({
+      total_reports: drizzleSql`GREATEST(0, total_reports - 1)`,
+      total_amount: drizzleSql`GREATEST(0, total_amount - ${systemAmtStr})`,
+    }).where(eq(billing_cycles.id, evt.system_cycle_id));
+  }
+
+  // Remover o evento financeiro
+  await db.delete(billing_visit_events).where(eq(billing_visit_events.report_id, reportId));
+}
+
+/**
  * Retorna o resumo financeiro do médico logado:
  * ciclo atual por unidade + histórico de ciclos fechados.
  */
