@@ -124,7 +124,7 @@ function CycleCard({
         <div className="flex items-center justify-between">
           <div className="flex gap-6">
             <div>
-              <p className="text-xs text-muted-foreground">Visitas</p>
+              <p className="text-xs text-muted-foreground">Laudos</p>
               <p className="text-xl font-bold">{row.summary.reports_count ?? 0}</p>
             </div>
             <div>
@@ -394,7 +394,7 @@ export default function BillingDoctorPage() {
                         <tr className="border-b text-muted-foreground">
                           <th className="text-left pb-3 font-medium">Unidade</th>
                           <th className="text-left pb-3 font-medium">Período</th>
-                          <th className="text-right pb-3 font-medium">Visitas</th>
+                          <th className="text-right pb-3 font-medium">Laudos</th>
                           <th className="text-right pb-3 font-medium">Valor</th>
                           <th className="text-center pb-3 font-medium">Status</th>
                         </tr>

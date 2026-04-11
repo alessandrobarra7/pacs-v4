@@ -1015,3 +1015,7 @@
 - [x] F3-1: Refatorar routers.ts (2754 linhas) em 13 módulos por domínio (server/routers/)
 - [x] 4a: Corrigir admin.listUsers para suporte multi-unidade (unit_admin sem unit_id legado)
 - [x] F2-7: Verificar escopo em setUserPermissions — confirmado implementado na F1-5
+
+## CORREÇÕES FINANCEIRO — 2026-04-11
+- [x] Corrigir tela Preços Médicos: listar médicos vinculados à unidade e permitir configurar valor por laudo por médico (com doctor_user_id)
+- [x] Substituir todas as ocorrências de "visita/visitas" por "laudo/laudos" em todo o frontend

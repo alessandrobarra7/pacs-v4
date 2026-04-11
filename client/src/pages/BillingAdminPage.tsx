@@ -417,7 +417,7 @@ function ResponsiblePanel({
           <Dialog open={showSetPrice} onOpenChange={setShowSetPrice}>
             <DialogContent className="max-w-sm">
               <DialogHeader>
-                <DialogTitle>Preço do Sistema por Visita</DialogTitle>
+                <DialogTitle>Preço do Sistema por Laudo</DialogTitle>
               </DialogHeader>
               <div className="space-y-3 py-2">
                 <div>
@@ -437,7 +437,7 @@ function ResponsiblePanel({
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-xs">Valor por Visita (R$)</Label>
+                  <Label className="text-xs">Valor por Laudo (R$)</Label>
                   <Input
                     className="h-9 mt-1"
                     type="number"

@@ -206,7 +206,7 @@ export default function BillingUnitPage() {
                       <thead>
                         <tr className="border-b text-muted-foreground">
                           <th className="text-left pb-3 font-medium">Unidade</th>
-                          <th className="text-right pb-3 font-medium">Visitas</th>
+                          <th className="text-right pb-3 font-medium">Laudos</th>
                           <th className="text-right pb-3 font-medium">Ao Sistema</th>
                           <th className="text-right pb-3 font-medium">Aos Médicos</th>
                           <th className="text-right pb-3 font-medium">Total</th>
@@ -271,7 +271,7 @@ export default function BillingUnitPage() {
                         <tr className="border-b text-muted-foreground">
                           <th className="text-left pb-3 font-medium">Médico</th>
                           <th className="text-left pb-3 font-medium">Unidade</th>
-                          <th className="text-right pb-3 font-medium">Visitas</th>
+                          <th className="text-right pb-3 font-medium">Laudos</th>
                           <th className="text-right pb-3 font-medium">Valor a Pagar</th>
                         </tr>
                       </thead>
