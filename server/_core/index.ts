@@ -403,34 +403,34 @@ async function startServer() {
   // O viewer passa o studyUid na URL; o proxy descobre a unidade pelo studyUid
   // ou usa a primeira unidade ativa como fallback.
   
-  // Cache da URL do Orthanc para evitar query ao banco em cada requisição
-  let cachedOrthancUrl: string | null = null;
-  let cacheTimestamp = 0;
+  // F2-1: Cache por unidade para evitar query ao banco em cada requisição
+  // Chave: unit_id (number) | 'fallback'; Valor: { url, timestamp }
+  const orthancUrlCache = new Map<string, { url: string; ts: number }>();
   const CACHE_TTL_MS = 60_000; // 1 minuto
-  
-  async function getOrthancUrl(studyUid?: string): Promise<string> {
+
+  async function getOrthancUrl(unitId?: number | null): Promise<string> {
+    const cacheKey = unitId ? String(unitId) : 'fallback';
     const now = Date.now();
-    if (cachedOrthancUrl && (now - cacheTimestamp) < CACHE_TTL_MS) {
-      return cachedOrthancUrl;
+    const cached = orthancUrlCache.get(cacheKey);
+    if (cached && (now - cached.ts) < CACHE_TTL_MS) {
+      return cached.url;
     }
     try {
       const { getDb } = await import('../db');
       const { units } = await import('../../drizzle/schema');
+      const { eq: eqDrizzle, and: andDrizzle } = await import('drizzle-orm');
       const db = await getDb();
       if (db) {
-        // Busca a primeira unidade ativa com IP configurado
-        const [unit] = await db
-          .select()
-          .from(units)
-          .where(require('drizzle-orm').eq(units.isActive, true))
-          .limit(1);
+        // F2-1: Prioriza a unidade do usuário autenticado; fallback para qualquer unidade ativa
+        const conditions = unitId
+          ? andDrizzle(eqDrizzle(units.id, unitId), eqDrizzle(units.isActive, true))
+          : eqDrizzle(units.isActive, true);
+        const [unit] = await db.select().from(units).where(conditions).limit(1);
         if (unit?.pacs_ip) {
-          // Porta Orthanc HTTP padrão é 8042; pode ser sobrescrita por ORTHANC_HTTP_PORT
           const orthancPort = process.env.ORTHANC_HTTP_PORT || '8042';
           const url = `http://${unit.pacs_ip}:${orthancPort}`;
-          cachedOrthancUrl = url;
-          cacheTimestamp = now;
-          console.log(`[DICOMweb Proxy] Orthanc URL resolvida do banco: ${url}`);
+          orthancUrlCache.set(cacheKey, { url, ts: now });
+          console.log(`[DICOMweb Proxy] Orthanc URL resolvida do banco (unit=${unitId ?? 'any'}): ${url}`);
           return url;
         }
       }
@@ -455,9 +455,12 @@ async function startServer() {
     res.status(204).send();
   });
   
-  app.use('/api/dicomweb', async (req, res) => {
+  app.use('/api/dicomweb', requireAuth, async (req, res) => {
     try {
-      const orthancBaseUrl = await getOrthancUrl();
+      // F2-1: Resolver Orthanc pela unidade do usuário autenticado
+      const dicomUser = (req as any).dicomUser;
+      const userUnitId: number | null = dicomUser?.unit_id ?? null;
+      const orthancBaseUrl = await getOrthancUrl(userUnitId);
       
       // Constrói a URL de destino: /api/dicomweb/studies/... → http://172.16.3.241:8042/dicom-web/studies/...
       const targetPath = req.path;

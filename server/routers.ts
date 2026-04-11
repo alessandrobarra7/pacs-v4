@@ -137,7 +137,9 @@ export const appRouter = router({
             ? 'Credenciais inválidas'
             : error.message === 'USER_INACTIVE'
               ? 'Usuário inativo'
-              : 'Erro ao fazer login';
+              : error.message === 'ACCOUNT_EXPIRED'
+                ? 'Conta expirada. Entre em contato com o administrador.'
+                : 'Erro ao fazer login';
           throw new TRPCError({ code: 'UNAUTHORIZED', message });
         }
       }),

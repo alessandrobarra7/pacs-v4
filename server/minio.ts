@@ -5,16 +5,28 @@
  */
 import * as Minio from "minio";
 
-const endpoint = process.env.MINIO_ENDPOINT || "http://172.16.3.101:9000";
-const bucket = process.env.MINIO_BUCKET || "lauds";
+// F2-3: Credenciais lidas exclusivamente de variáveis de ambiente — sem fallback hardcoded
+const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT;
+const MINIO_BUCKET = process.env.MINIO_BUCKET;
+const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY;
+const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+if (IS_PRODUCTION && (!MINIO_ENDPOINT || !MINIO_ACCESS_KEY || !MINIO_SECRET_KEY)) {
+  throw new Error('[FATAL] Variáveis MINIO_ENDPOINT, MINIO_ACCESS_KEY e MINIO_SECRET_KEY devem estar definidas em produção.');
+}
+
+// Em desenvolvimento, usa defaults locais apenas se não definidos
+const endpoint = MINIO_ENDPOINT || 'http://localhost:9000';
+const bucket = MINIO_BUCKET || 'lauds';
 
 // Parse endpoint para extrair host, porta e protocolo
 function parseEndpoint(url: string) {
   const u = new URL(url);
   return {
     endPoint: u.hostname,
-    port: parseInt(u.port || (u.protocol === "https:" ? "443" : "80")),
-    useSSL: u.protocol === "https:",
+    port: parseInt(u.port || (u.protocol === 'https:' ? '443' : '80')),
+    useSSL: u.protocol === 'https:',
   };
 }
 
@@ -24,8 +36,8 @@ export const minioClient = new Minio.Client({
   endPoint,
   port,
   useSSL,
-  accessKey: process.env.MINIO_ACCESS_KEY || "lauds_admin",
-  secretKey: process.env.MINIO_SECRET_KEY || "Lauds@2026!Secure",
+  accessKey: MINIO_ACCESS_KEY || 'minioadmin',
+  secretKey: MINIO_SECRET_KEY || 'minioadmin',
 });
 
 /**

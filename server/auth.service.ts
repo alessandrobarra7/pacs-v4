@@ -53,6 +53,20 @@ export class AuthService {
       throw new Error('USER_INACTIVE');
     }
 
+    // F2-2: Verificar se a conta expirou
+    // O campo expiration_date é string 'YYYY-MM-DD' (tipo DATE do MySQL via Drizzle)
+    if (user.expiration_date) {
+      // Compara apenas a data (sem hora) para evitar problemas de timezone
+      const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+      const rawExp = user.expiration_date as unknown;
+      const expDate = typeof rawExp === 'string'
+        ? (rawExp as string).slice(0, 10)
+        : new Date(rawExp as Date).toISOString().slice(0, 10);
+      if (expDate < today) {
+        throw new Error('ACCOUNT_EXPIRED');
+      }
+    }
+
     if (!user.password_hash) {
       throw new Error('PASSWORD_NOT_SET');
     }

@@ -996,3 +996,8 @@
 - [ ] F3-2: Criar suíte de testes de autorização negativa (cross-unit, XSS, endpoints sem auth)
 - [ ] F3-3: Reduzir uso de any progressivamente ao refatorar módulos
 - [ ] F3-4: Padronizar tratamento de erro e remover detalhes internos das respostas
+
+## SEGURANÇA — Fase 2 (Consistência — iniciada)
+- [x] F2-1: Corrigir getOrthancUrl para resolver pela unidade do usuário autenticado (evitar cross-unidade no proxy DICOMweb)
+- [x] F2-2: Padronizar expiration_date como string YYYY-MM-DD e verificar expiração no fluxo de login
+- [x] F2-3: Mover credenciais do minio.ts para variáveis de ambiente (sem hardcode)
