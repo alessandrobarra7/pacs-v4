@@ -1597,10 +1597,10 @@ export async function createBillingVisitEvent(data: {
   const { getActiveSystemPrice, getActiveDoctorPrice, getActiveResponsibleForUnit } = await import("./db");
 
   const responsible = data.financial_responsible_id
-    ? { id: data.financial_responsible_id }
-    : await getActiveResponsibleForUnit(data.unit_id, data.signed_at);
+    ? data.financial_responsible_id
+    : (await getActiveResponsibleForUnit(data.unit_id, data.signed_at))?.financial_responsible_id ?? null;
 
-  const responsibleId = responsible?.id ?? null;
+  const responsibleId = responsible ?? null;
 
   const systemPrice = responsibleId
     ? await getActiveSystemPrice(responsibleId, data.unit_id, data.signed_at)
@@ -1862,10 +1862,9 @@ export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: n
     let price_per_report: string | null = null;
     try {
       const responsible = await getActiveResponsibleForUnit(unitId, now);
-      console.log(`[getDoctorUnitFinancialInfo] unitId=${unitId} doctorUserId=${doctorUserId} now=${now.toISOString()} responsible=${JSON.stringify(responsible)}`);
       if (responsible) {
-        const doctorPrice = await getActiveDoctorPrice(responsible.id, unitId, doctorUserId, now);
-        console.log(`[getDoctorUnitFinancialInfo] responsibleId=${responsible.id} doctorPrice=${JSON.stringify(doctorPrice)}`);
+        // Usar financial_responsible_id (ID do responsável), não id (ID da linha na tabela)
+        const doctorPrice = await getActiveDoctorPrice(responsible.financial_responsible_id, unitId, doctorUserId, now);
         price_per_report = doctorPrice?.price_per_report ?? null;
       }
     } catch (priceErr) {
