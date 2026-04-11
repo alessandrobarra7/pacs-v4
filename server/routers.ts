@@ -698,7 +698,17 @@ export const appRouter = router({
         if (input.isGlobal && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admin_master can create global templates' });
         }
-        
+        // F2-6: Verificar permissão manage_templates para usuários não-admin
+        if (ctx.user.role !== 'admin_master') {
+          const { getUserUnitPermission } = await import('./db');
+          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+          if (effectiveUnitId) {
+            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
+            if (perm && !perm.manage_templates) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para gerenciar templates' });
+            }
+          }
+        }
         const id = await createTemplate({
           ...input,
           unit_id: input.isGlobal ? null : ctx.user.unit_id,
@@ -726,6 +736,17 @@ export const appRouter = router({
         if (ctx.user.role !== 'admin_master' && template.unit_id !== ctx.user.unit_id) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
+        // F2-6: Verificar permissão manage_templates para usuários não-admin
+        if (ctx.user.role !== 'admin_master') {
+          const { getUserUnitPermission } = await import('./db');
+          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+          if (effectiveUnitId) {
+            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
+            if (perm && !perm.manage_templates) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para gerenciar templates' });
+            }
+          }
+        }
         await updateTemplate(id, data);
         return { success: true };
       }),
@@ -739,6 +760,17 @@ export const appRouter = router({
         }
         if (ctx.user.role !== 'admin_master' && template.unit_id !== ctx.user.unit_id) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        // F2-6: Verificar permissão manage_templates para usuários não-admin
+        if (ctx.user.role !== 'admin_master') {
+          const { getUserUnitPermission } = await import('./db');
+          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+          if (effectiveUnitId) {
+            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
+            if (perm && !perm.manage_templates) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para gerenciar templates' });
+            }
+          }
         }
         await deleteTemplate(input.id);
         return { success: true };
@@ -1671,6 +1703,24 @@ export const appRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { audit_log, users } = await import("../drizzle/schema");
         const { desc, eq: eqOp } = await import("drizzle-orm");
+        // F2-5: unit_admin só vê eventos da(s) sua(s) unidade(s)
+        const { and: andOp, inArray } = await import('drizzle-orm');
+        let unitFilter: any = undefined;
+        if (ctx.user.role === 'unit_admin') {
+          const { getUserUnitPermission } = await import('./db');
+          const { user_unit_permissions: uup } = await import('../drizzle/schema');
+          const myPerms = await db.select({ unit_id: uup.unit_id }).from(uup)
+            .where(eqOp(uup.user_id, ctx.user.id));
+          const myUnitIds = myPerms.map(p => p.unit_id);
+          if (ctx.user.unit_id && !myUnitIds.includes(ctx.user.unit_id)) {
+            myUnitIds.push(ctx.user.unit_id);
+          }
+          if (myUnitIds.length > 0) {
+            unitFilter = inArray(audit_log.unit_id, myUnitIds);
+          } else {
+            return []; // unit_admin sem unidades não vê nada
+          }
+        }
         const result = await db
           .select({
             id: audit_log.id,
@@ -1680,11 +1730,13 @@ export const appRouter = router({
             ip_address: audit_log.ip_address,
             timestamp: audit_log.timestamp,
             user_id: audit_log.user_id,
+            unit_id: audit_log.unit_id,
             userName: users.name,
             userUsername: users.username,
           })
           .from(audit_log)
           .leftJoin(users, eqOp(audit_log.user_id, users.id))
+          .where(unitFilter)
           .orderBy(desc(audit_log.timestamp))
           .limit(input.limit);
         return result;
@@ -1860,7 +1912,30 @@ export const appRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { users: usersTable, units: unitsTable, user_unit_permissions } = await import('../drizzle/schema');
-        const allUsers = await db.select().from(usersTable);
+        // F2-5: unit_admin só vê usuários das suas unidades
+        const { eq: eqOp2, inArray: inArrayOp } = await import('drizzle-orm');
+        let allUsers;
+        if (ctx.user.role === 'unit_admin') {
+          // Busca as unidades do unit_admin
+          const myPerms = await db.select({ unit_id: user_unit_permissions.unit_id })
+            .from(user_unit_permissions)
+            .where(eqOp2(user_unit_permissions.user_id, ctx.user.id));
+          const myUnitIds = myPerms.map(p => p.unit_id);
+          if (ctx.user.unit_id && !myUnitIds.includes(ctx.user.unit_id)) {
+            myUnitIds.push(ctx.user.unit_id);
+          }
+          if (myUnitIds.length === 0) return [];
+          // Busca usuários que têm permissões nessas unidades
+          const usersInMyUnits = await db
+            .selectDistinct({ user_id: user_unit_permissions.user_id })
+            .from(user_unit_permissions)
+            .where(inArrayOp(user_unit_permissions.unit_id, myUnitIds));
+          const userIds = usersInMyUnits.map(u => u.user_id);
+          if (userIds.length === 0) return [];
+          allUsers = await db.select().from(usersTable).where(inArrayOp(usersTable.id, userIds));
+        } else {
+          allUsers = await db.select().from(usersTable);
+        }
         const allUnits = await db.select().from(unitsTable);
         const allPerms = await db.select().from(user_unit_permissions);
         return allUsers.map(u => ({

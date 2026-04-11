@@ -1007,3 +1007,8 @@
 - [x] F3-2: Adicionar seção MinIO no README de setup da VM1
 - [x] F3-3: Implementar middleware de audit_log para eventos sensíveis (login, sign, anamnese, permissões)
 - [x] F3-4: Padronizar tratamento de erros nas procedures críticas (remover stack traces de respostas HTTP 500)
+
+## SEGURANÇA — Itens Pendentes (identificados na revisão completa)
+- [x] F2-5: Filtrar listUsersWithPermissions e listAuditLog por unidade para unit_admin
+- [x] F2-6: Verificar permissão manage_templates em templates.create, update e delete
+- [x] F3-2: Criar testes de autorização negativa (cross-unit, XSS, endpoints sem auth, expiração)
