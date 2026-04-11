@@ -911,7 +911,22 @@ export function PacsQueryPage() {
     const logoHtml = logoUrl
       ? `<img src="${logoUrl}" alt="Logo" style="max-height:75px;max-width:240px;object-fit:contain;" />`
       : `<p style="font-size:9pt;color:#888;">Logo da unidade</p>`;
-    const bodyHtml = reportBody || '(Laudo não encontrado ou ainda não elaborado)';
+    // Detectar se o body é JSON multi-seção [{title, body}, ...] e renderizar corretamente
+    let bodyHtml = reportBody || '(Laudo não encontrado ou ainda não elaborado)';
+    if (reportBody) {
+      try {
+        const parsed = JSON.parse(reportBody);
+        if (Array.isArray(parsed) && parsed.length > 0 && 'body' in parsed[0]) {
+          // Laudo multi-seção: renderizar cada seção com título e corpo
+          bodyHtml = parsed.map((section: { title: string; body: string }) => {
+            const sectionTitle = section.title ? `<div style="font-weight:700;font-size:12pt;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4mm;padding-bottom:2mm;border-bottom:1px solid #d0d0d0;">${section.title}</div>` : '';
+            return `<div style="margin-bottom:8mm;">${sectionTitle}<div>${section.body || ''}</div></div>`;
+          }).join('');
+        }
+      } catch {
+        // Não é JSON — body é HTML puro, usar como está
+      }
+    }
 
     // Rodapé do médico assinante
     const signedAtFormatted = signedAt
