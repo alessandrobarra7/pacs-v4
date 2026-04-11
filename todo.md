@@ -971,3 +971,28 @@
 - [x] Corrigir reports.revise: busca laudo sem filtro de unit_id, verifica acesso via getUserUnitPermission
 - [x] Corrigir reports.delete: busca laudo sem filtro de unit_id, verifica acesso via getUserUnitPermission
 - [x] Frontend ReportEditorPage: passar unit_id ao criar laudo (salvar rascunho e assinar)
+
+## SEGURANÇA — Fase 1 (Imediata)
+- [ ] F1-1: Criar middleware requireAuth e aplicar nas 9 rotas DICOM sem autenticação
+- [ ] F1-2: Restringir dicom-cache-clear e dicom-cache-info a admin_master
+- [ ] F1-3: Instalar sanitize-html no backend e sanitizar body em reports.create e reports.update
+- [ ] F1-4: Instalar dompurify no frontend e sanitizar innerHTML em ReportDocument.tsx e ReportEditorPage.tsx
+- [ ] F1-5: Criar helper assertUserInScope e aplicar em updateUser, toggleUserActive e setUserPermissions
+- [ ] F1-6: Filtrar anamnesis.getByStudyId por unit_id e verificar permissão view_anamnesis
+- [ ] F1-7: Corrigir CORS do handler OPTIONS do DICOMweb (remover Access-Control-Allow-Origin: *)
+- [ ] F1-8: Remover IP interno da resposta de erro do DICOMweb proxy
+
+## SEGURANÇA — Fase 2 (Consistência)
+- [ ] F2-1: Corrigir getOrthancUrl para resolver pela unidade do usuário autenticado
+- [ ] F2-2: Padronizar expiration_date como string YYYY-MM-DD em todo o stack
+- [ ] F2-3: Adicionar verificação de expiração de conta no AuthService.validateCredentials
+- [ ] F2-4: Remover credenciais hardcoded do minio.ts e adicionar validação no boot
+- [ ] F2-5: Filtrar listAuditLog e listUsersWithPermissions por unidade para unit_admin
+- [ ] F2-6: Verificar e aplicar manage_templates nas procedures de templates
+- [ ] F2-7: Verificar escopo em setUserPermissions (item 4d — pendente confirmação)
+
+## SEGURANÇA — Fase 3 (Sustentação)
+- [ ] F3-1: Refatorar routers.ts (2532 linhas) em módulos por domínio (server/routers/)
+- [ ] F3-2: Criar suíte de testes de autorização negativa (cross-unit, XSS, endpoints sem auth)
+- [ ] F3-3: Reduzir uso de any progressivamente ao refatorar módulos
+- [ ] F3-4: Padronizar tratamento de erro e remover detalhes internos das respostas
