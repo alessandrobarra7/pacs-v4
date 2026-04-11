@@ -1001,3 +1001,9 @@
 - [x] F2-1: Corrigir getOrthancUrl para resolver pela unidade do usuário autenticado (evitar cross-unidade no proxy DICOMweb)
 - [x] F2-2: Padronizar expiration_date como string YYYY-MM-DD e verificar expiração no fluxo de login
 - [x] F2-3: Mover credenciais do minio.ts para variáveis de ambiente (sem hardcode)
+
+## SEGURANÇA — Fase 3 (Qualidade)
+- [x] F3-1: Documentar variáveis MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY no .env.example
+- [x] F3-2: Adicionar seção MinIO no README de setup da VM1
+- [x] F3-3: Implementar middleware de audit_log para eventos sensíveis (login, sign, anamnese, permissões)
+- [x] F3-4: Padronizar tratamento de erros nas procedures críticas (remover stack traces de respostas HTTP 500)

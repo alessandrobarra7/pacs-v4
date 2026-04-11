@@ -772,7 +772,8 @@ async function startServer() {
     } catch (err: any) {
       console.error('[DICOM Export] Erro:', err);
       if (!res.headersSent) {
-        res.status(500).json({ error: 'Erro ao gerar ZIP: ' + err.message });
+        // F3-4: Sem detalhes internos na resposta
+        res.status(500).json({ error: 'Erro ao gerar arquivo ZIP' });
       }
     }
   });
@@ -810,11 +811,12 @@ async function startServer() {
         studies: studyInfos.sort((a, b) => b.lastAccess - a.lastAccess),
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error('[DICOM Cache Info] Erro:', err);
+      // F3-4: Sem detalhes internos na resposta
+      res.status(500).json({ error: 'Erro ao consultar cache DICOM' });
     }
   });
-
-  // Endpoint: limpar todo o cache DICOM manualmente — restrito a admin_master
+  // Endpoint: limpar todo o cache DICOM manualmentee — restrito a admin_master
   app.delete('/api/dicom-cache-clear', requireAdminAuth, async (_req, res) => {
     try {
       if (!fs.existsSync(DICOM_CACHE_ROOT)) {
@@ -832,11 +834,12 @@ async function startServer() {
         } catch {}
       }
       res.json({ success: true, removed });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+     } catch (err: any) {
+      console.error('[DICOM Cache Clear] Erro:', err);
+      // F3-4: Sem detalhes internos na resposta
+      res.status(500).json({ error: 'Erro ao limpar cache DICOM' });
     }
   });
-
   // CRÍTICO 3: Rate limiting aplicado especificamente na rota de login
   app.use('/api/trpc/auth.login', loginRateLimiter);
 

@@ -146,9 +146,17 @@ VITE_FRONTEND_FORGE_API_KEY=local
 VITE_FRONTEND_FORGE_API_URL=http://localhost
 NODE_ENV=production
 PORT=3000
+
+# MinIO — obrigatório em produção (F2-3: sem fallback hardcoded)
+MINIO_ENDPOINT=http://172.16.3.101:9000
+MINIO_BUCKET=lauds
+MINIO_ACCESS_KEY=<usuário MinIO>
+MINIO_SECRET_KEY=<senha MinIO — gerar com: openssl rand -hex 24>
 ```
 
 > **Atenção:** Após editar o `.env`, sempre execute `pm2 restart pacs-portal` para recarregar as variáveis.
+
+> **MinIO obrigatório:** A partir da versão com F2-3, o servidor falha imediatamente ao iniciar em `NODE_ENV=production` se `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY` ou `MINIO_SECRET_KEY` não estiverem definidas. Configure antes de reiniciar o PM2.
 
 ---
 

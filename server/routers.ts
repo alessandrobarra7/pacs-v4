@@ -131,6 +131,16 @@ export const appRouter = router({
           const cookieOptions = getSessionCookieOptions(ctx.req);
           ctx.res.cookie(COOKIE_NAME, token, cookieOptions);
           const sanitizedUser = AuthService.sanitizeUser(user);
+          // F3-3: Registrar evento de login bem-sucedido
+          await createAuditLog({
+            user_id: user.id,
+            unit_id: user.unit_id ?? undefined,
+            action: 'LOGIN',
+            target_type: 'USER',
+            target_id: String(user.id),
+            ip_address: ctx.req.ip,
+            user_agent: ctx.req.headers['user-agent'],
+          });
           return { success: true, user: sanitizedUser };
         } catch (error: any) {
           const message = error.message === 'USER_NOT_FOUND' || error.message === 'INVALID_PASSWORD'
@@ -1580,6 +1590,19 @@ export const appRouter = router({
           .where(whereClause)
           .limit(1);
         
+        // F3-3: Registrar acesso à anamnese (dado sensível)
+        if (results[0]) {
+          await createAuditLog({
+            user_id: ctx.user.id,
+            unit_id: ctx.user.unit_id ?? undefined,
+            action: 'CREATE_ANAMNESIS',
+            target_type: 'ANAMNESIS',
+            target_id: input.study_instance_uid,
+            ip_address: ctx.req.ip,
+            user_agent: ctx.req.headers['user-agent'],
+            metadata: { action: 'VIEW' },
+          });
+        }
         return results[0] || null;
       }),
   }),
