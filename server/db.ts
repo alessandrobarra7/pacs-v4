@@ -1764,12 +1764,17 @@ export async function getDoctorFinancialSummary(doctorUserId: number) {
 export async function getDoctorCycleEvents(doctorUserId: number, doctorCycleId: number) {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(billing_visit_events).where(
+  const rows = await db.select().from(billing_visit_events).where(
     and(
       eq(billing_visit_events.doctor_user_id, doctorUserId),
       eq(billing_visit_events.doctor_cycle_id, doctorCycleId),
     )
   ).orderBy(desc(billing_visit_events.createdAt));
+  // Map doctor_amount_due → amount for frontend compatibility
+  return rows.map(r => ({
+    ...r,
+    amount: r.doctor_amount_due != null ? r.doctor_amount_due.toString() : null,
+  }));
 }
 
 /**
@@ -1857,8 +1862,10 @@ export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: n
     let price_per_report: string | null = null;
     try {
       const responsible = await getActiveResponsibleForUnit(unitId, now);
+      console.log(`[getDoctorUnitFinancialInfo] unitId=${unitId} doctorUserId=${doctorUserId} now=${now.toISOString()} responsible=${JSON.stringify(responsible)}`);
       if (responsible) {
         const doctorPrice = await getActiveDoctorPrice(responsible.id, unitId, doctorUserId, now);
+        console.log(`[getDoctorUnitFinancialInfo] responsibleId=${responsible.id} doctorPrice=${JSON.stringify(doctorPrice)}`);
         price_per_report = doctorPrice?.price_per_report ?? null;
       }
     } catch (priceErr) {
