@@ -553,4 +553,164 @@ export const billingRouter = router({
         const { getDoctorCycleEvents } = await import('../db');
         return await getDoctorCycleEvents(input.doctorUserId, input.doctorCycleId);
       }),
+
+    // ── Detalhe da Unidade (admin) ─────────────────────────────────────────────
+    getUnitDetail: protectedProcedure
+      .input(z.object({ unitId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) return null;
+        const {
+          units,
+          users,
+          billing_doctor_unit_prices,
+          billing_system_unit_prices,
+          financial_responsible_units,
+          billing_cycle_doctor_summary,
+          billing_cycle_system_summary,
+          billing_cycles,
+        } = await import('../../drizzle/schema');
+        const { eq, isNull, and, desc } = await import('drizzle-orm');
+        // Dados da unidade
+        const [unit] = await db.select().from(units).where(eq(units.id, input.unitId)).limit(1);
+        if (!unit) return null;
+        // Preços de médicos ativos nessa unidade
+        const doctorPrices = await db
+          .select({
+            id: billing_doctor_unit_prices.id,
+            doctor_user_id: billing_doctor_unit_prices.doctor_user_id,
+            doctor_name: users.name,
+            price_per_report: billing_doctor_unit_prices.price_per_report,
+            starts_at: billing_doctor_unit_prices.starts_at,
+            ends_at: billing_doctor_unit_prices.ends_at,
+          })
+          .from(billing_doctor_unit_prices)
+          .leftJoin(users, eq(users.id, billing_doctor_unit_prices.doctor_user_id))
+          .where(and(
+            eq(billing_doctor_unit_prices.unit_id, input.unitId),
+            isNull(billing_doctor_unit_prices.ends_at),
+          ));
+        // Preço do sistema ativo
+        const systemPriceRows = await db
+          .select()
+          .from(billing_system_unit_prices)
+          .where(and(
+            eq(billing_system_unit_prices.unit_id, input.unitId),
+            isNull(billing_system_unit_prices.ends_at),
+          ))
+          .orderBy(desc(billing_system_unit_prices.starts_at))
+          .limit(1);
+        const systemPrice = systemPriceRows[0] ?? null;
+        // Responsável financeiro ativo
+        const respLinks = await db
+          .select()
+          .from(financial_responsible_units)
+          .where(and(
+            eq(financial_responsible_units.unit_id, input.unitId),
+            isNull(financial_responsible_units.ends_at),
+          ))
+          .limit(1);
+        const respLink = respLinks[0] ?? null;
+        // Ciclos da unidade (últimos 12)
+        const cycles = await db
+          .select()
+          .from(billing_cycles)
+          .where(eq(billing_cycles.unit_id, input.unitId))
+          .orderBy(desc(billing_cycles.starts_at))
+          .limit(12);
+        // Resumo financeiro: total laudos e valores nos ciclos abertos
+        const openDoctorSummaries = await db
+          .select({ summary: billing_cycle_doctor_summary, doctor_name: users.name })
+          .from(billing_cycle_doctor_summary)
+          .leftJoin(users, eq(users.id, billing_cycle_doctor_summary.doctor_user_id))
+          .leftJoin(billing_cycles, eq(billing_cycles.id, billing_cycle_doctor_summary.doctor_cycle_id))
+          .where(and(
+            eq(billing_cycle_doctor_summary.unit_id, input.unitId),
+            eq(billing_cycles.status, 'open'),
+          ));
+        const openSystemSummaries = await db
+          .select({ summary: billing_cycle_system_summary })
+          .from(billing_cycle_system_summary)
+          .leftJoin(billing_cycles, eq(billing_cycles.id, billing_cycle_system_summary.system_cycle_id))
+          .where(and(
+            eq(billing_cycle_system_summary.unit_id, input.unitId),
+            eq(billing_cycles.status, 'open'),
+          ));
+        const totalReports = openDoctorSummaries.reduce((s, r) => s + (r.summary.reports_count ?? 0), 0);
+        const totalDoctorAmount = openDoctorSummaries.reduce((s, r) => s + parseFloat(r.summary.amount_due ?? '0'), 0);
+        const totalSystemAmount = openSystemSummaries.reduce((s, r) => s + parseFloat(r.summary.amount_due ?? '0'), 0);
+        return {
+          unit,
+          doctorPrices,
+          systemPrice,
+          respLink,
+          cycles,
+          openDoctorSummaries: openDoctorSummaries.map(r => ({ ...r.summary, doctor_name: r.doctor_name })),
+          totalReports,
+          totalDoctorAmount: totalDoctorAmount.toFixed(2),
+          totalSystemAmount: totalSystemAmount.toFixed(2),
+        };
+      }),
+
+    // ── Detalhe do Responsável (admin) ────────────────────────────────────────
+    getResponsibleDetail: protectedProcedure
+      .input(z.object({ responsibleId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const {
+          getFinancialResponsibleById,
+          listUnitsForResponsible,
+          listUsersForResponsible,
+          getResponsibleCycleSummary,
+        } = await import('../db');
+        const [responsible, units, users, summary] = await Promise.all([
+          getFinancialResponsibleById(input.responsibleId),
+          listUnitsForResponsible(input.responsibleId),
+          listUsersForResponsible(input.responsibleId),
+          getResponsibleCycleSummary(input.responsibleId),
+        ]);
+        if (!responsible) throw new TRPCError({ code: 'NOT_FOUND' });
+        // Agregar por unidade
+        const byUnitMap = new Map<number, { unit_id: number; unit_name: string; reports_count: number; system_amount_due: number; doctor_amount_due: number }>();
+        for (const row of summary.systemCycles) {
+          const uid = row.summary.unit_id;
+          const existing = byUnitMap.get(uid) ?? { unit_id: uid, unit_name: row.unit_name ?? '', reports_count: 0, system_amount_due: 0, doctor_amount_due: 0 };
+          existing.reports_count += row.summary.reports_count ?? 0;
+          existing.system_amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
+          byUnitMap.set(uid, existing);
+        }
+        for (const row of summary.doctorCycles) {
+          const uid = row.summary.unit_id;
+          const existing = byUnitMap.get(uid) ?? { unit_id: uid, unit_name: row.unit_name ?? '', reports_count: 0, system_amount_due: 0, doctor_amount_due: 0 };
+          existing.doctor_amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
+          byUnitMap.set(uid, existing);
+        }
+        const byUnit = Array.from(byUnitMap.values()).map(r => ({
+          ...r,
+          system_amount_due: r.system_amount_due.toFixed(2),
+          doctor_amount_due: r.doctor_amount_due.toFixed(2),
+        }));
+        // Agregar por médico
+        type DRow = { unit_id: number; unit_name: string; doctor_user_id: number; doctor_name: string; reports_count: number; amount_due: number };
+        const byDoctorMap = new Map<string, DRow>();
+        for (const row of summary.doctorCycles) {
+          const key = `${row.summary.unit_id}-${row.summary.doctor_user_id}`;
+          const existing = byDoctorMap.get(key) ?? { unit_id: row.summary.unit_id, unit_name: row.unit_name ?? '', doctor_user_id: row.summary.doctor_user_id, doctor_name: row.doctor_name ?? '', reports_count: 0, amount_due: 0 };
+          existing.reports_count += row.summary.reports_count ?? 0;
+          existing.amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
+          byDoctorMap.set(key, existing);
+        }
+        const byDoctor = Array.from(byDoctorMap.values()).map(r => ({ ...r, amount_due: r.amount_due.toFixed(2) }));
+        return {
+          responsible,
+          units,
+          users,
+          byUnit,
+          byDoctor,
+          totalSystem: summary.totalSystem,
+          totalDoctors: summary.totalDoctors,
+          totalGeral: summary.totalGeral,
+        };
+      }),
 });

@@ -1021,3 +1021,13 @@
 - [x] Substituir todas as ocorrências de "visita/visitas" por "laudo/laudos" em todo o frontend
 - [ ] Corrigir valor R$ 0,00 no extrato individual dos laudos na tela Meu Financeiro do médico
 - [ ] Corrigir aviso "sem configuração de preço" persistindo na Policlínica Ribamar mesmo com preço configurado
+
+## MÓDULO FINANCEIRO — Páginas de Detalhe e Navegação
+
+- [x] Criar FinanceUnidadeDetalhe.tsx (/financeiro/unidades/:id) com abas Médicos/Preços/Ciclos
+- [x] Criar FinanceResponsavelDetalhe.tsx (/financeiro/responsaveis/:id) com abas Resumo/Unidades/Médicos/Usuários
+- [x] Adicionar link de navegação na lista de Unidades (botão ExternalLink → detalhe)
+- [x] Confirmar link de navegação na lista de Responsáveis (botão Detalhe já existia)
+- [x] Registrar rotas /financeiro/unidades/:id e /financeiro/responsaveis/:id no App.tsx
+- [x] Adicionar procedure getUnitDetail ao billing router (dados consolidados por unidade)
+- [x] Build de produção verificado sem erros TypeScript

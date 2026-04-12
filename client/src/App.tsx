@@ -25,6 +25,8 @@ import FinanceResponsaveis from "./pages/finance/FinanceResponsaveis";
 import FinanceMeuFinanceiro from "./pages/finance/FinanceMeuFinanceiro";
 import FinanceAdmin from "./pages/finance/FinanceAdmin";
 import FinanceMedicoDetalhe from "./pages/finance/FinanceMedicoDetalhe";
+import FinanceUnidadeDetalhe from "./pages/finance/FinanceUnidadeDetalhe";
+import FinanceResponsavelDetalhe from "./pages/finance/FinanceResponsavelDetalhe";
 import { useLocation } from "wouter";
 import { useEffect } from "react";
 
@@ -83,6 +85,8 @@ function Router() {
       <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro} />} />
       <Route path="/financeiro/admin" component={() => <ProtectedRoute component={FinanceAdmin} />} />
       <Route path="/financeiro/medicos/:id" component={() => <ProtectedRoute component={FinanceMedicoDetalhe} />} />
+      <Route path="/financeiro/unidades/:id" component={() => <ProtectedRoute component={FinanceUnidadeDetalhe} />} />
+      <Route path="/financeiro/responsaveis/:id" component={() => <ProtectedRoute component={FinanceResponsavelDetalhe} />} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

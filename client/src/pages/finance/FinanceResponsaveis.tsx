@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { FinanceShell } from "@/components/FinanceShell";
 import { trpc } from "@/lib/trpc";
-import { UserCheck, Activity, Building2, Search, ChevronDown, ChevronUp, FileText } from "lucide-react";
+import { UserCheck, Activity, Building2, Search, ChevronDown, ChevronUp, FileText, ExternalLink } from "lucide-react";
 
 function fmtBRL(val: string | number | null | undefined) {
   const n = parseFloat(String(val ?? "0"));
@@ -19,6 +20,7 @@ type Tab = "resumo" | "unidades" | "divida_sistema" | "divida_medicos" | "extrat
 function ResponsibleCard({ resp, year, month }: { resp: Responsible; year: number; month: number }) {
   const [tab, setTab] = useState<Tab>("resumo");
   const [expanded, setExpanded] = useState(false);
+  const [, navigate] = useLocation();
 
   const { data: unitsData } = trpc.billing.listUnitsForResponsible.useQuery(
     { financialResponsibleId: resp.id },
@@ -72,11 +74,20 @@ function ResponsibleCard({ resp, year, month }: { resp: Responsible; year: numbe
             </p>
           </div>
         </div>
-        {expanded ? (
-          <ChevronUp className="h-4 w-4 text-slate-400 shrink-0" />
-        ) : (
-          <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" />
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); navigate(`/financeiro/responsaveis/${resp.id}`); }}
+            className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 px-2 py-1 rounded hover:bg-white/5 transition-colors"
+          >
+            <ExternalLink size={12} />
+            Detalhe
+          </button>
+          {expanded ? (
+            <ChevronUp className="h-4 w-4 text-slate-400" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-slate-400" />
+          )}
+        </div>
       </div>
 
       {/* Métricas resumo (sempre visíveis) */}

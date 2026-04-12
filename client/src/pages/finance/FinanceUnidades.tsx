@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
 import { FinanceShell } from "@/components/FinanceShell";
 import { trpc } from "@/lib/trpc";
-import { Building2, Activity, DollarSign, Search } from "lucide-react";
+import { Building2, Activity, DollarSign, Search, ExternalLink } from "lucide-react";
 
 function fmtBRL(val: string | number | null | undefined) {
   const n = parseFloat(String(val ?? "0"));
@@ -15,6 +16,7 @@ type ResponsibleUnit = { id: number; unit_id: number; financial_responsible_id: 
 
 export default function FinanceUnidades() {
   const [search, setSearch] = useState("");
+  const [, navigate] = useLocation();
 
   const { data: unitsData, isLoading: loadingUnits } = trpc.units.list.useQuery();
   const { data: systemPricesData, isLoading: loadingPrices } = trpc.billing.listAllSystemPrices.useQuery();
@@ -162,13 +164,20 @@ export default function FinanceUnidades() {
                       <span className="text-xs text-slate-500">—</span>
                     )}
                   </div>
-                  <div className="col-span-1 text-center">
+                  <div className="col-span-1 flex items-center justify-end gap-2">
                     <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
                       unit.isActive ? "bg-emerald-400/10 text-emerald-400" : "bg-slate-600/40 text-slate-400"
                     }`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${unit.isActive ? "bg-emerald-400" : "bg-slate-500"}`} />
                       {unit.isActive ? "Ativo" : "Inativo"}
                     </span>
+                    <button
+                      onClick={() => navigate(`/financeiro/unidades/${unit.id}`)}
+                      className="p-1 rounded text-cyan-400 hover:text-cyan-300 hover:bg-white/5 transition-colors"
+                      title="Ver detalhe"
+                    >
+                      <ExternalLink size={13} />
+                    </button>
                   </div>
                 </div>
               );
