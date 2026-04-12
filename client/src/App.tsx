@@ -18,6 +18,13 @@ import AdminPage from "./pages/AdminPage";
 import BillingAdminPage from "./pages/BillingAdminPage";
 import BillingUnitPage from "./pages/BillingUnitPage";
 import BillingDoctorPage from "./pages/BillingDoctorPage";
+import { FinanceLayout } from "./components/FinanceLayout";
+import FinanceDashboard from "./pages/finance/FinanceDashboard";
+import FinanceMedicos from "./pages/finance/FinanceMedicos";
+import FinanceUnidades from "./pages/finance/FinanceUnidades";
+import FinanceResponsaveis from "./pages/finance/FinanceResponsaveis";
+import FinanceMeuFinanceiro from "./pages/finance/FinanceMeuFinanceiro";
+import FinanceAdmin from "./pages/finance/FinanceAdmin";
 import { useLocation } from "wouter";
 import { useEffect } from "react";
 
@@ -68,6 +75,13 @@ function Router() {
       <Route path="/billing/admin" component={() => <ProtectedRoute component={BillingAdminPage} />} />
       <Route path="/billing/unit" component={() => <ProtectedRoute component={BillingUnitPage} />} />
       <Route path="/billing/doctor" component={() => <ProtectedRoute component={BillingDoctorPage} />} />
+      {/* Novo módulo financeiro */}
+      <Route path="/financeiro" component={() => <ProtectedRoute component={() => <FinanceLayout><FinanceDashboard /></FinanceLayout>} />} />
+      <Route path="/financeiro/medicos" component={() => <ProtectedRoute component={() => <FinanceLayout><FinanceMedicos /></FinanceLayout>} />} />
+      <Route path="/financeiro/unidades" component={() => <ProtectedRoute component={() => <FinanceLayout><FinanceUnidades /></FinanceLayout>} />} />
+      <Route path="/financeiro/responsaveis" component={() => <ProtectedRoute component={() => <FinanceLayout><FinanceResponsaveis /></FinanceLayout>} />} />
+      <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={() => <FinanceLayout><FinanceMeuFinanceiro /></FinanceLayout>} />} />
+      <Route path="/financeiro/admin" component={() => <ProtectedRoute component={() => <FinanceLayout><FinanceAdmin /></FinanceLayout>} />} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

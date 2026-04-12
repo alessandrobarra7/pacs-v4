@@ -449,4 +449,55 @@ export const billingRouter = router({
         const { listUnitCycles } = await import('../db');
         return await listUnitCycles(input.unit_id, input.cycle_type);
       }),
+
+    // ── Listagem global de preços (para páginas de gestão financeira) ──────────
+    listAllDoctorPrices: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) return [];
+        const { billing_doctor_unit_prices } = await import('../../drizzle/schema');
+        const { users } = await import('../../drizzle/schema');
+        const { units } = await import('../../drizzle/schema');
+        const { eq } = await import('drizzle-orm');
+        return await db
+          .select({
+            id: billing_doctor_unit_prices.id,
+            financial_responsible_id: billing_doctor_unit_prices.financial_responsible_id,
+            unit_id: billing_doctor_unit_prices.unit_id,
+            unit_name: units.name,
+            doctor_user_id: billing_doctor_unit_prices.doctor_user_id,
+            doctor_name: users.name,
+            price_per_report: billing_doctor_unit_prices.price_per_report,
+            starts_at: billing_doctor_unit_prices.starts_at,
+            ends_at: billing_doctor_unit_prices.ends_at,
+          })
+          .from(billing_doctor_unit_prices)
+          .leftJoin(users, eq(users.id, billing_doctor_unit_prices.doctor_user_id))
+          .leftJoin(units, eq(units.id, billing_doctor_unit_prices.unit_id))
+          .orderBy(billing_doctor_unit_prices.unit_id, billing_doctor_unit_prices.doctor_user_id);
+      }),
+
+    listAllSystemPrices: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) return [];
+        const { billing_system_unit_prices } = await import('../../drizzle/schema');
+        const { units } = await import('../../drizzle/schema');
+        const { eq } = await import('drizzle-orm');
+        return await db
+          .select({
+            id: billing_system_unit_prices.id,
+            financial_responsible_id: billing_system_unit_prices.financial_responsible_id,
+            unit_id: billing_system_unit_prices.unit_id,
+            unit_name: units.name,
+            price_per_report: billing_system_unit_prices.price_per_report,
+            starts_at: billing_system_unit_prices.starts_at,
+            ends_at: billing_system_unit_prices.ends_at,
+          })
+          .from(billing_system_unit_prices)
+          .leftJoin(units, eq(units.id, billing_system_unit_prices.unit_id))
+          .orderBy(billing_system_unit_prices.unit_id);
+      }),
 });
