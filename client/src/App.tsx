@@ -18,7 +18,6 @@ import AdminPage from "./pages/AdminPage";
 import BillingAdminPage from "./pages/BillingAdminPage";
 import BillingUnitPage from "./pages/BillingUnitPage";
 import BillingDoctorPage from "./pages/BillingDoctorPage";
-import { FinanceLayout } from "./components/FinanceLayout";
 import FinanceDashboard from "./pages/finance/FinanceDashboard";
 import FinanceMedicos from "./pages/finance/FinanceMedicos";
 import FinanceUnidades from "./pages/finance/FinanceUnidades";
@@ -77,13 +76,13 @@ function Router() {
       <Route path="/billing/unit" component={() => <ProtectedRoute component={BillingUnitPage} />} />
       <Route path="/billing/doctor" component={() => <ProtectedRoute component={BillingDoctorPage} />} />
       {/* Novo módulo financeiro */}
-      <Route path="/financeiro" component={() => <ProtectedRoute component={() => <FinanceLayout><FinanceDashboard /></FinanceLayout>} />} />
-      <Route path="/financeiro/medicos" component={() => <ProtectedRoute component={() => <FinanceLayout><FinanceMedicos /></FinanceLayout>} />} />
-      <Route path="/financeiro/unidades" component={() => <ProtectedRoute component={() => <FinanceLayout><FinanceUnidades /></FinanceLayout>} />} />
-      <Route path="/financeiro/responsaveis" component={() => <ProtectedRoute component={() => <FinanceLayout><FinanceResponsaveis /></FinanceLayout>} />} />
-      <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={() => <FinanceLayout><FinanceMeuFinanceiro /></FinanceLayout>} />} />
-      <Route path="/financeiro/admin" component={() => <ProtectedRoute component={() => <FinanceLayout><FinanceAdmin /></FinanceLayout>} />} />
-      <Route path="/financeiro/medicos/:id" component={({ params }: any) => <ProtectedRoute component={() => <FinanceLayout><FinanceMedicoDetalhe /></FinanceLayout>} />} />
+      <Route path="/financeiro" component={() => <ProtectedRoute component={FinanceDashboard} />} />
+      <Route path="/financeiro/medicos" component={() => <ProtectedRoute component={FinanceMedicos} />} />
+      <Route path="/financeiro/unidades" component={() => <ProtectedRoute component={FinanceUnidades} />} />
+      <Route path="/financeiro/responsaveis" component={() => <ProtectedRoute component={FinanceResponsaveis} />} />
+      <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro} />} />
+      <Route path="/financeiro/admin" component={() => <ProtectedRoute component={FinanceAdmin} />} />
+      <Route path="/financeiro/medicos/:id" component={() => <ProtectedRoute component={FinanceMedicoDetalhe} />} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

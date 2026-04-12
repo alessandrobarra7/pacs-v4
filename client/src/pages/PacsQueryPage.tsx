@@ -1113,7 +1113,7 @@ export function PacsQueryPage() {
             )}
             {isAdminMaster && (
               <button
-                onClick={() => navigate('/billing/admin')}
+                onClick={() => navigate('/financeiro')}
                 className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
               >
                 <DollarSign className="h-3.5 w-3.5" />
@@ -1122,7 +1122,7 @@ export function PacsQueryPage() {
             )}
             {(userRole === 'unit_admin' || userRole === 'responsavel_financeiro') && (
               <button
-                onClick={() => navigate('/billing/unit')}
+                onClick={() => navigate('/financeiro/unidades')}
                 className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
               >
                 <DollarSign className="h-3.5 w-3.5" />
@@ -1131,7 +1131,7 @@ export function PacsQueryPage() {
             )}
             {userRole === 'medico' && (
               <button
-                onClick={() => navigate('/billing/doctor')}
+                onClick={() => navigate('/financeiro/meu-financeiro')}
                 className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
               >
                 <DollarSign className="h-3.5 w-3.5" />
