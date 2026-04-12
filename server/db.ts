@@ -2021,3 +2021,65 @@ export async function listUnitCycles(unitId: number, cycleType?: "doctor" | "sys
     .where(and(...conditions))
     .orderBy(desc(billing_cycles.starts_at));
 }
+
+// ─── Auditoria e Reset de Médico (admin_master) ───────────────────────────────
+
+/**
+ * Retorna todos os eventos de billing de um médico para auditoria completa.
+ * Inclui nome do paciente, unidade, data, valores e status.
+ */
+export async function getDoctorAuditReport(doctorUserId: number, filters?: {
+  unit_id?: number;
+  from_date?: Date;
+  to_date?: Date;
+}) {
+  const { gte: _gte, lte: _lte, desc: _desc } = await import("drizzle-orm");
+  const db = await getDb();
+  if (!db) return [];
+  const conditions: any[] = [eq(billing_visit_events.doctor_user_id, doctorUserId)];
+  if (filters?.unit_id) conditions.push(eq(billing_visit_events.unit_id, filters.unit_id));
+  if (filters?.from_date) conditions.push(_gte(billing_visit_events.createdAt, filters.from_date));
+  if (filters?.to_date) conditions.push(_lte(billing_visit_events.createdAt, filters.to_date));
+  const rows = await db.select({
+    event: billing_visit_events,
+    unit_name: units.name,
+    doctor_name: users.name,
+  }).from(billing_visit_events)
+    .leftJoin(units, eq(billing_visit_events.unit_id, units.id))
+    .leftJoin(users, eq(billing_visit_events.doctor_user_id, users.id))
+    .where(and(...conditions))
+    .orderBy(_desc(billing_visit_events.createdAt));
+  return rows.map(r => ({
+    ...r.event,
+    unit_name: r.unit_name,
+    doctor_name: r.doctor_name,
+  }));
+}
+
+/**
+ * Zera todos os dados financeiros de um médico:
+ * - billing_visit_events (eventos por laudo)
+ * - billing_cycle_doctor_summary (totalizadores por ciclo)
+ * - billing_report_items (itens de apuração)
+ * Retorna contagem de registros deletados.
+ */
+export async function resetDoctorBilling(doctorUserId: number): Promise<{
+  events_deleted: number;
+  summaries_deleted: number;
+  report_items_deleted: number;
+}> {
+  const { count: drizzleCount } = await import("drizzle-orm");
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [evtCount] = await db.select({ c: drizzleCount() }).from(billing_visit_events).where(eq(billing_visit_events.doctor_user_id, doctorUserId));
+  const [sumCount] = await db.select({ c: drizzleCount() }).from(billing_cycle_doctor_summary).where(eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId));
+  const [itemCount] = await db.select({ c: drizzleCount() }).from(billing_report_items).where(eq(billing_report_items.doctor_user_id, doctorUserId));
+  await db.delete(billing_visit_events).where(eq(billing_visit_events.doctor_user_id, doctorUserId));
+  await db.delete(billing_cycle_doctor_summary).where(eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId));
+  await db.delete(billing_report_items).where(eq(billing_report_items.doctor_user_id, doctorUserId));
+  return {
+    events_deleted: Number(evtCount?.c ?? 0),
+    summaries_deleted: Number(sumCount?.c ?? 0),
+    report_items_deleted: Number(itemCount?.c ?? 0),
+  };
+}

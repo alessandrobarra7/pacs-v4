@@ -2,9 +2,11 @@ import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { FinanceShell } from "@/components/FinanceShell";
+import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, User, Building2, DollarSign, FileText,
-  TrendingUp, Calendar, CheckCircle, Clock, ChevronDown, ChevronUp
+  TrendingUp, Calendar, CheckCircle, Clock, ChevronDown, ChevronUp,
+  AlertTriangle, Search, Filter, RotateCcw
 } from "lucide-react";
 
 const fmt = (v: string | number | null | undefined) =>
@@ -15,7 +17,7 @@ const fmtDate = (d: Date | string | null | undefined) => {
   return new Date(d).toLocaleDateString("pt-BR");
 };
 
-type Tab = "ciclo-atual" | "precos" | "unidades" | "historico";
+type Tab = "ciclo-atual" | "precos" | "unidades" | "historico" | "auditoria";
 
 function CycleEventRow({ doctorUserId, cycleId, unitName }: { doctorUserId: number; cycleId: number; unitName: string }) {
   const [open, setOpen] = useState(false);
@@ -81,11 +83,36 @@ export default function FinanceMedicoDetalhe() {
     { doctorUserId }, { enabled: !!doctorUserId }
   );
 
+  const { toast } = useToast();
+  const [auditFromDate, setAuditFromDate] = useState("");
+  const [auditToDate, setAuditToDate] = useState("");
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  const { data: auditData, isLoading: loadingAudit, refetch: refetchAudit } = trpc.billing.getDoctorAuditReport.useQuery(
+    { doctorUserId, from_date: auditFromDate || undefined, to_date: auditToDate || undefined },
+    { enabled: tab === "auditoria" && !!doctorUserId }
+  );
+
+  const resetMutation = trpc.billing.resetDoctorBilling.useMutation({
+    onSuccess: (result) => {
+      toast({
+        title: "Dados resetados com sucesso",
+        description: `${result.events_deleted} eventos, ${result.summaries_deleted} sumários e ${result.report_items_deleted} itens removidos.`,
+      });
+      setShowResetConfirm(false);
+      refetchAudit();
+    },
+    onError: (err) => {
+      toast({ title: "Erro ao resetar", description: err.message, variant: "destructive" });
+    },
+  });
+
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: "ciclo-atual", label: "Ciclo Atual", icon: TrendingUp },
     { id: "precos", label: "Preços", icon: DollarSign },
     { id: "unidades", label: "Unidades", icon: Building2 },
     { id: "historico", label: "Histórico", icon: Calendar },
+    { id: "auditoria", label: "Auditoria", icon: Search },
   ];
 
   if (loadingDetail || loadingFinancial) {
@@ -293,6 +320,97 @@ export default function FinanceMedicoDetalhe() {
                 );
               })
             )}
+          </div>
+        )}
+
+        {/* Aba: Auditoria */}
+        {tab === "auditoria" && (
+          <div className="space-y-4">
+            {/* Filtros e botão de reset */}
+            <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 p-4">
+              <div className="flex flex-wrap gap-3 items-end">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-slate-400">De</label>
+                  <input type="date" value={auditFromDate} onChange={e => setAuditFromDate(e.target.value)}
+                    className="bg-slate-900/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-sm text-white" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-slate-400">Até</label>
+                  <input type="date" value={auditToDate} onChange={e => setAuditToDate(e.target.value)}
+                    className="bg-slate-900/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-sm text-white" />
+                </div>
+                <button onClick={() => refetchAudit()}
+                  className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30 text-sm transition-colors">
+                  <Filter className="w-3.5 h-3.5" /> Filtrar
+                </button>
+                <div className="ml-auto">
+                  {!showResetConfirm ? (
+                    <button onClick={() => setShowResetConfirm(true)}
+                      className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 text-sm transition-colors">
+                      <RotateCcw className="w-3.5 h-3.5" /> Resetar dados financeiros
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                      <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                      <span className="text-xs text-red-300">Isso apagará TODOS os eventos, ciclos e apurações deste médico. Confirma?</span>
+                      <button onClick={() => resetMutation.mutate({ doctorUserId })}
+                        disabled={resetMutation.isPending}
+                        className="px-3 py-1 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold disabled:opacity-50">
+                        {resetMutation.isPending ? "Aguarde..." : "Confirmar"}
+                      </button>
+                      <button onClick={() => setShowResetConfirm(false)}
+                        className="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs">
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Tabela de laudos */}
+            <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-700/30 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-white">Laudos Realizados</h3>
+                {auditData && <span className="text-xs text-slate-400">{auditData.events.length} registros</span>}
+              </div>
+              {loadingAudit ? (
+                <div className="py-8 flex justify-center"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-400" /></div>
+              ) : !auditData?.events?.length ? (
+                <div className="py-8 text-center text-slate-500 text-sm">Nenhum laudo encontrado</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-700/30 bg-slate-900/30">
+                        <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">Data</th>
+                        <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">Paciente</th>
+                        <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">Unidade</th>
+                        <th className="text-right px-4 py-2 text-xs font-medium text-slate-400">Valor</th>
+                        <th className="text-center px-4 py-2 text-xs font-medium text-slate-400">Tipo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditData.events.map((ev) => (
+                        <tr key={ev.id} className="border-b border-slate-700/20 hover:bg-slate-700/20">
+                          <td className="px-4 py-3 text-slate-400 text-xs">{ev.createdAt ? new Date(ev.createdAt).toLocaleString("pt-BR") : "—"}</td>
+                          <td className="px-4 py-3 text-white">{ev.patient_name ?? "—"}</td>
+                          <td className="px-4 py-3 text-slate-300">{ev.unit_name ?? `Unidade ${ev.unit_id}`}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-emerald-400">{fmt(ev.doctor_amount_due)}</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              ev.pricing_status === 'ok' ? 'bg-emerald-400/10 text-emerald-400' :
+                              ev.pricing_status === 'pending_doctor_price' ? 'bg-amber-400/10 text-amber-400' :
+                              'bg-slate-600/40 text-slate-400'
+                            }`}>{ev.pricing_status}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

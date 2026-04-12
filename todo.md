@@ -1031,3 +1031,15 @@
 - [x] Registrar rotas /financeiro/unidades/:id e /financeiro/responsaveis/:id no App.tsx
 - [x] Adicionar procedure getUnitDetail ao billing router (dados consolidados por unidade)
 - [x] Build de produção verificado sem erros TypeScript
+
+## BUG — useAuth fora do AuthProvider em /financeiro/meu-financeiro
+- [x] Corrigir erro "useAuth must be used within an AuthProvider" na página FinanceiroPessoal/MeuFinanceiro
+
+## BUG — TypeError: d.reduce is not a function em /financeiro/meu-financeiro
+- [x] Corrigir erro de reduce em array não inicializado no FinanceMeuFinanceiro (getDoctorProduction retorna objeto, não array)
+
+## MÓDULO FINANCEIRO — Relatório e Reset por Médico (painel root)
+- [ ] Procedure resetDoctorBilling: apaga eventos de billing e ciclos de um médico específico (admin_master only)
+- [ ] Procedure getDoctorAuditReport: retorna todos os laudos de um médico com paciente, unidade, data, valor, status
+- [ ] Página FinanceDoctorReport.tsx: relatório completo de laudos por médico + botão "Resetar dados financeiros"
+- [ ] Link para a página de relatório na lista de médicos do painel financeiro

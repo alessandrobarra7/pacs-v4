@@ -653,6 +653,46 @@ export const billingRouter = router({
         };
       }),
 
+    // ── Auditoria e Reset de Médico (admin_master) ─────────────────────────────
+    getDoctorAuditReport: protectedProcedure
+      .input(z.object({
+        doctorUserId: z.number(),
+        unit_id: z.number().optional(),
+        from_date: z.string().optional(),
+        to_date: z.string().optional(),
+      }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { getDoctorAuditReport, getUserById } = await import('../db');
+        const doctor = await getUserById(input.doctorUserId);
+        if (!doctor) throw new TRPCError({ code: 'NOT_FOUND', message: 'Médico não encontrado' });
+        const events = await getDoctorAuditReport(input.doctorUserId, {
+          unit_id: input.unit_id,
+          from_date: input.from_date ? new Date(input.from_date) : undefined,
+          to_date: input.to_date ? new Date(input.to_date) : undefined,
+        });
+        return { doctor, events };
+      }),
+
+    resetDoctorBilling: protectedProcedure
+      .input(z.object({ doctorUserId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { resetDoctorBilling, createAuditLog } = await import('../db');
+        const result = await resetDoctorBilling(input.doctorUserId);
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: null,
+          action: 'RESET_DOCTOR_BILLING',
+          target_type: 'USER',
+          target_id: String(input.doctorUserId),
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+          metadata: result,
+        });
+        return result;
+      }),
+
     // ── Detalhe do Responsável (admin) ────────────────────────────────────────
     getResponsibleDetail: protectedProcedure
       .input(z.object({ responsibleId: z.number() }))
