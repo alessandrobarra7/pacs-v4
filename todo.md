@@ -1039,7 +1039,7 @@
 - [x] Corrigir erro de reduce em array não inicializado no FinanceMeuFinanceiro (getDoctorProduction retorna objeto, não array)
 
 ## MÓDULO FINANCEIRO — Relatório e Reset por Médico (painel root)
-- [ ] Procedure resetDoctorBilling: apaga eventos de billing e ciclos de um médico específico (admin_master only)
-- [ ] Procedure getDoctorAuditReport: retorna todos os laudos de um médico com paciente, unidade, data, valor, status
-- [ ] Página FinanceDoctorReport.tsx: relatório completo de laudos por médico + botão "Resetar dados financeiros"
-- [ ] Link para a página de relatório na lista de médicos do painel financeiro
+- [x] Procedure resetDoctorBilling: apaga eventos de billing e ciclos de um médico específico (admin_master only)
+- [x] Procedure getDoctorAuditReport: retorna todos os laudos de um médico com paciente, unidade, data, valor, status
+- [x] Aba Auditoria em FinanceMedicoDetalhe.tsx: relatório completo de laudos por médico + botão "Resetar dados financeiros"
+- [x] Aba Auditoria acessível diretamente na página de detalhe do médico (sem página separada)
