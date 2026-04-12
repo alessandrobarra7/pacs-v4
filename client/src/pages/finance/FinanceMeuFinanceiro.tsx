@@ -17,7 +17,7 @@ function fmtDate(d: Date | string | null | undefined) {
 
 type Tab = "por_unidade" | "extrato" | "fechamentos";
 type DoctorCycle = {
-  cycle: { id: number; unit_id: number; status: string; period_start: Date | string; period_end: Date | string; total_reports: number; total_amount: string };
+  cycle: { id: number; unit_id: number; status: string; starts_at?: Date | string; ends_at?: Date | string; total_reports?: number; total_amount?: string };
   unit_name: string;
   summary: { reports_count: number; amount_due: string; amount_received: string; received_at: Date | string | null } | null;
 };
@@ -57,7 +57,7 @@ function UnitCycleCard({ cycle }: { cycle: DoctorCycle }) {
             <div>
               <p className="font-semibold text-sm text-white">{cycle.unit_name}</p>
               <p className="text-xs text-slate-400 mt-0.5">
-                {fmtBRL(parseFloat(String(cycle.cycle.total_amount ?? "0")) / Math.max(cycle.cycle.total_reports, 1))} por laudo
+                {fmtBRL(parseFloat(String(cycle.cycle.total_amount ?? "0")) / Math.max(cycle.cycle.total_reports ?? 1, 1))} por laudo
               </p>
             </div>
           </div>
@@ -140,16 +140,18 @@ export default function FinanceMeuFinanceiro() {
   const { data: productionData, isLoading: loadingProd } = trpc.billing.getDoctorProduction.useQuery();
   const { data: summaryData, isLoading: loadingSummary } = trpc.billing.getDoctorSummary.useQuery({ year, month });
 
-  const cycles = (productionData ?? []) as DoctorCycle[];
+  // getDoctorProduction retorna { currentCycles, history, totalOpen, totalUnits }
+  const prodObj = productionData as { currentCycles?: unknown[]; history?: unknown[]; totalOpen?: string; totalUnits?: number } | undefined;
+  const cycles = (prodObj?.currentCycles ?? []) as DoctorCycle[];
   const items = ((summaryData as { items?: unknown[] })?.items ?? []) as Array<{
     id: number; unit_name: string; patient_name: string | null;
     study_date: Date | string | null; doctor_amount: string; payment_status: string;
   }>;
 
-  const totalSaldo = cycles.reduce((s, c) => s + parseFloat(String(c.summary?.amount_due ?? "0")), 0);
-  const totalConfirmado = cycles.reduce((s, c) => s + parseFloat(String(c.summary?.amount_received ?? "0")), 0);
-  const totalLaudos = cycles.reduce((s, c) => s + (c.summary?.reports_count ?? 0), 0);
-  const activeUnits = new Set(cycles.map((c) => c.cycle.unit_id)).size;
+  const totalSaldo = Array.isArray(cycles) ? cycles.reduce((s, c) => s + parseFloat(String(c.summary?.amount_due ?? "0")), 0) : 0;
+  const totalConfirmado = Array.isArray(cycles) ? cycles.reduce((s, c) => s + parseFloat(String(c.summary?.amount_received ?? "0")), 0) : 0;
+  const totalLaudos = Array.isArray(cycles) ? cycles.reduce((s, c) => s + (c.summary?.reports_count ?? 0), 0) : 0;
+  const activeUnits = Array.isArray(cycles) ? new Set(cycles.map((c) => c.cycle.unit_id)).size : 0;
 
   const isLoading = loadingProd || loadingSummary;
 
