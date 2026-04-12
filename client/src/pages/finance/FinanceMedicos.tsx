@@ -1,14 +1,7 @@
-/**
- * FinanceMedicos — Lista de médicos com faixa de preço e vínculos
- * Layout: 3 cards de resumo no topo + tabela com busca
- */
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
+import { FinanceShell } from "@/components/FinanceShell";
 import { trpc } from "@/lib/trpc";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Users, Activity, Building2, Search, ChevronRight } from "lucide-react";
 
 function fmtBRL(val: string | number | null | undefined) {
@@ -17,25 +10,14 @@ function fmtBRL(val: string | number | null | undefined) {
 }
 
 type DoctorUser = {
-  id: number;
-  name: string | null;
-  username: string;
-  email: string | null;
-  role: string;
-  isActive: boolean;
+  id: number; name: string | null; username: string;
+  email: string | null; role: string; isActive: boolean;
 };
-
 type DoctorPrice = {
-  id: number;
-  financial_responsible_id: number;
-  unit_id: number;
-  doctor_user_id: number;
-  price_per_report: string;
-  starts_at: Date | string;
-  ends_at: Date | string | null;
+  id: number; financial_responsible_id: number; unit_id: number;
+  doctor_user_id: number; price_per_report: string;
+  starts_at: Date | string; ends_at: Date | string | null;
 };
-
-type Unit = { id: number; name: string };
 
 export default function FinanceMedicos() {
   const [search, setSearch] = useState("");
@@ -43,16 +25,14 @@ export default function FinanceMedicos() {
 
   const { data: usersData, isLoading: loadingUsers } = trpc.admin.listUsers.useQuery();
   const { data: pricesData, isLoading: loadingPrices } = trpc.billing.listAllDoctorPrices.useQuery();
-  const { data: unitsData } = trpc.units.list.useQuery();
 
   const users = (usersData ?? []) as DoctorUser[];
   const prices = (pricesData ?? []) as DoctorPrice[];
-  const units = (unitsData ?? []) as Unit[];
 
   const doctors = users.filter((u) => u.role === "medico");
-  const activeDoctors = doctors.filter((d) => d.isActive);
+  const activeDoctors = doctors.filter((d) => d.isActive).length;
+  const activeLinks = prices.filter((p) => !p.ends_at).length;
 
-  // Agrupar preços por médico
   const pricesByDoctor = useMemo(() => {
     const map = new Map<number, DoctorPrice[]>();
     for (const p of prices) {
@@ -63,188 +43,139 @@ export default function FinanceMedicos() {
     return map;
   }, [prices]);
 
-  // Total de vínculos ativos (preços sem ends_at)
-  const activeLinks = prices.filter((p) => !p.ends_at).length;
-
   const filtered = doctors.filter((d) => {
     const q = search.toLowerCase();
-    return (
-      (d.name ?? "").toLowerCase().includes(q) ||
+    return (d.name ?? "").toLowerCase().includes(q) ||
       d.username.toLowerCase().includes(q) ||
-      (d.email ?? "").toLowerCase().includes(q)
-    );
+      (d.email ?? "").toLowerCase().includes(q);
   });
 
   const isLoading = loadingUsers || loadingPrices;
 
   return (
-    <div className="space-y-6">
-      {/* Cabeçalho */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
+    <FinanceShell activeSection="medicos">
+      <div className="p-6 space-y-6 max-w-7xl mx-auto w-full">
+        {/* Título */}
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Médicos</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Cadastro de médicos e vínculos com unidades</p>
+          <h1 className="text-2xl font-bold text-white">Médicos</h1>
+          <p className="text-slate-400 text-sm mt-0.5">Cadastro de médicos e vínculos com unidades</p>
         </div>
-      </div>
 
-      {/* Cards de resumo */}
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          {
-            label: "TOTAL MÉDICOS",
-            value: isLoading ? null : doctors.length,
-            icon: Users,
-            color: "text-blue-600",
-            bg: "bg-blue-50 dark:bg-blue-950",
-          },
-          {
-            label: "ATIVOS",
-            value: isLoading ? null : activeDoctors.length,
-            icon: Activity,
-            color: "text-green-600",
-            bg: "bg-green-50 dark:bg-green-950",
-          },
-          {
-            label: "VÍNCULOS ATIVOS",
-            value: isLoading ? null : activeLinks,
-            icon: Building2,
-            color: "text-amber-600",
-            bg: "bg-amber-50 dark:bg-amber-950",
-          },
-        ].map((card) => (
-          <Card key={card.label} className="border border-border/60">
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground tracking-wide">{card.label}</p>
-                  {card.value === null ? (
-                    <Skeleton className="h-7 w-10 mt-1" />
-                  ) : (
-                    <p className={`text-2xl font-bold mt-1 ${card.color}`}>{card.value}</p>
-                  )}
-                </div>
-                <div className={`p-2 rounded-lg ${card.bg}`}>
-                  <card.icon className={`h-5 w-5 ${card.color}`} />
-                </div>
+        {/* Cards de métricas */}
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { label: "Total Médicos", value: doctors.length, icon: Users, color: "text-cyan-400", border: "border-cyan-400/20" },
+            { label: "Ativos", value: activeDoctors, icon: Activity, color: "text-emerald-400", border: "border-emerald-400/20" },
+            { label: "Vínculos Ativos", value: activeLinks, icon: Building2, color: "text-amber-400", border: "border-amber-400/20" },
+          ].map((card) => (
+            <div key={card.label} className={`rounded-xl border ${card.border} bg-slate-800/50 p-4`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-slate-400 text-xs uppercase tracking-wide">{card.label}</span>
+                <card.icon className={`h-4 w-4 ${card.color}`} />
               </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              {isLoading ? (
+                <div className="h-7 w-12 bg-slate-700 rounded animate-pulse" />
+              ) : (
+                <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
+              )}
+            </div>
+          ))}
+        </div>
 
-      {/* Tabela */}
-      <Card className="border border-border/60">
-        <CardContent className="p-0">
+        {/* Tabela */}
+        <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 overflow-hidden">
           {/* Busca */}
-          <div className="p-4 border-b border-border/60">
+          <div className="p-4 border-b border-slate-700/50">
             <div className="relative max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="pl-9 h-9"
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
                 placeholder="Buscar por nome ou e-mail..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg text-sm text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500/50"
               />
             </div>
           </div>
 
+          {/* Cabeçalho */}
+          <div className="grid grid-cols-12 px-4 py-2.5 text-xs font-medium text-slate-400 uppercase tracking-wide border-b border-slate-700/30 bg-slate-900/30">
+            <div className="col-span-4">Médico</div>
+            <div className="col-span-2 hidden sm:block">E-mail</div>
+            <div className="col-span-2 text-center">Unidades</div>
+            <div className="col-span-2">Faixa de Preço</div>
+            <div className="col-span-1 text-center">Status</div>
+            <div className="col-span-1"></div>
+          </div>
+
           {isLoading ? (
             <div className="p-4 space-y-3">
-              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full" />)}
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-14 bg-slate-700/30 rounded animate-pulse" />
+              ))}
             </div>
           ) : filtered.length === 0 ? (
             <div className="py-12 text-center">
-              <Users className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
-              <p className="text-muted-foreground text-sm">Nenhum médico encontrado.</p>
+              <Users className="h-8 w-8 mx-auto text-slate-600 mb-2" />
+              <p className="text-slate-500 text-sm">Nenhum médico encontrado.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/20">
-                    <th className="text-left px-4 py-3 font-medium text-xs text-muted-foreground">Médico</th>
-                    <th className="text-left px-4 py-3 font-medium text-xs text-muted-foreground hidden sm:table-cell">E-mail</th>
-                    <th className="text-center px-4 py-3 font-medium text-xs text-muted-foreground">Unidades</th>
-                    <th className="text-left px-4 py-3 font-medium text-xs text-muted-foreground">Faixa de Preço</th>
-                    <th className="text-center px-4 py-3 font-medium text-xs text-muted-foreground">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((doctor) => {
-                    const doctorPrices = pricesByDoctor.get(doctor.id) ?? [];
-                    const activePrices = doctorPrices.filter((p) => !p.ends_at);
-                    const priceValues = activePrices.map((p) => parseFloat(p.price_per_report));
-                    const minPrice = priceValues.length > 0 ? Math.min(...priceValues) : null;
-                    const maxPrice = priceValues.length > 0 ? Math.max(...priceValues) : null;
+            filtered.map((doctor) => {
+              const doctorPrices = pricesByDoctor.get(doctor.id) ?? [];
+              const activePrices = doctorPrices.filter((p) => !p.ends_at);
+              const priceValues = activePrices.map((p) => parseFloat(p.price_per_report));
+              const minPrice = priceValues.length > 0 ? Math.min(...priceValues) : null;
+              const maxPrice = priceValues.length > 0 ? Math.max(...priceValues) : null;
+              const initials = (doctor.name ?? doctor.username).split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 
-                    const initials = (doctor.name ?? doctor.username)
-                      .split(" ")
-                      .slice(0, 2)
-                      .map((w) => w[0])
-                      .join("")
-                      .toUpperCase();
-
-                    return (
-                      <tr
-                          key={doctor.id}
-                          className="border-b last:border-0 hover:bg-muted/20 transition-colors cursor-pointer"
-                          onClick={() => navigate(`/financeiro/medicos/${doctor.id}`)}
-                        >
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                              {initials}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-medium truncate">{doctor.name ?? doctor.username}</p>
-                              <p className="text-xs text-muted-foreground truncate hidden sm:block">
-                                {doctor.username}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground text-xs hidden sm:table-cell">
-                          {doctor.email ?? "—"}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <span className="text-sm font-medium">{activePrices.length}</span>
-                          <span className="text-xs text-muted-foreground ml-1">
-                            {activePrices.length === 1 ? "ativa" : "ativas"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          {minPrice === null ? (
-                            <span className="text-muted-foreground text-xs">—</span>
-                          ) : minPrice === maxPrice ? (
-                            <span className="text-sm font-medium text-green-600">{fmtBRL(minPrice)}</span>
-                          ) : (
-                            <span className="text-sm font-medium text-green-600">
-                              {fmtBRL(minPrice)} – {fmtBRL(maxPrice)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <Badge
-                            variant="outline"
-                            className={doctor.isActive
-                              ? "text-green-600 border-green-600 text-xs"
-                              : "text-muted-foreground text-xs"}
-                          >
-                            {doctor.isActive ? "Ativo" : "Inativo"}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+              return (
+                <button
+                  key={doctor.id}
+                  onClick={() => navigate(`/financeiro/medicos/${doctor.id}`)}
+                  className="w-full grid grid-cols-12 px-4 py-3.5 border-b border-slate-700/20 hover:bg-slate-700/30 transition-colors text-left items-center group"
+                >
+                  <div className="col-span-4 flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-cyan-700/40 flex items-center justify-center shrink-0 text-cyan-300 text-xs font-bold">
+                      {initials}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{doctor.name ?? doctor.username}</p>
+                      <p className="text-xs text-slate-500 truncate">{doctor.username}</p>
+                    </div>
+                  </div>
+                  <div className="col-span-2 hidden sm:block">
+                    <span className="text-xs text-slate-400">{doctor.email ?? "—"}</span>
+                  </div>
+                  <div className="col-span-2 text-center">
+                    <span className="text-sm text-slate-300">{activePrices.length}</span>
+                    <span className="text-xs text-slate-500 ml-1">{activePrices.length === 1 ? "ativa" : "ativas"}</span>
+                  </div>
+                  <div className="col-span-2">
+                    {minPrice === null ? (
+                      <span className="text-slate-500 text-xs">—</span>
+                    ) : minPrice === maxPrice ? (
+                      <span className="text-sm font-medium text-emerald-400">{fmtBRL(minPrice)}</span>
+                    ) : (
+                      <span className="text-sm font-medium text-emerald-400">{fmtBRL(minPrice)} – {fmtBRL(maxPrice)}</span>
+                    )}
+                  </div>
+                  <div className="col-span-1 text-center">
+                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+                      doctor.isActive ? "bg-emerald-400/10 text-emerald-400" : "bg-slate-600/40 text-slate-400"
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${doctor.isActive ? "bg-emerald-400" : "bg-slate-500"}`} />
+                      {doctor.isActive ? "Ativo" : "Inativo"}
+                    </span>
+                  </div>
+                  <div className="col-span-1 flex justify-end">
+                    <ChevronRight className="h-4 w-4 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+                  </div>
+                </button>
+              );
+            })
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </div>
+    </FinanceShell>
   );
 }
