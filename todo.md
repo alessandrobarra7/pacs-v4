@@ -1043,3 +1043,9 @@
 - [x] Procedure getDoctorAuditReport: retorna todos os laudos de um médico com paciente, unidade, data, valor, status
 - [x] Aba Auditoria em FinanceMedicoDetalhe.tsx: relatório completo de laudos por médico + botão "Resetar dados financeiros"
 - [x] Aba Auditoria acessível diretamente na página de detalhe do médico (sem página separada)
+
+## REFATORAÇÃO — Evento financeiro atômico no backend
+- [x] Integrar createBillingVisitEvent dentro do procedure signReport no backend (transação atômica)
+- [x] Ajustar retorno do signReport para incluir doctor_amount_due (para o toast do frontend)
+- [x] Remover chamada de createVisitEvent do frontend (ReportEditorPage)
+- [x] Verificar TypeScript e build após a refatoração

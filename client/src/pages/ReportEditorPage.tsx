@@ -192,7 +192,6 @@ export default function ReportEditorPage() {
   const createReport = trpc.reports.create.useMutation();
   const updateReport = trpc.reports.update.useMutation();
   const signReport = trpc.reports.sign.useMutation();
-  const createVisitEvent = trpc.billing.createVisitEvent.useMutation();
   const reviseReport = trpc.reports.revise.useMutation();
   const deleteReport = trpc.reports.delete.useMutation();
 
@@ -363,42 +362,30 @@ export default function ReportEditorPage() {
         // Atualizar o corpo do laudo antes de assinar
         await updateReport.mutateAsync({ id: reportId, body });
       }
-      // Agora assinar
-      await signReport.mutateAsync({ id: reportId });
+      // Assinar + registrar evento financeiro atômico no backend
+      const signResult = await signReport.mutateAsync({
+        id: reportId,
+        unit_id: studyInfo?.unitId ?? undefined,
+        study_instance_uid: studyUid || undefined,
+        patient_name: studyInfo?.patientName || undefined,
+        study_date: studyInfo?.studyDate || undefined,
+      });
 
-      // Registrar evento financeiro por laudo (deduplicado automaticamente pelo report_key)
-      if (studyInfo?.unitId && studyInfo.unitId > 0 && reportId) {
-        try {
-          const billingResult = await createVisitEvent.mutateAsync({
-            report_id: reportId,
-            study_instance_uid: studyUid || undefined,
-            unit_id: studyInfo.unitId,
-            patient_name: studyInfo.patientName || undefined,
-            study_date: studyInfo.studyDate || undefined,
-          });
-          // Invalidar queries financeiras para atualizar saldo imediatamente
-          void utils.billing.getUnitFinancialInfo.invalidate();
-          void utils.billing.getDoctorSummary.invalidate();
-          // Toast informativo com valor gerado
-          const amt = billingResult?.doctor_amount_due;
-          if (amt && parseFloat(amt) > 0) {
-            toast.success(`Laudo assinado! +R\$ ${parseFloat(amt).toFixed(2)} adicionados ao saldo`);
-          } else {
-            toast.success("Laudo assinado com sucesso!");
-          }
-        } catch (billingErr: any) {
-          // Billing não bloqueia a assinatura, mas avisa o usuário
-          toast.success("Laudo assinado com sucesso!");
-          toast.warning(`Aviso financeiro: ${billingErr?.message ?? 'evento não registrado'}`);
-        }
+      // Invalidar queries financeiras para atualizar saldo imediatamente
+      void utils.billing.getUnitFinancialInfo.invalidate();
+      void utils.billing.getDoctorSummary.invalidate();
+      // Toast informativo com valor gerado pelo backend
+      const amt = signResult?.doctor_amount_due;
+      if (amt && parseFloat(amt) > 0) {
+        toast.success(`Laudo assinado! +R\$ ${parseFloat(amt).toFixed(2)} adicionados ao saldo`);
       } else {
         toast.success("Laudo assinado com sucesso!");
-      };
+      }
       navigate("/");
     } catch (e: any) {
       toast.error(e.message || "Erro ao assinar");
     }
-  }, [existingReport, studyUid, studyInfo, createReport, updateReport, signReport, createVisitEvent, navigate, collectBody]);
+  }, [existingReport, studyUid, studyInfo, createReport, updateReport, signReport, navigate, collectBody]);
 
   // ── Retificar laudo assinado ─────────────────────────────────────────────
   const handleRevise = useCallback(async () => {

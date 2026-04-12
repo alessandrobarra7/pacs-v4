@@ -145,7 +145,14 @@ export const reportsRouter = router({
       }),
     
     sign: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({
+        id: z.number(),
+        // Campos opcionais para registro financeiro atômico
+        unit_id: z.number().optional(),
+        study_instance_uid: z.string().optional(),
+        patient_name: z.string().optional(),
+        study_date: z.string().optional(),
+      }))
       .mutation(async ({ input, ctx }) => {
         // Buscar laudo sem filtro de unit_id para suportar médicos multi-unidade
         const report = await getReportById(input.id, undefined);
@@ -159,13 +166,14 @@ export const reportsRouter = router({
             !!(await getUnitPerm(ctx.user.id, report.unit_id ?? 0));
           if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
+        const signedAt = new Date();
         await updateReport(input.id, {
           status: 'signed',
-          signedAt: new Date(),
+          signedAt,
           signedBy: ctx.user.id,
         });
         
-        const effectiveUnitId = ctx.user.unit_id ?? report.unit_id;
+        const effectiveUnitId = input.unit_id ?? ctx.user.unit_id ?? report.unit_id;
         await createAuditLog({
           user_id: ctx.user.id,
           unit_id: effectiveUnitId,
@@ -175,8 +183,29 @@ export const reportsRouter = router({
           ip_address: ctx.req.ip,
           user_agent: ctx.req.headers['user-agent'],
         });
+
+        // Registro financeiro atômico: se unit_id fornecido e usuário é médico ou admin_master
+        let doctor_amount_due: string | null = null;
+        if (effectiveUnitId && (ctx.user.role === 'medico' || ctx.user.role === 'admin_master')) {
+          try {
+            const { createBillingVisitEvent } = await import('../db');
+            const billingResult = await createBillingVisitEvent({
+              report_id: input.id,
+              study_instance_uid: input.study_instance_uid ?? report.study_instance_uid ?? undefined,
+              unit_id: effectiveUnitId,
+              doctor_user_id: ctx.user.id,
+              patient_name: input.patient_name ?? undefined,
+              study_date: input.study_date ?? undefined,
+              signed_at: signedAt,
+            });
+            doctor_amount_due = billingResult.doctor_amount_due;
+          } catch (billingErr) {
+            // Billing não bloqueia a assinatura — apenas loga o erro
+            console.error('[sign] Billing event failed (non-blocking):', billingErr);
+          }
+        }
         
-        return { success: true };
+        return { success: true, doctor_amount_due };
       }),
 
     statusByStudyUids: protectedProcedure
