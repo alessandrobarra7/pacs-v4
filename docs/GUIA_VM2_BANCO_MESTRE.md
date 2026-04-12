@@ -2,7 +2,7 @@
 
 **Projeto:** PACS Portal v4
 **Gerado em:** 07/04/2026
-**Atualizado em:** 07/04/2026
+**Atualizado em:** 12/04/2026
 **Status:** Documento canônico — substitui qualquer orientação anterior conflitante sobre a VM2
 
 > Este documento é a referência definitiva para criação, reconstrução e validação do banco de dados da VM2. Sempre que houver divergência entre este guia e documentação mais antiga, prevalece este documento.
@@ -592,6 +592,37 @@ ALTER TABLE study_metadata ADD COLUMN exam_count int NULL DEFAULT 1;
 mysql -u root -p -D pacs_portal -e "SHOW COLUMNS FROM study_metadata LIKE 'exam_count';"
 mysql -u root -p -D pacs_portal -e "SHOW TABLES LIKE 'exam_catalog';"
 ```
+
+---
+
+## 17. Validação Realizada em 12/04/2026
+
+Em 12/04/2026 foi feita uma comparação completa entre o banco real da VM2 e o `drizzle/schema.ts`.
+
+**Resultado:** banco 100% sincronizado com o código.
+
+### Ação executada
+
+A tabela `user` (singular) foi identificada como resíduo legado — criada manualmente antes da migração para Drizzle, com 1 registro de admin de teste (`local_admin_001`). O usuário equivalente já existia na tabela canônica `users` (id=1, username=admin, role=admin_master, isActive=1). A tabela foi removida:
+
+```sql
+-- Executado na VM2 em 12/04/2026
+DROP TABLE `user`;
+```
+
+### Estado atual do banco (12/04/2026)
+
+| Verificação | Resultado |
+|---|---|
+| Total de tabelas de negócio | 27 (todas as do `drizzle/schema.ts`) |
+| Tabela `user` (singular) legada | Removida |
+| Tabelas legadas (`exam_catalog`, `report_sections`, `study_labels`) | Já removidas (migration 0017) |
+| `study_metadata.exam_count` | Presente (migration 0018 aplicada) |
+| `users.role` | 6 roles: `admin_master`, `unit_admin`, `medico`, `viewer`, `operador`, `responsavel_financeiro` |
+| `units.logoUrl` e `units.logo_url` | Ambas presentes |
+| Todas as tabelas de billing | Presentes e sincronizadas |
+
+> **Nota:** o total de tabelas de negócio passou de 14 (documentado na seção 8) para 27 após a adição do módulo financeiro completo (billing). A seção 8 está desatualizada — o número correto é 27 tabelas.
 
 ---
 
