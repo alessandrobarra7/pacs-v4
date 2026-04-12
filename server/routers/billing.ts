@@ -500,4 +500,57 @@ export const billingRouter = router({
           .leftJoin(units, eq(units.id, billing_system_unit_prices.unit_id))
           .orderBy(billing_system_unit_prices.unit_id);
       }),
+
+    // ── Detalhe do médico para admin_master ──────────────────────────────────────
+    getDoctorDetail: protectedProcedure
+      .input(z.object({ doctorUserId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) return null;
+        const { users, user_unit_permissions, units, billing_doctor_unit_prices } = await import('../../drizzle/schema');
+        const { eq, and, isNull } = await import('drizzle-orm');
+        // Dados do médico
+        const [doctor] = await db.select().from(users).where(eq(users.id, input.doctorUserId)).limit(1);
+        if (!doctor) return null;
+        // Unidades vinculadas
+        const unitLinks = await db
+          .select({ unit_id: user_unit_permissions.unit_id, unit_name: units.name })
+          .from(user_unit_permissions)
+          .leftJoin(units, eq(units.id, user_unit_permissions.unit_id))
+          .where(eq(user_unit_permissions.user_id, input.doctorUserId));
+        // Preços ativos por unidade (ends_at IS NULL)
+        const prices = await db
+          .select({
+            id: billing_doctor_unit_prices.id,
+            unit_id: billing_doctor_unit_prices.unit_id,
+            unit_name: units.name,
+            price_per_report: billing_doctor_unit_prices.price_per_report,
+            starts_at: billing_doctor_unit_prices.starts_at,
+            ends_at: billing_doctor_unit_prices.ends_at,
+          })
+          .from(billing_doctor_unit_prices)
+          .leftJoin(units, eq(units.id, billing_doctor_unit_prices.unit_id))
+          .where(and(
+            eq(billing_doctor_unit_prices.doctor_user_id, input.doctorUserId),
+            isNull(billing_doctor_unit_prices.ends_at),
+          ));
+        return { doctor, unitLinks, prices };
+      }),
+
+    getDoctorFinancialDetail: protectedProcedure
+      .input(z.object({ doctorUserId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { getDoctorFinancialSummary } = await import('../db');
+        return await getDoctorFinancialSummary(input.doctorUserId);
+      }),
+
+    getDoctorCycleEventsForAdmin: protectedProcedure
+      .input(z.object({ doctorUserId: z.number(), doctorCycleId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { getDoctorCycleEvents } = await import('../db');
+        return await getDoctorCycleEvents(input.doctorUserId, input.doctorCycleId);
+      }),
 });

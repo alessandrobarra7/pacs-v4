@@ -3,12 +3,13 @@
  * Layout: 3 cards de resumo no topo + tabela com busca
  */
 import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Activity, Building2, Search } from "lucide-react";
+import { Users, Activity, Building2, Search, ChevronRight } from "lucide-react";
 
 function fmtBRL(val: string | number | null | undefined) {
   const n = parseFloat(String(val ?? "0"));
@@ -38,6 +39,7 @@ type Unit = { id: number; name: string };
 
 export default function FinanceMedicos() {
   const [search, setSearch] = useState("");
+  const [, navigate] = useLocation();
 
   const { data: usersData, isLoading: loadingUsers } = trpc.admin.listUsers.useQuery();
   const { data: pricesData, isLoading: loadingPrices } = trpc.billing.listAllDoctorPrices.useQuery();
@@ -183,7 +185,11 @@ export default function FinanceMedicos() {
                       .toUpperCase();
 
                     return (
-                      <tr key={doctor.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors">
+                      <tr
+                          key={doctor.id}
+                          className="border-b last:border-0 hover:bg-muted/20 transition-colors cursor-pointer"
+                          onClick={() => navigate(`/financeiro/medicos/${doctor.id}`)}
+                        >
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
@@ -226,6 +232,9 @@ export default function FinanceMedicos() {
                           >
                             {doctor.isActive ? "Ativo" : "Inativo"}
                           </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
                         </td>
                       </tr>
                     );
