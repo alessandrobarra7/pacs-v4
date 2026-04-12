@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { FinanceShell } from "@/components/FinanceShell";
 import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { DollarSign, CheckCircle, FileText, Building2, ChevronDown, ChevronUp } from "lucide-react";
 
