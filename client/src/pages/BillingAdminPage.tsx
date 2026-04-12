@@ -1,16 +1,16 @@
 /**
- * BillingAdminPage V4 — Retaguarda Financeira
+ * BillingAdminPage V5 — Retaguarda Financeira
  *
- * Visão do admin_master: cadastro de responsáveis financeiros, vínculo com
- * unidades, configuração de preços e ciclos, fechamento de ciclos.
+ * Visual reformulado: cards individuais por responsável com expansão,
+ * melhor hierarquia visual, abas mais claras.
  *
  * Roles com acesso: admin_master
+ * Roles SEM acesso: operador, viewer, medico, responsavel_financeiro, unit_admin
  */
 import { useState } from "react";
-import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,19 +33,18 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import {
-  ArrowLeft,
   Plus,
   Settings,
   Users,
   Building2,
   DollarSign,
-  Edit,
   Link as LinkIcon,
   Calendar,
   ChevronDown,
   ChevronUp,
   ShieldCheck,
   UserCheck,
+  Wallet,
 } from "lucide-react";
 import { DoctorPriceManager } from "@/components/DoctorPriceManager";
 
@@ -192,8 +191,8 @@ function CreateResponsibleDialog({
   );
 }
 
-// ─── Painel de detalhes de um responsável ─────────────────────────────────────
-function ResponsiblePanel({
+// ─── Card individual de responsável ──────────────────────────────────────────
+function ResponsibleCard({
   responsible,
   units,
   onRefresh,
@@ -206,13 +205,9 @@ function ResponsiblePanel({
   const [showLinkUnit, setShowLinkUnit] = useState(false);
   const [showSetPrice, setShowSetPrice] = useState(false);
   const [showSetCycle, setShowSetCycle] = useState(false);
-  const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
 
-  // Formulário de vínculo de unidade
   const [linkForm, setLinkForm] = useState({ unitId: "", startsAt: new Date().toISOString().slice(0, 10) });
-  // Formulário de preço do sistema
   const [priceForm, setPriceForm] = useState({ unitId: "", pricePerReport: "", startsAt: new Date().toISOString().slice(0, 10) });
-  // Formulário de ciclo
   const [cycleForm, setCycleForm] = useState({ unitId: "", doctor_cycle_day: "20", system_cycle_day: "5" });
 
   const { data: linkedUnits, refetch: refetchUnits } = trpc.billing.listUnitsForResponsible.useQuery(
@@ -246,24 +241,37 @@ function ResponsiblePanel({
     onError: (e) => toast.error(e.message),
   });
 
+  const initials = responsible.legal_name.slice(0, 2).toUpperCase();
+
   return (
-    <Card className="border border-border/60">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-              {responsible.legal_name.charAt(0).toUpperCase()}
+    <Card className="overflow-hidden border border-border/60 hover:border-primary/30 transition-all hover:shadow-sm">
+      <div className={`h-1 ${responsible.isActive ? "bg-green-500" : "bg-muted"}`} />
+      <CardContent className="p-4">
+        {/* Cabeçalho */}
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-sm font-bold text-primary shrink-0">
+              {initials}
             </div>
-            <div>
-              <p className="font-semibold text-sm">{responsible.trade_name || responsible.legal_name}</p>
+            <div className="min-w-0">
+              <p className="font-semibold text-sm truncate">
+                {responsible.trade_name || responsible.legal_name}
+              </p>
               {responsible.trade_name && (
-                <p className="text-xs text-muted-foreground">{responsible.legal_name}</p>
+                <p className="text-xs text-muted-foreground truncate">{responsible.legal_name}</p>
+              )}
+              {(responsible.email || responsible.cpf_cnpj) && (
+                <p className="text-xs text-muted-foreground truncate">
+                  {responsible.cpf_cnpj && <span>{responsible.cpf_cnpj}</span>}
+                  {responsible.cpf_cnpj && responsible.email && <span className="mx-1">·</span>}
+                  {responsible.email && <span>{responsible.email}</span>}
+                </p>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-xs">
-              {responsible.person_type === "PJ" ? "PJ" : "PF"}
+          <div className="flex items-center gap-2 shrink-0">
+            <Badge variant="outline" className="text-xs hidden sm:inline-flex">
+              {responsible.person_type}
             </Badge>
             <Badge
               variant="outline"
@@ -273,281 +281,220 @@ function ResponsiblePanel({
             >
               {responsible.isActive ? "Ativo" : "Inativo"}
             </Badge>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs"
-              onClick={() => setExpanded(!expanded)}
-            >
-              {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            </Button>
           </div>
         </div>
-        {(responsible.email || responsible.phone || responsible.cpf_cnpj) && (
-          <div className="flex flex-wrap gap-3 mt-1">
-            {responsible.cpf_cnpj && (
-              <span className="text-xs text-muted-foreground">{responsible.cpf_cnpj}</span>
-            )}
-            {responsible.email && (
-              <span className="text-xs text-muted-foreground">{responsible.email}</span>
-            )}
-            {responsible.phone && (
-              <span className="text-xs text-muted-foreground">{responsible.phone}</span>
+
+        {/* Ações rápidas */}
+        <div className="flex flex-wrap gap-2 mb-3">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => setShowLinkUnit(true)}
+          >
+            <LinkIcon className="h-3 w-3 mr-1" />
+            Vincular Unidade
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => setShowSetPrice(true)}
+          >
+            <DollarSign className="h-3 w-3 mr-1" />
+            Preço Sistema
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => setShowSetCycle(true)}
+          >
+            <Calendar className="h-3 w-3 mr-1" />
+            Configurar Ciclo
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs ml-auto"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? <ChevronUp className="h-3.5 w-3.5 mr-1" /> : <ChevronDown className="h-3.5 w-3.5 mr-1" />}
+            {expanded ? "Ocultar" : "Ver Unidades"}
+          </Button>
+        </div>
+
+        {/* Unidades vinculadas (expansível) */}
+        {expanded && (
+          <div className="border-t pt-3">
+            {!linkedUnits ? (
+              <Skeleton className="h-12 w-full" />
+            ) : linkedUnits.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-3">
+                Nenhuma unidade vinculada ainda.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Unidades Vinculadas</p>
+                {(linkedUnits as Array<{
+                  unit_id: number;
+                  starts_at: Date | string;
+                  ends_at: Date | string | null;
+                }>).map((lu) => {
+                  const unit = units.find((u) => u.id === lu.unit_id);
+                  return (
+                    <div
+                      key={lu.unit_id}
+                      className="flex items-center justify-between text-xs bg-muted/30 rounded-lg px-3 py-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-3 w-3 text-muted-foreground" />
+                        <span className="font-medium">{unit?.name ?? `Unidade #${lu.unit_id}`}</span>
+                      </div>
+                      <span className="text-muted-foreground">
+                        desde {fmtDate(lu.starts_at)}
+                        {lu.ends_at ? ` até ${fmtDate(lu.ends_at)}` : ""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
-      </CardHeader>
+      </CardContent>
 
-      {expanded && (
-        <CardContent className="pt-0">
-          <div className="border-t pt-4 space-y-4">
-            {/* Ações */}
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs"
-                onClick={() => setShowLinkUnit(true)}
-              >
-                <LinkIcon className="h-3.5 w-3.5 mr-1" />
-                Vincular Unidade
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs"
-                onClick={() => setShowSetPrice(true)}
-              >
-                <DollarSign className="h-3.5 w-3.5 mr-1" />
-                Configurar Preço Sistema
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs"
-                onClick={() => setShowSetCycle(true)}
-              >
-                <Calendar className="h-3.5 w-3.5 mr-1" />
-                Configurar Ciclo
-              </Button>
+      {/* Modal: Vincular Unidade */}
+      <Dialog open={showLinkUnit} onOpenChange={setShowLinkUnit}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Vincular Unidade</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs">Unidade</Label>
+              <Select value={linkForm.unitId} onValueChange={(v) => setLinkForm({ ...linkForm, unitId: v })}>
+                <SelectTrigger className="h-9 mt-1"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                <SelectContent>
+                  {units.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-
-            {/* Unidades vinculadas */}
-            {linkedUnits && linkedUnits.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2">Unidades Vinculadas</p>
-                <div className="space-y-1">
-                  {(linkedUnits as Array<{
-                    unit_id: number;
-                    starts_at: Date | string;
-                    ends_at: Date | string | null;
-                  }>).map((lu) => {
-                    const unit = units.find((u) => u.id === lu.unit_id);
-                    return (
-                      <div
-                        key={lu.unit_id}
-                        className="flex items-center justify-between text-xs bg-muted/30 rounded px-3 py-2"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Building2 className="h-3 w-3 text-muted-foreground" />
-                          <span className="font-medium">{unit?.name ?? `Unidade #${lu.unit_id}`}</span>
-                        </div>
-                        <span className="text-muted-foreground">
-                          desde {fmtDate(lu.starts_at)}
-                          {lu.ends_at ? ` até ${fmtDate(lu.ends_at)}` : ""}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            <div>
+              <Label className="text-xs">Vigência a partir de</Label>
+              <Input type="date" className="h-9 mt-1" value={linkForm.startsAt}
+                onChange={(e) => setLinkForm({ ...linkForm, startsAt: e.target.value })} />
+            </div>
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLinkUnit(false)}>Cancelar</Button>
+            <Button
+              disabled={!linkForm.unitId || linkUnit.isPending}
+              onClick={() => linkUnit.mutate({
+                financialResponsibleId: responsible.id,
+                unitId: parseInt(linkForm.unitId),
+                startsAt: linkForm.startsAt,
+              })}
+            >
+              {linkUnit.isPending ? "Vinculando..." : "Vincular"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-          {/* Modal: Vincular Unidade */}
-          <Dialog open={showLinkUnit} onOpenChange={setShowLinkUnit}>
-            <DialogContent className="max-w-sm">
-              <DialogHeader>
-                <DialogTitle>Vincular Unidade</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3 py-2">
-                <div>
-                  <Label className="text-xs">Unidade</Label>
-                  <Select
-                    value={linkForm.unitId}
-                    onValueChange={(v) => setLinkForm({ ...linkForm, unitId: v })}
-                  >
-                    <SelectTrigger className="h-9 mt-1">
-                      <SelectValue placeholder="Selecione..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {units.map((u) => (
-                        <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs">Vigência a partir de</Label>
-                  <Input
-                    type="date"
-                    className="h-9 mt-1"
-                    value={linkForm.startsAt}
-                    onChange={(e) => setLinkForm({ ...linkForm, startsAt: e.target.value })}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowLinkUnit(false)}>Cancelar</Button>
-                <Button
-                  disabled={!linkForm.unitId || linkUnit.isPending}
-                  onClick={() => linkUnit.mutate({
-                    financialResponsibleId: responsible.id,
-                    unitId: parseInt(linkForm.unitId),
-                    startsAt: linkForm.startsAt,
-                  })}
-                >
-                  {linkUnit.isPending ? "Vinculando..." : "Vincular"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+      {/* Modal: Preço Sistema */}
+      <Dialog open={showSetPrice} onOpenChange={setShowSetPrice}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Preço do Sistema por Laudo</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs">Unidade</Label>
+              <Select value={priceForm.unitId} onValueChange={(v) => setPriceForm({ ...priceForm, unitId: v })}>
+                <SelectTrigger className="h-9 mt-1"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                <SelectContent>
+                  {units.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Valor por Laudo (R$)</Label>
+              <Input className="h-9 mt-1" type="number" step="0.01" min="0" placeholder="Ex: 25.00"
+                value={priceForm.pricePerReport}
+                onChange={(e) => setPriceForm({ ...priceForm, pricePerReport: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Vigência a partir de</Label>
+              <Input type="date" className="h-9 mt-1" value={priceForm.startsAt}
+                onChange={(e) => setPriceForm({ ...priceForm, startsAt: e.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSetPrice(false)}>Cancelar</Button>
+            <Button
+              disabled={!priceForm.unitId || !priceForm.pricePerReport || setSystemPrice.isPending}
+              onClick={() => setSystemPrice.mutate({
+                financialResponsibleId: responsible.id,
+                unitId: parseInt(priceForm.unitId),
+                pricePerReport: priceForm.pricePerReport,
+                startsAt: priceForm.startsAt,
+              })}
+            >
+              {setSystemPrice.isPending ? "Salvando..." : "Salvar Preço"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-          {/* Modal: Configurar Preço Sistema */}
-          <Dialog open={showSetPrice} onOpenChange={setShowSetPrice}>
-            <DialogContent className="max-w-sm">
-              <DialogHeader>
-                <DialogTitle>Preço do Sistema por Laudo</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3 py-2">
-                <div>
-                  <Label className="text-xs">Unidade</Label>
-                  <Select
-                    value={priceForm.unitId}
-                    onValueChange={(v) => setPriceForm({ ...priceForm, unitId: v })}
-                  >
-                    <SelectTrigger className="h-9 mt-1">
-                      <SelectValue placeholder="Selecione..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {units.map((u) => (
-                        <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs">Valor por Laudo (R$)</Label>
-                  <Input
-                    className="h-9 mt-1"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="Ex: 25.00"
-                    value={priceForm.pricePerReport}
-                    onChange={(e) => setPriceForm({ ...priceForm, pricePerReport: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Vigência a partir de</Label>
-                  <Input
-                    type="date"
-                    className="h-9 mt-1"
-                    value={priceForm.startsAt}
-                    onChange={(e) => setPriceForm({ ...priceForm, startsAt: e.target.value })}
-                  />
-                </div>
+      {/* Modal: Configurar Ciclo */}
+      <Dialog open={showSetCycle} onOpenChange={setShowSetCycle}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Configurar Ciclo Financeiro</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs">Unidade</Label>
+              <Select value={cycleForm.unitId} onValueChange={(v) => setCycleForm({ ...cycleForm, unitId: v })}>
+                <SelectTrigger className="h-9 mt-1"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                <SelectContent>
+                  {units.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Fechamento Médico (dia)</Label>
+                <Input className="h-9 mt-1" type="number" min="1" max="28"
+                  value={cycleForm.doctor_cycle_day}
+                  onChange={(e) => setCycleForm({ ...cycleForm, doctor_cycle_day: e.target.value })} />
+                <p className="text-xs text-muted-foreground mt-1">Dia do mês</p>
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowSetPrice(false)}>Cancelar</Button>
-                <Button
-                  disabled={!priceForm.unitId || !priceForm.pricePerReport || setSystemPrice.isPending}
-                  onClick={() => setSystemPrice.mutate({
-                    financialResponsibleId: responsible.id,
-                    unitId: parseInt(priceForm.unitId),
-                    pricePerReport: priceForm.pricePerReport,
-                    startsAt: priceForm.startsAt,
-                  })}
-                >
-                  {setSystemPrice.isPending ? "Salvando..." : "Salvar Preço"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          {/* Modal: Configurar Ciclo */}
-          <Dialog open={showSetCycle} onOpenChange={setShowSetCycle}>
-            <DialogContent className="max-w-sm">
-              <DialogHeader>
-                <DialogTitle>Configurar Ciclo Financeiro</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3 py-2">
-                <div>
-                  <Label className="text-xs">Unidade</Label>
-                  <Select
-                    value={cycleForm.unitId}
-                    onValueChange={(v) => setCycleForm({ ...cycleForm, unitId: v })}
-                  >
-                    <SelectTrigger className="h-9 mt-1">
-                      <SelectValue placeholder="Selecione..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {units.map((u) => (
-                        <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs">Fechamento Médico (dia)</Label>
-                    <Input
-                      className="h-9 mt-1"
-                      type="number"
-                      min="1"
-                      max="28"
-                      value={cycleForm.doctor_cycle_day}
-                      onChange={(e) => setCycleForm({ ...cycleForm, doctor_cycle_day: e.target.value })}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Dia do mês que o ciclo do médico fecha</p>
-                  </div>
-                  <div>
-                    <Label className="text-xs">Fechamento Sistema (dia)</Label>
-                    <Input
-                      className="h-9 mt-1"
-                      type="number"
-                      min="1"
-                      max="28"
-                      value={cycleForm.system_cycle_day}
-                      onChange={(e) => setCycleForm({ ...cycleForm, system_cycle_day: e.target.value })}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Dia do mês que o ciclo do sistema fecha</p>
-                  </div>
-                </div>
+              <div>
+                <Label className="text-xs">Fechamento Sistema (dia)</Label>
+                <Input className="h-9 mt-1" type="number" min="1" max="28"
+                  value={cycleForm.system_cycle_day}
+                  onChange={(e) => setCycleForm({ ...cycleForm, system_cycle_day: e.target.value })} />
+                <p className="text-xs text-muted-foreground mt-1">Dia do mês</p>
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowSetCycle(false)}>Cancelar</Button>
-                <Button
-                  disabled={!cycleForm.unitId || setCycleConfig.isPending}
-                  onClick={() => setCycleConfig.mutate({
-                    unit_id: parseInt(cycleForm.unitId),
-                    doctor_cycle_day: parseInt(cycleForm.doctor_cycle_day),
-                    system_cycle_day: parseInt(cycleForm.system_cycle_day),
-                  })}
-                >
-                  {setCycleConfig.isPending ? "Salvando..." : "Salvar Ciclo"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </CardContent>
-      )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSetCycle(false)}>Cancelar</Button>
+            <Button
+              disabled={!cycleForm.unitId || setCycleConfig.isPending}
+              onClick={() => setCycleConfig.mutate({
+                unit_id: parseInt(cycleForm.unitId),
+                doctor_cycle_day: parseInt(cycleForm.doctor_cycle_day),
+                system_cycle_day: parseInt(cycleForm.system_cycle_day),
+              })}
+            >
+              {setCycleConfig.isPending ? "Salvando..." : "Salvar Ciclo"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
 
-// ─── Painel de ciclos abertos (para fechar) ────────────────────────────────────
-function OpenCyclesPanel({ units }: { units: Unit[] }) {
+// ─── Painel de ciclos ─────────────────────────────────────────────────────────
+function CyclesPanel({ units }: { units: Unit[] }) {
   const [selectedUnit, setSelectedUnit] = useState<number | null>(null);
   const utils = trpc.useUtils();
 
@@ -601,15 +548,15 @@ function OpenCyclesPanel({ units }: { units: Unit[] }) {
         </Card>
       ) : (
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b text-muted-foreground">
-                    <th className="text-left pb-3 font-medium">Tipo</th>
-                    <th className="text-left pb-3 font-medium">Período</th>
-                    <th className="text-center pb-3 font-medium">Status</th>
-                    <th className="text-right pb-3 font-medium">Ação</th>
+                  <tr className="border-b bg-muted/30">
+                    <th className="text-left px-4 py-3 font-medium text-xs text-muted-foreground">Tipo</th>
+                    <th className="text-left px-4 py-3 font-medium text-xs text-muted-foreground">Período</th>
+                    <th className="text-center px-4 py-3 font-medium text-xs text-muted-foreground">Status</th>
+                    <th className="text-right px-4 py-3 font-medium text-xs text-muted-foreground">Ação</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -621,16 +568,16 @@ function OpenCyclesPanel({ units }: { units: Unit[] }) {
                     status: string;
                     closed_at: Date | string | null;
                   }>).map((cycle) => (
-                    <tr key={cycle.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="py-3">
+                    <tr key={cycle.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3">
                         <Badge variant="outline" className="text-xs">
                           {cycle.cycle_type === "doctor" ? "Médico" : "Sistema"}
                         </Badge>
                       </td>
-                      <td className="py-3 text-muted-foreground text-xs">
+                      <td className="px-4 py-3 text-muted-foreground text-xs">
                         {fmtDate(cycle.starts_at)} – {fmtDate(cycle.ends_at)}
                       </td>
-                      <td className="py-3 text-center">
+                      <td className="px-4 py-3 text-center">
                         <Badge
                           variant="outline"
                           className={cycle.status === "open"
@@ -640,7 +587,7 @@ function OpenCyclesPanel({ units }: { units: Unit[] }) {
                           {cycle.status === "open" ? "Aberto" : "Fechado"}
                         </Badge>
                       </td>
-                      <td className="py-3 text-right">
+                      <td className="px-4 py-3 text-right">
                         {cycle.status === "open" && (
                           <Button
                             size="sm"
@@ -672,7 +619,6 @@ function OpenCyclesPanel({ units }: { units: Unit[] }) {
 
 // ─── Página principal ──────────────────────────────────────────────────────────
 export default function BillingAdminPage() {
-  const [, navigate] = useLocation();
   const { user } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
   const utils = trpc.useUtils();
@@ -687,7 +633,7 @@ export default function BillingAdminPage() {
 
   if (!user || user.role !== "admin_master") {
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
+      <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">Acesso restrito ao administrador.</p>
       </div>
     );
@@ -695,148 +641,143 @@ export default function BillingAdminPage() {
 
   const units: Unit[] = (unitsData ?? []) as Unit[];
   const resp = ((responsibles ?? []) as unknown) as Responsible[];
-
   const activeCount = resp.filter((r) => r.isActive).length;
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/")}>
-            <ArrowLeft className="h-4 w-4 mr-1" />
-            Voltar
-          </Button>
-          <div className="flex items-center gap-2">
-            <Settings className="h-5 w-5 text-primary" />
-            <h1 className="text-lg font-semibold">Retaguarda Financeira</h1>
-          </div>
-          <Badge variant="secondary" className="ml-auto text-xs">
-            Admin Master
-          </Badge>
+    <div className="space-y-6">
+      {/* Cabeçalho */}
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <Settings className="h-6 w-6 text-primary" />
+            Retaguarda Financeira
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Gestão de responsáveis, preços e ciclos financeiros
+          </p>
         </div>
+        <Badge variant="secondary" className="text-xs">Admin Master</Badge>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-
-        {/* Cards de resumo */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
-            <CardContent className="pt-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Responsáveis Ativos</p>
-                  <p className="text-2xl font-bold text-primary mt-1">{activeCount}</p>
-                  <p className="text-xs text-muted-foreground mt-1">de {resp.length} cadastrados</p>
-                </div>
-                <Users className="h-8 w-8 text-primary/30" />
+      {/* Cards de resumo */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Card className="border-primary/20 bg-gradient-to-br from-primary/10 to-primary/5">
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Responsáveis Ativos</p>
+                <p className="text-xl font-bold text-primary mt-1">{activeCount}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">de {resp.length} cadastrados</p>
               </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 border-blue-500/20">
-            <CardContent className="pt-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Unidades Cadastradas</p>
-                  <p className="text-2xl font-bold text-blue-600 mt-1">{units.length}</p>
-                  <p className="text-xs text-muted-foreground mt-1">no sistema</p>
-                </div>
-                <Building2 className="h-8 w-8 text-blue-500/30" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-green-500/10 to-green-500/5 border-green-500/20">
-            <CardContent className="pt-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Módulo Financeiro</p>
-                  <p className="text-lg font-bold text-green-600 mt-1">Operacional</p>
-                  <p className="text-xs text-muted-foreground mt-1">V4 — Ciclos por Unidade</p>
-                </div>
-                <ShieldCheck className="h-8 w-8 text-green-500/30" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Abas */}
-        <Tabs defaultValue="responsibles">
-          <TabsList className="grid w-full grid-cols-3 max-w-lg">
-            <TabsTrigger value="responsibles" className="text-xs">
-              <Users className="h-3.5 w-3.5 mr-1.5" />
-              Responsáveis
-            </TabsTrigger>
-            <TabsTrigger value="doctor-prices" className="text-xs">
-              <UserCheck className="h-3.5 w-3.5 mr-1.5" />
-              Preços Médicos
-            </TabsTrigger>
-            <TabsTrigger value="cycles" className="text-xs">
-              <Calendar className="h-3.5 w-3.5 mr-1.5" />
-              Ciclos
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Aba: Responsáveis */}
-          <TabsContent value="responsibles" className="mt-4 space-y-3">
-            <div className="flex justify-end">
-              <Button size="sm" onClick={() => setShowCreate(true)}>
-                <Plus className="h-4 w-4 mr-1" />
-                Novo Responsável
-              </Button>
+              <Users className="h-7 w-7 text-primary/30" />
             </div>
+          </CardContent>
+        </Card>
 
-            {loadingResp ? (
-              <div className="space-y-3">
-                <Skeleton className="h-20 w-full" />
-                <Skeleton className="h-20 w-full" />
+        <Card className="border-blue-500/20 bg-gradient-to-br from-blue-500/10 to-blue-500/5">
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Unidades</p>
+                <p className="text-xl font-bold text-blue-600 mt-1">{units.length}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">cadastradas</p>
               </div>
-            ) : resp.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <Users className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
-                  <p className="text-muted-foreground text-sm">Nenhum responsável financeiro cadastrado.</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Clique em "Novo Responsável" para começar.
-                  </p>
-                </CardContent>
-              </Card>
-            ) : (
-              resp.map((r) => (
-                <ResponsiblePanel
+              <Building2 className="h-7 w-7 text-blue-500/30" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-green-500/20 bg-gradient-to-br from-green-500/10 to-green-500/5 col-span-2">
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Módulo Financeiro</p>
+                <p className="text-lg font-bold text-green-600 mt-1">Operacional</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Ciclos por Unidade · V5</p>
+              </div>
+              <ShieldCheck className="h-7 w-7 text-green-500/30" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Abas */}
+      <Tabs defaultValue="responsibles">
+        <TabsList className="bg-muted/50 p-1">
+          <TabsTrigger value="responsibles" className="gap-1.5 text-xs sm:text-sm">
+            <Users className="h-3.5 w-3.5" />
+            Responsáveis
+          </TabsTrigger>
+          <TabsTrigger value="doctor-prices" className="gap-1.5 text-xs sm:text-sm">
+            <UserCheck className="h-3.5 w-3.5" />
+            Preços Médicos
+          </TabsTrigger>
+          <TabsTrigger value="cycles" className="gap-1.5 text-xs sm:text-sm">
+            <Calendar className="h-3.5 w-3.5" />
+            Ciclos
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Aba: Responsáveis */}
+        <TabsContent value="responsibles" className="mt-4 space-y-3">
+          <div className="flex justify-end">
+            <Button size="sm" onClick={() => setShowCreate(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Novo Responsável
+            </Button>
+          </div>
+
+          {loadingResp ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Skeleton className="h-32 w-full" />
+              <Skeleton className="h-32 w-full" />
+            </div>
+          ) : resp.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Users className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                <p className="text-muted-foreground text-sm">Nenhum responsável financeiro cadastrado.</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Clique em "Novo Responsável" para começar.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {resp.map((r) => (
+                <ResponsibleCard
                   key={r.id}
                   responsible={r}
                   units={units}
                   onRefresh={() => utils.billing.listResponsibles.invalidate()}
                 />
-              ))
-            )}
-          </TabsContent>
+              ))}
+            </div>
+          )}
+        </TabsContent>
 
-          {/* Aba: Preços por Médico */}
-          <TabsContent value="doctor-prices" className="mt-4">
-            {!loadingResp && resp.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <DollarSign className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
-                  <p className="text-muted-foreground text-sm">Cadastre um responsável financeiro primeiro.</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <DoctorPriceManager
-                financialResponsibleId={resp[0]?.id ?? 0}
-                units={units}
-              />
-            )}
-          </TabsContent>
+        {/* Aba: Preços por Médico */}
+        <TabsContent value="doctor-prices" className="mt-4">
+          {!loadingResp && resp.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Wallet className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                <p className="text-muted-foreground text-sm">Cadastre um responsável financeiro primeiro.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <DoctorPriceManager
+              financialResponsibleId={resp[0]?.id ?? 0}
+              units={units}
+            />
+          )}
+        </TabsContent>
 
-          {/* Aba: Ciclos */}
-          <TabsContent value="cycles" className="mt-4">
-            <OpenCyclesPanel units={units} />
-          </TabsContent>
-        </Tabs>
-      </div>
+        {/* Aba: Ciclos */}
+        <TabsContent value="cycles" className="mt-4">
+          <CyclesPanel units={units} />
+        </TabsContent>
+      </Tabs>
 
       {/* Modal de criação */}
       <CreateResponsibleDialog

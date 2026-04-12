@@ -1,13 +1,13 @@
 /**
- * BillingDoctorPage V4 — Meu Financeiro
+ * BillingDoctorPage V5 — Meu Financeiro
  *
- * Visão do médico: cards de resumo, ciclo atual por unidade com extrato
- * expansível, histórico de fechamentos, sinalização de recebimento.
+ * Visual reformulado: cards por unidade com destaque individual,
+ * extrato expansível, histórico de fechamentos, sinalização de recebimento.
  *
  * Roles com acesso: medico, admin_master
+ * Roles SEM acesso: operador, viewer
  */
 import { useState } from "react";
-import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,10 +30,11 @@ import {
   CheckCircle2,
   Clock,
   TrendingUp,
-  ArrowLeft,
   ChevronDown,
   ChevronUp,
   Calendar,
+  Wallet,
+  BarChart3,
 } from "lucide-react";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,8 +76,8 @@ type CycleRow = {
   unit_name: string | null;
 };
 
-// ─── Card expansível de ciclo por unidade ─────────────────────────────────────
-function CycleCard({
+// ─── Card de unidade com extrato expansível ───────────────────────────────────
+function UnitCycleCard({
   row,
   onMarkReceived,
 }: {
@@ -93,68 +94,80 @@ function CycleCard({
   const isReceived = !!row.summary.received_at;
   const unitName = row.unit_name ?? `Unidade #${row.summary.unit_id}`;
   const amount = parseFloat(row.summary.amount_due ?? "0");
+  const reportsCount = row.summary.reports_count ?? 0;
 
   return (
-    <Card className="border border-border/60 hover:border-primary/30 transition-colors">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-base font-semibold">{unitName}</CardTitle>
+    <Card className="overflow-hidden border border-border/60 hover:border-primary/30 transition-all hover:shadow-sm">
+      {/* Barra colorida no topo */}
+      <div className={`h-1 ${isReceived ? "bg-green-500" : "bg-amber-500"}`} />
+
+      <CardContent className="p-4">
+        {/* Cabeçalho do card */}
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+              <Building2 className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="font-semibold text-sm">{unitName}</p>
+              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                <Calendar className="h-3 w-3" />
+                {fmtPeriod(row.cycle.starts_at, row.cycle.ends_at)}
+              </p>
+            </div>
           </div>
           {isReceived ? (
-            <Badge variant="outline" className="text-green-600 border-green-600 bg-green-50 dark:bg-green-950 text-xs">
+            <Badge variant="outline" className="text-green-600 border-green-600 bg-green-50 dark:bg-green-950 text-xs shrink-0">
               <CheckCircle2 className="h-3 w-3 mr-1" />
-              Recebido em {fmtDate(row.summary.received_at)}
+              Recebido
             </Badge>
           ) : (
-            <Badge variant="outline" className="text-amber-600 border-amber-600 bg-amber-50 dark:bg-amber-950 text-xs">
+            <Badge variant="outline" className="text-amber-600 border-amber-600 bg-amber-50 dark:bg-amber-950 text-xs shrink-0">
               <Clock className="h-3 w-3 mr-1" />
               Pendente
             </Badge>
           )}
         </div>
-        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-          <Calendar className="h-3 w-3" />
-          {fmtPeriod(row.cycle.starts_at, row.cycle.ends_at)}
-        </p>
-      </CardHeader>
 
-      <CardContent>
-        <div className="flex items-center justify-between">
-          <div className="flex gap-6">
-            <div>
-              <p className="text-xs text-muted-foreground">Laudos</p>
-              <p className="text-xl font-bold">{row.summary.reports_count ?? 0}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Valor</p>
-              <p className="text-xl font-bold text-primary">{fmtBRL(amount)}</p>
-            </div>
+        {/* Métricas */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div className="p-2.5 rounded-lg bg-muted/50">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Laudos</p>
+            <p className="text-xl font-bold mt-0.5">{reportsCount}</p>
           </div>
+          <div className="p-2.5 rounded-lg bg-primary/5">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Saldo</p>
+            <p className="text-xl font-bold text-primary mt-0.5">{fmtBRL(amount)}</p>
+          </div>
+        </div>
 
-          <div className="flex items-center gap-2">
-            {!isReceived && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-green-600 border-green-600 hover:bg-green-50 dark:hover:bg-green-950 h-8 text-xs"
-                onClick={() => onMarkReceived(row.summary.doctor_cycle_id, row.summary.unit_id, unitName, amount)}
-              >
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                Marcar Recebido
-              </Button>
-            )}
+        {/* Ações */}
+        <div className="flex items-center gap-2">
+          {!isReceived && (
             <Button
               size="sm"
-              variant="ghost"
-              className="h-8 text-xs"
-              onClick={() => setExpanded(!expanded)}
+              variant="outline"
+              className="flex-1 text-green-600 border-green-600 hover:bg-green-50 dark:hover:bg-green-950 h-8 text-xs"
+              onClick={() => onMarkReceived(row.summary.doctor_cycle_id, row.summary.unit_id, unitName, amount)}
             >
-              {expanded ? <ChevronUp className="h-3.5 w-3.5 mr-1" /> : <ChevronDown className="h-3.5 w-3.5 mr-1" />}
-              Extrato
+              <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+              Marcar Recebido
             </Button>
-          </div>
+          )}
+          {isReceived && (
+            <p className="text-xs text-muted-foreground flex-1">
+              Recebido em {fmtDate(row.summary.received_at)}
+            </p>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 text-xs shrink-0"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? <ChevronUp className="h-3.5 w-3.5 mr-1" /> : <ChevronDown className="h-3.5 w-3.5 mr-1" />}
+            Extrato
+          </Button>
         </div>
 
         {/* Extrato expansível */}
@@ -175,10 +188,10 @@ function CycleCard({
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-muted-foreground">
-                      <th className="text-left pb-2 font-medium">Paciente</th>
-                      <th className="text-left pb-2 font-medium">Data do Exame</th>
-                      <th className="text-left pb-2 font-medium">Assinado em</th>
-                      <th className="text-right pb-2 font-medium">Valor</th>
+                      <th className="text-left pb-2 font-medium text-xs">Paciente</th>
+                      <th className="text-left pb-2 font-medium text-xs">Data do Exame</th>
+                      <th className="text-left pb-2 font-medium text-xs hidden sm:table-cell">Assinado em</th>
+                      <th className="text-right pb-2 font-medium text-xs">Valor</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -190,10 +203,10 @@ function CycleCard({
                       amount: string | null;
                     }>).map((ev) => (
                       <tr key={ev.id} className="border-b last:border-0 hover:bg-muted/30">
-                        <td className="py-2 font-medium">{ev.patient_name ?? "—"}</td>
-                        <td className="py-2 text-muted-foreground">{fmtDate(ev.study_date)}</td>
-                        <td className="py-2 text-muted-foreground text-xs">{fmtDateTime(ev.createdAt)}</td>
-                        <td className="py-2 text-right font-semibold text-primary">{fmtBRL(ev.amount)}</td>
+                        <td className="py-2 font-medium text-xs">{ev.patient_name ?? "—"}</td>
+                        <td className="py-2 text-muted-foreground text-xs">{fmtDate(ev.study_date)}</td>
+                        <td className="py-2 text-muted-foreground text-xs hidden sm:table-cell">{fmtDateTime(ev.createdAt)}</td>
+                        <td className="py-2 text-right font-semibold text-primary text-xs">{fmtBRL(ev.amount)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -209,7 +222,6 @@ function CycleCard({
 
 // ─── Página principal ──────────────────────────────────────────────────────────
 export default function BillingDoctorPage() {
-  const [, navigate] = useLocation();
   const { user } = useAuth();
   const utils = trpc.useUtils();
 
@@ -235,7 +247,7 @@ export default function BillingDoctorPage() {
 
   if (!user || (user.role !== "medico" && user.role !== "admin_master")) {
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
+      <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">Acesso restrito a médicos.</p>
       </div>
     );
@@ -256,225 +268,235 @@ export default function BillingDoctorPage() {
 
   const pendingRows = [...currentCycles, ...history].filter((r) => !r.summary.received_at);
 
+  const totalLaudosCiclo = currentCycles.reduce((s, r) => s + (r.summary.reports_count ?? 0), 0);
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/")}>
-            <ArrowLeft className="h-4 w-4 mr-1" />
-            Voltar
-          </Button>
-          <div className="flex items-center gap-2">
-            <DollarSign className="h-5 w-5 text-primary" />
-            <h1 className="text-lg font-semibold">Meu Financeiro</h1>
-          </div>
-          <Badge variant="secondary" className="ml-auto text-xs">
-            {user.name || user.username}
-          </Badge>
-        </div>
+    <div className="space-y-6">
+      {/* Cabeçalho da página */}
+      <div>
+        <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+          <Wallet className="h-6 w-6 text-primary" />
+          Meu Financeiro
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          {user.name || user.username} · Visão financeira do ciclo atual
+        </p>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-
-        {/* Cards de resumo */}
-        {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
-              <CardContent className="pt-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Ciclo Atual</p>
-                    <p className="text-2xl font-bold text-primary mt-1">{fmtBRL(totalOpen)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {totalUnits} unidade{totalUnits !== 1 ? "s" : ""}
-                    </p>
-                  </div>
-                  <TrendingUp className="h-8 w-8 text-primary/30" />
+      {/* Cards de resumo */}
+      {isLoading ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Card className="border-primary/20 bg-gradient-to-br from-primary/10 to-primary/5">
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Ciclo Atual</p>
+                  <p className="text-xl font-bold text-primary mt-1">{fmtBRL(totalOpen)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{totalUnits} unidade{totalUnits !== 1 ? "s" : ""}</p>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-gradient-to-br from-amber-500/10 to-amber-500/5 border-amber-500/20">
-              <CardContent className="pt-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Pendente de Recebimento</p>
-                    <p className="text-2xl font-bold text-amber-600 mt-1">{fmtBRL(totalPending)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Aguardando confirmação</p>
-                  </div>
-                  <Clock className="h-8 w-8 text-amber-500/30" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-gradient-to-br from-green-500/10 to-green-500/5 border-green-500/20">
-              <CardContent className="pt-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Já Recebido</p>
-                    <p className="text-2xl font-bold text-green-600 mt-1">{fmtBRL(totalReceived)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Ciclos confirmados</p>
-                  </div>
-                  <CheckCircle2 className="h-8 w-8 text-green-500/30" />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {/* Abas */}
-        <Tabs defaultValue="current">
-          <TabsList className="grid w-full grid-cols-3 max-w-lg">
-            <TabsTrigger value="current" className="text-xs">
-              <Building2 className="h-3.5 w-3.5 mr-1.5" />
-              Ciclo Atual
-            </TabsTrigger>
-            <TabsTrigger value="history" className="text-xs">
-              <FileText className="h-3.5 w-3.5 mr-1.5" />
-              Fechamentos
-            </TabsTrigger>
-            <TabsTrigger value="pending" className="text-xs">
-              <Clock className="h-3.5 w-3.5 mr-1.5" />
-              Pendentes {pendingRows.length > 0 && `(${pendingRows.length})`}
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Aba: Ciclo Atual */}
-          <TabsContent value="current" className="mt-4 space-y-3">
-            {isLoading ? (
-              <div className="space-y-3">
-                <Skeleton className="h-36 w-full" />
-                <Skeleton className="h-36 w-full" />
+                <TrendingUp className="h-7 w-7 text-primary/30" />
               </div>
-            ) : currentCycles.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <Building2 className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
-                  <p className="text-muted-foreground text-sm">Nenhum ciclo ativo no momento.</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Os ciclos são criados automaticamente ao assinar laudos.
-                  </p>
-                </CardContent>
-              </Card>
-            ) : (
-              currentCycles.map((row) => (
-                <CycleCard
+            </CardContent>
+          </Card>
+
+          <Card className="border-amber-500/20 bg-gradient-to-br from-amber-500/10 to-amber-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Pendente</p>
+                  <p className="text-xl font-bold text-amber-600 mt-1">{fmtBRL(totalPending)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Aguardando pagamento</p>
+                </div>
+                <Clock className="h-7 w-7 text-amber-500/30" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-green-500/20 bg-gradient-to-br from-green-500/10 to-green-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Já Recebido</p>
+                  <p className="text-xl font-bold text-green-600 mt-1">{fmtBRL(totalReceived)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Confirmados</p>
+                </div>
+                <CheckCircle2 className="h-7 w-7 text-green-500/30" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-blue-500/20 bg-gradient-to-br from-blue-500/10 to-blue-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Laudos no Ciclo</p>
+                  <p className="text-xl font-bold text-blue-600 mt-1">{totalLaudosCiclo}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Assinados</p>
+                </div>
+                <BarChart3 className="h-7 w-7 text-blue-500/30" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Abas */}
+      <Tabs defaultValue="current">
+        <TabsList className="bg-muted/50 p-1">
+          <TabsTrigger value="current" className="gap-1.5 text-xs sm:text-sm">
+            <Building2 className="h-3.5 w-3.5" />
+            Por Unidade
+          </TabsTrigger>
+          <TabsTrigger value="history" className="gap-1.5 text-xs sm:text-sm">
+            <FileText className="h-3.5 w-3.5" />
+            Fechamentos
+          </TabsTrigger>
+          <TabsTrigger value="pending" className="gap-1.5 text-xs sm:text-sm">
+            <Clock className="h-3.5 w-3.5" />
+            Pendentes {pendingRows.length > 0 && (
+              <Badge variant="destructive" className="ml-1 text-[10px] h-4 px-1">{pendingRows.length}</Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Aba: Por Unidade (Ciclo Atual) */}
+        <TabsContent value="current" className="mt-4">
+          {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Skeleton className="h-44 w-full" />
+              <Skeleton className="h-44 w-full" />
+            </div>
+          ) : currentCycles.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Building2 className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                <p className="text-muted-foreground text-sm">Nenhum ciclo ativo no momento.</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Os ciclos são criados automaticamente ao assinar laudos.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {currentCycles.map((row) => (
+                <UnitCycleCard
                   key={`${row.summary.doctor_cycle_id}-${row.summary.unit_id}`}
                   row={row}
                   onMarkReceived={(cid, uid, uname, amt) =>
                     setConfirmReceive({ doctorCycleId: cid, unitId: uid, unitName: uname, amount: amt })
                   }
                 />
-              ))
-            )}
-          </TabsContent>
+              ))}
+            </div>
+          )}
+        </TabsContent>
 
-          {/* Aba: Fechamentos */}
-          <TabsContent value="history" className="mt-4">
-            {isLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : history.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <FileText className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
-                  <p className="text-muted-foreground text-sm">Nenhum ciclo fechado ainda.</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <Card>
-                <CardContent className="pt-4">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b text-muted-foreground">
-                          <th className="text-left pb-3 font-medium">Unidade</th>
-                          <th className="text-left pb-3 font-medium">Período</th>
-                          <th className="text-right pb-3 font-medium">Laudos</th>
-                          <th className="text-right pb-3 font-medium">Valor</th>
-                          <th className="text-center pb-3 font-medium">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {history.map((row, i) => (
-                          <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
-                            <td className="py-3 font-medium">
+        {/* Aba: Fechamentos */}
+        <TabsContent value="history" className="mt-4">
+          {isLoading ? (
+            <Skeleton className="h-64 w-full" />
+          ) : history.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <FileText className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                <p className="text-muted-foreground text-sm">Nenhum ciclo fechado ainda.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/30">
+                        <th className="text-left px-4 py-3 font-medium text-xs text-muted-foreground">Unidade</th>
+                        <th className="text-left px-4 py-3 font-medium text-xs text-muted-foreground">Período</th>
+                        <th className="text-right px-4 py-3 font-medium text-xs text-muted-foreground">Laudos</th>
+                        <th className="text-right px-4 py-3 font-medium text-xs text-muted-foreground">Valor</th>
+                        <th className="text-center px-4 py-3 font-medium text-xs text-muted-foreground">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.map((row, i) => (
+                        <tr key={i} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                          <td className="px-4 py-3 font-medium text-sm">
+                            <div className="flex items-center gap-2">
+                              <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                               {row.unit_name ?? `Unidade #${row.summary.unit_id}`}
-                            </td>
-                            <td className="py-3 text-muted-foreground text-xs">
-                              {fmtPeriod(row.cycle.starts_at, row.cycle.ends_at)}
-                            </td>
-                            <td className="py-3 text-right">{row.summary.reports_count ?? 0}</td>
-                            <td className="py-3 text-right font-semibold">{fmtBRL(row.summary.amount_due)}</td>
-                            <td className="py-3 text-center">
-                              {row.summary.received_at ? (
-                                <Badge
-                                  variant="outline"
-                                  className="text-green-600 border-green-600 text-xs"
-                                >
-                                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                                  {fmtDate(row.summary.received_at)}
-                                </Badge>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-green-600 border-green-600 hover:bg-green-50 dark:hover:bg-green-950 h-7 text-xs"
-                                  onClick={() =>
-                                    setConfirmReceive({
-                                      doctorCycleId: row.summary.doctor_cycle_id,
-                                      unitId: row.summary.unit_id,
-                                      unitName: row.unit_name ?? `Unidade #${row.summary.unit_id}`,
-                                      amount: parseFloat(row.summary.amount_due ?? "0"),
-                                    })
-                                  }
-                                >
-                                  Marcar Recebido
-                                </Button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground text-xs">
+                            {fmtPeriod(row.cycle.starts_at, row.cycle.ends_at)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-muted-foreground">{row.summary.reports_count ?? 0}</td>
+                          <td className="px-4 py-3 text-right font-semibold">{fmtBRL(row.summary.amount_due)}</td>
+                          <td className="px-4 py-3 text-center">
+                            {row.summary.received_at ? (
+                              <Badge variant="outline" className="text-green-600 border-green-600 text-xs">
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                {fmtDate(row.summary.received_at)}
+                              </Badge>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-green-600 border-green-600 hover:bg-green-50 dark:hover:bg-green-950 h-7 text-xs"
+                                onClick={() =>
+                                  setConfirmReceive({
+                                    doctorCycleId: row.summary.doctor_cycle_id,
+                                    unitId: row.summary.unit_id,
+                                    unitName: row.unit_name ?? `Unidade #${row.summary.unit_id}`,
+                                    amount: parseFloat(row.summary.amount_due ?? "0"),
+                                  })
+                                }
+                              >
+                                Marcar Recebido
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
-          {/* Aba: Pendentes */}
-          <TabsContent value="pending" className="mt-4 space-y-3">
-            {isLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : pendingRows.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <CheckCircle2 className="h-10 w-10 mx-auto text-green-500/40 mb-3" />
-                  <p className="text-muted-foreground text-sm">Nenhum valor pendente.</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Todos os valores foram confirmados como recebidos.
-                  </p>
-                </CardContent>
-              </Card>
-            ) : (
-              pendingRows.map((row) => (
-                <CycleCard
+        {/* Aba: Pendentes */}
+        <TabsContent value="pending" className="mt-4">
+          {isLoading ? (
+            <Skeleton className="h-64 w-full" />
+          ) : pendingRows.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <CheckCircle2 className="h-10 w-10 mx-auto text-green-500/40 mb-3" />
+                <p className="text-muted-foreground text-sm">Nenhum valor pendente.</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Todos os valores foram confirmados como recebidos.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {pendingRows.map((row) => (
+                <UnitCycleCard
                   key={`pending-${row.summary.doctor_cycle_id}-${row.summary.unit_id}`}
                   row={row}
                   onMarkReceived={(cid, uid, uname, amt) =>
                     setConfirmReceive({ doctorCycleId: cid, unitId: uid, unitName: uname, amount: amt })
                   }
                 />
-              ))
-            )}
-          </TabsContent>
-        </Tabs>
-      </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Modal de confirmação de recebimento */}
       <Dialog open={!!confirmReceive} onOpenChange={() => setConfirmReceive(null)}>
