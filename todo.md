@@ -1019,3 +1019,5 @@
 ## CORREÇÕES FINANCEIRO — 2026-04-11
 - [x] Corrigir tela Preços Médicos: listar médicos vinculados à unidade e permitir configurar valor por laudo por médico (com doctor_user_id)
 - [x] Substituir todas as ocorrências de "visita/visitas" por "laudo/laudos" em todo o frontend
+- [ ] Corrigir valor R$ 0,00 no extrato individual dos laudos na tela Meu Financeiro do médico
+- [ ] Corrigir aviso "sem configuração de preço" persistindo na Policlínica Ribamar mesmo com preço configurado
