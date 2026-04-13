@@ -173,7 +173,9 @@ export const reportsRouter = router({
           signedBy: ctx.user.id,
         });
         
-        const effectiveUnitId = input.unit_id ?? ctx.user.unit_id ?? report.unit_id;
+        // P2: Usar sempre report.unit_id como fonte de verdade para audit log e evento financeiro
+        // input.unit_id é apenas hint de contexto de UI — não deve influenciar dados financeiros
+        const effectiveUnitId = report.unit_id ?? ctx.user.unit_id;
         await createAuditLog({
           user_id: ctx.user.id,
           unit_id: effectiveUnitId,

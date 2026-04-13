@@ -291,6 +291,8 @@ export default function AdminPage() {
     onError: (e) => toast.error(`Erro ao salvar dados médicos: ${e.message}`),
   });
 
+  const setDoctorPriceDirect = trpc.billing.setDoctorPriceDirect.useMutation();
+
   // (updateLogo foi movido para antes de handleSaveUnit — Bug fix N3)
 
   const handleSaveUser = (data: UserFormData) => {
@@ -336,6 +338,22 @@ export default function AdminPage() {
           } else if (newUserId && anyData.crm) {
             // Salvar apenas CRM sem assinatura
             updateMedical.mutate({ userId: newUserId, crm: anyData.crm, signatureFile: undefined });
+          }
+          // Salvar preços por unidade configurados na aba Valores durante a criação
+          if (newUserId && anyData._pendingPrices) {
+            const pendingPrices = anyData._pendingPrices as Record<number, string>;
+            Object.entries(pendingPrices).forEach(([unitIdStr, priceStr]) => {
+              const unitId = parseInt(unitIdStr, 10);
+              const price = parseFloat((priceStr as string).replace(",", "."));
+              if (!isNaN(unitId) && !isNaN(price) && price > 0) {
+                setDoctorPriceDirect.mutate({
+                  doctorUserId: newUserId,
+                  unitId,
+                  pricePerReport: price.toFixed(2),
+                  startsAt: new Date().toISOString(),
+                });
+              }
+            });
           }
         },
       });

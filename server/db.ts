@@ -1847,13 +1847,23 @@ export async function getDoctorFinancialSummary(doctorUserId: number) {
   if (!db) return { currentCycles: [], history: [], totalOpen: "0.00", totalUnits: 0 };
 
   // Ciclos abertos do médico com nome da unidade
+  const { isNull: isNullFn } = await import("drizzle-orm");
   const currentCycles = await db.select({
     summary: billing_cycle_doctor_summary,
     cycle: billing_cycles,
     unit_name: units.name,
+    price_per_report: billing_doctor_unit_prices.price_per_report,
   }).from(billing_cycle_doctor_summary)
     .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
     .innerJoin(units, eq(billing_cycle_doctor_summary.unit_id, units.id))
+    .leftJoin(
+      billing_doctor_unit_prices,
+      and(
+        eq(billing_doctor_unit_prices.doctor_user_id, doctorUserId),
+        eq(billing_doctor_unit_prices.unit_id, billing_cycle_doctor_summary.unit_id),
+        isNullFn(billing_doctor_unit_prices.ends_at),
+      )
+    )
     .where(
       and(
         eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),

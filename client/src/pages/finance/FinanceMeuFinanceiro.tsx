@@ -18,6 +18,7 @@ function fmtDate(d: Date | string | null | undefined) {
 type Tab = "por_unidade" | "extrato" | "fechamentos";
 type DoctorCycle = {
   cycle: { id: number; unit_id: number; status: string; starts_at?: Date | string; ends_at?: Date | string; total_reports?: number; total_amount?: string };
+  price_per_report?: string | null;
   unit_name: string;
   summary: { reports_count: number; amount_due: string; amount_received: string; received_at: Date | string | null } | null;
 };
@@ -57,7 +58,12 @@ function UnitCycleCard({ cycle }: { cycle: DoctorCycle }) {
             <div>
               <p className="font-semibold text-sm text-white">{cycle.unit_name}</p>
               <p className="text-xs text-slate-400 mt-0.5">
-                {fmtBRL(parseFloat(String(cycle.cycle.total_amount ?? "0")) / Math.max(cycle.cycle.total_reports ?? 1, 1))} por laudo
+                {cycle.price_per_report
+                  ? `${fmtBRL(parseFloat(cycle.price_per_report))} por laudo`
+                  : cycle.cycle.total_reports && cycle.cycle.total_reports > 0
+                    ? `${fmtBRL(parseFloat(String(cycle.cycle.total_amount ?? "0")) / cycle.cycle.total_reports)} por laudo (média)`
+                    : "Preço não configurado"
+                }
               </p>
             </div>
           </div>
@@ -179,16 +185,17 @@ export default function FinanceMeuFinanceiro() {
         {/* Cards de resumo */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: "Saldo Total", value: fmtBRL(totalSaldo), icon: DollarSign, color: "text-emerald-400", border: "border-emerald-400/20" },
-            { label: "Confirmado", value: fmtBRL(totalConfirmado), icon: CheckCircle, color: "text-cyan-400", border: "border-cyan-400/20" },
-            { label: "Laudos no Ciclo", value: String(totalLaudos), icon: FileText, color: "text-amber-400", border: "border-amber-400/20" },
-            { label: "Unidades Ativas", value: String(activeUnits), icon: Building2, color: "text-violet-400", border: "border-violet-400/20" },
+            { label: "Saldo Aberto", hint: "Ciclo atual em aberto", value: fmtBRL(totalSaldo), icon: DollarSign, color: "text-emerald-400", border: "border-emerald-400/20" },
+            { label: "Recebido", hint: "Ciclos já fechados", value: fmtBRL(totalConfirmado), icon: CheckCircle, color: "text-cyan-400", border: "border-cyan-400/20" },
+            { label: "Laudos no Ciclo", hint: "Ciclo corrente", value: String(totalLaudos), icon: FileText, color: "text-amber-400", border: "border-amber-400/20" },
+            { label: "Unidades Ativas", hint: "Com ciclo aberto", value: String(activeUnits), icon: Building2, color: "text-violet-400", border: "border-violet-400/20" },
           ].map((card) => (
             <div key={card.label} className={`rounded-xl border ${card.border} bg-slate-800/50 p-4`}>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-1">
                 <span className="text-slate-400 text-xs uppercase tracking-wide">{card.label}</span>
                 <card.icon className={`h-4 w-4 ${card.color}`} />
               </div>
+              {'hint' in card && <p className="text-xs text-slate-500 mb-1">{(card as { hint: string }).hint}</p>}
               {isLoading ? (
                 <div className="h-7 w-20 bg-slate-700 rounded animate-pulse" />
               ) : (

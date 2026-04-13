@@ -15,9 +15,7 @@ import { PacsQueryPage } from "./pages/PacsQueryPage";
 import ReportEditorPage from "./pages/ReportEditorPage";
 import { DicomViewerPage } from "./pages/DicomViewerPage";
 import AdminPage from "./pages/AdminPage";
-import BillingAdminPage from "./pages/BillingAdminPage";
-import BillingUnitPage from "./pages/BillingUnitPage";
-import BillingDoctorPage from "./pages/BillingDoctorPage";
+import { Redirect } from "wouter";
 import FinanceDashboard from "./pages/finance/FinanceDashboard";
 import FinanceMedicos from "./pages/finance/FinanceMedicos";
 import FinanceUnidades from "./pages/finance/FinanceUnidades";
@@ -74,9 +72,10 @@ function Router() {
       <Route path="/reports/create/:studyInstanceUid" component={() => <ProtectedRoute component={ReportEditorPage} />} />
       <Route path="/dicom-viewer/:studyUid" component={() => <ProtectedRoute component={DicomViewerPage} />} />
       <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
-      <Route path="/billing/admin" component={() => <ProtectedRoute component={BillingAdminPage} />} />
-      <Route path="/billing/unit" component={() => <ProtectedRoute component={BillingUnitPage} />} />
-      <Route path="/billing/doctor" component={() => <ProtectedRoute component={BillingDoctorPage} />} />
+      {/* Redirects de rotas legadas /billing/* para /financeiro/* */}
+      <Route path="/billing/admin"><Redirect to="/financeiro/admin" /></Route>
+      <Route path="/billing/unit"><Redirect to="/financeiro/responsaveis" /></Route>
+      <Route path="/billing/doctor"><Redirect to="/financeiro/meu-financeiro" /></Route>
       {/* Novo módulo financeiro */}
       <Route path="/financeiro" component={() => <ProtectedRoute component={FinanceDashboard} />} />
       <Route path="/financeiro/medicos" component={() => <ProtectedRoute component={FinanceMedicos} />} />

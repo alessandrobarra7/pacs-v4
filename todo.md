@@ -1060,3 +1060,12 @@
 - [x] Atualizar setDoctorPriceDirect para usar o novo helper (sem erro 400 quando unidade não tem responsável)
 - [x] Ajustar frontend para exibir "(sem responsável)" com aviso visual quando responsável for o padrão
 - [ ] Commit e push para GitHub
+
+## FASE 6 — Correções da análise técnica (erros_restantes_nova_versao_financeiro.txt)
+
+- [ ] P1A: Cadastro de médico — permitir configurar unidades e valores já na criação (não exigir reabrir)
+- [ ] P1B: Aba Médicos da unidade — tabela financeira com preço editável diretamente na linha (colunas: Médico, Status, Valor/laudo, Vigência, Editar, Remover)
+- [ ] P1C: Meu Financeiro — separar Saldo Operacional (ciclo atual) de Fechamentos Oficiais em seções visuais distintas
+- [ ] P1D: Preço por laudo — exibir sempre o preço configurado vigente, não média derivada do ciclo
+- [ ] P2: Integridade do evento financeiro — assinatura usa só report.unit_id, report.signedBy, report.signedAt como fonte de verdade; log de falhas financeiras
+- [ ] P3: Navegação — unificar /financeiro/*, redirecionar /billing/*, destino correto por perfil

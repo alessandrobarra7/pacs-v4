@@ -171,6 +171,7 @@ export default function UserFormDialog({
 
   // Dados financeiros completos do médico (nova procedure)
   const isMedicoEditing = isEditing && role === "medico" && currentUserRole === "admin_master";
+  const isMedicoCreating = !isEditing && role === "medico" && currentUserRole === "admin_master";
 
   const { data: doctorFullCtx, refetch: refetchDoctorCtx } = trpc.billing.getDoctorFullContext.useQuery(
     { doctorUserId: user?.id ?? 0 },
@@ -240,6 +241,7 @@ export default function UserFormDialog({
       }
       setEditingPriceUnitId(null);
       setEditingPriceValue("");
+      setPendingPrices({});
     }
   }, [open, user]);
 
@@ -345,6 +347,7 @@ export default function UserFormDialog({
       crm: crm.trim() || undefined,
       _stampFile: !isEditing ? stampFile || undefined : undefined,
       _signatureFile: !isEditing ? signatureFile || undefined : undefined,
+      _pendingPrices: isMedicoCreating ? pendingPrices : undefined,
     } as any);
   };
 
@@ -358,8 +361,11 @@ export default function UserFormDialog({
 
   const isMedical = role === "medico" || role === "unit_admin";
 
+  // Preços pendentes para configuração na criação do médico (unit_id -> valor string)
+  const [pendingPrices, setPendingPrices] = useState<Record<number, string>>({});
+
   // Determinar quais abas mostrar
-  const showFinancialTabs = isMedicoEditing;
+  const showFinancialTabs = isMedicoEditing || isMedicoCreating;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -578,8 +584,7 @@ export default function UserFormDialog({
               )}
             </div>
           </TabsContent>
-
-          {/* ─── ABA VALORES POR UNIDADE (médico em edição) ────────────────────── */}
+          {/* ─── ABA VALORES POR UNIDADE (médico em edição OU criação) ──────────── */}
           {showFinancialTabs && (
             <TabsContent value="valores" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-3">
               <div>
@@ -588,88 +593,137 @@ export default function UserFormDialog({
                   <Label className="text-sm font-semibold">Valores por Unidade</Label>
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Valor por laudo em cada unidade. O responsável financeiro é vinculado automaticamente.
+                  {isMedicoCreating
+                    ? "Configure o valor por laudo para cada unidade vinculada. Será salvo após criar o médico."
+                    : "Valor por laudo em cada unidade. O responsável financeiro é vinculado automaticamente."}
                 </p>
               </div>
 
-              {doctorFullCtx?.unitLinks && doctorFullCtx.unitLinks.length > 0 ? (
-                <div className="space-y-2">
-                  {doctorFullCtx.unitLinks.map((ul) => {
-                    const activePrice = doctorFullCtx.activePrices?.find(p => p.unit_id === ul.unit_id);
-                    const isEditingThis = editingPriceUnitId === ul.unit_id;
-                    const responsible = ul.unit_id ? doctorFullCtx.unitResponsibles?.[ul.unit_id] : null;
-                    const isDefaultResp = responsible?.name === "Sem Responsável";
-                    return (
-                      <div key={ul.unit_id} className="rounded-md border border-border bg-background px-3 py-2.5">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{ul.unit_name}</p>
-                            {activePrice ? (
-                              <p className="text-xs text-emerald-600 font-medium">
-                                R$ {parseFloat(activePrice.price_per_report).toFixed(2)} / laudo
-                              </p>
-                            ) : (
-                              <p className="text-xs text-amber-500">Sem preço configurado</p>
-                            )}
-                            {responsible && !isDefaultResp && (
-                              <p className="text-xs text-muted-foreground">Resp.: {responsible.name}</p>
-                            )}
-                            {isDefaultResp && (
-                              <p className="text-xs text-amber-600 flex items-center gap-1">
-                                ⚠️ Sem responsável — configure no módulo Financeiro
-                              </p>
-                            )}
-                          </div>
-                          {isEditingThis ? (
+              {/* MODO CRIAÇÃO: usa unidades selecionadas na aba Unidades + pendingPrices */}
+              {isMedicoCreating && (
+                permissions.length > 0 ? (
+                  <div className="space-y-2">
+                    {permissions.map((perm) => {
+                      const unit = units.find(u => u.id === perm.unit_id);
+                      if (!unit) return null;
+                      const currentVal = pendingPrices[perm.unit_id] ?? "";
+                      return (
+                        <div key={perm.unit_id} className="rounded-md border border-border bg-background px-3 py-2.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{unit.name}</p>
+                              {currentVal ? (
+                                <p className="text-xs text-emerald-600 font-medium">R$ {parseFloat(currentVal || "0").toFixed(2)} / laudo</p>
+                              ) : (
+                                <p className="text-xs text-amber-500">Sem preço definido (opcional)</p>
+                              )}
+                            </div>
                             <div className="flex items-center gap-1.5">
                               <span className="text-xs text-muted-foreground">R$</span>
                               <Input
-                                value={editingPriceValue}
-                                onChange={e => setEditingPriceValue(e.target.value)}
-                                className="h-7 w-20 text-sm text-right"
+                                value={currentVal}
+                                onChange={e => setPendingPrices(prev => ({ ...prev, [perm.unit_id]: e.target.value }))}
+                                className="h-7 w-24 text-sm text-right"
                                 placeholder="0.00"
-                                autoFocus
-                                onKeyDown={e => {
-                                  if (e.key === "Enter") handleSavePriceDirect(ul.unit_id!);
-                                  if (e.key === "Escape") setEditingPriceUnitId(null);
-                                }}
                               />
-                              <button type="button" onClick={() => handleSavePriceDirect(ul.unit_id!)}
-                                disabled={setDoctorPriceDirect.isPending}
-                                className="p-1 rounded text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-50">
-                                <Check className="h-4 w-4" />
-                              </button>
-                              <button type="button" onClick={() => setEditingPriceUnitId(null)}
-                                className="p-1 rounded text-muted-foreground hover:bg-muted transition-colors">
-                                <X className="h-4 w-4" />
-                              </button>
                             </div>
-                          ) : (
-                            <button type="button"
-                              onClick={() => {
-                                setEditingPriceUnitId(ul.unit_id!);
-                                setEditingPriceValue(activePrice ? parseFloat(activePrice.price_per_report).toFixed(2) : "");
-                              }}
-                              className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                          )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <DollarSign className="h-10 w-10 mx-auto mb-2 opacity-20" />
-                  <p className="text-sm">
-                    {doctorFullCtx ? "Médico sem unidades vinculadas. Vincule unidades na aba Unidades." : "Carregando..."}
-                  </p>
-                </div>
+                      );
+                    })}
+                    <p className="text-xs text-muted-foreground pt-1">
+                      ℹ️ Os preços são opcionais. Você pode configurar depois na aba Valores ao editar o médico.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <DollarSign className="h-10 w-10 mx-auto mb-2 opacity-20" />
+                    <p className="text-sm">Nenhuma unidade selecionada. Vincule unidades na aba Unidades primeiro.</p>
+                  </div>
+                )
               )}
 
-              {/* Histórico de preços */}
-              {doctorFullCtx?.priceHistory && doctorFullCtx.priceHistory.length > 0 && (
+              {/* MODO EDIÇÃO: usa doctorFullCtx */}
+              {isMedicoEditing && (
+                doctorFullCtx?.unitLinks && doctorFullCtx.unitLinks.length > 0 ? (
+                  <div className="space-y-2">
+                    {doctorFullCtx.unitLinks.map((ul) => {
+                      const activePrice = doctorFullCtx.activePrices?.find(p => p.unit_id === ul.unit_id);
+                      const isEditingThis = editingPriceUnitId === ul.unit_id;
+                      const responsible = ul.unit_id ? doctorFullCtx.unitResponsibles?.[ul.unit_id] : null;
+                      const isDefaultResp = responsible?.name === "Sem Responsável";
+                      return (
+                        <div key={ul.unit_id} className="rounded-md border border-border bg-background px-3 py-2.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{ul.unit_name}</p>
+                              {activePrice ? (
+                                <p className="text-xs text-emerald-600 font-medium">
+                                  R$ {parseFloat(activePrice.price_per_report).toFixed(2)} / laudo
+                                </p>
+                              ) : (
+                                <p className="text-xs text-amber-500">Sem preço configurado</p>
+                              )}
+                              {responsible && !isDefaultResp && (
+                                <p className="text-xs text-muted-foreground">Resp.: {responsible.name}</p>
+                              )}
+                              {isDefaultResp && (
+                                <p className="text-xs text-amber-600 flex items-center gap-1">
+                                  ⚠️ Sem responsável — configure no módulo Financeiro
+                                </p>
+                              )}
+                            </div>
+                            {isEditingThis ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-muted-foreground">R$</span>
+                                <Input
+                                  value={editingPriceValue}
+                                  onChange={e => setEditingPriceValue(e.target.value)}
+                                  className="h-7 w-20 text-sm text-right"
+                                  placeholder="0.00"
+                                  autoFocus
+                                  onKeyDown={e => {
+                                    if (e.key === "Enter") handleSavePriceDirect(ul.unit_id!);
+                                    if (e.key === "Escape") setEditingPriceUnitId(null);
+                                  }}
+                                />
+                                <button type="button" onClick={() => handleSavePriceDirect(ul.unit_id!)}
+                                  disabled={setDoctorPriceDirect.isPending}
+                                  className="p-1 rounded text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-50">
+                                  <Check className="h-4 w-4" />
+                                </button>
+                                <button type="button" onClick={() => setEditingPriceUnitId(null)}
+                                  className="p-1 rounded text-muted-foreground hover:bg-muted transition-colors">
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <button type="button"
+                                onClick={() => {
+                                  setEditingPriceUnitId(ul.unit_id!);
+                                  setEditingPriceValue(activePrice ? parseFloat(activePrice.price_per_report).toFixed(2) : "");
+                                }}
+                                className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <DollarSign className="h-10 w-10 mx-auto mb-2 opacity-20" />
+                    <p className="text-sm">
+                      {doctorFullCtx ? "Médico sem unidades vinculadas. Vincule unidades na aba Unidades." : "Carregando..."}
+                    </p>
+                  </div>
+                )
+              )}
+
+              {/* Histórico de preços (só na edição) */}
+              {isMedicoEditing && doctorFullCtx?.priceHistory && doctorFullCtx.priceHistory.length > 0 && (
                 <div className="border-t border-border pt-3 mt-3">
                   <p className="text-xs font-medium text-muted-foreground mb-2">Histórico de preços</p>
                   <div className="space-y-1">
@@ -687,7 +741,6 @@ export default function UserFormDialog({
               )}
             </TabsContent>
           )}
-
           {/* ─── ABA RESUMO FINANCEIRO (médico em edição) ──────────────────────── */}
           {showFinancialTabs && (
             <TabsContent value="resumo" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
