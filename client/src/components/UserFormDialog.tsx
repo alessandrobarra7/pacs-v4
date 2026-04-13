@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ChevronDown, ChevronRight, KeyRound, Upload, PenLine, Trash2, ImageOff } from "lucide-react";
+import { ChevronDown, ChevronRight, KeyRound, Upload, PenLine, Trash2, ImageOff, DollarSign, Pencil, Check, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -332,6 +332,39 @@ export default function UserFormDialog({
   };
 
   const isMedical = role === "medico" || role === "unit_admin";
+  const isMedicoEditing = isEditing && role === "medico" && currentUserRole === 'admin_master';
+
+  // Estado para edição inline de preço por unidade
+  const [editingPriceUnitId, setEditingPriceUnitId] = useState<number | null>(null);
+  const [editingPriceValue, setEditingPriceValue] = useState("");
+
+  // Buscar dados financeiros do médico (preços por unidade)
+  const { data: doctorDetail, refetch: refetchDoctorDetail } = trpc.billing.getDoctorDetail.useQuery(
+    { doctorUserId: user?.id ?? 0 },
+    { enabled: isMedicoEditing && !!user?.id }
+  );
+
+  const setDoctorPriceDirect = trpc.billing.setDoctorPriceDirect.useMutation({
+    onSuccess: () => {
+      toast.success("Preço atualizado com sucesso");
+      setEditingPriceUnitId(null);
+      setEditingPriceValue("");
+      refetchDoctorDetail();
+    },
+    onError: (e) => toast.error(e.message || "Erro ao atualizar preço"),
+  });
+
+  const handleSavePriceDirect = (unitId: number) => {
+    if (!user?.id) return;
+    const val = parseFloat(editingPriceValue.replace(',', '.'));
+    if (isNaN(val) || val < 0) { toast.error("Informe um valor válido"); return; }
+    setDoctorPriceDirect.mutate({
+      doctorUserId: user.id,
+      unitId,
+      pricePerReport: val.toFixed(2),
+      startsAt: new Date().toISOString(),
+    });
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -464,6 +497,70 @@ export default function UserFormDialog({
               )}
 
               {/* Assinatura removida — não utilizada no documento de laudo */}
+            </div>
+          )}
+
+          {/* Configuração Financeira — apenas para médicos em modo edição */}
+          {isMedicoEditing && (
+            <div className="border-t border-border pt-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-emerald-600" />
+                <Label className="text-sm font-semibold">Configuração Financeira</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Valor por laudo em cada unidade. O responsável financeiro ativo da unidade é vinculado automaticamente.
+              </p>
+
+              {doctorDetail?.unitLinks && doctorDetail.unitLinks.length > 0 ? (
+                <div className="space-y-2">
+                  {doctorDetail.unitLinks.map((ul) => {
+                    const activePrice = doctorDetail.prices?.find(p => p.unit_id === ul.unit_id);
+                    const isEditingThis = editingPriceUnitId === ul.unit_id;
+                    return (
+                      <div key={ul.unit_id} className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{ul.unit_name}</p>
+                          {activePrice ? (
+                            <p className="text-xs text-emerald-600">R$ {parseFloat(activePrice.price_per_report).toFixed(2)} / laudo</p>
+                          ) : (
+                            <p className="text-xs text-amber-500">Sem preço configurado</p>
+                          )}
+                        </div>
+                        {isEditingThis ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-muted-foreground">R$</span>
+                            <Input
+                              value={editingPriceValue}
+                              onChange={e => setEditingPriceValue(e.target.value)}
+                              className="h-7 w-20 text-sm text-right"
+                              placeholder="0.00"
+                              autoFocus
+                              onKeyDown={e => { if (e.key === 'Enter') handleSavePriceDirect(ul.unit_id); if (e.key === 'Escape') setEditingPriceUnitId(null); }}
+                            />
+                            <button type="button" onClick={() => handleSavePriceDirect(ul.unit_id)} disabled={setDoctorPriceDirect.isPending}
+                              className="p-1 rounded text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-50">
+                              <Check className="h-4 w-4" />
+                            </button>
+                            <button type="button" onClick={() => setEditingPriceUnitId(null)}
+                              className="p-1 rounded text-muted-foreground hover:bg-muted transition-colors">
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button type="button" onClick={() => { setEditingPriceUnitId(ul.unit_id); setEditingPriceValue(activePrice ? parseFloat(activePrice.price_per_report).toFixed(2) : ""); }}
+                            className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground py-2 text-center">
+                  {doctorDetail ? "Médico sem unidades vinculadas. Vincule unidades na seção abaixo." : "Carregando..."}
+                </p>
+              )}
             </div>
           )}
 

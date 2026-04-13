@@ -1049,3 +1049,8 @@
 - [x] Ajustar retorno do signReport para incluir doctor_amount_due (para o toast do frontend)
 - [x] Remover chamada de createVisitEvent do frontend (ReportEditorPage)
 - [x] Verificar TypeScript e build após a refatoração
+
+## FASE 4 — Integração financeira ao cadastro admin do médico
+- [ ] Adicionar aba "Unidades Vinculadas" ao cadastro admin do médico com gestão de vínculos
+- [ ] Adicionar aba "Preços por Unidade" ao cadastro admin do médico com edição inline de preços
+- [ ] Verificar TypeScript, build e fazer commit/push

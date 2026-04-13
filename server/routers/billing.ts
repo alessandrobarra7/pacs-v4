@@ -753,4 +753,33 @@ export const billingRouter = router({
           totalGeral: summary.totalGeral,
         };
       }),
+
+    // ── Configurar preço do médico por unidade direto do cadastro admin ──────────
+    setDoctorPriceDirect: protectedProcedure
+      .input(z.object({
+        doctorUserId: z.number(),
+        unitId: z.number(),
+        pricePerReport: z.string(),
+        startsAt: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { getActiveResponsibleForUnit, upsertDoctorUnitPrice } = await import('../db');
+        // Busca o responsável financeiro ativo da unidade automaticamente
+        const responsible = await getActiveResponsibleForUnit(input.unitId);
+        if (!responsible) throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Nenhum responsável financeiro ativo para esta unidade. Configure um responsável financeiro no módulo Financeiro primeiro.',
+        });
+        const id = await upsertDoctorUnitPrice({
+          financial_responsible_id: responsible.financial_responsible_id,
+          unit_id: input.unitId,
+          doctor_user_id: input.doctorUserId,
+          price_per_report: input.pricePerReport,
+          starts_at: new Date(input.startsAt),
+          ends_at: null,
+          created_by: ctx.user.id,
+        });
+        return { id };
+      }),
 });
