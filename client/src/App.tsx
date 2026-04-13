@@ -82,6 +82,7 @@ function Router() {
       <Route path="/financeiro/medicos" component={() => <ProtectedRoute component={FinanceMedicos} />} />
       <Route path="/financeiro/unidades" component={() => <ProtectedRoute component={FinanceUnidades} />} />
       <Route path="/financeiro/responsaveis" component={() => <ProtectedRoute component={FinanceResponsaveis} />} />
+      <Route path="/financeiro/responsavel" component={() => <ProtectedRoute component={FinanceResponsaveis} />} />
       <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro} />} />
       <Route path="/financeiro/admin" component={() => <ProtectedRoute component={FinanceAdmin} />} />
       <Route path="/financeiro/medicos/:id" component={() => <ProtectedRoute component={FinanceMedicoDetalhe} />} />

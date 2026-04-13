@@ -141,8 +141,14 @@ export default function FinanceMeuFinanceiro() {
   const { data: summaryData, isLoading: loadingSummary } = trpc.billing.getDoctorSummary.useQuery({ year, month });
 
   // getDoctorProduction retorna { currentCycles, history, totalOpen, totalUnits }
+  type ClosedCycle = {
+    summary: { reports_count: number | null; amount_due: string | null; amount_received: string | null; received_at: Date | string | null };
+    cycle: { id: number; unit_id: number; starts_at?: Date | string | null; ends_at?: Date | string | null };
+    unit_name: string;
+  };
   const prodObj = productionData as { currentCycles?: unknown[]; history?: unknown[]; totalOpen?: string; totalUnits?: number } | undefined;
   const cycles = (prodObj?.currentCycles ?? []) as DoctorCycle[];
+  const closedCycles = (prodObj?.history ?? []) as ClosedCycle[];
   const items = ((summaryData as { items?: unknown[] })?.items ?? []) as Array<{
     id: number; unit_name: string; patient_name: string | null;
     study_date: Date | string | null; doctor_amount: string; payment_status: string;
@@ -281,9 +287,54 @@ export default function FinanceMeuFinanceiro() {
         )}
 
         {tab === "fechamentos" && (
-          <div className="py-12 text-center">
-            <CheckCircle className="h-10 w-10 mx-auto text-slate-600 mb-3" />
-            <p className="text-slate-500 text-sm">Histórico de fechamentos em breve.</p>
+          <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 overflow-hidden">
+            {loadingProd ? (
+              <div className="p-4 space-y-3">
+                {[1, 2, 3].map((i) => <div key={i} className="h-10 bg-slate-700/30 rounded animate-pulse" />)}
+              </div>
+            ) : closedCycles.length === 0 ? (
+              <div className="py-12 text-center">
+                <CheckCircle className="h-10 w-10 mx-auto text-slate-600 mb-3" />
+                <p className="text-slate-500 text-sm">Nenhum ciclo fechado ainda.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-700/50 bg-slate-900/30">
+                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-400">Unidade</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 hidden sm:table-cell">Período</th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-slate-400">Laudos</th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-slate-400">Total</th>
+                      <th className="text-center px-4 py-3 text-xs font-medium text-slate-400">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {closedCycles.map((c) => {
+                      const isPaid = c.summary?.received_at != null;
+                      const total = parseFloat(String(c.summary?.amount_due ?? '0'));
+                      return (
+                        <tr key={`${c.cycle.id}-${c.cycle.unit_id}`} className="border-b border-slate-700/20 hover:bg-slate-700/20 transition-colors">
+                          <td className="px-4 py-3 text-white font-medium">{c.unit_name}</td>
+                          <td className="px-4 py-3 text-slate-400 text-xs hidden sm:table-cell">
+                            {fmtDate(c.cycle.starts_at)} — {fmtDate(c.cycle.ends_at)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-slate-300">{c.summary?.reports_count ?? 0}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-emerald-400">{fmtBRL(total)}</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              isPaid ? 'bg-emerald-400/10 text-emerald-400' : 'bg-amber-400/10 text-amber-400'
+                            }`}>
+                              {isPaid ? 'Recebido' : 'Pendente'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>

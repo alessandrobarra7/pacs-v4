@@ -772,6 +772,95 @@ export const billingRouter = router({
         };
       }),
 
+    // ── Procedures de Contexto Completo (novas telas práticas) ────────────────
+    getDoctorFullContext: protectedProcedure
+      .input(z.object({ doctorUserId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { getDoctorFullContext } = await import('../db');
+        return await getDoctorFullContext(input.doctorUserId);
+      }),
+
+    getUnitFullContext: protectedProcedure
+      .input(z.object({ unitId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { getUnitFullContext } = await import('../db');
+        return await getUnitFullContext(input.unitId);
+      }),
+
+    getResponsibleFullDashboard: protectedProcedure
+      .input(z.object({
+        responsibleId: z.number(),
+        page: z.number().optional(),
+        pageSize: z.number().optional(),
+        from: z.string().optional(),
+        to: z.string().optional(),
+      }))
+      .query(async ({ input, ctx }) => {
+        const allowed = ['admin_master', 'responsavel_financeiro'];
+        if (!allowed.includes(ctx.user.role)) throw new TRPCError({ code: 'FORBIDDEN' });
+        const { getResponsibleFullDashboard } = await import('../db');
+        return await getResponsibleFullDashboard(input.responsibleId, {
+          page: input.page,
+          pageSize: input.pageSize,
+          from: input.from,
+          to: input.to,
+        });
+      }),
+
+    getDoctorOperationalBalance: protectedProcedure
+      .input(z.object({ doctorUserId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const allowed = ['admin_master', 'medico'];
+        if (!allowed.includes(ctx.user.role)) throw new TRPCError({ code: 'FORBIDDEN' });
+        if (ctx.user.role === 'medico' && ctx.user.id !== input.doctorUserId) {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { getDoctorOperationalBalance } = await import('../db');
+        return await getDoctorOperationalBalance(input.doctorUserId);
+      }),
+
+    setSystemPriceDirect: protectedProcedure
+      .input(z.object({
+        unitId: z.number(),
+        pricePerReport: z.string(),
+        startsAt: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { getOrCreateDefaultResponsibleForUnit, upsertSystemUnitPrice } = await import('../db');
+        const responsible = await getOrCreateDefaultResponsibleForUnit(input.unitId, ctx.user.id);
+        const id = await upsertSystemUnitPrice({
+          financial_responsible_id: responsible.financial_responsible_id,
+          unit_id: input.unitId,
+          price_per_report: input.pricePerReport,
+          starts_at: new Date(input.startsAt),
+          ends_at: null,
+          created_by: ctx.user.id,
+        });
+        return { id, responsible_id: responsible.financial_responsible_id };
+      }),
+
+    linkResponsibleToUnitDirect: protectedProcedure
+      .input(z.object({
+        unitId: z.number(),
+        responsibleId: z.number(),
+        startsAt: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { linkUnitToResponsible } = await import('../db');
+        await linkUnitToResponsible(
+          input.responsibleId,
+          input.unitId,
+          new Date(input.startsAt),
+          undefined,
+          ctx.user.id
+        );
+        return { ok: true };
+      }),
+
     // ── Configurar preço do médico por unidade direto do cadastro admin ──────────
     setDoctorPriceDirect: protectedProcedure
       .input(z.object({

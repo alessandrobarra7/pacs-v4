@@ -2142,3 +2142,427 @@ export async function resetDoctorBilling(doctorUserId: number): Promise<{
     report_items_deleted: Number(itemCount?.c ?? 0),
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HELPERS DE CONTEXTO COMPLETO — alimentam as telas práticas do financeiro
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * getDoctorFullContext — retorna tudo que o admin precisa para o cadastro do médico:
+ * dados do médico, unidades vinculadas, preços vigentes por unidade (com responsável),
+ * histórico de preços e saldo operacional do ciclo corrente.
+ */
+export async function getDoctorFullContext(doctorUserId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const { eq, isNull, and, desc, lte, gte, or: _or } = await import('drizzle-orm');
+  const { user_unit_permissions } = await import('../drizzle/schema');
+  const now = new Date();
+
+  const [doctor] = await db.select().from(users).where(eq(users.id, doctorUserId)).limit(1);
+  if (!doctor) return null;
+
+  const unitLinks = await db
+    .select({ unit_id: user_unit_permissions.unit_id, unit_name: units.name })
+    .from(user_unit_permissions)
+    .leftJoin(units, eq(units.id, user_unit_permissions.unit_id))
+    .where(eq(user_unit_permissions.user_id, doctorUserId));
+
+  const activePrices = await db
+    .select({
+      id: billing_doctor_unit_prices.id,
+      unit_id: billing_doctor_unit_prices.unit_id,
+      unit_name: units.name,
+      price_per_report: billing_doctor_unit_prices.price_per_report,
+      starts_at: billing_doctor_unit_prices.starts_at,
+      ends_at: billing_doctor_unit_prices.ends_at,
+      financial_responsible_id: billing_doctor_unit_prices.financial_responsible_id,
+    })
+    .from(billing_doctor_unit_prices)
+    .leftJoin(units, eq(units.id, billing_doctor_unit_prices.unit_id))
+    .where(and(
+      eq(billing_doctor_unit_prices.doctor_user_id, doctorUserId),
+      isNull(billing_doctor_unit_prices.ends_at),
+    ));
+
+  const priceHistory = await db
+    .select({
+      id: billing_doctor_unit_prices.id,
+      unit_id: billing_doctor_unit_prices.unit_id,
+      unit_name: units.name,
+      price_per_report: billing_doctor_unit_prices.price_per_report,
+      starts_at: billing_doctor_unit_prices.starts_at,
+      ends_at: billing_doctor_unit_prices.ends_at,
+    })
+    .from(billing_doctor_unit_prices)
+    .leftJoin(units, eq(units.id, billing_doctor_unit_prices.unit_id))
+    .where(eq(billing_doctor_unit_prices.doctor_user_id, doctorUserId))
+    .orderBy(desc(billing_doctor_unit_prices.starts_at))
+    .limit(20);
+
+  const unitResponsibles: Record<number, { id: number; name: string } | null> = {};
+  for (const ul of unitLinks) {
+    if (!ul.unit_id) continue;
+    const rows = await db
+      .select({ id: financial_responsibles.id, legal_name: financial_responsibles.legal_name })
+      .from(financial_responsible_units)
+      .leftJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_units.financial_responsible_id))
+      .where(and(
+        eq(financial_responsible_units.unit_id, ul.unit_id),
+        lte(financial_responsible_units.starts_at, now),
+        _or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, now))
+      ))
+      .orderBy(desc(financial_responsible_units.starts_at))
+      .limit(1);
+    unitResponsibles[ul.unit_id] = rows[0] ? { id: rows[0].id!, name: rows[0].legal_name ?? '' } : null;
+  }
+
+  const openCycles = await db
+    .select({
+      summary: billing_cycle_doctor_summary,
+      cycle: billing_cycles,
+      unit_name: units.name,
+    })
+    .from(billing_cycle_doctor_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .innerJoin(units, eq(billing_cycle_doctor_summary.unit_id, units.id))
+    .where(and(
+      eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
+      eq(billing_cycles.status, 'open'),
+    ));
+
+  const totalBalance = openCycles.reduce((s, r) => s + parseFloat(r.summary.amount_due ?? '0'), 0);
+
+  return {
+    doctor,
+    unitLinks,
+    activePrices,
+    priceHistory,
+    unitResponsibles,
+    openCycles: openCycles.map(r => ({
+      unit_id: r.summary.unit_id,
+      unit_name: r.unit_name,
+      reports_count: r.summary.reports_count,
+      amount_due: r.summary.amount_due,
+      cycle_starts_at: r.cycle.starts_at,
+      cycle_ends_at: r.cycle.ends_at,
+    })),
+    totalBalance: totalBalance.toFixed(2),
+  };
+}
+
+/**
+ * getUnitFullContext — retorna tudo que o admin precisa para o cadastro da unidade:
+ * dados da unidade, responsável financeiro ativo (com histórico), custo do sistema vigente,
+ * médicos com preços vigentes e resumo financeiro do ciclo corrente.
+ */
+export async function getUnitFullContext(unitId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const { eq, isNull, and, desc, lte, gte, or: _or } = await import('drizzle-orm');
+  const now = new Date();
+
+  const [unit] = await db.select().from(units).where(eq(units.id, unitId)).limit(1);
+  if (!unit) return null;
+
+  const activeRespRows = await db
+    .select({
+      link_id: financial_responsible_units.id,
+      financial_responsible_id: financial_responsible_units.financial_responsible_id,
+      starts_at: financial_responsible_units.starts_at,
+      ends_at: financial_responsible_units.ends_at,
+      legal_name: financial_responsibles.legal_name,
+      trade_name: financial_responsibles.trade_name,
+      person_type: financial_responsibles.person_type,
+      email: financial_responsibles.email,
+      phone: financial_responsibles.phone,
+      cpf_cnpj: financial_responsibles.cpf_cnpj,
+      isActive: financial_responsibles.isActive,
+    })
+    .from(financial_responsible_units)
+    .leftJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_units.financial_responsible_id))
+    .where(and(
+      eq(financial_responsible_units.unit_id, unitId),
+      lte(financial_responsible_units.starts_at, now),
+      _or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, now))
+    ))
+    .orderBy(desc(financial_responsible_units.starts_at))
+    .limit(1);
+  const activeResponsible = activeRespRows[0] ?? null;
+
+  const responsibleHistory = await db
+    .select({
+      link_id: financial_responsible_units.id,
+      financial_responsible_id: financial_responsible_units.financial_responsible_id,
+      starts_at: financial_responsible_units.starts_at,
+      ends_at: financial_responsible_units.ends_at,
+      legal_name: financial_responsibles.legal_name,
+    })
+    .from(financial_responsible_units)
+    .leftJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_units.financial_responsible_id))
+    .where(eq(financial_responsible_units.unit_id, unitId))
+    .orderBy(desc(financial_responsible_units.starts_at))
+    .limit(5);
+
+  const activeSystemPriceRows = await db
+    .select()
+    .from(billing_system_unit_prices)
+    .where(and(
+      eq(billing_system_unit_prices.unit_id, unitId),
+      isNull(billing_system_unit_prices.ends_at),
+    ))
+    .orderBy(desc(billing_system_unit_prices.starts_at))
+    .limit(1);
+  const activeSystemPrice = activeSystemPriceRows[0] ?? null;
+
+  const systemPriceHistory = await db
+    .select()
+    .from(billing_system_unit_prices)
+    .where(eq(billing_system_unit_prices.unit_id, unitId))
+    .orderBy(desc(billing_system_unit_prices.starts_at))
+    .limit(5);
+
+  const doctorPrices = await db
+    .select({
+      id: billing_doctor_unit_prices.id,
+      doctor_user_id: billing_doctor_unit_prices.doctor_user_id,
+      doctor_name: users.name,
+      price_per_report: billing_doctor_unit_prices.price_per_report,
+      starts_at: billing_doctor_unit_prices.starts_at,
+      ends_at: billing_doctor_unit_prices.ends_at,
+      financial_responsible_id: billing_doctor_unit_prices.financial_responsible_id,
+    })
+    .from(billing_doctor_unit_prices)
+    .leftJoin(users, eq(users.id, billing_doctor_unit_prices.doctor_user_id))
+    .where(and(
+      eq(billing_doctor_unit_prices.unit_id, unitId),
+      isNull(billing_doctor_unit_prices.ends_at),
+    ))
+    .orderBy(users.name);
+
+  const openDoctorSummaries = await db
+    .select({ summary: billing_cycle_doctor_summary, doctor_name: users.name })
+    .from(billing_cycle_doctor_summary)
+    .leftJoin(users, eq(users.id, billing_cycle_doctor_summary.doctor_user_id))
+    .leftJoin(billing_cycles, eq(billing_cycles.id, billing_cycle_doctor_summary.doctor_cycle_id))
+    .where(and(
+      eq(billing_cycle_doctor_summary.unit_id, unitId),
+      eq(billing_cycles.status, 'open'),
+    ));
+
+  const openSystemSummaries = await db
+    .select({ summary: billing_cycle_system_summary })
+    .from(billing_cycle_system_summary)
+    .leftJoin(billing_cycles, eq(billing_cycles.id, billing_cycle_system_summary.system_cycle_id))
+    .where(and(
+      eq(billing_cycle_system_summary.unit_id, unitId),
+      eq(billing_cycles.status, 'open'),
+    ));
+
+  const totalReports = openDoctorSummaries.reduce((s, r) => s + (r.summary.reports_count ?? 0), 0);
+  const totalDoctorAmount = openDoctorSummaries.reduce((s, r) => s + parseFloat(r.summary.amount_due ?? '0'), 0);
+  const totalSystemAmount = openSystemSummaries.reduce((s, r) => s + parseFloat(r.summary.amount_due ?? '0'), 0);
+
+  return {
+    unit,
+    activeResponsible,
+    responsibleHistory,
+    activeSystemPrice,
+    systemPriceHistory,
+    doctorPrices,
+    financialSummary: {
+      totalReports,
+      totalDoctorAmount: totalDoctorAmount.toFixed(2),
+      totalSystemAmount: totalSystemAmount.toFixed(2),
+      totalGeral: (totalDoctorAmount + totalSystemAmount).toFixed(2),
+      openDoctorSummaries: openDoctorSummaries.map(r => ({
+        ...r.summary,
+        doctor_name: r.doctor_name,
+      })),
+    },
+  };
+}
+
+/**
+ * getResponsibleFullDashboard — retorna tudo para o painel do responsável financeiro:
+ * cards de dívida, por unidade, por médico, extrato paginado e fechamentos.
+ */
+export async function getResponsibleFullDashboard(
+  financialResponsibleId: number,
+  options?: { page?: number; pageSize?: number; from?: string; to?: string }
+) {
+  const db = await getDb();
+  if (!db) return null;
+  const { eq, and, desc, gte, lte } = await import('drizzle-orm');
+  const page = options?.page ?? 1;
+  const pageSize = options?.pageSize ?? 50;
+  const offset = (page - 1) * pageSize;
+
+  const [responsible] = await db
+    .select()
+    .from(financial_responsibles)
+    .where(eq(financial_responsibles.id, financialResponsibleId))
+    .limit(1);
+  if (!responsible) return null;
+
+  const openSystemCycles = await db
+    .select({ summary: billing_cycle_system_summary, cycle: billing_cycles, unit_name: units.name })
+    .from(billing_cycle_system_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_system_summary.system_cycle_id, billing_cycles.id))
+    .innerJoin(units, eq(billing_cycle_system_summary.unit_id, units.id))
+    .where(and(
+      eq(billing_cycle_system_summary.financial_responsible_id, financialResponsibleId),
+      eq(billing_cycles.status, 'open'),
+    ));
+
+  const openDoctorCycles = await db
+    .select({ summary: billing_cycle_doctor_summary, cycle: billing_cycles, unit_name: units.name, doctor_name: users.name })
+    .from(billing_cycle_doctor_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .innerJoin(units, eq(billing_cycle_doctor_summary.unit_id, units.id))
+    .innerJoin(users, eq(billing_cycle_doctor_summary.doctor_user_id, users.id))
+    .where(and(
+      eq(billing_cycle_doctor_summary.financial_responsible_id, financialResponsibleId),
+      eq(billing_cycles.status, 'open'),
+    ));
+
+  const totalSystem = openSystemCycles.reduce((s, r) => s + parseFloat(r.summary.amount_due ?? '0'), 0);
+  const totalDoctors = openDoctorCycles.reduce((s, r) => s + parseFloat(r.summary.amount_due ?? '0'), 0);
+
+  const byUnitMap = new Map<number, { unit_id: number; unit_name: string; reports_count: number; system_amount: number; doctor_amount: number }>();
+  for (const r of openSystemCycles) {
+    const uid = r.summary.unit_id;
+    const ex = byUnitMap.get(uid) ?? { unit_id: uid, unit_name: r.unit_name ?? '', reports_count: 0, system_amount: 0, doctor_amount: 0 };
+    ex.reports_count += r.summary.reports_count ?? 0;
+    ex.system_amount += parseFloat(r.summary.amount_due ?? '0');
+    byUnitMap.set(uid, ex);
+  }
+  for (const r of openDoctorCycles) {
+    const uid = r.summary.unit_id;
+    const ex = byUnitMap.get(uid) ?? { unit_id: uid, unit_name: r.unit_name ?? '', reports_count: 0, system_amount: 0, doctor_amount: 0 };
+    ex.reports_count += r.summary.reports_count ?? 0;
+    ex.doctor_amount += parseFloat(r.summary.amount_due ?? '0');
+    byUnitMap.set(uid, ex);
+  }
+  const byUnit = Array.from(byUnitMap.values()).map(r => ({
+    ...r,
+    system_amount: r.system_amount.toFixed(2),
+    doctor_amount: r.doctor_amount.toFixed(2),
+    total: (r.system_amount + r.doctor_amount).toFixed(2),
+  }));
+
+  const byDoctorMap = new Map<number, { doctor_user_id: number; doctor_name: string; reports_count: number; amount_due: number; units: Set<string> }>();
+  for (const r of openDoctorCycles) {
+    const did = r.summary.doctor_user_id;
+    const ex = byDoctorMap.get(did) ?? { doctor_user_id: did, doctor_name: r.doctor_name ?? '', reports_count: 0, amount_due: 0, units: new Set<string>() };
+    ex.reports_count += r.summary.reports_count ?? 0;
+    ex.amount_due += parseFloat(r.summary.amount_due ?? '0');
+    ex.units.add(r.unit_name ?? '');
+    byDoctorMap.set(did, ex);
+  }
+  const byDoctor = Array.from(byDoctorMap.values()).map(r => ({
+    doctor_user_id: r.doctor_user_id,
+    doctor_name: r.doctor_name,
+    reports_count: r.reports_count,
+    amount_due: r.amount_due.toFixed(2),
+    units: Array.from(r.units),
+  }));
+
+  const evtFilters: any[] = [eq(billing_visit_events.financial_responsible_id, financialResponsibleId)];
+  if (options?.from) evtFilters.push(gte(billing_visit_events.createdAt, new Date(options.from)));
+  if (options?.to) evtFilters.push(lte(billing_visit_events.createdAt, new Date(options.to)));
+
+  const extractRows = await db
+    .select({ evt: billing_visit_events, unit_name: units.name, doctor_name: users.name })
+    .from(billing_visit_events)
+    .leftJoin(units, eq(units.id, billing_visit_events.unit_id))
+    .leftJoin(users, eq(users.id, billing_visit_events.doctor_user_id))
+    .where(and(...evtFilters))
+    .orderBy(desc(billing_visit_events.createdAt))
+    .limit(pageSize)
+    .offset(offset);
+
+  const closedCycles = await db
+    .select({ cycle: billing_cycles, unit_name: units.name })
+    .from(billing_cycles)
+    .innerJoin(units, eq(units.id, billing_cycles.unit_id))
+    .where(and(
+      eq(billing_cycles.financial_responsible_id, financialResponsibleId),
+      eq(billing_cycles.status, 'closed'),
+    ))
+    .orderBy(desc(billing_cycles.ends_at))
+    .limit(24);
+
+  return {
+    responsible,
+    cards: {
+      totalSystem: totalSystem.toFixed(2),
+      totalDoctors: totalDoctors.toFixed(2),
+      totalGeral: (totalSystem + totalDoctors).toFixed(2),
+    },
+    byUnit,
+    byDoctor,
+    extract: extractRows.map(r => ({
+      id: r.evt.id,
+      createdAt: r.evt.createdAt,
+      patient_name: r.evt.patient_name,
+      study_date: r.evt.study_date,
+      unit_name: r.unit_name,
+      doctor_name: r.doctor_name,
+      system_price_applied: r.evt.system_price_applied,
+      doctor_price_applied: r.evt.doctor_price_applied,
+      system_amount_due: r.evt.system_amount_due,
+      doctor_amount_due: r.evt.doctor_amount_due,
+      pricing_status: r.evt.pricing_status,
+      doctor_received_at: r.evt.doctor_received_at,
+      system_paid_at: r.evt.system_paid_at,
+    })),
+    closedCycles: closedCycles.map(r => ({
+      id: r.cycle.id,
+      unit_name: r.unit_name,
+      cycle_type: r.cycle.cycle_type,
+      starts_at: r.cycle.starts_at,
+      ends_at: r.cycle.ends_at,
+      total_reports: r.cycle.total_reports,
+      total_amount: r.cycle.total_amount,
+      closedAt: r.cycle.closedAt,
+    })),
+  };
+}
+
+/**
+ * getDoctorOperationalBalance — saldo operacional total do médico no ciclo corrente.
+ */
+export async function getDoctorOperationalBalance(doctorUserId: number) {
+  const db = await getDb();
+  if (!db) return { totalBalance: '0.00', byUnit: [] };
+  const { eq, and } = await import('drizzle-orm');
+
+  const rows = await db
+    .select({
+      summary: billing_cycle_doctor_summary,
+      cycle: billing_cycles,
+      unit_name: units.name,
+    })
+    .from(billing_cycle_doctor_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .innerJoin(units, eq(billing_cycle_doctor_summary.unit_id, units.id))
+    .where(and(
+      eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
+      eq(billing_cycles.status, 'open'),
+    ));
+
+  const total = rows.reduce((s, r) => s + parseFloat(r.summary.amount_due ?? '0'), 0);
+
+  return {
+    totalBalance: total.toFixed(2),
+    byUnit: rows.map(r => ({
+      unit_id: r.summary.unit_id,
+      unit_name: r.unit_name,
+      reports_count: r.summary.reports_count,
+      amount_due: r.summary.amount_due,
+      cycle_starts_at: r.cycle.starts_at,
+      cycle_ends_at: r.cycle.ends_at,
+    })),
+  };
+}
