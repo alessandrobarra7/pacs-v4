@@ -1439,13 +1439,32 @@ export async function getDoctorMonthlySummary(doctorUserId: number, year: number
 
 export async function getAdminConsolidated(year: number, month: number): Promise<{
   responsibles: (FinancialResponsible & { system_total: number; doctor_total: number; reports_count: number; pending_count: number })[];
+  system_total: number;
+  doctor_total: number;
+  reports_count: number;
+  pending_count: number;
+  open_cycle_id: number | null;
+  pending: Array<{
+    id: number;
+    unit_name: string;
+    doctor_name: string;
+    patient_name: string | null;
+    report_key: string;
+    pricing_status: string;
+    system_amount: string;
+    doctor_amount: string;
+  }>;
 }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq } = await import("drizzle-orm");
+  const { and, eq, ne } = await import("drizzle-orm");
 
   const responsibles = await listFinancialResponsibles();
   const result = [];
+  let globalSystemTotal = 0;
+  let globalDoctorTotal = 0;
+  let globalReportsCount = 0;
+  let globalPendingCount = 0;
 
   for (const resp of responsibles) {
     const sysSummary = await getMonthlySystemSummary(resp.id, year, month);
@@ -1456,6 +1475,11 @@ export async function getAdminConsolidated(year: number, month: number): Promise
     const reportsCount = sysSummary.reduce((s, r) => s + r.reports_count, 0);
     const pendingCount = sysSummary.reduce((s, r) => s + r.pending_items_count, 0);
 
+    globalSystemTotal += systemTotal;
+    globalDoctorTotal += doctorTotal;
+    globalReportsCount += reportsCount;
+    globalPendingCount += pendingCount;
+
     result.push({
       ...resp,
       system_total: systemTotal,
@@ -1465,9 +1489,75 @@ export async function getAdminConsolidated(year: number, month: number): Promise
     });
   }
 
-  return { responsibles: result };
-}
+  // Buscar itens com pendência de preço para o mês/ano
+  const pendingItems = await db
+    .select({
+      id: billing_report_items.id,
+      unit_id: billing_report_items.unit_id,
+      doctor_user_id: billing_report_items.doctor_user_id,
+      report_key: billing_report_items.study_instance_uid,
+      pricing_status: billing_report_items.pricing_status,
+      system_amount: billing_report_items.system_amount_due,
+      doctor_amount: billing_report_items.doctor_amount_due,
+      report_id: billing_report_items.report_id,
+    })
+    .from(billing_report_items)
+    .where(
+      and(
+        eq(billing_report_items.competence_year, year),
+        eq(billing_report_items.competence_month, month),
+        ne(billing_report_items.pricing_status, "ok"),
+      )
+    )
+    .limit(100);
 
+  // Enriquecer com nomes de unidade, médico e paciente
+  const enrichedPending = await Promise.all(
+    pendingItems.map(async (item) => {
+      const unitRow = await db.select({ name: units.name }).from(units).where(eq(units.id, item.unit_id)).limit(1);
+      const doctorRow = await db.select({ name: users.name }).from(users).where(eq(users.id, item.doctor_user_id)).limit(1);
+      let patientName: string | null = null;
+      try {
+        if (item.report_key) {
+          const cacheRow = await db.select({ patient_name: studies_cache.patient_name }).from(studies_cache).where(eq(studies_cache.study_instance_uid, item.report_key)).limit(1);
+          patientName = cacheRow[0]?.patient_name ?? null;
+        }
+      } catch {}
+      return {
+        id: item.id,
+        unit_name: unitRow[0]?.name ?? `Unidade ${item.unit_id}`,
+        doctor_name: doctorRow[0]?.name ?? `Médico ${item.doctor_user_id}`,
+        patient_name: patientName,
+        report_key: item.report_key ?? `report-${item.report_id}`,
+        pricing_status: item.pricing_status,
+        system_amount: String(item.system_amount ?? "0.00"),
+        doctor_amount: String(item.doctor_amount ?? "0.00"),
+      };
+    })
+  );
+
+  // Buscar o ciclo aberto mais recente (para o botão Fechar Ciclo)
+  let openCycleId: number | null = null;
+  try {
+    const openCycles = await db
+      .select({ id: billing_cycles.id })
+      .from(billing_cycles)
+      .where(eq(billing_cycles.status, "open"))
+      .orderBy(desc(billing_cycles.id))
+      .limit(1);
+    openCycleId = openCycles[0]?.id ?? null;
+  } catch {}
+
+  return {
+    responsibles: result,
+    system_total: globalSystemTotal,
+    doctor_total: globalDoctorTotal,
+    reports_count: globalReportsCount,
+    pending_count: globalPendingCount,
+    open_cycle_id: openCycleId,
+    pending: enrichedPending,
+  };
+}
 // ─── Billing Cycle Helpers (V3 Operacional) ──────────────────────────────────
 
 import { gte, lte, isNull, desc, sql as drizzleSql } from "drizzle-orm";
