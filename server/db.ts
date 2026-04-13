@@ -236,15 +236,14 @@ export async function getStudiesByUnitId(unitId: number, filters?: {
   return await query;
 }
 
-export async function getStudyById(id: number, unitId?: number) {
+export async function getStudyById(id: number, unitId?: number, unitIds?: number[]) {
   const db = await getDb();
   if (!db) return undefined;
-  
-  const conditions = [eq(studies_cache.id, id)];
-  if (unitId !== undefined) {
-    conditions.push(eq(studies_cache.unit_id, unitId));
-  }
-  
+  // E4: sem acesso a nenhuma unidade
+  if (unitIds !== undefined && unitIds.length === 0) return undefined;
+  const conditions: any[] = [eq(studies_cache.id, id)];
+  if (unitId !== undefined) conditions.push(eq(studies_cache.unit_id, unitId));
+  else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(studies_cache.unit_id, unitIds));
   const result = await db.select().from(studies_cache).where(and(...conditions)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
@@ -257,13 +256,14 @@ export async function createStudyCache(study: InsertStudyCache) {
 }
 
 // Busca estudo por study_instance_uid validando unit_id (previne IDOR)
-export async function getStudyByInstanceUid(studyInstanceUid: string, unitId?: number) {
+export async function getStudyByInstanceUid(studyInstanceUid: string, unitId?: number, unitIds?: number[]) {
   const db = await getDb();
   if (!db) return undefined;
-  const conditions = [eq(studies_cache.study_instance_uid, studyInstanceUid)];
-  if (unitId !== undefined) {
-    conditions.push(eq(studies_cache.unit_id, unitId));
-  }
+  // E4: sem acesso a nenhuma unidade
+  if (unitIds !== undefined && unitIds.length === 0) return undefined;
+  const conditions: any[] = [eq(studies_cache.study_instance_uid, studyInstanceUid)];
+  if (unitId !== undefined) conditions.push(eq(studies_cache.unit_id, unitId));
+  else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(studies_cache.unit_id, unitIds));
   const result = await db.select().from(studies_cache).where(and(...conditions)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
@@ -314,28 +314,26 @@ export async function getReportsByUnitId(unitId: number) {
   return await db.select().from(reports).where(eq(reports.unit_id, unitId));
 }
 
-export async function getReportByStudyId(studyId: number, unitId?: number) {
+export async function getReportByStudyId(studyId: number, unitId?: number, unitIds?: number[]) {
   const db = await getDb();
   if (!db) return undefined;
-  
-  const conditions = [eq(reports.study_id, studyId)];
-  if (unitId !== undefined) {
-    conditions.push(eq(reports.unit_id, unitId));
-  }
-  
+  // E4: sem acesso a nenhuma unidade
+  if (unitIds !== undefined && unitIds.length === 0) return undefined;
+  const conditions: any[] = [eq(reports.study_id, studyId)];
+  if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
+  else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
   const result = await db.select().from(reports).where(and(...conditions)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getReportById(id: number, unitId?: number) {
+export async function getReportById(id: number, unitId?: number, unitIds?: number[]) {
   const db = await getDb();
   if (!db) return undefined;
-  
-  const conditions = [eq(reports.id, id)];
-  if (unitId !== undefined) {
-    conditions.push(eq(reports.unit_id, unitId));
-  }
-  
+  // E4: sem acesso a nenhuma unidade
+  if (unitIds !== undefined && unitIds.length === 0) return undefined;
+  const conditions: any[] = [eq(reports.id, id)];
+  if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
+  else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
   const result = await db.select().from(reports).where(and(...conditions)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
@@ -372,13 +370,17 @@ export async function createAuditLog(log: InsertAuditLog) {
 /** Retorna um mapa { studyInstanceUid → status } para uma lista de UIDs */
 export async function getReportStatusByStudyUids(
   studyUids: string[],
-  unitId?: number
+  unitId?: number,
+  unitIds?: number[]
 ): Promise<Record<string, string>> {
   const db = await getDb();
   if (!db || studyUids.length === 0) return {};
 
+  // E4: suporte a médico multiunidade (unit_id null) via inArray
+  if (unitIds !== undefined && unitIds.length === 0) return {}; // sem acesso
   const conditions: any[] = [inArray(reports.study_instance_uid, studyUids)];
   if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
+  else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
 
   const rows = await db
     .select({ uid: reports.study_instance_uid, status: reports.status })
@@ -619,6 +621,25 @@ export async function resolveEffectiveUnitId(
   const perms = await getUserUnitPermissions(userId);
   if (perms.length > 0) return perms[0].unit_id;
   return null;
+}
+
+/**
+ * Resolve o filtro de unidade para queries de laudos/estudos.
+ * - admin_master: retorna {} (sem filtro — acesso total)
+ * - unit_id legado presente: retorna { unitId } (filtro simples)
+ * - médico multiunidade (unit_id null): retorna { unitIds } (filtro inArray)
+ * - sem acesso a nenhuma unidade: retorna { unitIds: [] } (resultado vazio)
+ */
+export async function resolveUnitFilter(
+  role: string,
+  userId: number,
+  legacyUnitId: number | null | undefined
+): Promise<{ unitId?: number; unitIds?: number[] }> {
+  if (role === 'admin_master') return {};
+  if (legacyUnitId) return { unitId: legacyUnitId };
+  const perms = await getUserUnitPermissions(userId);
+  const ids = perms.map(p => p.unit_id);
+  return { unitIds: ids };
 }
 
 /** Define (replace) as permissões de um usuário para uma lista de unidades.
@@ -2227,15 +2248,68 @@ export async function resetDoctorBilling(doctorUserId: number): Promise<{
   summaries_deleted: number;
   report_items_deleted: number;
 }> {
-  const { count: drizzleCount } = await import("drizzle-orm");
+  const { count: drizzleCount, sql: drizzleSql2 } = await import("drizzle-orm");
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+
+  // Coletar ciclos afetados ANTES de deletar (para recalcular depois)
+  const affectedDoctorCycleIds = await db
+    .select({ id: billing_visit_events.doctor_cycle_id })
+    .from(billing_visit_events)
+    .where(eq(billing_visit_events.doctor_user_id, doctorUserId))
+    .then(rows => Array.from(new Set(rows.map(r => r.id).filter((id): id is number => id !== null && id !== undefined))));
+  const affectedSystemCycleIds = await db
+    .select({ id: billing_visit_events.system_cycle_id })
+    .from(billing_visit_events)
+    .where(eq(billing_visit_events.doctor_user_id, doctorUserId))
+    .then(rows => Array.from(new Set(rows.map(r => r.id).filter((id): id is number => id !== null && id !== undefined))));
+
+  // Contar antes de deletar
   const [evtCount] = await db.select({ c: drizzleCount() }).from(billing_visit_events).where(eq(billing_visit_events.doctor_user_id, doctorUserId));
   const [sumCount] = await db.select({ c: drizzleCount() }).from(billing_cycle_doctor_summary).where(eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId));
   const [itemCount] = await db.select({ c: drizzleCount() }).from(billing_report_items).where(eq(billing_report_items.doctor_user_id, doctorUserId));
+
+  // Deletar registros do médico
   await db.delete(billing_visit_events).where(eq(billing_visit_events.doctor_user_id, doctorUserId));
   await db.delete(billing_cycle_doctor_summary).where(eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId));
   await db.delete(billing_report_items).where(eq(billing_report_items.doctor_user_id, doctorUserId));
+
+  // B6/B7/E10: Recalcular billing_cycles para ciclos afetados
+  // Para ciclos de médico: recalcular total_reports e total_amount a partir do que sobrou
+  if (affectedDoctorCycleIds.length > 0) {
+    const { inArray: inArrayFn } = await import("drizzle-orm");
+    for (const cycleId of affectedDoctorCycleIds) {
+      const [agg] = await db
+        .select({
+          total_reports: drizzleSql2<number>`COUNT(*)`,
+          total_amount: drizzleSql2<string>`COALESCE(SUM(doctor_amount_due), 0)`,
+        })
+        .from(billing_cycle_doctor_summary)
+        .where(eq(billing_cycle_doctor_summary.doctor_cycle_id, cycleId));
+      await db.update(billing_cycles).set({
+        total_reports: agg?.total_reports ?? 0,
+        total_amount: String(agg?.total_amount ?? '0.00'),
+      }).where(eq(billing_cycles.id, cycleId));
+    }
+  }
+
+  // Para ciclos de sistema: recalcular a partir do billing_cycle_system_summary restante
+  if (affectedSystemCycleIds.length > 0) {
+    for (const cycleId of affectedSystemCycleIds) {
+      const [agg] = await db
+        .select({
+          total_reports: drizzleSql2<number>`COUNT(*)`,
+          total_amount: drizzleSql2<string>`COALESCE(SUM(amount_due), 0)`,
+        })
+        .from(billing_cycle_system_summary)
+        .where(eq(billing_cycle_system_summary.system_cycle_id, cycleId));
+      await db.update(billing_cycles).set({
+        total_reports: agg?.total_reports ?? 0,
+        total_amount: String(agg?.total_amount ?? '0.00'),
+      }).where(eq(billing_cycles.id, cycleId));
+    }
+  }
+
   return {
     events_deleted: Number(evtCount?.c ?? 0),
     summaries_deleted: Number(sumCount?.c ?? 0),

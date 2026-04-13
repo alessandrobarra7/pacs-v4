@@ -4,8 +4,9 @@ import { z } from "zod";
 import {
   getReportByStudyId, getReportById, createReport, updateReport,
   createAuditLog, getDb, resolveEffectiveUnitId, getReportStatusByStudyUids,
+  resolveUnitFilter,
 } from "../db";
-import { and } from "drizzle-orm";
+import { and, inArray } from "drizzle-orm";
 import { reports } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import sanitizeHtml from "sanitize-html";
@@ -15,8 +16,9 @@ export const reportsRouter = router({
     getByStudyId: protectedProcedure
       .input(z.object({ studyId: z.number() }))
       .query(async ({ input, ctx }) => {
-        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
-        return await getReportByStudyId(input.studyId, unitId);
+        // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
+        const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
+        return await getReportByStudyId(input.studyId, unitId, unitIds);
       }),
 
     getByStudyUid: protectedProcedure
@@ -24,10 +26,13 @@ export const reportsRouter = router({
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
-        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
-        const rows = unitId
-          ? await db.select().from(reports).where(and(eq(reports.study_instance_uid, input.studyInstanceUid), eq(reports.unit_id, unitId)))
-          : await db.select().from(reports).where(eq(reports.study_instance_uid, input.studyInstanceUid));
+        // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
+        const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
+        if (unitIds !== undefined && unitIds.length === 0) return null; // sem acesso
+        const conditions: any[] = [eq(reports.study_instance_uid, input.studyInstanceUid)];
+        if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
+        else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
+        const rows = await db.select().from(reports).where(and(...conditions));
         return rows[0] ?? null;
       }),
 
@@ -37,10 +42,13 @@ export const reportsRouter = router({
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
-        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
-        const rows = unitId
-          ? await db.select().from(reports).where(and(eq(reports.study_instance_uid, input.studyInstanceUid), eq(reports.unit_id, unitId)))
-          : await db.select().from(reports).where(eq(reports.study_instance_uid, input.studyInstanceUid));
+        // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
+        const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
+        if (unitIds !== undefined && unitIds.length === 0) return null; // sem acesso
+        const conditions: any[] = [eq(reports.study_instance_uid, input.studyInstanceUid)];
+        if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
+        else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
+        const rows = await db.select().from(reports).where(and(...conditions));
         const report = rows[0] ?? null;
         if (!report) return null;
         // Buscar dados do médico que assinou
@@ -213,8 +221,9 @@ export const reportsRouter = router({
     statusByStudyUids: protectedProcedure
       .input(z.object({ studyUids: z.array(z.string()) }))
       .query(async ({ input, ctx }) => {
-        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
-        return await getReportStatusByStudyUids(input.studyUids, unitId);
+        // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
+        const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
+        return await getReportStatusByStudyUids(input.studyUids, unitId, unitIds);
       }),
 
     // Retificar laudo assinado: salva versão anterior e cria nova revisão
@@ -253,13 +262,24 @@ export const reportsRouter = router({
         // garantindo rastreabilidade médico-legal correta no laudo impresso e no histórico.
         // F1-3: Sanitizar HTML do body antes de persistir (previne XSS armazenado)
         const safeReviseBody = sanitizeHtml(input.body, REPORT_SANITIZE_OPTIONS);
+        const revisedAt = new Date();
         await updateReport(input.id, {
           body: safeReviseBody,
           status: 'revised',
           version: (report.version ?? 1) + 1,
-          signedAt: new Date(),
+          signedAt: revisedAt,
           signedBy: ctx.user.id,
         });
+        // E7: atualizar report_status_snapshot no billing_report_items para 'revised'
+        try {
+          const { billing_report_items } = await import('../../drizzle/schema');
+          await db.update(billing_report_items)
+            .set({ report_status_snapshot: 'revised' })
+            .where(eq(billing_report_items.report_id, input.id));
+        } catch (e) {
+          // Não bloqueia a retificação se billing_report_items não existir para este laudo
+          console.warn('[revise] Não foi possível atualizar report_status_snapshot:', e);
+        }
         await createAuditLog({
           user_id: ctx.user.id,
           unit_id: ctx.user.unit_id,

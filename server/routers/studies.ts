@@ -1,7 +1,7 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getStudyById, getStudyByInstanceUid, getDb, getReportStatusByStudyUids, createAuditLog, getUnitById, getStudiesByUnitId } from "../db";
+import { getStudyById, getStudyByInstanceUid, getDb, getReportStatusByStudyUids, createAuditLog, getUnitById, getStudiesByUnitId, resolveUnitFilter } from "../db";
 import { like, and } from "drizzle-orm";
 import { studies_cache } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
@@ -83,8 +83,9 @@ export const studiesRouter = router({
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
-        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
-        const study = await getStudyById(input.id, unitId);
+        // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
+        const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
+        const study = await getStudyById(input.id, unitId, unitIds);
         
         if (!study) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Study not found' });
@@ -106,8 +107,9 @@ export const studiesRouter = router({
     openViewer: protectedProcedure
       .input(z.object({ studyId: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        const unitId = ctx.user.role === 'admin_master' ? undefined : (ctx.user.unit_id ?? undefined);
-        const study = await getStudyById(input.studyId, unitId);
+        // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
+        const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
+        const study = await getStudyById(input.studyId, unitId, unitIds);
         
         if (!study) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Study not found' });
