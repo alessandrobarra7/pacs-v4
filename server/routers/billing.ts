@@ -508,8 +508,8 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) return null;
-        const { users, user_unit_permissions, units, billing_doctor_unit_prices } = await import('../../drizzle/schema');
-        const { eq, and, isNull } = await import('drizzle-orm');
+        const { users, user_unit_permissions, units, billing_doctor_unit_prices, financial_responsible_units, financial_responsibles } = await import('../../drizzle/schema');
+        const { eq, and, isNull, lte, gte, or, desc } = await import('drizzle-orm');
         // Dados do médico
         const [doctor] = await db.select().from(users).where(eq(users.id, input.doctorUserId)).limit(1);
         if (!doctor) return null;
@@ -528,6 +528,7 @@ export const billingRouter = router({
             price_per_report: billing_doctor_unit_prices.price_per_report,
             starts_at: billing_doctor_unit_prices.starts_at,
             ends_at: billing_doctor_unit_prices.ends_at,
+            financial_responsible_id: billing_doctor_unit_prices.financial_responsible_id,
           })
           .from(billing_doctor_unit_prices)
           .leftJoin(units, eq(units.id, billing_doctor_unit_prices.unit_id))
@@ -535,7 +536,24 @@ export const billingRouter = router({
             eq(billing_doctor_unit_prices.doctor_user_id, input.doctorUserId),
             isNull(billing_doctor_unit_prices.ends_at),
           ));
-        return { doctor, unitLinks, prices };
+        // Buscar nome do responsável ativo por unidade
+        const now = new Date();
+        const unitResponsibles: Record<number, string | null> = {};
+        for (const ul of unitLinks) {
+          if (!ul.unit_id) continue;
+          const rows = await db.select({ legal_name: financial_responsibles.legal_name })
+            .from(financial_responsible_units)
+            .leftJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_units.financial_responsible_id))
+            .where(and(
+              eq(financial_responsible_units.unit_id, ul.unit_id),
+              lte(financial_responsible_units.starts_at, now),
+              or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, now))
+            ))
+            .orderBy(desc(financial_responsible_units.starts_at))
+            .limit(1);
+          unitResponsibles[ul.unit_id] = rows[0]?.legal_name ?? null;
+        }
+        return { doctor, unitLinks, prices, unitResponsibles };
       }),
 
     getDoctorFinancialDetail: protectedProcedure
@@ -764,13 +782,9 @@ export const billingRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getActiveResponsibleForUnit, upsertDoctorUnitPrice } = await import('../db');
-        // Busca o responsável financeiro ativo da unidade automaticamente
-        const responsible = await getActiveResponsibleForUnit(input.unitId);
-        if (!responsible) throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Nenhum responsável financeiro ativo para esta unidade. Configure um responsável financeiro no módulo Financeiro primeiro.',
-        });
+        const { getOrCreateDefaultResponsibleForUnit, upsertDoctorUnitPrice } = await import('../db');
+        // Busca o responsável financeiro ativo da unidade, ou cria um padrão automaticamente
+        const responsible = await getOrCreateDefaultResponsibleForUnit(input.unitId, ctx.user.id);
         const id = await upsertDoctorUnitPrice({
           financial_responsible_id: responsible.financial_responsible_id,
           unit_id: input.unitId,
@@ -780,6 +794,6 @@ export const billingRouter = router({
           ends_at: null,
           created_by: ctx.user.id,
         });
-        return { id };
+        return { id, responsible_id: responsible.financial_responsible_id };
       }),
 });

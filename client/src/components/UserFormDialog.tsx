@@ -516,6 +516,8 @@ export default function UserFormDialog({
                   {doctorDetail.unitLinks.map((ul) => {
                     const activePrice = doctorDetail.prices?.find(p => p.unit_id === ul.unit_id);
                     const isEditingThis = editingPriceUnitId === ul.unit_id;
+                    const responsibleName = ul.unit_id ? (doctorDetail as any).unitResponsibles?.[ul.unit_id] : null;
+                    const isDefaultResponsible = responsibleName === "Sem Responsável";
                     return (
                       <div key={ul.unit_id} className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2">
                         <div className="flex-1 min-w-0">
@@ -524,6 +526,14 @@ export default function UserFormDialog({
                             <p className="text-xs text-emerald-600">R$ {parseFloat(activePrice.price_per_report).toFixed(2)} / laudo</p>
                           ) : (
                             <p className="text-xs text-amber-500">Sem preço configurado</p>
+                          )}
+                          {responsibleName && !isDefaultResponsible && (
+                            <p className="text-xs text-muted-foreground">Resp.: {responsibleName}</p>
+                          )}
+                          {isDefaultResponsible && (
+                            <p className="text-xs text-amber-600 flex items-center gap-1">
+                              <span>⚠️</span> Sem responsável configurado — configure no módulo Financeiro
+                            </p>
                           )}
                         </div>
                         {isEditingThis ? (

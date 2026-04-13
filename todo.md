@@ -1054,3 +1054,9 @@
 - [ ] Adicionar aba "Unidades Vinculadas" ao cadastro admin do médico com gestão de vínculos
 - [ ] Adicionar aba "Preços por Unidade" ao cadastro admin do médico com edição inline de preços
 - [ ] Verificar TypeScript, build e fazer commit/push
+
+## FASE 5 — Responsável Financeiro Padrão Automático
+- [x] Criar helper getOrCreateDefaultResponsibleForUnit: busca responsável ativo ou cria "Sem Responsável" automaticamente
+- [x] Atualizar setDoctorPriceDirect para usar o novo helper (sem erro 400 quando unidade não tem responsável)
+- [x] Ajustar frontend para exibir "(sem responsável)" com aviso visual quando responsável for o padrão
+- [ ] Commit e push para GitHub

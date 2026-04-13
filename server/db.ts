@@ -894,6 +894,65 @@ export async function listUnitsForResponsible(financialResponsibleId: number): P
     .where(eq(financial_responsible_units.financial_responsible_id, financialResponsibleId));
 }
 
+// ─── Responsável Padrão Automático ──────────────────────────────────────────
+
+/**
+ * Busca o responsável financeiro ativo para a unidade.
+ * Se não houver nenhum, cria automaticamente um responsável padrão
+ * "Sem Responsável" e o vincula à unidade, para que o admin possa
+ * configurar posteriormente.
+ */
+export async function getOrCreateDefaultResponsibleForUnit(
+  unitId: number,
+  createdBy: number
+): Promise<FinancialResponsibleUnit> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // 1. Verificar se já há responsável ativo
+  const existing = await getActiveResponsibleForUnit(unitId);
+  if (existing) return existing;
+
+  const { eq, like } = await import("drizzle-orm");
+
+  // 2. Verificar se já existe um responsável padrão (evitar duplicatas)
+  const DEFAULT_NAME = "Sem Responsável";
+  const existingDefault = await db.select()
+    .from(financial_responsibles)
+    .where(eq(financial_responsibles.legal_name, DEFAULT_NAME))
+    .limit(1);
+
+  let responsibleId: number;
+  if (existingDefault.length > 0) {
+    responsibleId = existingDefault[0].id;
+  } else {
+    // 3. Criar responsável padrão
+    const result = await db.insert(financial_responsibles).values({
+      person_type: "PJ",
+      legal_name: DEFAULT_NAME,
+      trade_name: "Responsável não configurado",
+      notes: "Criado automaticamente. Configure o responsável financeiro real no módulo Financeiro.",
+      isActive: true,
+    });
+    responsibleId = (result[0] as any).insertId as number;
+  }
+
+  // 4. Vincular responsável à unidade
+  const now = new Date();
+  await db.insert(financial_responsible_units).values({
+    financial_responsible_id: responsibleId,
+    unit_id: unitId,
+    starts_at: now,
+    ends_at: null,
+    created_by: createdBy,
+  });
+
+  // 5. Retornar o vínculo recém-criado
+  const newLink = await getActiveResponsibleForUnit(unitId);
+  if (!newLink) throw new Error("Falha ao criar vínculo de responsável padrão");
+  return newLink;
+}
+
 // ─── Preços do Sistema por Unidade ───────────────────────────────────────────
 
 export async function getActiveSystemPrice(financialResponsibleId: number, unitId: number, atDate?: Date): Promise<BillingSystemUnitPrice | undefined> {
