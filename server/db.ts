@@ -522,11 +522,12 @@ export async function getStudyMetadata(
 export async function getStudyMetadataBatch(
   studyInstanceUids: string[],
   unitId: number
-): Promise<StudyMetadata[]> {
+): Promise<(StudyMetadata & { has_anamnesis: boolean })[]> {
   if (!studyInstanceUids.length) return [];
   const db = await getDb();
   if (!db) return [];
-  return await db
+  // Busca metadados
+  const rows = await db
     .select()
     .from(study_metadata)
     .where(
@@ -535,6 +536,13 @@ export async function getStudyMetadataBatch(
         eq(study_metadata.unit_id, unitId)
       )
     );
+  // Busca quais UIDs têm anamnese registrada
+  const anamnesisRows = await db
+    .select({ study_instance_uid: anamnesis_simple.study_instance_uid })
+    .from(anamnesis_simple)
+    .where(inArray(anamnesis_simple.study_instance_uid, studyInstanceUids));
+  const anamnesisSet = new Set(anamnesisRows.map(r => r.study_instance_uid));
+  return rows.map(r => ({ ...r, has_anamnesis: anamnesisSet.has(r.study_instance_uid) }));
 }
 
 /** Cria ou atualiza os metadados editados de um estudo (upsert por uid+unitId) */

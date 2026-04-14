@@ -1343,10 +1343,17 @@ export function PacsQueryPage() {
                       {canCID ? (
                         <button
                           onClick={() => { setSelectedStudy(study); setIsAnamnesisModalOpen(true); }}
-                          title="CID / Anamnese"
-                          className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-amber-50 text-gray-500 hover:text-amber-700 inline-flex items-center justify-center transition-colors"
+                          title={meta?.has_anamnesis ? 'Anamnese preenchida — clique para editar' : 'Sem anamnese — clique para preencher'}
+                          className={`relative w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
+                            meta?.has_anamnesis
+                              ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              : 'border-gray-200 bg-white text-gray-500 hover:bg-amber-50 hover:text-amber-700'
+                          }`}
                         >
                           <Clipboard className="h-3.5 w-3.5" />
+                          {meta?.has_anamnesis && (
+                            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
+                          )}
                         </button>
                       ) : (
                         <span className="text-gray-300">—</span>

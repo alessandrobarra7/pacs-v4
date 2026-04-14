@@ -602,24 +602,34 @@ export const financeRouter = router({
       const { units } = await import("../../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const [unit] = await db.select().from(units).where(eq(units.id, input.unitId));
-      if (!unit?.orthanc_base_url) {
-        return { ok: false, message: "URL do Orthanc não configurada" };
+      if (!unit?.pacs_ip || !unit?.pacs_port) {
+        return { ok: false, message: "IP ou Porta do PACS não configurados" };
       }
-      try {
-        const headers: Record<string, string> = { "Content-Type": "application/json" };
-        if (unit.orthanc_basic_user && unit.orthanc_basic_pass) {
-          const creds = Buffer.from(`${unit.orthanc_basic_user}:${unit.orthanc_basic_pass}`).toString("base64");
-          headers["Authorization"] = `Basic ${creds}`;
-        }
-        const res = await fetch(`${unit.orthanc_base_url}/system`, { headers, signal: AbortSignal.timeout(5000) });
-        if (res.ok) {
-          const data = await res.json() as any;
-          return { ok: true, message: `Conectado — Orthanc ${data.Version ?? ""}` };
-        }
-        return { ok: false, message: `HTTP ${res.status}: ${res.statusText}` };
-      } catch (err: any) {
-        return { ok: false, message: err.message ?? "Timeout ou erro de rede" };
-      }
+      // Teste TCP: verifica se a porta DICOM está acessível (mesmo protocolo usado pelo C-FIND/C-MOVE)
+      const net = await import("net");
+      return new Promise<{ ok: boolean; message: string }>((resolve) => {
+        const socket = new net.Socket();
+        const timeout = 5000;
+        let resolved = false;
+        const done = (ok: boolean, message: string) => {
+          if (resolved) return;
+          resolved = true;
+          socket.destroy();
+          resolve({ ok, message });
+        };
+        socket.setTimeout(timeout);
+        socket.on("connect", () => {
+          done(true, `Porta ${unit.pacs_port} acessível em ${unit.pacs_ip} — AE Title: ${unit.pacs_ae_title ?? "??"}`);
+        });
+        socket.on("timeout", () => done(false, `Timeout após ${timeout / 1000}s — verifique IP e Porta`));
+        socket.on("error", (err: NodeJS.ErrnoException) => {
+          const msg = err.code === "ECONNREFUSED"
+            ? `Conexão recusada em ${unit.pacs_ip}:${unit.pacs_port} — PACS offline ou porta errada`
+            : err.message;
+          done(false, msg);
+        });
+        socket.connect(unit.pacs_port!, unit.pacs_ip!);
+      });
     }),
 
 });
