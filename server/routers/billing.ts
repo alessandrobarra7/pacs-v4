@@ -829,8 +829,16 @@ export const billingRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getOrCreateDefaultResponsibleForUnit, upsertSystemUnitPrice } = await import('../db');
-        const responsible = await getOrCreateDefaultResponsibleForUnit(input.unitId, ctx.user.id);
+        // C4: Não criar mais "Sem Responsável" automaticamente.
+        // Exigir que a unidade já tenha um responsável financeiro ativo.
+        const { getActiveResponsibleForUnit, upsertSystemUnitPrice } = await import('../db');
+        const responsible = await getActiveResponsibleForUnit(input.unitId);
+        if (!responsible) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Esta unidade não possui um responsável financeiro ativo. Vincule um responsável antes de configurar preços.',
+          });
+        }
         const id = await upsertSystemUnitPrice({
           financial_responsible_id: responsible.financial_responsible_id,
           unit_id: input.unitId,
@@ -861,7 +869,7 @@ export const billingRouter = router({
         return { ok: true };
       }),
 
-    // ── Configurar preço do médico por unidade direto do cadastro admin ──────────
+    // ── Configurar preço do médico por unidade direto do cadastro admin ──────────────────────
     setDoctorPriceDirect: protectedProcedure
       .input(z.object({
         doctorUserId: z.number(),
@@ -871,9 +879,16 @@ export const billingRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getOrCreateDefaultResponsibleForUnit, upsertDoctorUnitPrice } = await import('../db');
-        // Busca o responsável financeiro ativo da unidade, ou cria um padrão automaticamente
-        const responsible = await getOrCreateDefaultResponsibleForUnit(input.unitId, ctx.user.id);
+        // C4: Não criar mais "Sem Responsável" automaticamente.
+        // Exigir que a unidade já tenha um responsável financeiro ativo.
+        const { getActiveResponsibleForUnit, upsertDoctorUnitPrice } = await import('../db');
+        const responsible = await getActiveResponsibleForUnit(input.unitId);
+        if (!responsible) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Esta unidade não possui um responsável financeiro ativo. Vincule um responsável antes de configurar preços.',
+          });
+        }
         const id = await upsertDoctorUnitPrice({
           financial_responsible_id: responsible.financial_responsible_id,
           unit_id: input.unitId,

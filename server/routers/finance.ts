@@ -104,7 +104,15 @@ export const financeRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { contract_revenues } = await import("../../drizzle/schema");
-      const { eq } = await import("drizzle-orm");
+      const { eq, and } = await import("drizzle-orm");
+      // C7: IDOR fix — verificar que o registro pertence ao responsável informado
+      const [row] = await db.select({ id: contract_revenues.id })
+        .from(contract_revenues)
+        .where(and(
+          eq(contract_revenues.id, input.id),
+          eq(contract_revenues.financial_responsible_id, input.financialResponsibleId)
+        ));
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Receita não encontrada ou não pertence a este responsável" });
       await db.delete(contract_revenues).where(eq(contract_revenues.id, input.id));
       return { success: true };
     }),
@@ -199,7 +207,15 @@ export const financeRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { contract_custom_expenses } = await import("../../drizzle/schema");
-      const { eq } = await import("drizzle-orm");
+      const { eq, and } = await import("drizzle-orm");
+      // C7: IDOR fix — verificar que o registro pertence ao responsável informado
+      const [row] = await db.select({ id: contract_custom_expenses.id })
+        .from(contract_custom_expenses)
+        .where(and(
+          eq(contract_custom_expenses.id, input.id),
+          eq(contract_custom_expenses.financial_responsible_id, input.financialResponsibleId)
+        ));
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Gasto não encontrado ou não pertence a este responsável" });
       await db.delete(contract_custom_expenses).where(eq(contract_custom_expenses.id, input.id));
       return { success: true };
     }),
@@ -214,7 +230,7 @@ export const financeRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { unit_doctor_scales, users } = await import("../../drizzle/schema");
       const { eq } = await import("drizzle-orm");
-      return await db
+      const rows = await db
         .select({
           id: unit_doctor_scales.id,
           unit_id: unit_doctor_scales.unit_id,
@@ -232,6 +248,18 @@ export const financeRouter = router({
         .from(unit_doctor_scales)
         .leftJoin(users, eq(users.id, unit_doctor_scales.doctor_user_id))
         .where(eq(unit_doctor_scales.unit_id, input.unitId));
+      // C13: garantir que days_of_week é sempre array (parse seguro)
+      return rows.map((row: typeof rows[0]) => ({
+        ...row,
+        days_of_week: (() => {
+          try {
+            const parsed = typeof row.days_of_week === 'string'
+              ? JSON.parse(row.days_of_week)
+              : row.days_of_week;
+            return Array.isArray(parsed) ? parsed : [];
+          } catch { return []; }
+        })(),
+      }));
     }),
 
   upsertDoctorScale: protectedProcedure
@@ -403,15 +431,34 @@ export const financeRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const { contract_revenues, contract_custom_expenses, billing_cycle_doctor_summary, billing_cycle_system_summary, billing_cycles } = await import("../../drizzle/schema");
-      const { eq, and, gte, lte, sum, sql } = await import("drizzle-orm");
+      const { eq, and, gte, lte, sum, sql: sqlRaw, isNull, or } = await import("drizzle-orm");
 
-      // 1. Receita do contrato (soma de receitas ativas no período)
+      // C9-3A: Receitas filtradas pelo período de competência (starts_at <= fim_período AND (ends_at IS NULL OR ends_at >= início_período))
+      const periodStart = new Date(Date.UTC(input.competenceYear, input.competenceMonth - 1, 1));
+      const periodEnd   = new Date(Date.UTC(input.competenceYear, input.competenceMonth, 1));
       const revenues = await db
         .select()
         .from(contract_revenues)
-        .where(eq(contract_revenues.financial_responsible_id, input.financialResponsibleId));
+        .where(and(
+          eq(contract_revenues.financial_responsible_id, input.financialResponsibleId),
+          lte(contract_revenues.starts_at, periodEnd),
+          or(
+            isNull(contract_revenues.ends_at),
+            gte(contract_revenues.ends_at, periodStart)
+          )
+        ));
 
-      const totalRevenue = revenues.reduce((acc, r) => acc + parseFloat(r.amount as string), 0);
+      // C9-3C: Calcular valor mensal proporcional por periodicidade
+      function monthlyValue(amount: number, periodicity: string): number {
+        switch (periodicity) {
+          case 'monthly':   return amount;
+          case 'quarterly': return amount / 3;
+          case 'yearly':    return amount / 12;
+          case 'one_time':  return 0; // receita única não entra no recorrente mensal
+          default:          return amount;
+        }
+      }
+      const totalRevenue = revenues.reduce((acc, r) => acc + monthlyValue(parseFloat(r.amount as string), r.periodicity ?? 'monthly'), 0);
 
       // 2. Gastos personalizados do mês
       const customExpenses = await db
@@ -425,7 +472,13 @@ export const financeRouter = router({
 
       const totalCustomExpenses = customExpenses.reduce((acc, e) => acc + parseFloat(e.amount as string), 0);
 
-      // 3. Gastos com médicos (via billing_cycle_doctor_summary dos ciclos fechados do responsável)
+      // C9-3B: Gastos com médicos — apenas ciclos FECHADOS que intersectam o período
+      // billing_cycles.starts_at e ends_at são tipo 'date' (string YYYY-MM-DD no MySQL)
+      // sqlRaw já importado acima como alias de sql
+      const periodStartStr = `${input.competenceYear}-${String(input.competenceMonth).padStart(2,'0')}-01`;
+      const nextMonth = input.competenceMonth === 12 ? 1 : input.competenceMonth + 1;
+      const nextYear  = input.competenceMonth === 12 ? input.competenceYear + 1 : input.competenceYear;
+      const periodEndStr = `${nextYear}-${String(nextMonth).padStart(2,'0')}-01`;
       const doctorCycles = await db
         .select({
           amount_due: billing_cycle_doctor_summary.amount_due,
@@ -437,11 +490,14 @@ export const financeRouter = router({
         .where(and(
           eq(billing_cycles.financial_responsible_id, input.financialResponsibleId),
           eq(billing_cycles.cycle_type, "doctor"),
+          eq(billing_cycles.status, "closed"),
+          sqlRaw`${billing_cycles.starts_at} <= ${periodEndStr}`,
+          sqlRaw`${billing_cycles.ends_at} >= ${periodStartStr}`,
         ));
 
       const totalDoctorCost = doctorCycles.reduce((acc, d) => acc + parseFloat(d.amount_due as string), 0);
 
-      // 4. Gastos com sistema (via billing_cycle_system_summary)
+      // C9-3B: Gastos com sistema — apenas ciclos FECHADOS que intersectam o período
       const systemCycles = await db
         .select({
           amount_due: billing_cycle_system_summary.amount_due,
@@ -452,6 +508,9 @@ export const financeRouter = router({
         .where(and(
           eq(billing_cycles.financial_responsible_id, input.financialResponsibleId),
           eq(billing_cycles.cycle_type, "system"),
+          eq(billing_cycles.status, "closed"),
+          sqlRaw`${billing_cycles.starts_at} <= ${periodEndStr}`,
+          sqlRaw`${billing_cycles.ends_at} >= ${periodStartStr}`,
         ));
 
       const totalSystemCost = systemCycles.reduce((acc, s) => acc + parseFloat(s.amount_due as string), 0);
@@ -582,6 +641,14 @@ export const financeRouter = router({
       if (ctx.user.role !== "admin_master" && ctx.user.role !== "unit_admin") {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
+      // C8: unit_admin só pode modificar unidades às quais pertence
+      if (ctx.user.role === "unit_admin") {
+        const { getUserUnitPermission } = await import("../db");
+        const perm = await getUserUnitPermission(ctx.user.id, input.unitId);
+        if (!perm && ctx.user.unit_id !== input.unitId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para modificar esta unidade." });
+        }
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { units } = await import("../../drizzle/schema");
@@ -596,6 +663,14 @@ export const financeRouter = router({
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin_master" && ctx.user.role !== "unit_admin") {
         throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      // C8: unit_admin só pode testar unidades às quais pertence
+      if (ctx.user.role === "unit_admin") {
+        const { getUserUnitPermission } = await import("../db");
+        const perm = await getUserUnitPermission(ctx.user.id, input.unitId);
+        if (!perm && ctx.user.unit_id !== input.unitId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para testar esta unidade." });
+        }
       }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });

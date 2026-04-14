@@ -51,7 +51,7 @@ function MainNav() {
       )}
       {isUnitAdmin && (
         <button
-          onClick={() => navigate("/financeiro/admin")}
+          onClick={() => navigate("/financeiro/unidades")}
           className="px-4 py-1.5 rounded text-sm font-semibold bg-amber-700 text-white flex items-center gap-1.5"
         >
           <DollarSign className="h-3.5 w-3.5" />
@@ -92,8 +92,11 @@ function FinanceSubNav({ active }: { active: string }) {
     { key: "meu-financeiro", label: "Meu Financeiro", path: "/financeiro/meu-financeiro" },
   ];
 
+  // C1: unit_admin e responsavel_financeiro não têm acesso ao /financeiro/admin (403)
+  // Redirecionar para as páginas que eles podem acessar
   const unitAdminItems = [
-    { key: "admin", label: "Admin Financeiro", path: "/financeiro/admin" },
+    { key: "unidades", label: "Unidades", path: "/financeiro/unidades" },
+    { key: "medicos", label: "Médicos", path: "/financeiro/medicos" },
   ];
 
   const items = isAdmin ? adminItems : isMedico ? medicoItems : isUnitAdmin ? unitAdminItems : [];

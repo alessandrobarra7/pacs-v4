@@ -154,6 +154,48 @@ export async function closeReadinessOnReport(params: {
     .where(eq(report_readiness.id, rr.id));
 }
 
+/**
+ * C12: Garante que existe um readiness para o estudo antes de fechar o SLA.
+ * Usado no sign do laudo quando o exame não passou por anamnese.
+ * Se já existir, não faz nada. Se não existir, cria com source='direct_sign'.
+ */
+export async function ensureReadinessExists(params: {
+  studyInstanceUid: string;
+  unitId: number;
+  createdByUserId: number;
+  source: string;
+}) {
+  const db = await getDb();
+  if (!db) return;
+
+  const existing = await db
+    .select({ id: report_readiness.id })
+    .from(report_readiness)
+    .where(and(
+      eq(report_readiness.study_instance_uid, params.studyInstanceUid),
+      eq(report_readiness.unit_id, params.unitId),
+    ))
+    .limit(1);
+
+  if (existing.length > 0) return; // já existe, não criar duplicata
+
+  const sla = await getUnitSla(params.unitId);
+  const now = new Date();
+  const dueAt = sla ? calcDueAt(now, sla.sla_value!, sla.sla_unit!) : null;
+
+  await db.insert(report_readiness).values({
+    study_instance_uid: params.studyInstanceUid,
+    unit_id: params.unitId,
+    readiness_status: "ready_for_reporting",
+    became_ready_at: now,
+    sla_value_snapshot: sla?.sla_value ?? null,
+    sla_unit_snapshot: sla?.sla_unit ?? null,
+    due_at: dueAt,
+    readiness_source: params.source,
+    created_by: params.createdByUserId,
+  });
+}
+
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 export const slaRouter = router({

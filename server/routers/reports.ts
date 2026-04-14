@@ -7,7 +7,7 @@ import {
   resolveUnitFilter,
 } from "../db";
 import { and, inArray } from "drizzle-orm";
-import { closeReadinessOnReport } from "./sla";
+import { closeReadinessOnReport, ensureReadinessExists } from "./sla";
 import { reports } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import sanitizeHtml from "sanitize-html";
@@ -216,10 +216,16 @@ export const reportsRouter = router({
           }
         }
         
-        // Fechar SLA: marcar readiness como 'reported' e calcular sla_met
+        // C12: Garantir que existe readiness antes de fechar (laudos sem anamnese)
         const studyUidForSla = input.study_instance_uid ?? report.study_instance_uid;
         if (studyUidForSla && effectiveUnitId) {
           try {
+            await ensureReadinessExists({
+              studyInstanceUid: studyUidForSla,
+              unitId: effectiveUnitId,
+              createdByUserId: ctx.user.id,
+              source: 'direct_sign',
+            });
             await closeReadinessOnReport({
               studyInstanceUid: studyUidForSla,
               unitId: effectiveUnitId,

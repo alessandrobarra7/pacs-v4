@@ -1176,3 +1176,27 @@
 ### FASE 6 — Testes e entrega
 - [x] Testes de regressão para readiness (primeiro start, edição não reinicia, signReport fecha SLA)
 - [x] Checkpoint e demonstração ao vivo
+
+## AUDITORIA v11 — Correções
+
+### Sprint 1 — Segurança (CRÍTICO/ALTO)
+- [ ] C7: IDOR em deleteContractRevenue e deleteCustomExpense (finance.ts)
+- [ ] C8: saveOrthancConnection + testOrthancConnection sem verificação de posse (finance.ts)
+
+### Sprint 2 — Dados Críticos
+- [ ] C9: getEconomicDashboard — 3 falhas: filtro de data, status de ciclos, periodicidade
+- [ ] C1: FinanceShell — unit_admin navega para /financeiro/admin (403)
+- [ ] C3: Retificação não atualiza billing_visit_events.report_status_snapshot
+
+### Sprint 3 — Integridade
+- [ ] C2: FinanceMeuFinanceiro — unificar para fonte única (Sistema B)
+- [ ] C10: unit_doctor_scales — remover constraint única para suportar histórico
+- [ ] C12: SLA — ensureReadinessExists para laudos assinados sem anamnese
+- [ ] C13: days_of_week — garantir JSON.parse no retorno de listDoctorScales
+
+### Sprint 4 — Limpeza e Débito Técnico
+- [ ] C4: Eliminar gambiarra "Sem Responsável" (getOrCreateDefaultResponsibleForUnit)
+- [ ] C11: Documentar relação compensation_rules vs billing
+- [ ] C14: Documentar precedência de compensation_rules (doctor_user_id null)
+- [ ] C5: FK em billing_visit_events para reports (ON DELETE CASCADE)
+- [ ] C6: Trigger de responsável único ativo por unidade (SQL para VM2)
