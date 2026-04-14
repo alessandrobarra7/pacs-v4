@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,6 +40,16 @@ interface UnitFormDialogProps {
 }
 
 type DialogTab = "dados" | "conexao" | "responsavel" | "medicos" | "equipe" | "custo" | "resumo";
+
+const NAV_ITEMS: { id: DialogTab; label: string; icon: React.ElementType; editOnly?: boolean }[] = [
+  { id: "dados",       label: "Dados",        icon: Settings2 },
+  { id: "conexao",     label: "Conexão",      icon: Wifi,       editOnly: true },
+  { id: "responsavel", label: "Responsável",  icon: UserCheck,  editOnly: true },
+  { id: "medicos",     label: "Médicos",      icon: Stethoscope,editOnly: true },
+  { id: "equipe",      label: "Equipe",       icon: Users,      editOnly: true },
+  { id: "custo",       label: "Custo",        icon: DollarSign, editOnly: true },
+  { id: "resumo",      label: "Resumo",       icon: TrendingUp, editOnly: true },
+];
 
 export default function UnitFormDialog({
   open, onOpenChange, unit, onSave, loading = false,
@@ -98,13 +107,11 @@ export default function UnitFormDialog({
     enabled: isEditing && open,
   });
 
-  // Equipe da unidade
   const { data: teamMembers, refetch: refetchTeam } = trpc.finance.listTeamMembers.useQuery(
     { unitId: unit?.id ?? 0 },
     { enabled: isEditing && !!unit?.id && open && activeTab === "equipe" }
   );
 
-  // Todos os usuários não-médicos para adicionar à equipe
   const { data: allUsers } = trpc.admin.listUsers.useQuery(undefined, {
     enabled: isEditing && open && activeTab === "equipe",
   });
@@ -233,7 +240,6 @@ export default function UnitFormDialog({
   const isDefaultResp = activeResponsible?.legal_name === "Sem Responsável";
   const activeSystemPrice = unitCtx?.activeSystemPrice;
 
-  // Filtra usuários que ainda não estão na equipe e não são médicos
   const teamUserIds = new Set((teamMembers ?? []).map(m => m.id));
   const availableUsers = (allUsers ?? []).filter(u => u.role !== "medico" && !teamUserIds.has(u.id));
 
@@ -242,10 +248,13 @@ export default function UnitFormDialog({
     responsavel_financeiro: "Resp. Financeiro", admin_master: "Admin Master",
   };
 
+  const visibleTabs = NAV_ITEMS.filter(t => !t.editOnly || isEditing);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[92vh] overflow-hidden flex flex-col">
-        <DialogHeader className="pb-2">
+      <DialogContent className="max-w-5xl w-full h-[90vh] max-h-[90vh] p-0 overflow-hidden flex flex-col gap-0">
+        {/* ── HEADER ─────────────────────────────────────────────────────── */}
+        <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
           <DialogTitle className="text-lg font-semibold flex items-center gap-2">
             <Building2 className="h-5 w-5 text-muted-foreground" />
             {isEditing ? `Editar: ${name || "Unidade"}` : "Nova Unidade"}
@@ -257,424 +266,455 @@ export default function UnitFormDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as DialogTab)} className="flex-1 overflow-hidden flex flex-col">
-          {isEditing ? (
-            <TabsList className="grid w-full shrink-0 grid-cols-7 text-[10px]">
-              <TabsTrigger value="dados" className="gap-1 px-1"><Settings2 className="h-3 w-3" />Dados</TabsTrigger>
-              <TabsTrigger value="conexao" className="gap-1 px-1"><Wifi className="h-3 w-3" />Conexão</TabsTrigger>
-              <TabsTrigger value="responsavel" className="gap-1 px-1"><UserCheck className="h-3 w-3" />Responsável</TabsTrigger>
-              <TabsTrigger value="medicos" className="gap-1 px-1"><Stethoscope className="h-3 w-3" />Médicos</TabsTrigger>
-              <TabsTrigger value="equipe" className="gap-1 px-1"><Users className="h-3 w-3" />Equipe</TabsTrigger>
-              <TabsTrigger value="custo" className="gap-1 px-1"><DollarSign className="h-3 w-3" />Custo</TabsTrigger>
-              <TabsTrigger value="resumo" className="gap-1 px-1"><TrendingUp className="h-3 w-3" />Resumo</TabsTrigger>
-            </TabsList>
-          ) : (
-            <TabsList className="grid w-full shrink-0 grid-cols-1">
-              <TabsTrigger value="dados"><Settings2 className="h-3.5 w-3.5 mr-1" />Dados</TabsTrigger>
-            </TabsList>
-          )}
+        {/* ── BODY: sidebar + conteúdo ────────────────────────────────────── */}
+        <div className="flex flex-1 overflow-hidden">
 
-          {/* ── ABA DADOS ─────────────────────────────────────────────────── */}
-          <TabsContent value="dados" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-sm font-medium">Nome da Unidade</Label>
-                <Input value={name} onChange={e => handleNameChange(e.target.value)} className="mt-1" placeholder="Ex: PACS Principal" />
-              </div>
-              <div>
-                <Label className="text-sm font-medium">Slug (URL)</Label>
-                <Input value={slug} onChange={e => setSlug(e.target.value)} className="mt-1 font-mono text-sm" placeholder="pacs-principal" disabled={isEditing} />
-              </div>
-            </div>
-            <div>
-              <Label className="text-sm font-medium">Endereço</Label>
-              <Input value={address} onChange={e => setAddress(e.target.value)} className="mt-1" placeholder="Rua, número, cidade" />
-            </div>
-            <div>
-              <Label className="text-sm font-medium">Equipamentos</Label>
-              <Textarea value={equipmentInfo} onChange={e => setEquipmentInfo(e.target.value)} className="mt-1 text-sm" rows={2} placeholder="Tomógrafo, ressonância..." />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-1">
-                <Label className="text-sm font-medium">IP do PACS (DICOM)</Label>
-                <Input value={pacsIp} onChange={e => setPacsIp(e.target.value)} className="mt-1 font-mono text-sm" placeholder="192.168.1.100" />
-              </div>
-              <div>
-                <Label className="text-sm font-medium">Porta DICOM</Label>
-                <Input value={pacsPort} onChange={e => setPacsPort(e.target.value)} className="mt-1 font-mono text-sm" placeholder="11112" />
-              </div>
-              <div>
-                <Label className="text-sm font-medium">AE Title</Label>
-                <Input value={pacsAeTitle} onChange={e => setPacsAeTitle(e.target.value)} className="mt-1 font-mono text-sm" placeholder="ORTHANC" />
-              </div>
-            </div>
-            <div>
-              <Label className="text-sm font-medium">AE Title Local</Label>
-              <Input value={pacsLocalAeTitle} onChange={e => setPacsLocalAeTitle(e.target.value)} className="mt-1 font-mono text-sm" placeholder="LAUDS" />
-            </div>
-            <div className="border-t border-border pt-4">
-              <Label className="text-sm font-medium">Logo da Unidade</Label>
-              <p className="text-xs text-muted-foreground mt-0.5 mb-2">Aparece no cabeçalho do laudo. PNG com fundo branco, máx. 2 MB.</p>
-              {logoPreview ? (
-                <div className="flex items-start gap-3">
-                  <img src={logoPreview} alt="Logo" className="h-20 max-w-[180px] object-contain border border-gray-200 rounded p-2 bg-white" />
-                  <div className="flex flex-col gap-2 mt-1">
-                    <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 text-xs border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                      <Upload className="h-3.5 w-3.5 text-gray-400" /><span className="text-gray-600">Trocar logo</span>
+          {/* Sidebar de navegação */}
+          <nav className="w-48 shrink-0 border-r border-border bg-muted/30 flex flex-col py-3 gap-0.5 overflow-y-auto">
+            {visibleTabs.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setActiveTab(id)}
+                className={`flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-none transition-colors text-left w-full
+                  ${activeTab === id
+                    ? "bg-background text-foreground border-r-2 border-primary shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-background/60"
+                  }`}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          {/* Área de conteúdo */}
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+
+            {/* ── ABA DADOS ─────────────────────────────────────────────── */}
+            {activeTab === "dados" && (
+              <div className="space-y-5 max-w-2xl">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-4">Informações da Unidade</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm font-medium">Nome da Unidade</Label>
+                      <Input value={name} onChange={e => handleNameChange(e.target.value)} className="mt-1" placeholder="Ex: PACS Principal" />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">Slug (URL)</Label>
+                      <Input value={slug} onChange={e => setSlug(e.target.value)} className="mt-1 font-mono text-sm" placeholder="pacs-principal" disabled={isEditing} />
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <Label className="text-sm font-medium">Endereço</Label>
+                    <Input value={address} onChange={e => setAddress(e.target.value)} className="mt-1" placeholder="Rua, número, cidade" />
+                  </div>
+                  <div className="mt-4">
+                    <Label className="text-sm font-medium">Equipamentos</Label>
+                    <Textarea value={equipmentInfo} onChange={e => setEquipmentInfo(e.target.value)} className="mt-1 text-sm" rows={2} placeholder="Tomógrafo, ressonância..." />
+                  </div>
+                </div>
+
+                <div className="border-t border-border pt-5">
+                  <h3 className="text-sm font-semibold text-foreground mb-4">Conexão DICOM</h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-1">
+                      <Label className="text-sm font-medium">IP do PACS</Label>
+                      <Input value={pacsIp} onChange={e => setPacsIp(e.target.value)} className="mt-1 font-mono text-sm" placeholder="192.168.1.100" />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">Porta DICOM</Label>
+                      <Input value={pacsPort} onChange={e => setPacsPort(e.target.value)} className="mt-1 font-mono text-sm" placeholder="11112" />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">AE Title</Label>
+                      <Input value={pacsAeTitle} onChange={e => setPacsAeTitle(e.target.value)} className="mt-1 font-mono text-sm" placeholder="ORTHANC" />
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <Label className="text-sm font-medium">AE Title Local</Label>
+                    <Input value={pacsLocalAeTitle} onChange={e => setPacsLocalAeTitle(e.target.value)} className="mt-1 font-mono text-sm" placeholder="LAUDS" />
+                  </div>
+                </div>
+
+                <div className="border-t border-border pt-5">
+                  <h3 className="text-sm font-semibold text-foreground mb-3">Logo da Unidade</h3>
+                  <p className="text-xs text-muted-foreground mb-3">Aparece no cabeçalho do laudo. PNG com fundo branco, máx. 2 MB.</p>
+                  {logoPreview ? (
+                    <div className="flex items-start gap-4">
+                      <img src={logoPreview} alt="Logo" className="h-20 max-w-[200px] object-contain border border-gray-200 rounded p-2 bg-white" />
+                      <div className="flex flex-col gap-2 mt-1">
+                        <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 text-xs border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
+                          <Upload className="h-3.5 w-3.5 text-gray-400" /><span className="text-gray-600">Trocar logo</span>
+                          <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+                        </label>
+                        {unit?.id && (
+                          <button type="button" onClick={handleRemoveLogo} disabled={removingLogo || removeLogo.isPending}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-50">
+                            {removingLogo ? <span className="animate-spin h-3.5 w-3.5 border-2 border-red-400 border-t-transparent rounded-full" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            Remover logo
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="flex items-center gap-3 cursor-pointer px-4 py-4 border border-dashed border-gray-300 rounded-lg hover:bg-gray-50 transition-colors max-w-xs">
+                      <ImageOff className="h-6 w-6 text-gray-300 shrink-0" />
+                      <div><p className="text-sm text-gray-600">Nenhum logo cadastrado</p><p className="text-xs text-gray-400">Clique para fazer upload</p></div>
                       <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
                     </label>
-                    {unit?.id && (
-                      <button type="button" onClick={handleRemoveLogo} disabled={removingLogo || removeLogo.isPending}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-50">
-                        {removingLogo ? <span className="animate-spin h-3.5 w-3.5 border-2 border-red-400 border-t-transparent rounded-full" /> : <Trash2 className="h-3.5 w-3.5" />}
-                        Remover logo
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <label className="flex items-center gap-2 cursor-pointer px-3 py-3 border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                  <ImageOff className="h-5 w-5 text-gray-300" />
-                  <div><p className="text-sm text-gray-600">Nenhum logo cadastrado</p><p className="text-xs text-gray-400">Clique para fazer upload</p></div>
-                  <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
-                </label>
-              )}
-              {logoFile && <p className="text-xs text-amber-600 flex items-center gap-1 mt-2"><Upload className="h-3 w-3" />Novo logo será salvo ao clicar em "Salvar Alterações"</p>}
-            </div>
-            <div className="flex items-center gap-3 border-t border-border pt-4">
-              <Switch checked={isActive} onCheckedChange={setIsActive} />
-              <div>
-                <span className="text-sm font-medium">{isActive ? "Unidade Ativa" : "Unidade Desativada"}</span>
-                <p className="text-xs text-muted-foreground">{isActive ? "Novos exames podem ser recebidos" : "Unidade bloqueada para novos exames"}</p>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* ── ABA CONEXÃO ORTHANC ────────────────────────────────────────── */}
-          {isEditing && (
-            <TabsContent value="conexao" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
-              <div className="flex items-center gap-2">
-                <Wifi className="h-4 w-4 text-blue-600" />
-                <Label className="text-sm font-semibold">Conexão Orthanc (API REST)</Label>
-              </div>
-              <p className="text-xs text-muted-foreground">Configure a URL base do Orthanc para integração com o visualizador e consultas de metadados.</p>
-
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-sm font-medium">URL Base do Orthanc (interna)</Label>
-                  <Input value={orthancUrl} onChange={e => setOrthancUrl(e.target.value)}
-                    className="mt-1 font-mono text-sm" placeholder="http://192.168.1.100:8042" />
-                  <p className="text-xs text-muted-foreground mt-0.5">Usada pelo servidor para consultas internas</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium">URL Pública do Orthanc (opcional)</Label>
-                  <Input value={orthancPublicUrl} onChange={e => setOrthancPublicUrl(e.target.value)}
-                    className="mt-1 font-mono text-sm" placeholder="https://pacs.minhaclinica.com.br" />
-                  <p className="text-xs text-muted-foreground mt-0.5">Usada pelo frontend para abrir o visualizador</p>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-sm font-medium">Usuário HTTP Basic</Label>
-                    <Input value={orthancUser} onChange={e => setOrthancUser(e.target.value)}
-                      className="mt-1" placeholder="orthanc" autoComplete="off" />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">Senha HTTP Basic</Label>
-                    <Input type="password" value={orthancPass} onChange={e => setOrthancPass(e.target.value)}
-                      className="mt-1" placeholder="••••••••" autoComplete="new-password" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 pt-2">
-                <Button type="button" size="sm" onClick={handleSaveOrthanc} disabled={saveOrthancConnection.isPending}>
-                  {saveOrthancConnection.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Check className="h-3.5 w-3.5 mr-1" />}
-                  Salvar Conexão
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={handleTestOrthanc} disabled={testingOrthanc || !orthancUrl}>
-                  {testingOrthanc ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wifi className="h-3.5 w-3.5 mr-1" />}
-                  Testar Conexão
-                </Button>
-              </div>
-
-              {orthancTestResult && (
-                <div className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${orthancTestResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
-                  {orthancTestResult.ok ? <Wifi className="h-4 w-4 shrink-0 mt-0.5" /> : <WifiOff className="h-4 w-4 shrink-0 mt-0.5" />}
-                  <span>{orthancTestResult.message}</span>
-                </div>
-              )}
-
-              <div className="border-t border-border pt-4">
-                <p className="text-xs font-medium text-muted-foreground mb-1">Conexão DICOM (configurada na aba Dados)</p>
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div className="rounded border border-border bg-muted/30 px-2 py-1.5">
-                    <span className="text-muted-foreground">IP: </span><span className="font-mono">{pacsIp || "—"}</span>
-                  </div>
-                  <div className="rounded border border-border bg-muted/30 px-2 py-1.5">
-                    <span className="text-muted-foreground">Porta: </span><span className="font-mono">{pacsPort || "—"}</span>
-                  </div>
-                  <div className="rounded border border-border bg-muted/30 px-2 py-1.5">
-                    <span className="text-muted-foreground">AE: </span><span className="font-mono">{pacsAeTitle || "—"}</span>
-                  </div>
-                </div>
-              </div>
-            </TabsContent>
-          )}
-
-          {/* ── ABA RESPONSÁVEL ────────────────────────────────────────────── */}
-          {isEditing && (
-            <TabsContent value="responsavel" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
-              <div className="flex items-center gap-2">
-                <UserCheck className="h-4 w-4 text-blue-600" />
-                <Label className="text-sm font-semibold">Responsável Financeiro</Label>
-              </div>
-              {activeResponsible ? (
-                <div className={`rounded-lg border p-4 ${isDefaultResp ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
-                  {isDefaultResp && (
-                    <div className="flex items-center gap-2 mb-2">
-                      <AlertTriangle className="h-4 w-4 text-amber-600" />
-                      <p className="text-xs text-amber-700 font-medium">Responsável padrão — configure um responsável real</p>
-                    </div>
                   )}
-                  <p className="text-sm font-semibold">{activeResponsible.legal_name}</p>
-                  {activeResponsible.trade_name && <p className="text-xs text-muted-foreground">{activeResponsible.trade_name}</p>}
-                  {activeResponsible.email && <p className="text-xs text-muted-foreground mt-1">{activeResponsible.email}</p>}
-                  {activeResponsible.phone && <p className="text-xs text-muted-foreground">{activeResponsible.phone}</p>}
-                  <p className="text-xs text-muted-foreground mt-1">Vigente desde {new Date(activeResponsible.starts_at!).toLocaleDateString("pt-BR")}</p>
+                  {logoFile && <p className="text-xs text-amber-600 flex items-center gap-1 mt-2"><Upload className="h-3 w-3" />Novo logo será salvo ao clicar em "Salvar Alterações"</p>}
                 </div>
-              ) : (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 flex items-center gap-3">
-                  <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+
+                <div className="flex items-center gap-3 border-t border-border pt-5">
+                  <Switch checked={isActive} onCheckedChange={setIsActive} />
                   <div>
-                    <p className="text-sm font-medium text-amber-800">Sem responsável configurado</p>
-                    <p className="text-xs text-amber-700">Configure um responsável para habilitar o módulo financeiro desta unidade.</p>
+                    <span className="text-sm font-medium">{isActive ? "Unidade Ativa" : "Unidade Desativada"}</span>
+                    <p className="text-xs text-muted-foreground">{isActive ? "Novos exames podem ser recebidos" : "Unidade bloqueada para novos exames"}</p>
                   </div>
                 </div>
-              )}
-              <div className="border-t border-border pt-4">
-                <Label className="text-sm font-medium">Vincular responsável</Label>
-                <p className="text-xs text-muted-foreground mt-0.5 mb-2">Selecione um responsável cadastrado para vincular a esta unidade.</p>
-                <div className="flex gap-2">
-                  <select value={selectedResponsibleId ?? ""} onChange={e => setSelectedResponsibleId(e.target.value ? Number(e.target.value) : null)}
-                    className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring">
-                    <option value="">Selecione um responsável...</option>
-                    {responsibles?.filter(r => r.isActive && r.legal_name !== "Sem Responsável").map(r => (
-                      <option key={r.id} value={r.id}>{r.legal_name}{r.trade_name ? ` (${r.trade_name})` : ""}</option>
-                    ))}
-                  </select>
-                  <Button type="button" size="sm" disabled={!selectedResponsibleId || linkResponsibleDirect.isPending} onClick={handleLinkResponsible}>
-                    {linkResponsibleDirect.isPending ? "Vinculando..." : "Vincular"}
+
+                <div className="flex justify-end gap-3 border-t border-border pt-5">
+                  <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>Cancelar</Button>
+                  <Button onClick={handleSave} disabled={loading || updateLogo.isPending}>
+                    {loading || updateLogo.isPending ? "Salvando..." : unit ? "Salvar Alterações" : "Criar Unidade"}
                   </Button>
                 </div>
               </div>
-              {unitCtx?.responsibleHistory && unitCtx.responsibleHistory.length > 1 && (
-                <div className="border-t border-border pt-3">
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Histórico de responsáveis</p>
-                  <div className="space-y-1">
-                    {unitCtx.responsibleHistory.map((rh) => (
-                      <div key={rh.link_id} className="flex items-center justify-between text-xs text-muted-foreground py-1 border-b border-border/30 last:border-0">
-                        <span className={rh.ends_at ? "line-through opacity-50" : "font-medium"}>{rh.legal_name}</span>
-                        <span>{new Date(rh.starts_at!).toLocaleDateString("pt-BR")}</span>
-                      </div>
-                    ))}
-                  </div>
+            )}
+
+            {/* ── ABA CONEXÃO ORTHANC ───────────────────────────────────── */}
+            {activeTab === "conexao" && isEditing && (
+              <div className="space-y-5 max-w-2xl">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
+                    <Wifi className="h-4 w-4 text-blue-600" /> Conexão Orthanc (API REST)
+                  </h3>
+                  <p className="text-xs text-muted-foreground">Configure a URL base do Orthanc para integração com o visualizador e consultas de metadados.</p>
                 </div>
-              )}
-            </TabsContent>
-          )}
 
-          {/* ── ABA MÉDICOS ────────────────────────────────────────────────── */}
-          {isEditing && (
-            <TabsContent value="medicos" className="flex-1 overflow-y-auto mt-0 pt-2">
-              <UnitDoctorsTab unitId={unit!.id!} />
-            </TabsContent>
-          )}
-
-          {/* ── ABA EQUIPE ─────────────────────────────────────────────────── */}
-          {isEditing && (
-            <TabsContent value="equipe" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-indigo-600" />
-                <Label className="text-sm font-semibold">Equipe da Unidade</Label>
-              </div>
-              <p className="text-xs text-muted-foreground">Operadores, visualizadores e administradores de unidade vinculados a este PACS.</p>
-
-              {/* Adicionar membro */}
-              <div className="flex gap-2">
-                <select value={addingTeamUserId ?? ""} onChange={e => setAddingTeamUserId(e.target.value ? Number(e.target.value) : null)}
-                  className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
-                  <option value="">Adicionar membro à equipe...</option>
-                  {availableUsers.map(u => (
-                    <option key={u.id} value={u.id}>{u.name} ({ROLE_LABELS[u.role] ?? u.role})</option>
-                  ))}
-                </select>
-                <Button type="button" size="sm" disabled={!addingTeamUserId || addTeamMember.isPending}
-                  onClick={() => addingTeamUserId && addTeamMember.mutate({ unitId: unit!.id!, userId: addingTeamUserId })}>
-                  <Plus className="h-3.5 w-3.5 mr-1" />Adicionar
-                </Button>
-              </div>
-
-              {/* Lista de membros */}
-              {teamMembers && teamMembers.length > 0 ? (
-                <div className="space-y-2">
-                  {teamMembers.map(m => (
-                    <div key={m.id} className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
-                      <div>
-                        <p className="text-sm font-medium">{m.name}</p>
-                        <p className="text-xs text-muted-foreground">{ROLE_LABELS[m.role] ?? m.role} · @{m.username}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={m.isActive ? "default" : "secondary"} className="text-xs">
-                          {m.isActive ? "Ativo" : "Inativo"}
-                        </Badge>
-                        <button type="button"
-                          onClick={() => removeTeamMember.mutate({ unitId: unit!.id!, userId: m.id })}
-                          disabled={removeTeamMember.isPending}
-                          className="p-1.5 rounded text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors">
-                          <UserMinus className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Users className="h-8 w-8 mx-auto mb-2 opacity-20" />
-                  <p className="text-sm">Nenhum membro de equipe vinculado</p>
-                  <p className="text-xs mt-1">Médicos são gerenciados na aba Médicos</p>
-                </div>
-              )}
-            </TabsContent>
-          )}
-
-          {/* ── ABA CUSTO ──────────────────────────────────────────────────── */}
-          {isEditing && (
-            <TabsContent value="custo" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
-              <div className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-emerald-600" />
-                <Label className="text-sm font-semibold">Custo do Sistema por Laudo</Label>
-              </div>
-              <p className="text-xs text-muted-foreground">Valor cobrado pelo sistema por laudo assinado nesta unidade.</p>
-              <div className="rounded-lg border border-border bg-background p-4">
-                <div className="flex items-center justify-between">
+                <div className="space-y-4">
                   <div>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Custo vigente</p>
-                    {activeSystemPrice ? (
-                      <p className="text-2xl font-bold text-emerald-600 mt-1">
-                        R$ {parseFloat(activeSystemPrice.price_per_report).toFixed(2)}<span className="text-sm font-normal text-muted-foreground ml-1">/ laudo</span>
-                      </p>
-                    ) : (
-                      <p className="text-sm text-amber-500 mt-1">Não configurado</p>
-                    )}
-                    {activeSystemPrice && <p className="text-xs text-muted-foreground mt-0.5">Desde {new Date(activeSystemPrice.starts_at!).toLocaleDateString("pt-BR")}</p>}
+                    <Label className="text-sm font-medium">URL Base do Orthanc (interna)</Label>
+                    <Input value={orthancUrl} onChange={e => setOrthancUrl(e.target.value)} className="mt-1 font-mono text-sm" placeholder="http://192.168.1.100:8042" />
+                    <p className="text-xs text-muted-foreground mt-1">Usada pelo servidor para consultas internas</p>
                   </div>
-                  {!editingSystemPrice && (
-                    <button type="button" onClick={() => { setEditingSystemPrice(true); setSystemPriceValue(activeSystemPrice ? parseFloat(activeSystemPrice.price_per_report).toFixed(2) : ""); }}
-                      className="p-2 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                  )}
+                  <div>
+                    <Label className="text-sm font-medium">URL Pública do Orthanc (opcional)</Label>
+                    <Input value={orthancPublicUrl} onChange={e => setOrthancPublicUrl(e.target.value)} className="mt-1 font-mono text-sm" placeholder="https://pacs.minhaclinica.com.br" />
+                    <p className="text-xs text-muted-foreground mt-1">Usada pelo frontend para abrir o visualizador</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm font-medium">Usuário HTTP Basic</Label>
+                      <Input value={orthancUser} onChange={e => setOrthancUser(e.target.value)} className="mt-1" placeholder="orthanc" autoComplete="off" />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">Senha HTTP Basic</Label>
+                      <Input type="password" value={orthancPass} onChange={e => setOrthancPass(e.target.value)} className="mt-1" placeholder="••••••••" autoComplete="new-password" />
+                    </div>
+                  </div>
                 </div>
-                {editingSystemPrice && (
-                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border">
-                    <span className="text-sm text-muted-foreground">R$</span>
-                    <Input value={systemPriceValue} onChange={e => setSystemPriceValue(e.target.value)} className="h-8 w-28 text-sm text-right" placeholder="0.00" autoFocus
-                      onKeyDown={e => { if (e.key === "Enter") handleSaveSystemPrice(); if (e.key === "Escape") setEditingSystemPrice(false); }} />
-                    <span className="text-sm text-muted-foreground">/ laudo</span>
-                    <button type="button" onClick={handleSaveSystemPrice} disabled={setSystemPriceDirect.isPending}
-                      className="p-1.5 rounded text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-50"><Check className="h-4 w-4" /></button>
-                    <button type="button" onClick={() => setEditingSystemPrice(false)}
-                      className="p-1.5 rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-4 w-4" /></button>
+
+                <div className="flex items-center gap-3 pt-2">
+                  <Button type="button" onClick={handleSaveOrthanc} disabled={saveOrthancConnection.isPending}>
+                    {saveOrthancConnection.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
+                    Salvar Conexão
+                  </Button>
+                  <Button type="button" variant="outline" onClick={handleTestOrthanc} disabled={testingOrthanc || !orthancUrl}>
+                    {testingOrthanc ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wifi className="h-4 w-4 mr-2" />}
+                    Testar Conexão
+                  </Button>
+                </div>
+
+                {orthancTestResult && (
+                  <div className={`flex items-start gap-3 rounded-lg border p-4 text-sm ${orthancTestResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
+                    {orthancTestResult.ok ? <Wifi className="h-4 w-4 shrink-0 mt-0.5" /> : <WifiOff className="h-4 w-4 shrink-0 mt-0.5" />}
+                    <span>{orthancTestResult.message}</span>
+                  </div>
+                )}
+
+                <div className="border-t border-border pt-4">
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Conexão DICOM (configurada na aba Dados)</p>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="rounded border border-border bg-muted/30 px-3 py-2">
+                      <span className="text-muted-foreground">IP: </span><span className="font-mono">{pacsIp || "—"}</span>
+                    </div>
+                    <div className="rounded border border-border bg-muted/30 px-3 py-2">
+                      <span className="text-muted-foreground">Porta: </span><span className="font-mono">{pacsPort || "—"}</span>
+                    </div>
+                    <div className="rounded border border-border bg-muted/30 px-3 py-2">
+                      <span className="text-muted-foreground">AE: </span><span className="font-mono">{pacsAeTitle || "—"}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── ABA RESPONSÁVEL ──────────────────────────────────────── */}
+            {activeTab === "responsavel" && isEditing && (
+              <div className="space-y-5 max-w-2xl">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
+                    <UserCheck className="h-4 w-4 text-blue-600" /> Responsável Financeiro
+                  </h3>
+                  <p className="text-xs text-muted-foreground">Pessoa ou empresa responsável pelo contrato financeiro desta unidade.</p>
+                </div>
+
+                {activeResponsible ? (
+                  <div className={`rounded-lg border p-4 ${isDefaultResp ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+                    {isDefaultResp && (
+                      <div className="flex items-center gap-2 mb-3">
+                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                        <p className="text-xs text-amber-700 font-medium">Responsável padrão — configure um responsável real</p>
+                      </div>
+                    )}
+                    <p className="text-sm font-semibold">{activeResponsible.legal_name}</p>
+                    {activeResponsible.trade_name && <p className="text-xs text-muted-foreground mt-0.5">{activeResponsible.trade_name}</p>}
+                    {activeResponsible.email && <p className="text-xs text-muted-foreground mt-1">{activeResponsible.email}</p>}
+                    {activeResponsible.phone && <p className="text-xs text-muted-foreground">{activeResponsible.phone}</p>}
+                    <p className="text-xs text-muted-foreground mt-1">Vigente desde {new Date(activeResponsible.starts_at!).toLocaleDateString("pt-BR")}</p>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 flex items-center gap-3">
+                    <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-800">Sem responsável configurado</p>
+                      <p className="text-xs text-amber-700">Configure um responsável para habilitar o módulo financeiro desta unidade.</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="border-t border-border pt-4">
+                  <Label className="text-sm font-medium">Vincular responsável</Label>
+                  <p className="text-xs text-muted-foreground mt-1 mb-3">Selecione um responsável cadastrado para vincular a esta unidade.</p>
+                  <div className="flex gap-3">
+                    <select value={selectedResponsibleId ?? ""} onChange={e => setSelectedResponsibleId(e.target.value ? Number(e.target.value) : null)}
+                      className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring">
+                      <option value="">Selecione um responsável...</option>
+                      {responsibles?.filter(r => r.isActive && r.legal_name !== "Sem Responsável").map(r => (
+                        <option key={r.id} value={r.id}>{r.legal_name}{r.trade_name ? ` (${r.trade_name})` : ""}</option>
+                      ))}
+                    </select>
+                    <Button type="button" disabled={!selectedResponsibleId || linkResponsibleDirect.isPending} onClick={handleLinkResponsible}>
+                      {linkResponsibleDirect.isPending ? "Vinculando..." : "Vincular"}
+                    </Button>
+                  </div>
+                </div>
+
+                {unitCtx?.responsibleHistory && unitCtx.responsibleHistory.length > 1 && (
+                  <div className="border-t border-border pt-4">
+                    <p className="text-xs font-medium text-muted-foreground mb-3">Histórico de responsáveis</p>
+                    <div className="space-y-1">
+                      {unitCtx.responsibleHistory.map((rh) => (
+                        <div key={rh.link_id} className="flex items-center justify-between text-xs text-muted-foreground py-2 border-b border-border/30 last:border-0">
+                          <span className={rh.ends_at ? "line-through opacity-50" : "font-medium"}>{rh.legal_name}</span>
+                          <span>{new Date(rh.starts_at!).toLocaleDateString("pt-BR")}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
-              {unitCtx?.systemPriceHistory && unitCtx.systemPriceHistory.length > 0 && (
-                <div className="border-t border-border pt-3">
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Histórico de custos</p>
-                  <div className="space-y-1">
-                    {unitCtx.systemPriceHistory.map((sp) => (
-                      <div key={sp.id} className="flex items-center justify-between text-xs text-muted-foreground py-1 border-b border-border/30 last:border-0">
-                        <span>{new Date(sp.starts_at!).toLocaleDateString("pt-BR")}</span>
-                        <span className={sp.ends_at ? "line-through opacity-50" : "text-emerald-600 font-medium"}>R$ {parseFloat(sp.price_per_report).toFixed(2)}</span>
-                        <span>{sp.ends_at ? "Encerrado" : "Vigente"}</span>
+            )}
+
+            {/* ── ABA MÉDICOS ──────────────────────────────────────────── */}
+            {activeTab === "medicos" && isEditing && (
+              <div className="h-full">
+                <UnitDoctorsTab unitId={unit!.id!} />
+              </div>
+            )}
+
+            {/* ── ABA EQUIPE ───────────────────────────────────────────── */}
+            {activeTab === "equipe" && isEditing && (
+              <div className="space-y-5 max-w-2xl">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
+                    <Users className="h-4 w-4 text-indigo-600" /> Equipe da Unidade
+                  </h3>
+                  <p className="text-xs text-muted-foreground">Operadores, visualizadores e administradores de unidade vinculados a este PACS. Médicos são gerenciados na aba Médicos.</p>
+                </div>
+
+                <div className="flex gap-3">
+                  <select value={addingTeamUserId ?? ""} onChange={e => setAddingTeamUserId(e.target.value ? Number(e.target.value) : null)}
+                    className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                    <option value="">Selecionar usuário para adicionar...</option>
+                    {availableUsers.map(u => (
+                      <option key={u.id} value={u.id}>{u.name} — {ROLE_LABELS[u.role] ?? u.role}</option>
+                    ))}
+                  </select>
+                  <Button type="button" disabled={!addingTeamUserId || addTeamMember.isPending}
+                    onClick={() => addingTeamUserId && addTeamMember.mutate({ unitId: unit!.id!, userId: addingTeamUserId })}>
+                    <Plus className="h-4 w-4 mr-2" />Adicionar
+                  </Button>
+                </div>
+
+                {teamMembers && teamMembers.length > 0 ? (
+                  <div className="space-y-2">
+                    {teamMembers.map(m => (
+                      <div key={m.id} className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
+                        <div>
+                          <p className="text-sm font-medium">{m.name}</p>
+                          <p className="text-xs text-muted-foreground">{ROLE_LABELS[m.role] ?? m.role} · @{m.username}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Badge variant={m.isActive ? "default" : "secondary"} className="text-xs">
+                            {m.isActive ? "Ativo" : "Inativo"}
+                          </Badge>
+                          <button type="button"
+                            onClick={() => removeTeamMember.mutate({ unitId: unit!.id!, userId: m.id })}
+                            disabled={removeTeamMember.isPending}
+                            className="p-1.5 rounded text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors">
+                            <UserMinus className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-            </TabsContent>
-          )}
-
-          {/* ── ABA RESUMO ─────────────────────────────────────────────────── */}
-          {isEditing && (
-            <TabsContent value="resumo" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-blue-600" />
-                <Label className="text-sm font-semibold">Resumo Financeiro</Label>
-                <span className="text-xs text-muted-foreground">(ciclo corrente)</span>
+                ) : (
+                  <div className="text-center py-12 text-muted-foreground border border-dashed border-border rounded-lg">
+                    <Users className="h-10 w-10 mx-auto mb-3 opacity-20" />
+                    <p className="text-sm">Nenhum membro de equipe vinculado</p>
+                    <p className="text-xs mt-1">Use o seletor acima para adicionar membros</p>
+                  </div>
+                )}
               </div>
-              {unitCtx ? (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-lg border border-border bg-background p-3">
-                      <p className="text-xs text-muted-foreground font-medium">Laudos</p>
-                      <p className="text-2xl font-bold mt-0.5">{unitCtx.financialSummary.totalReports}</p>
+            )}
+
+            {/* ── ABA CUSTO ────────────────────────────────────────────── */}
+            {activeTab === "custo" && isEditing && (
+              <div className="space-y-5 max-w-2xl">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
+                    <DollarSign className="h-4 w-4 text-emerald-600" /> Custo do Sistema por Laudo
+                  </h3>
+                  <p className="text-xs text-muted-foreground">Valor cobrado pelo sistema por laudo assinado nesta unidade.</p>
+                </div>
+
+                <div className="rounded-lg border border-border bg-background p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Custo vigente</p>
+                      {activeSystemPrice ? (
+                        <p className="text-3xl font-bold text-emerald-600 mt-1">
+                          R$ {parseFloat(activeSystemPrice.price_per_report).toFixed(2)}
+                          <span className="text-base font-normal text-muted-foreground ml-2">/ laudo</span>
+                        </p>
+                      ) : (
+                        <p className="text-sm text-amber-500 mt-2">Não configurado</p>
+                      )}
+                      {activeSystemPrice && <p className="text-xs text-muted-foreground mt-1">Desde {new Date(activeSystemPrice.starts_at!).toLocaleDateString("pt-BR")}</p>}
                     </div>
-                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-                      <p className="text-xs text-emerald-700 font-medium">Custo médicos</p>
-                      <p className="text-2xl font-bold text-emerald-700 mt-0.5">R$ {parseFloat(unitCtx.financialSummary.totalDoctorAmount).toFixed(2)}</p>
+                    {!editingSystemPrice && (
+                      <button type="button" onClick={() => { setEditingSystemPrice(true); setSystemPriceValue(activeSystemPrice ? parseFloat(activeSystemPrice.price_per_report).toFixed(2) : ""); }}
+                        className="p-2 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  {editingSystemPrice && (
+                    <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border">
+                      <span className="text-sm text-muted-foreground">R$</span>
+                      <Input value={systemPriceValue} onChange={e => setSystemPriceValue(e.target.value)} className="h-9 w-32 text-sm text-right" placeholder="0.00" autoFocus
+                        onKeyDown={e => { if (e.key === "Enter") handleSaveSystemPrice(); if (e.key === "Escape") setEditingSystemPrice(false); }} />
+                      <span className="text-sm text-muted-foreground">/ laudo</span>
+                      <button type="button" onClick={handleSaveSystemPrice} disabled={setSystemPriceDirect.isPending}
+                        className="p-2 rounded text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-50"><Check className="h-4 w-4" /></button>
+                      <button type="button" onClick={() => setEditingSystemPrice(false)}
+                        className="p-2 rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-4 w-4" /></button>
                     </div>
-                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
-                      <p className="text-xs text-blue-700 font-medium">Custo sistema</p>
-                      <p className="text-2xl font-bold text-blue-700 mt-0.5">R$ {parseFloat(unitCtx.financialSummary.totalSystemAmount).toFixed(2)}</p>
-                    </div>
-                    <div className="rounded-lg border border-purple-200 bg-purple-50 p-3">
-                      <p className="text-xs text-purple-700 font-medium">Total geral</p>
-                      <p className="text-2xl font-bold text-purple-700 mt-0.5">R$ {parseFloat(unitCtx.financialSummary.totalGeral).toFixed(2)}</p>
+                  )}
+                </div>
+
+                {unitCtx?.systemPriceHistory && unitCtx.systemPriceHistory.length > 0 && (
+                  <div className="border-t border-border pt-4">
+                    <p className="text-xs font-medium text-muted-foreground mb-3">Histórico de custos</p>
+                    <div className="space-y-1">
+                      {unitCtx.systemPriceHistory.map((sp) => (
+                        <div key={sp.id} className="flex items-center justify-between text-xs text-muted-foreground py-2 border-b border-border/30 last:border-0">
+                          <span>{new Date(sp.starts_at!).toLocaleDateString("pt-BR")}</span>
+                          <span className={sp.ends_at ? "line-through opacity-50" : "text-emerald-600 font-medium"}>R$ {parseFloat(sp.price_per_report).toFixed(2)}</span>
+                          <span>{sp.ends_at ? "Encerrado" : "Vigente"}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  {unitCtx.doctorPrices && unitCtx.doctorPrices.length > 0 && (
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground mb-2">Médicos com preço configurado</p>
-                      <div className="space-y-1">
-                        {unitCtx.doctorPrices.map((dp) => (
-                          <div key={dp.id} className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2">
-                            <p className="text-sm font-medium">{dp.doctor_name}</p>
-                            <p className="text-sm text-emerald-600 font-medium">R$ {parseFloat(dp.price_per_report).toFixed(2)}/laudo</p>
-                          </div>
-                        ))}
+                )}
+              </div>
+            )}
+
+            {/* ── ABA RESUMO ───────────────────────────────────────────── */}
+            {activeTab === "resumo" && isEditing && (
+              <div className="space-y-5 max-w-2xl">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
+                    <TrendingUp className="h-4 w-4 text-blue-600" /> Resumo Financeiro
+                  </h3>
+                  <p className="text-xs text-muted-foreground">Ciclo corrente — dados consolidados desta unidade.</p>
+                </div>
+
+                {unitCtx ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="rounded-lg border border-border bg-background p-4">
+                        <p className="text-xs text-muted-foreground font-medium">Laudos no ciclo</p>
+                        <p className="text-3xl font-bold mt-1">{unitCtx.financialSummary.totalReports}</p>
+                      </div>
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+                        <p className="text-xs text-emerald-700 font-medium">Custo médicos</p>
+                        <p className="text-3xl font-bold text-emerald-700 mt-1">R$ {parseFloat(unitCtx.financialSummary.totalDoctorAmount).toFixed(2)}</p>
+                      </div>
+                      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                        <p className="text-xs text-blue-700 font-medium">Custo sistema</p>
+                        <p className="text-3xl font-bold text-blue-700 mt-1">R$ {parseFloat(unitCtx.financialSummary.totalSystemAmount).toFixed(2)}</p>
+                      </div>
+                      <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
+                        <p className="text-xs text-purple-700 font-medium">Total geral</p>
+                        <p className="text-3xl font-bold text-purple-700 mt-1">R$ {parseFloat(unitCtx.financialSummary.totalGeral).toFixed(2)}</p>
                       </div>
                     </div>
-                  )}
-                  {unitCtx.financialSummary.totalReports === 0 && (
-                    <div className="text-center py-6 text-muted-foreground">
-                      <TrendingUp className="h-8 w-8 mx-auto mb-2 opacity-20" />
-                      <p className="text-sm">Nenhum laudo no ciclo corrente</p>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto mb-2" />
-                  <p className="text-sm">Carregando resumo financeiro...</p>
-                </div>
-              )}
-            </TabsContent>
-          )}
-        </Tabs>
 
-        <DialogFooter className="pt-3 border-t border-border">
-          {activeTab === "dados" ? (
-            <>
-              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>Cancelar</Button>
-              <Button onClick={handleSave} disabled={loading || updateLogo.isPending}>
-                {loading || updateLogo.isPending ? "Salvando..." : unit ? "Salvar Alterações" : "Criar Unidade"}
-              </Button>
-            </>
-          ) : (
+                    {unitCtx.doctorPrices && unitCtx.doctorPrices.length > 0 && (
+                      <div className="border-t border-border pt-4">
+                        <p className="text-xs font-medium text-muted-foreground mb-3">Médicos com preço configurado</p>
+                        <div className="space-y-2">
+                          {unitCtx.doctorPrices.map((dp) => (
+                            <div key={dp.id} className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
+                              <p className="text-sm font-medium">{dp.doctor_name}</p>
+                              <p className="text-sm text-emerald-600 font-medium">R$ {parseFloat(dp.price_per_report).toFixed(2)}/laudo</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {unitCtx.financialSummary.totalReports === 0 && (
+                      <div className="text-center py-10 text-muted-foreground border border-dashed border-border rounded-lg">
+                        <TrendingUp className="h-10 w-10 mx-auto mb-3 opacity-20" />
+                        <p className="text-sm">Nenhum laudo no ciclo corrente</p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <div className="animate-spin h-7 w-7 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+                    <p className="text-sm">Carregando resumo financeiro...</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>{/* fim área de conteúdo */}
+        </div>{/* fim body */}
+
+        {/* ── FOOTER (apenas nas abas não-dados) ─────────────────────────── */}
+        {activeTab !== "dados" && (
+          <div className="px-6 py-3 border-t border-border shrink-0 flex justify-end">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Fechar</Button>
-          )}
-        </DialogFooter>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
