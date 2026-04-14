@@ -36,6 +36,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 
 interface StudyInfo {
   patientName: string;
@@ -115,6 +116,13 @@ export function DicomViewerPage() {
     { studyInstanceUid: studyUid ?? "" },
     { enabled: !!studyUid }
   );
+
+  // ─── SLA Readiness ─────────────────────────────────────────────────────────
+  const { data: slaReadiness, refetch: refetchSlaReadiness } = trpc.sla.getByStudy.useQuery(
+    { studyInstanceUid: studyUid ?? "", unitId: urlUnitId ?? 0 },
+    { enabled: !!studyUid && !!urlUnitId, staleTime: 30_000 }
+  );
+  const hasAnamnesis = !!anamnesisQuery.data?.manual_text;
   // Metadados editados pelo técnico (nome do paciente, descrição, notas)
   const studyMetaQuery = trpc.studyMetadata.get.useQuery(
     { studyInstanceUid: studyUid ?? "" },
@@ -871,6 +879,16 @@ export function DicomViewerPage() {
                   {formatDate(studyInfo.studyDate)}{studyInfo.studyDescription ? ` • ${studyInfo.studyDescription}` : ""}
                 </div>
               </div>
+              {/* Badge SLA */}
+              {urlUnitId && (
+                <div className="ml-1">
+                  <SlaCountdown
+                    readiness={slaReadiness as ReadinessData | null}
+                    hasAnamnesis={hasAnamnesis}
+                    compact={false}
+                  />
+                </div>
+              )}
             </div>
           ) : (
             <div className="ml-1 border-l border-gray-700 pl-3">

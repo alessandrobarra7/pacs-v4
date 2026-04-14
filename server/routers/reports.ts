@@ -7,6 +7,7 @@ import {
   resolveUnitFilter,
 } from "../db";
 import { and, inArray } from "drizzle-orm";
+import { closeReadinessOnReport } from "./sla";
 import { reports } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import sanitizeHtml from "sanitize-html";
@@ -215,6 +216,22 @@ export const reportsRouter = router({
           }
         }
         
+        // Fechar SLA: marcar readiness como 'reported' e calcular sla_met
+        const studyUidForSla = input.study_instance_uid ?? report.study_instance_uid;
+        if (studyUidForSla && effectiveUnitId) {
+          try {
+            await closeReadinessOnReport({
+              studyInstanceUid: studyUidForSla,
+              unitId: effectiveUnitId,
+              reportedByUserId: ctx.user.id,
+              reportedAt: signedAt,
+            });
+          } catch (slaErr) {
+            // SLA não bloqueia a assinatura
+            console.error('[sign] SLA close failed (non-blocking):', slaErr);
+          }
+        }
+
         return { success: true, doctor_amount_due };
       }),
 

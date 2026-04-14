@@ -709,3 +709,72 @@ export const contract_custom_expenses = mysqlTable("contract_custom_expenses", {
 });
 export type ContractCustomExpense = typeof contract_custom_expenses.$inferSelect;
 export type InsertContractCustomExpense = typeof contract_custom_expenses.$inferInsert;
+
+/**
+ * unit_report_sla_configs — Configuração de SLA de laudo por unidade
+ * Define o prazo máximo para entrega do laudo após a anamnese ser inserida.
+ * Apenas admin_master e unit_admin podem configurar.
+ */
+export const unit_report_sla_configs = mysqlTable("unit_report_sla_configs", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  enabled: boolean("enabled").notNull().default(false),
+  /** Valor numérico do prazo (ex: 4, 8, 2, 7) */
+  sla_value: int("sla_value"),
+  /** Unidade do prazo: 'hour' ou 'day' */
+  sla_unit: mysqlEnum("sla_unit", ["hour", "day"]),
+  /** Data/hora a partir da qual esta configuração entra em vigor */
+  effective_from: timestamp("effective_from"),
+  notes: text("notes"),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uq_unit_sla: uniqueIndex("uq_unit_sla").on(t.unit_id),
+}));
+export type UnitReportSlaConfig = typeof unit_report_sla_configs.$inferSelect;
+export type InsertUnitReportSlaConfig = typeof unit_report_sla_configs.$inferInsert;
+
+/**
+ * report_readiness — Marco formal de prontidão de exame para laudo
+ * Criado quando a anamnese é salva de forma válida pela primeira vez.
+ * O SLA é capturado como snapshot no momento da criação — edições posteriores
+ * da anamnese NÃO reiniciam o timer.
+ */
+export const report_readiness = mysqlTable("report_readiness", {
+  id: int("id").autoincrement().primaryKey(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
+  unit_id: int("unit_id").notNull(),
+  /** Status do ciclo de vida do exame */
+  readiness_status: mysqlEnum("readiness_status", [
+    "pending",
+    "ready_for_reporting",
+    "reported",
+    "cancelled",
+    "invalidated",
+  ]).notNull().default("ready_for_reporting"),
+  /** Timestamp oficial de entrada em fila para laudo (imutável após criação) */
+  became_ready_at: timestamp("became_ready_at").notNull(),
+  /** Snapshot do SLA vigente no momento da prontidão */
+  sla_value_snapshot: int("sla_value_snapshot"),
+  sla_unit_snapshot: mysqlEnum("sla_unit_snapshot", ["hour", "day"]),
+  /** Prazo calculado: became_ready_at + SLA */
+  due_at: timestamp("due_at"),
+  /** Fonte da prontidão (ex: 'anamnesis_simple') */
+  readiness_source: varchar("readiness_source", { length: 50 }).default("anamnesis_simple"),
+  readiness_note: text("readiness_note"),
+  /** Preenchido quando o laudo é assinado */
+  reported_at: timestamp("reported_at"),
+  reported_by_user_id: int("reported_by_user_id"),
+  /** true = laudo entregue dentro do SLA; false = fora do SLA */
+  sla_met: boolean("sla_met"),
+  /** Atraso em segundos (negativo = adiantado) */
+  delay_seconds: int("delay_seconds"),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uq_readiness_uid_unit: uniqueIndex("uq_readiness_uid_unit").on(t.study_instance_uid, t.unit_id),
+}));
+export type ReportReadiness = typeof report_readiness.$inferSelect;
+export type InsertReportReadiness = typeof report_readiness.$inferInsert;

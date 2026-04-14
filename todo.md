@@ -1143,3 +1143,36 @@
 - [x] Confirmar que UserFormDialog oculta aba Valores para não-admin_master (isMedicoEditing/isMedicoCreating)
 - [x] Confirmar que UnitFormDialog e UnitDoctorsTab só são acessíveis via /admin (protegido)
 - [x] 135 testes passando, TypeScript limpo
+
+## SLA DE LAUDO — Contador de Prazo a partir da Anamnese
+
+### FASE 1 — Modelagem de dados
+- [x] Criar tabela unit_report_sla_configs no schema Drizzle
+- [x] Criar tabela report_readiness no schema Drizzle
+- [x] Gerar e aplicar migration SQL (0023_sla_readiness.sql)
+
+### FASE 2 — Backend
+- [x] Procedure unit.setReportSla (admin_master, unit_admin)
+- [x] Procedure unit.getReportSla
+- [x] Integrar save de anamnese com avaliação de readiness (apenas primeiro start)
+- [x] Procedure readiness.getByStudy
+- [x] Procedure readiness.getBatchStatus (batch por UIDs)
+- [x] Procedure readiness.invalidate (admin_master)
+
+### FASE 3 — Frontend: UnitFormDialog aba SLA
+- [x] Adicionar aba "SLA do Laudo" no UnitFormDialog
+- [x] Campos: habilitado (toggle), valor (integer), unidade (horas/dias), notas, vigência
+- [x] Permissão: só admin_master e unit_admin vêem/editam
+
+### FASE 4 — Frontend: lista de exames e viewer
+- [x] Exibir contador/badge de prazo ao lado do botão Anamnese na PacsQueryPage
+- [x] Estados visuais: verde (no prazo), amarelo (próximo), vermelho (vencido), cinza (laudado)
+- [x] Exibir readiness no DicomViewerPage (início, vencimento, tempo restante)
+
+### FASE 5 — Integração com finalização de laudo
+- [x] Ao assinar laudo (signReport), marcar readiness como 'reported' e calcular sla_met
+- [x] Registrar reported_at, sla_met, delay_seconds no report_readiness
+
+### FASE 6 — Testes e entrega
+- [x] Testes de regressão para readiness (primeiro start, edição não reinicia, signReport fecha SLA)
+- [x] Checkpoint e demonstração ao vivo

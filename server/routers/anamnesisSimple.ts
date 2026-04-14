@@ -2,6 +2,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getAnamnesisSimple, saveAnamnesisSimple, createAuditLog, getDb } from "../db";
+import { evaluateAndUpsertReadiness } from "./sla";
 import { anamnesis_simple } from "../../drizzle/schema";
 import { inArray } from "drizzle-orm";
 
@@ -36,7 +37,19 @@ export const anamnesisSimpleRouter = router({
           target_type: "anamnesis_simple",
           target_id: input.studyInstanceUid,
         });
-        return { success: true };
+        // Avaliar prontidão e iniciar SLA (apenas na primeira anamnese válida)
+        const unitId = ctx.user.unit_id;
+        let readiness = null;
+        if (unitId) {
+          const result = await evaluateAndUpsertReadiness({
+            studyInstanceUid: input.studyInstanceUid,
+            unitId,
+            createdByUserId: ctx.user.id,
+            manualText: input.manualText,
+          });
+          readiness = result.readiness;
+        }
+        return { success: true, readiness };
       }),
 
     /** Retorna quais UIDs têm anamnese registrada (independente de unit_id) */

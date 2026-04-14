@@ -10,6 +10,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
+import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 import { ExamPickerModal, ALL_CATALOG_EXAMS } from "@/components/ExamPickerModal";
 import { canReport, canAccessAdmin, canFillAnamnesis, canViewDICOM, type UserRole } from "../../../shared/permissions";
 import { Calendar } from "@/components/ui/calendar";
@@ -720,6 +721,13 @@ export function PacsQueryPage() {
   );
   const anamnesisStatusMap = useMemo(() => anamnesisStatusData ?? {} as Record<string, boolean>, [anamnesisStatusData]);
 
+  // Batch SLA readiness para todos os estudos da página atual
+  const { data: slaReadinessData, refetch: refetchSlaReadiness } = trpc.sla.getBatchStatus.useQuery(
+    { studyInstanceUids: studyUids, unitId: effectiveUnitId ?? 0 },
+    { enabled: studyUids.length > 0 && !!effectiveUnitId, staleTime: 30_000, refetchInterval: 60_000 }
+  );
+  const slaReadinessMap = useMemo(() => slaReadinessData ?? {} as Record<string, ReadinessData>, [slaReadinessData]);
+
   // logout handled by AppHeader
 
   // Bug fix A2: estado para controlar exibição do toast após filtros serem aplicados
@@ -1345,26 +1353,34 @@ export function PacsQueryPage() {
                       </div>
                     </td>
 
-                    {/* Anamnese */}
-                    <td className="px-4 py-3 text-center">
-                      {canCID ? (
-                        <button
-                          onClick={() => { setSelectedStudy(study); setIsAnamnesisModalOpen(true); }}
-                          title={anamnesisStatusMap[study.studyInstanceUid] ? 'Anamnese preenchida — clique para editar' : 'Sem anamnese — clique para preencher'}
-                          className={`relative w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
-                            anamnesisStatusMap[study.studyInstanceUid]
-                              ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                              : 'border-gray-200 bg-white text-gray-500 hover:bg-amber-50 hover:text-amber-700'
-                          }`}
-                        >
-                          <Clipboard className="h-3.5 w-3.5" />
-                          {anamnesisStatusMap[study.studyInstanceUid] && (
-                            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
-                          )}
-                        </button>
-                      ) : (
-                        <span className="text-gray-300">—</span>
-                      )}
+                    {/* Anamnese + SLA */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-center gap-1.5">
+                        {canCID ? (
+                          <button
+                            onClick={() => { setSelectedStudy(study); setIsAnamnesisModalOpen(true); }}
+                            title={anamnesisStatusMap[study.studyInstanceUid] ? 'Anamnese preenchida — clique para editar' : 'Sem anamnese — clique para preencher'}
+                            className={`relative w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
+                              anamnesisStatusMap[study.studyInstanceUid]
+                                ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                : 'border-gray-200 bg-white text-gray-500 hover:bg-amber-50 hover:text-amber-700'
+                            }`}
+                          >
+                            <Clipboard className="h-3.5 w-3.5" />
+                            {anamnesisStatusMap[study.studyInstanceUid] && (
+                              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
+                            )}
+                          </button>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                        {/* Badge de prazo SLA */}
+                        <SlaCountdown
+                          readiness={slaReadinessMap[study.studyInstanceUid]}
+                          hasAnamnesis={!!anamnesisStatusMap[study.studyInstanceUid]}
+                          compact={true}
+                        />
+                      </div>
                     </td>
 
                     {/* Visualizar + Pré-download */}
@@ -1516,7 +1532,7 @@ export function PacsQueryPage() {
           onClose={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); }}
           studyInstanceUid={selectedStudy?.studyInstanceUid || ''}
           patientName={selectedStudy?.patientName || ''}
-          onSave={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); refetchMetadata(); refetchAnamnesisStatus(); }}
+          onSave={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); refetchMetadata(); refetchAnamnesisStatus(); refetchSlaReadiness(); }}
         />
       )}
     </div>

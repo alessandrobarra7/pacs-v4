@@ -33,6 +33,7 @@ import { medicalDataRouter } from "./routers/medicalData";
 import { billingRouter } from "./routers/billing";
 import { adminRouter } from "./routers/admin";
 import { financeRouter } from "./routers/finance";
+import { slaRouter } from "./routers/sla";
 
 export const appRouter = router({
   system: systemRouter,
@@ -139,6 +140,7 @@ export const appRouter = router({
   billing: billingRouter,
   admin: adminRouter,
   finance: financeRouter,
+  sla: slaRouter,
 });
 
 export type AppRouter = typeof appRouter;

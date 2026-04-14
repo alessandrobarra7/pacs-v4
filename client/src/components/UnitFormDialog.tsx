@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import {
   Upload, Building2, Trash2, ImageOff, Settings2, Stethoscope,
   DollarSign, TrendingUp, UserCheck, Pencil, Check, X, AlertTriangle,
-  Wifi, WifiOff, Users, Loader2, Plus, UserMinus,
+  Wifi, WifiOff, Users, Loader2, Plus, UserMinus, Timer,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import UnitDoctorsTab from "./UnitDoctorsTab";
@@ -39,7 +39,7 @@ interface UnitFormDialogProps {
   loading?: boolean;
 }
 
-type DialogTab = "dados" | "responsavel" | "medicos" | "equipe" | "custo" | "resumo";
+type DialogTab = "dados" | "responsavel" | "medicos" | "equipe" | "custo" | "resumo" | "sla";
 
 const NAV_ITEMS: { id: DialogTab; label: string; icon: React.ElementType; editOnly?: boolean }[] = [
   { id: "dados",       label: "Dados",        icon: Settings2 },
@@ -48,6 +48,7 @@ const NAV_ITEMS: { id: DialogTab; label: string; icon: React.ElementType; editOn
   { id: "equipe",      label: "Equipe",       icon: Users,      editOnly: true },
   { id: "custo",       label: "Custo Sistema",icon: DollarSign, editOnly: true },
   { id: "resumo",      label: "Resumo",       icon: TrendingUp, editOnly: true },
+  { id: "sla",         label: "SLA do Laudo", icon: Timer,       editOnly: true },
 ];
 
 export default function UnitFormDialog({
@@ -82,6 +83,23 @@ export default function UnitFormDialog({
 
   const utils = trpc.useUtils();
   const isEditing = !!unit?.id;
+
+  // SLA
+  const [slaEnabled, setSlaEnabled] = useState(false);
+  const [slaValue, setSlaValue] = useState("4");
+  const [slaUnit, setSlaUnit] = useState<"hour" | "day">("hour");
+  const [slaNotes, setSlaNotes] = useState("");
+  const [slaEditing, setSlaEditing] = useState(false);
+
+  const { data: slaConfig, refetch: refetchSla } = trpc.sla.getUnitSla.useQuery(
+    { unitId: unit?.id ?? 0 },
+    { enabled: isEditing && !!unit?.id && open && activeTab === "sla" }
+  );
+
+  const setUnitSla = trpc.sla.setUnitSla.useMutation({
+    onSuccess: () => { toast.success("SLA salvo com sucesso"); setSlaEditing(false); refetchSla(); },
+    onError: (e) => toast.error(e.message || "Erro ao salvar SLA"),
+  });
 
   const updateLogo = trpc.medicalData.updateUnitLogo.useMutation({
     onSuccess: () => { toast.success("Logo atualizado"); setLogoFile(null); utils.medicalData.getReportContext.invalidate(); },
@@ -157,6 +175,36 @@ export default function UnitFormDialog({
       }
     }
   }, [open, unit]);
+
+  // Sincronizar estados SLA quando o config é carregado
+  useEffect(() => {
+    if (slaConfig) {
+      setSlaEnabled(slaConfig.enabled);
+      setSlaValue(String(slaConfig.sla_value ?? 4));
+      setSlaUnit((slaConfig.sla_unit as "hour" | "day") ?? "hour");
+      setSlaNotes(slaConfig.notes ?? "");
+    } else if (activeTab === "sla") {
+      setSlaEnabled(false);
+      setSlaValue("4");
+      setSlaUnit("hour");
+      setSlaNotes("");
+    }
+  }, [slaConfig, activeTab]);
+
+  const handleSaveSla = () => {
+    if (!unit?.id) return;
+    if (slaEnabled && (!slaValue || parseInt(slaValue) < 1)) {
+      toast.error("Informe um valor de prazo válido");
+      return;
+    }
+    setUnitSla.mutate({
+      unitId: unit.id,
+      enabled: slaEnabled,
+      slaValue: slaEnabled ? parseInt(slaValue) : undefined,
+      slaUnit: slaEnabled ? slaUnit : undefined,
+      notes: slaNotes || undefined,
+    });
+  };
 
   const handleNameChange = (v: string) => {
     setName(v);
@@ -650,6 +698,142 @@ export default function UnitFormDialog({
                     <p className="text-sm">Carregando resumo financeiro...</p>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* ── ABA SLA DO LAUDO ─────────────────────────────────── */}
+            {activeTab === "sla" && isEditing && (
+              <div className="space-y-6 max-w-2xl">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
+                    <Timer className="h-4 w-4 text-blue-600" /> SLA do Laudo
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Define o prazo máximo para entrega do laudo após a anamnese ser inserida.
+                    O contador inicia apenas na primeira anamnese válida e não é reiniciado por edições posteriores.
+                  </p>
+                </div>
+
+                {/* Toggle habilitado */}
+                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-5 py-4">
+                  <div>
+                    <p className="text-sm font-medium">SLA habilitado</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Ativar contagem de prazo para esta unidade</p>
+                  </div>
+                  <Switch
+                    checked={slaEnabled}
+                    onCheckedChange={(v) => { setSlaEnabled(v); setSlaEditing(true); }}
+                  />
+                </div>
+
+                {/* Campos de prazo */}
+                {slaEnabled && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-sm font-medium">Valor do prazo</Label>
+                        <Input
+                          type="number" min="1" max="999"
+                          value={slaValue}
+                          onChange={e => { setSlaValue(e.target.value); setSlaEditing(true); }}
+                          className="mt-1 font-mono"
+                          placeholder="Ex: 4"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-sm font-medium">Unidade</Label>
+                        <select
+                          value={slaUnit}
+                          onChange={e => { setSlaUnit(e.target.value as "hour" | "day"); setSlaEditing(true); }}
+                          className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          <option value="hour">Horas</option>
+                          <option value="day">Dias</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Exemplos rápidos */}
+                    <div className="flex gap-2 flex-wrap">
+                      {[
+                        { label: "4h",   value: 4,  unit: "hour" as const },
+                        { label: "8h",   value: 8,  unit: "hour" as const },
+                        { label: "24h",  value: 24, unit: "hour" as const },
+                        { label: "2 dias",value: 2, unit: "day"  as const },
+                        { label: "7 dias",value: 7, unit: "day"  as const },
+                        { label: "10 dias",value: 10,unit: "day" as const },
+                      ].map(p => (
+                        <button
+                          key={p.label} type="button"
+                          onClick={() => { setSlaValue(String(p.value)); setSlaUnit(p.unit); setSlaEditing(true); }}
+                          className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                            slaValue === String(p.value) && slaUnit === p.unit
+                              ? "bg-blue-600 text-white border-blue-600"
+                              : "border-border text-muted-foreground hover:border-blue-400 hover:text-blue-600"
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Notas */}
+                <div>
+                  <Label className="text-sm font-medium">Observações</Label>
+                  <Textarea
+                    value={slaNotes}
+                    onChange={e => { setSlaNotes(e.target.value); setSlaEditing(true); }}
+                    className="mt-1 text-sm" rows={2}
+                    placeholder="Ex: Prazo conforme contrato com operadora X"
+                  />
+                </div>
+
+                {/* Status atual */}
+                {slaConfig && (
+                  <div className="rounded-lg border border-border bg-muted/20 px-5 py-4">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Configuração atual no banco</p>
+                    <div className="flex items-center gap-3">
+                      <Badge variant={slaConfig.enabled ? "default" : "secondary"}>
+                        {slaConfig.enabled ? "Habilitado" : "Desabilitado"}
+                      </Badge>
+                      {slaConfig.enabled && slaConfig.sla_value && (
+                        <span className="text-sm font-medium">
+                          {slaConfig.sla_value} {slaConfig.sla_unit === "hour" ? "hora(s)" : "dia(s)"}
+                        </span>
+                      )}
+                      {slaConfig.effective_from && (
+                        <span className="text-xs text-muted-foreground">
+                          desde {new Date(slaConfig.effective_from).toLocaleDateString("pt-BR")}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Botão salvar */}
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    onClick={handleSaveSla}
+                    disabled={setUnitSla.isPending}
+                    className="gap-2"
+                  >
+                    {setUnitSla.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                    Salvar SLA
+                  </Button>
+                  {slaEditing && (
+                    <Button variant="outline" onClick={() => {
+                      setSlaEditing(false);
+                      if (slaConfig) {
+                        setSlaEnabled(slaConfig.enabled);
+                        setSlaValue(String(slaConfig.sla_value ?? 4));
+                        setSlaUnit((slaConfig.sla_unit as "hour" | "day") ?? "hour");
+                        setSlaNotes(slaConfig.notes ?? "");
+                      }
+                    }}>Cancelar</Button>
+                  )}
+                </div>
               </div>
             )}
 
