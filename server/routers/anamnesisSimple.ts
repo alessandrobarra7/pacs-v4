@@ -1,7 +1,9 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getAnamnesisSimple, saveAnamnesisSimple, createAuditLog } from "../db";
+import { getAnamnesisSimple, saveAnamnesisSimple, createAuditLog, getDb } from "../db";
+import { anamnesis_simple } from "../../drizzle/schema";
+import { inArray } from "drizzle-orm";
 
 export const anamnesisSimpleRouter = router({
     /** Busca a anamnese de um estudo */
@@ -35,6 +37,23 @@ export const anamnesisSimpleRouter = router({
           target_id: input.studyInstanceUid,
         });
         return { success: true };
+      }),
+
+    /** Retorna quais UIDs têm anamnese registrada (independente de unit_id) */
+    getStatusBatch: protectedProcedure
+      .input(z.object({ studyInstanceUids: z.array(z.string()) }))
+      .query(async ({ input }) => {
+        if (!input.studyInstanceUids.length) return {} as Record<string, boolean>;
+        const db = await getDb();
+        if (!db) return {} as Record<string, boolean>;
+        const rows = await db
+          .select({ study_instance_uid: anamnesis_simple.study_instance_uid })
+          .from(anamnesis_simple)
+          .where(inArray(anamnesis_simple.study_instance_uid, input.studyInstanceUids));
+        const result: Record<string, boolean> = {};
+        for (const uid of input.studyInstanceUids) result[uid] = false;
+        for (const row of rows) result[row.study_instance_uid] = true;
+        return result;
       }),
 
 });

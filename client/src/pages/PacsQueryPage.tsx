@@ -713,6 +713,13 @@ export function PacsQueryPage() {
     return Object.fromEntries((metadataBatch as any[]).map((m: any) => [m.study_instance_uid, m]));
   }, [metadataBatch]);
 
+  // Mapa de has_anamnesis independente de study_metadata (funciona mesmo sem linha de metadados)
+  const { data: anamnesisStatusData, refetch: refetchAnamnesisStatus } = trpc.anamnesisSimple.getStatusBatch.useQuery(
+    { studyInstanceUids: studyUids },
+    { enabled: studyUids.length > 0 }
+  );
+  const anamnesisStatusMap = useMemo(() => anamnesisStatusData ?? {} as Record<string, boolean>, [anamnesisStatusData]);
+
   // logout handled by AppHeader
 
   // Bug fix A2: estado para controlar exibição do toast após filtros serem aplicados
@@ -1343,15 +1350,15 @@ export function PacsQueryPage() {
                       {canCID ? (
                         <button
                           onClick={() => { setSelectedStudy(study); setIsAnamnesisModalOpen(true); }}
-                          title={meta?.has_anamnesis ? 'Anamnese preenchida — clique para editar' : 'Sem anamnese — clique para preencher'}
+                          title={anamnesisStatusMap[study.studyInstanceUid] ? 'Anamnese preenchida — clique para editar' : 'Sem anamnese — clique para preencher'}
                           className={`relative w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
-                            meta?.has_anamnesis
+                            anamnesisStatusMap[study.studyInstanceUid]
                               ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                               : 'border-gray-200 bg-white text-gray-500 hover:bg-amber-50 hover:text-amber-700'
                           }`}
                         >
                           <Clipboard className="h-3.5 w-3.5" />
-                          {meta?.has_anamnesis && (
+                          {anamnesisStatusMap[study.studyInstanceUid] && (
                             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
                           )}
                         </button>
@@ -1509,7 +1516,7 @@ export function PacsQueryPage() {
           onClose={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); }}
           studyInstanceUid={selectedStudy?.studyInstanceUid || ''}
           patientName={selectedStudy?.patientName || ''}
-          onSave={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); }}
+          onSave={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); refetchMetadata(); refetchAnamnesisStatus(); }}
         />
       )}
     </div>
