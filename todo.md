@@ -1069,3 +1069,61 @@
 - [ ] P1D: Preço por laudo — exibir sempre o preço configurado vigente, não média derivada do ciclo
 - [ ] P2: Integridade do evento financeiro — assinatura usa só report.unit_id, report.signedBy, report.signedAt como fonte de verdade; log de falhas financeiras
 - [ ] P3: Navegação — unificar /financeiro/*, redirecionar /billing/*, destino correto por perfil
+
+## REESTRUTURAÇÃO INTUITIVA — Especificação 13/04/2026
+
+### Fase 1 — Banco de dados (novas tabelas)
+- [ ] Criar tabela unit_doctor_scales (escala semanal médico/unidade)
+- [ ] Criar tabela unit_doctor_compensation_rules (remuneração médica por unidade)
+- [ ] Criar tabela contract_revenues (receita do contrato do responsável)
+- [ ] Criar tabela contract_custom_expenses (gastos personalizados do responsável)
+- [ ] Adicionar campos status_completude na tabela units (técnico, financeiro, operacional)
+- [ ] Gerar e aplicar migration SQL
+
+### Fase 2 — Backend (novos procedures)
+- [ ] units.getDetail — retorna unidade com todas as relações (responsável, médicos, equipe, preço, ciclo, escala)
+- [ ] units.saveOrthancConnection — salva/atualiza dados de conexão Orthanc da unidade
+- [ ] units.testOrthancConnection — testa conexão com Orthanc e retorna status
+- [ ] units.linkResponsible — vincula responsável existente à unidade com vigência
+- [ ] units.unlinkResponsible — encerra vínculo de responsável
+- [ ] units.linkTeamMember — vincula operador/viewer/unit_admin à unidade
+- [ ] units.unlinkTeamMember — desvincula membro da equipe
+- [ ] units.setDoctorScale — define escala semanal de um médico na unidade
+- [ ] units.setDoctorCompensationRule — define remuneração do médico na unidade
+- [ ] finance.createContractRevenue — cria receita do contrato
+- [ ] finance.updateContractRevenue — atualiza receita
+- [ ] finance.deleteContractRevenue — remove receita
+- [ ] finance.createCustomExpense — cria gasto personalizado
+- [ ] finance.updateCustomExpense — atualiza gasto
+- [ ] finance.deleteCustomExpense — remove gasto
+- [ ] finance.getResponsibleEconomicDashboard — dashboard econômico completo do responsável
+
+### Fase 3 — Frontend: Cadastro de Unidade (7 abas)
+- [ ] Aba 1 — Dados Gerais: nome, nome fantasia, tipo, status, endereço, telefone, email, observações
+- [ ] Aba 2 — Conexão Orthanc/PACS: host, porta, AETitle, URL API, auth, botão testar conexão
+- [ ] Aba 3 — Responsável Financeiro: vincular existente ou criar novo, vigência, histórico
+- [ ] Aba 4 — Médicos: vincular/criar médico, status, vigência, tabela de médicos vinculados
+- [ ] Aba 5 — Equipe: operadores, visualizadores, unit_admins — vincular/criar por papel
+- [ ] Aba 6 — Preço do Sistema: valor por laudo, vigência, histórico de alterações
+- [ ] Aba 7 — Operação: ciclo financeiro, escala médica semanal, regras de contagem
+- [ ] Indicador de completude (técnico/financeiro/operacional) no card da unidade
+- [ ] Remover criação de "responsável fantasma" automático
+
+### Fase 4 — Frontend: Cadastros de Usuário
+- [ ] Médico: aba Unidades Vinculadas com seleção múltipla e status de vínculo
+- [ ] Operador: aba Unidades Vinculadas
+- [ ] Visualizador: aba Unidades Vinculadas
+- [ ] unit_admin: aba Unidades Vinculadas
+
+### Fase 5 — Frontend: Ambiente do Administrador de Unidade
+- [ ] Seção Remuneração: tipo (por laudo/paciente/plantão), valor, vigência
+- [ ] Seção Ciclo Financeiro: data inicial, dia de fechamento, periodicidade
+- [ ] Seção Escala Médica: médico, dias da semana, horário, status
+- [ ] Seção Regras de Contagem: por paciente/laudo/estudo, exceções
+
+### Fase 6 — Frontend: Ambiente do Responsável Financeiro
+- [ ] Seção Receita do Contrato: valor, periodicidade, vigência, CRUD
+- [ ] Seção Gastos com Médicos: total em tempo real, por unidade, por médico, por ciclo
+- [ ] Seção Gastos com Sistema: valor devido, por unidade, por período
+- [ ] Seção Gastos Personalizados: categorias livres (secretária, internet, aluguel...), CRUD
+- [ ] Seção Resultado Econômico: receita - custos = saldo operacional, margem estimada

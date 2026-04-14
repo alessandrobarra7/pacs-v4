@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import {
   Upload, Building2, Trash2, ImageOff, Settings2, Stethoscope,
   DollarSign, TrendingUp, UserCheck, Pencil, Check, X, AlertTriangle,
+  Wifi, WifiOff, Users, Loader2, Plus, UserMinus,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import UnitDoctorsTab from "./UnitDoctorsTab";
@@ -39,7 +40,7 @@ interface UnitFormDialogProps {
   loading?: boolean;
 }
 
-type DialogTab = "dados" | "responsavel" | "custo" | "medicos" | "resumo";
+type DialogTab = "dados" | "conexao" | "responsavel" | "medicos" | "equipe" | "custo" | "resumo";
 
 export default function UnitFormDialog({
   open, onOpenChange, unit, onSave, loading = false,
@@ -59,9 +60,21 @@ export default function UnitFormDialog({
   const [removingLogo, setRemovingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
+  // Custo / Responsável
   const [editingSystemPrice, setEditingSystemPrice] = useState(false);
   const [systemPriceValue, setSystemPriceValue] = useState("");
   const [selectedResponsibleId, setSelectedResponsibleId] = useState<number | null>(null);
+
+  // Conexão Orthanc
+  const [orthancUrl, setOrthancUrl] = useState("");
+  const [orthancPublicUrl, setOrthancPublicUrl] = useState("");
+  const [orthancUser, setOrthancUser] = useState("");
+  const [orthancPass, setOrthancPass] = useState("");
+  const [testingOrthanc, setTestingOrthanc] = useState(false);
+  const [orthancTestResult, setOrthancTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // Equipe
+  const [addingTeamUserId, setAddingTeamUserId] = useState<number | null>(null);
 
   const utils = trpc.useUtils();
   const isEditing = !!unit?.id;
@@ -85,6 +98,17 @@ export default function UnitFormDialog({
     enabled: isEditing && open,
   });
 
+  // Equipe da unidade
+  const { data: teamMembers, refetch: refetchTeam } = trpc.finance.listTeamMembers.useQuery(
+    { unitId: unit?.id ?? 0 },
+    { enabled: isEditing && !!unit?.id && open && activeTab === "equipe" }
+  );
+
+  // Todos os usuários não-médicos para adicionar à equipe
+  const { data: allUsers } = trpc.admin.listUsers.useQuery(undefined, {
+    enabled: isEditing && open && activeTab === "equipe",
+  });
+
   const setSystemPriceDirect = trpc.billing.setSystemPriceDirect.useMutation({
     onSuccess: () => { toast.success("Custo do sistema atualizado"); setEditingSystemPrice(false); refetchUnitCtx(); },
     onError: (e) => toast.error(e.message || "Erro ao atualizar custo"),
@@ -95,12 +119,34 @@ export default function UnitFormDialog({
     onError: (e) => toast.error(e.message || "Erro ao vincular responsável"),
   });
 
+  const saveOrthancConnection = trpc.finance.saveOrthancConnection.useMutation({
+    onSuccess: () => toast.success("Conexão Orthanc salva"),
+    onError: (e) => toast.error(e.message || "Erro ao salvar conexão"),
+  });
+
+  const testOrthancConnection = trpc.finance.testOrthancConnection.useMutation({
+    onSuccess: (data) => { setOrthancTestResult(data); setTestingOrthanc(false); },
+    onError: (e) => { setOrthancTestResult({ ok: false, message: e.message }); setTestingOrthanc(false); },
+  });
+
+  const addTeamMember = trpc.finance.addTeamMember.useMutation({
+    onSuccess: () => { toast.success("Membro adicionado"); setAddingTeamUserId(null); refetchTeam(); },
+    onError: (e) => toast.error(e.message || "Erro ao adicionar membro"),
+  });
+
+  const removeTeamMember = trpc.finance.removeTeamMember.useMutation({
+    onSuccess: () => { toast.success("Membro removido"); refetchTeam(); },
+    onError: (e) => toast.error(e.message || "Erro ao remover membro"),
+  });
+
   useEffect(() => {
     if (open) {
       setActiveTab("dados");
       setEditingSystemPrice(false);
       setSystemPriceValue("");
       setSelectedResponsibleId(null);
+      setOrthancTestResult(null);
+      setAddingTeamUserId(null);
       if (unit) {
         setName(unit.name); setSlug(unit.slug); setAddress(unit.address || "");
         setEquipmentInfo(unit.equipment_info || ""); setPacsIp(unit.pacs_ip || "");
@@ -111,6 +157,7 @@ export default function UnitFormDialog({
         setName(""); setSlug(""); setAddress(""); setEquipmentInfo("");
         setPacsIp(""); setPacsPort("11112"); setPacsAeTitle(""); setPacsLocalAeTitle("LAUDS");
         setIsActive(true); setLogoPreview(null); setLogoFile(null); setRemovingLogo(false);
+        setOrthancUrl(""); setOrthancPublicUrl(""); setOrthancUser(""); setOrthancPass("");
       }
     }
   }, [open, unit]);
@@ -149,6 +196,24 @@ export default function UnitFormDialog({
     linkResponsibleDirect.mutate({ unitId: unit.id, responsibleId: selectedResponsibleId, startsAt: new Date().toISOString() });
   };
 
+  const handleSaveOrthanc = () => {
+    if (!unit?.id) return;
+    saveOrthancConnection.mutate({
+      unitId: unit.id,
+      orthanc_base_url: orthancUrl || null,
+      orthanc_public_url: orthancPublicUrl || null,
+      orthanc_basic_user: orthancUser || null,
+      orthanc_basic_pass: orthancPass || null,
+    });
+  };
+
+  const handleTestOrthanc = () => {
+    if (!unit?.id) return;
+    setTestingOrthanc(true);
+    setOrthancTestResult(null);
+    testOrthancConnection.mutate({ unitId: unit.id });
+  };
+
   const handleSave = () => {
     if (!name.trim()) { toast.error("Informe o nome da unidade"); return; }
     if (!pacsIp.trim()) { toast.error("Informe o IP do PACS"); return; }
@@ -168,6 +233,15 @@ export default function UnitFormDialog({
   const isDefaultResp = activeResponsible?.legal_name === "Sem Responsável";
   const activeSystemPrice = unitCtx?.activeSystemPrice;
 
+  // Filtra usuários que ainda não estão na equipe e não são médicos
+  const teamUserIds = new Set((teamMembers ?? []).map(m => m.id));
+  const availableUsers = (allUsers ?? []).filter(u => u.role !== "medico" && !teamUserIds.has(u.id));
+
+  const ROLE_LABELS: Record<string, string> = {
+    unit_admin: "Admin Unidade", operador: "Operador", viewer: "Visualizador",
+    responsavel_financeiro: "Resp. Financeiro", admin_master: "Admin Master",
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[92vh] overflow-hidden flex flex-col">
@@ -184,19 +258,23 @@ export default function UnitFormDialog({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as DialogTab)} className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className={`grid w-full shrink-0 ${isEditing ? "grid-cols-5" : "grid-cols-1"}`}>
-            <TabsTrigger value="dados" className="gap-1.5 text-xs"><Settings2 className="h-3.5 w-3.5" />Dados</TabsTrigger>
-            {isEditing && (
-              <>
-                <TabsTrigger value="responsavel" className="gap-1.5 text-xs"><UserCheck className="h-3.5 w-3.5" />Responsável</TabsTrigger>
-                <TabsTrigger value="custo" className="gap-1.5 text-xs"><DollarSign className="h-3.5 w-3.5" />Custo</TabsTrigger>
-                <TabsTrigger value="medicos" className="gap-1.5 text-xs"><Stethoscope className="h-3.5 w-3.5" />Médicos</TabsTrigger>
-                <TabsTrigger value="resumo" className="gap-1.5 text-xs"><TrendingUp className="h-3.5 w-3.5" />Resumo</TabsTrigger>
-              </>
-            )}
-          </TabsList>
+          {isEditing ? (
+            <TabsList className="grid w-full shrink-0 grid-cols-7 text-[10px]">
+              <TabsTrigger value="dados" className="gap-1 px-1"><Settings2 className="h-3 w-3" />Dados</TabsTrigger>
+              <TabsTrigger value="conexao" className="gap-1 px-1"><Wifi className="h-3 w-3" />Conexão</TabsTrigger>
+              <TabsTrigger value="responsavel" className="gap-1 px-1"><UserCheck className="h-3 w-3" />Responsável</TabsTrigger>
+              <TabsTrigger value="medicos" className="gap-1 px-1"><Stethoscope className="h-3 w-3" />Médicos</TabsTrigger>
+              <TabsTrigger value="equipe" className="gap-1 px-1"><Users className="h-3 w-3" />Equipe</TabsTrigger>
+              <TabsTrigger value="custo" className="gap-1 px-1"><DollarSign className="h-3 w-3" />Custo</TabsTrigger>
+              <TabsTrigger value="resumo" className="gap-1 px-1"><TrendingUp className="h-3 w-3" />Resumo</TabsTrigger>
+            </TabsList>
+          ) : (
+            <TabsList className="grid w-full shrink-0 grid-cols-1">
+              <TabsTrigger value="dados"><Settings2 className="h-3.5 w-3.5 mr-1" />Dados</TabsTrigger>
+            </TabsList>
+          )}
 
-          {/* ABA DADOS */}
+          {/* ── ABA DADOS ─────────────────────────────────────────────────── */}
           <TabsContent value="dados" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -218,11 +296,11 @@ export default function UnitFormDialog({
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-1">
-                <Label className="text-sm font-medium">IP do PACS</Label>
+                <Label className="text-sm font-medium">IP do PACS (DICOM)</Label>
                 <Input value={pacsIp} onChange={e => setPacsIp(e.target.value)} className="mt-1 font-mono text-sm" placeholder="192.168.1.100" />
               </div>
               <div>
-                <Label className="text-sm font-medium">Porta</Label>
+                <Label className="text-sm font-medium">Porta DICOM</Label>
                 <Input value={pacsPort} onChange={e => setPacsPort(e.target.value)} className="mt-1 font-mono text-sm" placeholder="11112" />
               </div>
               <div>
@@ -272,7 +350,78 @@ export default function UnitFormDialog({
             </div>
           </TabsContent>
 
-          {/* ABA RESPONSÁVEL */}
+          {/* ── ABA CONEXÃO ORTHANC ────────────────────────────────────────── */}
+          {isEditing && (
+            <TabsContent value="conexao" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <Wifi className="h-4 w-4 text-blue-600" />
+                <Label className="text-sm font-semibold">Conexão Orthanc (API REST)</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">Configure a URL base do Orthanc para integração com o visualizador e consultas de metadados.</p>
+
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-sm font-medium">URL Base do Orthanc (interna)</Label>
+                  <Input value={orthancUrl} onChange={e => setOrthancUrl(e.target.value)}
+                    className="mt-1 font-mono text-sm" placeholder="http://192.168.1.100:8042" />
+                  <p className="text-xs text-muted-foreground mt-0.5">Usada pelo servidor para consultas internas</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">URL Pública do Orthanc (opcional)</Label>
+                  <Input value={orthancPublicUrl} onChange={e => setOrthancPublicUrl(e.target.value)}
+                    className="mt-1 font-mono text-sm" placeholder="https://pacs.minhaclinica.com.br" />
+                  <p className="text-xs text-muted-foreground mt-0.5">Usada pelo frontend para abrir o visualizador</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-sm font-medium">Usuário HTTP Basic</Label>
+                    <Input value={orthancUser} onChange={e => setOrthancUser(e.target.value)}
+                      className="mt-1" placeholder="orthanc" autoComplete="off" />
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium">Senha HTTP Basic</Label>
+                    <Input type="password" value={orthancPass} onChange={e => setOrthancPass(e.target.value)}
+                      className="mt-1" placeholder="••••••••" autoComplete="new-password" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <Button type="button" size="sm" onClick={handleSaveOrthanc} disabled={saveOrthancConnection.isPending}>
+                  {saveOrthancConnection.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Check className="h-3.5 w-3.5 mr-1" />}
+                  Salvar Conexão
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={handleTestOrthanc} disabled={testingOrthanc || !orthancUrl}>
+                  {testingOrthanc ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wifi className="h-3.5 w-3.5 mr-1" />}
+                  Testar Conexão
+                </Button>
+              </div>
+
+              {orthancTestResult && (
+                <div className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${orthancTestResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
+                  {orthancTestResult.ok ? <Wifi className="h-4 w-4 shrink-0 mt-0.5" /> : <WifiOff className="h-4 w-4 shrink-0 mt-0.5" />}
+                  <span>{orthancTestResult.message}</span>
+                </div>
+              )}
+
+              <div className="border-t border-border pt-4">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Conexão DICOM (configurada na aba Dados)</p>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1.5">
+                    <span className="text-muted-foreground">IP: </span><span className="font-mono">{pacsIp || "—"}</span>
+                  </div>
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1.5">
+                    <span className="text-muted-foreground">Porta: </span><span className="font-mono">{pacsPort || "—"}</span>
+                  </div>
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1.5">
+                    <span className="text-muted-foreground">AE: </span><span className="font-mono">{pacsAeTitle || "—"}</span>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+          )}
+
+          {/* ── ABA RESPONSÁVEL ────────────────────────────────────────────── */}
           {isEditing && (
             <TabsContent value="responsavel" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
               <div className="flex items-center gap-2">
@@ -334,7 +483,71 @@ export default function UnitFormDialog({
             </TabsContent>
           )}
 
-          {/* ABA CUSTO */}
+          {/* ── ABA MÉDICOS ────────────────────────────────────────────────── */}
+          {isEditing && (
+            <TabsContent value="medicos" className="flex-1 overflow-y-auto mt-0 pt-2">
+              <UnitDoctorsTab unitId={unit!.id!} />
+            </TabsContent>
+          )}
+
+          {/* ── ABA EQUIPE ─────────────────────────────────────────────────── */}
+          {isEditing && (
+            <TabsContent value="equipe" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-indigo-600" />
+                <Label className="text-sm font-semibold">Equipe da Unidade</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">Operadores, visualizadores e administradores de unidade vinculados a este PACS.</p>
+
+              {/* Adicionar membro */}
+              <div className="flex gap-2">
+                <select value={addingTeamUserId ?? ""} onChange={e => setAddingTeamUserId(e.target.value ? Number(e.target.value) : null)}
+                  className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                  <option value="">Adicionar membro à equipe...</option>
+                  {availableUsers.map(u => (
+                    <option key={u.id} value={u.id}>{u.name} ({ROLE_LABELS[u.role] ?? u.role})</option>
+                  ))}
+                </select>
+                <Button type="button" size="sm" disabled={!addingTeamUserId || addTeamMember.isPending}
+                  onClick={() => addingTeamUserId && addTeamMember.mutate({ unitId: unit!.id!, userId: addingTeamUserId })}>
+                  <Plus className="h-3.5 w-3.5 mr-1" />Adicionar
+                </Button>
+              </div>
+
+              {/* Lista de membros */}
+              {teamMembers && teamMembers.length > 0 ? (
+                <div className="space-y-2">
+                  {teamMembers.map(m => (
+                    <div key={m.id} className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">{m.name}</p>
+                        <p className="text-xs text-muted-foreground">{ROLE_LABELS[m.role] ?? m.role} · @{m.username}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={m.isActive ? "default" : "secondary"} className="text-xs">
+                          {m.isActive ? "Ativo" : "Inativo"}
+                        </Badge>
+                        <button type="button"
+                          onClick={() => removeTeamMember.mutate({ unitId: unit!.id!, userId: m.id })}
+                          disabled={removeTeamMember.isPending}
+                          className="p-1.5 rounded text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors">
+                          <UserMinus className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Users className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                  <p className="text-sm">Nenhum membro de equipe vinculado</p>
+                  <p className="text-xs mt-1">Médicos são gerenciados na aba Médicos</p>
+                </div>
+              )}
+            </TabsContent>
+          )}
+
+          {/* ── ABA CUSTO ──────────────────────────────────────────────────── */}
           {isEditing && (
             <TabsContent value="custo" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
               <div className="flex items-center gap-2">
@@ -392,14 +605,7 @@ export default function UnitFormDialog({
             </TabsContent>
           )}
 
-          {/* ABA MÉDICOS */}
-          {isEditing && (
-            <TabsContent value="medicos" className="flex-1 overflow-y-auto mt-0 pt-2">
-              <UnitDoctorsTab unitId={unit!.id!} />
-            </TabsContent>
-          )}
-
-          {/* ABA RESUMO */}
+          {/* ── ABA RESUMO ─────────────────────────────────────────────────── */}
           {isEditing && (
             <TabsContent value="resumo" className="flex-1 overflow-y-auto mt-0 pt-4 space-y-4">
               <div className="flex items-center gap-2">
@@ -415,7 +621,7 @@ export default function UnitFormDialog({
                       <p className="text-2xl font-bold mt-0.5">{unitCtx.financialSummary.totalReports}</p>
                     </div>
                     <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-                      <p className="text-xs text-emerald-700 font-medium">Total médicos</p>
+                      <p className="text-xs text-emerald-700 font-medium">Custo médicos</p>
                       <p className="text-2xl font-bold text-emerald-700 mt-0.5">R$ {parseFloat(unitCtx.financialSummary.totalDoctorAmount).toFixed(2)}</p>
                     </div>
                     <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">

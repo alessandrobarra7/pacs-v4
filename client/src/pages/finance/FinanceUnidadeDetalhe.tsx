@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useLocation } from 'wouter';
-import { ArrowLeft, Building2, Users, DollarSign, History, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import { ArrowLeft, Building2, Users, DollarSign, History, AlertCircle, CheckCircle2, Clock, Calendar, Award, Plus, Trash2, Pencil, Check, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { FinanceShell } from '@/components/FinanceShell';
 
@@ -18,7 +18,15 @@ export default function FinanceUnidadeDetalhe() {
   const { id } = useParams<{ id: string }>();
   const unitId = parseInt(id ?? '0', 10);
   const [, navigate] = useLocation();
-  const [activeTab, setActiveTab] = useState<'medicos' | 'precos' | 'ciclos'>('medicos');
+  const [activeTab, setActiveTab] = useState<'medicos' | 'precos' | 'ciclos' | 'escala' | 'remuneracao'>('medicos');
+
+  // Escala
+  const [editingScale, setEditingScale] = useState<number | null>(null);
+  const [scaleForm, setScaleForm] = useState({ doctor_id: 0, days: [] as string[], shift: 'manha' as string, max_reports: '' });
+
+  // Remuneração
+  const [editingComp, setEditingComp] = useState<number | null>(null);
+  const [compForm, setCompForm] = useState({ doctor_id: 0, rule_type: 'fixed_per_report' as string, value: '', description: '' });
 
   const { data: unit, isLoading: loadingUnit } = trpc.units.getById.useQuery(
     { id: unitId },
@@ -43,6 +51,32 @@ export default function FinanceUnidadeDetalhe() {
     enabled: !!unitId,
   });
 
+  const { data: scales, refetch: refetchScales } = trpc.finance.listDoctorScales.useQuery(
+    { unitId },
+    { enabled: !!unitId && activeTab === 'escala' }
+  );
+
+  const { data: compensations, refetch: refetchComps } = trpc.finance.listCompensationRules.useQuery(
+    { unitId },
+    { enabled: !!unitId && activeTab === 'remuneracao' }
+  );
+
+  const saveScale = trpc.finance.upsertDoctorScale.useMutation({
+    onSuccess: () => { refetchScales(); setEditingScale(null); },
+  });
+
+  const deleteScale = trpc.finance.deleteDoctorScale.useMutation({
+    onSuccess: () => refetchScales(),
+  });
+
+  const saveComp = trpc.finance.createCompensationRule.useMutation({
+    onSuccess: () => { refetchComps(); setEditingComp(null); },
+  });
+
+  const deleteComp = trpc.finance.deleteCompensationRule.useMutation({
+    onSuccess: () => refetchComps(),
+  });
+
   const { data: cycles, isLoading: loadingCycles } = trpc.billing.listUnitCycles.useQuery(
     { unit_id: unitId },
     { enabled: !!unitId }
@@ -56,8 +90,14 @@ export default function FinanceUnidadeDetalhe() {
   const tabs = [
     { key: 'medicos' as const, label: 'Médicos', icon: Users },
     { key: 'precos' as const, label: 'Preços', icon: DollarSign },
+    { key: 'escala' as const, label: 'Escala', icon: Calendar },
+    { key: 'remuneracao' as const, label: 'Remuneração', icon: Award },
     { key: 'ciclos' as const, label: 'Ciclos', icon: History },
   ];
+
+  const DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const SHIFTS = [{ v: 'manha', l: 'Manhã' }, { v: 'tarde', l: 'Tarde' }, { v: 'noite', l: 'Noite' }, { v: 'integral', l: 'Integral' }];
+  const RULE_TYPES = [{ v: 'fixed_per_report', l: 'Fixo por laudo' }, { v: 'percentage', l: 'Percentual' }, { v: 'flat_monthly', l: 'Fixo mensal' }];
 
   return (
     <FinanceShell activeSection="unidades">
@@ -286,6 +326,178 @@ export default function FinanceUnidadeDetalhe() {
                         ))}
                       </tbody>
                     </table>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Aba Escala */}
+            {activeTab === 'escala' && (
+              <div className="space-y-4">
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-sm font-semibold text-white/80">Escala Semanal dos Médicos</h2>
+                    <button onClick={() => { setEditingScale(-1); setScaleForm({ doctor_id: doctors?.[0]?.id ?? 0, days: [], shift: 'manha', max_reports: '' }); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-teal-500/20 text-teal-400 rounded-lg hover:bg-teal-500/30 transition-colors">
+                      <Plus size={12} />Nova Escala
+                    </button>
+                  </div>
+                  {editingScale === -1 && (
+                    <div className="bg-white/5 rounded-lg p-4 mb-4 space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Médico</label>
+                          <select value={scaleForm.doctor_id} onChange={e => setScaleForm(f => ({ ...f, doctor_id: Number(e.target.value) }))}
+                            className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white">
+                            {(doctors ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Turno</label>
+                          <select value={scaleForm.shift} onChange={e => setScaleForm(f => ({ ...f, shift: e.target.value }))}
+                            className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white">
+                            {SHIFTS.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs text-white/40 mb-1 block">Dias da semana</label>
+                        <div className="flex gap-1">
+                          {DAYS.map((d, i) => (
+                            <button key={i} type="button"
+                              onClick={() => setScaleForm(f => ({ ...f, days: f.days.includes(String(i)) ? f.days.filter(x => x !== String(i)) : [...f.days, String(i)] }))}
+                              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                scaleForm.days.includes(String(i)) ? 'bg-teal-500 text-white' : 'bg-white/10 text-white/50 hover:bg-white/20'
+                              }`}>{d}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs text-white/40 mb-1 block">Máx. laudos/dia (opcional)</label>
+                        <input value={scaleForm.max_reports} onChange={e => setScaleForm(f => ({ ...f, max_reports: e.target.value }))}
+                          placeholder="Ex: 20" className="w-32 rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white" />
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => saveScale.mutate({ unitId, doctorUserId: scaleForm.doctor_id, daysOfWeek: scaleForm.days.map(Number), notes: scaleForm.shift + (scaleForm.max_reports ? ` max:${scaleForm.max_reports}` : ''), startsAt: new Date().toISOString() })}
+                          disabled={saveScale.isPending || scaleForm.days.length === 0}
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs bg-teal-500 text-white rounded hover:bg-teal-600 disabled:opacity-50">
+                          <Check size={12} />Salvar
+                        </button>
+                        <button onClick={() => setEditingScale(null)} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-white/10 text-white/60 rounded hover:bg-white/20">
+                          <X size={12} />Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {!scales || scales.length === 0 ? (
+                    <div className="text-center py-8 text-white/30">
+                      <Calendar size={32} className="mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">Nenhuma escala configurada</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {scales.map((s: any) => (
+                        <div key={s.id} className="flex items-center justify-between bg-white/5 rounded-lg px-4 py-3">
+                          <div>
+                            <p className="text-sm font-medium text-white">{s.doctor_name ?? '—'}</p>
+                            <p className="text-xs text-white/40">{SHIFTS.find(x => x.v === s.shift)?.l ?? s.shift} · {(s.week_days ?? []).map((d: number) => DAYS[d]).join(', ')}</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {s.max_reports_per_day && <span className="text-xs text-white/40">Máx {s.max_reports_per_day}/dia</span>}
+                            <button onClick={() => deleteScale.mutate({ id: s.id })} disabled={deleteScale.isPending}
+                              className="p-1.5 rounded text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Aba Remuneração */}
+            {activeTab === 'remuneracao' && (
+              <div className="space-y-4">
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-sm font-semibold text-white/80">Regras de Remuneração Médica</h2>
+                    <button onClick={() => { setEditingComp(-1); setCompForm({ doctor_id: doctors?.[0]?.id ?? 0, rule_type: 'fixed_per_report', value: '', description: '' }); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-teal-500/20 text-teal-400 rounded-lg hover:bg-teal-500/30 transition-colors">
+                      <Plus size={12} />Nova Regra
+                    </button>
+                  </div>
+                  {editingComp === -1 && (
+                    <div className="bg-white/5 rounded-lg p-4 mb-4 space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Médico</label>
+                          <select value={compForm.doctor_id} onChange={e => setCompForm(f => ({ ...f, doctor_id: Number(e.target.value) }))}
+                            className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white">
+                            {(doctors ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Tipo de Regra</label>
+                          <select value={compForm.rule_type} onChange={e => setCompForm(f => ({ ...f, rule_type: e.target.value }))}
+                            className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white">
+                            {RULE_TYPES.map(r => <option key={r.v} value={r.v}>{r.l}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">{compForm.rule_type === 'percentage' ? 'Percentual (%)' : 'Valor (R$)'}</label>
+                          <input value={compForm.value} onChange={e => setCompForm(f => ({ ...f, value: e.target.value }))}
+                            placeholder={compForm.rule_type === 'percentage' ? 'Ex: 15' : 'Ex: 6.50'}
+                            className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Descrição (opcional)</label>
+                          <input value={compForm.description} onChange={e => setCompForm(f => ({ ...f, description: e.target.value }))}
+                            placeholder="Ex: Plantão noturno"
+                            className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white" />
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => saveComp.mutate({ unitId, doctorUserId: compForm.doctor_id, compensationType: compForm.rule_type === 'fixed_per_report' ? 'per_report' : compForm.rule_type === 'percentage' ? 'per_report' : 'other', amount: compForm.value, startsAt: new Date().toISOString(), notes: compForm.description || undefined })}
+                          disabled={saveComp.isPending || !compForm.value}
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs bg-teal-500 text-white rounded hover:bg-teal-600 disabled:opacity-50">
+                          <Check size={12} />Salvar
+                        </button>
+                        <button onClick={() => setEditingComp(null)} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-white/10 text-white/60 rounded hover:bg-white/20">
+                          <X size={12} />Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {!compensations || compensations.length === 0 ? (
+                    <div className="text-center py-8 text-white/30">
+                      <Award size={32} className="mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">Nenhuma regra de remuneração configurada</p>
+                      <p className="text-xs mt-1 text-white/20">As regras complementam o preço por laudo configurado na aba Preços</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {compensations.map((c: any) => (
+                        <div key={c.id} className="flex items-center justify-between bg-white/5 rounded-lg px-4 py-3">
+                          <div>
+                            <p className="text-sm font-medium text-white">{c.doctor_name ?? '—'}</p>
+                            <p className="text-xs text-white/40">{RULE_TYPES.find(r => r.v === c.rule_type)?.l ?? c.rule_type}{c.description ? ` · ${c.description}` : ''}</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-semibold text-emerald-400">
+                              {c.rule_type === 'percentage' ? `${c.value}%` : `R$ ${parseFloat(c.value).toFixed(2)}`}
+                            </span>
+                            <button onClick={() => deleteComp.mutate({ id: c.id })} disabled={deleteComp.isPending}
+                              className="p-1.5 rounded text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>

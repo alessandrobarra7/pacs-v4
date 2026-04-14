@@ -3,6 +3,7 @@ import { useParams, useLocation } from 'wouter';
 import {
   ArrowLeft, UserCheck, Building2, Users, DollarSign, TrendingUp,
   AlertCircle, FileText, Calendar, ChevronLeft, ChevronRight,
+  PlusCircle, Trash2, Check, X, Banknote, Receipt,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { FinanceShell } from '@/components/FinanceShell';
@@ -20,7 +21,7 @@ function fmtDate(v: Date | string | null | undefined) {
   return new Date(v).toLocaleDateString('pt-BR');
 }
 
-type Tab = 'resumo' | 'unidades' | 'medicos' | 'extrato' | 'fechamentos';
+type Tab = 'resumo' | 'unidades' | 'medicos' | 'extrato' | 'fechamentos' | 'receitas' | 'gastos';
 
 export default function FinanceResponsavelDetalhe() {
   const { id } = useParams<{ id: string }>();
@@ -43,6 +44,50 @@ export default function FinanceResponsavelDetalhe() {
     { key: 'medicos', label: 'Por Médico', icon: Users },
     { key: 'extrato', label: 'Extrato', icon: FileText },
     { key: 'fechamentos', label: 'Fechamentos', icon: Calendar },
+    { key: 'receitas', label: 'Receitas', icon: Banknote },
+    { key: 'gastos', label: 'Gastos', icon: Receipt },
+  ];
+
+  // Receitas
+  const [revenueForm, setRevenueForm] = useState({ description: '', amount: '', competence: '', notes: '' });
+  const [addingRevenue, setAddingRevenue] = useState(false);
+
+  // Gastos personalizados
+  const [expenseForm, setExpenseForm] = useState({ description: '', amount: '', category: 'other', competence: '', notes: '' });
+  const [addingExpense, setAddingExpense] = useState(false);
+
+  const { data: revenues, refetch: refetchRevenues } = trpc.finance.listContractRevenues.useQuery(
+    { financialResponsibleId: responsibleId },
+    { enabled: !!responsibleId && activeTab === 'receitas' }
+  );
+
+  const { data: expenses, refetch: refetchExpenses } = trpc.finance.listCustomExpenses.useQuery(
+    { financialResponsibleId: responsibleId },
+    { enabled: !!responsibleId && activeTab === 'gastos' }
+  );
+
+  const createRevenue = trpc.finance.createContractRevenue.useMutation({
+    onSuccess: () => { refetchRevenues(); setAddingRevenue(false); setRevenueForm({ description: '', amount: '', competence: '', notes: '' }); },
+  });
+
+  const deleteRevenue = trpc.finance.deleteContractRevenue.useMutation({
+    onSuccess: () => refetchRevenues(),
+  });
+
+  const createExpense = trpc.finance.createCustomExpense.useMutation({
+    onSuccess: () => { refetchExpenses(); setAddingExpense(false); setExpenseForm({ description: '', amount: '', category: 'other', competence: '', notes: '' }); },
+  });
+
+  const deleteExpense = trpc.finance.deleteCustomExpense.useMutation({
+    onSuccess: () => refetchExpenses(),
+  });
+
+  const EXPENSE_CATEGORIES = [
+    { v: 'infrastructure', l: 'Infraestrutura' },
+    { v: 'personnel', l: 'Pessoal' },
+    { v: 'software', l: 'Software' },
+    { v: 'equipment', l: 'Equipamento' },
+    { v: 'other', l: 'Outros' },
   ];
 
   return (
@@ -371,6 +416,197 @@ export default function FinanceResponsavelDetalhe() {
                     </tbody>
                   </table>
                 )}
+              </div>
+            )}
+            {/* ─── ABA RECEITAS ─── */}
+            {activeTab === 'receitas' && (
+              <div className="space-y-4">
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-sm font-semibold text-white/80">Receitas do Contrato</h2>
+                    <button onClick={() => setAddingRevenue(v => !v)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500/30 transition-colors">
+                      <PlusCircle size={12} />Nova Receita
+                    </button>
+                  </div>
+                  {addingRevenue && (
+                    <div className="bg-white/5 rounded-lg p-4 mb-4 space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Descrição</label>
+                          <input value={revenueForm.description} onChange={e => setRevenueForm(f => ({ ...f, description: e.target.value }))}
+                            placeholder="Ex: Mensalidade contrato" className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Valor (R$)</label>
+                          <input value={revenueForm.amount} onChange={e => setRevenueForm(f => ({ ...f, amount: e.target.value }))}
+                            placeholder="Ex: 5000.00" className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Competência (YYYY-MM)</label>
+                          <input value={revenueForm.competence} onChange={e => setRevenueForm(f => ({ ...f, competence: e.target.value }))}
+                            placeholder="Ex: 2025-01" className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Observações</label>
+                          <input value={revenueForm.notes} onChange={e => setRevenueForm(f => ({ ...f, notes: e.target.value }))}
+                            placeholder="Opcional" className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white" />
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => createRevenue.mutate({ financialResponsibleId: responsibleId, description: revenueForm.description || undefined, amount: revenueForm.amount, startsAt: revenueForm.competence ? `${revenueForm.competence}-01` : new Date().toISOString(), notes: revenueForm.notes || undefined })}
+                          disabled={createRevenue.isPending || !revenueForm.description || !revenueForm.amount}
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs bg-emerald-500 text-white rounded hover:bg-emerald-600 disabled:opacity-50">
+                          <Check size={12} />Salvar
+                        </button>
+                        <button onClick={() => setAddingRevenue(false)} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-white/10 text-white/60 rounded hover:bg-white/20">
+                          <X size={12} />Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {!revenues || revenues.length === 0 ? (
+                    <div className="text-center py-8 text-white/30">
+                      <Banknote size={32} className="mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">Nenhuma receita registrada</p>
+                    </div>
+                  ) : (
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-white/10">
+                          <th className="text-left px-4 py-2 text-xs text-white/40 uppercase">Descrição</th>
+                          <th className="text-left px-4 py-2 text-xs text-white/40 uppercase">Competência</th>
+                          <th className="text-right px-4 py-2 text-xs text-white/40 uppercase">Valor</th>
+                          <th className="px-4 py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {revenues.map((r: any) => (
+                          <tr key={r.id} className="border-b border-white/5 hover:bg-white/5">
+                            <td className="px-4 py-3 text-sm text-white">{r.description}</td>
+                            <td className="px-4 py-3 text-sm text-white/40">{r.starts_at ? new Date(r.starts_at).toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }) : '—'}</td>
+                            <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-400">{fmt(r.amount)}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button onClick={() => deleteRevenue.mutate({ id: r.id, financialResponsibleId: responsibleId })} disabled={deleteRevenue.isPending}
+                                className="p-1.5 rounded text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                                <Trash2 size={12} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t border-white/20 bg-white/5">
+                          <td colSpan={2} className="px-4 py-2 text-xs font-bold text-white/50">Total Receitas</td>
+                          <td className="px-4 py-2 text-right text-sm font-bold text-emerald-400">
+                            {fmt(revenues.reduce((s: number, r: any) => s + parseFloat(r.amount ?? '0'), 0))}
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ─── ABA GASTOS PERSONALIZADOS ─── */}
+            {activeTab === 'gastos' && (
+              <div className="space-y-4">
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-sm font-semibold text-white/80">Gastos Personalizados</h2>
+                    <button onClick={() => setAddingExpense(v => !v)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors">
+                      <PlusCircle size={12} />Novo Gasto
+                    </button>
+                  </div>
+                  {addingExpense && (
+                    <div className="bg-white/5 rounded-lg p-4 mb-4 space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Descrição</label>
+                          <input value={expenseForm.description} onChange={e => setExpenseForm(f => ({ ...f, description: e.target.value }))}
+                            placeholder="Ex: Aluguel equipamento" className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Categoria</label>
+                          <select value={expenseForm.category} onChange={e => setExpenseForm(f => ({ ...f, category: e.target.value }))}
+                            className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white">
+                            {EXPENSE_CATEGORIES.map(c => <option key={c.v} value={c.v}>{c.l}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Valor (R$)</label>
+                          <input value={expenseForm.amount} onChange={e => setExpenseForm(f => ({ ...f, amount: e.target.value }))}
+                            placeholder="Ex: 1200.00" className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-white/40 mb-1 block">Competência (YYYY-MM)</label>
+                          <input value={expenseForm.competence} onChange={e => setExpenseForm(f => ({ ...f, competence: e.target.value }))}
+                            placeholder="Ex: 2025-01" className="w-full rounded bg-white/10 border border-white/20 px-2 py-1.5 text-sm text-white" />
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => { const [yr, mo] = (expenseForm.competence || `${new Date().getFullYear()}-${new Date().getMonth()+1}`).split('-'); createExpense.mutate({ financialResponsibleId: responsibleId, description: expenseForm.description || undefined, category: expenseForm.category, amount: expenseForm.amount, competenceMonth: parseInt(mo) || new Date().getMonth()+1, competenceYear: parseInt(yr) || new Date().getFullYear(), notes: expenseForm.notes || undefined }); }}
+                          disabled={createExpense.isPending || !expenseForm.description || !expenseForm.amount}
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50">
+                          <Check size={12} />Salvar
+                        </button>
+                        <button onClick={() => setAddingExpense(false)} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-white/10 text-white/60 rounded hover:bg-white/20">
+                          <X size={12} />Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {!expenses || expenses.length === 0 ? (
+                    <div className="text-center py-8 text-white/30">
+                      <Receipt size={32} className="mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">Nenhum gasto personalizado registrado</p>
+                    </div>
+                  ) : (
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-white/10">
+                          <th className="text-left px-4 py-2 text-xs text-white/40 uppercase">Descrição</th>
+                          <th className="text-left px-4 py-2 text-xs text-white/40 uppercase">Categoria</th>
+                          <th className="text-left px-4 py-2 text-xs text-white/40 uppercase">Competência</th>
+                          <th className="text-right px-4 py-2 text-xs text-white/40 uppercase">Valor</th>
+                          <th className="px-4 py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {expenses.map((e: any) => (
+                          <tr key={e.id} className="border-b border-white/5 hover:bg-white/5">
+                            <td className="px-4 py-3 text-sm text-white">{e.description}</td>
+                            <td className="px-4 py-3 text-sm text-white/40">{EXPENSE_CATEGORIES.find(c => c.v === e.category)?.l ?? e.category}</td>
+                            <td className="px-4 py-3 text-sm text-white/40">{e.competence ?? '—'}</td>
+                            <td className="px-4 py-3 text-right text-sm font-semibold text-red-400">{fmt(e.amount)}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button onClick={() => deleteExpense.mutate({ id: e.id, financialResponsibleId: responsibleId })} disabled={deleteExpense.isPending}
+                                className="p-1.5 rounded text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                                <Trash2 size={12} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t border-white/20 bg-white/5">
+                          <td colSpan={3} className="px-4 py-2 text-xs font-bold text-white/50">Total Gastos</td>
+                          <td className="px-4 py-2 text-right text-sm font-bold text-red-400">
+                            {fmt(expenses.reduce((s: number, e: any) => s + parseFloat(e.amount ?? '0'), 0))}
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  )}
+                </div>
               </div>
             )}
           </>

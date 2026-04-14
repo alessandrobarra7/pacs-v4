@@ -620,3 +620,92 @@ export const billing_cycle_system_summary = mysqlTable("billing_cycle_system_sum
 }));
 export type BillingCycleSystemSummary = typeof billing_cycle_system_summary.$inferSelect;
 export type InsertBillingCycleSystemSummary = typeof billing_cycle_system_summary.$inferInsert;
+
+
+/**
+ * unit_doctor_scales — Escala semanal de médicos por unidade
+ * Define em quais dias da semana e horários cada médico atua em cada unidade.
+ * days_of_week: JSON array de inteiros 0-6 (0=domingo, 1=segunda, ..., 6=sábado)
+ */
+export const unit_doctor_scales = mysqlTable("unit_doctor_scales", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  doctor_user_id: int("doctor_user_id").notNull(),
+  days_of_week: varchar("days_of_week", { length: 50 }).notNull().default("[]"),
+  start_time: varchar("start_time", { length: 5 }),
+  end_time: varchar("end_time", { length: 5 }),
+  is_active: boolean("is_active").notNull().default(true),
+  starts_at: date("starts_at"),
+  ends_at: date("ends_at"),
+  notes: text("notes"),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uq_unit_doctor_scale: uniqueIndex("uq_unit_doctor_scale").on(t.unit_id, t.doctor_user_id),
+}));
+export type UnitDoctorScale = typeof unit_doctor_scales.$inferSelect;
+export type InsertUnitDoctorScale = typeof unit_doctor_scales.$inferInsert;
+
+/**
+ * unit_doctor_compensation_rules — Remuneração do médico por unidade
+ * Define o modelo de remuneração (por laudo, por paciente, por plantão) e o valor.
+ * Separado do billing_doctor_unit_prices (que é o preço do sistema).
+ */
+export const unit_doctor_compensation_rules = mysqlTable("unit_doctor_compensation_rules", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  doctor_user_id: int("doctor_user_id"),
+  compensation_type: mysqlEnum("compensation_type", ["per_report", "per_patient", "per_shift", "other"]).notNull().default("per_report"),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  starts_at: date("starts_at").notNull(),
+  ends_at: date("ends_at"),
+  notes: text("notes"),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type UnitDoctorCompensationRule = typeof unit_doctor_compensation_rules.$inferSelect;
+export type InsertUnitDoctorCompensationRule = typeof unit_doctor_compensation_rules.$inferInsert;
+
+/**
+ * contract_revenues — Receita do contrato do responsável financeiro
+ * Registra o valor recebido pelo responsável no contrato com a unidade.
+ */
+export const contract_revenues = mysqlTable("contract_revenues", {
+  id: int("id").autoincrement().primaryKey(),
+  financial_responsible_id: int("financial_responsible_id").notNull(),
+  unit_id: int("unit_id"),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  periodicity: mysqlEnum("periodicity", ["monthly", "quarterly", "yearly", "one_time"]).notNull().default("monthly"),
+  starts_at: date("starts_at").notNull(),
+  ends_at: date("ends_at"),
+  description: varchar("description", { length: 500 }),
+  notes: text("notes"),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ContractRevenue = typeof contract_revenues.$inferSelect;
+export type InsertContractRevenue = typeof contract_revenues.$inferInsert;
+
+/**
+ * contract_custom_expenses — Gastos personalizados do responsável financeiro
+ * Permite registrar qualquer tipo de gasto operacional (secretária, internet, aluguel, etc.)
+ */
+export const contract_custom_expenses = mysqlTable("contract_custom_expenses", {
+  id: int("id").autoincrement().primaryKey(),
+  financial_responsible_id: int("financial_responsible_id").notNull(),
+  unit_id: int("unit_id"),
+  category: varchar("category", { length: 100 }).notNull(),
+  description: varchar("description", { length: 500 }),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  competence_month: int("competence_month").notNull(),
+  competence_year: int("competence_year").notNull(),
+  notes: text("notes"),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ContractCustomExpense = typeof contract_custom_expenses.$inferSelect;
+export type InsertContractCustomExpense = typeof contract_custom_expenses.$inferInsert;
