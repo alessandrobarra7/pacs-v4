@@ -778,3 +778,26 @@ export const report_readiness = mysqlTable("report_readiness", {
 }));
 export type ReportReadiness = typeof report_readiness.$inferSelect;
 export type InsertReportReadiness = typeof report_readiness.$inferInsert;
+
+
+/**
+ * Catálogo de legendas de exames — define quais exames são bilaterais
+ * e a modalidade a que pertencem para uso no editor de laudo.
+ */
+export const exam_legends = mysqlTable("exam_legends", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Nome canônico do exame (ex: "Ultrassonografia de Mama") */
+  exam_name: varchar("exam_name", { length: 255 }).notNull(),
+  /** Modalidade: rx, tc, us, rm, outros */
+  modality: varchar("modality", { length: 20 }).notNull().default("outros"),
+  /** true = exame pode ser bilateral (exibe seletor Direito/Esquerdo/Bilateral) */
+  bilateral: boolean("bilateral").notNull().default(false),
+  /** Ordem de exibição dentro da modalidade */
+  sort_order: int("sort_order").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uq_exam_name: uniqueIndex("uq_exam_name").on(t.exam_name),
+}));
+export type ExamLegend = typeof exam_legends.$inferSelect;
+export type InsertExamLegend = typeof exam_legends.$inferInsert;

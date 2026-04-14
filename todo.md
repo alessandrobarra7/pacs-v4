@@ -1200,3 +1200,16 @@
 - [ ] C14: Documentar precedência de compensation_rules (doctor_user_id null)
 - [ ] C5: FK em billing_visit_events para reports (ON DELETE CASCADE)
 - [ ] C6: Trigger de responsável único ativo por unidade (SQL para VM2)
+
+## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
+
+- [ ] Criar tabela exam_legends (exam_name, bilateral, modality) no schema Drizzle
+- [ ] Aplicar migration SQL da exam_legends no banco
+- [ ] Seed de exam_legends com exames bilaterais (ombro, joelho, quadril, mama, etc.)
+- [ ] Procedure sla.listExamLegends (público) no backend
+- [ ] Seletor bilateral no editor: ao selecionar exame com bilateral=true, mostrar Direito/Esquerdo/Bilateral
+- [ ] Seed de frases padrão do sistema (is_global=true): ~5-10 frases por modalidade RX, TC, US, RM
+- [ ] FrasesTab: exibir grupo "Padrão do Sistema" (somente leitura, sem excluir) + botão "Salvar como minha"
+- [ ] Seed de templates padrão do sistema (isGlobal=true): 1 template por modalidade principal
+- [ ] TemplatesTab: exibir seção "Templates do Sistema" (somente leitura) + botão "Usar como base"
+- [ ] Corrigir incoerência patientBirthDate/birthDate no sessionStorage do editor

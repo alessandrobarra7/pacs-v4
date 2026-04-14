@@ -213,4 +213,39 @@ export const templatesRouter = router({
         return { success: true };
       }),
 
+    /** Duplica um template global como template pessoal do médico logado */
+    useAsBase: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        const template = await getTemplateById(input.id);
+        if (!template) throw new TRPCError({ code: 'NOT_FOUND', message: 'Template não encontrado' });
+        const { templates } = await import('../../drizzle/schema');
+        const [result] = await db.insert(templates).values({
+          name: `${template.name} (minha cópia)`,
+          modality: template.modality,
+          exam_title: template.exam_title,
+          bodyTemplate: template.bodyTemplate,
+          fields: template.fields,
+          owner_user_id: ctx.user.id,
+          unit_id: ctx.user.unit_id,
+          createdBy: ctx.user.id,
+          isGlobal: false,
+          isActive: true,
+        });
+        return { id: (result as any).insertId };
+      }),
+
+    /** Lista templates globais do sistema (is_global = true, sem unit_id) */
+    listGlobal: protectedProcedure.query(async () => {
+      const db = await getDb();
+      if (!db) return [];
+      const { templates } = await import('../../drizzle/schema');
+      const { eq, and, isNull } = await import('drizzle-orm');
+      return db.select().from(templates)
+        .where(and(eq(templates.isGlobal, true), eq(templates.isActive, true), isNull(templates.unit_id)))
+        .orderBy(templates.modality, templates.name);
+    }),
+
 });

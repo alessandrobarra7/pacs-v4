@@ -8,12 +8,12 @@
  *  - readiness.getBatchStatus   — retorna readiness de múltiplos estudos
  *  - readiness.invalidate       — invalida readiness (admin_master)
  */
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb } from "../db";
-import { unit_report_sla_configs, report_readiness } from "../../drizzle/schema";
-import { eq, inArray, and } from "drizzle-orm";
+import { unit_report_sla_configs, report_readiness, exam_legends } from "../../drizzle/schema";
+import { eq, inArray, and, asc } from "drizzle-orm";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -338,5 +338,16 @@ export const slaRouter = router({
           eq(report_readiness.unit_id, input.unitId),
         ));
       return { success: true };
+    }),
+
+  /** Lista todos os exames do catálogo (público — sem autenticação necessária) */
+  listExamLegends: publicProcedure
+    .query(async () => {
+      const db = await getDb();
+      if (!db) return [];
+      return db
+        .select()
+        .from(exam_legends)
+        .orderBy(asc(exam_legends.modality), asc(exam_legends.sort_order), asc(exam_legends.exam_name));
     }),
 });

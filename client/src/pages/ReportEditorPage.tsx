@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, Printer, CheckCircle, Search, ChevronDown, ChevronRight,
   Plus, Trash2, Star, StarOff, GripVertical, Image as ImageIcon, FileText,
-  MessageSquare, Layers, X, Edit2, Check,
+  MessageSquare, Layers, X, Edit2, Check, Copy,
 } from "lucide-react";
 
 // F1-4: Sanitiza HTML antes de atribuir ao innerHTML (previne XSS no editor de laudos)
@@ -1601,11 +1601,14 @@ const MODALITY_TREE: { label: string; key: string; icon: string; regions: { labe
 
 function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string, examTitle?: string) => void }) {
   const { data: rawTemplates = [], refetch } = trpc.templates.listMine.useQuery();
+  const { data: rawGlobalTemplates = [], refetch: refetchGlobal } = trpc.templates.listGlobal.useQuery();
   const myTemplates = rawTemplates.filter(Boolean);
+  const globalTemplates = rawGlobalTemplates.filter(Boolean);
 
   const createTemplate = trpc.templates.createPersonal.useMutation({ onSuccess: () => { refetch(); toast.success("Template salvo!"); setShowForm(false); resetForm(); } });
   const updateTemplate = trpc.templates.updatePersonal.useMutation({ onSuccess: () => { refetch(); toast.success("Template atualizado!"); setEditingId(null); setShowForm(false); resetForm(); } });
   const deleteTemplate = trpc.templates.deletePersonal.useMutation({ onSuccess: () => { refetch(); toast.success("Template excluído"); } });
+  const useAsBase = trpc.templates.useAsBase.useMutation({ onSuccess: () => { refetch(); refetchGlobal(); toast.success("Template copiado para sua biblioteca!"); } });
 
   // Form state
   const [showForm, setShowForm] = useState(false);
@@ -1787,6 +1790,41 @@ function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string, exa
           </div>
         )}
 
+        {/* Templates do Sistema */}
+        {!search && globalTemplates.length > 0 && (
+          <div className="p-2 pb-0">
+            <div className="border border-blue-200 rounded overflow-hidden mb-2">
+              <div className="px-3 py-2 bg-blue-50 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-bold bg-blue-500 text-white rounded px-1 py-0.5">SISTEMA</span>
+                  <span className="text-xs font-semibold text-blue-700">Templates Padrão</span>
+                </div>
+                <span className="text-[10px] text-blue-500">{globalTemplates.length} templates</span>
+              </div>
+              {globalTemplates.map(t => (
+                <div key={t.id} className="flex items-start gap-1 px-3 py-2 hover:bg-blue-50 group border-t border-blue-100">
+                  <button
+                    onClick={() => onApplyTemplate(t.bodyTemplate, (t as any).exam_title || undefined)}
+                    className="flex-1 text-left min-w-0"
+                  >
+                    <div className="text-xs font-medium text-gray-800 truncate">{t.name}</div>
+                    {(t as any).exam_title && (
+                      <div className="text-[10px] text-gray-400 truncate">{(t as any).exam_title}</div>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => useAsBase.mutate({ id: t.id })}
+                    className="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 flex-shrink-0 mt-0.5"
+                    title="Copiar para minha biblioteca"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Árvore por modalidade */}
         {!search && (
           <div className="p-2 space-y-1">
@@ -1871,6 +1909,7 @@ function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; on
   const createPhrase = trpc.phrases.create.useMutation({ onSuccess: () => { refetchPhrases(); toast.success("Frase adicionada"); } });
   const deletePhrase = trpc.phrases.delete.useMutation({ onSuccess: () => { refetchPhrases(); toast.success("Frase excluída"); } });
   const toggleFav = trpc.phrases.toggleFavorite.useMutation({ onSuccess: () => refetchPhrases() });
+  const saveAsMyPhrase = trpc.phrases.saveAsMyPhrase.useMutation({ onSuccess: () => { refetchPhrases(); toast.success("Frase salva na sua biblioteca!"); } });
 
   const [openGroups, setOpenGroups] = useState<Record<number, boolean>>({});
   const [showNewGroup, setShowNewGroup] = useState(false);
@@ -1923,44 +1962,65 @@ function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; on
       {groups.map(group => {
         const groupPhrases = phrases.filter(p => p.group_id === group.id);
         const isOpen = openGroups[group.id] ?? false;
+        const isGlobalGroup = (group as any).is_global === true || (group as any).is_global === 1;
         return (
           <div key={group.id} className="border border-gray-200 rounded overflow-hidden">
             <button
               onClick={() => toggleGroup(group.id)}
-              className="w-full flex items-center justify-between px-2 py-1.5 bg-gray-50 text-xs font-medium text-gray-700 hover:bg-gray-100"
+              className={`w-full flex items-center justify-between px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 ${isGlobalGroup ? 'bg-blue-50' : 'bg-gray-50'}`}
             >
-              <span>{group.name}</span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                {isGlobalGroup && (
+                  <span className="text-[9px] font-bold bg-blue-100 text-blue-600 rounded px-1 py-0.5 shrink-0">SISTEMA</span>
+                )}
+                <span className="truncate">{group.name}</span>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
                 <span className="text-gray-400 text-[10px]">{groupPhrases.length}</span>
                 {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               </div>
             </button>
             {isOpen && (
               <div className="divide-y divide-gray-100">
-                {groupPhrases.map(phrase => (
-                  <div key={phrase.id} className="flex items-start gap-1 px-2 py-1.5 hover:bg-blue-50 group">
-                    <button
-                      onClick={() => { onFocus(); onInsert(phrase.content); }}
-                      className="flex-1 text-left text-xs text-gray-700 leading-relaxed"
-                    >
-                      {phrase.content}
-                    </button>
-                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
+                {groupPhrases.map(phrase => {
+                  const isGlobalPhrase = (phrase as any).is_global === true || (phrase as any).is_global === 1;
+                  return (
+                    <div key={phrase.id} className="flex items-start gap-1 px-2 py-1.5 hover:bg-blue-50 group">
                       <button
-                        onClick={() => toggleFav.mutate({ phraseId: phrase.id, isFavorite: !phrase.is_favorite })}
-                        className={phrase.is_favorite ? "text-amber-400" : "text-gray-300 hover:text-amber-400"}
+                        onClick={() => { onFocus(); onInsert(phrase.content); }}
+                        className="flex-1 text-left text-xs text-gray-700 leading-relaxed"
                       >
-                        <Star className="h-3 w-3" />
+                        {phrase.content}
                       </button>
-                      <button
-                        onClick={() => deletePhrase.mutate({ phraseId: phrase.id })}
-                        className="text-red-300 hover:text-red-500"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
+                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
+                        {isGlobalPhrase ? (
+                          <button
+                            onClick={() => saveAsMyPhrase.mutate({ phraseId: phrase.id })}
+                            className="text-blue-400 hover:text-blue-600"
+                            title="Salvar como minha frase"
+                          >
+                            <Copy className="h-3 w-3" />
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => toggleFav.mutate({ phraseId: phrase.id, isFavorite: !phrase.is_favorite })}
+                              className={phrase.is_favorite ? "text-amber-400" : "text-gray-300 hover:text-amber-400"}
+                            >
+                              <Star className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => deletePhrase.mutate({ phraseId: phrase.id })}
+                              className="text-red-300 hover:text-red-500"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {addingPhrase === group.id ? (
                   <div className="p-2 space-y-1">
                     <textarea
