@@ -28,8 +28,11 @@ import FinanceResponsavelDetalhe from "./pages/finance/FinanceResponsavelDetalhe
 import { useLocation } from "wouter";
 import { useEffect } from "react";
 
-function ProtectedRoute({ component: Component, ...rest }: any) {
-  const { isAuthenticated, loading } = useAuth();
+// Roles definidos no schema do banco de dados
+type AllowedRole = 'admin_master' | 'unit_admin' | 'medico' | 'operador' | 'viewer' | 'responsavel_financeiro';
+
+function ProtectedRoute({ component: Component, allowedRoles, ...rest }: { component: React.ComponentType<any>; allowedRoles?: AllowedRole[] }) {
+  const { isAuthenticated, loading, user } = useAuth();
   const [, setLocation] = useLocation();
 
   // Bug fix: nunca chamar setLocation durante o render — usar useEffect
@@ -51,8 +54,26 @@ function ProtectedRoute({ component: Component, ...rest }: any) {
   }
 
   if (!isAuthenticated) {
-    // Retorna null enquanto o useEffect acima executa o redirect
     return null;
+  }
+
+  // Verificação de role: se a rota exige roles específicos, bloquear acesso não autorizado
+  if (allowedRoles && user && !allowedRoles.includes(user.role as AllowedRole)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center max-w-md">
+          <div className="text-6xl mb-4">🔒</div>
+          <h1 className="text-2xl font-bold text-foreground mb-2">Acesso Restrito</h1>
+          <p className="text-muted-foreground mb-6">Você não tem permissão para acessar esta página.</p>
+          <button
+            onClick={() => setLocation('/')}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+          >
+            Voltar ao início
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return <Component {...rest} />;
@@ -71,22 +92,30 @@ function Router() {
       <Route path="/pacs-query" component={() => <ProtectedRoute component={PacsQueryPage} />} />
       <Route path="/reports/create/:studyInstanceUid" component={() => <ProtectedRoute component={ReportEditorPage} />} />
       <Route path="/dicom-viewer/:studyUid" component={() => <ProtectedRoute component={DicomViewerPage} />} />
-      <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
+      {/* Admin: apenas admin_master */}
+      <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} allowedRoles={['admin_master']} />} />
       {/* Redirects de rotas legadas /billing/* para /financeiro/* */}
       <Route path="/billing/admin"><Redirect to="/financeiro/admin" /></Route>
       <Route path="/billing/unit"><Redirect to="/financeiro/responsaveis" /></Route>
       <Route path="/billing/doctor"><Redirect to="/financeiro/meu-financeiro" /></Route>
       {/* Novo módulo financeiro */}
+      {/* Dashboard financeiro: todos os papéis com acesso financeiro */}
       <Route path="/financeiro" component={() => <ProtectedRoute component={FinanceDashboard} />} />
-      <Route path="/financeiro/medicos" component={() => <ProtectedRoute component={FinanceMedicos} />} />
-      <Route path="/financeiro/unidades" component={() => <ProtectedRoute component={FinanceUnidades} />} />
-      <Route path="/financeiro/responsaveis" component={() => <ProtectedRoute component={FinanceResponsaveis} />} />
-      <Route path="/financeiro/responsavel" component={() => <ProtectedRoute component={FinanceResponsaveis} />} />
-      <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro} />} />
-      <Route path="/financeiro/admin" component={() => <ProtectedRoute component={FinanceAdmin} />} />
-      <Route path="/financeiro/medicos/:id" component={() => <ProtectedRoute component={FinanceMedicoDetalhe} />} />
-      <Route path="/financeiro/unidades/:id" component={() => <ProtectedRoute component={FinanceUnidadeDetalhe} />} />
-      <Route path="/financeiro/responsaveis/:id" component={() => <ProtectedRoute component={FinanceResponsavelDetalhe} />} />
+      {/* Médicos: admin_master, unit_admin, responsavel_financeiro */}
+      <Route path="/financeiro/medicos" component={() => <ProtectedRoute component={FinanceMedicos} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
+      {/* Unidades: admin_master, unit_admin, responsavel_financeiro */}
+      <Route path="/financeiro/unidades" component={() => <ProtectedRoute component={FinanceUnidades} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
+      {/* Responsáveis: admin_master, responsavel_financeiro */}
+      <Route path="/financeiro/responsaveis" component={() => <ProtectedRoute component={FinanceResponsaveis} allowedRoles={['admin_master', 'responsavel_financeiro']} />} />
+      <Route path="/financeiro/responsavel" component={() => <ProtectedRoute component={FinanceResponsaveis} allowedRoles={['admin_master', 'responsavel_financeiro']} />} />
+      {/* Meu Financeiro: apenas médicos */}
+      <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro} allowedRoles={['medico']} />} />
+      {/* Admin financeiro: apenas admin_master */}
+      <Route path="/financeiro/admin" component={() => <ProtectedRoute component={FinanceAdmin} allowedRoles={['admin_master']} />} />
+      {/* Detalhes: admin_master, unit_admin, responsavel_financeiro */}
+      <Route path="/financeiro/medicos/:id" component={() => <ProtectedRoute component={FinanceMedicoDetalhe} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
+      <Route path="/financeiro/unidades/:id" component={() => <ProtectedRoute component={FinanceUnidadeDetalhe} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
+      <Route path="/financeiro/responsaveis/:id" component={() => <ProtectedRoute component={FinanceResponsavelDetalhe} allowedRoles={['admin_master', 'responsavel_financeiro']} />} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

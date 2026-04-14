@@ -67,7 +67,7 @@
 - [x] Implementar middleware unitAdminProcedure  
 - [x] Implementar middleware medicoProcedure
 - [ ] Atualizar procedures existentes com novos middlewares
-- [ ] Criar componente ProtectedRoute com verificação de perfil
+- [x] Criar componente ProtectedRoute com verificação de perfil
 - [ ] Implementar UI condicional na lista de exames (botões por perfil)
 - [ ] Criar menu lateral condicional (Administração, PACS Remoto)
 - [ ] Remover página DashboardPage.tsx
@@ -1129,3 +1129,17 @@
 - [ ] Seção Resultado Econômico: receita - custos = saldo operacional, margem estimada
 - [ ] UnitFormDialog: remover aba Conexão, mover botão Testar Conexão para aba Dados ao lado dos campos DICOM
 - [ ] UnitFormDialog: aba Médicos deve mostrar claramente o preço por laudo do médico com edição inline
+- [ ] SEGURANÇA CRÍTICA: setDoctorPrice, setDoctorPriceDirect, setSystemPrice — bloquear no backend para apenas admin_master e unit_admin
+
+## SEGURANÇA DE PREÇOS — Proteção Frontend (Sessão atual)
+
+- [x] Verificar que backend protege setDoctorPrice/setSystemPrice com role !== 'admin_master'
+- [x] Confirmar que DashboardLayout filtra menu por role (médico não vê /admin nem /financeiro admin)
+- [x] Adicionar verificação de role no ProtectedRoute do App.tsx (allowedRoles prop)
+- [x] Proteger rota /admin: apenas admin_master
+- [x] Proteger rota /financeiro/admin: apenas admin_master
+- [x] Proteger rota /financeiro/meu-financeiro: apenas medico
+- [x] Proteger rotas /financeiro/medicos, /unidades, /responsaveis: admin_master, unit_admin, responsavel_financeiro
+- [x] Confirmar que UserFormDialog oculta aba Valores para não-admin_master (isMedicoEditing/isMedicoCreating)
+- [x] Confirmar que UnitFormDialog e UnitDoctorsTab só são acessíveis via /admin (protegido)
+- [x] 135 testes passando, TypeScript limpo
