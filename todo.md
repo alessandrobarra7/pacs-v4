@@ -1127,3 +1127,5 @@
 - [ ] Seção Gastos com Sistema: valor devido, por unidade, por período
 - [ ] Seção Gastos Personalizados: categorias livres (secretária, internet, aluguel...), CRUD
 - [ ] Seção Resultado Econômico: receita - custos = saldo operacional, margem estimada
+- [ ] UnitFormDialog: remover aba Conexão, mover botão Testar Conexão para aba Dados ao lado dos campos DICOM
+- [ ] UnitFormDialog: aba Médicos deve mostrar claramente o preço por laudo do médico com edição inline

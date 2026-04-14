@@ -39,15 +39,14 @@ interface UnitFormDialogProps {
   loading?: boolean;
 }
 
-type DialogTab = "dados" | "conexao" | "responsavel" | "medicos" | "equipe" | "custo" | "resumo";
+type DialogTab = "dados" | "responsavel" | "medicos" | "equipe" | "custo" | "resumo";
 
 const NAV_ITEMS: { id: DialogTab; label: string; icon: React.ElementType; editOnly?: boolean }[] = [
   { id: "dados",       label: "Dados",        icon: Settings2 },
-  { id: "conexao",     label: "Conexão",      icon: Wifi,       editOnly: true },
   { id: "responsavel", label: "Responsável",  icon: UserCheck,  editOnly: true },
   { id: "medicos",     label: "Médicos",      icon: Stethoscope,editOnly: true },
   { id: "equipe",      label: "Equipe",       icon: Users,      editOnly: true },
-  { id: "custo",       label: "Custo",        icon: DollarSign, editOnly: true },
+  { id: "custo",       label: "Custo Sistema",icon: DollarSign, editOnly: true },
   { id: "resumo",      label: "Resumo",       icon: TrendingUp, editOnly: true },
 ];
 
@@ -74,13 +73,9 @@ export default function UnitFormDialog({
   const [systemPriceValue, setSystemPriceValue] = useState("");
   const [selectedResponsibleId, setSelectedResponsibleId] = useState<number | null>(null);
 
-  // Conexão Orthanc
-  const [orthancUrl, setOrthancUrl] = useState("");
-  const [orthancPublicUrl, setOrthancPublicUrl] = useState("");
-  const [orthancUser, setOrthancUser] = useState("");
-  const [orthancPass, setOrthancPass] = useState("");
-  const [testingOrthanc, setTestingOrthanc] = useState(false);
-  const [orthancTestResult, setOrthancTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  // Teste de conexão DICOM (na aba Dados)
+  const [testingDicom, setTestingDicom] = useState(false);
+  const [dicomTestResult, setDicomTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Equipe
   const [addingTeamUserId, setAddingTeamUserId] = useState<number | null>(null);
@@ -126,14 +121,9 @@ export default function UnitFormDialog({
     onError: (e) => toast.error(e.message || "Erro ao vincular responsável"),
   });
 
-  const saveOrthancConnection = trpc.finance.saveOrthancConnection.useMutation({
-    onSuccess: () => toast.success("Conexão Orthanc salva"),
-    onError: (e) => toast.error(e.message || "Erro ao salvar conexão"),
-  });
-
   const testOrthancConnection = trpc.finance.testOrthancConnection.useMutation({
-    onSuccess: (data) => { setOrthancTestResult(data); setTestingOrthanc(false); },
-    onError: (e) => { setOrthancTestResult({ ok: false, message: e.message }); setTestingOrthanc(false); },
+    onSuccess: (data) => { setDicomTestResult(data); setTestingDicom(false); },
+    onError: (e) => { setDicomTestResult({ ok: false, message: e.message }); setTestingDicom(false); },
   });
 
   const addTeamMember = trpc.finance.addTeamMember.useMutation({
@@ -152,7 +142,7 @@ export default function UnitFormDialog({
       setEditingSystemPrice(false);
       setSystemPriceValue("");
       setSelectedResponsibleId(null);
-      setOrthancTestResult(null);
+      setDicomTestResult(null);
       setAddingTeamUserId(null);
       if (unit) {
         setName(unit.name); setSlug(unit.slug); setAddress(unit.address || "");
@@ -164,7 +154,6 @@ export default function UnitFormDialog({
         setName(""); setSlug(""); setAddress(""); setEquipmentInfo("");
         setPacsIp(""); setPacsPort("11112"); setPacsAeTitle(""); setPacsLocalAeTitle("LAUDS");
         setIsActive(true); setLogoPreview(null); setLogoFile(null); setRemovingLogo(false);
-        setOrthancUrl(""); setOrthancPublicUrl(""); setOrthancUser(""); setOrthancPass("");
       }
     }
   }, [open, unit]);
@@ -203,21 +192,10 @@ export default function UnitFormDialog({
     linkResponsibleDirect.mutate({ unitId: unit.id, responsibleId: selectedResponsibleId, startsAt: new Date().toISOString() });
   };
 
-  const handleSaveOrthanc = () => {
+  const handleTestDicom = () => {
     if (!unit?.id) return;
-    saveOrthancConnection.mutate({
-      unitId: unit.id,
-      orthanc_base_url: orthancUrl || null,
-      orthanc_public_url: orthancPublicUrl || null,
-      orthanc_basic_user: orthancUser || null,
-      orthanc_basic_pass: orthancPass || null,
-    });
-  };
-
-  const handleTestOrthanc = () => {
-    if (!unit?.id) return;
-    setTestingOrthanc(true);
-    setOrthancTestResult(null);
+    setTestingDicom(true);
+    setDicomTestResult(null);
     testOrthancConnection.mutate({ unitId: unit.id });
   };
 
@@ -276,7 +254,7 @@ export default function UnitFormDialog({
                 key={id}
                 type="button"
                 onClick={() => setActiveTab(id)}
-                className={`flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-none transition-colors text-left w-full
+                className={`flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors text-left w-full
                   ${activeTab === id
                     ? "bg-background text-foreground border-r-2 border-primary shadow-sm"
                     : "text-muted-foreground hover:text-foreground hover:bg-background/60"
@@ -293,7 +271,8 @@ export default function UnitFormDialog({
 
             {/* ── ABA DADOS ─────────────────────────────────────────────── */}
             {activeTab === "dados" && (
-              <div className="space-y-5 max-w-2xl">
+              <div className="space-y-6 max-w-2xl">
+                {/* Informações gerais */}
                 <div>
                   <h3 className="text-sm font-semibold text-foreground mb-4">Informações da Unidade</h3>
                   <div className="grid grid-cols-2 gap-4">
@@ -316,8 +295,9 @@ export default function UnitFormDialog({
                   </div>
                 </div>
 
+                {/* Conexão DICOM */}
                 <div className="border-t border-border pt-5">
-                  <h3 className="text-sm font-semibold text-foreground mb-4">Conexão DICOM</h3>
+                  <h3 className="text-sm font-semibold text-foreground mb-4">Conexão DICOM / PACS</h3>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-1">
                       <Label className="text-sm font-medium">IP do PACS</Label>
@@ -336,10 +316,29 @@ export default function UnitFormDialog({
                     <Label className="text-sm font-medium">AE Title Local</Label>
                     <Input value={pacsLocalAeTitle} onChange={e => setPacsLocalAeTitle(e.target.value)} className="mt-1 font-mono text-sm" placeholder="LAUDS" />
                   </div>
+
+                  {/* Botão Testar Conexão — inline com os campos DICOM */}
+                  {isEditing && (
+                    <div className="mt-4 flex items-center gap-3">
+                      <Button type="button" variant="outline" size="sm" onClick={handleTestDicom} disabled={testingDicom || !pacsIp}>
+                        {testingDicom
+                          ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />Testando...</>
+                          : <><Wifi className="h-3.5 w-3.5 mr-2" />Testar Conexão DICOM</>
+                        }
+                      </Button>
+                      {dicomTestResult && (
+                        <div className={`flex items-center gap-2 text-sm rounded-md px-3 py-1.5 border ${dicomTestResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
+                          {dicomTestResult.ok ? <Wifi className="h-3.5 w-3.5 shrink-0" /> : <WifiOff className="h-3.5 w-3.5 shrink-0" />}
+                          <span className="text-xs">{dicomTestResult.message}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
+                {/* Logo */}
                 <div className="border-t border-border pt-5">
-                  <h3 className="text-sm font-semibold text-foreground mb-3">Logo da Unidade</h3>
+                  <h3 className="text-sm font-semibold text-foreground mb-2">Logo da Unidade</h3>
                   <p className="text-xs text-muted-foreground mb-3">Aparece no cabeçalho do laudo. PNG com fundo branco, máx. 2 MB.</p>
                   {logoPreview ? (
                     <div className="flex items-start gap-4">
@@ -368,6 +367,7 @@ export default function UnitFormDialog({
                   {logoFile && <p className="text-xs text-amber-600 flex items-center gap-1 mt-2"><Upload className="h-3 w-3" />Novo logo será salvo ao clicar em "Salvar Alterações"</p>}
                 </div>
 
+                {/* Status */}
                 <div className="flex items-center gap-3 border-t border-border pt-5">
                   <Switch checked={isActive} onCheckedChange={setIsActive} />
                   <div>
@@ -381,74 +381,6 @@ export default function UnitFormDialog({
                   <Button onClick={handleSave} disabled={loading || updateLogo.isPending}>
                     {loading || updateLogo.isPending ? "Salvando..." : unit ? "Salvar Alterações" : "Criar Unidade"}
                   </Button>
-                </div>
-              </div>
-            )}
-
-            {/* ── ABA CONEXÃO ORTHANC ───────────────────────────────────── */}
-            {activeTab === "conexao" && isEditing && (
-              <div className="space-y-5 max-w-2xl">
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
-                    <Wifi className="h-4 w-4 text-blue-600" /> Conexão Orthanc (API REST)
-                  </h3>
-                  <p className="text-xs text-muted-foreground">Configure a URL base do Orthanc para integração com o visualizador e consultas de metadados.</p>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <Label className="text-sm font-medium">URL Base do Orthanc (interna)</Label>
-                    <Input value={orthancUrl} onChange={e => setOrthancUrl(e.target.value)} className="mt-1 font-mono text-sm" placeholder="http://192.168.1.100:8042" />
-                    <p className="text-xs text-muted-foreground mt-1">Usada pelo servidor para consultas internas</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">URL Pública do Orthanc (opcional)</Label>
-                    <Input value={orthancPublicUrl} onChange={e => setOrthancPublicUrl(e.target.value)} className="mt-1 font-mono text-sm" placeholder="https://pacs.minhaclinica.com.br" />
-                    <p className="text-xs text-muted-foreground mt-1">Usada pelo frontend para abrir o visualizador</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label className="text-sm font-medium">Usuário HTTP Basic</Label>
-                      <Input value={orthancUser} onChange={e => setOrthancUser(e.target.value)} className="mt-1" placeholder="orthanc" autoComplete="off" />
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium">Senha HTTP Basic</Label>
-                      <Input type="password" value={orthancPass} onChange={e => setOrthancPass(e.target.value)} className="mt-1" placeholder="••••••••" autoComplete="new-password" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 pt-2">
-                  <Button type="button" onClick={handleSaveOrthanc} disabled={saveOrthancConnection.isPending}>
-                    {saveOrthancConnection.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
-                    Salvar Conexão
-                  </Button>
-                  <Button type="button" variant="outline" onClick={handleTestOrthanc} disabled={testingOrthanc || !orthancUrl}>
-                    {testingOrthanc ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wifi className="h-4 w-4 mr-2" />}
-                    Testar Conexão
-                  </Button>
-                </div>
-
-                {orthancTestResult && (
-                  <div className={`flex items-start gap-3 rounded-lg border p-4 text-sm ${orthancTestResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
-                    {orthancTestResult.ok ? <Wifi className="h-4 w-4 shrink-0 mt-0.5" /> : <WifiOff className="h-4 w-4 shrink-0 mt-0.5" />}
-                    <span>{orthancTestResult.message}</span>
-                  </div>
-                )}
-
-                <div className="border-t border-border pt-4">
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Conexão DICOM (configurada na aba Dados)</p>
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div className="rounded border border-border bg-muted/30 px-3 py-2">
-                      <span className="text-muted-foreground">IP: </span><span className="font-mono">{pacsIp || "—"}</span>
-                    </div>
-                    <div className="rounded border border-border bg-muted/30 px-3 py-2">
-                      <span className="text-muted-foreground">Porta: </span><span className="font-mono">{pacsPort || "—"}</span>
-                    </div>
-                    <div className="rounded border border-border bg-muted/30 px-3 py-2">
-                      <span className="text-muted-foreground">AE: </span><span className="font-mono">{pacsAeTitle || "—"}</span>
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -523,6 +455,18 @@ export default function UnitFormDialog({
             {/* ── ABA MÉDICOS ──────────────────────────────────────────── */}
             {activeTab === "medicos" && isEditing && (
               <div className="h-full">
+                {/* Banner explicativo sobre o preço do médico */}
+                <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-start gap-3">
+                  <DollarSign className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-blue-800">Valor por laudo do médico</p>
+                    <p className="text-xs text-blue-700 mt-0.5">
+                      Cada médico pode ter um valor diferente por laudo assinado nesta unidade.
+                      Clique no ícone <Pencil className="inline h-3 w-3" /> ou no valor na coluna <strong>Valor/Laudo</strong> para definir ou alterar.
+                      Este valor é independente do custo do sistema (configurado na aba <strong>Custo Sistema</strong>).
+                    </p>
+                  </div>
+                </div>
                 <UnitDoctorsTab unitId={unit!.id!} />
               </div>
             )}
@@ -583,14 +527,17 @@ export default function UnitFormDialog({
               </div>
             )}
 
-            {/* ── ABA CUSTO ────────────────────────────────────────────── */}
+            {/* ── ABA CUSTO SISTEMA ────────────────────────────────────── */}
             {activeTab === "custo" && isEditing && (
               <div className="space-y-5 max-w-2xl">
                 <div>
                   <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
                     <DollarSign className="h-4 w-4 text-emerald-600" /> Custo do Sistema por Laudo
                   </h3>
-                  <p className="text-xs text-muted-foreground">Valor cobrado pelo sistema por laudo assinado nesta unidade.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Valor cobrado pelo <strong>sistema</strong> por laudo assinado nesta unidade.
+                    Este valor é diferente do valor pago ao médico (configurado na aba <strong>Médicos</strong>).
+                  </p>
                 </div>
 
                 <div className="rounded-lg border border-border bg-background p-5">
@@ -630,7 +577,7 @@ export default function UnitFormDialog({
 
                 {unitCtx?.systemPriceHistory && unitCtx.systemPriceHistory.length > 0 && (
                   <div className="border-t border-border pt-4">
-                    <p className="text-xs font-medium text-muted-foreground mb-3">Histórico de custos</p>
+                    <p className="text-xs font-medium text-muted-foreground mb-3">Histórico de custos do sistema</p>
                     <div className="space-y-1">
                       {unitCtx.systemPriceHistory.map((sp) => (
                         <div key={sp.id} className="flex items-center justify-between text-xs text-muted-foreground py-2 border-b border-border/30 last:border-0">
