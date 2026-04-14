@@ -230,7 +230,7 @@ export default function UnitFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl w-full h-[90vh] max-h-[90vh] p-0 overflow-hidden flex flex-col gap-0">
+      <DialogContent className="!max-w-[96vw] w-[96vw] h-[95vh] max-h-[95vh] p-0 overflow-hidden flex flex-col gap-0">
         {/* ── HEADER ─────────────────────────────────────────────────────── */}
         <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
           <DialogTitle className="text-lg font-semibold flex items-center gap-2">
@@ -248,13 +248,13 @@ export default function UnitFormDialog({
         <div className="flex flex-1 overflow-hidden">
 
           {/* Sidebar de navegação */}
-          <nav className="w-48 shrink-0 border-r border-border bg-muted/30 flex flex-col py-3 gap-0.5 overflow-y-auto">
+          <nav className="w-56 shrink-0 border-r border-border bg-muted/30 flex flex-col py-4 gap-1 overflow-y-auto">
             {visibleTabs.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 type="button"
                 onClick={() => setActiveTab(id)}
-                className={`flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors text-left w-full
+                className={`flex items-center gap-3 px-5 py-3 text-sm font-medium transition-colors text-left w-full
                   ${activeTab === id
                     ? "bg-background text-foreground border-r-2 border-primary shadow-sm"
                     : "text-muted-foreground hover:text-foreground hover:bg-background/60"
@@ -267,11 +267,11 @@ export default function UnitFormDialog({
           </nav>
 
           {/* Área de conteúdo */}
-          <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="flex-1 overflow-y-auto px-8 py-6">
 
             {/* ── ABA DADOS ─────────────────────────────────────────────── */}
             {activeTab === "dados" && (
-              <div className="space-y-6 max-w-2xl">
+              <div className="space-y-6 max-w-3xl">
                 {/* Informações gerais */}
                 <div>
                   <h3 className="text-sm font-semibold text-foreground mb-4">Informações da Unidade</h3>
@@ -387,7 +387,7 @@ export default function UnitFormDialog({
 
             {/* ── ABA RESPONSÁVEL ──────────────────────────────────────── */}
             {activeTab === "responsavel" && isEditing && (
-              <div className="space-y-5 max-w-2xl">
+              <div className="space-y-5 max-w-3xl">
                 <div>
                   <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
                     <UserCheck className="h-4 w-4 text-blue-600" /> Responsável Financeiro
@@ -473,7 +473,7 @@ export default function UnitFormDialog({
 
             {/* ── ABA EQUIPE ───────────────────────────────────────────── */}
             {activeTab === "equipe" && isEditing && (
-              <div className="space-y-5 max-w-2xl">
+              <div className="space-y-5 max-w-3xl">
                 <div>
                   <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
                     <Users className="h-4 w-4 text-indigo-600" /> Equipe da Unidade
@@ -529,7 +529,7 @@ export default function UnitFormDialog({
 
             {/* ── ABA CUSTO SISTEMA ────────────────────────────────────── */}
             {activeTab === "custo" && isEditing && (
-              <div className="space-y-5 max-w-2xl">
+              <div className="space-y-5 max-w-3xl">
                 <div>
                   <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
                     <DollarSign className="h-4 w-4 text-emerald-600" /> Custo do Sistema por Laudo
@@ -594,7 +594,7 @@ export default function UnitFormDialog({
 
             {/* ── ABA RESUMO ───────────────────────────────────────────── */}
             {activeTab === "resumo" && isEditing && (
-              <div className="space-y-5 max-w-2xl">
+              <div className="space-y-5 max-w-3xl">
                 <div>
                   <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
                     <TrendingUp className="h-4 w-4 text-blue-600" /> Resumo Financeiro
