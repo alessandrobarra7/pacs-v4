@@ -118,7 +118,7 @@ function ExtratoTab({ doctorUserId }: { doctorUserId?: number }) {
                 <tbody>
                   {u.days.sort((a,b) => b.date.localeCompare(a.date)).map(d => (
                     <tr key={d.date} className="border-b border-slate-700/10 hover:bg-slate-700/10">
-                      <td className="px-4 py-2 text-slate-300">{d.date === 'sem-data' ? '—' : new Date(d.date + 'T12:00:00').toLocaleDateString('pt-BR')}</td>
+                      <td className="px-4 py-2 text-slate-300">{d.date === 'sem-data' ? '—' : (() => { const parts = d.date.split('-'); if (parts.length === 3) { const [y,m,day] = parts; return `${day}/${m}/${y}`; } return d.date; })()}</td>
                       <td className="px-4 py-2 text-right text-slate-300">{d.reports}</td>
                       <td className="px-4 py-2 text-right font-semibold text-emerald-400">{fmtBRL(d.amount)}</td>
                     </tr>

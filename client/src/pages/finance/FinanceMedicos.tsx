@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { FinanceShell } from "@/components/FinanceShell";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Users, Activity, Building2, Search, ChevronRight } from "lucide-react";
 
 function fmtBRL(val: string | number | null | undefined) {
@@ -18,39 +19,56 @@ type DoctorPrice = {
   doctor_user_id: number; price_per_report: string;
   starts_at: Date | string; ends_at: Date | string | null;
 };
+type DoctorForResp = {
+  id: number; name: string | null;
+  units: { unit_id: number; unit_name: string | null; price_per_report: string }[];
+};
 
 export default function FinanceMedicos() {
   const [search, setSearch] = useState("");
   const [, navigate] = useLocation();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin_master';
 
-  const { data: usersData, isLoading: loadingUsers } = trpc.admin.listUsers.useQuery();
-  const { data: pricesData, isLoading: loadingPrices } = trpc.billing.listAllDoctorPrices.useQuery();
+  // Admin: usa listUsers + listAllDoctorPrices
+  const { data: usersData, isLoading: loadingUsers } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });
+  const { data: pricesData, isLoading: loadingPrices } = trpc.billing.listAllDoctorPrices.useQuery(undefined, { enabled: isAdmin });
+
+  // Responsável financeiro / unit_admin: usa listDoctorsForResponsible
+  const { data: respDoctorsData, isLoading: loadingRespDoctors } = trpc.billing.listDoctorsForResponsible.useQuery(undefined, { enabled: !isAdmin });
 
   const users = (usersData ?? []) as DoctorUser[];
   const prices = (pricesData ?? []) as DoctorPrice[];
+  const respDoctors = (respDoctorsData ?? []) as DoctorForResp[];
 
-  const doctors = users.filter((u) => u.role === "medico");
-  const activeDoctors = doctors.filter((d) => d.isActive).length;
-  const activeLinks = prices.filter((p) => !p.ends_at).length;
-
-  const pricesByDoctor = useMemo(() => {
-    const map = new Map<number, DoctorPrice[]>();
-    for (const p of prices) {
-      const arr = map.get(p.doctor_user_id) ?? [];
-      arr.push(p);
-      map.set(p.doctor_user_id, arr);
+  // Unificar dados para exibição
+  const doctors: { id: number; name: string | null; email?: string | null; isActive?: boolean; unitCount: number; priceRange: string }[] = useMemo(() => {
+    if (isAdmin) {
+      const adminDocs = users.filter((u) => u.role === "medico");
+      return adminDocs.map(d => {
+        const docPrices = prices.filter(p => p.doctor_user_id === d.id && !p.ends_at);
+        const vals = docPrices.map(p => parseFloat(p.price_per_report));
+        const priceRange = vals.length === 0 ? '—' : vals.length === 1 ? fmtBRL(vals[0]) : `${fmtBRL(Math.min(...vals))} – ${fmtBRL(Math.max(...vals))}`;
+        return { id: d.id, name: d.name, email: d.email, isActive: d.isActive, unitCount: docPrices.length, priceRange };
+      });
+    } else {
+      return respDoctors.map(d => {
+        const vals = d.units.map(u => parseFloat(u.price_per_report));
+        const priceRange = vals.length === 0 ? '—' : vals.length === 1 ? fmtBRL(vals[0]) : `${fmtBRL(Math.min(...vals))} – ${fmtBRL(Math.max(...vals))}`;
+        return { id: d.id, name: d.name, email: null, isActive: true, unitCount: d.units.length, priceRange };
+      });
     }
-    return map;
-  }, [prices]);
+  }, [isAdmin, users, prices, respDoctors]);
+
+  const activeLinks = isAdmin ? prices.filter((p) => !p.ends_at).length : respDoctors.reduce((acc, d) => acc + d.units.length, 0);
 
   const filtered = doctors.filter((d) => {
     const q = search.toLowerCase();
     return (d.name ?? "").toLowerCase().includes(q) ||
-      d.username.toLowerCase().includes(q) ||
       (d.email ?? "").toLowerCase().includes(q);
   });
 
-  const isLoading = loadingUsers || loadingPrices;
+  const isLoading = isAdmin ? (loadingUsers || loadingPrices) : loadingRespDoctors;
 
   return (
     <FinanceShell activeSection="medicos">
@@ -65,7 +83,7 @@ export default function FinanceMedicos() {
         <div className="grid grid-cols-3 gap-4">
           {[
             { label: "Total Médicos", value: doctors.length, icon: Users, color: "text-cyan-400", border: "border-cyan-400/20" },
-            { label: "Ativos", value: activeDoctors, icon: Activity, color: "text-emerald-400", border: "border-emerald-400/20" },
+            { label: "Ativos", value: doctors.filter(d => d.isActive !== false).length, icon: Activity, color: "text-emerald-400", border: "border-emerald-400/20" },
             { label: "Vínculos Ativos", value: activeLinks, icon: Building2, color: "text-amber-400", border: "border-amber-400/20" },
           ].map((card) => (
             <div key={card.label} className={`rounded-xl border ${card.border} bg-slate-800/50 p-4`}>
@@ -121,12 +139,7 @@ export default function FinanceMedicos() {
             </div>
           ) : (
             filtered.map((doctor) => {
-              const doctorPrices = pricesByDoctor.get(doctor.id) ?? [];
-              const activePrices = doctorPrices.filter((p) => !p.ends_at);
-              const priceValues = activePrices.map((p) => parseFloat(p.price_per_report));
-              const minPrice = priceValues.length > 0 ? Math.min(...priceValues) : null;
-              const maxPrice = priceValues.length > 0 ? Math.max(...priceValues) : null;
-              const initials = (doctor.name ?? doctor.username).split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+              const initials = (doctor.name ?? 'M').split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
 
               return (
                 <button
@@ -139,32 +152,26 @@ export default function FinanceMedicos() {
                       {initials}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{doctor.name ?? doctor.username}</p>
-                      <p className="text-xs text-slate-500 truncate">{doctor.username}</p>
+                      <p className="text-sm font-medium text-white truncate">{doctor.name ?? '—'}</p>
+                      <p className="text-xs text-slate-500 truncate">{doctor.email ?? '—'}</p>
                     </div>
                   </div>
                   <div className="col-span-2 hidden sm:block">
                     <span className="text-xs text-slate-400">{doctor.email ?? "—"}</span>
                   </div>
                   <div className="col-span-2 text-center">
-                    <span className="text-sm text-slate-300">{activePrices.length}</span>
-                    <span className="text-xs text-slate-500 ml-1">{activePrices.length === 1 ? "ativa" : "ativas"}</span>
+                    <span className="text-sm text-slate-300">{doctor.unitCount}</span>
+                    <span className="text-xs text-slate-500 ml-1">{doctor.unitCount === 1 ? "ativa" : "ativas"}</span>
                   </div>
                   <div className="col-span-2">
-                    {minPrice === null ? (
-                      <span className="text-slate-500 text-xs">—</span>
-                    ) : minPrice === maxPrice ? (
-                      <span className="text-sm font-medium text-emerald-400">{fmtBRL(minPrice)}</span>
-                    ) : (
-                      <span className="text-sm font-medium text-emerald-400">{fmtBRL(minPrice)} – {fmtBRL(maxPrice)}</span>
-                    )}
+                    <span className="text-sm font-medium text-emerald-400">{doctor.priceRange}</span>
                   </div>
                   <div className="col-span-1 text-center">
                     <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
-                      doctor.isActive ? "bg-emerald-400/10 text-emerald-400" : "bg-slate-600/40 text-slate-400"
+                      doctor.isActive !== false ? "bg-emerald-400/10 text-emerald-400" : "bg-slate-600/40 text-slate-400"
                     }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${doctor.isActive ? "bg-emerald-400" : "bg-slate-500"}`} />
-                      {doctor.isActive ? "Ativo" : "Inativo"}
+                      <span className={`w-1.5 h-1.5 rounded-full ${doctor.isActive !== false ? "bg-emerald-400" : "bg-slate-500"}`} />
+                      {doctor.isActive !== false ? "Ativo" : "Inativo"}
                     </span>
                   </div>
                   <div className="col-span-1 flex justify-end">

@@ -949,6 +949,10 @@ export const billingRouter = router({
           unit_name: row.unit_name ?? `Unidade ${row.cycle.unit_id}`,
           responsible_name: row.responsible_name ?? null,
           paid_by_name: row.paid_by_name ?? null,
+          // Aliases esperados pelo frontend
+          total_system_amount: row.cycle.total_amount,
+          total_doctor_amount: null as string | null,
+          report_count: row.cycle.total_reports,
         }));
       }),
 
@@ -1055,7 +1059,8 @@ export const billingRouter = router({
           const uid = row.event.unit_id;
           let ug = doc.units.find(u => u.unit_id === uid);
           if (!ug) { ug = { unit_id: uid, unit_name: row.unit_name ?? `Unidade ${uid}`, reports: 0, amount: 0, price_per_report: row.event.doctor_price_applied ?? '0', days: [] }; doc.units.push(ug); }
-          const d = row.event.study_date ? String(row.event.study_date).split('T')[0] : 'sem-data';
+          const rawDate = row.event.study_date;
+          const d = rawDate ? (rawDate instanceof Date ? rawDate.toISOString().split('T')[0] : String(rawDate).split('T')[0]) : 'sem-data';
           let dg = ug.days.find(x => x.date === d);
           if (!dg) { dg = { date: d, reports: 0, amount: 0 }; ug.days.push(dg); }
           const amt = parseFloat(row.event.doctor_price_applied ?? '0');
@@ -1115,7 +1120,8 @@ export const billingRouter = router({
           const uid = row.event.unit_id;
           let ue = doc.units.find(u => u.unit_id === uid);
           if (!ue) { ue = { unit_id: uid, unit_name: row.unit_name ?? `Unidade ${uid}`, reports: 0, amount: 0, price_per_report: row.event.doctor_price_applied ?? '0', days: [] }; doc.units.push(ue); }
-          const d = row.event.study_date ? String(row.event.study_date).split('T')[0] : 'sem-data';
+          const rawDate2 = row.event.study_date;
+          const d = rawDate2 ? (rawDate2 instanceof Date ? rawDate2.toISOString().split('T')[0] : String(rawDate2).split('T')[0]) : 'sem-data';
           let de = ue.days.find(x => x.date === d);
           if (!de) { de = { date: d, reports: 0, amount: 0 }; ue.days.push(de); }
           const amt = parseFloat(row.event.doctor_price_applied ?? '0');
@@ -1172,5 +1178,54 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const { listAllOpenCycles } = await import('../db');
         return await listAllOpenCycles();
+      }),
+
+    // ─── Lista médicos vinculados às unidades do responsável financeiro ───────
+    listDoctorsForResponsible: protectedProcedure
+      .query(async ({ ctx }) => {
+        const allowed = ['admin_master', 'responsavel_financeiro', 'unit_admin'];
+        if (!allowed.includes(ctx.user.role)) throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) return [];
+        const { users, user_unit_permissions, units, billing_doctor_unit_prices, financial_responsible_users, financial_responsible_units } = await import('../../drizzle/schema');
+        const { eq, and, isNull, inArray } = await import('drizzle-orm');
+        // Determinar quais unidades o usuário pode ver
+        let allowedUnitIds: number[] | undefined = undefined;
+        if (ctx.user.role === 'responsavel_financeiro') {
+          const respLinks = await db.select({ financial_responsible_id: financial_responsible_users.financial_responsible_id })
+            .from(financial_responsible_users)
+            .where(eq(financial_responsible_users.user_id, ctx.user.id));
+          const respId = respLinks[0]?.financial_responsible_id;
+          if (!respId) return [];
+          const unitLinks = await db.select({ unit_id: financial_responsible_units.unit_id })
+            .from(financial_responsible_units)
+            .where(and(eq(financial_responsible_units.financial_responsible_id, respId), isNull(financial_responsible_units.ends_at)));
+          allowedUnitIds = unitLinks.map(u => u.unit_id);
+          if (allowedUnitIds.length === 0) return [];
+        }
+        // Buscar médicos com preços ativos
+        const priceQuery = db.select({
+          doctor_user_id: billing_doctor_unit_prices.doctor_user_id,
+          doctor_name: users.name,
+          unit_id: billing_doctor_unit_prices.unit_id,
+          unit_name: units.name,
+          price_per_report: billing_doctor_unit_prices.price_per_report,
+        })
+          .from(billing_doctor_unit_prices)
+          .leftJoin(users, eq(users.id, billing_doctor_unit_prices.doctor_user_id))
+          .leftJoin(units, eq(units.id, billing_doctor_unit_prices.unit_id))
+          .where(and(
+            isNull(billing_doctor_unit_prices.ends_at),
+            ...(allowedUnitIds ? [inArray(billing_doctor_unit_prices.unit_id, allowedUnitIds)] : []),
+          ));
+        const prices = await priceQuery;
+        // Agrupar por médico
+        type DoctorEntry = { id: number; name: string | null; units: { unit_id: number; unit_name: string | null; price_per_report: string }[] };
+        const map = new Map<number, DoctorEntry>();
+        for (const p of prices) {
+          if (!map.has(p.doctor_user_id)) map.set(p.doctor_user_id, { id: p.doctor_user_id, name: p.doctor_name, units: [] });
+          map.get(p.doctor_user_id)!.units.push({ unit_id: p.unit_id, unit_name: p.unit_name, price_per_report: p.price_per_report });
+        }
+        return Array.from(map.values());
       }),
 });
