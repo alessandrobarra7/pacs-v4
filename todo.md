@@ -1244,3 +1244,33 @@
 - [x] Frontend P3: ExtratoTab no FinanceMeuFinanceiro com agrupamento por unidade/dias e exportação CSV
 - [x] Backend P4: procedure getResponsibleDebtByDoctor (dívida por responsável → médico → unidade → dias)
 - [x] Frontend P4: tela FinanceResponsavelDivida.tsx — Dívida do Responsável por Médico com exportação CSV
+
+## AUDITORIA v15 — SPRINT 1 (Segurança e bugs críticos)
+
+- [ ] C1 — getDoctorStatement: filtrar por unidades do responsável financeiro (SEGURANÇA ALTA)
+- [ ] C6 — FinanceDashboard: queries adaptativas por perfil (BUG MÉDIO — 403 silencioso)
+
+## AUDITORIA v15 — SPRINT 2 (Performance)
+
+- [ ] C2 — Eliminar N+1 em getSystemOwnerLiveByUnit (4 queries por unidade → 5 queries fixas)
+- [ ] C3 — Eliminar N+1 em listSystemReceivables (2 queries por ciclo → 1 query com JOINs)
+
+## AUDITORIA v15 — SPRINT 3 (Integridade dos dados)
+
+- [ ] C4 — Overlap check em createCycleManual e editCycleDates
+- [ ] C7 — Validar starts_at < ends_at em editCycleDates e createCycleManual
+- [ ] C8 — markCyclePaid: exigir que ciclo esteja fechado antes de marcar como pago
+- [ ] C12 — revise: atualizar billing_visit_events.report_status_snapshot = 'revised'
+
+## AUDITORIA v15 — SPRINT 4 (Unificação billing)
+
+- [ ] C11 — FinanceMeuFinanceiro: unificar para Sistema B (getDoctorExtract via billing_visit_events)
+
+## AUDITORIA v15 — SPRINT 5 (Limpeza e melhorias)
+
+- [ ] C13 — Remover getOrCreateDefaultResponsibleForUnit (código morto)
+- [ ] C9 — SlaCountdown: intervalo adaptativo (30s para horas, 5min para dias)
+- [ ] C10 — SLA: registrar readiness na chegada do exame (studies_cache)
+- [ ] P5 — FK em billing_visit_events.report_id → reports.id
+- [ ] P6 — Trigger/constraint: 1 responsável ativo por unidade
+- [ ] P3 — Reconsiderar constraint única em unit_doctor_scales (impede histórico)

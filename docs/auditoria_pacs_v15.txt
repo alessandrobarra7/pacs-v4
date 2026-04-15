@@ -1,0 +1,1056 @@
+================================================================================
+AUDITORIA TÉCNICA COMPLETA — PACS v4
+================================================================================
+Escopo           : Código completo — backend, frontend, banco de dados, segurança,
+                   performance, arquitetura e qualidade de código
+
+================================================================================
+
+ÍNDICE
+------
+PARTE 1 — O QUE ESTA VERSÃO CORRIGIU 
+PARTE 2 — FALHAS PERSISTENTES (não corrigidas ao longo das versões)
+PARTE 3 — FALHAS NOVAS (introduzidas)
+PARTE 4 — OPINIÕES E RECOMENDAÇÕES DE MELHORIA (visão global)
+PARTE 5 — INSTRUÇÕES DE CORREÇÃO DETALHADAS
+PARTE 6 — TABELA CONSOLIDADA POR GRAVIDADE
+PARTE 7 — ORDEM DE EXECUÇÃO RECOMENDADA
+
+
+================================================================================
+PARTE 1 — O QUE ESTA VERSÃO CORRIGIU
+================================================================================
+
+Os itens abaixo foram verificados no código e estão corretamente resolvidos:
+
+✅  IDOR em deleteContractRevenue e deleteCustomExpense
+    Os deletes agora verificam com AND que o registro pertence ao responsável
+    financeiro informado antes de apagar.
+
+✅  saveOrthancConnection e testOrthancConnection com verificação de posse
+    unit_admin agora é barrado se não tiver permissão na unitId informada.
+
+✅  getEconomicDashboard: três falhas de cálculo corrigidas
+    Receitas filtradas por período, ciclos filtrados por status=closed,
+    periodicidade (mensal/trimestral/anual) agora gera valor proporcional.
+
+✅  days_of_week com parse seguro em listDoctorScales
+    try/catch ao redor do JSON.parse evita quebra silenciosa.
+
+✅  SLA para laudos sem anamnese (ensureReadinessExists)
+    O sign agora garante a existência do readiness antes de fechar o SLA,
+    cobrindo exames que nunca passaram por anamnesisSimple.
+
+✅  FinanceShell: unit_admin não vai mais para /financeiro/admin
+    unitAdminItems agora aponta para /financeiro/unidades e /financeiro/medicos.
+
+✅  Gambiarra "Sem Responsável" removida dos procedures
+    setSystemPriceDirect e setDoctorPriceDirect agora retornam
+    PRECONDITION_FAILED se a unidade não tiver responsável configurado.
+
+✅  admin.listUsers: unit_admin filtra apenas seus usuários
+    Agora resolve unidades via legado + user_unit_permissions e limita o
+    resultado a usuários pertencentes a essas unidades.
+
+✅  Novas funcionalidades entregues e funcionando:
+    - FinanceOwnerOverview: painel de receita do sistema por unidade em tempo real
+    - FinanceContasReceber: contas a receber com status de pagamento e notas
+    - FinanceResponsavelDivida: dívida do responsável por médico/unidade/dia
+    - SlaCountdown: componente visual de prazo de laudo
+    - billing_cycles: campos paid_status, paid_at, paid_by_user_id, paid_note
+    - markCyclePaid, unmarkCyclePaid, addCycleNote
+    - getDoctorStatement: extrato de produção por médico
+    - createCycleManual, editCycleDates, listAllOpenCycles
+    - getSystemOwnerLiveByUnit: visão operacional do sistema
+
+
+================================================================================
+PARTE 2 — FALHAS PERSISTENTES
+================================================================================
+
+Estas falhas foram identificadas em versões anteriores e não foram corrigidas.
+
+── P1 ── GRAVIDADE: ALTA
+PROBLEMA: FinanceMeuFinanceiro lê dois sistemas de billing simultaneamente
+
+LOCALIZAÇÃO: client/src/pages/finance/FinanceMeuFinanceiro.tsx, linhas 255–256
+
+  trpc.billing.getDoctorProduction  → Sistema B (billing_visit_events)
+  trpc.billing.getDoctorSummary     → Sistema A (billing_monthly_doctor_by_unit)
+
+getDoctorSummary chama getDoctorMonthlySummary + listBillingReportItems,
+que leem billing_monthly_doctor_by_unit — tabela só populada quando o
+admin roda calculateCompetence manualmente (operação batch).
+
+Consequência prática: o médico vê o saldo correto na aba "por_unidade"
+(Sistema B, tempo real) e vê R$0,00 na aba "extrato" do mês corrente
+(Sistema A, ainda não calculado). Não há nenhuma mensagem explicando
+a diferença. O médico pensa que o sistema está quebrado.
+
+────────────────────────────────────────────────────────────────────────────────
+
+── P2 ── GRAVIDADE: MÉDIA
+PROBLEMA: Retificação não atualiza billing_visit_events.report_status_snapshot
+
+LOCALIZAÇÃO: server/routers/reports.ts, procedure revise, linha 296
+
+O procedure revise atualiza apenas billing_report_items (Sistema A):
+  await db.update(billing_report_items)
+    .set({ report_status_snapshot: 'revised' })
+    ...
+
+O campo report_status_snapshot existe em billing_visit_events (Sistema B)
+mas nunca é tocado na retificação. Relatórios de auditoria que consultam
+os eventos operacionais mostram 'signed' para laudos já retificados.
+
+────────────────────────────────────────────────────────────────────────────────
+
+── P3 ── GRAVIDADE: BAIXA
+PROBLEMA: unit_doctor_scales com constraint única que impede histórico
+
+LOCALIZAÇÃO: drizzle/schema.ts, linha 650
+  uq_unit_doctor_scale: uniqueIndex(...).on(t.unit_id, t.doctor_user_id)
+
+A tabela tem starts_at e ends_at para representar vigência temporal, mas
+o índice único permite apenas um registro por médico por unidade. Não é
+possível registrar que um médico mudou de turno em determinado mês.
+
+────────────────────────────────────────────────────────────────────────────────
+
+── P4 ── GRAVIDADE: BAIXA
+PROBLEMA: unit_doctor_compensation_rules sem integração com o billing
+
+A tabela existe e o CRUD funciona, mas createBillingVisitEvent ainda lê
+apenas billing_doctor_unit_prices para calcular o valor do médico.
+compensation_rules com compensation_type='per_report' nunca são usadas
+no cálculo do evento financeiro.
+
+────────────────────────────────────────────────────────────────────────────────
+
+── P5 ── GRAVIDADE: BAIXA
+PROBLEMA: billing_visit_events sem chave estrangeira para reports
+
+LOCALIZAÇÃO: drizzle/schema.ts, tabela billing_visit_events
+  report_id: int("report_id").notNull()  // sem .references(() => reports.id)
+
+Deleção de laudo fora do fluxo normal (deleção direta no banco ou bug)
+deixa eventos financeiros órfãos silenciosamente.
+
+────────────────────────────────────────────────────────────────────────────────
+
+── P6 ── GRAVIDADE: BAIXA
+PROBLEMA: Nenhum constraint que impeça dois responsáveis ativos por unidade
+
+LOCALIZAÇÃO: drizzle/schema.ts, tabela financial_responsible_units
+
+Se dois vínculos com ends_at=null forem criados para a mesma unidade
+(por concorrência ou intervenção direta no banco), getActiveResponsibleForUnit
+retorna o primeiro resultado de forma não determinística.
+
+────────────────────────────────────────────────────────────────────────────────
+
+── P7 ── GRAVIDADE: BAIXA
+PROBLEMA: getOrCreateDefaultResponsibleForUnit ainda existe como código morto
+
+LOCALIZAÇÃO: server/db.ts, linha 934
+
+A função foi mantida no arquivo mas nenhum procedure a chama mais.
+É um vetor de confusão para qualquer desenvolvedor que leia o código
+e se pergunte se ela ainda é usada. Risco de ser reintroduzida por
+engano em alguma correção futura.
+
+
+================================================================================
+PARTE 3 — FALHAS NOVAS (introduzidas em v15)
+================================================================================
+
+── V1 ── GRAVIDADE: ALTA — SEGURANÇA / EXPOSIÇÃO DE DADOS
+PROBLEMA: getDoctorStatement expõe dados de outros responsáveis para
+          responsavel_financeiro
+
+LOCALIZAÇÃO: server/routers/billing.ts, procedure getDoctorStatement, linha 1001
+
+  const isAdmin = ctx.user.role === 'admin_master' ||
+                  ctx.user.role === 'responsavel_financeiro';
+  const targetDoctorId = isAdmin
+    ? (input?.doctorUserId ?? undefined)  // se omitido: undefined = sem filtro
+    : ctx.user.id;
+
+Quando responsavel_financeiro não passa doctorUserId nem unitId:
+  - targetDoctorId = undefined → nenhum filtro de médico
+  - conditions fica vazio → query retorna os 500 eventos mais recentes
+    de TODOS os médicos de TODAS as unidades do sistema
+
+Quando responsavel_financeiro passa um doctorUserId de um médico que
+NÃO pertence a suas unidades, a função não verifica esse vínculo e
+retorna os dados do médico alheio normalmente.
+
+Cenário real: responsável do Hospital A consegue ver a produção detalhada
+de todos os médicos do Hospital B simplesmente chamando getDoctorStatement
+sem parâmetros.
+
+CORREÇÃO (ver Parte 5, item C1).
+
+────────────────────────────────────────────────────────────────────────────────
+
+── V2 ── GRAVIDADE: ALTA — PERFORMANCE
+PROBLEMA: getSystemOwnerLiveByUnit executa 4 queries sequenciais por unidade
+          dentro de um for-loop (N+1 clássico)
+
+LOCALIZAÇÃO: server/db.ts, função getSystemOwnerLiveByUnit, linha 2783
+
+Para cada unidade ativa, dentro do loop:
+  1. SELECT responsável financeiro ativo            (1 query)
+  2. SELECT preço do sistema ativo                  (1 query)
+  3. SELECT ciclo aberto do sistema + summary        (1 query)
+  4. SELECT custo médico (billing_cycle_doctor_summary) (1 query)
+
+Com 10 unidades: 1 query inicial + 40 queries = 41 queries por chamada.
+Com 20 unidades: 81 queries.
+Com 50 unidades: 201 queries.
+
+Esta função é chamada:
+  - A cada carregamento de FinanceOwnerOverview
+  - A cada carregamento de FinanceDashboard (também usa a mesma query)
+  - Com refetchInterval de 60 segundos no FinanceOwnerOverview
+
+Resultado: a cada minuto, com 20 unidades, o servidor executa 81 queries
+para servir esse endpoint. Em um banco MySQL remoto com 5ms de latência
+por query, isso significa ~400ms de espera mínima por requisição.
+
+CORREÇÃO (ver Parte 5, item C2).
+
+────────────────────────────────────────────────────────────────────────────────
+
+── V3 ── GRAVIDADE: ALTA — PERFORMANCE
+PROBLEMA: listSystemReceivables faz 2 queries por resultado dentro de Promise.all
+
+LOCALIZAÇÃO: server/routers/billing.ts, procedure listSystemReceivables, linha 939
+
+  return await Promise.all(rows.map(async (row) => {
+    // Query 1: busca nome do responsável
+    const r = await db.select(...).from(financial_responsibles)
+      .where(eq(financial_responsibles.id, row.cycle.financial_responsible_id)).limit(1);
+    // Query 2: busca nome do usuário que marcou como pago
+    const u = await db.select(...).from(users)
+      .where(eq(users.id, row.cycle.paid_by_user_id)).limit(1);
+  }))
+
+Com 100 ciclos: 1 query principal + 200 queries adicionais = 201 queries.
+Promise.all paraleliza, mas ainda cria dezenas de conexões simultâneas.
+Ao navegar para FinanceContasReceber, o banco recebe 200 queries de uma vez.
+
+CORREÇÃO (ver Parte 5, item C3).
+
+────────────────────────────────────────────────────────────────────────────────
+
+── V4 ── GRAVIDADE: MÉDIA
+PROBLEMA: createCycleManual e editCycleDates sem validação de sobreposição
+
+LOCALIZAÇÃO: server/db.ts, funções createCycleManual (linha 2884) e
+             editCycleDates (linha 2912)
+
+createCycleManual insere diretamente sem verificar se já existe ciclo
+aberto para a mesma unidade + tipo com datas sobrepostas:
+
+  await db.insert(billing_cycles).values({...});  // sem overlap check
+
+editCycleDates valida apenas que o ciclo existe e está aberto, mas não
+verifica se as novas datas colidem com outro ciclo já existente.
+
+Consequência: é possível criar dois ciclos ativos com datas sobrepostas
+para a mesma unidade. Laudos assinados nesse período serão atribuídos ao
+ciclo retornado por getOrCreateActiveCycle (.limit(1) sem garantia de qual
+ciclo retorna), quebrando o cálculo de saldo.
+
+CORREÇÃO (ver Parte 5, item C4).
+
+────────────────────────────────────────────────────────────────────────────────
+
+── V5 ── GRAVIDADE: MÉDIA
+PROBLEMA: getDoctorStatement e getResponsibleDebtByDoctor tronçam dados
+          silenciosamente com limit(500) / limit(1000) sem paginação
+
+LOCALIZAÇÃO: server/routers/billing.ts, linhas 1019 e 1078
+
+  .limit(500)   // getDoctorStatement
+  .limit(1000)  // getResponsibleDebtByDoctor
+
+Quando uma unidade tem alto volume, eventos além desse limite são
+simplesmente ignorados sem aviso algum. O extrato exibido ao usuário
+está incompleto mas parece completo. Não há mensagem de "mostrando 500
+de X registros", nem botão de "carregar mais".
+
+Problema adicional: os totais exibidos (total_reports, total_amount,
+grand_total) são calculados em memória a partir dos dados truncados,
+não representando o valor real acumulado.
+
+CORREÇÃO (ver Parte 5, item C5).
+
+────────────────────────────────────────────────────────────────────────────────
+
+── V6 ── GRAVIDADE: MÉDIA
+PROBLEMA: FinanceDashboard chama getSystemOwnerLiveByUnit sem restrição de
+          perfil — medico e unit_admin recebem erro 403 ao acessar /financeiro
+
+LOCALIZAÇÃO: client/src/pages/finance/FinanceDashboard.tsx
+
+  const { data: liveUnits } = trpc.billing.getSystemOwnerLiveByUnit.useQuery();
+
+LOCALIZAÇÃO: server/routers/billing.ts, linha 905-912
+  if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+
+LOCALIZAÇÃO: client/src/App.tsx, linha 106
+  <Route path="/financeiro" component={() =>
+    <ProtectedRoute component={FinanceDashboard} />}  // sem allowedRoles!
+
+/financeiro é acessível a todos os perfis com acesso financeiro (medico,
+unit_admin, responsavel_financeiro). Ao carregar FinanceDashboard, a query
+getSystemOwnerLiveByUnit dispara para todos eles e recebe 403 silencioso.
+Os cards de "ciclo aberto" ficam em estado de loading infinito.
+
+Além disso, o FinanceDashboard também chama trpc.billing.getAdminSummary
+(restrito a admin_master) e trpc.admin.listUsers (unit_admin tem acesso).
+Medico, ao acessar /financeiro, verá múltiplas queries falhando.
+
+CORREÇÃO (ver Parte 5, item C6).
+
+────────────────────────────────────────────────────────────────────────────────
+
+── V7 ── GRAVIDADE: MÉDIA
+PROBLEMA: editCycleDates não valida que starts_at < ends_at
+
+LOCALIZAÇÃO: server/db.ts, função editCycleDates, linha 2912
+
+  await db.update(billing_cycles).set({ starts_at, ends_at })
+    .where(eq(billing_cycles.id, cycleId));
+
+Nenhuma validação impede o admin de salvar um ciclo com
+starts_at = 2026-05-31 e ends_at = 2026-01-01 (datas invertidas).
+Esse ciclo inválido nunca sera encontrado por getOrCreateActiveCycle
+(que busca starts_at <= hoje <= ends_at), deixando todos os laudos da
+unidade sem ciclo ativo para receber eventos.
+
+CORREÇÃO (ver Parte 5, item C7).
+
+────────────────────────────────────────────────────────────────────────────────
+
+── V8 ── GRAVIDADE: BAIXA
+PROBLEMA: markCyclePaid e unmarkCyclePaid permitem marcar como pago
+          ciclos que ainda estão abertos
+
+LOCALIZAÇÃO: server/routers/billing.ts, markCyclePaid, linha 962
+
+  await db.update(billing_cycles)
+    .set({ paid_status: 'paid', ... })
+    .where(eq(billing_cycles.id, input.cycleId));
+    // sem verificar se cycle.status === 'closed'
+
+Marcar como pago um ciclo aberto (que ainda está acumulando laudos)
+gera uma inconsistência semântica: o responsável "pagou" um período que
+ainda não terminou. O valor final do ciclo será diferente do valor pago.
+
+CORREÇÃO (ver Parte 5, item C8).
+
+────────────────────────────────────────────────────────────────────────────────
+
+── V9 ── GRAVIDADE: BAIXA
+PROBLEMA: SlaCountdown atualiza a cada 30 segundos mesmo para SLAs de dias
+
+LOCALIZAÇÃO: client/src/components/SlaCountdown.tsx, linha 59
+  const interval = setInterval(() => setNow(Date.now()), 30_000);
+
+Para um SLA configurado em dias (ex: 2 dias), uma atualização a cada 30s
+é 2880 re-renders desnecessários por dia. Para SLAs de horas curtos
+(ex: 4h) a precisão de 30s é aceitável, mas para SLAs de 1-7 dias,
+o intervalo deveria ser de pelo menos 5 minutos.
+
+CORREÇÃO (ver Parte 5, item C9).
+
+────────────────────────────────────────────────────────────────────────────────
+
+── V10 ── GRAVIDADE: BAIXA
+PROBLEMA: SLA com source='direct_sign' registra became_ready_at = momento
+          da assinatura, não o momento real de chegada do exame
+
+LOCALIZAÇÃO: server/routers/sla.ts, função ensureReadinessExists, linha 190
+  became_ready_at: now,  // "now" = momento do sign, não da chegada do exame
+
+Quando um laudo é assinado sem que tenha passado por anamnesisSimple,
+o readiness é criado com became_ready_at = hora da assinatura. O campo
+delay_seconds é calculado como (reportedAt - dueAt), e dueAt = became_ready_at
++ SLA. Portanto, para todo exame "direct_sign", delay_seconds será sempre
+um número muito pequeno (tempo entre criar e fechar o readiness, milissegundos).
+
+Relatórios de SLA mostrarão conformidade artificial de 100% para esses
+exames. A métrica fica distorcida.
+
+Isso é uma limitação de design: não há forma de saber retroativamente
+quando o exame "ficou pronto para laudar" sem a anamnese. A solução
+correta é registrar o readiness quando o exame entra no studies_cache
+(chegada real), não na assinatura.
+
+CORREÇÃO (ver Parte 5, item C10).
+
+
+================================================================================
+PARTE 4 — OPINIÕES E RECOMENDAÇÕES DE MELHORIA (visão global)
+================================================================================
+
+Esta seção vai além dos bugs pontuais. Trata de decisões de arquitetura,
+organização de código e qualidade que afetam o sistema como um todo.
+
+────────────────────────────────────────────────────────────────────────────────
+4.1  DOIS SISTEMAS DE BILLING COEXISTINDO: DECIDIR E MIGRAR
+────────────────────────────────────────────────────────────────────────────────
+
+O maior problema estrutural do sistema financeiro continua sendo a
+coexistência de dois subsistemas de billing:
+
+  Sistema A: billing_report_items + billing_monthly_*
+    → Populado via calculateCompetence (batch manual)
+    → Usado por getDoctorSummary (aba "extrato" do médico)
+    → Usado pelo FinanceDashboard (totalSystem, totalDoctors do mês)
+
+  Sistema B: billing_visit_events + billing_cycles + billing_cycle_*_summary
+    → Populado em tempo real no sign do laudo
+    → Usado por getDoctorProduction, getSystemOwnerLiveByUnit, tudo novo
+
+Toda funcionalidade nova está corretamente no Sistema B.
+O Sistema A só permanece para não quebrar funcionalidades existentes.
+
+RECOMENDAÇÃO: Definir formalmente o Sistema A como "arquivo histórico
+de períodos fechados" e o Sistema B como "fonte operacional corrente".
+Implementar um job de fechamento que:
+  1. Ao fechar um ciclo, snapshot o Sistema B para o Sistema A
+  2. Remova as chamadas ao Sistema A das telas de saldo do dia a dia
+
+Enquanto isso não acontece, o médico continuará vendo saldos diferentes
+dependendo de qual aba clica.
+
+────────────────────────────────────────────────────────────────────────────────
+4.2  PADRÃO N+1 PRECISA SER ELIMINADO SISTEMATICAMENTE
+────────────────────────────────────────────────────────────────────────────────
+
+Foram identificados pelo menos dois casos de N+1 nessa versão (V2 e V3).
+Provavelmente existem outros em funções não auditadas.
+
+O padrão aparece quando o código faz uma query inicial para buscar uma
+lista, depois itera sobre cada item fazendo novas queries para enriquecer
+os dados.
+
+RECOMENDAÇÃO: Usar JOINs ou, quando JOINs não são viáveis (ex: queries
+para tabelas diferentes), usar `inArray` com um único SELECT:
+
+  // Ruim (N+1):
+  for (const row of rows) {
+    const extra = await db.select().from(t).where(eq(t.id, row.related_id));
+  }
+
+  // Bom (1 query com JOIN):
+  const rows = await db.select({ main: t1, extra: t2 })
+    .from(t1).leftJoin(t2, eq(t1.related_id, t2.id));
+
+  // Bom (2 queries planas):
+  const ids = rows.map(r => r.related_id).filter(Boolean);
+  const extras = await db.select().from(t2).where(inArray(t2.id, ids));
+  const extrasMap = new Map(extras.map(e => [e.id, e]));
+
+────────────────────────────────────────────────────────────────────────────────
+4.3  PAGINAÇÃO É AUSENTE EM TODOS OS ENDPOINTS DE LISTAGEM PESADA
+────────────────────────────────────────────────────────────────────────────────
+
+getDoctorStatement: limit(500)
+getResponsibleDebtByDoctor: limit(1000)
+listSystemReceivables: sem limit explícito (pode retornar todos os ciclos)
+listBillingReportItems: sem limit
+
+Para sistemas médicos que acumulam dezenas de laudos por dia por unidade,
+um único médico pode ultrapassar 500 eventos por mês em 2-3 meses de uso.
+A partir desse ponto, os extratos ficam incompletos sem qualquer aviso.
+
+RECOMENDAÇÃO: Implementar cursor-based pagination ou offset pagination:
+
+  // Input com paginação:
+  .input(z.object({
+    page: z.number().int().min(1).default(1),
+    pageSize: z.number().int().min(10).max(200).default(50),
+    // ... outros filtros
+  }))
+
+  // Query com offset:
+  .limit(input.pageSize)
+  .offset((input.page - 1) * input.pageSize)
+
+  // Retorno com metadata:
+  return { data: rows, total, page, pageSize, hasMore: total > page * pageSize };
+
+────────────────────────────────────────────────────────────────────────────────
+4.4  TIPAGEM `any` ESPALHADA — RISCO DE BUG SILENCIOSO
+────────────────────────────────────────────────────────────────────────────────
+
+Em múltiplos places do código:
+  const conditions: any[] = []
+  const updateData: Record<string, any> = {}
+  (result[0] as any).insertId
+
+O uso de `any` derrota o TypeScript. Um campo com nome errado no
+`updateData` não gera erro em compilação — só falha silenciosamente
+em runtime (query não afeta nenhum campo sem erro).
+
+RECOMENDAÇÃO: Tipar explicitamente os arrays de condições e os objetos
+de update usando os tipos do Drizzle:
+
+  import { SQL } from 'drizzle-orm';
+  const conditions: SQL[] = [];
+
+  // Para updates parciais, use Partial do tipo da tabela:
+  type UpdateData = Partial<typeof unit_doctor_compensation_rules.$inferInsert>;
+  const updateData: UpdateData = {};
+
+────────────────────────────────────────────────────────────────────────────────
+4.5  IMPORTS DINÂMICOS EM RUNTIME SÃO DESNECESSÁRIOS E LENTOS
+────────────────────────────────────────────────────────────────────────────────
+
+Em praticamente todos os procedures do billing.ts:
+  const { billing_cycles } = await import('../../drizzle/schema');
+  const { eq, and } = await import('drizzle-orm');
+
+Esses imports são resolvidos em runtime para cada chamada de procedure.
+O módulo já está em memória após o primeiro import, então o impacto é
+pequeno — mas o padrão é desnecessário e dificulta a leitura.
+
+RECOMENDAÇÃO: Mover todos os imports para o topo do arquivo:
+  import { billing_cycles, billing_visit_events, ... } from '../../drizzle/schema';
+  import { eq, and, or, inArray, ... } from 'drizzle-orm';
+
+────────────────────────────────────────────────────────────────────────────────
+4.6  FALTA UM SISTEMA DE MIGRAÇÃO DE BANCO RASTREÁVEL
+────────────────────────────────────────────────────────────────────────────────
+
+O schema.ts cresceu para 808 linhas com tabelas novas adicionadas
+incrementalmente (billing_cycles ganhou paid_status, paid_at, etc. nessa
+versão). Não há migrations numeradas e auditáveis para essas mudanças.
+
+A pasta /scripts/ contém scripts de migração ad hoc (.mjs) com nomes
+não padronizados, sem garantia de idempotência.
+
+RECOMENDAÇÃO: Usar Drizzle migrations (drizzle-kit generate) para todas
+as mudanças de schema daqui em diante. Cada alteração gera um arquivo
+numerado em drizzle/migrations/ que pode ser executado de forma controlada
+e auditada.
+
+────────────────────────────────────────────────────────────────────────────────
+4.7  AUSÊNCIA DE TESTES AUTOMATIZADOS NO MÓDULO FINANCEIRO
+────────────────────────────────────────────────────────────────────────────────
+
+O módulo mais crítico do sistema (billing) não tem nenhum teste unitário
+ou de integração. As funções de db.ts têm lógica complexa de cálculo
+(getEconomicDashboard, getSystemOwnerLiveByUnit, calculateCompetence)
+que foi corrigida em múltiplas versões porque só quebrou em produção.
+
+RECOMENDAÇÃO: Escrever ao menos testes para as funções de cálculo:
+  - calculateCompetence: verificar que N laudos geram N eventos
+  - getEconomicDashboard: verificar que periodicity='quarterly' retorna amount/3
+  - getSystemOwnerLiveByUnit: verificar que net_amount = system - doctor
+  - resetDoctorBilling: verificar que consolidados são decrementados
+
+────────────────────────────────────────────────────────────────────────────────
+4.8  NOMES DE CAMPOS INCONSISTENTES ENTRE TABELAS
+────────────────────────────────────────────────────────────────────────────────
+
+billing_cycle_doctor_summary: paid_at / paid_by
+billing_cycles: paid_at / paid_by_user_id
+
+billing_visit_events: system_paid_at
+billing_cycle_system_summary: paid_at / paid_by
+
+A mesma informação (quem marcou como pago e quando) usa nomes diferentes
+em tabelas diferentes. Isso cria confusão e erros quando um desenvolvedor
+assume que o campo chama paid_by em todas as tabelas.
+
+RECOMENDAÇÃO: Padronizar para paid_by_user_id em todas as tabelas que
+armazenam esse dado, e alinhar na próxima migration.
+
+────────────────────────────────────────────────────────────────────────────────
+4.9  COMPONENTE SlaCountdown PODE SER MAIS INFORMATIVO
+────────────────────────────────────────────────────────────────────────────────
+
+O SlaCountdown atual mostra um ponto colorido + texto de tempo no modo
+compacto. Isso funciona bem, mas faltam dois estados visuais úteis:
+
+  1. Exames com due_at=null (unidade sem SLA configurado):
+     Atualmente mostra ponto cinza sem texto. Poderia mostrar "Sem SLA"
+     para deixar claro que é uma condição de configuração, não um erro.
+
+  2. Exames laudados atrasados:
+     Mostra ponto laranja + atraso em tempo (ex: "2h30m"). Mas não mostra
+     quanto foi o atraso total em relação ao prazo — só o tempo desde o vencimento
+     até a assinatura. Se o SLA era de 4h e o laudo saiu com 6h de atraso,
+     o médico que assina hoje 2 dias depois não consegue saber isso.
+
+────────────────────────────────────────────────────────────────────────────────
+4.10 EXPORTAÇÃO CSV NA PÁGINA FinanceResponsavelDivida USA BLOB/CLICK NO FRONTEND
+────────────────────────────────────────────────────────────────────────────────
+
+LOCALIZAÇÃO: client/src/pages/finance/FinanceResponsavelDivida.tsx
+
+A função exportCSV cria um Blob com os dados já carregados no frontend.
+Isso funciona somente para o volume que passou pelo limit(1000) da query.
+Se o responsável tem 1500 eventos no período, o CSV exportado conterá
+apenas 1000 registros — sem aviso ao usuário.
+
+RECOMENDAÇÃO: Para exports, criar um endpoint de backend que retorna o
+CSV completo sem limite, com streaming ou com paginação interna, e servir
+o arquivo diretamente ao cliente via download.
+
+
+================================================================================
+PARTE 5 — INSTRUÇÕES DE CORREÇÃO DETALHADAS
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+C1 — Corrigir getDoctorStatement para filtrar por unidades do responsável
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: server/routers/billing.ts, procedure getDoctorStatement
+
+PROBLEMA: responsavel_financeiro pode ver dados de qualquer médico/unidade.
+
+CORREÇÃO:
+
+  .query(async ({ ctx, input }) => {
+    const isAdmin   = ctx.user.role === 'admin_master';
+    const isResp    = ctx.user.role === 'responsavel_financeiro';
+    const isDoctor  = ctx.user.role === 'medico';
+
+    if (!isAdmin && !isResp && !isDoctor) {
+      throw new TRPCError({ code: 'FORBIDDEN' });
+    }
+
+    // Médico: sempre vê apenas seus próprios dados
+    const targetDoctorId = isDoctor ? ctx.user.id : input?.doctorUserId;
+
+    // Responsável financeiro: filtrar por suas unidades
+    let allowedUnitIds: number[] | undefined = undefined;
+    if (isResp) {
+      const myRespId = await getResponsibleIdForUser(ctx.user.id);
+      if (!myRespId) return [];
+      const unitLinks = await db.select({ unit_id: financial_responsible_units.unit_id })
+        .from(financial_responsible_units)
+        .where(eq(financial_responsible_units.financial_responsible_id, myRespId));
+      allowedUnitIds = unitLinks.map(u => u.unit_id);
+      if (allowedUnitIds.length === 0) return [];
+    }
+
+    const conditions: SQL[] = [];
+    if (targetDoctorId) conditions.push(eq(billing_visit_events.doctor_user_id, targetDoctorId));
+    if (allowedUnitIds) conditions.push(inArray(billing_visit_events.unit_id, allowedUnitIds));
+    if (input?.unitId) conditions.push(eq(billing_visit_events.unit_id, input.unitId));
+    // ... resto da query
+  })
+
+────────────────────────────────────────────────────────────────────────────────
+C2 — Eliminar N+1 em getSystemOwnerLiveByUnit
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: server/db.ts, função getSystemOwnerLiveByUnit
+
+Em vez de 4 queries por unidade dentro de um loop, fazer 5 queries planas
+fora do loop e cruzar os resultados em memória:
+
+  // 1. Todas as unidades ativas
+  const allUnits = await db.select().from(units).where(eq(units.isActive, true));
+  const unitIds = allUnits.map(u => u.id);
+
+  // 2. Responsáveis ativos para todas as unidades de uma vez
+  const allResponsibles = await db.select({...})
+    .from(financial_responsible_units)
+    .leftJoin(financial_responsibles, ...)
+    .where(and(
+      inArray(financial_responsible_units.unit_id, unitIds),
+      lte(financial_responsible_units.starts_at, now),
+      or(isNull(financial_responsible_units.ends_at), gte(...))
+    ));
+  const respByUnit = new Map(allResponsibles.map(r => [r.unit_id, r]));
+
+  // 3. Preços ativos para todas as unidades de uma vez
+  const allPrices = await db.select({...})
+    .from(billing_system_unit_prices)
+    .where(and(
+      inArray(billing_system_unit_prices.unit_id, unitIds),
+      isNull(billing_system_unit_prices.ends_at)
+    ));
+  const priceByUnit = new Map(allPrices.map(p => [p.unit_id, p]));
+
+  // 4. Ciclos abertos para todas as unidades
+  const allCycles = await db.select({...})
+    .from(billing_cycles)
+    .leftJoin(billing_cycle_system_summary, ...)
+    .where(and(
+      inArray(billing_cycles.unit_id, unitIds),
+      eq(billing_cycles.cycle_type, 'system'),
+      eq(billing_cycles.status, 'open')
+    ));
+  const cycleByUnit = new Map(allCycles.map(c => [c.unit_id, c]));
+
+  // 5. Custo médico para todas as unidades
+  const allDocSummaries = await db.select({...})
+    .from(billing_cycle_doctor_summary)
+    .innerJoin(billing_cycles, ...)
+    .where(and(
+      inArray(billing_cycle_doctor_summary.unit_id, unitIds),
+      eq(billing_cycles.status, 'open')
+    ));
+  // Agrupar por unit_id em memória
+
+  // 6. Cruzar tudo em memória (O(n), não O(n * queries))
+  return allUnits.map(unit => {
+    const resp  = respByUnit.get(unit.id);
+    const price = priceByUnit.get(unit.id);
+    const cycle = cycleByUnit.get(unit.id);
+    // ...
+  });
+
+Resultado: 5 queries fixas independentemente do número de unidades.
+
+────────────────────────────────────────────────────────────────────────────────
+C3 — Eliminar N+1 em listSystemReceivables
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: server/routers/billing.ts, procedure listSystemReceivables
+
+Substituir o Promise.all com queries internas por JOINs na query principal:
+
+  const rows = await db
+    .select({
+      cycle: billing_cycles,
+      unit_name: units.name,
+      responsible_name: financial_responsibles.legal_name,
+      paid_by_name: users.name,
+    })
+    .from(billing_cycles)
+    .leftJoin(units, eq(billing_cycles.unit_id, units.id))
+    .leftJoin(financial_responsibles,
+      eq(billing_cycles.financial_responsible_id, financial_responsibles.id))
+    .leftJoin(users, eq(billing_cycles.paid_by_user_id, users.id))
+    .where(and(...conditions))
+    .orderBy(billing_cycles.id);
+
+  return rows.map(row => ({
+    ...row.cycle,
+    unit_name:        row.unit_name         ?? `Unidade ${row.cycle.unit_id}`,
+    responsible_name: row.responsible_name  ?? null,
+    paid_by_name:     row.paid_by_name      ?? null,
+  }));
+
+Resultado: 1 query com 3 JOINs em vez de 1 + 2N queries.
+
+────────────────────────────────────────────────────────────────────────────────
+C4 — Validar sobreposição em createCycleManual e editCycleDates
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: server/db.ts
+
+Adicionar função de validação reutilizável:
+
+  async function assertNoCycleOverlap(
+    unitId: number,
+    cycleType: 'doctor' | 'system',
+    startsAt: Date,
+    endsAt: Date,
+    excludeCycleId?: number
+  ): Promise<void> {
+    const { lte, gte, and, eq, ne } = await import('drizzle-orm');
+    const db = await getDb();
+    if (!db) return;
+    const conditions: any[] = [
+      eq(billing_cycles.unit_id, unitId),
+      eq(billing_cycles.cycle_type, cycleType),
+      lte(billing_cycles.starts_at, endsAt),
+      gte(billing_cycles.ends_at, startsAt),
+    ];
+    if (excludeCycleId) conditions.push(ne(billing_cycles.id, excludeCycleId));
+    const existing = await db.select({ id: billing_cycles.id })
+      .from(billing_cycles)
+      .where(and(...conditions))
+      .limit(1);
+    if (existing.length > 0) {
+      throw new Error(
+        `Já existe um ciclo para esta unidade e tipo no período informado (id: ${existing[0].id}).`
+      );
+    }
+  }
+
+Chamar antes do insert em createCycleManual e antes do update em editCycleDates.
+
+────────────────────────────────────────────────────────────────────────────────
+C5 — Implementar paginação em getDoctorStatement e getResponsibleDebtByDoctor
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: server/routers/billing.ts
+
+Adicionar page e pageSize ao input:
+
+  .input(z.object({
+    page:     z.number().int().min(1).default(1),
+    pageSize: z.number().int().min(10).max(200).default(50),
+    doctorUserId: z.number().optional(),
+    // ... outros filtros
+  }).optional())
+
+Na query:
+  const page     = input?.page ?? 1;
+  const pageSize = input?.pageSize ?? 50;
+  const [countRow] = await db.select({ count: sql<number>`COUNT(*)` })
+    .from(billing_visit_events).where(...conditions);
+  const total = countRow?.count ?? 0;
+
+  const rows = await db.select(...)
+    .from(billing_visit_events).where(...)
+    .limit(pageSize).offset((page - 1) * pageSize);
+
+  return { data: processedRows, total, page, pageSize };
+
+No frontend, exibir: "Mostrando 50 de 1.240 registros" com controles
+de navegação de página.
+
+────────────────────────────────────────────────────────────────────────────────
+C6 — FinanceDashboard: adaptar queries por perfil do usuário
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: client/src/pages/finance/FinanceDashboard.tsx
+
+OPÇÃO A — Dashboard separado por perfil (recomendado):
+  Criar FinanceDashboardAdmin.tsx, FinanceDashboardResponsavel.tsx,
+  FinanceDashboardMedico.tsx e rotear por perfil no App.tsx.
+
+OPÇÃO B — Dashboard adaptativo (mais simples):
+  No FinanceDashboard.tsx, usar o perfil do usuário para decidir
+  quais queries disparar:
+
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin_master';
+
+  // Só admin vê isso:
+  const { data: liveUnits } = trpc.billing.getSystemOwnerLiveByUnit.useQuery(
+    undefined, { enabled: isAdmin }
+  );
+  const { data: summary } = trpc.billing.getAdminSummary.useQuery(
+    { year, month }, { enabled: isAdmin }
+  );
+
+  // Médico vê seu próprio financeiro:
+  const { data: myProduction } = trpc.billing.getDoctorProduction.useQuery(
+    undefined, { enabled: user?.role === 'medico' }
+  );
+
+────────────────────────────────────────────────────────────────────────────────
+C7 — Validar starts_at < ends_at em editCycleDates
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: server/db.ts, função editCycleDates
+
+Adicionar antes do update:
+  if (starts_at >= ends_at) {
+    throw new Error('A data de início deve ser anterior à data de término.');
+  }
+
+Mesma validação em createCycleManual.
+
+────────────────────────────────────────────────────────────────────────────────
+C8 — markCyclePaid: exigir que ciclo esteja fechado
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: server/routers/billing.ts, procedure markCyclePaid
+
+Adicionar verificação antes do update:
+  const { billing_cycles } = await import('../../drizzle/schema');
+  const [cycle] = await db.select({ status: billing_cycles.status })
+    .from(billing_cycles)
+    .where(eq(billing_cycles.id, input.cycleId))
+    .limit(1);
+
+  if (!cycle) throw new TRPCError({ code: 'NOT_FOUND' });
+  if (cycle.status !== 'closed') {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Só é possível marcar como pago um ciclo fechado. Feche o ciclo primeiro.'
+    });
+  }
+
+────────────────────────────────────────────────────────────────────────────────
+C9 — SlaCountdown: ajustar intervalo por unidade do SLA
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: client/src/components/SlaCountdown.tsx
+
+Substituir o intervalo fixo de 30s por um adaptativo:
+
+  useEffect(() => {
+    if (!readiness || readiness.readiness_status === 'reported') return;
+    // Para SLA de dias, atualizar a cada 5 minutos é suficiente
+    const intervalMs = readiness.sla_unit_snapshot === 'day' ? 5 * 60_000 : 30_000;
+    const interval = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(interval);
+  }, [readiness?.sla_unit_snapshot, readiness?.readiness_status]);
+
+────────────────────────────────────────────────────────────────────────────────
+C10 — SLA: registrar readiness na chegada do exame, não na assinatura
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: server/routers/studies.ts (ou studies.ts onde os estudos chegam)
+
+A solução mais correta é criar o readiness quando o estudo entra em
+studies_cache, usando a data de chegada como became_ready_at:
+
+  // Ao inserir/atualizar um estudo em studies_cache:
+  await evaluateAndUpsertReadiness({
+    studyInstanceUid: study.study_instance_uid,
+    unitId: study.unit_id,
+    createdByUserId: systemUserId,  // usuário do sistema
+    source: 'study_arrival',
+  });
+
+Isso garante que o timer começa quando o exame chega, independentemente
+de ter anamnese ou não. Os exames "direct_sign" continuarão funcionando
+como fallback para sistemas sem integração DICOM automática.
+
+────────────────────────────────────────────────────────────────────────────────
+C11 — Corrigir P1: unificar FinanceMeuFinanceiro para Sistema B
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: client/src/pages/finance/FinanceMeuFinanceiro.tsx
+
+Remover a linha 256:
+  const { data: summaryData } = trpc.billing.getDoctorSummary.useQuery(...)
+
+Substituir a aba "extrato" para consumir billing_visit_events via um
+novo endpoint getDoctorExtract (server/routers/billing.ts):
+
+  getDoctorExtract: protectedProcedure
+    .input(z.object({ year: z.number(), month: z.number() }))
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master')
+        throw new TRPCError({ code: 'FORBIDDEN' });
+      const start = new Date(Date.UTC(input.year, input.month - 1, 1));
+      const end   = new Date(Date.UTC(input.year, input.month, 1));
+      const { gte, lt } = await import('drizzle-orm');
+      return await db.select().from(billing_visit_events)
+        .where(and(
+          eq(billing_visit_events.doctor_user_id, ctx.user.id),
+          gte(billing_visit_events.createdAt, start),
+          lt(billing_visit_events.createdAt, end)
+        ))
+        .orderBy(desc(billing_visit_events.createdAt));
+    })
+
+────────────────────────────────────────────────────────────────────────────────
+C12 — Corrigir P2: revise atualizar billing_visit_events snapshot
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: server/routers/reports.ts, procedure revise
+
+Após o bloco que atualiza billing_report_items, adicionar:
+
+  // E7-B: billing_visit_events (Sistema B) também precisa do snapshot
+  try {
+    const { billing_visit_events } = await import('../../drizzle/schema');
+    await db.update(billing_visit_events)
+      .set({ report_status_snapshot: 'revised' })
+      .where(eq(billing_visit_events.report_id, input.id));
+  } catch (e) {
+    console.warn('[revise] Não atualizou billing_visit_events snapshot:', e);
+  }
+
+────────────────────────────────────────────────────────────────────────────────
+C13 — Remover código morto: getOrCreateDefaultResponsibleForUnit
+────────────────────────────────────────────────────────────────────────────────
+
+ARQUIVO: server/db.ts, linha 934
+
+Deletar a função completa getOrCreateDefaultResponsibleForUnit (linhas 931-980).
+Não há mais nenhuma chamada a ela no codebase.
+
+Verificar antes de deletar:
+  grep -rn "getOrCreateDefaultResponsibleForUnit" server/
+
+Se o grep retornar apenas a definição, é seguro remover.
+
+
+================================================================================
+PARTE 6 — TABELA CONSOLIDADA POR GRAVIDADE
+================================================================================
+
+ID  | Descrição                                              | Grav.   | Tipo
+----+--------------------------------------------------------+---------+----------
+V1  | getDoctorStatement: responsavel_financeiro vê dados   |         |
+    | de todos os médicos/unidades sem filtro               | ALTA    | SEGURANÇA
+V2  | getSystemOwnerLiveByUnit: N+1 (4 queries por unidade) | ALTA    | PERF
+V3  | listSystemReceivables: N+1 (2 queries por ciclo)      | ALTA    | PERF
+V6  | FinanceDashboard chama endpoints admin_master para    |         |
+    | todos os perfis — 403 silencioso                      | MÉDIA   | BUG
+V4  | createCycleManual/editCycleDates sem overlap check    | MÉDIA   | BUG
+V5  | limit(500/1000) sem paginação — dados truncados       |         |
+    | silenciosamente                                       | MÉDIA   | BUG
+V7  | editCycleDates sem validar starts_at < ends_at        | MÉDIA   | BUG
+V8  | markCyclePaid sem verificar se ciclo está fechado     | BAIXA   | BUG
+P1  | FinanceMeuFinanceiro dual billing: saldos divergentes | ALTA    | PERSISTE
+P2  | revise não atualiza billing_visit_events snapshot     | MÉDIA   | PERSISTE
+V10 | SLA direct_sign: became_ready_at distorce métricas    | MÉDIA   | DESIGN
+P3  | unit_doctor_scales constraint impede histórico        | BAIXA   | PERSISTE
+P4  | compensation_rules sem integração com billing         | BAIXA   | PERSISTE
+V9  | SlaCountdown: intervalo de 30s para SLA de dias       | BAIXA   | PERF
+P7  | getOrCreateDefaultResponsibleForUnit: código morto    | BAIXA   | LIMPEZA
+P5  | billing_visit_events sem FK para reports              | BAIXA   | BANCO
+P6  | Sem trigger: 1 responsável ativo por unidade          | BAIXA   | BANCO
+
+
+================================================================================
+PARTE 7 — ORDEM DE EXECUÇÃO RECOMENDADA
+================================================================================
+
+SPRINT 1 — Segurança e bugs críticos (1-2 dias)
+  1. C1  — getDoctorStatement: filtrar por unidades do responsável
+  2. C6  — FinanceDashboard: queries adaptativas por perfil
+
+SPRINT 2 — Performance (2-3 dias)
+  3. C2  — Eliminar N+1 em getSystemOwnerLiveByUnit
+  4. C3  — Eliminar N+1 em listSystemReceivables
+  5. C5  — Paginação em getDoctorStatement e getResponsibleDebtByDoctor
+
+SPRINT 3 — Integridade dos dados (1-2 dias)
+  6. C4  — Overlap check em createCycleManual e editCycleDates
+  7. C7  — Validar starts_at < ends_at em editCycleDates
+  8. C8  — markCyclePaid exigir ciclo fechado
+  9. C12 — revise: atualizar billing_visit_events snapshot
+
+SPRINT 4 — Unificação do billing (2-4 dias — impacto maior)
+  10. C11 — Unificar FinanceMeuFinanceiro para Sistema B único
+      (exige novo endpoint getDoctorExtract + ajuste de UI)
+
+SPRINT 5 — Limpeza e melhorias (1-2 dias)
+  11. C13 — Remover getOrCreateDefaultResponsibleForUnit (código morto)
+  12. C9  — SlaCountdown intervalo adaptativo
+  13. C10 — SLA: registrar readiness na chegada do exame (studies_cache)
+  14. P5  — FK em billing_visit_events
+  15. P6  — Trigger de responsável único por unidade
+  16. P3  — Reconsiderar constraint de unit_doctor_scales
+
+
+================================================================================
+OBSERVAÇÃO FINAL
+================================================================================
+
+O sistema evoluiu consideravelmente desde as primeiras versões auditadas.
+A arquitetura financeira está mais madura, os problemas de segurança mais
+graves foram resolvidos e as novas telas (OwnerOverview, ContasReceber,
+ResponsavelDivida) entregam funcionalidade real para os perfis do produto.
+
+Os problemas que permanecem são em sua maioria de qualidade de código
+(N+1, tipagem any, código morto), lógica de negócio (paginação, validações
+faltantes) e débito técnico acumulado (dois sistemas de billing).
+
+Nenhum deles impede o funcionamento do sistema, mas os de performance
+começam a se tornar relevantes à medida que o volume de dados cresce.
+

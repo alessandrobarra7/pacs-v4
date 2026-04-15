@@ -930,24 +930,25 @@ export const billingRouter = router({
         if (input?.paidStatus && input.paidStatus !== 'all') conditions.push(eq(billing_cycles.paid_status, input.paidStatus as 'pending' | 'paid'));
         if (input?.unitId) conditions.push(eq(billing_cycles.unit_id, input.unitId));
         if (input?.responsibleId) conditions.push(eq(billing_cycles.financial_responsible_id, input.responsibleId));
+        // C3: query única com JOINs (elimina N+1)
         const rows = await db
-          .select({ cycle: billing_cycles, unit_name: units.name })
+          .select({
+            cycle: billing_cycles,
+            unit_name: units.name,
+            responsible_name: financial_responsibles.legal_name,
+            paid_by_name: users.name,
+          })
           .from(billing_cycles)
           .leftJoin(units, eq(billing_cycles.unit_id, units.id))
+          .leftJoin(financial_responsibles, eq(billing_cycles.financial_responsible_id, financial_responsibles.id))
+          .leftJoin(users, eq(billing_cycles.paid_by_user_id, users.id))
           .where(and(...conditions))
           .orderBy(billing_cycles.id);
-        return await Promise.all(rows.map(async (row) => {
-          let responsible_name: string | null = null;
-          let paid_by_name: string | null = null;
-          if (row.cycle.financial_responsible_id) {
-            const r = await db.select({ name: financial_responsibles.legal_name }).from(financial_responsibles).where(eq(financial_responsibles.id, row.cycle.financial_responsible_id)).limit(1);
-            responsible_name = r[0]?.name ?? null;
-          }
-          if (row.cycle.paid_by_user_id) {
-            const u = await db.select({ name: users.name }).from(users).where(eq(users.id, row.cycle.paid_by_user_id)).limit(1);
-            paid_by_name = u[0]?.name ?? null;
-          }
-          return { ...row.cycle, unit_name: row.unit_name ?? `Unidade ${row.cycle.unit_id}`, responsible_name, paid_by_name };
+        return rows.map(row => ({
+          ...row.cycle,
+          unit_name: row.unit_name ?? `Unidade ${row.cycle.unit_id}`,
+          responsible_name: row.responsible_name ?? null,
+          paid_by_name: row.paid_by_name ?? null,
         }));
       }),
 
@@ -959,6 +960,10 @@ export const billingRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
         const { eq } = await import('drizzle-orm');
         const { billing_cycles } = await import('../../drizzle/schema');
+        // C8: só permite marcar como pago ciclos já fechados
+        const [cycle] = await db.select({ status: billing_cycles.status }).from(billing_cycles).where(eq(billing_cycles.id, input.cycleId)).limit(1);
+        if (!cycle) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ciclo não encontrado.' });
+        if (cycle.status !== 'closed') throw new TRPCError({ code: 'BAD_REQUEST', message: 'Feche o ciclo antes de marcá-lo como pago.' });
         await db.update(billing_cycles).set({ paid_status: 'paid', paid_at: new Date(), paid_by_user_id: ctx.user.id, paid_note: input.note ?? null }).where(eq(billing_cycles.id, input.cycleId));
         return { ok: true };
       }),
@@ -997,14 +1002,36 @@ export const billingRouter = router({
         endDate: z.string().optional(),
       }).optional())
       .query(async ({ ctx, input }) => {
-        const isAdmin = ctx.user.role === 'admin_master' || ctx.user.role === 'responsavel_financeiro';
-        const targetDoctorId = isAdmin ? (input?.doctorUserId ?? undefined) : ctx.user.id;
+        const isAdmin = ctx.user.role === 'admin_master';
+        const isResp  = ctx.user.role === 'responsavel_financeiro';
+        const isDoctor = ctx.user.role === 'medico';
+        if (!isAdmin && !isResp && !isDoctor) throw new TRPCError({ code: 'FORBIDDEN' });
+        // Médico: sempre vê apenas seus próprios dados
+        const targetDoctorId = isDoctor ? ctx.user.id : (input?.doctorUserId ?? undefined);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-        const { and, eq, gte, lte, desc } = await import('drizzle-orm');
-        const { billing_visit_events, units, users } = await import('../../drizzle/schema');
+        const { and, eq, gte, lte, desc, inArray, isNull, or, lte: lteOp } = await import('drizzle-orm');
+        const { billing_visit_events, units, users, financial_responsible_units } = await import('../../drizzle/schema');
+        // Responsável financeiro: filtrar apenas pelas suas unidades
+        let allowedUnitIds: number[] | undefined = undefined;
+        if (isResp) {
+          const { getResponsibleIdForUser } = await import('../db');
+          const myRespId = await getResponsibleIdForUser(ctx.user.id);
+          if (!myRespId) return [];
+          const now = new Date();
+          const unitLinks = await db.select({ unit_id: financial_responsible_units.unit_id })
+            .from(financial_responsible_units)
+            .where(and(
+              eq(financial_responsible_units.financial_responsible_id, myRespId),
+              lteOp(financial_responsible_units.starts_at, now),
+              or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, now))
+            ));
+          allowedUnitIds = unitLinks.map(u => u.unit_id);
+          if (allowedUnitIds.length === 0) return [];
+        }
         const conditions: any[] = [];
         if (targetDoctorId) conditions.push(eq(billing_visit_events.doctor_user_id, targetDoctorId));
+        if (allowedUnitIds) conditions.push(inArray(billing_visit_events.unit_id, allowedUnitIds));
         if (input?.unitId) conditions.push(eq(billing_visit_events.unit_id, input.unitId));
         if (input?.cycleId) conditions.push(eq(billing_visit_events.doctor_cycle_id, input.cycleId));
         if (input?.startDate) conditions.push(gte(billing_visit_events.study_date, new Date(input.startDate)));
@@ -1110,13 +1137,17 @@ export const billingRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        // C7: validar que starts_at < ends_at
+        const s = new Date(input.starts_at);
+        const e = new Date(input.ends_at);
+        if (s >= e) throw new TRPCError({ code: 'BAD_REQUEST', message: 'A data de início deve ser anterior à data de fim.' });
         const { createCycleManual } = await import('../db');
         return await createCycleManual({
           unit_id: input.unit_id,
           financial_responsible_id: input.financial_responsible_id,
           cycle_type: input.cycle_type,
-          starts_at: new Date(input.starts_at),
-          ends_at: new Date(input.ends_at),
+          starts_at: s,
+          ends_at: e,
         });
       }),
 
@@ -1128,8 +1159,12 @@ export const billingRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        // C7: validar que starts_at < ends_at
+        const s = new Date(input.starts_at);
+        const e = new Date(input.ends_at);
+        if (s >= e) throw new TRPCError({ code: 'BAD_REQUEST', message: 'A data de início deve ser anterior à data de fim.' });
         const { editCycleDates } = await import('../db');
-        return await editCycleDates(input.cycle_id, new Date(input.starts_at), new Date(input.ends_at));
+        return await editCycleDates(input.cycle_id, s, e);
       }),
 
     listAllOpenCycles: protectedProcedure

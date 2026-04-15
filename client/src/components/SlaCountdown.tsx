@@ -56,7 +56,12 @@ export default function SlaCountdown({ readiness, hasAnamnesis, compact = true }
 
   useEffect(() => {
     if (!readiness || readiness.readiness_status === "reported") return;
-    const interval = setInterval(() => setNow(Date.now()), 30_000);
+    // C9: intervalo adaptativo — 30s quando urgente (<2h restantes), 5min quando tranquilo
+    const deadline = readiness.due_at ? new Date(readiness.due_at).getTime() : null;
+    const remaining = deadline ? deadline - Date.now() : null;
+    const isUrgent = remaining !== null && remaining < 2 * 60 * 60 * 1000; // < 2 horas
+    const intervalMs = isUrgent ? 30_000 : 5 * 60_000;
+    const interval = setInterval(() => setNow(Date.now()), intervalMs);
     return () => clearInterval(interval);
   }, [readiness]);
 

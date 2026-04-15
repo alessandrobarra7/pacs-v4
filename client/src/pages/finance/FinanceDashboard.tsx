@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { FinanceShell } from "@/components/FinanceShell";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import {
   Users, Building2, FileText, AlertTriangle,
-  DollarSign, UserCheck, Settings, ChevronRight,
+  UserCheck, Settings, ChevronRight,
   TrendingUp, BarChart3,
 } from "lucide-react";
 
@@ -15,15 +16,29 @@ function fmtBRL(val: string | number | null | undefined) {
 
 export default function FinanceDashboard() {
   const [, navigate] = useLocation();
+  const { user } = useAuth();
   const now = new Date();
   const [year] = useState(now.getFullYear());
   const [month] = useState(now.getMonth() + 1);
 
-  const { data: summary, isLoading: loadingSummary } = trpc.billing.getAdminSummary.useQuery({ year, month });
-  const { data: unitsData } = trpc.units.list.useQuery();
-  const { data: usersData } = trpc.admin.listUsers.useQuery();
-  // Visão por unidade em tempo real (ciclo aberto)
-  const { data: liveUnits = [], isLoading: loadingLive } = trpc.billing.getSystemOwnerLiveByUnit.useQuery();
+  const isAdmin = user?.role === 'admin_master';
+  const isResp  = user?.role === 'responsavel_financeiro';
+  const isDoctor = user?.role === 'medico';
+
+  // Queries condicionais por perfil — evita 403 silencioso
+  const { data: summary, isLoading: loadingSummary } = trpc.billing.getAdminSummary.useQuery(
+    { year, month }, { enabled: isAdmin }
+  );
+  const { data: unitsData } = trpc.units.list.useQuery(undefined, { enabled: isAdmin || isResp });
+  const { data: usersData } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });
+  // Visão por unidade em tempo real — apenas admin_master
+  const { data: liveUnits = [], isLoading: loadingLive } = trpc.billing.getSystemOwnerLiveByUnit.useQuery(
+    undefined, { enabled: isAdmin }
+  );
+  // Produção do médico — apenas medico
+  const { data: myProduction } = trpc.billing.getDoctorProduction.useQuery(
+    undefined, { enabled: isDoctor }
+  );
 
   const units = (unitsData ?? []) as Array<{ id: number; isActive: boolean }>;
   const users = (usersData ?? []) as Array<{ id: number; role: string; isActive: boolean }>;
