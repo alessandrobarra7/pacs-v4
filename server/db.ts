@@ -2875,3 +2875,72 @@ export async function getSystemOwnerLiveByUnit(): Promise<Array<{
 
   return result;
 }
+
+// ─── Gestão Manual de Ciclos ─────────────────────────────────────────────────
+
+/**
+ * Cria um ciclo financeiro manualmente para uma unidade.
+ */
+export async function createCycleManual(params: {
+  unit_id: number;
+  financial_responsible_id: number | null;
+  cycle_type: "doctor" | "system";
+  starts_at: Date;
+  ends_at: Date;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(billing_cycles).values({
+    unit_id: params.unit_id,
+    financial_responsible_id: params.financial_responsible_id,
+    cycle_type: params.cycle_type,
+    starts_at: params.starts_at,
+    ends_at: params.ends_at,
+    status: "open",
+    total_reports: 0,
+    total_amount: "0.00",
+    paid_status: "pending",
+  });
+  const cycleId = Number((result[0] as any).insertId);
+  const [cycle] = await db.select().from(billing_cycles).where(eq(billing_cycles.id, cycleId));
+  return cycle;
+}
+
+/**
+ * Edita as datas de início e fim de um ciclo existente (somente ciclos abertos).
+ */
+export async function editCycleDates(cycleId: number, starts_at: Date, ends_at: Date) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [cycle] = await db.select().from(billing_cycles).where(eq(billing_cycles.id, cycleId));
+  if (!cycle) throw new Error("Ciclo não encontrado");
+  if (cycle.status !== "open") throw new Error("Só é possível editar ciclos com status 'aberto'");
+  await db.update(billing_cycles).set({ starts_at, ends_at }).where(eq(billing_cycles.id, cycleId));
+  const [updated] = await db.select().from(billing_cycles).where(eq(billing_cycles.id, cycleId));
+  return updated;
+}
+
+/**
+ * Lista todos os ciclos abertos de todas as unidades (para o modal de fechar ciclo).
+ */
+export async function listAllOpenCycles() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    cycle: billing_cycles,
+    unit_name: units.name,
+    responsible_name: financial_responsibles.trade_name,
+    responsible_legal: financial_responsibles.legal_name,
+  })
+    .from(billing_cycles)
+    .leftJoin(units, eq(billing_cycles.unit_id, units.id))
+    .leftJoin(financial_responsibles, eq(billing_cycles.financial_responsible_id, financial_responsibles.id))
+    .where(eq(billing_cycles.status, "open"))
+    .orderBy(desc(billing_cycles.starts_at));
+  return rows.map(r => ({
+    ...r.cycle,
+    unit_name: r.unit_name ?? "",
+    responsible_name: r.responsible_name ?? r.responsible_legal ?? "",
+  }));
+}
+

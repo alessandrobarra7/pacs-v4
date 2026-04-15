@@ -1099,4 +1099,43 @@ export const billingRouter = router({
         }
         return { doctors: Array.from(doctorMap.values()), grand_total: grandTotal, responsible_id: targetResponsibleId ?? null };
       }),
+
+    createCycleManual: protectedProcedure
+      .input(z.object({
+        unit_id: z.number(),
+        financial_responsible_id: z.number().nullable(),
+        cycle_type: z.enum(['doctor', 'system']),
+        starts_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        ends_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { createCycleManual } = await import('../db');
+        return await createCycleManual({
+          unit_id: input.unit_id,
+          financial_responsible_id: input.financial_responsible_id,
+          cycle_type: input.cycle_type,
+          starts_at: new Date(input.starts_at),
+          ends_at: new Date(input.ends_at),
+        });
+      }),
+
+    editCycleDates: protectedProcedure
+      .input(z.object({
+        cycle_id: z.number(),
+        starts_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        ends_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { editCycleDates } = await import('../db');
+        return await editCycleDates(input.cycle_id, new Date(input.starts_at), new Date(input.ends_at));
+      }),
+
+    listAllOpenCycles: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const { listAllOpenCycles } = await import('../db');
+        return await listAllOpenCycles();
+      }),
 });
