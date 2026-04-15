@@ -1213,3 +1213,14 @@
 - [ ] Seed de templates padrão do sistema (isGlobal=true): 1 template por modalidade principal
 - [ ] TemplatesTab: exibir seção "Templates do Sistema" (somente leitura) + botão "Usar como base"
 - [ ] Corrigir incoerência patientBirthDate/birthDate no sessionStorage do editor
+
+## DIAGNÓSTICO FINANCEIRO — Melhorias implementadas (2025-04)
+
+- [x] Criar função getSystemOwnerLiveByUnit no db.ts (receita por unidade em tempo real)
+- [x] Criar procedure billing.getSystemOwnerLiveByUnit no billing.ts (protegido admin_master)
+- [x] Criar tela FinanceOwnerOverview.tsx — painel operacional do dono por unidade
+- [x] Adicionar rota /financeiro/overview no App.tsx (admin_master only)
+- [x] Adicionar item "Receita por Unidade" no menu FinanceShell (adminItems)
+- [x] Integrar getDoctorOperationalBalance no FinanceMeuFinanceiro (saldo correto do médico)
+- [x] Reorganizar FinanceDashboard.tsx: bloco receita em tempo real + eixo responsável + acesso rápido
+- [x] Padronizar terminologia: "Receita do Sistema", "Custo Médico", "Margem Operacional"

@@ -2748,3 +2748,130 @@ export async function getDoctorOperationalBalance(doctorUserId: number) {
     })),
   };
 }
+
+/**
+ * getSystemOwnerLiveByUnit — visão operacional do dono do sistema por unidade.
+ * Retorna, para cada unidade ativa, o ciclo aberto do sistema com:
+ * - receita do sistema, custo médico, margem, laudos, preço configurado
+ * - responsável financeiro ativo
+ * - alertas de configuração ausente
+ */
+export async function getSystemOwnerLiveByUnit(): Promise<Array<{
+  unit_id: number;
+  unit_name: string;
+  responsible_name: string | null;
+  responsible_id: number | null;
+  active_cycle_id: number | null;
+  cycle_start: Date | null;
+  cycle_end: Date | null;
+  reports_count: number;
+  system_price_per_report: string | null;
+  system_amount: string;
+  doctor_amount: string;
+  net_amount: string;
+  has_missing_config: boolean;
+  missing_config_details: string[];
+}>> {
+  const db = await getDb();
+  if (!db) return [];
+  const { eq, isNull, and, lte, gte, or: _or, desc } = await import('drizzle-orm');
+  const now = new Date();
+
+  const allUnits = await db.select().from(units).where(eq(units.isActive, true));
+  const result = [];
+
+  for (const unit of allUnits) {
+    const missing: string[] = [];
+
+    // Responsável financeiro ativo
+    const respRows = await db
+      .select({
+        id: financial_responsible_units.financial_responsible_id,
+        legal_name: financial_responsibles.legal_name,
+        trade_name: financial_responsibles.trade_name,
+      })
+      .from(financial_responsible_units)
+      .leftJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_units.financial_responsible_id))
+      .where(and(
+        eq(financial_responsible_units.unit_id, unit.id),
+        lte(financial_responsible_units.starts_at, now),
+        _or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, now))
+      ))
+      .orderBy(desc(financial_responsible_units.starts_at))
+      .limit(1);
+    const resp = respRows[0] ?? null;
+    if (!resp) missing.push('Responsável financeiro');
+
+    // Preço do sistema ativo
+    const sysPriceRows = await db
+      .select({ price_per_report: billing_system_unit_prices.price_per_report })
+      .from(billing_system_unit_prices)
+      .where(and(
+        eq(billing_system_unit_prices.unit_id, unit.id),
+        isNull(billing_system_unit_prices.ends_at),
+      ))
+      .orderBy(desc(billing_system_unit_prices.starts_at))
+      .limit(1);
+    const sysPrice = sysPriceRows[0]?.price_per_report ?? null;
+    if (!sysPrice) missing.push('Preço do sistema');
+
+    // Ciclo aberto do sistema para esta unidade
+    const cycleRows = await db
+      .select({
+        cycle: billing_cycles,
+        summary: billing_cycle_system_summary,
+      })
+      .from(billing_cycles)
+      .leftJoin(billing_cycle_system_summary, and(
+        eq(billing_cycle_system_summary.system_cycle_id, billing_cycles.id),
+        eq(billing_cycle_system_summary.unit_id, unit.id),
+      ))
+      .where(and(
+        eq(billing_cycles.unit_id, unit.id),
+        eq(billing_cycles.cycle_type, 'system'),
+        eq(billing_cycles.status, 'open'),
+      ))
+      .orderBy(desc(billing_cycles.id))
+      .limit(1);
+    const cycleRow = cycleRows[0] ?? null;
+    if (!cycleRow?.cycle) missing.push('Ciclo do sistema');
+
+    let systemAmount = parseFloat(cycleRow?.summary?.amount_due ?? '0');
+    let reportsCount = cycleRow?.summary?.reports_count ?? 0;
+
+    // Custo médico via billing_cycle_doctor_summary (ciclos abertos na mesma unidade)
+    const docSummaries = await db
+      .select({ amount_due: billing_cycle_doctor_summary.amount_due, reports_count: billing_cycle_doctor_summary.reports_count })
+      .from(billing_cycle_doctor_summary)
+      .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+      .where(and(
+        eq(billing_cycle_doctor_summary.unit_id, unit.id),
+        eq(billing_cycles.status, 'open'),
+      ));
+    const doctorAmount = docSummaries.reduce((s, r) => s + parseFloat(r.amount_due ?? '0'), 0);
+    if (reportsCount === 0) {
+      reportsCount = docSummaries.reduce((s, r) => s + (r.reports_count ?? 0), 0);
+    }
+
+    const netAmount = systemAmount - doctorAmount;
+
+    result.push({
+      unit_id: unit.id,
+      unit_name: unit.name,
+      responsible_name: resp ? (resp.trade_name ?? resp.legal_name) : null,
+      responsible_id: resp?.id ?? null,
+      active_cycle_id: cycleRow?.cycle?.id ?? null,
+      cycle_start: cycleRow?.cycle?.starts_at ?? null,
+      cycle_end: cycleRow?.cycle?.ends_at ?? null,
+      reports_count: reportsCount,
+      system_price_per_report: sysPrice ? String(sysPrice) : null,
+      system_amount: systemAmount.toFixed(2),
+      doctor_amount: doctorAmount.toFixed(2),
+      net_amount: netAmount.toFixed(2),
+      has_missing_config: missing.length > 0,
+      missing_config_details: missing,
+    });
+  }
+
+  return result;
+}

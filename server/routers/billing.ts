@@ -900,4 +900,14 @@ export const billingRouter = router({
         });
         return { id, responsible_id: responsible.financial_responsible_id };
       }),
+
+    // ─── Visão operacional do dono do sistema por unidade em tempo real ───────
+    getSystemOwnerLiveByUnit: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const { getSystemOwnerLiveByUnit } = await import('../db');
+        return await getSystemOwnerLiveByUnit();
+      }),
 });

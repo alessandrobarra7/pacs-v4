@@ -145,6 +145,11 @@ export default function FinanceMeuFinanceiro() {
 
   const { data: productionData, isLoading: loadingProd } = trpc.billing.getDoctorProduction.useQuery();
   const { data: summaryData, isLoading: loadingSummary } = trpc.billing.getDoctorSummary.useQuery({ year, month });
+  // getDoctorOperationalBalance: saldo operacional real do médico no ciclo corrente (fonte mais precisa)
+  const { data: operationalBalance } = trpc.billing.getDoctorOperationalBalance.useQuery(
+    { doctorUserId: user?.id ?? 0 },
+    { enabled: !!user?.id }
+  );
 
   // getDoctorProduction retorna { currentCycles, history, totalOpen, totalUnits }
   type ClosedCycle = {
@@ -160,7 +165,9 @@ export default function FinanceMeuFinanceiro() {
     study_date: Date | string | null; doctor_amount: string; payment_status: string;
   }>;
 
-  const totalSaldo = Array.isArray(cycles) ? cycles.reduce((s, c) => s + parseFloat(String(c.summary?.amount_due ?? "0")), 0) : 0;
+  // Usar saldo do getDoctorOperationalBalance se disponível (mais preciso que o sum dos cycles)
+  const operationalTotal = operationalBalance?.totalBalance ? parseFloat(operationalBalance.totalBalance) : null;
+  const totalSaldo = operationalTotal ?? (Array.isArray(cycles) ? cycles.reduce((s, c) => s + parseFloat(String(c.summary?.amount_due ?? "0")), 0) : 0);
   const totalConfirmado = Array.isArray(cycles) ? cycles.reduce((s, c) => s + parseFloat(String(c.summary?.amount_received ?? "0")), 0) : 0;
   const totalLaudos = Array.isArray(cycles) ? cycles.reduce((s, c) => s + (c.summary?.reports_count ?? 0), 0) : 0;
   const activeUnits = Array.isArray(cycles) ? new Set(cycles.map((c) => c.cycle.unit_id)).size : 0;

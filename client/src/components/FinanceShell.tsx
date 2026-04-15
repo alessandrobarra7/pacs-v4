@@ -11,7 +11,7 @@ import { DollarSign, Settings } from "lucide-react";
 interface FinanceShellProps {
   children: React.ReactNode;
   /** Qual item da sub-navegação está ativo */
-  activeSection: "dashboard" | "medicos" | "unidades" | "responsaveis" | "admin" | "meu-financeiro";
+  activeSection: "dashboard" | "overview" | "medicos" | "unidades" | "responsaveis" | "admin" | "meu-financeiro";
 }
 
 /** Navegação principal do header (igual ao PacsQueryPage) */
@@ -82,6 +82,7 @@ function FinanceSubNav({ active }: { active: string }) {
 
   const adminItems = [
     { key: "dashboard", label: "Dashboard", path: "/financeiro" },
+    { key: "overview", label: "Receita por Unidade", path: "/financeiro/overview" },
     { key: "medicos", label: "Médicos", path: "/financeiro/medicos" },
     { key: "unidades", label: "Unidades", path: "/financeiro/unidades" },
     { key: "responsaveis", label: "Responsáveis", path: "/financeiro/responsaveis" },
