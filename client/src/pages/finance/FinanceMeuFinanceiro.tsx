@@ -35,7 +35,8 @@ function ExtratoTab({ doctorUserId }: { doctorUserId?: number }) {
     { doctorUserId },
     { enabled: true }
   );
-  const groups = (data ?? []) as DoctorGroup[];
+  // getDoctorStatement agora retorna { data, total, page, pageSize, hasMore } (C5)
+  const groups = ((data as any)?.data ?? data ?? []) as DoctorGroup[];
   const myGroup = groups[0]; // médico vê apenas seus próprios dados
 
   function exportCSV() {
@@ -269,7 +270,8 @@ export default function FinanceMeuFinanceiro() {
   const closedCycles = (prodObj?.history ?? []) as ClosedCycle[];
 
   // C11: calcular saldo diretamente dos billing_visit_events via getDoctorStatement
-  const stmtGroups = (statementData ?? []) as DoctorGroup[];
+  // getDoctorStatement agora retorna { data, total, page, pageSize, hasMore } (C5)
+  const stmtGroups = ((statementData as any)?.data ?? statementData ?? []) as DoctorGroup[];
   const myStmt = stmtGroups[0];
   const totalSaldo = myStmt?.total_amount ?? 0;
   const totalLaudos = myStmt?.total_reports ?? 0;

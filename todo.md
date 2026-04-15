@@ -1247,7 +1247,7 @@
 
 ## AUDITORIA v15 — SPRINT 1 (Segurança e bugs críticos)
 
-- [ ] C1 — getDoctorStatement: filtrar por unidades do responsável financeiro (SEGURANÇA ALTA)
+- [x] C1 — getDoctorStatement: filtrar por unidades do responsável financeiro (SEGURANÇA ALTA)
 - [ ] C6 — FinanceDashboard: queries adaptativas por perfil (BUG MÉDIO — 403 silencioso)
 
 ## AUDITORIA v15 — SPRINT 2 (Performance)
@@ -1258,19 +1258,46 @@
 ## AUDITORIA v15 — SPRINT 3 (Integridade dos dados)
 
 - [ ] C4 — Overlap check em createCycleManual e editCycleDates
-- [ ] C7 — Validar starts_at < ends_at em editCycleDates e createCycleManual
-- [ ] C8 — markCyclePaid: exigir que ciclo esteja fechado antes de marcar como pago
-- [ ] C12 — revise: atualizar billing_visit_events.report_status_snapshot = 'revised'
+- [x] C7 — Validar starts_at < ends_at em editCycleDates e createCycleManual
+- [x] C8 — markCyclePaid: exigir que ciclo esteja fechado antes de marcar como pago
+- [ ] C12 — revise: atualizar billing_visit_events.report_status_snapshot (PENDENTE: requer migration) = 'revised'
 
 ## AUDITORIA v15 — SPRINT 4 (Unificação billing)
 
-- [ ] C11 — FinanceMeuFinanceiro: unificar para Sistema B (getDoctorExtract via billing_visit_events)
+- [x] C11 — FinanceMeuFinanceiro: unificar para Sistema B (getDoctorExtract via billing_visit_events)
 
 ## AUDITORIA v15 — SPRINT 5 (Limpeza e melhorias)
 
-- [ ] C13 — Remover getOrCreateDefaultResponsibleForUnit (código morto)
-- [ ] C9 — SlaCountdown: intervalo adaptativo (30s para horas, 5min para dias)
+- [x] C13 — Remover getOrCreateDefaultResponsibleForUnit (código morto)
+- [x] C9 — SlaCountdown: intervalo adaptativo (30s para horas, 5min para dias)
 - [ ] C10 — SLA: registrar readiness na chegada do exame (studies_cache)
 - [ ] P5 — FK em billing_visit_events.report_id → reports.id
 - [ ] P6 — Trigger/constraint: 1 responsável ativo por unidade
 - [ ] P3 — Reconsiderar constraint única em unit_doctor_scales (impede histórico)
+
+## AUDITORIA v15 — Sprint 1: Segurança e Bugs Críticos
+
+- [x] C1 — getDoctorStatement: filtrar por unidades do responsável financeiro (SEGURANÇA ALTA)
+- [x] C6 — FinanceDashboard: queries adaptativas por perfil do usuário (BUG MÉDIO)
+
+## AUDITORIA v15 — Sprint 2: Performance
+
+- [x] C2 — Eliminar N+1 em getSystemOwnerLiveByUnit (5 queries fixas em vez de 4N+1)
+- [x] C3 — Eliminar N+1 em listSystemReceivables (JOIN em vez de Promise.all com queries)
+- [x] C5 — Paginação em getDoctorStatement e getResponsibleDebtByDoctor
+
+## AUDITORIA v15 — Sprint 3: Integridade de Dados
+
+- [x] C4 — Validar sobreposição de datas em createCycleManual e editCycleDates
+- [x] C7 — Validar starts_at < ends_at em editCycleDates e createCycleManual
+- [x] C8 — markCyclePaid: exigir que ciclo esteja fechado antes de marcar como pago
+- [ ] C12 — revise: atualizar billing_visit_events.report_status_snapshot (PENDENTE: requer migration)
+
+## AUDITORIA v15 — Sprint 4: Unificação do Billing
+
+- [x] C11 — FinanceMeuFinanceiro: unificar para Sistema B (getDoctorExtract via billing_visit_events)
+
+## AUDITORIA v15 — Sprint 5: Limpeza
+
+- [x] C13 — Remover getOrCreateDefaultResponsibleForUnit (código morto)
+- [x] C9 — SlaCountdown: intervalo adaptativo (30s para horas, 5min para dias)

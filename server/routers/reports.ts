@@ -301,8 +301,11 @@ export const reportsRouter = router({
             .where(eq(billing_report_items.report_id, input.id));
         } catch (e) {
           // Não bloqueia a retificação se billing_report_items não existir para este laudo
-          console.warn('[revise] Não foi possível atualizar report_status_snapshot:', e);
+          console.warn('[revise] Não foi possível atualizar report_status_snapshot em billing_report_items:', e);
         }
+        // C12: billing_visit_events ainda não possui o campo report_status_snapshot.
+        // Requer migration de schema: ALTER TABLE billing_visit_events ADD COLUMN report_status_snapshot ENUM('signed','revised') DEFAULT 'signed';
+        // TODO: implementar após executar a migration em produção.
         await createAuditLog({
           user_id: ctx.user.id,
           unit_id: ctx.user.unit_id,

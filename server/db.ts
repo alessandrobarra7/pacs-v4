@@ -923,64 +923,6 @@ export async function listUnitsForResponsible(financialResponsibleId: number): P
     .where(eq(financial_responsible_units.financial_responsible_id, financialResponsibleId));
 }
 
-// ─── Responsável Padrão Automático ──────────────────────────────────────────
-
-/**
- * Busca o responsável financeiro ativo para a unidade.
- * Se não houver nenhum, cria automaticamente um responsável padrão
- * "Sem Responsável" e o vincula à unidade, para que o admin possa
- * configurar posteriormente.
- */
-export async function getOrCreateDefaultResponsibleForUnit(
-  unitId: number,
-  createdBy: number
-): Promise<FinancialResponsibleUnit> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  // 1. Verificar se já há responsável ativo
-  const existing = await getActiveResponsibleForUnit(unitId);
-  if (existing) return existing;
-
-  const { eq, like } = await import("drizzle-orm");
-
-  // 2. Verificar se já existe um responsável padrão (evitar duplicatas)
-  const DEFAULT_NAME = "Sem Responsável";
-  const existingDefault = await db.select()
-    .from(financial_responsibles)
-    .where(eq(financial_responsibles.legal_name, DEFAULT_NAME))
-    .limit(1);
-
-  let responsibleId: number;
-  if (existingDefault.length > 0) {
-    responsibleId = existingDefault[0].id;
-  } else {
-    // 3. Criar responsável padrão
-    const result = await db.insert(financial_responsibles).values({
-      person_type: "PJ",
-      legal_name: DEFAULT_NAME,
-      trade_name: "Responsável não configurado",
-      notes: "Criado automaticamente. Configure o responsável financeiro real no módulo Financeiro.",
-      isActive: true,
-    });
-    responsibleId = (result[0] as any).insertId as number;
-  }
-
-  // 4. Vincular responsável à unidade
-  const now = new Date();
-  await db.insert(financial_responsible_units).values({
-    financial_responsible_id: responsibleId,
-    unit_id: unitId,
-    starts_at: now,
-    ends_at: null,
-    created_by: createdBy,
-  });
-
-  // 5. Retornar o vínculo recém-criado
-  const newLink = await getActiveResponsibleForUnit(unitId);
-  if (!newLink) throw new Error("Falha ao criar vínculo de responsável padrão");
-  return newLink;
-}
 
 // ─── Preços do Sistema por Unidade ───────────────────────────────────────────
 
@@ -2925,6 +2867,24 @@ export async function editCycleDates(cycleId: number, starts_at: Date, ends_at: 
   const [cycle] = await db.select().from(billing_cycles).where(eq(billing_cycles.id, cycleId));
   if (!cycle) throw new Error("Ciclo não encontrado");
   if (cycle.status !== "open") throw new Error("Só é possível editar ciclos com status 'aberto'");
+  // C7: validar que starts_at < ends_at
+  if (starts_at >= ends_at) throw new Error('A data de início deve ser anterior à data de término.');
+  // C4: verificar sobreposição com outros ciclos do mesmo tipo/unidade (excluindo o próprio ciclo)
+  const { and: _and, eq: _eq, or: _or, lte: _lte, gte: _gte, ne: _ne } = await import('drizzle-orm');
+  const overlapping = await db.select({ id: billing_cycles.id })
+    .from(billing_cycles)
+    .where(_and(
+      _eq(billing_cycles.unit_id, cycle.unit_id),
+      _eq(billing_cycles.cycle_type, cycle.cycle_type),
+      _ne(billing_cycles.id, cycleId),
+      _or(
+        _and(_lte(billing_cycles.starts_at, ends_at), _gte(billing_cycles.ends_at as any, starts_at)),
+      ),
+    ))
+    .limit(1);
+  if (overlapping.length > 0) {
+    throw new Error(`Já existe um ciclo neste período para esta unidade e tipo (id: ${overlapping[0].id}).`);
+  }
   await db.update(billing_cycles).set({ starts_at, ends_at }).where(eq(billing_cycles.id, cycleId));
   const [updated] = await db.select().from(billing_cycles).where(eq(billing_cycles.id, cycleId));
   return updated;

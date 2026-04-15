@@ -1004,6 +1004,9 @@ export const billingRouter = router({
         cycleId: z.number().optional(),
         startDate: z.string().optional(),
         endDate: z.string().optional(),
+        // C5: paginação para evitar truncamento silencioso
+        page: z.number().int().min(1).default(1),
+        pageSize: z.number().int().min(10).max(500).default(200),
       }).optional())
       .query(async ({ ctx, input }) => {
         const isAdmin = ctx.user.role === 'admin_master';
@@ -1040,6 +1043,14 @@ export const billingRouter = router({
         if (input?.cycleId) conditions.push(eq(billing_visit_events.doctor_cycle_id, input.cycleId));
         if (input?.startDate) conditions.push(gte(billing_visit_events.study_date, new Date(input.startDate)));
         if (input?.endDate) conditions.push(lte(billing_visit_events.study_date, new Date(input.endDate)));
+        const page = input?.page ?? 1;
+        const pageSize = input?.pageSize ?? 200;
+        // C5: contar total de registros para metadata de paginação
+        const { sql: sqlFn } = await import('drizzle-orm');
+        const [countRow] = await db.select({ count: sqlFn<number>`COUNT(*)` })
+          .from(billing_visit_events)
+          .where(conditions.length > 0 ? and(...conditions) : undefined);
+        const total = Number(countRow?.count ?? 0);
         const rows = await db
           .select({ event: billing_visit_events, unit_name: units.name, doctor_name: users.name })
           .from(billing_visit_events)
@@ -1047,7 +1058,8 @@ export const billingRouter = router({
           .leftJoin(users, eq(billing_visit_events.doctor_user_id, users.id))
           .where(conditions.length > 0 ? and(...conditions) : undefined)
           .orderBy(desc(billing_visit_events.createdAt))
-          .limit(500);
+          .limit(pageSize)
+          .offset((page - 1) * pageSize);
         type DayGroup = { date: string; reports: number; amount: number };
         type UnitGroup = { unit_id: number; unit_name: string; reports: number; amount: number; price_per_report: string; days: DayGroup[] };
         type DoctorGroup = { doctor_id: number; doctor_name: string; total_reports: number; total_amount: number; units: UnitGroup[] };
@@ -1068,7 +1080,7 @@ export const billingRouter = router({
           ug.reports += 1; ug.amount += amt;
           doc.total_reports += 1; doc.total_amount += amt;
         }
-        return Array.from(doctorMap.values());
+        return { data: Array.from(doctorMap.values()), total, page, pageSize, hasMore: total > page * pageSize };
       }),
 
     // ─── P4: Dívida do Responsável por Médico ────────────────────────────────
@@ -1077,6 +1089,9 @@ export const billingRouter = router({
         responsibleId: z.number().optional(),
         cycleId: z.number().optional(),
         unitId: z.number().optional(),
+        // C5: paginação
+        page: z.number().int().min(1).default(1),
+        pageSize: z.number().int().min(10).max(500).default(200),
       }).optional())
       .query(async ({ ctx, input }) => {
         const isAdmin = ctx.user.role === 'admin_master';
@@ -1100,6 +1115,13 @@ export const billingRouter = router({
           const unitIds = unitLinks.map(u => u.unit_id);
           if (unitIds.length > 0) conditions.push(inArray(billing_visit_events.unit_id, unitIds));
         }
+        const page2 = input?.page ?? 1;
+        const pageSize2 = input?.pageSize ?? 200;
+        const { sql: sqlFn2 } = await import('drizzle-orm');
+        const [countRow2] = await db.select({ count: sqlFn2<number>`COUNT(*)` })
+          .from(billing_visit_events)
+          .where(conditions.length > 0 ? and(...conditions) : undefined);
+        const total2 = Number(countRow2?.count ?? 0);
         const rows = await db
           .select({ event: billing_visit_events, unit_name: units.name, doctor_name: users.name })
           .from(billing_visit_events)
@@ -1107,7 +1129,8 @@ export const billingRouter = router({
           .leftJoin(users, eq(billing_visit_events.doctor_user_id, users.id))
           .where(conditions.length > 0 ? and(...conditions) : undefined)
           .orderBy(desc(billing_visit_events.createdAt))
-          .limit(1000);
+          .limit(pageSize2)
+          .offset((page2 - 1) * pageSize2);
         type DayEntry = { date: string; reports: number; amount: number };
         type UnitEntry = { unit_id: number; unit_name: string; reports: number; amount: number; price_per_report: string; days: DayEntry[] };
         type DoctorEntry = { doctor_id: number; doctor_name: string; total_reports: number; total_amount: number; units: UnitEntry[] };
@@ -1130,7 +1153,7 @@ export const billingRouter = router({
           doc.total_reports += 1; doc.total_amount += amt;
           grandTotal += amt;
         }
-        return { doctors: Array.from(doctorMap.values()), grand_total: grandTotal, responsible_id: targetResponsibleId ?? null };
+        return { doctors: Array.from(doctorMap.values()), grand_total: grandTotal, responsible_id: targetResponsibleId ?? null, total: total2, page: page2, pageSize: pageSize2, hasMore: total2 > page2 * pageSize2 };
       }),
 
     createCycleManual: protectedProcedure
