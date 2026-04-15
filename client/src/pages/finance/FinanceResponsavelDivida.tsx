@@ -16,20 +16,18 @@ function fmtBRL(val: string | number | null | undefined) {
 type DayGroup = { date: string; reports: number; amount: number };
 type UnitGroup = { unit_id: number; unit_name: string; reports: number; amount: number; price_per_report: string; days: DayGroup[] };
 type DoctorGroup = { doctor_id: number; doctor_name: string; total_reports: number; total_amount: number; units: UnitGroup[] };
-type ResponsibleGroup = {
-  responsible_id: number;
-  responsible_name: string;
-  total_reports: number;
-  total_amount: number;
+type BackendResult = {
   doctors: DoctorGroup[];
+  grand_total: number;
+  responsible_id: number | null;
 };
 
-function exportCSV(group: ResponsibleGroup) {
-  const rows: string[] = ["Responsável,Médico,Unidade,Data,Laudos,Valor"];
-  for (const d of group.doctors) {
+function exportCSV(doctors: DoctorGroup[], label: string) {
+  const rows: string[] = ["Médico,Unidade,Data,Laudos,Valor"];
+  for (const d of doctors) {
     for (const u of d.units) {
       for (const day of u.days) {
-        rows.push(`"${group.responsible_name}","${d.doctor_name}","${u.unit_name}",${day.date},${day.reports},${day.amount.toFixed(2)}`);
+        rows.push(`"${d.doctor_name}","${u.unit_name}",${day.date},${day.reports},${day.amount.toFixed(2)}`);
       }
     }
   }
@@ -37,7 +35,7 @@ function exportCSV(group: ResponsibleGroup) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `divida_${group.responsible_name.replace(/\s+/g, "_")}.csv`;
+  a.download = `divida_${label.replace(/\s+/g, "_") || 'medicos'}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -123,69 +121,16 @@ function DoctorAccordion({ doctor, responsibleName }: { doctor: DoctorGroup; res
   );
 }
 
-function ResponsibleCard({ group }: { group: ResponsibleGroup }) {
-  const [expanded, setExpanded] = useState(false);
 
-  return (
-    <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 overflow-hidden">
-      {/* Cabeçalho do responsável */}
-      <div className="p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-700/30 flex items-center justify-center shrink-0">
-              <User className="h-5 w-5 text-amber-400" />
-            </div>
-            <div>
-              <p className="font-semibold text-white">{group.responsible_name}</p>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {group.doctors.length} médico(s) · {group.total_reports} laudos
-              </p>
-            </div>
-          </div>
-          <div className="text-right">
-            <p className="text-lg font-bold text-amber-400">{fmtBRL(group.total_amount)}</p>
-            <p className="text-xs text-slate-500">a pagar</p>
-          </div>
-        </div>
-
-        {/* Ações */}
-        <div className="flex items-center gap-2 mt-3">
-          <button
-            onClick={() => exportCSV(group)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300 hover:border-cyan-500 hover:text-white text-xs transition-colors"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Exportar CSV
-          </button>
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="ml-auto flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
-          >
-            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            {expanded ? "Ocultar médicos" : `Ver ${group.doctors.length} médico(s)`}
-          </button>
-        </div>
-      </div>
-
-      {/* Lista de médicos */}
-      {expanded && (
-        <div className="border-t border-slate-700/30 px-4 py-3 space-y-2">
-          {group.doctors.map(d => (
-            <DoctorAccordion key={d.doctor_id} doctor={d} responsibleName={group.responsible_name} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function FinanceResponsavelDivida() {
   const { data, isLoading, error } = trpc.billing.getResponsibleDebtByDoctor.useQuery();
-  const groups = (data ?? []) as ResponsibleGroup[];
+  const result = data as BackendResult | undefined;
+  const doctors = result?.doctors ?? [];
 
-  const totalGeral = groups.reduce((s, g) => s + g.total_amount, 0);
-  const totalMedicos = groups.reduce((s, g) => s + g.doctors.length, 0);
-  const totalLaudos = groups.reduce((s, g) => s + g.total_reports, 0);
+  const totalGeral = result?.grand_total ?? 0;
+  const totalMedicos = doctors.length;
+  const totalLaudos = doctors.reduce((s, d) => s + d.total_reports, 0);
 
   return (
     <FinanceShell activeSection="responsaveis">
@@ -230,7 +175,7 @@ export default function FinanceResponsavelDivida() {
             <AlertTriangle className="h-5 w-5 text-red-400 shrink-0" />
             <p className="text-red-400 text-sm">{error.message}</p>
           </div>
-        ) : groups.length === 0 ? (
+        ) : doctors.length === 0 ? (
           <div className="py-16 text-center">
             <User className="h-12 w-12 mx-auto text-slate-600 mb-3" />
             <p className="text-slate-500">Nenhuma dívida pendente encontrada.</p>
@@ -238,8 +183,8 @@ export default function FinanceResponsavelDivida() {
           </div>
         ) : (
           <div className="space-y-4">
-            {groups.map(g => (
-              <ResponsibleCard key={g.responsible_id} group={g} />
+            {doctors.map((d: DoctorGroup) => (
+              <DoctorAccordion key={d.doctor_id} doctor={d} responsibleName="" />
             ))}
           </div>
         )}
