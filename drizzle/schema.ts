@@ -537,6 +537,11 @@ export const billing_cycles = mysqlTable("billing_cycles", {
   total_amount: decimal("total_amount", { precision: 10, scale: 2 }).notNull().default("0.00"),
   closedAt: timestamp("closedAt"),
   closedBy: int("closedBy"),
+  // Controle de pagamento do ciclo ao sistema (P2 - Contas a Receber)
+  paid_status: mysqlEnum("paid_status", ["pending", "paid"]).notNull().default("pending"),
+  paid_at: timestamp("paid_at"),
+  paid_by_user_id: int("paid_by_user_id"),
+  paid_note: varchar("paid_note", { length: 500 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({

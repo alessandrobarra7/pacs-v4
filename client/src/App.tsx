@@ -24,6 +24,8 @@ import FinanceMeuFinanceiro from "./pages/finance/FinanceMeuFinanceiro";
 import FinanceAdmin from "./pages/finance/FinanceAdmin";
 import FinanceMedicoDetalhe from "./pages/finance/FinanceMedicoDetalhe";
 import FinanceOwnerOverview from "./pages/finance/FinanceOwnerOverview";
+import FinanceContasReceber from "./pages/finance/FinanceContasReceber";
+import FinanceResponsavelDivida from "./pages/finance/FinanceResponsavelDivida";
 import FinanceUnidadeDetalhe from "./pages/finance/FinanceUnidadeDetalhe";
 import FinanceResponsavelDetalhe from "./pages/finance/FinanceResponsavelDetalhe";
 import { useLocation } from "wouter";
@@ -115,6 +117,10 @@ function Router() {
       <Route path="/financeiro/admin" component={() => <ProtectedRoute component={FinanceAdmin} allowedRoles={['admin_master']} />} />
       {/* Visão operacional do dono do sistema por unidade */}
       <Route path="/financeiro/overview" component={() => <ProtectedRoute component={FinanceOwnerOverview} allowedRoles={['admin_master']} />} />
+      {/* Contas a Receber: apenas admin_master */}
+      <Route path="/financeiro/contas-receber" component={() => <ProtectedRoute component={FinanceContasReceber} allowedRoles={['admin_master']} />} />
+      {/* Dívida do responsável por médico: admin_master e responsavel_financeiro */}
+      <Route path="/financeiro/responsaveis/divida" component={() => <ProtectedRoute component={FinanceResponsavelDivida} allowedRoles={['admin_master', 'responsavel_financeiro']} />} />
       {/* Detalhes: admin_master, unit_admin, responsavel_financeiro */}
       <Route path="/financeiro/medicos/:id" component={() => <ProtectedRoute component={FinanceMedicoDetalhe} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
       <Route path="/financeiro/unidades/:id" component={() => <ProtectedRoute component={FinanceUnidadeDetalhe} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />

@@ -910,4 +910,193 @@ export const billingRouter = router({
         const { getSystemOwnerLiveByUnit } = await import('../db');
         return await getSystemOwnerLiveByUnit();
       }),
+
+    // ─── P2: Contas a Receber do Sistema ─────────────────────────────────────
+    listSystemReceivables: protectedProcedure
+      .input(z.object({
+        cycleStatus: z.enum(['open', 'closed', 'all']).default('all'),
+        paidStatus: z.enum(['pending', 'paid', 'all']).default('all'),
+        unitId: z.number().optional(),
+        responsibleId: z.number().optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const { and, eq } = await import('drizzle-orm');
+        const { billing_cycles, units, users, financial_responsibles } = await import('../../drizzle/schema');
+        const conditions: any[] = [eq(billing_cycles.cycle_type, 'system')];
+        if (input?.cycleStatus && input.cycleStatus !== 'all') conditions.push(eq(billing_cycles.status, input.cycleStatus as 'open' | 'closed'));
+        if (input?.paidStatus && input.paidStatus !== 'all') conditions.push(eq(billing_cycles.paid_status, input.paidStatus as 'pending' | 'paid'));
+        if (input?.unitId) conditions.push(eq(billing_cycles.unit_id, input.unitId));
+        if (input?.responsibleId) conditions.push(eq(billing_cycles.financial_responsible_id, input.responsibleId));
+        const rows = await db
+          .select({ cycle: billing_cycles, unit_name: units.name })
+          .from(billing_cycles)
+          .leftJoin(units, eq(billing_cycles.unit_id, units.id))
+          .where(and(...conditions))
+          .orderBy(billing_cycles.id);
+        return await Promise.all(rows.map(async (row) => {
+          let responsible_name: string | null = null;
+          let paid_by_name: string | null = null;
+          if (row.cycle.financial_responsible_id) {
+            const r = await db.select({ name: financial_responsibles.legal_name }).from(financial_responsibles).where(eq(financial_responsibles.id, row.cycle.financial_responsible_id)).limit(1);
+            responsible_name = r[0]?.name ?? null;
+          }
+          if (row.cycle.paid_by_user_id) {
+            const u = await db.select({ name: users.name }).from(users).where(eq(users.id, row.cycle.paid_by_user_id)).limit(1);
+            paid_by_name = u[0]?.name ?? null;
+          }
+          return { ...row.cycle, unit_name: row.unit_name ?? `Unidade ${row.cycle.unit_id}`, responsible_name, paid_by_name };
+        }));
+      }),
+
+    markCyclePaid: protectedProcedure
+      .input(z.object({ cycleId: z.number(), note: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const { eq } = await import('drizzle-orm');
+        const { billing_cycles } = await import('../../drizzle/schema');
+        await db.update(billing_cycles).set({ paid_status: 'paid', paid_at: new Date(), paid_by_user_id: ctx.user.id, paid_note: input.note ?? null }).where(eq(billing_cycles.id, input.cycleId));
+        return { ok: true };
+      }),
+
+    unmarkCyclePaid: protectedProcedure
+      .input(z.object({ cycleId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const { eq } = await import('drizzle-orm');
+        const { billing_cycles } = await import('../../drizzle/schema');
+        await db.update(billing_cycles).set({ paid_status: 'pending', paid_at: null, paid_by_user_id: null, paid_note: null }).where(eq(billing_cycles.id, input.cycleId));
+        return { ok: true };
+      }),
+
+    addCycleNote: protectedProcedure
+      .input(z.object({ cycleId: z.number(), note: z.string().min(1).max(500) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const { eq } = await import('drizzle-orm');
+        const { billing_cycles } = await import('../../drizzle/schema');
+        await db.update(billing_cycles).set({ paid_note: input.note }).where(eq(billing_cycles.id, input.cycleId));
+        return { ok: true };
+      }),
+
+    // ─── P3: Extrato de Produção Médica ──────────────────────────────────────
+    getDoctorStatement: protectedProcedure
+      .input(z.object({
+        doctorUserId: z.number().optional(),
+        unitId: z.number().optional(),
+        cycleId: z.number().optional(),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        const isAdmin = ctx.user.role === 'admin_master' || ctx.user.role === 'responsavel_financeiro';
+        const targetDoctorId = isAdmin ? (input?.doctorUserId ?? undefined) : ctx.user.id;
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const { and, eq, gte, lte, desc } = await import('drizzle-orm');
+        const { billing_visit_events, units, users } = await import('../../drizzle/schema');
+        const conditions: any[] = [];
+        if (targetDoctorId) conditions.push(eq(billing_visit_events.doctor_user_id, targetDoctorId));
+        if (input?.unitId) conditions.push(eq(billing_visit_events.unit_id, input.unitId));
+        if (input?.cycleId) conditions.push(eq(billing_visit_events.doctor_cycle_id, input.cycleId));
+        if (input?.startDate) conditions.push(gte(billing_visit_events.study_date, new Date(input.startDate)));
+        if (input?.endDate) conditions.push(lte(billing_visit_events.study_date, new Date(input.endDate)));
+        const rows = await db
+          .select({ event: billing_visit_events, unit_name: units.name, doctor_name: users.name })
+          .from(billing_visit_events)
+          .leftJoin(units, eq(billing_visit_events.unit_id, units.id))
+          .leftJoin(users, eq(billing_visit_events.doctor_user_id, users.id))
+          .where(conditions.length > 0 ? and(...conditions) : undefined)
+          .orderBy(desc(billing_visit_events.createdAt))
+          .limit(500);
+        type DayGroup = { date: string; reports: number; amount: number };
+        type UnitGroup = { unit_id: number; unit_name: string; reports: number; amount: number; price_per_report: string; days: DayGroup[] };
+        type DoctorGroup = { doctor_id: number; doctor_name: string; total_reports: number; total_amount: number; units: UnitGroup[] };
+        const doctorMap = new Map<number, DoctorGroup>();
+        for (const row of rows) {
+          const did = row.event.doctor_user_id;
+          if (!doctorMap.has(did)) doctorMap.set(did, { doctor_id: did, doctor_name: row.doctor_name ?? `Médico ${did}`, total_reports: 0, total_amount: 0, units: [] });
+          const doc = doctorMap.get(did)!;
+          const uid = row.event.unit_id;
+          let ug = doc.units.find(u => u.unit_id === uid);
+          if (!ug) { ug = { unit_id: uid, unit_name: row.unit_name ?? `Unidade ${uid}`, reports: 0, amount: 0, price_per_report: row.event.doctor_price_applied ?? '0', days: [] }; doc.units.push(ug); }
+          const d = row.event.study_date ? String(row.event.study_date).split('T')[0] : 'sem-data';
+          let dg = ug.days.find(x => x.date === d);
+          if (!dg) { dg = { date: d, reports: 0, amount: 0 }; ug.days.push(dg); }
+          const amt = parseFloat(row.event.doctor_price_applied ?? '0');
+          dg.reports += 1; dg.amount += amt;
+          ug.reports += 1; ug.amount += amt;
+          doc.total_reports += 1; doc.total_amount += amt;
+        }
+        return Array.from(doctorMap.values());
+      }),
+
+    // ─── P4: Dívida do Responsável por Médico ────────────────────────────────
+    getResponsibleDebtByDoctor: protectedProcedure
+      .input(z.object({
+        responsibleId: z.number().optional(),
+        cycleId: z.number().optional(),
+        unitId: z.number().optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        const isAdmin = ctx.user.role === 'admin_master';
+        const isResp = ctx.user.role === 'responsavel_financeiro';
+        if (!isAdmin && !isResp) throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const { and, eq, inArray, desc } = await import('drizzle-orm');
+        const { billing_visit_events, units, users, financial_responsibles, financial_responsible_units } = await import('../../drizzle/schema');
+        let targetResponsibleId = input?.responsibleId;
+        if (isResp && !isAdmin) {
+          const { financial_responsible_users } = await import('../../drizzle/schema');
+          const resp = await db.select({ id: financial_responsible_users.financial_responsible_id }).from(financial_responsible_users).where(eq(financial_responsible_users.user_id, ctx.user.id)).limit(1);
+          targetResponsibleId = resp[0]?.id;
+        }
+        const conditions: any[] = [];
+        if (input?.cycleId) conditions.push(eq(billing_visit_events.doctor_cycle_id, input.cycleId));
+        if (input?.unitId) conditions.push(eq(billing_visit_events.unit_id, input.unitId));
+        if (targetResponsibleId) {
+          const unitLinks = await db.select({ unit_id: financial_responsible_units.unit_id }).from(financial_responsible_units).where(eq(financial_responsible_units.financial_responsible_id, targetResponsibleId));
+          const unitIds = unitLinks.map(u => u.unit_id);
+          if (unitIds.length > 0) conditions.push(inArray(billing_visit_events.unit_id, unitIds));
+        }
+        const rows = await db
+          .select({ event: billing_visit_events, unit_name: units.name, doctor_name: users.name })
+          .from(billing_visit_events)
+          .leftJoin(units, eq(billing_visit_events.unit_id, units.id))
+          .leftJoin(users, eq(billing_visit_events.doctor_user_id, users.id))
+          .where(conditions.length > 0 ? and(...conditions) : undefined)
+          .orderBy(desc(billing_visit_events.createdAt))
+          .limit(1000);
+        type DayEntry = { date: string; reports: number; amount: number };
+        type UnitEntry = { unit_id: number; unit_name: string; reports: number; amount: number; price_per_report: string; days: DayEntry[] };
+        type DoctorEntry = { doctor_id: number; doctor_name: string; total_reports: number; total_amount: number; units: UnitEntry[] };
+        const doctorMap = new Map<number, DoctorEntry>();
+        let grandTotal = 0;
+        for (const row of rows) {
+          const did = row.event.doctor_user_id;
+          if (!doctorMap.has(did)) doctorMap.set(did, { doctor_id: did, doctor_name: row.doctor_name ?? `Médico ${did}`, total_reports: 0, total_amount: 0, units: [] });
+          const doc = doctorMap.get(did)!;
+          const uid = row.event.unit_id;
+          let ue = doc.units.find(u => u.unit_id === uid);
+          if (!ue) { ue = { unit_id: uid, unit_name: row.unit_name ?? `Unidade ${uid}`, reports: 0, amount: 0, price_per_report: row.event.doctor_price_applied ?? '0', days: [] }; doc.units.push(ue); }
+          const d = row.event.study_date ? String(row.event.study_date).split('T')[0] : 'sem-data';
+          let de = ue.days.find(x => x.date === d);
+          if (!de) { de = { date: d, reports: 0, amount: 0 }; ue.days.push(de); }
+          const amt = parseFloat(row.event.doctor_price_applied ?? '0');
+          de.reports += 1; de.amount += amt;
+          ue.reports += 1; ue.amount += amt;
+          doc.total_reports += 1; doc.total_amount += amt;
+          grandTotal += amt;
+        }
+        return { doctors: Array.from(doctorMap.values()), grand_total: grandTotal, responsible_id: targetResponsibleId ?? null };
+      }),
 });

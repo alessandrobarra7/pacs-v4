@@ -1224,3 +1224,23 @@
 - [x] Integrar getDoctorOperationalBalance no FinanceMeuFinanceiro (saldo correto do médico)
 - [x] Reorganizar FinanceDashboard.tsx: bloco receita em tempo real + eixo responsável + acesso rápido
 - [x] Padronizar terminologia: "Receita do Sistema", "Custo Médico", "Margem Operacional"
+
+## REESTRUTURAÇÃO FINANCEIRA P2/P3/P4 (orientacao_reestruturacao_ambiente_financeiro.txt)
+
+- [ ] P2: Migração banco — adicionar paid_status, paid_at, paid_by_user_id, paid_note em billing_cycles
+- [ ] P2: Backend — procedures closeCycle, markCyclePaid, unmarkCyclePaid, addCycleNote, listSystemReceivables
+- [ ] P2: Frontend — tela FinanceContasReceber.tsx (Contas a Receber do Sistema)
+- [ ] P3: Backend — procedure getDoctorStatement com value_per_report_snapshot
+- [ ] P3: Frontend — melhorar FinanceMeuFinanceiro: extrato agrupado por dias, exportação PDF/planilha
+- [ ] P4: Backend — procedure getResponsibleDebtByDoctor com signed_days[]
+- [ ] P4: Frontend — tela FinanceResponsavelDivida.tsx (Dívida do Responsável por Médico)
+
+## REESTRUTURAÇÃO FINANCEIRA P2/P3/P4 — Concluídas 2025-04-15
+
+- [x] Migração banco: campos paid_status, paid_at, paid_by_user_id, paid_note em billing_cycles
+- [x] Backend P2: procedures listSystemReceivables, markCyclePaid, unmarkCyclePaid, addCycleNote
+- [x] Frontend P2: tela FinanceContasReceber.tsx — Contas a Receber do Sistema
+- [x] Backend P3: procedure getDoctorStatement (extrato agrupado por unidade → dias)
+- [x] Frontend P3: ExtratoTab no FinanceMeuFinanceiro com agrupamento por unidade/dias e exportação CSV
+- [x] Backend P4: procedure getResponsibleDebtByDoctor (dívida por responsável → médico → unidade → dias)
+- [x] Frontend P4: tela FinanceResponsavelDivida.tsx — Dívida do Responsável por Médico com exportação CSV

@@ -3,7 +3,7 @@ import { FinanceShell } from "@/components/FinanceShell";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
-import { DollarSign, CheckCircle, FileText, Building2, ChevronDown, ChevronUp } from "lucide-react";
+import { DollarSign, CheckCircle, FileText, Building2, ChevronDown, ChevronUp, Download } from "lucide-react";
 
 function fmtBRL(val: string | number | null | undefined) {
   const n = parseFloat(String(val ?? "0"));
@@ -23,6 +23,115 @@ type DoctorCycle = {
   summary: { reports_count: number; amount_due: string; amount_received: string; received_at: Date | string | null } | null;
 };
 type CycleEvent = { id: number; report_id: number; patient_name: string | null; study_date: Date | string | null; amount: string; pricing_status: string; payment_status: string };
+
+// ─── ExtratoTab: extrato agrupado por unidade → dias ─────────────────────────
+type DayGroup = { date: string; reports: number; amount: number };
+type UnitGroup = { unit_id: number; unit_name: string; reports: number; amount: number; price_per_report: string; days: DayGroup[] };
+type DoctorGroup = { doctor_id: number; doctor_name: string; total_reports: number; total_amount: number; units: UnitGroup[] };
+
+function ExtratoTab({ doctorUserId }: { doctorUserId?: number }) {
+  const [expandedUnit, setExpandedUnit] = useState<number | null>(null);
+  const { data, isLoading } = trpc.billing.getDoctorStatement.useQuery(
+    { doctorUserId },
+    { enabled: true }
+  );
+  const groups = (data ?? []) as DoctorGroup[];
+  const myGroup = groups[0]; // médico vê apenas seus próprios dados
+
+  function exportCSV() {
+    if (!myGroup) return;
+    const rows: string[] = ["Unidade,Data,Laudos,Valor"];
+    for (const u of myGroup.units) {
+      for (const d of u.days) {
+        rows.push(`"${u.unit_name}",${d.date},${d.reports},${d.amount.toFixed(2)}`);
+      }
+    }
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "extrato_producao.csv"; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if (isLoading) return (
+    <div className="space-y-3">
+      {[1,2,3].map(i => <div key={i} className="h-12 bg-slate-700/30 rounded animate-pulse" />)}
+    </div>
+  );
+
+  if (!myGroup || myGroup.units.length === 0) return (
+    <div className="py-12 text-center">
+      <FileText className="h-10 w-10 mx-auto text-slate-600 mb-3" />
+      <p className="text-slate-500 text-sm">Nenhum laudo encontrado no extrato.</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Cabeçalho com exportação */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-slate-300">
+            <span className="font-semibold text-white">{myGroup.total_reports}</span> laudos ·
+            <span className="font-semibold text-emerald-400 ml-1">{fmtBRL(myGroup.total_amount)}</span> total
+          </p>
+        </div>
+        <button
+          onClick={exportCSV}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300 hover:border-cyan-500 hover:text-white text-xs transition-colors"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Exportar CSV
+        </button>
+      </div>
+
+      {/* Unidades */}
+      {myGroup.units.map(u => (
+        <div key={u.unit_id} className="rounded-xl border border-slate-700/50 bg-slate-800/50 overflow-hidden">
+          <button
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-700/20 transition-colors"
+            onClick={() => setExpandedUnit(expandedUnit === u.unit_id ? null : u.unit_id)}
+          >
+            <div className="flex items-center gap-3">
+              <Building2 className="h-4 w-4 text-cyan-400" />
+              <div className="text-left">
+                <p className="text-sm font-semibold text-white">{u.unit_name}</p>
+                <p className="text-xs text-slate-400">{u.reports} laudos · {fmtBRL(u.price_per_report)}/laudo</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-bold text-emerald-400">{fmtBRL(u.amount)}</span>
+              {expandedUnit === u.unit_id ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+            </div>
+          </button>
+
+          {expandedUnit === u.unit_id && (
+            <div className="border-t border-slate-700/30">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700/20 bg-slate-900/20">
+                    <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">Data</th>
+                    <th className="text-right px-4 py-2 text-xs font-medium text-slate-400">Laudos</th>
+                    <th className="text-right px-4 py-2 text-xs font-medium text-slate-400">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {u.days.sort((a,b) => b.date.localeCompare(a.date)).map(d => (
+                    <tr key={d.date} className="border-b border-slate-700/10 hover:bg-slate-700/10">
+                      <td className="px-4 py-2 text-slate-300">{d.date === 'sem-data' ? '—' : new Date(d.date + 'T12:00:00').toLocaleDateString('pt-BR')}</td>
+                      <td className="px-4 py-2 text-right text-slate-300">{d.reports}</td>
+                      <td className="px-4 py-2 text-right font-semibold text-emerald-400">{fmtBRL(d.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function UnitCycleCard({ cycle }: { cycle: DoctorCycle }) {
   const [expanded, setExpanded] = useState(false);
@@ -253,51 +362,7 @@ export default function FinanceMeuFinanceiro() {
         )}
 
         {tab === "extrato" && (
-          <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 overflow-hidden">
-            {loadingSummary ? (
-              <div className="p-4 space-y-3">
-                {[1, 2, 3].map((i) => <div key={i} className="h-10 bg-slate-700/30 rounded animate-pulse" />)}
-              </div>
-            ) : items.length === 0 ? (
-              <div className="py-12 text-center">
-                <FileText className="h-10 w-10 mx-auto text-slate-600 mb-3" />
-                <p className="text-slate-500 text-sm">Nenhum laudo no período.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-700/50 bg-slate-900/30">
-                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-400">Paciente</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 hidden sm:table-cell">Unidade</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 hidden md:table-cell">Data</th>
-                      <th className="text-right px-4 py-3 text-xs font-medium text-slate-400">Valor</th>
-                      <th className="text-center px-4 py-3 text-xs font-medium text-slate-400">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((item) => (
-                      <tr key={item.id} className="border-b border-slate-700/20 hover:bg-slate-700/20 transition-colors">
-                        <td className="px-4 py-3 text-white font-medium">{item.patient_name ?? "—"}</td>
-                        <td className="px-4 py-3 text-slate-400 hidden sm:table-cell">{item.unit_name}</td>
-                        <td className="px-4 py-3 text-slate-400 hidden md:table-cell">{fmtDate(item.study_date)}</td>
-                        <td className="px-4 py-3 text-right text-emerald-400 font-semibold">{fmtBRL(item.doctor_amount)}</td>
-                        <td className="px-4 py-3 text-center">
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${
-                            item.payment_status === "received"
-                              ? "bg-emerald-400/10 text-emerald-400"
-                              : "bg-amber-400/10 text-amber-400"
-                          }`}>
-                            {item.payment_status === "received" ? "Recebido" : "Pendente"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          <ExtratoTab doctorUserId={user?.id} />
         )}
 
         {tab === "fechamentos" && (
