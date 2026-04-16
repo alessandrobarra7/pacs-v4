@@ -333,6 +333,10 @@ export default function UserFormDialog({
     if (isEditing && user?.id && stampFile) {
       updateStamp.mutate({ userId: user.id, stampFile });
     }
+    // Derivar unit_id da primeira unidade selecionada nas permissões.
+    // Se o usuário tem exatamente 1 unidade vinculada, usa ela como unit_id principal.
+    // Se tem múltiplas ou nenhuma, mantém null (acesso via user_unit_permissions).
+    const derivedUnitId = permissions.length === 1 ? permissions[0].unit_id : null;
     onSave({
       id: user?.id,
       name: name.trim(),
@@ -340,7 +344,7 @@ export default function UserFormDialog({
       username: username.trim(),
       password: password || undefined,
       role,
-      unit_id: null,
+      unit_id: derivedUnitId,
       isActive,
       expiration_date: expirationDate,
       permissions,

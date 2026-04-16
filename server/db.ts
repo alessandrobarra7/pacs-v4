@@ -685,6 +685,27 @@ export async function setUserUnitPermissions(
       }))
     );
   }
+
+  // Sincronizar unit_id principal na tabela users:
+  // Se o usuário tem exatamente 1 unidade vinculada, define como unit_id principal.
+  // Se tem múltiplas, verifica se o unit_id atual ainda é válido; se não, usa o primeiro.
+  // Se não tem nenhuma, limpa o unit_id.
+  const { users: usersTable } = await import("../drizzle/schema");
+  if (permissions.length === 0) {
+    await db.update(usersTable).set({ unit_id: null }).where(eq(usersTable.id, userId));
+  } else if (permissions.length === 1) {
+    await db.update(usersTable).set({ unit_id: permissions[0].unit_id }).where(eq(usersTable.id, userId));
+  } else {
+    // Múltiplas unidades: verificar se o unit_id atual ainda está na lista
+    const currentUser = await db.select({ unit_id: usersTable.unit_id }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    const currentUnitId = currentUser[0]?.unit_id;
+    const validUnitIds = permissions.map(p => p.unit_id);
+    if (!currentUnitId || !validUnitIds.includes(currentUnitId)) {
+      // unit_id atual não está mais na lista — atualiza para o primeiro
+      await db.update(usersTable).set({ unit_id: permissions[0].unit_id }).where(eq(usersTable.id, userId));
+    }
+    // Se o unit_id atual ainda é válido, mantém como está
+  }
 }
 
 // ─── Phrase Groups ────────────────────────────────────────────────────────────

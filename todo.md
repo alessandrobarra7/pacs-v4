@@ -1301,3 +1301,8 @@
 
 - [x] C13 — Remover getOrCreateDefaultResponsibleForUnit (código morto)
 - [x] C9 — SlaCountdown: intervalo adaptativo (30s para horas, 5min para dias)
+
+## Bug: Cadastro de Usuário não salva unit_id
+
+- [x] BUG: Cadastro de usuário pelo portal não salva unit_id (campo fica NULL no banco) — CORRIGIDO: UserFormDialog.tsx agora deriva unit_id das permissões selecionadas
+- [x] BUG: user_unit_permissions não é criado automaticamente ao cadastrar usuário com unidade — CORRIGIDO: setUserUnitPermissions agora sincroniza unit_id na tabela users automaticamente
