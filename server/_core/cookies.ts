@@ -1,4 +1,5 @@
 import type { CookieOptions, Request } from "express";
+import { ENV } from "./env";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
@@ -37,6 +38,6 @@ export function getSessionCookieOptions(
     path: "/",
     sameSite,
     secure,
-    maxAge: 24 * 60 * 60 * 1000, // 24 horas em ms
+    maxAge: ENV.sessionDurationHours * 60 * 60 * 1000, // SEC-01: usa SESSION_DURATION_HOURS (padrão 24h)
   };
 }

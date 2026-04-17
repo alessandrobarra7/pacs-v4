@@ -87,7 +87,8 @@ export const unitsRouter = router({
         pacs_local_ae_title: z.string().max(16).optional().default('LAUDS'),
         address: z.string().max(500).optional(),
         equipment_info: z.string().optional(),
-        logoUrl: z.string().optional(),
+        // PRG-03: renomeado de logoUrl para logo_url (campo canônico no schema)
+        logo_url: z.string().optional(),
         isActive: z.boolean().optional().default(true),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -115,7 +116,8 @@ export const unitsRouter = router({
         pacs_local_ae_title: z.string().max(16).optional(),
         address: z.string().max(500).optional().nullable(),
         equipment_info: z.string().optional().nullable(),
-        logoUrl: z.string().optional(),
+        // PRG-03: renomeado de logoUrl para logo_url (campo canônico no schema)
+        logo_url: z.string().optional(),
         isActive: z.boolean().optional(),
       }))
       .mutation(async ({ input, ctx }) => {

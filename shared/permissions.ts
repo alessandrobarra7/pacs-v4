@@ -84,6 +84,16 @@ export function canPrintReports(role: UserRole): boolean {
 }
 
 /**
+ * Verifica se o usuário pode acessar módulo financeiro
+ * LOG-06: unit_admin tem acesso financeiro da sua própria unidade
+ * admin_master tem acesso financeiro de todas as unidades
+ * responsavel_financeiro tem acesso financeiro das unidades vinculadas
+ */
+export function canAccessFinancial(role: UserRole): boolean {
+  return role === 'admin_master' || role === 'unit_admin' || role === 'responsavel_financeiro' || role === 'medico';
+}
+
+/**
  * Verifica se o usuário pode ver o viewer DICOM
  */
 export function canViewDICOM(role: UserRole): boolean {
@@ -138,6 +148,9 @@ export const PERMISSIONS_MATRIX = {
     configurePACS: false,
     queryPACS: false,
     accessAllUnits: false,
+    // LOG-06: unit_admin tem acesso financeiro da sua própria unidade
+    viewFinancial: true,
+    manageFinancial: false, // Apenas visualização; gestão de ciclos é exclusiva do admin_master
   },
   medico: {
     viewStudies: true,

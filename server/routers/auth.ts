@@ -46,13 +46,16 @@ export const authRouter = router({
         return { success: true, user: sanitizedUser };
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : '';
+        // PRG-04: mensagem diagnóstica específica para cada tipo de erro de autenticação
         const message = msg === 'USER_NOT_FOUND' || msg === 'INVALID_PASSWORD'
           ? 'Credenciais inválidas'
           : msg === 'USER_INACTIVE'
-            ? 'Usuário inativo'
+            ? 'Usuário inativo. Entre em contato com o administrador.'
             : msg === 'ACCOUNT_EXPIRED'
               ? 'Conta expirada. Entre em contato com o administrador.'
-              : 'Erro ao fazer login';
+              : msg === 'PASSWORD_NOT_SET'
+                ? 'Este usuário não possui senha definida. Solicite ao administrador que defina uma senha para sua conta.'
+                : 'Erro ao fazer login';
         throw new TRPCError({ code: 'UNAUTHORIZED', message });
       }
     }),

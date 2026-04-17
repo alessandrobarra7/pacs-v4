@@ -4,11 +4,14 @@ import { z } from "zod";
 import {
   getReportByStudyId, getReportById, createReport, updateReport,
   createAuditLog, getDb, resolveEffectiveUnitId, getReportStatusByStudyUids,
-  resolveUnitFilter,
+  resolveUnitFilter, getUserUnitPermission, getUserById,
+  createBillingVisitEvent, removeVisitEventForReport,
 } from "../db";
-import { and, inArray } from "drizzle-orm";
+import { and, inArray, desc } from "drizzle-orm";
 import { closeReadinessOnReport, ensureReadinessExists } from "./sla";
-import { reports } from "../../drizzle/schema";
+import {
+  reports, report_versions, billing_report_items, billing_visit_events as billing_visit_events_table,
+} from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import sanitizeHtml from "sanitize-html";
 import { REPORT_SANITIZE_OPTIONS } from "../reportSanitize";
@@ -53,7 +56,7 @@ export const reportsRouter = router({
         const report = rows[0] ?? null;
         if (!report) return null;
         // Buscar dados do médico que assinou
-        const { getUserById } = await import('../db');
+        // PRG-05: getUserById importado estaticamente no topo
         const signedByUserId = report.signedBy ?? report.author_user_id;
         const doctor = await getUserById(signedByUserId);
         return {
@@ -123,7 +126,7 @@ export const reportsRouter = router({
         if (ctx.user.role !== 'admin_master') {
           const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
           const hasAccess = effectiveUnitId === report.unit_id ||
-            !!(await import('../db').then(db => db.getUserUnitPermission(ctx.user.id, report.unit_id ?? 0)));
+            !!(await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0));
           if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
         // Bug fix B1: bloquear atualização direta de laudos assinados ou retificados.
@@ -169,11 +172,12 @@ export const reportsRouter = router({
         if (!report) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
         }
-        // Verificar acesso: admin_master tem acesso total; outros verificam via unit_id legado ou permissões
+        // Verificar acesso: admin_master tem acesso total; outros verificam via resolveEffectiveUnitId ou permissões por unidade
         if (ctx.user.role !== 'admin_master') {
-          const { getUserUnitPermission: getUnitPerm } = await import('../db');
-          const hasAccess = ctx.user.unit_id === report.unit_id ||
-            !!(await getUnitPerm(ctx.user.id, report.unit_id ?? 0));
+          // PRG-06: usar resolveEffectiveUnitId em vez de ctx.user.unit_id legado (suporta médicos multi-unidade)
+          const effectiveUnitIdForAccess = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+          const hasAccess = effectiveUnitIdForAccess === report.unit_id ||
+            !!(await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0));
           if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
         const signedAt = new Date();
@@ -200,7 +204,7 @@ export const reportsRouter = router({
         let doctor_amount_due: string | null = null;
         if (effectiveUnitId && (ctx.user.role === 'medico' || ctx.user.role === 'admin_master')) {
           try {
-            const { createBillingVisitEvent } = await import('../db');
+            // PRG-05: createBillingVisitEvent importado estaticamente no topo
             const billingResult = await createBillingVisitEvent({
               report_id: input.id,
               study_instance_uid: input.study_instance_uid ?? report.study_instance_uid ?? undefined,
@@ -263,16 +267,17 @@ export const reportsRouter = router({
         const report = await getReportById(input.id, undefined);
         if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
         if (ctx.user.role !== 'admin_master') {
-          const { getUserUnitPermission: getUnitPerm } = await import('../db');
-          const hasAccess = ctx.user.unit_id === report.unit_id ||
-            !!(await getUnitPerm(ctx.user.id, report.unit_id ?? 0));
+          // PRG-06: usar resolveEffectiveUnitId em vez de ctx.user.unit_id legado (suporta médicos multi-unidade)
+          const effectiveUnitIdForAccess = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+          const hasAccess = effectiveUnitIdForAccess === report.unit_id ||
+            !!(await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0));
           if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
         if (report.status !== 'signed' && report.status !== 'revised') {
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Apenas laudos assinados podem ser retificados' });
         }
         // 1. Salvar versão anterior no histórico
-        const { report_versions } = await import('../../drizzle/schema');
+        // PRG-05: report_versions importado estaticamente no topo
         await db.insert(report_versions).values({
           report_id: report.id,
           version: report.version ?? 1,
@@ -296,7 +301,7 @@ export const reportsRouter = router({
         });
         // E7: atualizar report_status_snapshot no billing_report_items para 'revised'
         try {
-          const { billing_report_items } = await import('../../drizzle/schema');
+          // PRG-05: billing_report_items importado estaticamente no topo
           await db.update(billing_report_items)
             .set({ report_status_snapshot: 'revised' })
             .where(eq(billing_report_items.report_id, input.id));
@@ -304,9 +309,15 @@ export const reportsRouter = router({
           // Não bloqueia a retificação se billing_report_items não existir para este laudo
           console.warn('[revise] Não foi possível atualizar report_status_snapshot em billing_report_items:', e);
         }
-        // C12: billing_visit_events ainda não possui o campo report_status_snapshot.
-        // Requer migration de schema: ALTER TABLE billing_visit_events ADD COLUMN report_status_snapshot ENUM('signed','revised') DEFAULT 'signed';
-        // TODO: implementar após executar a migration em produção.
+        // SCH-01: atualizar report_status_snapshot em billing_visit_events para 'revised'
+        try {
+          // PRG-05: billing_visit_events_table importado estaticamente no topo
+          await db.update(billing_visit_events_table)
+            .set({ report_status_snapshot: 'revised' })
+            .where(eq(billing_visit_events_table.report_id, input.id));
+        } catch (e) {
+          console.warn('[revise] Não foi possível atualizar report_status_snapshot em billing_visit_events:', e);
+        }
         // PRG-06: usar report.unit_id como fonte de verdade (não ctx.user.unit_id legado)
         await createAuditLog({
           user_id: ctx.user.id,
@@ -334,9 +345,10 @@ export const reportsRouter = router({
         const report = await getReportById(input.id, undefined);
         if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
         if (ctx.user.role !== 'admin_master') {
-          const { getUserUnitPermission: getUnitPerm } = await import('../db');
-          const hasAccess = ctx.user.unit_id === report.unit_id ||
-            !!(await getUnitPerm(ctx.user.id, report.unit_id ?? 0));
+          // PRG-06: usar resolveEffectiveUnitId em vez de ctx.user.unit_id legado (suporta médicos multi-unidade)
+          const effectiveUnitIdForAccess = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+          const hasAccess = effectiveUnitIdForAccess === report.unit_id ||
+            !!(await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0));
           if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
           // LOG-01: não-admin_master não pode apagar laudos assinados ou retificados
           if (report.status === 'signed' || report.status === 'revised') {
@@ -355,10 +367,9 @@ export const reportsRouter = router({
           }
         }
         // Remover evento financeiro e decrementar consolidados de ciclo (se laudo estava assinado)
-        const { removeVisitEventForReport } = await import('../db');
+        // PRG-05: removeVisitEventForReport e report_versions importados estaticamente no topo
         await removeVisitEventForReport(input.id);
         // Apagar versões históricas primeiro (FK)
-        const { report_versions } = await import('../../drizzle/schema');
         await db.delete(report_versions).where(eq(report_versions.report_id, input.id));
         // Apagar o laudo
         await db.delete(reports).where(eq(reports.id, input.id));
@@ -384,8 +395,7 @@ export const reportsRouter = router({
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
-        const { report_versions } = await import('../../drizzle/schema');
-        const { desc } = await import('drizzle-orm');
+        // PRG-05: report_versions e desc importados estaticamente no topo
         return await db.select().from(report_versions)
           .where(eq(report_versions.report_id, input.reportId))
           .orderBy(desc(report_versions.saved_at));

@@ -20,7 +20,7 @@ export const units = mysqlTable("units", {
   pacs_local_ae_title: varchar("pacs_local_ae_title", { length: 16 }).default("PACSMANUS"),
   address: varchar("address", { length: 500 }),
   equipment_info: text("equipment_info"),
-  logoUrl: varchar("logoUrl", { length: 500 }),
+  // PRG-03: coluna logoUrl removida (duplicata) — usar logo_url como campo canônico
   logo_url: text("logo_url"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -575,6 +575,8 @@ export const billing_visit_events = mysqlTable("billing_visit_events", {
   pricing_status: mysqlEnum("pricing_status", ["ok", "pending_system_price", "pending_doctor_price", "pending_both"]).notNull().default("pending_both"),
   doctor_received_at: timestamp("doctor_received_at"),
   system_paid_at: timestamp("system_paid_at"),
+  // SCH-01: snapshot do status do laudo no momento do evento financeiro (signed ou revised)
+  report_status_snapshot: mysqlEnum("report_status_snapshot", ["signed", "revised"]).default("signed"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({

@@ -1363,3 +1363,14 @@
 ## RadiAnt ZIP Download Flow
 
 - [x] Botão RadiAnt baixa ZIP automaticamente e abre com RadiAnt (2 cliques, sem configuração de PACS)
+
+## Auditoria v4 — Correções Pendentes (Sessão Atual)
+- [x] SEC-01/N-01: Substituir maxAge hardcoded por ENV.sessionDurationHours em cookies.ts
+- [x] PRG-06: Corrigir hasAccess em sign/revise/delete para usar resolveEffectiveUnitId (médicos multi-unidade)
+- [x] PRG-04: Tratar PASSWORD_NOT_SET com mensagem diagnóstica específica em auth.ts
+- [x] LOG-06: Adicionar permissões financeiras para unit_admin em shared/permissions.ts e função canAccessFinancial
+- [x] SCH-01: Implementar campo report_status_snapshot em billing_visit_events (migration + código)
+- [x] PRG-05: Converter todos os imports dinâmicos em reports.ts para estáticos (0 restantes)
+- [x] PRG-03: Remover coluna logoUrl duplicada do schema e banco (manter logo_url canônico)
+- [x] SCH-02/N-02: Documentar migrations manual_* em MIGRATIONS_README.md com estratégia de integração
+- [x] SEC-04: Ocultar orthanc_basic_pass nas queries getAllUnits e getUnitById (não exposto ao frontend)

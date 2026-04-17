@@ -162,17 +162,24 @@ export async function createLocalUser(data: {
 }
 
 // Units helpers
+/** Retorna todas as unidades sem campos sensíveis (SEC-04: orthanc_basic_pass omitido) */
 export async function getAllUnits() {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(units);
+  const rows = await db.select().from(units);
+  // SEC-04: remover orthanc_basic_pass antes de retornar ao frontend
+  return rows.map(({ orthanc_basic_pass: _pass, ...safe }) => safe);
 }
 
+/** Retorna uma unidade pelo ID sem campos sensíveis (SEC-04: orthanc_basic_pass omitido) */
 export async function getUnitById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(units).where(eq(units.id, id)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  if (result.length === 0) return undefined;
+  // SEC-04: remover orthanc_basic_pass antes de retornar ao frontend
+  const { orthanc_basic_pass: _pass, ...safe } = result[0];
+  return safe;
 }
 
 export async function getUnitBySlug(slug: string) {
