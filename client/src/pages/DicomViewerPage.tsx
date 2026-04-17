@@ -804,7 +804,44 @@ export function DicomViewerPage() {
       setLaunchingViewer(null);
     }
   };
-  const handleOpenRadiant = () => handleOpenViewer('radiant');
+  // RadiAnt abre ZIPs DICOM nativamente — baixar o ZIP é a única forma sem configurar PACS no cliente
+  const handleOpenRadiant = async () => {
+    if (!studyUid || launchingViewer) return;
+    setLaunchingViewer('radiant');
+    try {
+      toast.info('Preparando ZIP para o RadiAnt...', {
+        description: 'O arquivo será baixado. Abra-o com o RadiAnt DICOM Viewer.',
+        duration: 6000,
+      });
+      const resp = await fetch(`/api/dicom-export/${studyUid}`);
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+        toast.error('Erro ao gerar ZIP para RadiAnt', {
+          description: errData.error || 'Certifique-se de que o estudo está carregado no visualizador primeiro.',
+          duration: 8000,
+        });
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      // Nome com extensão .zip para o Windows associar ao RadiAnt automaticamente
+      a.download = `estudo_dicom_${studyUid.slice(-12)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('ZIP baixado!', {
+        description: 'Abra o arquivo baixado com o RadiAnt DICOM Viewer. Dica: marque "Sempre abrir com RadiAnt" para facilitar próximas vezes.',
+        duration: 10000,
+      });
+    } catch (err: any) {
+      toast.error('Erro ao abrir no RadiAnt', { description: err.message });
+    } finally {
+      setLaunchingViewer(null);
+    }
+  };
 
   // ─── Exportação ZIP ─────────────────────────────────────────────────────────────────────────────────────
   const handleExportZip = async () => {

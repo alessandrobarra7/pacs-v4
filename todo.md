@@ -1359,3 +1359,7 @@
 - [x] Protocolo osirix://?methodName=DownloadURL (via ZIP do estudo, macOS)
 - [x] Botões RadiAnt, Weasis, Horos na toolbar do DicomViewerPage com loading state
 - [x] Fallback: botão RadiAnt no painel de erro do viewer
+
+## RadiAnt ZIP Download Flow
+
+- [x] Botão RadiAnt baixa ZIP automaticamente e abre com RadiAnt (2 cliques, sem configuração de PACS)
