@@ -205,6 +205,8 @@ export default function ReportEditorPage() {
 
   // Estado de exclusão
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  // LOG-01: motivo obrigatório para admin_master apagar laudo assinado/retificado
+  const [deleteReason, setDeleteReason] = useState("");
 
   const isSigned = existingReport?.status === 'signed' || existingReport?.status === 'revised';
   const isEditable = !isSigned || isRevising;
@@ -419,15 +421,25 @@ export default function ReportEditorPage() {
   // ── Apagar laudo ───────────────────────────────────────────────────────────────────────────────────────
   const handleDelete = useCallback(async () => {
     if (!existingReport?.id) return;
+    // LOG-01: admin_master deve informar motivo ao apagar laudo assinado/retificado
+    const needsReason = isAdminMaster && (existingReport.status === 'signed' || existingReport.status === 'revised');
+    if (needsReason && !deleteReason.trim()) {
+      toast.error('Informe o motivo para excluir um laudo assinado ou retificado.');
+      return;
+    }
     try {
-      await deleteReport.mutateAsync({ id: existingReport.id });
+      await deleteReport.mutateAsync({
+        id: existingReport.id,
+        reason: deleteReason.trim() || undefined,
+      });
       toast.success("Laudo apagado com sucesso!");
       setShowDeleteModal(false);
+      setDeleteReason("");
       navigate("/");
     } catch (e: any) {
       toast.error(e.message || "Erro ao apagar laudo");
     }
-  }, [existingReport, deleteReport, navigate]);
+  }, [existingReport, deleteReport, navigate, isAdminMaster, deleteReason]);
 
   // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
   const patientName = formatPatientName(studyInfo?.patientName || "");
@@ -1057,12 +1069,27 @@ export default function ReportEditorPage() {
                 <p style={{ margin: 0, fontSize: 13, color: '#666' }}>Esta ação não pode ser desfeita.</p>
               </div>
             </div>
-            <p style={{ margin: '0 0 20px', fontSize: 13, color: '#374151', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px' }}>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#374151', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px' }}>
               O laudo de <strong>{patientName}</strong> será permanentemente excluído, incluindo todo o histórico de versões.
             </p>
+            {/* LOG-01: campo de motivo obrigatório para admin_master apagar laudo assinado/retificado */}
+            {isAdminMaster && isSigned && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                  Motivo da exclusão <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <textarea
+                  value={deleteReason}
+                  onChange={e => setDeleteReason(e.target.value)}
+                  placeholder="Informe o motivo para excluir este laudo assinado..."
+                  rows={3}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }}
+                />
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
-                onClick={() => setShowDeleteModal(false)}
+                onClick={() => { setShowDeleteModal(false); setDeleteReason(""); }}
                 style={{ padding: '8px 18px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}
               >
                 Cancelar

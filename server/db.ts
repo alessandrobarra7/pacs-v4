@@ -145,8 +145,8 @@ export async function createLocalUser(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  // Generate a unique openId for local users
-  const openId = `local_${data.username}_${Date.now()}`;
+  // PRG-02: usar crypto.randomUUID() para evitar colisão em criações simultâneas
+  const openId = `local_${data.username}_${crypto.randomUUID()}`;
   const result = await db.insert(users).values({
     openId,
     username: data.username,

@@ -1306,3 +1306,46 @@
 
 - [x] BUG: Cadastro de usuário pelo portal não salva unit_id (campo fica NULL no banco) — CORRIGIDO: UserFormDialog.tsx agora deriva unit_id das permissões selecionadas
 - [x] BUG: user_unit_permissions não é criado automaticamente ao cadastrar usuário com unidade — CORRIGIDO: setUserUnitPermissions agora sincroniza unit_id na tabela users automaticamente
+
+## Auditoria relatorio_erros_pacs_v4 — Correções
+
+### Sprint Crítico
+- [ ] SEC-01 — Cookie maxAge em milissegundos em vez de segundos (~2740 anos de expiração)
+- [ ] LOG-01 — reports.delete não verifica status: laudos assinados podem ser apagados por qualquer médico
+- [ ] SEC-02 — Dados do usuário gravados no localStorage a cada render (vetor XSS)
+
+### Sprint Alto
+- [ ] LOG-02 — IDOR em updateCustomExpense: qualquer usuário pode editar despesas de terceiros
+- [ ] LOG-03 — markReceived sem verificar propriedade do ciclo
+- [ ] SCH-02 — Migrations duplicadas com mesmo número (0017_* e 0022_*)
+
+### Sprint Médio
+- [ ] LOG-04 — createVisitEvent não verifica duplicidade por report_id
+- [ ] LOG-05 — getResponsibleDebtByDoctor soma ciclos pagos no grand_total
+- [ ] LOG-06 — unit_admin deve ter acesso às telas financeiras da sua unidade
+- [ ] PRG-06 — sign/revise/delete usam ctx.user.unit_id legado em vez de resolveEffectiveUnitId
+- [ ] SCH-01 — Migration: billing_visit_events ADD COLUMN report_status_snapshot
+
+### Sprint Baixo/Organização
+- [ ] PRG-01 — Remover código morto do AuthService (createSession, buildSessionCookie)
+- [ ] PRG-02 — openId usa Date.now() com risco de colisão, trocar para crypto.randomUUID()
+- [ ] PRG-03 — Consolidar logoUrl e logo_url na tabela units
+- [ ] PRG-04 — PASSWORD_NOT_SET sem mensagem clara no handler de login
+- [ ] PRG-05 — Imports dinâmicos dentro de procedures (mover para topo do arquivo)
+
+## AUDITORIA v4 — Implementações (Apr 2026)
+
+- [x] LOG-01: Bloquear deleção de laudos assinados/retificados por não-admin_master + audit log com motivo
+- [x] LOG-01 (frontend): Modal de exclusão com campo de motivo obrigatório para admin_master
+- [x] SEC-02: Remover dados do usuário do localStorage (vetor XSS) em useAuth.ts
+- [x] LOG-02: IDOR fix em updateCustomExpense — verificar que expense pertence ao financialResponsibleId
+- [x] LOG-03: markReceived — verificar que o ciclo pertence ao médico autenticado (IDOR)
+- [x] SCH-02: Renomear migrations manuais duplicadas com prefixo manual_ para evitar conflito com Drizzle
+- [x] LOG-04: createBillingVisitEvent já tinha deduplicação por report_key (confirmado, sem mudança)
+- [x] LOG-05: getResponsibleDebtByDoctor — filtrar ciclos pagos via JOIN com billing_cycles
+- [x] LOG-06: unit_admin já tem acesso às telas financeiras da sua unidade (confirmado, sem mudança)
+- [x] PRG-06: Usar report.unit_id como fonte de verdade no audit log de update, revise e delete
+- [x] PRG-01: Remover código morto (createSession, buildSessionCookie) do auth.service.ts
+- [x] PRG-02: Substituir Date.now() por crypto.randomUUID() na geração de openId
+- [x] PRG-05: Converter imports dinâmicos repetitivos para imports estáticos no billing.ts (81→0)
+- [x] SEC-03: sameSite já configurado como 'lax' em produção no cookies.ts (confirmado)

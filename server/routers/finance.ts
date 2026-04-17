@@ -187,8 +187,16 @@ export const financeRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { contract_custom_expenses } = await import("../../drizzle/schema");
-      const { eq } = await import("drizzle-orm");
-      const { id, financialResponsibleId: _r, ...data } = input;
+      const { eq, and } = await import("drizzle-orm");
+      const { id, financialResponsibleId, ...data } = input;
+      // LOG-02: IDOR fix — verificar que o registro pertence ao responsável informado
+      const [existing] = await db.select({ id: contract_custom_expenses.id })
+        .from(contract_custom_expenses)
+        .where(and(
+          eq(contract_custom_expenses.id, id),
+          eq(contract_custom_expenses.financial_responsible_id, financialResponsibleId)
+        ));
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Gasto não encontrado ou não pertence a este responsável" });
       const updateData: Record<string, any> = {};
       if (data.category !== undefined) updateData.category = data.category;
       if ("description" in data) updateData.description = data.description ?? null;

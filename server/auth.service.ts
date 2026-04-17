@@ -79,19 +79,9 @@ export class AuthService {
     return user;
   }
 
-  static createSession(user: any): { token: string; payload: SessionPayload } {
-    const payload: SessionPayload = {
-      userId: user.id,
-      username: user.username,
-      role: user.role,
-      unitId: user.unit_id,
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + (SESSION_DURATION / 1000),
-    };
-
-    const token = jwt.sign(payload, JWT_SECRET);
-    return { token, payload };
-  }
+  // PRG-01: createSession removido — código morto (não chamado em nenhum lugar)
+  // PRG-01: buildSessionCookie removido — código morto (não chamado em nenhum lugar)
+  // A criação de sessão e cookie é feita diretamente em server/routers.ts (procedure auth.login)
 
   static async verifySession(token: string): Promise<SessionPayload> {
     try {
@@ -110,25 +100,6 @@ export class AuthService {
       role: user.role,
       unitId: user.unit_id,
       email: user.email,
-    };
-  }
-
-  static buildSessionCookie(token: string, isProduction: boolean = false) {
-    const domain = isProduction ? '.lauds.com.br' : undefined;
-    const secure = isProduction;
-    const sameSite = isProduction ? 'Lax' : 'Lax';
-
-    return {
-      name: 'session',
-      value: token,
-      options: {
-        httpOnly: true,
-        secure,
-        sameSite,
-        path: '/',
-        domain,
-        maxAge: SESSION_DURATION,
-      },
     };
   }
 

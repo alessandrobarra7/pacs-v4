@@ -2,6 +2,67 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb } from "../db";
+// PRG-05: imports estáticos para módulos usados repetidamente
+import { eq, and, ne, inArray, desc, sql as sqlFn, isNull, gte, lte, or } from 'drizzle-orm';
+import {
+  getResponsibleIdForUser,
+  getResponsibleCycleSummary,
+  getDoctorFinancialSummary,
+  getDoctorCycleEvents,
+  linkUnitToResponsible,
+  listFinancialResponsibles,
+  createFinancialResponsible,
+  updateFinancialResponsible,
+  getFinancialResponsibleById,
+  linkUserToResponsible,
+  unlinkUserFromResponsible,
+  listUsersForResponsible,
+  listUnitsForResponsible,
+  getCycleConfig,
+  upsertCycleConfig,
+  getAdminConsolidated,
+  getDoctorMonthlySummary,
+  listBillingReportItems,
+  getDoctorUnitFinancialInfo,
+  getDoctorOperationalBalance,
+  getDoctorFullContext,
+  getUnitFullContext,
+  getResponsibleFullDashboard,
+  getDoctorAuditReport,
+  getUserById,
+  getSystemOwnerLiveByUnit,
+  listAllOpenCycles,
+  listUnitCycles,
+  listSystemPricesForUnit,
+  listDoctorPricesForUnit,
+  getActiveResponsibleForUnit,
+  upsertSystemUnitPrice,
+  upsertDoctorUnitPrice,
+  createBillingVisitEvent,
+  closeBillingCycle,
+  closeCompetence,
+  reopenCompetence,
+  calculateCompetence,
+  createCycleManual,
+  editCycleDates,
+  markDoctorCycleReceived,
+  resetDoctorBilling,
+  createAuditLog,
+} from '../db';
+import {
+  billing_cycles,
+  billing_visit_events,
+  billing_cycle_doctor_summary,
+  billing_cycle_system_summary,
+  units,
+  users,
+  financial_responsibles,
+  financial_responsible_units,
+  financial_responsible_users,
+  user_unit_permissions,
+  billing_doctor_unit_prices,
+  billing_system_unit_prices,
+} from '../../drizzle/schema';
 
 export const billingRouter = router({
 
@@ -9,7 +70,7 @@ export const billingRouter = router({
     listResponsibles: protectedProcedure
       .query(async ({ ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { listFinancialResponsibles } = await import('../db');
+        
         return await listFinancialResponsibles();
       }),
 
@@ -17,11 +78,11 @@ export const billingRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') {
-          const { getResponsibleIdForUser } = await import('../db');
+          
           const respId = await getResponsibleIdForUser(ctx.user.id);
           if (respId !== input.id) throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { getFinancialResponsibleById } = await import('../db');
+        
         return await getFinancialResponsibleById(input.id);
       }),
 
@@ -37,7 +98,7 @@ export const billingRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { createFinancialResponsible } = await import('../db');
+        
         const id = await createFinancialResponsible({ ...input, isActive: true });
         return { id };
       }),
@@ -56,7 +117,7 @@ export const billingRouter = router({
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const { id, ...data } = input;
-        const { updateFinancialResponsible } = await import('../db');
+        
         await updateFinancialResponsible(id, data);
         return { success: true };
       }),
@@ -66,7 +127,7 @@ export const billingRouter = router({
       .input(z.object({ financialResponsibleId: z.number(), userId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { linkUserToResponsible } = await import('../db');
+        
         await linkUserToResponsible(input.financialResponsibleId, input.userId);
         return { success: true };
       }),
@@ -75,7 +136,7 @@ export const billingRouter = router({
       .input(z.object({ financialResponsibleId: z.number(), userId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { unlinkUserFromResponsible } = await import('../db');
+        
         await unlinkUserFromResponsible(input.financialResponsibleId, input.userId);
         return { success: true };
       }),
@@ -84,7 +145,7 @@ export const billingRouter = router({
       .input(z.object({ financialResponsibleId: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { listUsersForResponsible } = await import('../db');
+        
         return await listUsersForResponsible(input.financialResponsibleId);
       }),
 
@@ -98,7 +159,7 @@ export const billingRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { linkUnitToResponsible } = await import('../db');
+        
         await linkUnitToResponsible(
           input.financialResponsibleId,
           input.unitId,
@@ -113,11 +174,11 @@ export const billingRouter = router({
       .input(z.object({ financialResponsibleId: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') {
-          const { getResponsibleIdForUser } = await import('../db');
+          
           const respId = await getResponsibleIdForUser(ctx.user.id);
           if (respId !== input.financialResponsibleId) throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { listUnitsForResponsible } = await import('../db');
+        
         return await listUnitsForResponsible(input.financialResponsibleId);
       }),
 
@@ -132,7 +193,7 @@ export const billingRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { upsertSystemUnitPrice } = await import('../db');
+        
         const id = await upsertSystemUnitPrice({
           financial_responsible_id: input.financialResponsibleId,
           unit_id: input.unitId,
@@ -148,7 +209,7 @@ export const billingRouter = router({
       .input(z.object({ financialResponsibleId: z.number(), unitId: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { listSystemPricesForUnit } = await import('../db');
+        
         return await listSystemPricesForUnit(input.financialResponsibleId, input.unitId);
       }),
 
@@ -164,7 +225,7 @@ export const billingRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { upsertDoctorUnitPrice } = await import('../db');
+        
         const id = await upsertDoctorUnitPrice({
           financial_responsible_id: input.financialResponsibleId,
           unit_id: input.unitId,
@@ -181,7 +242,7 @@ export const billingRouter = router({
       .input(z.object({ financialResponsibleId: z.number(), unitId: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { listDoctorPricesForUnit } = await import('../db');
+        
         return await listDoctorPricesForUnit(input.financialResponsibleId, input.unitId);
       }),
 
@@ -190,7 +251,7 @@ export const billingRouter = router({
       .input(z.object({ year: z.number(), month: z.number() }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { calculateCompetence } = await import('../db');
+        
         return await calculateCompetence(input.year, input.month, ctx.user.id);
       }),
 
@@ -198,7 +259,7 @@ export const billingRouter = router({
       .input(z.object({ financialResponsibleId: z.number(), year: z.number(), month: z.number() }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { closeCompetence } = await import('../db');
+        
         return await closeCompetence(input.financialResponsibleId, input.year, input.month, ctx.user.id);
       }),
 
@@ -206,7 +267,7 @@ export const billingRouter = router({
       .input(z.object({ financialResponsibleId: z.number(), year: z.number(), month: z.number() }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { reopenCompetence } = await import('../db');
+        
         await reopenCompetence(input.financialResponsibleId, input.year, input.month);
         return { success: true };
       }),
@@ -225,7 +286,7 @@ export const billingRouter = router({
         // responsavel_financeiro: só seu próprio
         // medico: só seus próprios laudos
         if (ctx.user.role === 'responsavel_financeiro') {
-          const { getResponsibleIdForUser } = await import('../db');
+          
           const respId = await getResponsibleIdForUser(ctx.user.id);
           if (!respId || (input.financialResponsibleId && respId !== input.financialResponsibleId)) {
             throw new TRPCError({ code: 'FORBIDDEN' });
@@ -239,7 +300,7 @@ export const billingRouter = router({
         } else if (ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { listBillingReportItems } = await import('../db');
+        
         return await listBillingReportItems({
           financial_responsible_id: input.financialResponsibleId,
           unit_id: input.unitId,
@@ -253,7 +314,7 @@ export const billingRouter = router({
       .input(z.object({ year: z.number(), month: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getAdminConsolidated } = await import('../db');
+        
         return await getAdminConsolidated(input.year, input.month);
       }),
 
@@ -261,7 +322,7 @@ export const billingRouter = router({
       .query(async ({ ctx }) => {
         const ALLOWED = ['responsavel_financeiro', 'unit_admin', 'admin_master'];
         if (!ALLOWED.includes(ctx.user.role)) throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getResponsibleIdForUser, getResponsibleCycleSummary } = await import('../db');
+        
         const respId = await getResponsibleIdForUser(ctx.user.id);
         if (!respId) return { byUnit: [], byDoctor: [], totalSystem: '0.00', totalDoctors: '0.00', totalGeral: '0.00' };
         const { systemCycles, doctorCycles, totalSystem, totalDoctors, totalGeral } = await getResponsibleCycleSummary(respId);
@@ -305,7 +366,7 @@ export const billingRouter = router({
         if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { getDoctorMonthlySummary, listBillingReportItems } = await import('../db');
+        
         const [byResponsible, items] = await Promise.all([
           getDoctorMonthlySummary(ctx.user.id, input.year, input.month),
           listBillingReportItems({ doctor_user_id: ctx.user.id, competence_year: input.year, competence_month: input.month }),
@@ -314,7 +375,7 @@ export const billingRouter = router({
       }),
     getMyResponsible: protectedProcedure
       .query(async ({ ctx }) => {
-        const { getResponsibleIdForUser, getFinancialResponsibleById } = await import('../db');
+        
         const respId = await getResponsibleIdForUser(ctx.user.id);
         if (!respId) return null;
         return await getFinancialResponsibleById(respId) ?? null;
@@ -328,7 +389,7 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'responsavel_financeiro' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { getCycleConfig } = await import('../db');
+        
         return await getCycleConfig(input.unit_id);
       }),
 
@@ -342,7 +403,7 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { upsertCycleConfig } = await import('../db');
+        
         await upsertCycleConfig({ ...input, created_by: ctx.user.id });
         return { success: true };
       }),
@@ -359,7 +420,7 @@ export const billingRouter = router({
         if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { createBillingVisitEvent } = await import('../db');
+        
         return await createBillingVisitEvent({
           ...input,
           doctor_user_id: ctx.user.id, // sempre o médico logado
@@ -372,7 +433,7 @@ export const billingRouter = router({
         if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { getDoctorFinancialSummary } = await import('../db');
+        
         return await getDoctorFinancialSummary(ctx.user.id);
       }),
 
@@ -382,7 +443,7 @@ export const billingRouter = router({
         if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { getDoctorCycleEvents } = await import('../db');
+        
         return await getDoctorCycleEvents(ctx.user.id, input.doctor_cycle_id);
       }),
 
@@ -395,7 +456,22 @@ export const billingRouter = router({
         if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { markDoctorCycleReceived } = await import('../db');
+        // LOG-03: verificar que o ciclo pertence ao médico autenticado (ou admin_master pode usar qualquer ciclo)
+        if (ctx.user.role === 'medico') {
+          const db = await getDb();
+          if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+          
+          
+          const [cycle] = await db.select({ id: billing_cycle_doctor_summary.doctor_cycle_id })
+            .from(billing_cycle_doctor_summary)
+            .where(and(
+              eq(billing_cycle_doctor_summary.doctor_cycle_id, input.doctor_cycle_id),
+              eq(billing_cycle_doctor_summary.unit_id, input.unit_id),
+              eq(billing_cycle_doctor_summary.doctor_user_id, ctx.user.id),
+            ));
+          if (!cycle) throw new TRPCError({ code: 'FORBIDDEN', message: 'Ciclo não encontrado ou não pertence a este médico' });
+        }
+        
         await markDoctorCycleReceived(input.doctor_cycle_id, input.unit_id, ctx.user.id, ctx.user.id);
         return { success: true };
       }),
@@ -405,7 +481,7 @@ export const billingRouter = router({
         if (ctx.user.role !== 'responsavel_financeiro' && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { getResponsibleIdForUser, getResponsibleCycleSummary } = await import('../db');
+        
         const respId = await getResponsibleIdForUser(ctx.user.id);
         if (!respId) return { systemCycles: [], doctorCycles: [] };
         return await getResponsibleCycleSummary(respId);
@@ -418,7 +494,7 @@ export const billingRouter = router({
         if (!allowedRoles.includes(ctx.user.role)) {
           return { status: 'no_access' as const, cycle_period: null, cycle_amount: null, cycle_visits: null, price_per_report: null };
         }
-        const { getDoctorUnitFinancialInfo } = await import('../db');
+        
         const result = await getDoctorUnitFinancialInfo(ctx.user.id, input.unit_id);
         if (!result) {
           return { status: 'no_config' as const, cycle_period: null, cycle_amount: null, cycle_visits: null, price_per_report: null };
@@ -432,7 +508,7 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { closeBillingCycle } = await import('../db');
+        
         await closeBillingCycle(input.cycle_id, ctx.user.id);
         return { success: true };
       }),
@@ -446,7 +522,7 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'responsavel_financeiro' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { listUnitCycles } = await import('../db');
+        
         return await listUnitCycles(input.unit_id, input.cycle_type);
       }),
 
@@ -456,10 +532,10 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) return [];
-        const { billing_doctor_unit_prices } = await import('../../drizzle/schema');
-        const { users } = await import('../../drizzle/schema');
-        const { units } = await import('../../drizzle/schema');
-        const { eq } = await import('drizzle-orm');
+
+        
+        
+        
         return await db
           .select({
             id: billing_doctor_unit_prices.id,
@@ -483,9 +559,9 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) return [];
-        const { billing_system_unit_prices } = await import('../../drizzle/schema');
-        const { units } = await import('../../drizzle/schema');
-        const { eq } = await import('drizzle-orm');
+
+        
+        
         return await db
           .select({
             id: billing_system_unit_prices.id,
@@ -508,8 +584,8 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) return null;
-        const { users, user_unit_permissions, units, billing_doctor_unit_prices, financial_responsible_units, financial_responsibles } = await import('../../drizzle/schema');
-        const { eq, and, isNull, lte, gte, or, desc } = await import('drizzle-orm');
+        
+        
         // Dados do médico
         const [doctor] = await db.select().from(users).where(eq(users.id, input.doctorUserId)).limit(1);
         if (!doctor) return null;
@@ -560,7 +636,7 @@ export const billingRouter = router({
       .input(z.object({ doctorUserId: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getDoctorFinancialSummary } = await import('../db');
+        
         return await getDoctorFinancialSummary(input.doctorUserId);
       }),
 
@@ -568,7 +644,7 @@ export const billingRouter = router({
       .input(z.object({ doctorUserId: z.number(), doctorCycleId: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getDoctorCycleEvents } = await import('../db');
+        
         return await getDoctorCycleEvents(input.doctorUserId, input.doctorCycleId);
       }),
 
@@ -579,17 +655,8 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) return null;
-        const {
-          units,
-          users,
-          billing_doctor_unit_prices,
-          billing_system_unit_prices,
-          financial_responsible_units,
-          billing_cycle_doctor_summary,
-          billing_cycle_system_summary,
-          billing_cycles,
-        } = await import('../../drizzle/schema');
-        const { eq, isNull, and, desc } = await import('drizzle-orm');
+        // PRG-05: todas as tabelas já importadas estaticamente no topo
+        
         // Dados da unidade
         const [unit] = await db.select().from(units).where(eq(units.id, input.unitId)).limit(1);
         if (!unit) return null;
@@ -681,7 +748,7 @@ export const billingRouter = router({
       }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getDoctorAuditReport, getUserById } = await import('../db');
+        
         const doctor = await getUserById(input.doctorUserId);
         if (!doctor) throw new TRPCError({ code: 'NOT_FOUND', message: 'Médico não encontrado' });
         const events = await getDoctorAuditReport(input.doctorUserId, {
@@ -696,7 +763,7 @@ export const billingRouter = router({
       .input(z.object({ doctorUserId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { resetDoctorBilling, createAuditLog } = await import('../db');
+        
         const result = await resetDoctorBilling(input.doctorUserId);
         await createAuditLog({
           user_id: ctx.user.id,
@@ -716,12 +783,7 @@ export const billingRouter = router({
       .input(z.object({ responsibleId: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const {
-          getFinancialResponsibleById,
-          listUnitsForResponsible,
-          listUsersForResponsible,
-          getResponsibleCycleSummary,
-        } = await import('../db');
+        // PRG-05: funções já importadas estaticamente no topo
         const [responsible, units, users, summary] = await Promise.all([
           getFinancialResponsibleById(input.responsibleId),
           listUnitsForResponsible(input.responsibleId),
@@ -777,7 +839,7 @@ export const billingRouter = router({
       .input(z.object({ doctorUserId: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getDoctorFullContext } = await import('../db');
+        
         return await getDoctorFullContext(input.doctorUserId);
       }),
 
@@ -785,7 +847,7 @@ export const billingRouter = router({
       .input(z.object({ unitId: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getUnitFullContext } = await import('../db');
+        
         return await getUnitFullContext(input.unitId);
       }),
 
@@ -800,7 +862,7 @@ export const billingRouter = router({
       .query(async ({ input, ctx }) => {
         const allowed = ['admin_master', 'responsavel_financeiro'];
         if (!allowed.includes(ctx.user.role)) throw new TRPCError({ code: 'FORBIDDEN' });
-        const { getResponsibleFullDashboard } = await import('../db');
+        
         return await getResponsibleFullDashboard(input.responsibleId, {
           page: input.page,
           pageSize: input.pageSize,
@@ -817,7 +879,7 @@ export const billingRouter = router({
         if (ctx.user.role === 'medico' && ctx.user.id !== input.doctorUserId) {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { getDoctorOperationalBalance } = await import('../db');
+        
         return await getDoctorOperationalBalance(input.doctorUserId);
       }),
 
@@ -831,7 +893,7 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         // C4: Não criar mais "Sem Responsável" automaticamente.
         // Exigir que a unidade já tenha um responsável financeiro ativo.
-        const { getActiveResponsibleForUnit, upsertSystemUnitPrice } = await import('../db');
+        
         const responsible = await getActiveResponsibleForUnit(input.unitId);
         if (!responsible) {
           throw new TRPCError({
@@ -858,7 +920,7 @@ export const billingRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { linkUnitToResponsible } = await import('../db');
+        
         await linkUnitToResponsible(
           input.responsibleId,
           input.unitId,
@@ -881,7 +943,7 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         // C4: Não criar mais "Sem Responsável" automaticamente.
         // Exigir que a unidade já tenha um responsável financeiro ativo.
-        const { getActiveResponsibleForUnit, upsertDoctorUnitPrice } = await import('../db');
+        
         const responsible = await getActiveResponsibleForUnit(input.unitId);
         if (!responsible) {
           throw new TRPCError({
@@ -907,7 +969,7 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
-        const { getSystemOwnerLiveByUnit } = await import('../db');
+        
         return await getSystemOwnerLiveByUnit();
       }),
 
@@ -923,8 +985,8 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-        const { and, eq } = await import('drizzle-orm');
-        const { billing_cycles, units, users, financial_responsibles } = await import('../../drizzle/schema');
+        
+        
         const conditions: any[] = [eq(billing_cycles.cycle_type, 'system')];
         if (input?.cycleStatus && input.cycleStatus !== 'all') conditions.push(eq(billing_cycles.status, input.cycleStatus as 'open' | 'closed'));
         if (input?.paidStatus && input.paidStatus !== 'all') conditions.push(eq(billing_cycles.paid_status, input.paidStatus as 'pending' | 'paid'));
@@ -962,8 +1024,8 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-        const { eq } = await import('drizzle-orm');
-        const { billing_cycles } = await import('../../drizzle/schema');
+        
+        
         // C8: só permite marcar como pago ciclos já fechados
         const [cycle] = await db.select({ status: billing_cycles.status }).from(billing_cycles).where(eq(billing_cycles.id, input.cycleId)).limit(1);
         if (!cycle) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ciclo não encontrado.' });
@@ -978,8 +1040,8 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-        const { eq } = await import('drizzle-orm');
-        const { billing_cycles } = await import('../../drizzle/schema');
+        
+        
         await db.update(billing_cycles).set({ paid_status: 'pending', paid_at: null, paid_by_user_id: null, paid_note: null }).where(eq(billing_cycles.id, input.cycleId));
         return { ok: true };
       }),
@@ -990,8 +1052,8 @@ export const billingRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-        const { eq } = await import('drizzle-orm');
-        const { billing_cycles } = await import('../../drizzle/schema');
+        
+        
         await db.update(billing_cycles).set({ paid_note: input.note }).where(eq(billing_cycles.id, input.cycleId));
         return { ok: true };
       }),
@@ -1017,12 +1079,12 @@ export const billingRouter = router({
         const targetDoctorId = isDoctor ? ctx.user.id : (input?.doctorUserId ?? undefined);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-        const { and, eq, gte, lte, desc, inArray, isNull, or, lte: lteOp } = await import('drizzle-orm');
-        const { billing_visit_events, units, users, financial_responsible_units } = await import('../../drizzle/schema');
+        
+        
         // Responsável financeiro: filtrar apenas pelas suas unidades
         let allowedUnitIds: number[] | undefined = undefined;
         if (isResp) {
-          const { getResponsibleIdForUser } = await import('../db');
+          
           const myRespId = await getResponsibleIdForUser(ctx.user.id);
           if (!myRespId) return [];
           const now = new Date();
@@ -1030,7 +1092,7 @@ export const billingRouter = router({
             .from(financial_responsible_units)
             .where(and(
               eq(financial_responsible_units.financial_responsible_id, myRespId),
-              lteOp(financial_responsible_units.starts_at, now),
+              lte(financial_responsible_units.starts_at, now),
               or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, now))
             ));
           allowedUnitIds = unitLinks.map(u => u.unit_id);
@@ -1046,7 +1108,7 @@ export const billingRouter = router({
         const page = input?.page ?? 1;
         const pageSize = input?.pageSize ?? 200;
         // C5: contar total de registros para metadata de paginação
-        const { sql: sqlFn } = await import('drizzle-orm');
+        
         const [countRow] = await db.select({ count: sqlFn<number>`COUNT(*)` })
           .from(billing_visit_events)
           .where(conditions.length > 0 ? and(...conditions) : undefined);
@@ -1099,15 +1161,17 @@ export const billingRouter = router({
         if (!isAdmin && !isResp) throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-        const { and, eq, inArray, desc } = await import('drizzle-orm');
-        const { billing_visit_events, units, users, financial_responsibles, financial_responsible_units } = await import('../../drizzle/schema');
+        
+        
         let targetResponsibleId = input?.responsibleId;
         if (isResp && !isAdmin) {
-          const { financial_responsible_users } = await import('../../drizzle/schema');
+          
           const resp = await db.select({ id: financial_responsible_users.financial_responsible_id }).from(financial_responsible_users).where(eq(financial_responsible_users.user_id, ctx.user.id)).limit(1);
           targetResponsibleId = resp[0]?.id;
         }
         const conditions: any[] = [];
+        // LOG-05: excluir eventos de ciclos já pagos do grand_total
+        conditions.push(ne(billing_cycles.paid_status, 'paid'));
         if (input?.cycleId) conditions.push(eq(billing_visit_events.doctor_cycle_id, input.cycleId));
         if (input?.unitId) conditions.push(eq(billing_visit_events.unit_id, input.unitId));
         if (targetResponsibleId) {
@@ -1117,17 +1181,19 @@ export const billingRouter = router({
         }
         const page2 = input?.page ?? 1;
         const pageSize2 = input?.pageSize ?? 200;
-        const { sql: sqlFn2 } = await import('drizzle-orm');
-        const [countRow2] = await db.select({ count: sqlFn2<number>`COUNT(*)` })
+        
+        const [countRow2] = await db.select({ count: sqlFn<number>`COUNT(*)` })
           .from(billing_visit_events)
-          .where(conditions.length > 0 ? and(...conditions) : undefined);
+          .leftJoin(billing_cycles, eq(billing_visit_events.doctor_cycle_id, billing_cycles.id))
+          .where(and(...conditions));
         const total2 = Number(countRow2?.count ?? 0);
         const rows = await db
           .select({ event: billing_visit_events, unit_name: units.name, doctor_name: users.name })
           .from(billing_visit_events)
+          .leftJoin(billing_cycles, eq(billing_visit_events.doctor_cycle_id, billing_cycles.id))
           .leftJoin(units, eq(billing_visit_events.unit_id, units.id))
           .leftJoin(users, eq(billing_visit_events.doctor_user_id, users.id))
-          .where(conditions.length > 0 ? and(...conditions) : undefined)
+          .where(and(...conditions))
           .orderBy(desc(billing_visit_events.createdAt))
           .limit(pageSize2)
           .offset((page2 - 1) * pageSize2);
@@ -1170,7 +1236,7 @@ export const billingRouter = router({
         const s = new Date(input.starts_at);
         const e = new Date(input.ends_at);
         if (s >= e) throw new TRPCError({ code: 'BAD_REQUEST', message: 'A data de início deve ser anterior à data de fim.' });
-        const { createCycleManual } = await import('../db');
+        
         return await createCycleManual({
           unit_id: input.unit_id,
           financial_responsible_id: input.financial_responsible_id,
@@ -1192,14 +1258,14 @@ export const billingRouter = router({
         const s = new Date(input.starts_at);
         const e = new Date(input.ends_at);
         if (s >= e) throw new TRPCError({ code: 'BAD_REQUEST', message: 'A data de início deve ser anterior à data de fim.' });
-        const { editCycleDates } = await import('../db');
+        
         return await editCycleDates(input.cycle_id, s, e);
       }),
 
     listAllOpenCycles: protectedProcedure
       .query(async ({ ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        const { listAllOpenCycles } = await import('../db');
+        
         return await listAllOpenCycles();
       }),
 
@@ -1210,8 +1276,8 @@ export const billingRouter = router({
         if (!allowed.includes(ctx.user.role)) throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) return [];
-        const { users, user_unit_permissions, units, billing_doctor_unit_prices, financial_responsible_users, financial_responsible_units } = await import('../../drizzle/schema');
-        const { eq, and, isNull, inArray } = await import('drizzle-orm');
+        
+        
         // Determinar quais unidades o usuário pode ver
         let allowedUnitIds: number[] | undefined = undefined;
         if (ctx.user.role === 'responsavel_financeiro') {

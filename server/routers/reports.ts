@@ -140,9 +140,10 @@ export const reportsRouter = router({
           : data;
         await updateReport(id, safeUpdateData);
         
+        // PRG-06: usar report.unit_id como fonte de verdade
         await createAuditLog({
           user_id: ctx.user.id,
-          unit_id: ctx.user.unit_id,
+          unit_id: report.unit_id ?? ctx.user.unit_id,
           action: 'UPDATE_REPORT',
           target_type: 'REPORT',
           target_id: String(id),
@@ -306,9 +307,10 @@ export const reportsRouter = router({
         // C12: billing_visit_events ainda não possui o campo report_status_snapshot.
         // Requer migration de schema: ALTER TABLE billing_visit_events ADD COLUMN report_status_snapshot ENUM('signed','revised') DEFAULT 'signed';
         // TODO: implementar após executar a migration em produção.
+        // PRG-06: usar report.unit_id como fonte de verdade (não ctx.user.unit_id legado)
         await createAuditLog({
           user_id: ctx.user.id,
-          unit_id: ctx.user.unit_id,
+          unit_id: report.unit_id ?? ctx.user.unit_id,
           action: 'UPDATE_REPORT',
           target_type: 'REPORT',
           target_id: String(input.id),
@@ -321,7 +323,11 @@ export const reportsRouter = router({
 
     // Apagar laudo (rascunho ou assinado)
     delete: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({
+        id: z.number(),
+        // LOG-01: motivo obrigatório para admin_master apagar laudos assinados/retificados
+        reason: z.string().optional(),
+      }))
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
@@ -332,6 +338,21 @@ export const reportsRouter = router({
           const hasAccess = ctx.user.unit_id === report.unit_id ||
             !!(await getUnitPerm(ctx.user.id, report.unit_id ?? 0));
           if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+          // LOG-01: não-admin_master não pode apagar laudos assinados ou retificados
+          if (report.status === 'signed' || report.status === 'revised') {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'Laudos assinados ou retificados só podem ser excluídos pelo administrador master.',
+            });
+          }
+        } else {
+          // LOG-01: admin_master deletando laudo assinado/retificado deve informar motivo
+          if ((report.status === 'signed' || report.status === 'revised') && !input.reason?.trim()) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Informe o motivo para excluir um laudo assinado ou retificado.',
+            });
+          }
         }
         // Remover evento financeiro e decrementar consolidados de ciclo (se laudo estava assinado)
         const { removeVisitEventForReport } = await import('../db');
@@ -341,7 +362,8 @@ export const reportsRouter = router({
         await db.delete(report_versions).where(eq(report_versions.report_id, input.id));
         // Apagar o laudo
         await db.delete(reports).where(eq(reports.id, input.id));
-        const effectiveUnitId = ctx.user.unit_id ?? report.unit_id;
+        // PRG-06: usar report.unit_id como fonte de verdade (não ctx.user.unit_id legado)
+        const effectiveUnitId = report.unit_id ?? ctx.user.unit_id;
         await createAuditLog({
           user_id: ctx.user.id,
           unit_id: effectiveUnitId,
@@ -350,6 +372,8 @@ export const reportsRouter = router({
           target_id: String(input.id),
           ip_address: ctx.req.ip,
           user_agent: ctx.req.headers['user-agent'],
+          // LOG-01: registrar motivo no audit log quando admin_master apaga laudo assinado
+          metadata: input.reason ? { reason: input.reason, deletedStatus: report.status } : undefined,
         });
         return { success: true };
       }),
