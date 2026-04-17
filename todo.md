@@ -1349,3 +1349,13 @@
 - [x] PRG-02: Substituir Date.now() por crypto.randomUUID() na geração de openId
 - [x] PRG-05: Converter imports dinâmicos repetitivos para imports estáticos no billing.ts (81→0)
 - [x] SEC-03: sameSite já configurado como 'lax' em produção no cookies.ts (confirmado)
+
+## Viewers Externos — RadiAnt, Weasis, OsiriX, Horos
+
+- [x] Endpoint /api/dicom-viewer-launch/:studyUid para gerar URLs de launch sem PACS configurado
+- [x] Protocolo radiant://?n=f (abre arquivos DICOM remotos diretamente, sem AE Title)
+- [x] Protocolo weasis://?$dicom:get -r (abre arquivos DICOM remotos diretamente)
+- [x] Protocolo horos://?methodName=DownloadURL (via ZIP do estudo, macOS gratuito)
+- [x] Protocolo osirix://?methodName=DownloadURL (via ZIP do estudo, macOS)
+- [x] Botões RadiAnt, Weasis, Horos na toolbar do DicomViewerPage com loading state
+- [x] Fallback: botão RadiAnt no painel de erro do viewer

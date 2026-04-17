@@ -93,6 +93,7 @@ export function DicomViewerPage() {
   const [activeTool, setActiveTool] = useState<ActiveTool>("StackScroll");
   const [wl, setWl] = useState<{ ww: number; wc: number } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [launchingViewer, setLaunchingViewer] = useState<string | null>(null);
   const [pacsAeTitle, setPacsAeTitle] = useState<string>("DPACS");
 
   // ─── Cine (Play automático) ───────────────────────────────────────────────
@@ -773,22 +774,39 @@ export function DicomViewerPage() {
       viewport.render();
     } catch (_) {}
   };
-
-  // ─── RadiAnt ─────────────────────────────────────────────────────────────
-  // Sem -paet: o RadiAnt busca em todos os PACS configurados pelo usuário.
-  // Os arquivos são salvos em pasta temporária e apagados automaticamente ao fechar o RadiAnt.
-  const handleOpenRadiant = () => {
-    if (!studyUid) return;
-    const encodedUid = encodeURIComponent(`"${studyUid}"`);
-    const radiantUrl = `radiant://?n=pstv&v=0020000D&v=${encodedUid}`;
-    window.location.href = radiantUrl;
-    toast.info("Abrindo no RadiAnt DICOM Viewer...", {
-      description: "O RadiAnt deve estar instalado e com o PACS configurado. Os arquivos são temporários e apagados ao fechar o viewer.",
-      duration: 6000,
-    });
+    // ─── Viewers externos (RadiAnt, Weasis, OsiriX, Horos) ─────────────────────────────────────────────────────────────────
+  // Usa URLs diretas dos arquivos no cache do servidor — sem PACS configurado no cliente.
+  // RadiAnt: radiant://?n=f&v="url"... | Weasis: weasis://?$dicom:get -r "url"...
+  // OsiriX:  osirix://?methodName=DownloadURL&URL=<zip>&Display=YES (macOS)
+  // Horos:   horos://?methodName=DownloadURL&URL=<zip>&Display=YES  (macOS, gratuito)
+  const viewerLabels: Record<string, string> = { radiant: 'RadiAnt', weasis: 'Weasis', osirix: 'OsiriX', horos: 'Horos' };
+  const handleOpenViewer = async (viewer: 'radiant' | 'weasis' | 'osirix' | 'horos') => {
+    if (!studyUid || launchingViewer) return;
+    setLaunchingViewer(viewer);
+    try {
+      const resp = await fetch(`/api/dicom-viewer-launch/${studyUid}?viewer=${viewer}`);
+      const data = await resp.json();
+      if (!resp.ok) {
+        toast.error(`Erro ao abrir no ${viewerLabels[viewer]}`, {
+          description: data.error || 'Erro desconhecido. Certifique-se de que o estudo está carregado no visualizador primeiro.',
+          duration: 8000,
+        });
+        return;
+      }
+      window.location.href = data.launchUrl;
+      toast.info(`Abrindo no ${viewerLabels[viewer]}...`, {
+        description: `${data.fileCount} imagens serão abertas. O viewer deve estar instalado. Arquivos temporários apagados ao fechar.`,
+        duration: 7000,
+      });
+    } catch (err: any) {
+      toast.error(`Erro ao abrir no ${viewerLabels[viewer]}`, { description: err.message });
+    } finally {
+      setLaunchingViewer(null);
+    }
   };
+  const handleOpenRadiant = () => handleOpenViewer('radiant');
 
-  // ─── Exportação ZIP ───────────────────────────────────────────────────────
+  // ─── Exportação ZIP ─────────────────────────────────────────────────────────────────────────────────────
   const handleExportZip = async () => {
     if (!studyUid || isExporting) return;
     setIsExporting(true);
@@ -934,14 +952,39 @@ export function DicomViewerPage() {
             )}
             Exportar ZIP
           </Button>
+          {/* Viewers externos: RadiAnt, Weasis, OsiriX, Horos */}
           <Button
             variant="outline"
             size="sm"
-            onClick={handleOpenRadiant}
+            onClick={() => handleOpenViewer('radiant')}
+            disabled={!!launchingViewer || imageCount === 0}
             className="text-xs border-blue-700 text-blue-400 hover:bg-blue-900/40 h-7 px-2"
+            title="Abrir no RadiAnt DICOM Viewer (Windows) — sem PACS configurado"
           >
-            <ExternalLink className="h-3 w-3 mr-1" />
+            {launchingViewer === 'radiant' ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ExternalLink className="h-3 w-3 mr-1" />}
             RadiAnt
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleOpenViewer('weasis')}
+            disabled={!!launchingViewer || imageCount === 0}
+            className="text-xs border-purple-700 text-purple-400 hover:bg-purple-900/40 h-7 px-2"
+            title="Abrir no Weasis DICOM Viewer (Windows/Linux/macOS) — sem PACS configurado"
+          >
+            {launchingViewer === 'weasis' ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ExternalLink className="h-3 w-3 mr-1" />}
+            Weasis
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleOpenViewer('horos')}
+            disabled={!!launchingViewer || imageCount === 0}
+            className="text-xs border-orange-700 text-orange-400 hover:bg-orange-900/40 h-7 px-2"
+            title="Abrir no Horos DICOM Viewer (macOS, gratuito) — sem PACS configurado"
+          >
+            {launchingViewer === 'horos' ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ExternalLink className="h-3 w-3 mr-1" />}
+            Horos
           </Button>
           {/* Botão Anamnese */}
           <Button

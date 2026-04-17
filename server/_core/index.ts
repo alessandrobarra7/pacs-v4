@@ -778,6 +778,63 @@ async function startServer() {
     }
   });
 
+  // ─── Endpoint: gerar URL de launch para viewers externos (RadiAnt, Weasis, OsiriX, Horos) ──────────
+  // Sem dependência de PACS configurado: usa URLs diretas dos arquivos no cache do servidor.
+  // RadiAnt: radiant://?n=f&v="url1"&v="url2"... (abre arquivos remotos diretamente)
+  // Weasis:  weasis://?$dicom:get -r "url1" -r "url2"... (abre arquivos remotos)
+  // OsiriX:  osirix://?methodName=DownloadURL&URL=<zip>&Display=YES
+  // Horos:   horos://?methodName=DownloadURL&URL=<zip>&Display=YES
+  app.get('/api/dicom-viewer-launch/:studyUid', requireAuth, async (req, res) => {
+    const { studyUid } = req.params;
+    const viewer = ((req.query.viewer as string) || 'radiant').toLowerCase();
+    if (!studyUid || studyUid.includes('..') || studyUid.includes('/')) {
+      return res.status(400).json({ error: 'Invalid studyUid' });
+    }
+    const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
+    try {
+      const fsP = await import('fs/promises');
+      let files: string[];
+      try {
+        const all = await fsP.readdir(studyDir);
+        files = all.filter((f: string) => f.endsWith('.dcm')).sort();
+      } catch {
+        return res.status(404).json({ error: 'Estudo não encontrado no cache. Abra o visualizador primeiro para baixar as imagens.' });
+      }
+      if (files.length === 0) {
+        return res.status(404).json({ error: 'Nenhuma imagem no cache. Abra o visualizador primeiro.' });
+      }
+      // Constrói URLs absolutas para cada arquivo DICOM no cache
+      const origin = `${req.protocol}://${req.get('host')}`;
+      const fileUrls: string[] = files.map((f: string) => `${origin}/api/dicom-files/${studyUid}/${encodeURIComponent(f)}`);
+      let launchUrl = '';
+      if (viewer === 'radiant') {
+        // radiant://?n=f&v="url1"&v="url2"...
+        const params = fileUrls.map((u: string) => `v=${encodeURIComponent(`"${u}"`)}`).join('&');
+        launchUrl = `radiant://?n=f&${params}`;
+      } else if (viewer === 'weasis') {
+        // weasis://?$dicom:get -r "url1" -r "url2"...
+        const args = fileUrls.map((u: string) => `-r "${u}"`).join(' ');
+        const cmd = `$dicom:get ${args}`;
+        launchUrl = `weasis://?${encodeURIComponent(cmd)}`;
+      } else if (viewer === 'osirix') {
+        // OsiriX: baixa o ZIP do estudo e abre
+        const zipUrl = `${origin}/api/dicom-export/${studyUid}`;
+        launchUrl = `osirix://?methodName=DownloadURL&URL=${encodeURIComponent(zipUrl)}&Display=YES`;
+      } else if (viewer === 'horos') {
+        // Horos: mesmo esquema do OsiriX mas com horos://
+        const zipUrl = `${origin}/api/dicom-export/${studyUid}`;
+        launchUrl = `horos://?methodName=DownloadURL&URL=${encodeURIComponent(zipUrl)}&Display=YES`;
+      } else {
+        return res.status(400).json({ error: `Viewer não suportado: ${viewer}. Use radiant, weasis, osirix ou horos.` });
+      }
+      console.log(`[DICOM Viewer Launch] ${viewer.toUpperCase()} | ${studyUid} | ${files.length} arquivos`);
+      res.json({ launchUrl, viewer, fileCount: files.length });
+    } catch (err: any) {
+      console.error('[DICOM Viewer Launch] Erro:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Erro ao gerar URL de launch' });
+    }
+  });
+
   // Endpoint: informações gerais do cache DICOM (tamanho total, estudos, etc.) — restrito a admin_master
   app.get('/api/dicom-cache-info', requireAdminAuth, async (_req, res) => {
     try {
