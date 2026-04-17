@@ -22,6 +22,7 @@ for (const envPath of envPaths) {
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import crypto from "crypto";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
@@ -121,6 +122,34 @@ async function startServer() {
     } catch {}
   }
   setInterval(cleanOldDicomCaches, 5 * 60 * 1000); // verifica a cada 5 minutos
+
+  // Mapa de tokens temporários para download de arquivos DICOM sem autenticação
+  // Usado pelo RadiAnt, Weasis, OsiriX e Horos que não conseguem enviar cookies
+  const dicomDlTokens = new Map<string, { filePath: string; expiresAt: number }>();
+  // Limpa tokens expirados a cada 10 minutos
+  setInterval(() => {
+    const now = Date.now();
+    Array.from(dicomDlTokens.entries()).forEach(([token, entry]) => {
+      if (entry.expiresAt < now) dicomDlTokens.delete(token);
+    });
+  }, 10 * 60 * 1000);
+
+  // Rota PÚBLICA: download de arquivo DICOM via token temporário (sem cookie)
+  // O token é gerado pelo endpoint /api/dicom-viewer-launch e expira em 2 horas
+  app.get('/api/dicom-dl/:token', (req, res) => {
+    const { token } = req.params;
+    const entry = dicomDlTokens.get(token);
+    if (!entry || entry.expiresAt < Date.now()) {
+      return res.status(410).send('Token expirado ou inválido');
+    }
+    const { filePath } = entry;
+    if (filePath.includes('..') || !filePath.startsWith(DICOM_CACHE_ROOT)) {
+      return res.status(400).send('Caminho inválido');
+    }
+    res.sendFile(filePath, (err) => {
+      if (err && !res.headersSent) res.status(404).send('Arquivo não encontrado');
+    });
+  });
 
   // F1-1: Middleware de autenticação para rotas DICOM
   // Verifica o cookie de sessão e retorna 401 se não autenticado
@@ -803,9 +832,16 @@ async function startServer() {
       if (files.length === 0) {
         return res.status(404).json({ error: 'Nenhuma imagem no cache. Abra o visualizador primeiro.' });
       }
-      // Constrói URLs absolutas para cada arquivo DICOM no cache
+      // Gera tokens temporários (2h) para cada arquivo DICOM
+      // Necessário porque RadiAnt/Weasis não conseguem enviar cookies de sessão
       const origin = `${req.protocol}://${req.get('host')}`;
-      const fileUrls: string[] = files.map((f: string) => `${origin}/api/dicom-files/${studyUid}/${encodeURIComponent(f)}`);
+      const expiresAt = Date.now() + 2 * 60 * 60 * 1000; // 2 horas
+      const fileUrls: string[] = files.map((f: string) => {
+        const token = crypto.randomBytes(24).toString('hex');
+        const filePath = `${DICOM_CACHE_ROOT}/${studyUid}/${f}`;
+        dicomDlTokens.set(token, { filePath, expiresAt });
+        return `${origin}/api/dicom-dl/${token}`;
+      });
       let launchUrl = '';
       if (viewer === 'radiant') {
         // radiant://?n=f&v="url1"&v="url2"...
@@ -817,11 +853,10 @@ async function startServer() {
         const cmd = `$dicom:get ${args}`;
         launchUrl = `weasis://?${encodeURIComponent(cmd)}`;
       } else if (viewer === 'osirix') {
-        // OsiriX: baixa o ZIP do estudo e abre
+        // OsiriX: baixa o ZIP do estudo e abre (ZIP não precisa de token pois usa dicom-export)
         const zipUrl = `${origin}/api/dicom-export/${studyUid}`;
         launchUrl = `osirix://?methodName=DownloadURL&URL=${encodeURIComponent(zipUrl)}&Display=YES`;
       } else if (viewer === 'horos') {
-        // Horos: mesmo esquema do OsiriX mas com horos://
         const zipUrl = `${origin}/api/dicom-export/${studyUid}`;
         launchUrl = `horos://?methodName=DownloadURL&URL=${encodeURIComponent(zipUrl)}&Display=YES`;
       } else {
