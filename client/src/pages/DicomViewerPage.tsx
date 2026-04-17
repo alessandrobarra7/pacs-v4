@@ -775,14 +775,15 @@ export function DicomViewerPage() {
   };
 
   // ─── RadiAnt ─────────────────────────────────────────────────────────────
+  // Sem -paet: o RadiAnt busca em todos os PACS configurados pelo usuário.
+  // Os arquivos são salvos em pasta temporária e apagados automaticamente ao fechar o RadiAnt.
   const handleOpenRadiant = () => {
     if (!studyUid) return;
-    const aeTitle = pacsAeTitle || "DPACS";
     const encodedUid = encodeURIComponent(`"${studyUid}"`);
-    const radiantUrl = `radiant://?n=paet&v=${aeTitle}&n=pstv&v=0020000D&v=${encodedUid}`;
+    const radiantUrl = `radiant://?n=pstv&v=0020000D&v=${encodedUid}`;
     window.location.href = radiantUrl;
     toast.info("Abrindo no RadiAnt DICOM Viewer...", {
-      description: `O RadiAnt deve estar instalado e o PACS configurado com AE Title: ${aeTitle}`,
+      description: "O RadiAnt deve estar instalado e com o PACS configurado. Os arquivos são temporários e apagados ao fechar o viewer.",
       duration: 6000,
     });
   };
