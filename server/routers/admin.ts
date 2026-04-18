@@ -307,6 +307,194 @@ export const adminRouter = router({
         return { success: true };
       }),
 
+    getUnitAccessTree: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { users: usersTable, units: unitsTable, user_unit_permissions: uup } = await import('../../drizzle/schema');
+        const { eq: eqOp, inArray: inArrayOp } = await import('drizzle-orm');
+
+        // Determinar quais unidades o caller pode ver
+        let allowedUnitIds: number[] | null = null;
+        if (ctx.user.role === 'unit_admin') {
+          const myPerms = await db.select({ unit_id: uup.unit_id }).from(uup)
+            .where(eqOp(uup.user_id, ctx.user.id));
+          const ids = myPerms.map(p => p.unit_id);
+          if (ctx.user.unit_id && !ids.includes(ctx.user.unit_id)) ids.push(ctx.user.unit_id);
+          if (ids.length === 0) return [];
+          allowedUnitIds = ids;
+        }
+
+        // Buscar todas as unidades (filtradas se unit_admin)
+        const allUnits = allowedUnitIds
+          ? await db.select().from(unitsTable).where(inArrayOp(unitsTable.id, allowedUnitIds))
+          : await db.select().from(unitsTable);
+
+        // Buscar todos os vínculos user_unit_permissions das unidades visíveis
+        const unitIds = allUnits.map(u => u.id);
+        if (unitIds.length === 0) return [];
+
+        const allPerms = await db
+          .select({
+            user_id: uup.user_id,
+            unit_id: uup.unit_id,
+            view_studies: uup.view_studies,
+            edit_reports: uup.edit_reports,
+            view_anamnesis: uup.view_anamnesis,
+            print_reports: uup.print_reports,
+            manage_templates: uup.manage_templates,
+          })
+          .from(uup)
+          .where(inArrayOp(uup.unit_id, unitIds));
+
+        // Buscar todos os usuários vinculados
+        const linkedUserIds = Array.from(new Set(allPerms.map(p => p.user_id)));
+
+        // Incluir também usuários com unit_id legado nas unidades visíveis
+        const legacyUsers = await db
+          .select({ id: usersTable.id })
+          .from(usersTable)
+          .where(inArrayOp(usersTable.unit_id, unitIds));
+        const legacyIds = legacyUsers.map(u => u.id).filter(id => !linkedUserIds.includes(id));
+        const allUserIds = [...linkedUserIds, ...legacyIds];
+
+        let allUsers: typeof usersTable.$inferSelect[] = [];
+        if (allUserIds.length > 0) {
+          allUsers = await db
+            .select({
+              id: usersTable.id,
+              name: usersTable.name,
+              username: usersTable.username,
+              email: usersTable.email,
+              role: usersTable.role,
+              unit_id: usersTable.unit_id,
+              isActive: usersTable.isActive,
+              createdAt: usersTable.createdAt,
+              lastSignedIn: usersTable.lastSignedIn,
+              expiration_date: usersTable.expiration_date,
+            } as any)
+            .from(usersTable)
+            .where(inArrayOp(usersTable.id, allUserIds)) as any;
+        }
+
+        // Montar índice de permissões por unidade e usuário
+        const permsByUnit: Record<number, typeof allPerms> = {};
+        for (const p of allPerms) {
+          if (!permsByUnit[p.unit_id]) permsByUnit[p.unit_id] = [];
+          permsByUnit[p.unit_id].push(p);
+        }
+        const usersById: Record<number, (typeof allUsers)[0]> = {};
+        for (const u of allUsers) usersById[u.id] = u;
+
+        // Função de agrupamento por papel
+        const ROLE_GROUPS = [
+          { key: 'responsaveisFinanceiros', roles: ['responsavel_financeiro'] },
+          { key: 'medicos', roles: ['medico'] },
+          { key: 'operadores', roles: ['operador'] },
+          { key: 'visualizadores', roles: ['viewer'] },
+          { key: 'administradoresUnidade', roles: ['unit_admin'] },
+          { key: 'adminsMaster', roles: ['admin_master'] },
+        ] as const;
+
+        return allUnits.map(unit => {
+          const permsForUnit = permsByUnit[unit.id] ?? [];
+
+          // Usuários via permissões
+          const usersInUnit = permsForUnit
+            .map(p => usersById[p.user_id])
+            .filter(Boolean);
+
+          // Adicionar usuários legados (unit_id) que não têm permissão explícita
+          for (const u of allUsers) {
+            if (u.unit_id === unit.id && !usersInUnit.find(x => x.id === u.id)) {
+              usersInUnit.push(u);
+            }
+          }
+
+          // Deduplicar
+          const seen = new Set<number>();
+          const uniqueUsers = usersInUnit.filter(u => {
+            if (seen.has(u.id)) return false;
+            seen.add(u.id);
+            return true;
+          });
+
+          // Agrupar por papel
+          const groups: Record<string, typeof uniqueUsers> = {
+            responsaveisFinanceiros: [],
+            medicos: [],
+            operadores: [],
+            visualizadores: [],
+            administradoresUnidade: [],
+            adminsMaster: [],
+            outros: [],
+          };
+          for (const u of uniqueUsers) {
+            const group = ROLE_GROUPS.find(g => (g.roles as readonly string[]).includes(u.role));
+            if (group) {
+              groups[group.key].push(u);
+            } else {
+              groups['outros'].push(u);
+            }
+          }
+
+          const totalUsers = uniqueUsers.length;
+          return {
+            unit: {
+              id: unit.id,
+              name: unit.name,
+              slug: unit.slug,
+              isActive: unit.isActive,
+              address: unit.address,
+              logo_url: unit.logo_url,
+            },
+            totals: {
+              totalUsers,
+              responsibleCount: groups.responsaveisFinanceiros.length,
+              doctorCount: groups.medicos.length,
+              operatorCount: groups.operadores.length,
+              viewerCount: groups.visualizadores.length,
+              unitAdminCount: groups.administradoresUnidade.length,
+            },
+            groups,
+          };
+        });
+      }),
+
+    removeUserUnitLink: protectedProcedure
+      .input(z.object({ userId: z.number(), unitId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        if (ctx.user.role === 'unit_admin') {
+          const { getUserUnitPermission: getUnitPerm } = await import('../db');
+          const hasAccess = ctx.user.unit_id === input.unitId ||
+            !!(await getUnitPerm(ctx.user.id, input.unitId));
+          if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem acesso a esta unidade' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { user_unit_permissions: uup } = await import('../../drizzle/schema');
+        const { eq: eqOp, and: andOp } = await import('drizzle-orm');
+        await db.delete(uup).where(
+          andOp(eqOp(uup.user_id, input.userId), eqOp(uup.unit_id, input.unitId))
+        );
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: input.unitId,
+          action: 'UPDATE_USER',
+          target_type: 'USER',
+          target_id: String(input.userId),
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+        });
+        return { success: true };
+      }),
+
     listUsersWithPermissions: protectedProcedure
       .query(async ({ ctx }) => {
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {

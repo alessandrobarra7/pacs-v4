@@ -1387,3 +1387,14 @@
 - [x] DB-01: Adicionar FK references() em billing_visit_events.report_id para reports (onDelete: cascade)
 - [x] PRG-07: Converter 57 imports dinâmicos em db.ts para estáticos (0 restantes)
 - [x] TYP-01: Substituir as any por tipos corretos em db.ts e billing.ts (0 restantes)
+
+## Reorganização Aba Usuários — Modelo Hierárquico por Unidade
+- [ ] BE: Criar endpoint admin.getUnitAccessTree (agrega users + user_unit_permissions + units por papel)
+- [ ] FE: Criar componente UnitUsersTree.tsx
+- [ ] FE: Criar componente UnitUsersCard.tsx (accordion por unidade)
+- [ ] FE: Criar componente UnitUsersGroup.tsx (grupos por papel)
+- [ ] FE: Criar componente UnitUserRow.tsx (linha de usuário com ações)
+- [ ] FE: Substituir tabela plana da aba Usuários pelo UnitUsersTree
+- [ ] FE: Filtros (busca por unidade, busca por usuário, só ativas, só com médicos, sem resp. financeiro)
+- [ ] FE: Ações contextuais (Novo usuário nesta unidade, Vincular existente, Remover vínculo)
+- [ ] FE: Abertura contextual do UserFormDialog com unidade pré-selecionada

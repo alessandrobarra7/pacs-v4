@@ -14,6 +14,8 @@ import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 import UnitFormDialog, { type UnitFormData } from "@/components/UnitFormDialog";
 import UserFormDialog, { type UserFormData } from "@/components/UserFormDialog";
+import UnitUsersTree from "@/components/UnitUsersTree";
+import { type UnitUser } from "@/components/UnitUserRow";
 
 type Tab = "units" | "users" | "audit" | "cache";
 
@@ -203,7 +205,15 @@ export default function AdminPage() {
   });
 
   // ── Users ──
-  const { data: usersList = [], isLoading: usersLoading, refetch: refetchUsers } = trpc.admin.listUsers.useQuery();
+  const { refetch: refetchUsers } = trpc.admin.listUsers.useQuery();
+  const { data: unitAccessTree = [], isLoading: treeLoading, refetch: refetchTree } = trpc.admin.getUnitAccessTree.useQuery(
+    undefined,
+    { enabled: activeTab === "users" }
+  );
+  const removeUserUnitLink = trpc.admin.removeUserUnitLink.useMutation({
+    onSuccess: () => { toast.success("Vínculo removido"); refetchTree(); refetchUsers(); },
+    onError: (e) => toast.error(e.message),
+  });
 
   const createUser = trpc.auth.createLocalUser.useMutation({
     onSuccess: () => { toast.success("Usuário criado!"); setUserDialogOpen(false); refetchUsers(); },
@@ -401,6 +411,26 @@ export default function AdminPage() {
     setUserDialogOpen(true);
   };
 
+  const handleNewUserForUnit = (_unitId: number, _unitName: string) => {
+    setEditingUser(null);
+    setUserDialogOpen(true);
+  };
+
+  const handleOpenEditUserFromTree = (u: UnitUser) => {
+    setEditingUser({
+      id: u.id,
+      name: u.name || "",
+      email: u.email || "",
+      username: u.username || "",
+      role: u.role as UserFormData["role"],
+      unit_id: typeof u.unit_id === "number" ? u.unit_id : null,
+      isActive: u.isActive,
+      expiration_date: u.expiration_date ? String(u.expiration_date) : "",
+      permissions: [],
+    });
+    setUserDialogOpen(true);
+  };
+
   const isAdminMaster = currentUser?.role === "admin_master";
   const isUnitAdmin = currentUser?.role === "unit_admin";
   const canManageUsers = isAdminMaster || isUnitAdmin;
@@ -414,7 +444,6 @@ export default function AdminPage() {
 
   const effectiveTab = (!isAdminMaster && activeTab === "units") ? "users" : activeTab;
 
-  const unitMap = Object.fromEntries(units.map((u: any) => [u.id, u.name]));
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
@@ -549,116 +578,23 @@ export default function AdminPage() {
         {/* ── ABA USUÁRIOS ── */}
         {effectiveTab === "users" && canManageUsers && (
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Usuários</h2>
-                <p className="text-sm text-gray-500">Usuários cadastrados no sistema</p>
-              </div>
-              <button
-                onClick={handleNewUser}
-                className="px-4 py-2 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1.5"
-              >
-                <Plus className="h-4 w-4" />
-                Novo Usuário
-              </button>
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Usuários</h2>
+              <p className="text-sm text-gray-500">Usuários organizados por unidade</p>
             </div>
-
-            <div className="bg-white rounded border border-gray-200 overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-gray-50 border-b border-gray-200">
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Nome</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Usuário</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Unidade</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Perfil</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Status</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Expiração</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Último Acesso</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600 text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {usersLoading ? (
-                    <TableRow><TableCell colSpan={8} className="text-center py-8 text-gray-400 text-sm">Carregando...</TableCell></TableRow>
-                  ) : usersList.length === 0 ? (
-                    <TableRow><TableCell colSpan={8} className="text-center py-8 text-gray-400 text-sm">Nenhum usuário encontrado</TableCell></TableRow>
-                  ) : usersList.map((u: any) => {
-                    const isExpired = u.expiration_date && new Date(u.expiration_date) < new Date();
-                    return (
-                      <TableRow key={u.id} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50 ${isExpired ? "opacity-60" : ""}`}>
-                        <TableCell className="py-3 text-sm font-medium text-gray-900">{u.name || "—"}</TableCell>
-                        <TableCell className="py-3 text-sm text-gray-600 font-mono">{u.username || "—"}</TableCell>
-                        <TableCell className="py-3 text-xs text-gray-500">
-                          {u.linked_units && u.linked_units.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {u.linked_units.map((lu: any) => (
-                                <Badge key={lu.unit_id} variant="outline" className="text-xs border-blue-100 text-blue-600 bg-blue-50">
-                                  {lu.unit_name}
-                                </Badge>
-                              ))}
-                            </div>
-                          ) : u.unit_id ? (
-                            <Badge variant="outline" className="text-xs border-blue-100 text-blue-600 bg-blue-50">
-                              {unitMap[u.unit_id] || `#${u.unit_id}`}
-                            </Badge>
-                          ) : (
-                            <span className="text-gray-300">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="py-3">
-                          <Badge variant="outline" className={`text-xs ${ROLE_COLORS[u.role] || ""}`}>
-                            {ROLE_LABELS[u.role] || u.role}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="py-3">
-                          <Badge variant="outline" className={`text-xs ${u.isActive && !isExpired ? "border-green-200 text-green-700 bg-green-50" : "border-gray-200 text-gray-500"}`}>
-                            {isExpired ? "Expirado" : u.isActive ? "Ativo" : "Inativo"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="py-3 text-xs text-gray-500">
-                          {u.expiration_date
-                            ? <span className={isExpired ? "text-red-500 font-medium" : ""}>{new Date(u.expiration_date).toLocaleDateString("pt-BR")}</span>
-                            : <span className="text-gray-300">—</span>}
-                        </TableCell>
-                        <TableCell className="py-3 text-xs text-gray-500">
-                          {u.lastSignedIn ? new Date(u.lastSignedIn).toLocaleString("pt-BR") : "—"}
-                        </TableCell>
-                        <TableCell className="py-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {/* Toggle ativo/inativo direto */}
-                            {u.id !== currentUser?.id && (
-                              <button
-                                title={u.isActive ? "Desativar usuário" : "Ativar usuário"}
-                                onClick={() => toggleUserActive.mutate({ id: u.id, isActive: !u.isActive })}
-                                className={`p-1.5 rounded ${u.isActive ? "text-green-600 hover:bg-green-50" : "text-gray-400 hover:bg-gray-100"}`}
-                              >
-                                {u.isActive ? <Power className="h-3.5 w-3.5" /> : <PowerOff className="h-3.5 w-3.5" />}
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleOpenEditUser(u)}
-                              className="p-1.5 rounded text-gray-500 hover:bg-gray-100"
-                              title="Editar"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
-                            {u.id !== currentUser?.id && isAdminMaster && (
-                              <button
-                                onClick={() => { if (confirm(`Excluir usuário "${u.name || u.username}"?`)) deleteUser.mutate({ id: u.id }); }}
-                                className="p-1.5 rounded text-red-500 hover:bg-red-50"
-                                title="Excluir"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+            <UnitUsersTree
+              nodes={unitAccessTree as any}
+              isLoading={treeLoading}
+              currentUserId={currentUser?.id ?? 0}
+              currentUserRole={currentUser?.role ?? ""}
+              onRefresh={() => { refetchTree(); refetchUsers(); }}
+              onEdit={handleOpenEditUserFromTree}
+              onToggleActive={(userId, isActive) => toggleUserActive.mutate({ id: userId, isActive })}
+              onDelete={(userId) => { if (confirm("Excluir este usuário?")) deleteUser.mutate({ id: userId }); }}
+              onRemoveLink={(userId, unitId) => { if (confirm("Remover vínculo deste usuário com a unidade?")) removeUserUnitLink.mutate({ userId, unitId }); }}
+              onNewUser={handleNewUser}
+              onNewUserForUnit={handleNewUserForUnit}
+            />
           </div>
         )}
 
