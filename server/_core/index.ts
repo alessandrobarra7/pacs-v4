@@ -33,13 +33,28 @@ import helmet from "helmet";
 
 // CRÍTICO 3: Rate limiting para prevenir brute force no login
 const loginRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 10, // máximo de 10 tentativas por IP
+  windowMs: 15 * 60 * 1000,
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
-  skipSuccessfulRequests: true, // não conta tentativas bem-sucedidas
+  skipSuccessfulRequests: true,
 });
+
+// N-03: Middleware que aplica rate limiter mesmo em requisições batch tRPC
+// O path exato /api/trpc/auth.login não cobre batch (/api/trpc/auth.login,auth.me?batch=1)
+function loginRateLimiterBatchAware(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
+  const isBatch = req.query['batch'] === '1';
+  const procedures = req.path.replace('/api/trpc/', '');
+  if (isBatch && procedures.split(',').includes('auth.login')) {
+    return loginRateLimiter(req, res, next);
+  }
+  return next();
+}
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -934,6 +949,8 @@ async function startServer() {
   });
   // CRÍTICO 3: Rate limiting aplicado especificamente na rota de login
   app.use('/api/trpc/auth.login', loginRateLimiter);
+  // N-03: Cobrir requisições batch tRPC que incluem auth.login
+  app.use('/api/trpc', loginRateLimiterBatchAware);
 
   // ── Arquivos estáticos de upload (logos, carimbos, assinaturas) ─────────
   // Servidos diretamente da pasta local /uploads na VM1.

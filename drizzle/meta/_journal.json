@@ -162,6 +162,48 @@
       "when": 1776162979325,
       "tag": "0022_mysterious_hitman",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1776300000000,
+      "tag": "0023_sla_readiness",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1776300060000,
+      "tag": "0024_exam_legends",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1776300120000,
+      "tag": "0025_seed_phrases_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1776300180000,
+      "tag": "0026_billing_cycles_payment",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "5",
+      "when": 1776474000000,
+      "tag": "0027_sch01_billing_visit_events_status_snapshot",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "5",
+      "when": 1776474060000,
+      "tag": "0028_prg03_units_drop_logo_url_duplicate",
+      "breakpoints": true
     }
   ]
 }

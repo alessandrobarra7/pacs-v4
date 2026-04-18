@@ -186,7 +186,10 @@ export async function getUnitBySlug(slug: string) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(units).where(eq(units.slug, slug)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  if (result.length === 0) return undefined;
+  // SEC-04: remover orthanc_basic_pass antes de retornar ao frontend
+  const { orthanc_basic_pass: _pass, ...safe } = result[0];
+  return safe;
 }
 
 export async function createUnit(unit: InsertUnit) {
@@ -1725,24 +1728,13 @@ export async function createBillingVisitEvent(data: {
     .replace(/\^/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
   const studyDate = data.study_date ?? data.signed_at.toISOString().slice(0, 10);
 
-  // Verifica se já existe evento para esse laudo
-  const existing = await db.select().from(billing_visit_events)
-    .where(eq(billing_visit_events.report_key, reportKey)).limit(1);
-
-  if (existing.length > 0) {
-    return { event: existing[0], created: false, doctor_amount_due: existing[0].doctor_amount_due };
-  }
-
-  // Busca ciclos ativos
+  // Busca ciclos ativos (antes do INSERT para evitar race condition)
   const doctorCycle = await getOrCreateActiveCycle(
     data.unit_id, "doctor", data.signed_at, data.financial_responsible_id
   );
   const systemCycle = await getOrCreateActiveCycle(
     data.unit_id, "system", data.signed_at, data.financial_responsible_id
   );
-
-  // Busca preços ativos
-  const { getActiveSystemPrice, getActiveDoctorPrice, getActiveResponsibleForUnit } = await import("./db");
 
   const responsible = data.financial_responsible_id
     ? data.financial_responsible_id
@@ -1781,15 +1773,20 @@ export async function createBillingVisitEvent(data: {
     system_amount_due: systemAmt !== null ? String(systemAmt) : null,
     doctor_amount_due: doctorAmt !== null ? String(doctorAmt) : null,
     pricing_status: pricingStatus,
-  });
+  }).onDuplicateKeyUpdate({ set: { report_key: reportKey } });
 
-  const newId = Number(insertResult[0].insertId);
+  const insertId = Number(insertResult[0].insertId);
 
-  // Atualiza consolidados
+  if (insertId === 0) {
+    const existing = await db.select().from(billing_visit_events)
+      .where(eq(billing_visit_events.report_key, reportKey)).limit(1);
+    return { event: existing[0], created: false, doctor_amount_due: existing[0].doctor_amount_due };
+  }
+
   await updateCycleSummaries(doctorCycle.id, systemCycle.id, data.unit_id, data.doctor_user_id, responsibleId, doctorAmt, systemAmt);
 
   const newEvent = await db.select().from(billing_visit_events)
-    .where(eq(billing_visit_events.id, newId)).limit(1);
+    .where(eq(billing_visit_events.id, insertId)).limit(1);
   return { event: newEvent[0], created: true, doctor_amount_due: doctorAmt !== null ? String(doctorAmt) : null };
 }
 

@@ -1374,3 +1374,11 @@
 - [x] PRG-03: Remover coluna logoUrl duplicada do schema e banco (manter logo_url canônico)
 - [x] SCH-02/N-02: Documentar migrations manual_* em MIGRATIONS_README.md com estratégia de integração
 - [x] SEC-04: Ocultar orthanc_basic_pass nas queries getAllUnits e getUnitById (não exposto ao frontend)
+
+## Auditoria v3 — Correções Pendentes
+
+- [x] N-01: Adicionar migrations 0023-0028 ao _journal.json
+- [x] SCH-02: Mover arquivos manual_* para drizzle/archive/ e atualizar MIGRATIONS_README.md
+- [x] N-02: Corrigir race condition em createBillingVisitEvent (INSERT ON DUPLICATE KEY UPDATE)
+- [x] SEC-04: Sanitizar getUnitBySlug para omitir orthanc_basic_pass
+- [x] N-03: Adicionar middleware loginRateLimiterBatchAware para cobrir requisições batch tRPC
