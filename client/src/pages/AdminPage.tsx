@@ -14,8 +14,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 import UnitFormDialog, { type UnitFormData } from "@/components/UnitFormDialog";
 import UserFormDialog, { type UserFormData } from "@/components/UserFormDialog";
-import UnitUsersTree from "@/components/UnitUsersTree";
-import { type UnitUser } from "@/components/UnitUserRow";
+import { UserExplorerLayout } from "@/components/UserExplorerLayout";
 
 type Tab = "units" | "users" | "audit" | "cache";
 
@@ -411,12 +410,12 @@ export default function AdminPage() {
     setUserDialogOpen(true);
   };
 
-  const handleNewUserForUnit = (_unitId: number, _unitName: string) => {
+  const handleNewUserForUnit = (_unitId: number, _unitName?: string) => {
     setEditingUser(null);
     setUserDialogOpen(true);
   };
 
-  const handleOpenEditUserFromTree = (u: UnitUser) => {
+  const handleOpenEditUserFromTree = (u: any) => {
     setEditingUser({
       id: u.id,
       name: u.name || "",
@@ -577,25 +576,14 @@ export default function AdminPage() {
 
         {/* ── ABA USUÁRIOS ── */}
         {effectiveTab === "users" && canManageUsers && (
-          <div>
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Usuários</h2>
-              <p className="text-sm text-gray-500">Usuários organizados por unidade</p>
-            </div>
-            <UnitUsersTree
-              nodes={unitAccessTree as any}
-              isLoading={treeLoading}
-              currentUserId={currentUser?.id ?? 0}
-              currentUserRole={currentUser?.role ?? ""}
-              onRefresh={() => { refetchTree(); refetchUsers(); }}
-              onEdit={handleOpenEditUserFromTree}
-              onToggleActive={(userId, isActive) => toggleUserActive.mutate({ id: userId, isActive })}
-              onDelete={(userId) => { if (confirm("Excluir este usuário?")) deleteUser.mutate({ id: userId }); }}
-              onRemoveLink={(userId, unitId) => { if (confirm("Remover vínculo deste usuário com a unidade?")) removeUserUnitLink.mutate({ userId, unitId }); }}
-              onNewUser={handleNewUser}
-              onNewUserForUnit={handleNewUserForUnit}
-            />
-          </div>
+          <UserExplorerLayout
+            onNewUser={(unitId) => unitId ? handleNewUserForUnit(unitId) : handleNewUser()}
+            onEditUser={handleOpenEditUserFromTree}
+            onEditUnit={(unitId) => {
+              const u = units.find((x: any) => x.id === unitId);
+              if (u) handleOpenEditUnit(u);
+            }}
+          />
         )}
 
         {/* ── ABA AUDITORIA ── */}

@@ -1398,3 +1398,9 @@
 - [ ] FE: Filtros (busca por unidade, busca por usuário, só ativas, só com médicos, sem resp. financeiro)
 - [ ] FE: Ações contextuais (Novo usuário nesta unidade, Vincular existente, Remover vínculo)
 - [ ] FE: Abertura contextual do UserFormDialog com unidade pré-selecionada
+
+## Explorer Hierárquico — Aba Usuários (Master-Detail)
+- [ ] EXPLORER-01: Criar endpoint admin.getUserExplorerTree com dados agrupados por unidade/grupo
+- [ ] EXPLORER-02: Criar componentes UserExplorerLayout, UserTreeSidebar, UserTreeNode
+- [ ] EXPLORER-03: Criar painéis UnitSummaryPanel, RoleGroupPanel, UserDetailPanel
+- [ ] EXPLORER-04: Integrar ao AdminPage substituindo UnitUsersTree pelo Explorer
