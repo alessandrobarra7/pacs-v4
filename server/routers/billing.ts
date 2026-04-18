@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb } from "../db";
 // PRG-05: imports estáticos para módulos usados repetidamente
-import { eq, and, ne, inArray, desc, sql as sqlFn, isNull, gte, lte, or } from 'drizzle-orm';
+import { eq, and, ne, inArray, desc, sql as sqlFn, isNull, gte, lte, or, SQL } from 'drizzle-orm';
 import {
   getResponsibleIdForUser,
   getResponsibleCycleSummary,
@@ -623,7 +623,7 @@ export const billingRouter = router({
             .where(and(
               eq(financial_responsible_units.unit_id, ul.unit_id),
               lte(financial_responsible_units.starts_at, now),
-              or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, now))
+              or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at, now))
             ))
             .orderBy(desc(financial_responsible_units.starts_at))
             .limit(1);
@@ -987,7 +987,7 @@ export const billingRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
         
         
-        const conditions: any[] = [eq(billing_cycles.cycle_type, 'system')];
+        const conditions: SQL[] = [eq(billing_cycles.cycle_type, 'system')];
         if (input?.cycleStatus && input.cycleStatus !== 'all') conditions.push(eq(billing_cycles.status, input.cycleStatus as 'open' | 'closed'));
         if (input?.paidStatus && input.paidStatus !== 'all') conditions.push(eq(billing_cycles.paid_status, input.paidStatus as 'pending' | 'paid'));
         if (input?.unitId) conditions.push(eq(billing_cycles.unit_id, input.unitId));
@@ -1093,12 +1093,12 @@ export const billingRouter = router({
             .where(and(
               eq(financial_responsible_units.financial_responsible_id, myRespId),
               lte(financial_responsible_units.starts_at, now),
-              or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, now))
+              or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at, now))
             ));
           allowedUnitIds = unitLinks.map(u => u.unit_id);
           if (allowedUnitIds.length === 0) return [];
         }
-        const conditions: any[] = [];
+        const conditions: SQL[] = [];
         if (targetDoctorId) conditions.push(eq(billing_visit_events.doctor_user_id, targetDoctorId));
         if (allowedUnitIds) conditions.push(inArray(billing_visit_events.unit_id, allowedUnitIds));
         if (input?.unitId) conditions.push(eq(billing_visit_events.unit_id, input.unitId));
@@ -1169,7 +1169,7 @@ export const billingRouter = router({
           const resp = await db.select({ id: financial_responsible_users.financial_responsible_id }).from(financial_responsible_users).where(eq(financial_responsible_users.user_id, ctx.user.id)).limit(1);
           targetResponsibleId = resp[0]?.id;
         }
-        const conditions: any[] = [];
+        const conditions: SQL[] = [];
         // LOG-05: excluir eventos de ciclos já pagos do grand_total
         conditions.push(ne(billing_cycles.paid_status, 'paid'));
         if (input?.cycleId) conditions.push(eq(billing_visit_events.doctor_cycle_id, input.cycleId));

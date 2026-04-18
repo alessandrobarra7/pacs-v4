@@ -1,8 +1,9 @@
 import { drizzle } from "drizzle-orm/mysql2";
-import { or, and, eq, like, inArray } from "drizzle-orm";
+import { or, and, eq, like, inArray, SQL, ne, gte, lte, isNull, desc, sql as drizzleSql2, count as drizzleCount, or as _or, and as _and, eq as _eq, lte as _lte, gte as _gte, ne as _ne, inArray as _inArray, isNull as isNullFn, desc as _desc } from "drizzle-orm";
 import { 
   InsertUser, 
   users, 
+  users as usersTable,
   units, 
   InsertUnit,
   studies_cache,
@@ -24,6 +25,27 @@ import {
   billing_visit_events,
   billing_cycle_doctor_summary,
   billing_cycle_system_summary,
+  user_unit_permissions,
+  phrase_groups,
+  phrases,
+  financial_responsibles,
+  InsertFinancialResponsible,
+  financial_responsible_units,
+  financial_responsible_users,
+  billing_system_unit_prices,
+  billing_doctor_unit_prices,
+  billing_report_items,
+  billing_monthly_doctor_by_unit,
+  billing_monthly_system_by_unit,
+  FinancialResponsible,
+  FinancialResponsibleUser,
+  FinancialResponsibleUnit,
+  BillingSystemUnitPrice,
+  BillingDoctorUnitPrice,
+  BillingReportItem,
+  InsertBillingReportItem,
+  BillingMonthlySystemByUnit,
+  BillingMonthlyDoctorByUnit,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -238,12 +260,10 @@ export async function getStudiesByUnitId(unitId: number, filters?: {
     conditions.push(like(studies_cache.accession_number, `%${filters.accession_number}%`));
   }
   
-  let query = db.select().from(studies_cache).where(and(...conditions)) as any;
-  
-  if (filters?.limit) query = query.limit(filters.limit);
-  if (filters?.offset) query = query.offset(filters.offset);
-  
-  return await query;
+  let q = db.select().from(studies_cache).where(and(...conditions));
+  if (filters?.limit) q = q.limit(filters.limit) as typeof q;
+  if (filters?.offset) q = q.offset(filters.offset) as typeof q;
+  return await q;
 }
 
 export async function getStudyById(id: number, unitId?: number, unitIds?: number[]) {
@@ -251,7 +271,7 @@ export async function getStudyById(id: number, unitId?: number, unitIds?: number
   if (!db) return undefined;
   // E4: sem acesso a nenhuma unidade
   if (unitIds !== undefined && unitIds.length === 0) return undefined;
-  const conditions: any[] = [eq(studies_cache.id, id)];
+  const conditions: SQL[] = [eq(studies_cache.id, id)];
   if (unitId !== undefined) conditions.push(eq(studies_cache.unit_id, unitId));
   else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(studies_cache.unit_id, unitIds));
   const result = await db.select().from(studies_cache).where(and(...conditions)).limit(1);
@@ -271,7 +291,7 @@ export async function getStudyByInstanceUid(studyInstanceUid: string, unitId?: n
   if (!db) return undefined;
   // E4: sem acesso a nenhuma unidade
   if (unitIds !== undefined && unitIds.length === 0) return undefined;
-  const conditions: any[] = [eq(studies_cache.study_instance_uid, studyInstanceUid)];
+  const conditions: SQL[] = [eq(studies_cache.study_instance_uid, studyInstanceUid)];
   if (unitId !== undefined) conditions.push(eq(studies_cache.unit_id, unitId));
   else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(studies_cache.unit_id, unitIds));
   const result = await db.select().from(studies_cache).where(and(...conditions)).limit(1);
@@ -329,7 +349,7 @@ export async function getReportByStudyId(studyId: number, unitId?: number, unitI
   if (!db) return undefined;
   // E4: sem acesso a nenhuma unidade
   if (unitIds !== undefined && unitIds.length === 0) return undefined;
-  const conditions: any[] = [eq(reports.study_id, studyId)];
+  const conditions: SQL[] = [eq(reports.study_id, studyId)];
   if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
   else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
   const result = await db.select().from(reports).where(and(...conditions)).limit(1);
@@ -341,7 +361,7 @@ export async function getReportById(id: number, unitId?: number, unitIds?: numbe
   if (!db) return undefined;
   // E4: sem acesso a nenhuma unidade
   if (unitIds !== undefined && unitIds.length === 0) return undefined;
-  const conditions: any[] = [eq(reports.id, id)];
+  const conditions: SQL[] = [eq(reports.id, id)];
   if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
   else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
   const result = await db.select().from(reports).where(and(...conditions)).limit(1);
@@ -388,7 +408,7 @@ export async function getReportStatusByStudyUids(
 
   // E4: suporte a médico multiunidade (unit_id null) via inArray
   if (unitIds !== undefined && unitIds.length === 0) return {}; // sem acesso
-  const conditions: any[] = [inArray(reports.study_instance_uid, studyUids)];
+  const conditions: SQL[] = [inArray(reports.study_instance_uid, studyUids)];
   if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
   else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
 
@@ -598,8 +618,6 @@ export async function upsertStudyMetadata(data: {
 export async function getUserUnitPermissions(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { user_unit_permissions } = await import("../drizzle/schema");
-  const { eq } = await import("drizzle-orm");
   return db.select().from(user_unit_permissions).where(eq(user_unit_permissions.user_id, userId));
 }
 
@@ -607,8 +625,6 @@ export async function getUserUnitPermissions(userId: number) {
 export async function getUserUnitPermission(userId: number, unitId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { user_unit_permissions } = await import("../drizzle/schema");
-  const { eq, and } = await import("drizzle-orm");
   const rows = await db
     .select()
     .from(user_unit_permissions)
@@ -675,8 +691,6 @@ export async function setUserUnitPermissions(
 ): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { user_unit_permissions } = await import("../drizzle/schema");
-  const { eq } = await import("drizzle-orm");
 
   // Remove todas as permissões existentes do usuário
   await db.delete(user_unit_permissions).where(eq(user_unit_permissions.user_id, userId));
@@ -700,7 +714,6 @@ export async function setUserUnitPermissions(
   // Se o usuário tem exatamente 1 unidade vinculada, define como unit_id principal.
   // Se tem múltiplas, verifica se o unit_id atual ainda é válido; se não, usa o primeiro.
   // Se não tem nenhuma, limpa o unit_id.
-  const { users: usersTable } = await import("../drizzle/schema");
   if (permissions.length === 0) {
     await db.update(usersTable).set({ unit_id: null }).where(eq(usersTable.id, userId));
   } else if (permissions.length === 1) {
@@ -722,8 +735,6 @@ export async function setUserUnitPermissions(
 export async function listPhraseGroups(userId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { phrase_groups } = await import("../drizzle/schema");
-  const { eq, or, and } = await import("drizzle-orm");
   const where = userId
     ? or(eq(phrase_groups.is_global, true), eq(phrase_groups.created_by_user_id, userId))
     : eq(phrase_groups.is_global, true);
@@ -735,7 +746,6 @@ export async function listPhraseGroups(userId?: number) {
 export async function createPhraseGroup(data: { name: string; color?: string; userId: number }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { phrase_groups } = await import("../drizzle/schema");
   const [result] = await db.insert(phrase_groups).values({
     name: data.name,
     color: data.color ?? "blue",
@@ -750,8 +760,6 @@ export async function createPhraseGroup(data: { name: string; color?: string; us
 export async function listPhrases(userId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { phrases } = await import("../drizzle/schema");
-  const { eq, or, and } = await import("drizzle-orm");
   const where = userId
     ? or(eq(phrases.is_global, true), eq(phrases.user_id, userId))
     : eq(phrases.is_global, true);
@@ -763,7 +771,6 @@ export async function listPhrases(userId?: number) {
 export async function createPhrase(data: { groupId: number; userId: number; content: string }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { phrases } = await import("../drizzle/schema");
   const [result] = await db.insert(phrases).values({
     group_id: data.groupId,
     user_id: data.userId,
@@ -778,8 +785,6 @@ export async function createPhrase(data: { groupId: number; userId: number; cont
 export async function deletePhrase(phraseId: number, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { phrases } = await import("../drizzle/schema");
-  const { eq, and } = await import("drizzle-orm");
   await db.update(phrases).set({ isActive: false })
     .where(and(eq(phrases.id, phraseId), eq(phrases.user_id, userId)));
 }
@@ -787,8 +792,6 @@ export async function deletePhrase(phraseId: number, userId: number) {
 export async function togglePhrasesFavorite(phraseId: number, userId: number, isFavorite: boolean) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { phrases } = await import("../drizzle/schema");
-  const { eq, and, or } = await import("drizzle-orm");
   await db.update(phrases).set({ is_favorite: isFavorite })
     .where(and(eq(phrases.id, phraseId), or(eq(phrases.user_id, userId), eq(phrases.is_global, true))));
 }
@@ -797,8 +800,6 @@ export async function togglePhrasesFavorite(phraseId: number, userId: number, is
 export async function updateUserMedicalData(userId: number, data: { crm?: string; signature_url?: string | null; stamp_url?: string | null }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { users } = await import("../drizzle/schema");
-  const { eq } = await import("drizzle-orm");
   await db.update(users).set(data).where(eq(users.id, userId));
 }
 
@@ -806,8 +807,6 @@ export async function updateUserMedicalData(userId: number, data: { crm?: string
 export async function updateUnitLogo(unitId: number, logoUrl: string | null) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { units } = await import("../drizzle/schema");
-  const { eq } = await import("drizzle-orm");
   await db.update(units).set({ logo_url: logoUrl }).where(eq(units.id, unitId));
 }
 
@@ -819,40 +818,19 @@ export async function updateUnitLogo(unitId: number, logoUrl: string | null) {
 //          billing_doctor_unit_prices, billing_report_items,
 //          billing_monthly_system_by_unit, billing_monthly_doctor_by_unit
 
-import {
-  financial_responsibles,
-  financial_responsible_users,
-  financial_responsible_units,
-  billing_system_unit_prices,
-  billing_doctor_unit_prices,
-  billing_report_items,
-  billing_monthly_system_by_unit,
-  billing_monthly_doctor_by_unit,
-  FinancialResponsible,
-  InsertFinancialResponsible,
-  FinancialResponsibleUser,
-  FinancialResponsibleUnit,
-  BillingSystemUnitPrice,
-  BillingDoctorUnitPrice,
-  BillingReportItem,
-  InsertBillingReportItem,
-  BillingMonthlySystemByUnit,
-  BillingMonthlyDoctorByUnit,
-} from "../drizzle/schema";
+
 
 // ─── Responsáveis Financeiros ─────────────────────────────────────────────────
 
 export async function listFinancialResponsibles(): Promise<FinancialResponsible[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { eq } = await import("drizzle-orm");
   return db.select().from(financial_responsibles).orderBy(financial_responsibles.legal_name);
 }
 
 export async function getFinancialResponsibleById(id: number): Promise<FinancialResponsible | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { eq } = await import("drizzle-orm");
   const rows = await db.select().from(financial_responsibles).where(eq(financial_responsibles.id, id)).limit(1);
   return rows[0];
 }
@@ -861,13 +839,12 @@ export async function createFinancialResponsible(data: InsertFinancialResponsibl
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const result = await db.insert(financial_responsibles).values(data);
-  return (result[0] as any).insertId as number;
+  return result[0].insertId as number;
 }
 
 export async function updateFinancialResponsible(id: number, data: Partial<InsertFinancialResponsible>): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { eq } = await import("drizzle-orm");
   await db.update(financial_responsibles).set(data).where(eq(financial_responsibles.id, id));
 }
 
@@ -882,14 +859,12 @@ export async function linkUserToResponsible(financialResponsibleId: number, user
 export async function unlinkUserFromResponsible(financialResponsibleId: number, userId: number): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq } = await import("drizzle-orm");
   await db.delete(financial_responsible_users).where(and(eq(financial_responsible_users.financial_responsible_id, financialResponsibleId), eq(financial_responsible_users.user_id, userId)));
 }
 
 export async function getResponsibleIdForUser(userId: number): Promise<number | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { eq } = await import("drizzle-orm");
   const rows = await db.select({ id: financial_responsible_users.financial_responsible_id }).from(financial_responsible_users).where(eq(financial_responsible_users.user_id, userId)).limit(1);
   return rows[0]?.id;
 }
@@ -897,7 +872,6 @@ export async function getResponsibleIdForUser(userId: number): Promise<number | 
 export async function listUsersForResponsible(financialResponsibleId: number): Promise<FinancialResponsibleUser[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { eq } = await import("drizzle-orm");
   return db.select().from(financial_responsible_users).where(eq(financial_responsible_users.financial_responsible_id, financialResponsibleId));
 }
 
@@ -905,7 +879,6 @@ export async function listUsersForResponsible(financialResponsibleId: number): P
 export async function linkUnitToResponsible(financialResponsibleId: number, unitId: number, startsAt: Date, endsAt?: Date, createdBy?: number): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq, isNull, or, gte } = await import("drizzle-orm");
 
   // Encerrar automaticamente qualquer vigência ativa anterior para essa unidade
   const existing = await getActiveResponsibleForUnit(unitId, startsAt);
@@ -931,7 +904,6 @@ export async function linkUnitToResponsible(financialResponsibleId: number, unit
 export async function getActiveResponsibleForUnit(unitId: number, atDate?: Date): Promise<FinancialResponsibleUnit | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq, isNull, or, lte, gte, desc } = await import("drizzle-orm");
   const at = atDate ?? new Date();
   // Regra correta: starts_at <= data E (ends_at IS NULL OU ends_at >= data)
   // Ordenar starts_at DESC para pegar a vigência mais recente
@@ -939,7 +911,7 @@ export async function getActiveResponsibleForUnit(unitId: number, atDate?: Date)
     .where(and(
       eq(financial_responsible_units.unit_id, unitId),
       lte(financial_responsible_units.starts_at, at),
-      or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, at))
+      or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at, at))
     ))
     .orderBy(desc(financial_responsible_units.starts_at))
     .limit(1);
@@ -949,7 +921,6 @@ export async function getActiveResponsibleForUnit(unitId: number, atDate?: Date)
 export async function listUnitsForResponsible(financialResponsibleId: number): Promise<FinancialResponsibleUnit[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { eq, isNull } = await import("drizzle-orm");
   return db.select().from(financial_responsible_units)
     .where(eq(financial_responsible_units.financial_responsible_id, financialResponsibleId));
 }
@@ -960,7 +931,6 @@ export async function listUnitsForResponsible(financialResponsibleId: number): P
 export async function getActiveSystemPrice(financialResponsibleId: number, unitId: number, atDate?: Date): Promise<BillingSystemUnitPrice | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq, isNull, or, lte, gte, desc } = await import("drizzle-orm");
   const at = atDate ?? new Date();
   // Regra correta: starts_at <= data E (ends_at IS NULL OU ends_at >= data)
   // Ordenar starts_at DESC para pegar a vigência mais recente
@@ -969,7 +939,7 @@ export async function getActiveSystemPrice(financialResponsibleId: number, unitI
       eq(billing_system_unit_prices.financial_responsible_id, financialResponsibleId),
       eq(billing_system_unit_prices.unit_id, unitId),
       lte(billing_system_unit_prices.starts_at, at),
-      or(isNull(billing_system_unit_prices.ends_at), gte(billing_system_unit_prices.ends_at as any, at))
+      or(isNull(billing_system_unit_prices.ends_at), gte(billing_system_unit_prices.ends_at, at))
     ))
     .orderBy(desc(billing_system_unit_prices.starts_at))
     .limit(1);
@@ -979,7 +949,6 @@ export async function getActiveSystemPrice(financialResponsibleId: number, unitI
 export async function listSystemPricesForUnit(financialResponsibleId: number, unitId: number): Promise<BillingSystemUnitPrice[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq } = await import("drizzle-orm");
   return db.select().from(billing_system_unit_prices)
     .where(and(
       eq(billing_system_unit_prices.financial_responsible_id, financialResponsibleId),
@@ -998,7 +967,6 @@ export async function upsertSystemUnitPrice(data: {
 }): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq } = await import("drizzle-orm");
 
   // Encerrar automaticamente qualquer preço ativo anterior para esse responsável/unidade
   const existing = await getActiveSystemPrice(data.financial_responsible_id, data.unit_id, data.starts_at);
@@ -1010,7 +978,7 @@ export async function upsertSystemUnitPrice(data: {
   }
 
   const result = await db.insert(billing_system_unit_prices).values(data);
-  return (result[0] as any).insertId as number;
+  return result[0].insertId as number;
 }
 
 // ─── Preços do Médico por Unidade ─────────────────────────────────────────────
@@ -1018,7 +986,6 @@ export async function upsertSystemUnitPrice(data: {
 export async function getActiveDoctorPrice(financialResponsibleId: number, unitId: number, doctorUserId: number, atDate?: Date): Promise<BillingDoctorUnitPrice | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq, isNull, or, lte, gte, desc } = await import("drizzle-orm");
   const at = atDate ?? new Date();
   // Regra correta: starts_at <= data E (ends_at IS NULL OU ends_at >= data)
   // Ordenar starts_at DESC para pegar a vigência mais recente
@@ -1028,7 +995,7 @@ export async function getActiveDoctorPrice(financialResponsibleId: number, unitI
       eq(billing_doctor_unit_prices.unit_id, unitId),
       eq(billing_doctor_unit_prices.doctor_user_id, doctorUserId),
       lte(billing_doctor_unit_prices.starts_at, at),
-      or(isNull(billing_doctor_unit_prices.ends_at), gte(billing_doctor_unit_prices.ends_at as any, at))
+      or(isNull(billing_doctor_unit_prices.ends_at), gte(billing_doctor_unit_prices.ends_at, at))
     ))
     .orderBy(desc(billing_doctor_unit_prices.starts_at))
     .limit(1);
@@ -1038,7 +1005,6 @@ export async function getActiveDoctorPrice(financialResponsibleId: number, unitI
 export async function listDoctorPricesForUnit(financialResponsibleId: number, unitId: number): Promise<BillingDoctorUnitPrice[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq } = await import("drizzle-orm");
   return db.select().from(billing_doctor_unit_prices)
     .where(and(
       eq(billing_doctor_unit_prices.financial_responsible_id, financialResponsibleId),
@@ -1058,7 +1024,6 @@ export async function upsertDoctorUnitPrice(data: {
 }): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { eq } = await import("drizzle-orm");
 
   // Encerrar automaticamente qualquer preço ativo anterior para esse responsável/unidade/médico
   const existing = await getActiveDoctorPrice(data.financial_responsible_id, data.unit_id, data.doctor_user_id, data.starts_at);
@@ -1070,7 +1035,7 @@ export async function upsertDoctorUnitPrice(data: {
   }
 
   const result = await db.insert(billing_doctor_unit_prices).values(data);
-  return (result[0] as any).insertId as number;
+  return result[0].insertId as number;
 }
 
 // ─── Itens de Apuração (billing_report_items) ─────────────────────────────────
@@ -1104,9 +1069,8 @@ export async function listBillingReportItems(filters: {
 }): Promise<(BillingReportItem & { patient_name?: string | null; study_description?: string | null; doctor_name?: string | null })[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq } = await import("drizzle-orm");
 
-  const conditions: any[] = [
+  const conditions: SQL[] = [
     eq(billing_report_items.competence_year, filters.competence_year),
     eq(billing_report_items.competence_month, filters.competence_month),
   ];
@@ -1150,7 +1114,6 @@ export async function calculateCompetence(year: number, month: number, createdBy
 }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq, inArray, isNull, or, lte } = await import("drizzle-orm");
 
   // Intervalo da competência em UTC
   const start = new Date(Date.UTC(year, month - 1, 1));
@@ -1161,7 +1124,7 @@ export async function calculateCompetence(year: number, month: number, createdBy
     .where(and(
       inArray(reports.status, ["signed", "revised"]),
       lte(reports.signedAt, end),
-      lte(start as any, reports.signedAt as any),
+      gte(reports.signedAt, start),
     ));
 
   // Filtrar pelo mês correto (signedAt >= start e < end)
@@ -1225,8 +1188,8 @@ export async function calculateCompetence(year: number, month: number, createdBy
 
       if (pricingStatus === "ok") ok++;
       else pending++;
-    } catch (e: any) {
-      errors.push(`report ${report.id}: ${e.message}`);
+    } catch (e: unknown) {
+      errors.push(`report ${report.id}: ${e instanceof Error ? e.message : String(e)}`);
       pending++;
     }
   }
@@ -1244,7 +1207,6 @@ export async function calculateCompetence(year: number, month: number, createdBy
 async function recalculateMonthlyConsolidates(year: number, month: number, closedBy: number): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq, ne } = await import("drizzle-orm");
 
   const items = await db.select().from(billing_report_items)
     .where(and(
@@ -1344,7 +1306,6 @@ async function recalculateMonthlyConsolidates(year: number, month: number, close
 export async function closeCompetence(financialResponsibleId: number, year: number, month: number, closedBy: number): Promise<{ success: boolean; reason?: string }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq } = await import("drizzle-orm");
 
   // Verificar se há itens pendentes
   const pending = await db.select().from(billing_report_items)
@@ -1382,7 +1343,6 @@ export async function closeCompetence(financialResponsibleId: number, year: numb
 export async function reopenCompetence(financialResponsibleId: number, year: number, month: number): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq } = await import("drizzle-orm");
 
   await db.update(billing_monthly_system_by_unit)
     .set({ status: "open", closedAt: null, closedBy: null })
@@ -1406,7 +1366,6 @@ export async function reopenCompetence(financialResponsibleId: number, year: num
 export async function getMonthlySystemSummary(financialResponsibleId: number, year: number, month: number): Promise<BillingMonthlySystemByUnit[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq } = await import("drizzle-orm");
   return db.select().from(billing_monthly_system_by_unit)
     .where(and(
       eq(billing_monthly_system_by_unit.financial_responsible_id, financialResponsibleId),
@@ -1418,7 +1377,6 @@ export async function getMonthlySystemSummary(financialResponsibleId: number, ye
 export async function getMonthlyDoctorSummary(financialResponsibleId: number, year: number, month: number): Promise<BillingMonthlyDoctorByUnit[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq } = await import("drizzle-orm");
   return db.select().from(billing_monthly_doctor_by_unit)
     .where(and(
       eq(billing_monthly_doctor_by_unit.financial_responsible_id, financialResponsibleId),
@@ -1430,7 +1388,6 @@ export async function getMonthlyDoctorSummary(financialResponsibleId: number, ye
 export async function getDoctorMonthlySummary(doctorUserId: number, year: number, month: number): Promise<BillingMonthlyDoctorByUnit[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq } = await import("drizzle-orm");
   return db.select().from(billing_monthly_doctor_by_unit)
     .where(and(
       eq(billing_monthly_doctor_by_unit.doctor_user_id, doctorUserId),
@@ -1459,7 +1416,6 @@ export async function getAdminConsolidated(year: number, month: number): Promise
 }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and, eq, ne } = await import("drizzle-orm");
 
   const responsibles = await listFinancialResponsibles();
   const result = [];
@@ -1562,7 +1518,6 @@ export async function getAdminConsolidated(year: number, month: number): Promise
 }
 // ─── Billing Cycle Helpers (V3 Operacional) ──────────────────────────────────
 
-import { gte, lte, isNull, desc, sql as drizzleSql } from "drizzle-orm";
 
 /**
  * Retorna a configuração de ciclo de uma unidade.
@@ -1657,8 +1612,8 @@ export async function getOrCreateActiveCycle(
       eq(billing_cycles.unit_id, unitId),
       eq(billing_cycles.cycle_type, cycleType),
       eq(billing_cycles.status, "open"),
-      drizzleSql`${billing_cycles.starts_at} <= ${refDateStr}`,
-      drizzleSql`${billing_cycles.ends_at} >= ${refDateStr}`,
+      drizzleSql2`${billing_cycles.starts_at} <= ${refDateStr}`,
+      drizzleSql2`${billing_cycles.ends_at} >= ${refDateStr}`,
     )
   ).limit(1);
 
@@ -1677,7 +1632,7 @@ export async function getOrCreateActiveCycle(
     and(
       eq(billing_cycles.unit_id, unitId),
       eq(billing_cycles.cycle_type, cycleType),
-      drizzleSql`${billing_cycles.starts_at} = ${starts_at}`,
+      drizzleSql2`${billing_cycles.starts_at} = ${starts_at}`,
     )
   ).limit(1);
 
@@ -1696,7 +1651,7 @@ export async function getOrCreateActiveCycle(
     status: "open",
     total_reports: 0,
     total_amount: "0.00",
-  } as any);
+  });
 
   const newId = Number(result[0].insertId);
   const newCycle = await db.select().from(billing_cycles).where(eq(billing_cycles.id, newId)).limit(1);
@@ -1819,9 +1774,9 @@ async function updateCycleSummaries(
     pending_pricing_count: isPendingDoctor,
   }).onDuplicateKeyUpdate({
     set: {
-      reports_count: drizzleSql`reports_count + 1`,
-      amount_due: drizzleSql`amount_due + ${doctorAmtStr}`,
-      pending_pricing_count: drizzleSql`pending_pricing_count + ${isPendingDoctor}`,
+      reports_count: drizzleSql2`reports_count + 1`,
+      amount_due: drizzleSql2`amount_due + ${doctorAmtStr}`,
+      pending_pricing_count: drizzleSql2`pending_pricing_count + ${isPendingDoctor}`,
     },
   });
 
@@ -1838,21 +1793,21 @@ async function updateCycleSummaries(
     pending_pricing_count: isPendingSystem,
   }).onDuplicateKeyUpdate({
     set: {
-      reports_count: drizzleSql`reports_count + 1`,
-      amount_due: drizzleSql`amount_due + ${systemAmtStr}`,
-      pending_pricing_count: drizzleSql`pending_pricing_count + ${isPendingSystem}`,
+      reports_count: drizzleSql2`reports_count + 1`,
+      amount_due: drizzleSql2`amount_due + ${systemAmtStr}`,
+      pending_pricing_count: drizzleSql2`pending_pricing_count + ${isPendingSystem}`,
     },
   });
 
   // Atualiza totais do ciclo
   await db.update(billing_cycles).set({
-    total_reports: drizzleSql`total_reports + 1`,
-    total_amount: drizzleSql`total_amount + ${doctorAmtStr}`,
+    total_reports: drizzleSql2`total_reports + 1`,
+    total_amount: drizzleSql2`total_amount + ${doctorAmtStr}`,
   }).where(eq(billing_cycles.id, doctorCycleId));
 
   await db.update(billing_cycles).set({
-    total_reports: drizzleSql`total_reports + 1`,
-    total_amount: drizzleSql`total_amount + ${systemAmtStr}`,
+    total_reports: drizzleSql2`total_reports + 1`,
+    total_amount: drizzleSql2`total_amount + ${systemAmtStr}`,
   }).where(eq(billing_cycles.id, systemCycleId));
 }
 
@@ -1882,9 +1837,9 @@ export async function removeVisitEventForReport(reportId: number) {
   // Decrementar billing_cycle_doctor_summary
   if (evt.doctor_cycle_id) {
     await db.update(billing_cycle_doctor_summary).set({
-      reports_count: drizzleSql`GREATEST(0, reports_count - 1)`,
-      amount_due: drizzleSql`GREATEST(0, amount_due - ${doctorAmtStr})`,
-      pending_pricing_count: drizzleSql`GREATEST(0, pending_pricing_count - ${isPendingDoctor})`,
+      reports_count: drizzleSql2`GREATEST(0, reports_count - 1)`,
+      amount_due: drizzleSql2`GREATEST(0, amount_due - ${doctorAmtStr})`,
+      pending_pricing_count: drizzleSql2`GREATEST(0, pending_pricing_count - ${isPendingDoctor})`,
     }).where(
       and(
         eq(billing_cycle_doctor_summary.doctor_cycle_id, evt.doctor_cycle_id),
@@ -1895,17 +1850,17 @@ export async function removeVisitEventForReport(reportId: number) {
 
     // Decrementar billing_cycles (doctor)
     await db.update(billing_cycles).set({
-      total_reports: drizzleSql`GREATEST(0, total_reports - 1)`,
-      total_amount: drizzleSql`GREATEST(0, total_amount - ${doctorAmtStr})`,
+      total_reports: drizzleSql2`GREATEST(0, total_reports - 1)`,
+      total_amount: drizzleSql2`GREATEST(0, total_amount - ${doctorAmtStr})`,
     }).where(eq(billing_cycles.id, evt.doctor_cycle_id));
   }
 
   // Decrementar billing_cycle_system_summary
   if (evt.system_cycle_id) {
     await db.update(billing_cycle_system_summary).set({
-      reports_count: drizzleSql`GREATEST(0, reports_count - 1)`,
-      amount_due: drizzleSql`GREATEST(0, amount_due - ${systemAmtStr})`,
-      pending_pricing_count: drizzleSql`GREATEST(0, pending_pricing_count - ${isPendingSystem})`,
+      reports_count: drizzleSql2`GREATEST(0, reports_count - 1)`,
+      amount_due: drizzleSql2`GREATEST(0, amount_due - ${systemAmtStr})`,
+      pending_pricing_count: drizzleSql2`GREATEST(0, pending_pricing_count - ${isPendingSystem})`,
     }).where(
       and(
         eq(billing_cycle_system_summary.system_cycle_id, evt.system_cycle_id),
@@ -1915,8 +1870,8 @@ export async function removeVisitEventForReport(reportId: number) {
 
     // Decrementar billing_cycles (system)
     await db.update(billing_cycles).set({
-      total_reports: drizzleSql`GREATEST(0, total_reports - 1)`,
-      total_amount: drizzleSql`GREATEST(0, total_amount - ${systemAmtStr})`,
+      total_reports: drizzleSql2`GREATEST(0, total_reports - 1)`,
+      total_amount: drizzleSql2`GREATEST(0, total_amount - ${systemAmtStr})`,
     }).where(eq(billing_cycles.id, evt.system_cycle_id));
   }
 
@@ -1933,7 +1888,6 @@ export async function getDoctorFinancialSummary(doctorUserId: number) {
   if (!db) return { currentCycles: [], history: [], totalOpen: "0.00", totalUnits: 0 };
 
   // Ciclos abertos do médico com nome da unidade
-  const { isNull: isNullFn } = await import("drizzle-orm");
   const currentCycles = await db.select({
     summary: billing_cycle_doctor_summary,
     cycle: billing_cycles,
@@ -2113,8 +2067,8 @@ export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: n
           eq(billing_cycles.unit_id, unitId),
           eq(billing_cycles.cycle_type, "doctor"),
           eq(billing_cycles.status, "open"),
-          drizzleSql`${billing_cycles.starts_at} <= ${refDateStr}`,
-          drizzleSql`${billing_cycles.ends_at} >= ${refDateStr}`,
+          drizzleSql2`${billing_cycles.starts_at} <= ${refDateStr}`,
+          drizzleSql2`${billing_cycles.ends_at} >= ${refDateStr}`,
         )
       ).limit(1);
 
@@ -2188,10 +2142,9 @@ export async function getDoctorAuditReport(doctorUserId: number, filters?: {
   from_date?: Date;
   to_date?: Date;
 }) {
-  const { gte: _gte, lte: _lte, desc: _desc } = await import("drizzle-orm");
   const db = await getDb();
   if (!db) return [];
-  const conditions: any[] = [eq(billing_visit_events.doctor_user_id, doctorUserId)];
+  const conditions: SQL[] = [eq(billing_visit_events.doctor_user_id, doctorUserId)];
   if (filters?.unit_id) conditions.push(eq(billing_visit_events.unit_id, filters.unit_id));
   if (filters?.from_date) conditions.push(_gte(billing_visit_events.createdAt, filters.from_date));
   if (filters?.to_date) conditions.push(_lte(billing_visit_events.createdAt, filters.to_date));
@@ -2223,7 +2176,6 @@ export async function resetDoctorBilling(doctorUserId: number): Promise<{
   summaries_deleted: number;
   report_items_deleted: number;
 }> {
-  const { count: drizzleCount, sql: drizzleSql2 } = await import("drizzle-orm");
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -2252,8 +2204,7 @@ export async function resetDoctorBilling(doctorUserId: number): Promise<{
   // B6/B7/E10: Recalcular billing_cycles para ciclos afetados
   // Para ciclos de médico: recalcular total_reports e total_amount a partir do que sobrou
   if (affectedDoctorCycleIds.length > 0) {
-    const { inArray: inArrayFn } = await import("drizzle-orm");
-    for (const cycleId of affectedDoctorCycleIds) {
+      for (const cycleId of affectedDoctorCycleIds) {
       const [agg] = await db
         .select({
           total_reports: drizzleSql2<number>`COUNT(*)`,
@@ -2304,8 +2255,6 @@ export async function resetDoctorBilling(doctorUserId: number): Promise<{
 export async function getDoctorFullContext(doctorUserId: number) {
   const db = await getDb();
   if (!db) return null;
-  const { eq, isNull, and, desc, lte, gte, or: _or } = await import('drizzle-orm');
-  const { user_unit_permissions } = await import('../drizzle/schema');
   const now = new Date();
 
   const [doctor] = await db.select().from(users).where(eq(users.id, doctorUserId)).limit(1);
@@ -2359,7 +2308,7 @@ export async function getDoctorFullContext(doctorUserId: number) {
       .where(and(
         eq(financial_responsible_units.unit_id, ul.unit_id),
         lte(financial_responsible_units.starts_at, now),
-        _or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, now))
+        _or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at, now))
       ))
       .orderBy(desc(financial_responsible_units.starts_at))
       .limit(1);
@@ -2408,7 +2357,6 @@ export async function getDoctorFullContext(doctorUserId: number) {
 export async function getUnitFullContext(unitId: number) {
   const db = await getDb();
   if (!db) return null;
-  const { eq, isNull, and, desc, lte, gte, or: _or } = await import('drizzle-orm');
   const now = new Date();
 
   const [unit] = await db.select().from(units).where(eq(units.id, unitId)).limit(1);
@@ -2433,7 +2381,7 @@ export async function getUnitFullContext(unitId: number) {
     .where(and(
       eq(financial_responsible_units.unit_id, unitId),
       lte(financial_responsible_units.starts_at, now),
-      _or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, now))
+      _or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at, now))
     ))
     .orderBy(desc(financial_responsible_units.starts_at))
     .limit(1);
@@ -2542,7 +2490,6 @@ export async function getResponsibleFullDashboard(
 ) {
   const db = await getDb();
   if (!db) return null;
-  const { eq, and, desc, gte, lte } = await import('drizzle-orm');
   const page = options?.page ?? 1;
   const pageSize = options?.pageSize ?? 50;
   const offset = (page - 1) * pageSize;
@@ -2617,7 +2564,7 @@ export async function getResponsibleFullDashboard(
     units: Array.from(r.units),
   }));
 
-  const evtFilters: any[] = [eq(billing_visit_events.financial_responsible_id, financialResponsibleId)];
+  const evtFilters: SQL[] = [eq(billing_visit_events.financial_responsible_id, financialResponsibleId)];
   if (options?.from) evtFilters.push(gte(billing_visit_events.createdAt, new Date(options.from)));
   if (options?.to) evtFilters.push(lte(billing_visit_events.createdAt, new Date(options.to)));
 
@@ -2685,7 +2632,6 @@ export async function getResponsibleFullDashboard(
 export async function getDoctorOperationalBalance(doctorUserId: number) {
   const db = await getDb();
   if (!db) return { totalBalance: '0.00', byUnit: [] };
-  const { eq, and } = await import('drizzle-orm');
 
   const rows = await db
     .select({
@@ -2741,7 +2687,6 @@ export async function getSystemOwnerLiveByUnit(): Promise<Array<{
 }>> {
   const db = await getDb();
   if (!db) return [];
-  const { eq, isNull, and, lte, gte, or: _or, desc, inArray: _inArray } = await import('drizzle-orm');
   const now = new Date();
 
   // C2: 4 queries fixas em vez de 4 queries por unidade (elimina N+1)
@@ -2762,7 +2707,7 @@ export async function getSystemOwnerLiveByUnit(): Promise<Array<{
     .where(and(
       _inArray(financial_responsible_units.unit_id, unitIds),
       lte(financial_responsible_units.starts_at, now),
-      _or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at as any, now))
+      _or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at, now))
     ))
     .orderBy(desc(financial_responsible_units.starts_at));
   const respByUnit = new Map<number, typeof allRespRows[0]>();
@@ -2852,7 +2797,6 @@ export async function createCycleManual(params: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   // C4: verificar sobreposição de ciclos do mesmo tipo/unidade
-  const { and: _and, eq: _eq, or: _or, lte: _lte, gte: _gte } = await import('drizzle-orm');
   const overlapping = await db.select({ id: billing_cycles.id })
     .from(billing_cycles)
     .where(_and(
@@ -2860,7 +2804,7 @@ export async function createCycleManual(params: {
       _eq(billing_cycles.cycle_type, params.cycle_type),
       _eq(billing_cycles.status, 'open'),
       _or(
-        _and(_lte(billing_cycles.starts_at, params.ends_at), _gte(billing_cycles.ends_at as any, params.starts_at)),
+        _and(_lte(billing_cycles.starts_at, params.ends_at), _gte(billing_cycles.ends_at, params.starts_at)),
       ),
     ))
     .limit(1);
@@ -2878,7 +2822,7 @@ export async function createCycleManual(params: {
     total_amount: "0.00",
     paid_status: "pending",
   });
-  const cycleId = Number((result[0] as any).insertId);
+  const cycleId = Number(result[0].insertId);
   const [cycle] = await db.select().from(billing_cycles).where(eq(billing_cycles.id, cycleId));
   return cycle;
 }
@@ -2895,7 +2839,6 @@ export async function editCycleDates(cycleId: number, starts_at: Date, ends_at: 
   // C7: validar que starts_at < ends_at
   if (starts_at >= ends_at) throw new Error('A data de início deve ser anterior à data de término.');
   // C4: verificar sobreposição com outros ciclos do mesmo tipo/unidade (excluindo o próprio ciclo)
-  const { and: _and, eq: _eq, or: _or, lte: _lte, gte: _gte, ne: _ne } = await import('drizzle-orm');
   const overlapping = await db.select({ id: billing_cycles.id })
     .from(billing_cycles)
     .where(_and(
@@ -2903,7 +2846,7 @@ export async function editCycleDates(cycleId: number, starts_at: Date, ends_at: 
       _eq(billing_cycles.cycle_type, cycle.cycle_type),
       _ne(billing_cycles.id, cycleId),
       _or(
-        _and(_lte(billing_cycles.starts_at, ends_at), _gte(billing_cycles.ends_at as any, starts_at)),
+        _and(_lte(billing_cycles.starts_at, ends_at), _gte(billing_cycles.ends_at, starts_at)),
       ),
     ))
     .limit(1);

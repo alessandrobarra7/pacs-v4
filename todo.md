@@ -1382,3 +1382,8 @@
 - [x] N-02: Corrigir race condition em createBillingVisitEvent (INSERT ON DUPLICATE KEY UPDATE)
 - [x] SEC-04: Sanitizar getUnitBySlug para omitir orthanc_basic_pass
 - [x] N-03: Adicionar middleware loginRateLimiterBatchAware para cobrir requisições batch tRPC
+
+## Débito Técnico — Auditoria Real (Sessão Atual)
+- [x] DB-01: Adicionar FK references() em billing_visit_events.report_id para reports (onDelete: cascade)
+- [x] PRG-07: Converter 57 imports dinâmicos em db.ts para estáticos (0 restantes)
+- [x] TYP-01: Substituir as any por tipos corretos em db.ts e billing.ts (0 restantes)

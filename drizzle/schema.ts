@@ -557,7 +557,7 @@ export type InsertBillingCycle = typeof billing_cycles.$inferInsert;
  */
 export const billing_visit_events = mysqlTable("billing_visit_events", {
   id: int("id").autoincrement().primaryKey(),
-  report_id: int("report_id").notNull(),
+  report_id: int("report_id").notNull().references(() => reports.id, { onDelete: "cascade" }),
   study_instance_uid: varchar("study_instance_uid", { length: 128 }),
   unit_id: int("unit_id").notNull(),
   doctor_user_id: int("doctor_user_id").notNull(),
