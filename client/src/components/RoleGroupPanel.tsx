@@ -1,6 +1,8 @@
-import { UserPlus, Power, Pencil, Trash2, Link2Off } from "lucide-react";
+import { useState } from "react";
+import { UserPlus, Power, Pencil, Trash2, Link2Off, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { LinkExistingUserDialog } from "./LinkExistingUserDialog";
 
 const GROUP_LABELS: Record<string, string> = {
   responsaveisFinanceiros: "Responsáveis Financeiros",
@@ -21,6 +23,7 @@ interface RoleGroupPanelProps {
   onDeleteUser?: (userId: number) => void;
   onRemoveLink?: (userId: number, unitId: number) => void;
   onNewUser?: (unitId: number) => void;
+  onRefresh?: () => void;
 }
 
 export function RoleGroupPanel({
@@ -32,7 +35,9 @@ export function RoleGroupPanel({
   onDeleteUser,
   onRemoveLink,
   onNewUser,
+  onRefresh,
 }: RoleGroupPanelProps) {
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const label = GROUP_LABELS[groupKey] ?? groupKey;
 
   return (
@@ -138,15 +143,38 @@ export function RoleGroupPanel({
         </div>
       )}
 
-      {/* Ação de adicionar */}
-      <div className="mt-auto pt-4 border-t border-gray-100">
+      {/* Ações de adicionar */}
+      <div className="mt-auto pt-4 border-t border-gray-100 flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setLinkDialogOpen(true)}
+          className="gap-1.5"
+        >
+          <Link2 className="h-4 w-4" />
+          Vincular existente
+        </Button>
         {onNewUser && (
           <Button size="sm" onClick={() => onNewUser(unit.id)} className="gap-1.5">
             <UserPlus className="h-4 w-4" />
-            Vincular usuário a este grupo
+            Novo usuário
           </Button>
         )}
       </div>
+
+      {/* Dialog de vincular usuário existente */}
+      <LinkExistingUserDialog
+        open={linkDialogOpen}
+        onClose={() => setLinkDialogOpen(false)}
+        unitId={unit.id}
+        unitName={unit.name}
+        groupKey={groupKey}
+        groupLabel={label}
+        onSuccess={() => {
+          setLinkDialogOpen(false);
+          onRefresh?.();
+        }}
+      />
     </div>
   );
 }

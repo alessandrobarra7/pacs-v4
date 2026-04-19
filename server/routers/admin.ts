@@ -495,6 +495,124 @@ export const adminRouter = router({
         return { success: true };
       }),
 
+    searchAssignableUsers: protectedProcedure
+      .input(z.object({
+        query: z.string().optional(),
+        excludeUnitId: z.number().optional(),
+        onlyActive: z.boolean().optional(),
+      }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { users: usersTable, units: unitsTable, user_unit_permissions: uup } = await import('../../drizzle/schema');
+        const { or, like, eq: eqOp, inArray: inArrayOp, and: andOp } = await import('drizzle-orm');
+        let allowedUnitIds: number[] | null = null;
+        if (ctx.user.role === 'unit_admin') {
+          const myPerms = await db.select({ unit_id: uup.unit_id }).from(uup).where(eqOp(uup.user_id, ctx.user.id));
+          const ids = myPerms.map(p => p.unit_id);
+          if (ctx.user.unit_id && !ids.includes(ctx.user.unit_id)) ids.push(ctx.user.unit_id);
+          allowedUnitIds = ids;
+        }
+        const whereClauses: any[] = [];
+        if (input.query && input.query.trim().length > 0) {
+          const q = `%${input.query.trim()}%`;
+          whereClauses.push(or(like(usersTable.name, q), like(usersTable.username, q), like(usersTable.email, q)));
+        }
+        if (input.onlyActive) {
+          whereClauses.push(eqOp(usersTable.isActive, true));
+        }
+        const allUsers = whereClauses.length > 0
+          ? await db.select().from(usersTable).where(whereClauses.length === 1 ? whereClauses[0] : andOp(...whereClauses))
+          : await db.select().from(usersTable);
+        const allUnits = await db.select({ id: unitsTable.id, name: unitsTable.name }).from(unitsTable);
+        const allPerms = await db.select({ user_id: uup.user_id, unit_id: uup.unit_id }).from(uup);
+        const unitsById: Record<number, string> = {};
+        for (const u of allUnits) unitsById[u.id] = u.name;
+        return allUsers
+          .filter(u => {
+            if (allowedUnitIds) {
+              const userUnitIds = allPerms.filter(p => p.user_id === u.id).map(p => p.unit_id);
+              if (u.unit_id) userUnitIds.push(u.unit_id);
+              return userUnitIds.some(id => allowedUnitIds!.includes(id));
+            }
+            return true;
+          })
+          .filter(u => {
+            if (input.excludeUnitId) {
+              const alreadyLinked = allPerms.some(p => p.user_id === u.id && p.unit_id === input.excludeUnitId);
+              const isLegacy = u.unit_id === input.excludeUnitId;
+              return !alreadyLinked && !isLegacy;
+            }
+            return true;
+          })
+          .map(u => ({
+            id: u.id,
+            name: u.name,
+            username: u.username,
+            email: u.email,
+            role: u.role,
+            isActive: u.isActive,
+            lastSignedIn: u.lastSignedIn,
+            linkedUnits: allPerms
+              .filter(p => p.user_id === u.id)
+              .map(p => ({ id: p.unit_id, name: unitsById[p.unit_id] ?? '' }))
+              .filter(x => x.name),
+          }));
+      }),
+
+    linkExistingUserToUnitGroup: protectedProcedure
+      .input(z.object({
+        userId: z.number(),
+        unitId: z.number(),
+        groupKey: z.enum(['responsaveisFinanceiros', 'medicos', 'operadores', 'visualizadores', 'administradoresUnidade', 'adminsMaster']),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        if (ctx.user.role === 'unit_admin') {
+          const { getUserUnitPermission: getUnitPerm } = await import('../db');
+          const hasAccess = ctx.user.unit_id === input.unitId || !!(await getUnitPerm(ctx.user.id, input.unitId));
+          if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem acesso a esta unidade' });
+          if (input.groupKey === 'adminsMaster') throw new TRPCError({ code: 'FORBIDDEN', message: 'Operação não permitida' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const { users: usersTable, user_unit_permissions: uup } = await import('../../drizzle/schema');
+        const { eq: eqOp, and: andOp } = await import('drizzle-orm');
+        const [targetUser] = await db.select().from(usersTable).where(eqOp(usersTable.id, input.userId));
+        if (!targetUser) throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
+        const [existing] = await db.select().from(uup)
+          .where(andOp(eqOp(uup.user_id, input.userId), eqOp(uup.unit_id, input.unitId)));
+        const GROUP_PERMISSIONS: Record<string, { view_studies: boolean; edit_reports: boolean; view_anamnesis: boolean; print_reports: boolean; manage_templates: boolean }> = {
+          medicos:                 { view_studies: true,  edit_reports: true,  view_anamnesis: true,  print_reports: true,  manage_templates: true },
+          operadores:              { view_studies: true,  edit_reports: false, view_anamnesis: true,  print_reports: false, manage_templates: false },
+          visualizadores:          { view_studies: true,  edit_reports: false, view_anamnesis: false, print_reports: true,  manage_templates: false },
+          responsaveisFinanceiros: { view_studies: false, edit_reports: false, view_anamnesis: false, print_reports: false, manage_templates: false },
+          administradoresUnidade:  { view_studies: true,  edit_reports: false, view_anamnesis: false, print_reports: true,  manage_templates: false },
+          adminsMaster:            { view_studies: true,  edit_reports: true,  view_anamnesis: true,  print_reports: true,  manage_templates: true },
+        };
+        const perms = GROUP_PERMISSIONS[input.groupKey];
+        if (existing) {
+          await db.update(uup).set(perms).where(andOp(eqOp(uup.user_id, input.userId), eqOp(uup.unit_id, input.unitId)));
+        } else {
+          await db.insert(uup).values({ user_id: input.userId, unit_id: input.unitId, ...perms });
+        }
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: input.unitId,
+          action: 'UPDATE_USER',
+          target_type: 'USER',
+          target_id: String(input.userId),
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+        });
+        return { success: true, wasExisting: !!existing };
+      }),
+
     listUsersWithPermissions: protectedProcedure
       .query(async ({ ctx }) => {
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {

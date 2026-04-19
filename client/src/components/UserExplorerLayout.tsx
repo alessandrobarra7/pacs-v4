@@ -94,6 +94,7 @@ export function UserExplorerLayout({ onNewUser, onEditUser, onEditUnit }: UserEx
           onDeleteUser={handleDelete}
           onRemoveLink={handleRemoveLink}
           onNewUser={onNewUser}
+          onRefresh={refetch}
         />
       );
     }

@@ -1404,3 +1404,12 @@
 - [ ] EXPLORER-02: Criar componentes UserExplorerLayout, UserTreeSidebar, UserTreeNode
 - [ ] EXPLORER-03: Criar painéis UnitSummaryPanel, RoleGroupPanel, UserDetailPanel
 - [ ] EXPLORER-04: Integrar ao AdminPage substituindo UnitUsersTree pelo Explorer
+
+## Vínculo de Usuário Existente (orientacao_vincular_usuario_existente_unidade.txt)
+- [x] LINK-01: Criar endpoint admin.searchAssignableUsers (busca por nome/username/email com filtros)
+- [x] LINK-02: Criar mutation admin.linkExistingUserToUnitGroup (vínculo semântico com permissões por grupo)
+- [x] LINK-03: Criar componente LinkExistingUserDialog (modal de busca, seleção e confirmação)
+- [x] LINK-04: Atualizar RoleGroupPanel com dois botões distintos (Vincular existente / Criar novo)
+- [x] LINK-05: Atualizar UserExplorerLayout com onRefresh passado ao RoleGroupPanel
+- [ ] LINK-06: Atualizar AdminPage com estado isLinkExistingUserOpen e linkContext
+- [ ] LINK-07: Pré-preencher UserFormDialog com unidade e grupo ao criar novo usuário no contexto
