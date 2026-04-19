@@ -69,6 +69,8 @@ export const user_unit_permissions = mysqlTable("user_unit_permissions", {
   view_anamnesis: boolean("view_anamnesis").default(false).notNull(),
   print_reports: boolean("print_reports").default(false).notNull(),
   manage_templates: boolean("manage_templates").default(false).notNull(),
+  // Papel do usuário nesta unidade específica (independente do role global)
+  group_key: mysqlEnum("group_key", ["responsaveisFinanceiros", "medicos", "operadores", "visualizadores", "administradoresUnidade", "adminsMaster", "outros"]).default("outros"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

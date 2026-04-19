@@ -346,6 +346,7 @@ export const adminRouter = router({
             view_anamnesis: uup.view_anamnesis,
             print_reports: uup.print_reports,
             manage_templates: uup.manage_templates,
+            group_key: uup.group_key,
           })
           .from(uup)
           .where(inArrayOp(uup.unit_id, unitIds));
@@ -382,14 +383,17 @@ export const adminRouter = router({
 
         // Montar índice de permissões por unidade e usuário
         const permsByUnit: Record<number, typeof allPerms> = {};
+        // Índice: user_id -> unit_id -> group_key (para classificação por unidade)
+        const groupKeyByUserUnit: Record<string, string> = {};
         for (const p of allPerms) {
           if (!permsByUnit[p.unit_id]) permsByUnit[p.unit_id] = [];
           permsByUnit[p.unit_id].push(p);
+          if (p.group_key) groupKeyByUserUnit[`${p.user_id}:${p.unit_id}`] = p.group_key;
         }
         const usersById: Record<number, (typeof allUsers)[0]> = {};
         for (const u of allUsers) usersById[u.id] = u;
 
-        // Função de agrupamento por papel
+        // Função de agrupamento por papel (fallback para role global)
         const ROLE_GROUPS = [
           { key: 'responsaveisFinanceiros', roles: ['responsavel_financeiro'] },
           { key: 'medicos', roles: ['medico'] },
@@ -422,7 +426,8 @@ export const adminRouter = router({
             return true;
           });
 
-          // Agrupar por papel
+          // Agrupar por group_key da permissão (específico por unidade)
+          // Fallback para role global se group_key não estiver definido
           const groups: Record<string, typeof uniqueUsers> = {
             responsaveisFinanceiros: [],
             medicos: [],
@@ -433,11 +438,17 @@ export const adminRouter = router({
             outros: [],
           };
           for (const u of uniqueUsers) {
-            const group = ROLE_GROUPS.find(g => (g.roles as readonly string[]).includes(u.role));
-            if (group) {
-              groups[group.key].push(u);
+            const unitGroupKey = groupKeyByUserUnit[`${u.id}:${unit.id}`];
+            if (unitGroupKey && unitGroupKey !== 'outros' && groups[unitGroupKey] !== undefined) {
+              groups[unitGroupKey].push(u);
             } else {
-              groups['outros'].push(u);
+              // Fallback: usar role global
+              const group = ROLE_GROUPS.find(g => (g.roles as readonly string[]).includes(u.role));
+              if (group) {
+                groups[group.key].push(u);
+              } else {
+                groups['outros'].push(u);
+              }
             }
           }
 
@@ -597,9 +608,9 @@ export const adminRouter = router({
         };
         const perms = GROUP_PERMISSIONS[input.groupKey];
         if (existing) {
-          await db.update(uup).set(perms).where(andOp(eqOp(uup.user_id, input.userId), eqOp(uup.unit_id, input.unitId)));
+          await db.update(uup).set({ ...perms, group_key: input.groupKey }).where(andOp(eqOp(uup.user_id, input.userId), eqOp(uup.unit_id, input.unitId)));
         } else {
-          await db.insert(uup).values({ user_id: input.userId, unit_id: input.unitId, ...perms });
+          await db.insert(uup).values({ user_id: input.userId, unit_id: input.unitId, group_key: input.groupKey, ...perms });
         }
         await createAuditLog({
           user_id: ctx.user.id,

@@ -1413,3 +1413,11 @@
 - [x] LINK-05: Atualizar UserExplorerLayout com onRefresh passado ao RoleGroupPanel
 - [ ] LINK-06: Atualizar AdminPage com estado isLinkExistingUserOpen e linkContext
 - [ ] LINK-07: Pré-preencher UserFormDialog com unidade e grupo ao criar novo usuário no contexto
+
+## CORREÇÃO group_key — Classificação por Unidade no Explorer
+
+- [x] GROUP-KEY-01: Adicionar coluna group_key na tabela user_unit_permissions (schema + migração SQL)
+- [x] GROUP-KEY-02: Atualizar linkExistingUserToUnitGroup para salvar group_key no insert/update
+- [x] GROUP-KEY-03: Atualizar getUnitAccessTree para classificar usuários por group_key (específico por unidade) com fallback para role global
+- [x] GROUP-KEY-04: Migrar registros existentes (preencher group_key baseado no role global dos usuários)
+- [x] GROUP-KEY-05: Testar fluxo completo: remover responsável financeiro e vincular Admin Master como Resp. Financeiro — árvore e painel atualizados corretamente

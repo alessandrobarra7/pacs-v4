@@ -73,10 +73,14 @@ export function UserExplorerLayout({ onNewUser, onEditUser, onEditUnit }: UserEx
     }
 
     if (selectedNode.type === "unit") {
+      // Derivar dados atualizados do treeData
+      const unitId = selectedNode.data.unit.id;
+      const liveUnitNode = treeData.find((n: any) => n.unit.id === unitId);
+      if (!liveUnitNode) return null;
       return (
         <UnitSummaryPanel
-          unit={selectedNode.data.unit}
-          totals={selectedNode.data.totals}
+          unit={liveUnitNode.unit}
+          totals={liveUnitNode.totals}
           onNewUser={onNewUser}
           onEditUnit={onEditUnit}
         />
@@ -84,11 +88,17 @@ export function UserExplorerLayout({ onNewUser, onEditUser, onEditUnit }: UserEx
     }
 
     if (selectedNode.type === "group") {
+      // Derivar dados atualizados do treeData
+      const unitId = selectedNode.data.unit.id;
+      const groupKey = selectedNode.data.groupKey;
+      const liveUnitNode = treeData.find((n: any) => n.unit.id === unitId);
+      const liveUsers = liveUnitNode?.groups?.[groupKey] ?? selectedNode.data.users;
+      const liveUnit = liveUnitNode?.unit ?? selectedNode.data.unit;
       return (
         <RoleGroupPanel
-          groupKey={selectedNode.data.groupKey}
-          users={selectedNode.data.users}
-          unit={selectedNode.data.unit}
+          groupKey={groupKey}
+          users={liveUsers}
+          unit={liveUnit}
           onEditUser={onEditUser}
           onToggleUser={handleToggle}
           onDeleteUser={handleDelete}
@@ -100,11 +110,19 @@ export function UserExplorerLayout({ onNewUser, onEditUser, onEditUnit }: UserEx
     }
 
     if (selectedNode.type === "user") {
-      const unitNode = treeData.find((n: any) => n.unit.id === selectedNode.data.unitId);
+      const unitId = selectedNode.data.unitId;
+      const userId = selectedNode.data.user.id;
+      const unitNode = treeData.find((n: any) => n.unit.id === unitId);
+      // Tentar obter dados atualizados do usuário
+      const liveUser = unitNode
+        ? Object.values(unitNode.groups as Record<string, any[]>)
+            .flat()
+            .find((u: any) => u.id === userId) ?? selectedNode.data.user
+        : selectedNode.data.user;
       return (
         <UserDetailPanel
-          user={selectedNode.data.user}
-          unitId={selectedNode.data.unitId}
+          user={liveUser}
+          unitId={unitId}
           unitName={unitNode?.unit.name ?? ""}
           onEdit={onEditUser}
           onToggle={handleToggle}
