@@ -85,6 +85,14 @@ export const reportsRouter = router({
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário não está vinculado a nenhuma unidade' });
         }
         
+        // ERRO 3: Validar permissão edit_reports (bypass para admin_master)
+        if (ctx.user.role !== 'admin_master') {
+          const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
+          if (!perm || !perm.edit_reports) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para criar laudos nesta unidade' });
+          }
+        }
+        
         const { unit_id: _unitInput, ...restInput } = input;
         // F1-3: Sanitizar HTML do body antes de persistir (previne XSS armazenado)
         const safeBody = sanitizeHtml(restInput.body, REPORT_SANITIZE_OPTIONS);
@@ -128,6 +136,12 @@ export const reportsRouter = router({
           const hasAccess = effectiveUnitId === report.unit_id ||
             !!(await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0));
           if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+          
+          // ERRO 4: Validar permissão edit_reports
+          const perm = await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0);
+          if (!perm || !perm.edit_reports) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para editar laudos nesta unidade' });
+          }
         }
         // Bug fix B1: bloquear atualização direta de laudos assinados ou retificados.
         // Laudos nesse estado só podem ser alterados via reports.revise (com histórico e motivo).
@@ -172,6 +186,11 @@ export const reportsRouter = router({
         if (!report) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
         }
+        // ERRO 5: Validar que apenas médicos e admin_master podem assinar laudos
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'medico') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas médicos podem assinar laudos' });
+        }
+        
         // Verificar acesso: admin_master tem acesso total; outros verificam via resolveEffectiveUnitId ou permissões por unidade
         if (ctx.user.role !== 'admin_master') {
           // PRG-06: usar resolveEffectiveUnitId em vez de ctx.user.unit_id legado (suporta médicos multi-unidade)
@@ -179,6 +198,12 @@ export const reportsRouter = router({
           const hasAccess = effectiveUnitIdForAccess === report.unit_id ||
             !!(await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0));
           if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+          
+          // Validar permissão edit_reports
+          const perm = await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0);
+          if (!perm || !perm.edit_reports) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para assinar laudos nesta unidade' });
+          }
         }
         const signedAt = new Date();
         await updateReport(input.id, {

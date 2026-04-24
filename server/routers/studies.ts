@@ -34,6 +34,15 @@ export const studiesRouter = router({
         if (!unitId && ctx.user.role !== 'admin_master') {
           return { items: [], total: 0, page: input.page, pageSize: input.pageSize };
         }
+        
+        // ERRO 6: Validar permissão view_studies (bypass para admin_master)
+        if (ctx.user.role !== 'admin_master' && unitId) {
+          const { getUserUnitPermission } = await import('../db');
+          const perm = await getUserUnitPermission(ctx.user.id, unitId);
+          if (!perm || !perm.view_studies) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para visualizar estudos nesta unidade' });
+          }
+        }
         const offset = (input.page - 1) * input.pageSize;
         
         const db = await getDb();
@@ -91,6 +100,15 @@ export const studiesRouter = router({
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Study not found' });
         }
         
+        // ERRO 6: Validar permissão view_studies
+        if (ctx.user.role !== 'admin_master' && study.unit_id) {
+          const { getUserUnitPermission } = await import('../db');
+          const perm = await getUserUnitPermission(ctx.user.id, study.unit_id);
+          if (!perm || !perm.view_studies) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para visualizar este estudo' });
+          }
+        }
+        
         await createAuditLog({
           user_id: ctx.user.id,
           unit_id: study.unit_id,
@@ -113,6 +131,15 @@ export const studiesRouter = router({
         
         if (!study) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Study not found' });
+        }
+        
+        // ERRO 6: Validar permissão view_studies
+        if (ctx.user.role !== 'admin_master' && study.unit_id) {
+          const { getUserUnitPermission } = await import('../db');
+          const perm = await getUserUnitPermission(ctx.user.id, study.unit_id);
+          if (!perm || !perm.view_studies) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para abrir este estudo' });
+          }
         }
         
         await createAuditLog({

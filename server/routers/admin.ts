@@ -576,6 +576,75 @@ export const adminRouter = router({
           }));
       }),
 
+    createUserScoped: protectedProcedure
+      .input(z.object({
+        username: z.string().min(3).max(64),
+        email: z.string().email().optional(),
+        name: z.string().min(1),
+        password: z.string().min(6),
+        role: z.enum(['medico', 'operador', 'viewer', 'responsavel_financeiro']),
+        unitId: z.number(),
+        groupKey: z.enum(['medicos', 'operadores', 'visualizadores', 'responsaveisFinanceiros', 'administradoresUnidade']),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        // Apenas admin_master e unit_admin podem criar usuários
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        
+        // unit_admin só pode criar usuários para suas unidades
+        if (ctx.user.role === 'unit_admin') {
+          const { getUserUnitPermission: getUnitPerm } = await import('../db');
+          const hasAccess = ctx.user.unit_id === input.unitId || !!(await getUnitPerm(ctx.user.id, input.unitId));
+          if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem acesso a esta unidade' });
+          // unit_admin não pode criar admin_master (não está no enum, mas adicionamos validação por segurança)
+        }
+        
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        
+        // Criar usuário
+        const password_hash = await bcrypt.hash(input.password, 12);
+        const { createLocalUser } = await import('../db');
+        const userId = await createLocalUser({
+          username: input.username,
+          email: input.email,
+          name: input.name,
+          password_hash,
+          role: input.role,
+          unit_id: input.unitId,
+        });
+        
+        // Vincular à unidade com permissões
+        const { users: usersTable, user_unit_permissions: uup } = await import('../../drizzle/schema');
+        const GROUP_PERMISSIONS: Record<string, { view_studies: boolean; edit_reports: boolean; view_anamnesis: boolean; edit_anamnesis: boolean; edit_exam_legend: boolean; print_reports: boolean; manage_templates: boolean }> = {
+          medicos:                 { view_studies: true,  edit_reports: true,  view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: true,  manage_templates: true },
+          operadores:              { view_studies: true,  edit_reports: false, view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: false, manage_templates: false },
+          visualizadores:          { view_studies: true,  edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true,  manage_templates: false },
+          responsaveisFinanceiros: { view_studies: false, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: false, manage_templates: false },
+          administradoresUnidade:  { view_studies: true,  edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true,  manage_templates: false },
+        };
+        const perms = GROUP_PERMISSIONS[input.groupKey];
+        await db.insert(uup).values({
+          user_id: userId,
+          unit_id: input.unitId,
+          group_key: input.groupKey,
+          ...perms,
+        });
+        
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: input.unitId,
+          action: 'CREATE_USER',
+          target_type: 'USER',
+          target_id: String(userId),
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+        });
+        
+        return { success: true, id: userId };
+      }),
+
     linkExistingUserToUnitGroup: protectedProcedure
       .input(z.object({
         userId: z.number(),

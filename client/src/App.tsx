@@ -95,8 +95,8 @@ function Router() {
       <Route path="/pacs-query" component={() => <ProtectedRoute component={PacsQueryPage} />} />
       <Route path="/reports/create/:studyInstanceUid" component={() => <ProtectedRoute component={ReportEditorPage} />} />
       <Route path="/dicom-viewer/:studyUid" component={() => <ProtectedRoute component={DicomViewerPage} />} />
-      {/* Admin: apenas admin_master */}
-      <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} allowedRoles={['admin_master']} />} />
+      {/* Admin: admin_master e unit_admin */}
+      <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} allowedRoles={['admin_master', 'unit_admin']} />} />
       {/* Redirects de rotas legadas /billing/* para /financeiro/* */}
       <Route path="/billing/admin"><Redirect to="/financeiro/admin" /></Route>
       <Route path="/billing/unit"><Redirect to="/financeiro/responsaveis" /></Route>
