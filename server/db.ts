@@ -686,6 +686,8 @@ export async function setUserUnitPermissions(
     view_studies: boolean;
     edit_reports: boolean;
     view_anamnesis: boolean;
+    edit_anamnesis: boolean;
+    edit_exam_legend: boolean;
     print_reports: boolean;
     manage_templates: boolean;
   }>
@@ -705,6 +707,8 @@ export async function setUserUnitPermissions(
         view_studies: p.view_studies,
         edit_reports: p.edit_reports,
         view_anamnesis: p.view_anamnesis,
+        edit_anamnesis: p.edit_anamnesis,
+        edit_exam_legend: p.edit_exam_legend,
         print_reports: p.print_reports,
         manage_templates: p.manage_templates,
       }))

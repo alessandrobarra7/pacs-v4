@@ -258,6 +258,8 @@ export default function UserFormDialog({
         view_studies: p.view_studies ?? true,
         edit_reports: p.edit_reports ?? false,
         view_anamnesis: p.view_anamnesis ?? false,
+        edit_anamnesis: p.edit_anamnesis ?? false,
+        edit_exam_legend: p.edit_exam_legend ?? false,
         print_reports: p.print_reports ?? false,
         manage_templates: p.manage_templates ?? false,
       })));

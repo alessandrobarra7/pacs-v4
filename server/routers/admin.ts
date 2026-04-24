@@ -274,6 +274,8 @@ export const adminRouter = router({
           view_studies: z.boolean(),
           edit_reports: z.boolean(),
           view_anamnesis: z.boolean(),
+          edit_anamnesis: z.boolean(),
+          edit_exam_legend: z.boolean(),
           print_reports: z.boolean(),
           manage_templates: z.boolean(),
         })),
@@ -598,13 +600,13 @@ export const adminRouter = router({
         if (!targetUser) throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
         const [existing] = await db.select().from(uup)
           .where(andOp(eqOp(uup.user_id, input.userId), eqOp(uup.unit_id, input.unitId)));
-        const GROUP_PERMISSIONS: Record<string, { view_studies: boolean; edit_reports: boolean; view_anamnesis: boolean; print_reports: boolean; manage_templates: boolean }> = {
-          medicos:                 { view_studies: true,  edit_reports: true,  view_anamnesis: true,  print_reports: true,  manage_templates: true },
-          operadores:              { view_studies: true,  edit_reports: false, view_anamnesis: true,  print_reports: false, manage_templates: false },
-          visualizadores:          { view_studies: true,  edit_reports: false, view_anamnesis: false, print_reports: true,  manage_templates: false },
-          responsaveisFinanceiros: { view_studies: false, edit_reports: false, view_anamnesis: false, print_reports: false, manage_templates: false },
-          administradoresUnidade:  { view_studies: true,  edit_reports: false, view_anamnesis: false, print_reports: true,  manage_templates: false },
-          adminsMaster:            { view_studies: true,  edit_reports: true,  view_anamnesis: true,  print_reports: true,  manage_templates: true },
+        const GROUP_PERMISSIONS: Record<string, { view_studies: boolean; edit_reports: boolean; view_anamnesis: boolean; edit_anamnesis: boolean; edit_exam_legend: boolean; print_reports: boolean; manage_templates: boolean }> = {
+          medicos:                 { view_studies: true,  edit_reports: true,  view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: true,  manage_templates: true },
+          operadores:              { view_studies: true,  edit_reports: false, view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: false, manage_templates: false },
+          visualizadores:          { view_studies: true,  edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true,  manage_templates: false },
+          responsaveisFinanceiros: { view_studies: false, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: false, manage_templates: false },
+          administradoresUnidade:  { view_studies: true,  edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true,  manage_templates: false },
+          adminsMaster:            { view_studies: true,  edit_reports: true,  view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: true,  manage_templates: true },
         };
         const perms = GROUP_PERMISSIONS[input.groupKey];
         if (existing) {
