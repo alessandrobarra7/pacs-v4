@@ -33,17 +33,20 @@ export const anamnesisRouter = router({
         const { anamnesis } = await import("../../drizzle/schema");
         
         // Validar permissão edit_anamnesis
-        const effectiveUnitId = ctx.user.unit_id;
+        const { resolveEffectiveUnitId } = await import("../db");
+        const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
         if (effectiveUnitId) {
           const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
           if (perm && !perm.edit_anamnesis) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para editar anamnese' });
           }
+        } else {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário sem acesso a nenhuma unidade' });
         }
         
         const [result] = await db.insert(anamnesis).values({
           study_instance_uid: input.study_instance_uid,
-          unit_id: ctx.user.unit_id || null,
+          unit_id: effectiveUnitId || null,
           created_by_user_id: ctx.user.id,
           exam_area: input.exam_area || null,
           main_symptom: input.main_symptom || null,
