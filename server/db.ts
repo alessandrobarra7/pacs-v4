@@ -46,6 +46,7 @@ import {
   InsertBillingReportItem,
   BillingMonthlySystemByUnit,
   BillingMonthlyDoctorByUnit,
+  unit_exam_prices,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 

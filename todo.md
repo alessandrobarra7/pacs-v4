@@ -1421,3 +1421,31 @@
 - [x] GROUP-KEY-03: Atualizar getUnitAccessTree para classificar usuários por group_key (específico por unidade) com fallback para role global
 - [x] GROUP-KEY-04: Migrar registros existentes (preencher group_key baseado no role global dos usuários)
 - [x] GROUP-KEY-05: Testar fluxo completo: remover responsável financeiro e vincular Admin Master como Resp. Financeiro — árvore e painel atualizados corretamente
+
+## MÓDULO FINANCEIRO — Reformulação Completa
+
+### Fase 1 — Banco de dados
+- [ ] FIN-DB-01: Criar tabela unit_exam_prices no schema Drizzle e aplicar migração no sandbox
+- [ ] FIN-DB-02: Adicionar coluna patient_price em billing_visit_events e aplicar migração no sandbox
+
+### Fase 2 — Back-end
+- [ ] FIN-BE-01: CRUD de unit_exam_prices (list/create/update/delete) — acesso: responsavel_financeiro e admin_master
+- [ ] FIN-BE-02: Lógica de patient_price automático na assinatura do laudo (busca por modalidade em unit_exam_prices)
+- [ ] FIN-BE-03: Endpoint de auditoria de laudos por unidade/período com patient_price e status configurado/não configurado
+- [ ] FIN-BE-04: Endpoint de resumo financeiro da unidade: total sistema, total médicos individual, total médicos somado, total receita pacientes, lucro
+
+### Fase 3 — Front-end: Meu Financeiro (médico)
+- [ ] FIN-FE-01: Reformular FinanceMeuFinanceiro seguindo layout MockMyFinance
+- [ ] FIN-FE-02: Criar rota /financeiro/meu-financeiro/unidades/:id
+- [ ] FIN-FE-03: Criar página FinanceMeuFinanceiroUnidade seguindo layout MockDoctorUnitDetail
+
+### Fase 4 — Front-end: Detalhe de Unidade (admin)
+- [ ] FIN-FE-04: Reformular FinanceUnidadeDetalhe seguindo layout MockUnitDetail com KPIs reais
+- [ ] FIN-FE-05: Seção de preços por laudo com botão Alterar
+- [ ] FIN-FE-06: Tabela de médicos vinculados com laudos, total a receber e botão Detalhar
+- [ ] FIN-FE-07: Bloco de alerta de ciclo pendente com botão Fechar ciclo
+
+### Fase 5 — Front-end: Auditoria e Preços de Exames (admin financeiro)
+- [ ] FIN-FE-08: Criar página de gestão de preços de exames por unidade (CRUD de unit_exam_prices)
+- [ ] FIN-FE-09: Criar ambiente de auditoria de laudos com patient_price editável e indicador "Não configurado"
+- [ ] FIN-FE-10: Adicionar itens de navegação no FinanceShell para as novas páginas

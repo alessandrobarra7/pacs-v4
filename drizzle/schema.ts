@@ -574,6 +574,12 @@ export const billing_visit_events = mysqlTable("billing_visit_events", {
   doctor_price_applied: decimal("doctor_price_applied", { precision: 10, scale: 2 }),
   system_amount_due: decimal("system_amount_due", { precision: 10, scale: 2 }),
   doctor_amount_due: decimal("doctor_amount_due", { precision: 10, scale: 2 }),
+  /** Preço cobrado do paciente — preenchido automaticamente na assinatura via unit_exam_prices */
+  patient_price: decimal("patient_price", { precision: 10, scale: 2 }),
+  /** Modalidade do estudo no momento do laudo (snapshot para auditoria) */
+  modality_snapshot: varchar("modality_snapshot", { length: 20 }),
+  /** Nome do exame no momento do laudo (snapshot para auditoria) */
+  exam_name_snapshot: varchar("exam_name_snapshot", { length: 200 }),
   pricing_status: mysqlEnum("pricing_status", ["ok", "pending_system_price", "pending_doctor_price", "pending_both"]).notNull().default("pending_both"),
   doctor_received_at: timestamp("doctor_received_at"),
   system_paid_at: timestamp("system_paid_at"),
@@ -810,3 +816,27 @@ export const exam_legends = mysqlTable("exam_legends", {
 }));
 export type ExamLegend = typeof exam_legends.$inferSelect;
 export type InsertExamLegend = typeof exam_legends.$inferInsert;
+
+/**
+ * Unit Exam Prices — tabela de preços de exames por unidade
+ * Gerenciada pelo responsável financeiro ou admin_master.
+ * Usada para calcular patient_price automaticamente na assinatura do laudo.
+ */
+export const unit_exam_prices = mysqlTable("unit_exam_prices", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  /** Modalidade do exame: rx, tc, us, rm, mg, outros */
+  modality: varchar("modality", { length: 20 }).notNull(),
+  /** Nome descritivo do exame (ex: "TC Crânio", "RX Tórax") */
+  exam_name: varchar("exam_name", { length: 200 }).notNull(),
+  /** Preço cobrado do paciente por este exame */
+  price_per_exam: decimal("price_per_exam", { precision: 10, scale: 2 }).notNull(),
+  is_active: boolean("is_active").default(true).notNull(),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uq_unit_modality_exam: uniqueIndex("uq_unit_modality_exam").on(t.unit_id, t.modality, t.exam_name),
+}));
+export type UnitExamPrice = typeof unit_exam_prices.$inferSelect;
+export type InsertUnitExamPrice = typeof unit_exam_prices.$inferInsert;

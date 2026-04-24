@@ -715,4 +715,225 @@ export const financeRouter = router({
       });
     }),
 
+  // ── Preços de Exames por Unidade (unit_exam_prices) ──────────────────────
+
+  listExamPrices: protectedProcedure
+    .input(z.object({ unitId: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const role = ctx.user.role;
+      if (role !== "admin_master" && role !== "responsavel_financeiro" && role !== "unit_admin") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { unit_exam_prices } = await import("../../drizzle/schema");
+      const { eq, asc } = await import("drizzle-orm");
+      return await db
+        .select()
+        .from(unit_exam_prices)
+        .where(eq(unit_exam_prices.unit_id, input.unitId))
+        .orderBy(asc(unit_exam_prices.modality), asc(unit_exam_prices.exam_name));
+    }),
+
+  createExamPrice: protectedProcedure
+    .input(z.object({
+      unitId: z.number(),
+      modality: z.string().max(20),
+      examName: z.string().max(200),
+      pricePerExam: z.string(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const role = ctx.user.role;
+      if (role !== "admin_master" && role !== "responsavel_financeiro") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { unit_exam_prices } = await import("../../drizzle/schema");
+      const [result] = await db.insert(unit_exam_prices).values({
+        unit_id: input.unitId,
+        modality: input.modality,
+        exam_name: input.examName,
+        price_per_exam: input.pricePerExam,
+        is_active: true,
+        created_by: ctx.user.id,
+      });
+      return { id: (result as any).insertId };
+    }),
+
+  updateExamPrice: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      examName: z.string().max(200).optional(),
+      pricePerExam: z.string().optional(),
+      isActive: z.boolean().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const role = ctx.user.role;
+      if (role !== "admin_master" && role !== "responsavel_financeiro") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { unit_exam_prices } = await import("../../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const updates: Record<string, unknown> = {};
+      if (input.examName !== undefined) updates.exam_name = input.examName;
+      if (input.pricePerExam !== undefined) updates.price_per_exam = input.pricePerExam;
+      if (input.isActive !== undefined) updates.is_active = input.isActive;
+      await db.update(unit_exam_prices).set(updates).where(eq(unit_exam_prices.id, input.id));
+      return { ok: true };
+    }),
+
+  deleteExamPrice: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const role = ctx.user.role;
+      if (role !== "admin_master" && role !== "responsavel_financeiro") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { unit_exam_prices } = await import("../../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      await db.delete(unit_exam_prices).where(eq(unit_exam_prices.id, input.id));
+      return { ok: true };
+    }),
+
+  // ── Auditoria de Laudos com patient_price ─────────────────────────────────
+
+  listAuditReports: protectedProcedure
+    .input(z.object({
+      unitId: z.number(),
+      year: z.number(),
+      month: z.number(),
+    }))
+    .query(async ({ input, ctx }) => {
+      const role = ctx.user.role;
+      if (role !== "admin_master" && role !== "responsavel_financeiro") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { billing_visit_events, users } = await import("../../drizzle/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const rows = await db
+        .select({
+          id: billing_visit_events.id,
+          patient_name: billing_visit_events.patient_name,
+          study_date: billing_visit_events.study_date,
+          modality_snapshot: billing_visit_events.modality_snapshot,
+          exam_name_snapshot: billing_visit_events.exam_name_snapshot,
+          patient_price: billing_visit_events.patient_price,
+          system_amount_due: billing_visit_events.system_amount_due,
+          doctor_amount_due: billing_visit_events.doctor_amount_due,
+          doctor_name: users.name,
+        })
+        .from(billing_visit_events)
+        .leftJoin(users, eq(users.id, billing_visit_events.doctor_user_id))
+        .where(
+          and(
+            eq(billing_visit_events.unit_id, input.unitId),
+            eq((billing_visit_events as any).competence_year, input.year),
+            eq((billing_visit_events as any).competence_month, input.month),
+          )
+        )
+        .orderBy(billing_visit_events.study_date);
+      return rows.map(r => ({
+        ...r,
+        patient_price_configured: r.patient_price !== null,
+      }));
+    }),
+
+  updateAuditPatientPrice: protectedProcedure
+    .input(z.object({
+      eventId: z.number(),
+      patientPrice: z.string(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const role = ctx.user.role;
+      if (role !== "admin_master" && role !== "responsavel_financeiro") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { billing_visit_events } = await import("../../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      await db.update(billing_visit_events)
+        .set({ patient_price: input.patientPrice })
+        .where(eq(billing_visit_events.id, input.eventId));
+      return { ok: true };
+    }),
+
+  // ── Resumo Financeiro da Unidade ──────────────────────────────────────────
+
+  getUnitFinancialSummary: protectedProcedure
+    .input(z.object({
+      unitId: z.number(),
+      year: z.number(),
+      month: z.number(),
+    }))
+    .query(async ({ input, ctx }) => {
+      const role = ctx.user.role;
+      if (role !== "admin_master" && role !== "responsavel_financeiro" && role !== "unit_admin") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { billing_visit_events, users } = await import("../../drizzle/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const events = await db
+        .select({
+          doctor_user_id: billing_visit_events.doctor_user_id,
+          doctor_name: users.name,
+          system_amount_due: billing_visit_events.system_amount_due,
+          doctor_amount_due: billing_visit_events.doctor_amount_due,
+          patient_price: billing_visit_events.patient_price,
+        })
+        .from(billing_visit_events)
+        .leftJoin(users, eq(users.id, billing_visit_events.doctor_user_id))
+        .where(
+          and(
+            eq(billing_visit_events.unit_id, input.unitId),
+            eq((billing_visit_events as any).competence_year, input.year),
+            eq((billing_visit_events as any).competence_month, input.month),
+          )
+        );
+      let totalReports = events.length;
+      let totalSystem = 0;
+      let totalPatient = 0;
+      let unconfiguredCount = 0;
+      const doctorMap: Record<number, { name: string; reports: number; total: number }> = {};
+      for (const e of events) {
+        totalSystem += parseFloat(e.system_amount_due ?? "0");
+        if (e.patient_price !== null && e.patient_price !== undefined) {
+          totalPatient += parseFloat(e.patient_price as string);
+        } else {
+          unconfiguredCount++;
+        }
+        const did = e.doctor_user_id;
+        if (!doctorMap[did]) {
+          doctorMap[did] = { name: e.doctor_name ?? "Desconhecido", reports: 0, total: 0 };
+        }
+        doctorMap[did].reports++;
+        doctorMap[did].total += parseFloat(e.doctor_amount_due ?? "0");
+      }
+      const totalDoctors = Object.values(doctorMap).reduce((acc, d) => acc + d.total, 0);
+      const profit = totalPatient - totalSystem - totalDoctors;
+      return {
+        totalReports,
+        totalSystem: totalSystem.toFixed(2),
+        totalDoctors: totalDoctors.toFixed(2),
+        totalPatient: totalPatient.toFixed(2),
+        profit: profit.toFixed(2),
+        unconfiguredCount,
+        doctors: Object.entries(doctorMap).map(([id, d]) => ({
+          doctorId: Number(id),
+          doctorName: d.name,
+          reports: d.reports,
+          total: d.total.toFixed(2),
+        })),
+      };
+    }),
+
 });
