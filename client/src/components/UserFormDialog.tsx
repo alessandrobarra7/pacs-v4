@@ -83,16 +83,20 @@ const PERMISSION_LABELS: Array<{ key: keyof UnitPermission; label: string }> = [
   { key: "manage_templates", label: "Gerenciar Templates" },
 ];
 
-function defaultPermission(unitId: number): UnitPermission {
+function defaultPermission(unitId: number, role?: string): UnitPermission {
+  // Define default permissions based on role
+  const roleDefaults: Record<string, Omit<UnitPermission, 'unit_id'>> = {
+    medico: { view_studies: true, edit_reports: true, view_anamnesis: true, edit_anamnesis: true, edit_exam_legend: true, print_reports: true, manage_templates: true },
+    operador: { view_studies: true, edit_reports: false, view_anamnesis: true, edit_anamnesis: true, edit_exam_legend: true, print_reports: false, manage_templates: false },
+    viewer: { view_studies: true, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true, manage_templates: false },
+    responsavel_financeiro: { view_studies: false, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: false, manage_templates: false },
+    unit_admin: { view_studies: true, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true, manage_templates: false },
+    admin_master: { view_studies: true, edit_reports: true, view_anamnesis: true, edit_anamnesis: true, edit_exam_legend: true, print_reports: true, manage_templates: true },
+  };
+  const defaults = roleDefaults[role || 'viewer'] || roleDefaults.viewer;
   return {
     unit_id: unitId,
-    view_studies: true,
-    edit_reports: false,
-    view_anamnesis: false,
-    edit_anamnesis: false,
-    edit_exam_legend: false,
-    print_reports: false,
-    manage_templates: false,
+    ...defaults,
   };
 }
 
@@ -244,6 +248,10 @@ export default function UserFormDialog({
         setPermissions([]);
         setCrm(""); setSignaturePreview(null); setSignatureFile(null); setRemovingSignature(false);
         setStampPreview(null); setStampFile(null); setRemovingStamp(false);
+        // Initialize with first unit if available (will be updated when role changes)
+        if (units.length > 0) {
+          setPermissions([defaultPermission(units[0].id, "medico")]);
+        }
       }
       setEditingPriceUnitId(null);
       setEditingPriceValue("");
@@ -270,7 +278,7 @@ export default function UserFormDialog({
     if (checked) {
       setPermissions((prev) => {
         if (prev.find((p) => p.unit_id === unitId)) return prev;
-        return [...prev, defaultPermission(unitId)];
+        return [...prev, defaultPermission(unitId, role)];
       });
     } else {
       setPermissions((prev) => prev.filter((p) => p.unit_id !== unitId));
