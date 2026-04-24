@@ -34,6 +34,8 @@ export interface UnitPermission {
   view_anamnesis: boolean;
   print_reports: boolean;
   manage_templates: boolean;
+  edit_anamnesis: boolean;
+  edit_exam_legend: boolean;
 }
 
 export interface UserFormData {
@@ -75,6 +77,8 @@ const PERMISSION_LABELS: Array<{ key: keyof UnitPermission; label: string }> = [
   { key: "view_studies", label: "Visualizar Estudos" },
   { key: "edit_reports", label: "Editar Laudos" },
   { key: "view_anamnesis", label: "Ver Anamnese" },
+  { key: "edit_anamnesis", label: "Editar Anamnese" },
+  { key: "edit_exam_legend", label: "Editar Legenda de Exame" },
   { key: "print_reports", label: "Imprimir Laudos" },
   { key: "manage_templates", label: "Gerenciar Templates" },
 ];
@@ -85,6 +89,8 @@ function defaultPermission(unitId: number): UnitPermission {
     view_studies: true,
     edit_reports: false,
     view_anamnesis: false,
+    edit_anamnesis: false,
+    edit_exam_legend: false,
     print_reports: false,
     manage_templates: false,
   };

@@ -32,6 +32,15 @@ export const anamnesisRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { anamnesis } = await import("../../drizzle/schema");
         
+        // Validar permissão edit_anamnesis
+        const effectiveUnitId = ctx.user.unit_id;
+        if (effectiveUnitId) {
+          const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
+          if (perm && !perm.edit_anamnesis) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para editar anamnese' });
+          }
+        }
+        
         const [result] = await db.insert(anamnesis).values({
           study_instance_uid: input.study_instance_uid,
           unit_id: ctx.user.unit_id || null,

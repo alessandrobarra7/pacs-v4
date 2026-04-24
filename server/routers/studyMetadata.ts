@@ -34,6 +34,13 @@ export const studyMetadataRouter = router({
       .mutation(async ({ input, ctx }) => {
         const unitId = ctx.user.unit_id;
         if (!unitId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário sem unidade' });
+        
+        // Validar permissão edit_exam_legend
+        const { getUserUnitPermission } = await import("../db");
+        const perm = await getUserUnitPermission(ctx.user.id, unitId);
+        if (perm && !perm.edit_exam_legend) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para editar legenda de exame' });
+        }
         await upsertStudyMetadata({
           study_instance_uid: input.studyInstanceUid,
           unit_id: unitId,
