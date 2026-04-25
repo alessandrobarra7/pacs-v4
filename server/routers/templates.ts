@@ -5,7 +5,6 @@ import {
   getTemplatesByUnitId, getGlobalTemplates, getTemplateById,
   createTemplate, updateTemplate, deleteTemplate, getDb, resolveEffectiveUnitId,
 } from "../db";
-import { hasUnitPermission } from "../permissions";
 import { and, eq } from "drizzle-orm";
 import sanitizeHtml from "sanitize-html";
 import { REPORT_SANITIZE_OPTIONS } from "../reportSanitize";
@@ -49,19 +48,10 @@ export const templatesRouter = router({
     
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input, ctx }) => {
+      .query(async ({ input }) => {
         const template = await getTemplateById(input.id);
         if (!template) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Template not found' });
-        }
-        // Validar escopo: global, pessoal do usuario, ou da unidade acessivel
-        if (!template.isGlobal && template.owner_user_id !== ctx.user.id && template.unit_id) {
-          if (ctx.user.role !== 'admin_master') {
-            const allowed = await hasUnitPermission(ctx.user, template.unit_id, 'manage_templates');
-            if (!allowed) {
-              throw new TRPCError({ code: 'FORBIDDEN', message: 'Voce nao tem acesso a este template' });
-            }
-          }
         }
         return template;
       }),
@@ -140,25 +130,25 @@ export const templatesRouter = router({
         bodyTemplate: z.string(),
         fields: z.any().optional(),
         isGlobal: z.boolean().default(false),
-        unit_id: z.number().optional(), // multi-unidade: usuario pode especificar unidade
       }))
       .mutation(async ({ input, ctx }) => {
         if (input.isGlobal && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admin_master can create global templates' });
         }
-        // Determinar unidade do template
-        const templateUnitId = input.isGlobal ? null : (input.unit_id ?? ctx.user.unit_id);
-        
-        // Verificar permissao manage_templates para usuarios nao-admin
-        if (ctx.user.role !== 'admin_master' && templateUnitId) {
-          const allowed = await hasUnitPermission(ctx.user, templateUnitId, 'manage_templates');
-          if (!allowed) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissao para gerenciar templates nesta unidade' });
+        // F2-6: Verificar permissão manage_templates para usuários não-admin
+        if (ctx.user.role !== 'admin_master') {
+          const { getUserUnitPermission } = await import('../db');
+          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+          if (effectiveUnitId) {
+            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
+            if (perm && !perm.manage_templates) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para gerenciar templates' });
+            }
           }
         }
         const id = await createTemplate({
           ...input,
-          unit_id: templateUnitId,
+          unit_id: input.isGlobal ? null : ctx.user.unit_id,
           createdBy: ctx.user.id,
         });
         
@@ -180,11 +170,18 @@ export const templatesRouter = router({
         if (!template) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Template nao encontrado' });
         }
-        // Validar escopo: pode editar se eh dono, admin_master, ou tem manage_templates na unidade
-        if (ctx.user.role !== 'admin_master' && template.owner_user_id !== ctx.user.id && template.unit_id) {
-          const allowed = await hasUnitPermission(ctx.user, template.unit_id, 'manage_templates');
-          if (!allowed) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Voce nao tem permissao para editar este template' });
+        if (ctx.user.role !== 'admin_master' && template.unit_id !== ctx.user.unit_id) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        // F2-6: Verificar permissão manage_templates para usuários não-admin
+        if (ctx.user.role !== 'admin_master') {
+          const { getUserUnitPermission } = await import('../db');
+          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+          if (effectiveUnitId) {
+            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
+            if (perm && !perm.manage_templates) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para gerenciar templates' });
+            }
           }
         }
         await updateTemplate(id, data);
@@ -198,11 +195,18 @@ export const templatesRouter = router({
         if (!template) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Template nao encontrado' });
         }
-        // Validar escopo: pode deletar se eh dono, admin_master, ou tem manage_templates na unidade
-        if (ctx.user.role !== 'admin_master' && template.owner_user_id !== ctx.user.id && template.unit_id) {
-          const allowed = await hasUnitPermission(ctx.user, template.unit_id, 'manage_templates');
-          if (!allowed) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Voce nao tem permissao para deletar este template' });
+        if (ctx.user.role !== 'admin_master' && template.unit_id !== ctx.user.unit_id) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        // F2-6: Verificar permissão manage_templates para usuários não-admin
+        if (ctx.user.role !== 'admin_master') {
+          const { getUserUnitPermission } = await import('../db');
+          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+          if (effectiveUnitId) {
+            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
+            if (perm && !perm.manage_templates) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para gerenciar templates' });
+            }
           }
         }
         await deleteTemplate(input.id);

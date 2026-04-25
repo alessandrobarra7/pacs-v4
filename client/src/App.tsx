@@ -28,7 +28,6 @@ import FinanceContasReceber from "./pages/finance/FinanceContasReceber";
 import FinanceResponsavelDivida from "./pages/finance/FinanceResponsavelDivida";
 import FinanceUnidadeDetalhe from "./pages/finance/FinanceUnidadeDetalhe";
 import FinanceResponsavelDetalhe from "./pages/finance/FinanceResponsavelDetalhe";
-import AdminPermissions from "./pages/AdminPermissions";
 import { useLocation } from "wouter";
 import { useEffect } from "react";
 
@@ -98,7 +97,6 @@ function Router() {
       <Route path="/dicom-viewer/:studyUid" component={() => <ProtectedRoute component={DicomViewerPage} />} />
       {/* Admin: admin_master e unit_admin */}
       <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} allowedRoles={['admin_master', 'unit_admin']} />} />
-      <Route path="/admin/permissions" component={() => <ProtectedRoute component={AdminPermissions} allowedRoles={['admin_master', 'unit_admin']} />} />
       {/* Redirects de rotas legadas /billing/* para /financeiro/* */}
       <Route path="/billing/admin"><Redirect to="/financeiro/admin" /></Route>
       <Route path="/billing/unit"><Redirect to="/financeiro/responsaveis" /></Route>

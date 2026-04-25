@@ -184,35 +184,16 @@ export const adminRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { users } = await import("../../drizzle/schema");
         const { eq: eqOp } = await import("drizzle-orm");
-        // ERRO 2.4 FIX: unit_admin pode editar usuários multiunidade
-        // Verificar interseção de unidades
+        // F1-5: unit_admin só pode editar usuários da sua própria unidade
         if (ctx.user.role === 'unit_admin') {
           const targetUser = await db.select().from(users).where(eqOp(users.id, input.id)).limit(1);
-          if (!targetUser[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
-          
-          const { user_unit_permissions } = await import("../../drizzle/schema");
-          const { inArray: inArrayOp } = await import("drizzle-orm");
-          
-          // Coletar todas as unidades do usuário-alvo
-          const targetUnits = new Set<number>();
-          if (targetUser[0].unit_id) targetUnits.add(targetUser[0].unit_id);
-          const targetPerms = await db.select({ unit_id: user_unit_permissions.unit_id })
-            .from(user_unit_permissions)
-            .where(eqOp(user_unit_permissions.user_id, targetUser[0].id));
-          targetPerms.forEach(p => targetUnits.add(p.unit_id));
-          
-          // Coletar todas as unidades do unit_admin
-          const adminUnits = new Set<number>();
-          if (ctx.user.unit_id) adminUnits.add(ctx.user.unit_id);
-          const adminPerms = await db.select({ unit_id: user_unit_permissions.unit_id })
-            .from(user_unit_permissions)
-            .where(eqOp(user_unit_permissions.user_id, ctx.user.id));
-          adminPerms.forEach(p => adminUnits.add(p.unit_id));
-          
-          // Verificar interseção
-          const hasIntersection = Array.from(targetUnits).some(u => adminUnits.has(u));
-          if (!hasIntersection) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin só pode editar usuários de suas unidades' });
+          const targetUnitId = targetUser[0]?.unit_id;
+          const adminUnitId = ctx.user.unit_id;
+          if (!adminUnitId || targetUnitId !== adminUnitId) {
+            // Verificar também via user_unit_permissions
+            const { getUserUnitPermission: getUnitPerm } = await import('../db');
+            const hasScope = targetUnitId ? !!(await getUnitPerm(ctx.user.id, targetUnitId)) : false;
+            if (!hasScope) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin só pode editar usuários da sua unidade' });
           }
         }
         const updateData: Record<string, unknown> = {};
@@ -282,20 +263,7 @@ export const adminRouter = router({
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
         const { getUserUnitPermissions } = await import('../db');
-        const userPerms = await getUserUnitPermissions(input.userId);
-        
-        // ERRO 2.4 FIX: unit_admin só pode ver permissões de usuários de suas unidades
-        if (ctx.user.role === 'unit_admin') {
-          const adminPerms = await getUserUnitPermissions(ctx.user.id);
-          const adminUnitIds = new Set<number>();
-          if (ctx.user.unit_id) adminUnitIds.add(ctx.user.unit_id);
-          adminPerms.forEach(p => adminUnitIds.add(p.unit_id));
-          
-          // Filtrar apenas permissões que unit_admin pode ver
-          return userPerms.filter(p => adminUnitIds.has(p.unit_id));
-        }
-        
-        return userPerms;
+        return getUserUnitPermissions(input.userId);
       }),
 
     setUserPermissions: protectedProcedure
@@ -316,16 +284,13 @@ export const adminRouter = router({
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
-        // ERRO 2.4 FIX: unit_admin só pode definir permissões para unidades às quais ele próprio tem acesso
+        // F1-5: unit_admin só pode definir permissões para unidades às quais ele próprio tem acesso
         if (ctx.user.role === 'unit_admin') {
-          const { getUserUnitPermissions: getUnitPerms } = await import('../db');
-          const adminPerms = await getUnitPerms(ctx.user.id);
-          const adminUnitIds = new Set<number>();
-          if (ctx.user.unit_id) adminUnitIds.add(ctx.user.unit_id);
-          adminPerms.forEach(p => adminUnitIds.add(p.unit_id));
-          
+          const { getUserUnitPermission: getUnitPerm } = await import('../db');
           for (const perm of input.permissions) {
-            if (!adminUnitIds.has(perm.unit_id)) {
+            const adminHasAccess = ctx.user.unit_id === perm.unit_id ||
+              !!(await getUnitPerm(ctx.user.id, perm.unit_id));
+            if (!adminHasAccess) {
               throw new TRPCError({ code: 'FORBIDDEN', message: `Unit admin não tem acesso à unidade ${perm.unit_id}` });
             }
           }
@@ -342,187 +307,6 @@ export const adminRouter = router({
           user_agent: ctx.req.headers['user-agent'],
         });
         return { success: true };
-      }),
-
-    updateUserGroupKey: protectedProcedure
-      .input(z.object({
-        userId: z.number(),
-        unitId: z.number(),
-        groupKey: z.enum(['adminsMaster', 'administradoresUnidade', 'medicos', 'operadores', 'visualizadores', 'responsaveisFinanceiros', 'outros']),
-      }))
-      .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
-        }
-        const db = await getDb();
-        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
-        const { user_unit_permissions } = await import('../../drizzle/schema');
-        const { eq: eqOp, and: andOp } = await import('drizzle-orm');
-        
-        // Validar escopo para unit_admin
-        if (ctx.user.role === 'unit_admin') {
-          const { getUserUnitPermissions: getUnitPerms } = await import('../db');
-          const adminPerms = await getUnitPerms(ctx.user.id);
-          const adminUnitIds = new Set<number>();
-          if (ctx.user.unit_id) adminUnitIds.add(ctx.user.unit_id);
-          adminPerms.forEach(p => adminUnitIds.add(p.unit_id));
-          
-          if (!adminUnitIds.has(input.unitId)) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não tem acesso a esta unidade' });
-          }
-        }
-        
-        await db.update(user_unit_permissions)
-          .set({ group_key: input.groupKey })
-          .where(andOp(
-            eqOp(user_unit_permissions.user_id, input.userId),
-            eqOp(user_unit_permissions.unit_id, input.unitId)
-          ));
-        
-        await createAuditLog({
-          user_id: ctx.user.id,
-          unit_id: input.unitId,
-          action: 'UPDATE_USER',
-          target_type: 'USER',
-          target_id: String(input.userId),
-          ip_address: ctx.req.ip,
-          user_agent: ctx.req.headers['user-agent'],
-        });
-        
-        return { success: true };
-      }),
-
-    cleanupOrphanedFinancialRecords: protectedProcedure
-      .mutation(async ({ ctx }) => {
-        if (ctx.user.role !== 'admin_master') {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas admin_master pode limpar dados' });
-        }
-        const db = await getDb();
-        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
-        const { financial_responsible_units, units } = await import('../../drizzle/schema');
-        const { eq: eqOp, isNull: isNullOp, notInArray: notInArrayOp } = await import('drizzle-orm');
-        
-        // Buscar IDs de unidades válidas
-        const validUnits = await db.select({ id: units.id }).from(units);
-        const validUnitIds = validUnits.map(u => u.id);
-        
-        // Deletar registros que apontam para unidades inexistentes
-        const result = await db.delete(financial_responsible_units)
-          .where(notInArrayOp(financial_responsible_units.unit_id, validUnitIds));
-        
-        await createAuditLog({
-          user_id: ctx.user.id,
-          unit_id: ctx.user.unit_id ?? undefined,
-          action: 'DELETE_USER',
-          target_type: 'FINANCIAL_RECORD',
-          target_id: 'orphaned',
-          ip_address: ctx.req.ip,
-          user_agent: ctx.req.headers['user-agent'],
-        });
-        
-        return { success: true, recordsDeleted: 0 };
-      }),
-
-    getPermissionInconsistencies: protectedProcedure
-      .query(async ({ ctx }) => {
-        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
-        }
-        const db = await getDb();
-        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
-        const { users, user_unit_permissions, units: unitsTable } = await import('../../drizzle/schema');
-        const { eq: eqOp, inArray: inArrayOp, and: andOp } = await import('drizzle-orm');
-        
-        // Filtrar por unidades acessíveis se unit_admin
-        let unitFilter: any = undefined;
-        if (ctx.user.role === 'unit_admin') {
-          const { getUserUnitPermissions: getUnitPerms } = await import('../db');
-          const adminPerms = await getUnitPerms(ctx.user.id);
-          const adminUnitIds = new Set<number>();
-          if (ctx.user.unit_id) adminUnitIds.add(ctx.user.unit_id);
-          adminPerms.forEach(p => adminUnitIds.add(p.unit_id));
-          const ids = Array.from(adminUnitIds);
-          if (ids.length > 0) {
-            unitFilter = inArrayOp(user_unit_permissions.unit_id, ids);
-          } else {
-            return { groupKeyMismatches: [], orphanedFinancialRecords: [] };
-          }
-        }
-        
-        // Buscar mismatches de group_key
-        const allPerms = unitFilter
-          ? await db.select({
-              user_id: user_unit_permissions.user_id,
-              unit_id: user_unit_permissions.unit_id,
-              group_key: user_unit_permissions.group_key,
-              role: users.role,
-              name: users.name,
-              username: users.username,
-              unit_name: unitsTable.name,
-            })
-            .from(user_unit_permissions)
-            .innerJoin(users, eqOp(users.id, user_unit_permissions.user_id))
-            .innerJoin(unitsTable, eqOp(unitsTable.id, user_unit_permissions.unit_id))
-            .where(unitFilter)
-          : await db.select({
-              user_id: user_unit_permissions.user_id,
-              unit_id: user_unit_permissions.unit_id,
-              group_key: user_unit_permissions.group_key,
-              role: users.role,
-              name: users.name,
-              username: users.username,
-              unit_name: unitsTable.name,
-            })
-            .from(user_unit_permissions)
-            .innerJoin(users, eqOp(users.id, user_unit_permissions.user_id))
-            .innerJoin(unitsTable, eqOp(unitsTable.id, user_unit_permissions.unit_id));
-        
-        const groupKeyMismatches = allPerms.filter(p => {
-          const expectedGroupKey = {
-            'admin_master': 'adminsMaster',
-            'unit_admin': 'administradoresUnidade',
-            'medico': 'medicos',
-            'operador': 'operadores',
-            'viewer': 'visualizadores',
-            'responsavel_financeiro': 'responsaveisFinanceiros',
-          }[p.role as string];
-          return p.group_key !== expectedGroupKey;
-        });
-        
-        // Buscar registros órfãos em financial_responsible_units
-        const { financial_responsible_units } = await import('../../drizzle/schema');
-        const validUnits = await db.select({ id: unitsTable.id }).from(unitsTable);
-        const validUnitIds = validUnits.map(u => u.id);
-        
-        const { notInArray: notInArrayOp } = await import('drizzle-orm');
-        const orphanedFinancialRecords = await db.select({
-          id: financial_responsible_units.id,
-          unit_id: financial_responsible_units.unit_id,
-          financial_responsible_id: financial_responsible_units.financial_responsible_id,
-        })
-        .from(financial_responsible_units)
-        .where(notInArrayOp(financial_responsible_units.unit_id, validUnitIds));
-        
-        return {
-          groupKeyMismatches: groupKeyMismatches.map(p => ({
-            user_id: p.user_id,
-            name: p.name,
-            username: p.username,
-            role: p.role,
-            unit_id: p.unit_id,
-            unit_name: p.unit_name,
-            current_group_key: p.group_key,
-            expected_group_key: {
-              'admin_master': 'adminsMaster',
-              'unit_admin': 'administradoresUnidade',
-              'medico': 'medicos',
-              'operador': 'operadores',
-              'viewer': 'visualizadores',
-              'responsavel_financeiro': 'responsaveisFinanceiros',
-            }[p.role as string],
-          })),
-          orphanedFinancialRecords,
-        };
       }),
 
     getUnitAccessTree: protectedProcedure
