@@ -102,8 +102,8 @@ function Router() {
       <Route path="/billing/unit"><Redirect to="/financeiro/responsaveis" /></Route>
       <Route path="/billing/doctor"><Redirect to="/financeiro/meu-financeiro" /></Route>
       {/* Novo módulo financeiro */}
-      {/* Dashboard financeiro: todos os papéis com acesso financeiro */}
-      <Route path="/financeiro" component={() => <ProtectedRoute component={FinanceDashboard} />} />
+      {/* Dashboard financeiro: apenas admin_master, unit_admin, responsavel_financeiro */}
+      <Route path="/financeiro" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
       {/* Médicos: admin_master, unit_admin, responsavel_financeiro */}
       <Route path="/financeiro/medicos" component={() => <ProtectedRoute component={FinanceMedicos} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
       {/* Unidades: admin_master, unit_admin, responsavel_financeiro */}
