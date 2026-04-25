@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
+const navigate = useLocation()[1];
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +17,7 @@ import UnitFormDialog, { type UnitFormData } from "@/components/UnitFormDialog";
 import UserFormDialog, { type UserFormData } from "@/components/UserFormDialog";
 import { UserExplorerLayout } from "@/components/UserExplorerLayout";
 
-type Tab = "units" | "users" | "audit" | "cache";
+type Tab = "units" | "users" | "audit" | "cache" | "permissions";
 
 const ROLE_LABELS: Record<string, string> = {
   admin_master: "Admin Master",
@@ -434,13 +435,13 @@ export default function AdminPage() {
   const isUnitAdmin = currentUser?.role === "unit_admin";
   const canManageUsers = isAdminMaster || isUnitAdmin;
 
-  const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    ...(isAdminMaster ? [{ key: "units" as Tab, label: "Unidades", icon: <Building2 className="h-4 w-4" /> }] : []),
-    ...(canManageUsers ? [{ key: "users" as Tab, label: "Usuários", icon: <Users className="h-4 w-4" /> }] : []),
+  const tabs: Array<{ key: Tab; label: string; icon: React.ReactNode }> = [
+    { key: "units", label: "Unidades", icon: <Building2 className="h-4 w-4" /> },
+    { key: "users", label: "Usuários", icon: <Users className="h-4 w-4" /> },
+    { key: "permissions", label: "Permissões", icon: <ClipboardList className="h-4 w-4" /> },
     { key: "audit", label: "Auditoria", icon: <ClipboardList className="h-4 w-4" /> },
     { key: "cache", label: "Cache DICOM", icon: <HardDrive className="h-4 w-4" /> },
   ];
-
   const effectiveTab = (!isAdminMaster && activeTab === "units") ? "users" : activeTab;
 
 
@@ -468,7 +469,13 @@ export default function AdminPage() {
           {tabs.map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                if (tab.key === 'permissions') {
+                  navigate('/admin/permissions');
+                } else {
+                  setActiveTab(tab.key as Tab);
+                }
+              }}
               className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.key
                   ? "border-blue-600 text-blue-600"
