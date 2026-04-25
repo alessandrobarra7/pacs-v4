@@ -78,6 +78,7 @@ vi.mock("./db", async (importOriginal) => {
     ...original,
     resolveUnitFilter: vi.fn(),
     getUserUnitPermissions: vi.fn(),
+    assertUnitPermission: vi.fn().mockResolvedValue(true),
     getReportByStudyId: vi.fn(),
     getStudyById: vi.fn(),
     getReportStatusByStudyUids: vi.fn(),

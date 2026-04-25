@@ -706,10 +706,11 @@ export async function assertUnitPermission(
 }
 
 /**
- * Resolve o filtro de unidade para queries de laudos/estudos.
+ * ERRO CRÍTICO 2 FIX: Resolve o filtro de unidade para queries de laudos/estudos.
+ * Prioriza permissões granulares sobre o campo legado users.unit_id.
  * - admin_master: retorna {} (sem filtro — acesso total)
- * - unit_id legado presente: retorna { unitId } (filtro simples)
- * - médico multiunidade (unit_id null): retorna { unitIds } (filtro inArray)
+ * - usuário com permissões granulares: retorna { unitIds } (filtro inArray)
+ * - fallback legado (quando sem permissões granulares): retorna { unitId } (filtro simples)
  * - sem acesso a nenhuma unidade: retorna { unitIds: [] } (resultado vazio)
  */
 export async function resolveUnitFilter(
@@ -718,10 +719,17 @@ export async function resolveUnitFilter(
   legacyUnitId: number | null | undefined
 ): Promise<{ unitId?: number; unitIds?: number[] }> {
   if (role === 'admin_master') return {};
-  if (legacyUnitId) return { unitId: legacyUnitId };
+  
+  // Prioridade 1: Permissões granulares (novo modelo)
   const perms = await getUserUnitPermissions(userId);
   const ids = perms.map(p => p.unit_id);
-  return { unitIds: ids };
+  if (ids.length > 0) return { unitIds: ids };
+  
+  // Prioridade 2: Fallback legado (campo users.unit_id)
+  if (legacyUnitId) return { unitId: legacyUnitId };
+  
+  // Sem acesso a nenhuma unidade
+  return { unitIds: [] };
 }
 
 /** Define (replace) as permissões de um usuário para uma lista de unidades.

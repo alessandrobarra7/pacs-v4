@@ -60,6 +60,7 @@ vi.mock("./db", async (importOriginal) => {
     getReportById: vi.fn(),
     updateReport: vi.fn().mockResolvedValue(undefined),
     createAuditLog: vi.fn().mockResolvedValue(undefined),
+    assertUnitPermission: vi.fn().mockResolvedValue(true),
     getDb: vi.fn().mockResolvedValue({
       insert: vi.fn().mockReturnValue({
         values: vi.fn().mockResolvedValue(undefined),

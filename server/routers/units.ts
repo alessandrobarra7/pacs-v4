@@ -37,6 +37,8 @@ export const unitsRouter = router({
             view_studies: true,
             edit_reports: true,
             view_anamnesis: true,
+            edit_anamnesis: true,
+            edit_exam_legend: true,
             print_reports: true,
             manage_templates: true,
           };
@@ -46,7 +48,15 @@ export const unitsRouter = router({
         if (!perm) {
           // Fallback para unit_id legado
           if (ctx.user.unit_id === input.unitId) {
-            return { view_studies: true, edit_reports: true, view_anamnesis: true, print_reports: true, manage_templates: true };
+            return {
+              view_studies: true,
+              edit_reports: true,
+              view_anamnesis: true,
+              edit_anamnesis: true,
+              edit_exam_legend: true,
+              print_reports: true,
+              manage_templates: true,
+            };
           }
           return null;
         }
@@ -54,6 +64,8 @@ export const unitsRouter = router({
           view_studies: perm.view_studies,
           edit_reports: perm.edit_reports,
           view_anamnesis: perm.view_anamnesis,
+          edit_anamnesis: perm.edit_anamnesis,
+          edit_exam_legend: perm.edit_exam_legend,
           print_reports: perm.print_reports,
           manage_templates: perm.manage_templates,
         };

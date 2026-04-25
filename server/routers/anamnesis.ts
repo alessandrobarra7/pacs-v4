@@ -8,6 +8,7 @@ export const anamnesisRouter = router({
       .input(
         z.object({
           study_instance_uid: z.string(),
+          unit_id: z.number(),
           exam_area: z.string().optional(),
           main_symptom: z.string().optional(),
           symptom_duration_days: z.number().optional(),
@@ -32,23 +33,24 @@ export const anamnesisRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { anamnesis } = await import("../../drizzle/schema");
         
-        // Validar permissão edit_anamnesis (bypass para admin_master)
-        const { resolveEffectiveUnitId } = await import("../db");
-        let effectiveUnitId: number | null = null;
+        // ERRO CRÍTICO 6 FIX: Validar permissão edit_anamnesis com unit_id selecionado
+        const { resolveEffectiveUnitId, assertUnitPermission } = await import("../db");
         
-        if (ctx.user.role !== 'admin_master') {
-          effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-          if (effectiveUnitId) {
-            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
-            if (perm && !perm.edit_anamnesis) {
-              throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para editar anamnese' });
-            }
-          } else {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário sem acesso a nenhuma unidade' });
-          }
-        } else {
+        let effectiveUnitId: number | null;
+        if (ctx.user.role === 'admin_master') {
           // admin_master pode usar qualquer unidade
-          effectiveUnitId = ctx.user.unit_id || (await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id));
+          effectiveUnitId = input.unit_id;
+        } else {
+          // Para usuários normais, validar que têm acesso à unidade selecionada
+          effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id, input.unit_id);
+          if (!effectiveUnitId) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário sem acesso à unidade solicitada' });
+          }
+          // Validar permissão edit_anamnesis
+          const hasPermission = await assertUnitPermission(ctx.user.id, effectiveUnitId, 'edit_anamnesis', ctx.user.unit_id);
+          if (!hasPermission) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para editar anamnese nesta unidade' });
+          }
         }
         
         const [result] = await db.insert(anamnesis).values({

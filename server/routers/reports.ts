@@ -130,16 +130,11 @@ export const reportsRouter = router({
         if (!report) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
         }
-        // Verificar acesso: admin_master tem acesso total; outros verificam via unit_id legado ou permissões
+        // Verificar acesso: admin_master tem acesso total; outros verificam permissões granulares
         if (ctx.user.role !== 'admin_master') {
-          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-          const hasAccess = effectiveUnitId === report.unit_id ||
-            !!(await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0));
-          if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
-          
-          // ERRO 4: Validar permissão edit_reports
-          const perm = await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0);
-          if (!perm || !perm.edit_reports) {
+          const { assertUnitPermission } = await import('../db');
+          const hasPermission = await assertUnitPermission(ctx.user.id, report.unit_id ?? 0, 'edit_reports', ctx.user.unit_id);
+          if (!hasPermission) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para editar laudos nesta unidade' });
           }
         }
