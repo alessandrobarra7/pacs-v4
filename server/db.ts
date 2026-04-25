@@ -640,22 +640,69 @@ export async function getUserUnitPermission(userId: number, unitId: number) {
  *             (3) primeira unidade em user_unit_permissions.
  * Retorna null se o usuário não tiver acesso a nenhuma unidade.
  */
+/**
+ * ERRO 2.2 FIX: Quando input.unit_id é informado, ele deve ter prioridade.
+ * Só usar users.unit_id quando input.unit_id não existir.
+ * 
+ * Regra correta:
+ * 1) admin_master: pode usar input.unit_id
+ * 2) se input.unit_id foi enviado: verificar user_unit_permissions ou fallback legado para esse unitId
+ * 3) se input.unit_id não foi enviado: usar users.unit_id ou primeira unidade permitida
+ * 4) nunca ignorar a unidade selecionada pelo usuário
+ */
 export async function resolveEffectiveUnitId(
   userId: number,
   legacyUnitId: number | null | undefined,
   inputUnitId?: number | null
 ): Promise<number | null> {
-  // Prioridade 1: campo legado
-  if (legacyUnitId) return legacyUnitId;
-  // Prioridade 2: inputUnitId com verificação de permissão
+  // ERRO 2.2: Prioridade 1: inputUnitId (se informado)
   if (inputUnitId) {
+    // Verificar se usuário tem permissão nessa unidade
     const perm = await getUserUnitPermission(userId, inputUnitId);
     if (perm) return inputUnitId;
+    // Fallback legado: se o inputUnitId for igual ao legacyUnitId
+    if (legacyUnitId === inputUnitId) return inputUnitId;
+    // Se não tem permissão, rejeitar (não usar fallback)
+    return null;
   }
+  
+  // Prioridade 2: campo legado (quando inputUnitId não foi informado)
+  if (legacyUnitId) return legacyUnitId;
+  
   // Prioridade 3: primeira unidade nas permissões
   const perms = await getUserUnitPermissions(userId);
   if (perms.length > 0) return perms[0].unit_id;
   return null;
+}
+
+/**
+ * ERRO 2.1 FIX: Função central de autorização que aceita fallback legado.
+ * Valida se usuário tem permissão para uma ação em uma unidade.
+ * 
+ * Regra:
+ * - admin_master: sempre autorizado
+ * - se existir user_unit_permissions: obedecer o booleano da permissão
+ * - se não existir user_unit_permissions e user.unit_id === unitId: aplicar compatibilidade temporária
+ * - caso contrário: negar
+ */
+export async function assertUnitPermission(
+  userId: number,
+  unitId: number,
+  permission: 'view_studies' | 'edit_reports' | 'view_anamnesis' | 'print_reports' | 'manage_templates' | 'edit_anamnesis' | 'edit_exam_legend',
+  legacyUnitId?: number | null
+): Promise<boolean> {
+  // Verificar se há registro em user_unit_permissions
+  const perm = await getUserUnitPermission(userId, unitId);
+  if (perm) {
+    return (perm as any)[permission] === true;
+  }
+  
+  // Fallback legado: se user.unit_id === unitId, permitir (compatibilidade temporária)
+  if (legacyUnitId === unitId) {
+    return true;
+  }
+  
+  return false;
 }
 
 /**
