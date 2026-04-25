@@ -1,23 +1,29 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getStudyMetadata, getStudyMetadataBatch, upsertStudyMetadata, createAuditLog, resolveEffectiveUnitId, getUserUnitPermission } from "../db";
+import { getStudyMetadata, getStudyMetadataBatch, upsertStudyMetadata, createAuditLog, resolveEffectiveUnitId } from "../db";
 
 export const studyMetadataRouter = router({
     /** Busca os metadados editados de um estudo para a unidade do usuário logado */
     get: protectedProcedure
-      .input(z.object({ studyInstanceUid: z.string() }))
+      .input(z.object({ studyInstanceUid: z.string(), unit_id: z.number().optional() }))
       .query(async ({ input, ctx }) => {
-        const unitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+        // V14-P1 FIX: aceitar unit_id da tela (unidade selecionada)
+        const unitId = ctx.user.role === 'admin_master'
+          ? (input.unit_id ?? await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id))
+          : await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id, input.unit_id);
         if (!unitId) return null;
         return await getStudyMetadata(input.studyInstanceUid, unitId);
       }),
 
     /** Busca metadados de múltiplos estudos (batch) para a unidade do usuário */
     getBatch: protectedProcedure
-      .input(z.object({ studyInstanceUids: z.array(z.string()) }))
+      .input(z.object({ studyInstanceUids: z.array(z.string()), unit_id: z.number().optional() }))
       .query(async ({ input, ctx }) => {
-        const unitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+        // V14-P1 FIX: aceitar unit_id da tela (unidade selecionada)
+        const unitId = ctx.user.role === 'admin_master'
+          ? (input.unit_id ?? await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id))
+          : await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id, input.unit_id);
         if (!unitId || !input.studyInstanceUids.length) return [];
         return await getStudyMetadataBatch(input.studyInstanceUids, unitId);
       }),
@@ -26,27 +32,29 @@ export const studyMetadataRouter = router({
     save: protectedProcedure
       .input(z.object({
         studyInstanceUid: z.string(),
+        unit_id: z.number().optional(),  // V14-P1 FIX: unidade selecionada na tela
         patientNameOverride: z.string().nullable().optional(),
         descriptionOverride: z.string().nullable().optional(),
         examCount: z.number().int().min(1).nullable().optional(),
         notes: z.string().nullable().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        // Resolver a unidade efetiva do usuario (bypass para admin_master)
+        // V14-P1 FIX: Resolver unidade efetiva com input.unit_id da tela
         let unitId: number | null = null;
         
         if (ctx.user.role !== 'admin_master') {
-          unitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+          unitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id, input.unit_id);
           if (!unitId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuario sem acesso a nenhuma unidade' });
           
-          // Validar permissao edit_exam_legend
-          const perm = await getUserUnitPermission(ctx.user.id, unitId);
-          if (perm && !perm.edit_exam_legend) {
+          // V14-P1 FIX: Validar edit_exam_legend via canAccessUnit (fonte única)
+          const { canAccessUnit } = await import('../authorization');
+          const canEdit = await canAccessUnit(ctx.user, unitId, 'edit_exam_legend');
+          if (!canEdit) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Voce nao tem permissao para editar legenda de exame' });
           }
         } else {
           // admin_master pode usar qualquer unidade
-          unitId = ctx.user.unit_id || (await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id));
+          unitId = input.unit_id ?? ctx.user.unit_id ?? (await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id));
           if (!unitId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuario sem acesso a nenhuma unidade' });
         }
         await upsertStudyMetadata({

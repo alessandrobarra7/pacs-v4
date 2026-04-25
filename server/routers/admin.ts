@@ -85,8 +85,22 @@ export const adminRouter = router({
         })
         .from(user_unit_permissions)
         .innerJoin(unitsTable, eqOp(unitsTable.id, user_unit_permissions.unit_id));
+      
+      // V14-P2 FIX: Para unit_admin, determinar unidades administradas para filtrar linked_units
+      let adminUnitIds: number[] | null = null;
+      if (ctx.user.role === 'unit_admin') {
+        const { getUserUnitPermissions: getAdminPerms } = await import('../db');
+        const adminPerms = await getAdminPerms(ctx.user.id);
+        adminUnitIds = adminPerms.map(p => p.unit_id);
+        if (ctx.user.unit_id && !adminUnitIds.includes(ctx.user.unit_id)) {
+          adminUnitIds.push(ctx.user.unit_id);
+        }
+      }
+      
       const permsByUser: Record<number, { unit_id: number; unit_name: string }[]> = {};
       for (const p of allPerms) {
+        // V14-P2 FIX: unit_admin só vê linked_units dentro do seu escopo
+        if (adminUnitIds && !adminUnitIds.includes(p.unit_id)) continue;
         if (!permsByUser[p.user_id]) permsByUser[p.user_id] = [];
         permsByUser[p.user_id].push({ unit_id: p.unit_id, unit_name: p.unit_name });
       }
@@ -194,6 +208,16 @@ export const adminRouter = router({
             const { getUserUnitPermission: getUnitPerm } = await import('../db');
             const hasScope = targetUnitId ? !!(await getUnitPerm(ctx.user.id, targetUnitId)) : false;
             if (!hasScope) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin só pode editar usuários da sua unidade' });
+          }
+        }
+        // V14-P2 FIX: unit_admin não pode mover usuário para unidade fora do seu escopo
+        if (ctx.user.role === 'unit_admin' && input.unit_id !== undefined && input.unit_id !== null) {
+          const { getUserUnitPermissions: getAdminPerms } = await import('../db');
+          const adminPerms = await getAdminPerms(ctx.user.id);
+          const adminUnitIds = adminPerms.map(p => p.unit_id);
+          if (ctx.user.unit_id && !adminUnitIds.includes(ctx.user.unit_id)) adminUnitIds.push(ctx.user.unit_id);
+          if (!adminUnitIds.includes(input.unit_id)) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não pode mover usuário para unidade fora do seu escopo' });
           }
         }
         const updateData: Record<string, unknown> = {};

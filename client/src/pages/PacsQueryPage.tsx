@@ -336,7 +336,7 @@ function AnatomicIcon({ label, className = '' }: { label: string; className?: st
 
 // Componente para edição do nome do exame via modal de seleção múltipla
 function EditableExamName({
-  value, studyUid, rawDescription, dbOverride, dbExamCount, onSaved, canEdit
+  value, studyUid, rawDescription, dbOverride, dbExamCount, onSaved, canEdit, unitId
 }: {
   value: string;
   studyUid: string;
@@ -345,6 +345,7 @@ function EditableExamName({
   dbExamCount?: number | null;
   onSaved?: () => void;
   canEdit?: boolean;
+  unitId?: number;  // V14-P2 FIX: unidade selecionada na tela
 }) {
   const storageKey = `exam_label_${studyUid}`;
   // Prioridade: banco > localStorage > PACS
@@ -375,6 +376,7 @@ function EditableExamName({
       try {
         await saveMutation.mutateAsync({
           studyInstanceUid: studyUid,
+          unit_id: unitId,  // V14-P2 FIX: enviar unidade selecionada
           descriptionOverride: composed,
           examCount,
         });
@@ -718,9 +720,10 @@ export function PacsQueryPage() {
   }, [statusData]);
 
   // Busca metadados editados pelo técnico para todos os estudos da página
+  // V14-P2 FIX: enviar effectiveUnitId para garantir metadados da unidade selecionada
   const { data: metadataBatch, refetch: refetchMetadata } = trpc.studyMetadata.getBatch.useQuery(
-    { studyInstanceUids: studyUids },
-    { enabled: studyUids.length > 0 }
+    { studyInstanceUids: studyUids, unit_id: effectiveUnitId ?? undefined },
+    { enabled: studyUids.length > 0 && !!effectiveUnitId }
   );
   // Mapa de studyUid → metadados editados (compartilhado por toda a unidade)
   const metadataMap = useMemo(() => {
@@ -1363,6 +1366,7 @@ export function PacsQueryPage() {
                           dbExamCount={meta?.exam_count ?? 1}
                           onSaved={() => refetchMetadata()}
                           canEdit={canEditExamLegend}
+                          unitId={effectiveUnitId ?? undefined}  // V14-P2 FIX
                         />
                       </div>
                     </td>

@@ -46,16 +46,17 @@ export const unitsRouter = router({
         const { getUserUnitPermission } = await import('../db');
         const perm = await getUserUnitPermission(ctx.user.id, input.unitId);
         if (!perm) {
-          // Fallback para unit_id legado
+          // V14-P1 FIX: Fallback legado com perfil MÍNIMO (não libera tudo)
+          // Alinha com assertUnitPermission e canAccessUnit
           if (ctx.user.unit_id === input.unitId) {
             return {
               view_studies: true,
-              edit_reports: true,
-              view_anamnesis: true,
-              edit_anamnesis: true,
-              edit_exam_legend: true,
+              edit_reports: false,
+              view_anamnesis: false,
+              edit_anamnesis: false,
+              edit_exam_legend: false,
               print_reports: true,
-              manage_templates: true,
+              manage_templates: false,
             };
           }
           return null;
@@ -219,6 +220,14 @@ export const unitsRouter = router({
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        // V14-P2 FIX: unit_admin só pode vincular médico a unidades que administra
+        if (ctx.user.role === 'unit_admin') {
+          const { getUserUnitPermission: getUnitPerm } = await import('../db');
+          const hasScope = ctx.user.unit_id === input.unitId || !!(await getUnitPerm(ctx.user.id, input.unitId));
+          if (!hasScope) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não tem acesso a esta unidade' });
+          }
         }
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });

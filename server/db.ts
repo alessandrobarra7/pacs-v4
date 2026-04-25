@@ -655,23 +655,22 @@ export async function resolveEffectiveUnitId(
   legacyUnitId: number | null | undefined,
   inputUnitId?: number | null
 ): Promise<number | null> {
-  // ERRO 2.2: Prioridade 1: inputUnitId (se informado)
+  // V14-P1 FIX: Prioridade correta conforme auditoria V14
+  // 1) inputUnitId informado: validar em user_unit_permissions, depois fallback legado
+  // 2) sem inputUnitId: user_unit_permissions primeiro, legado só se sem permissões granulares
+  const perms = await getUserUnitPermissions(userId);
+  
   if (inputUnitId) {
-    // Verificar se usuário tem permissão nessa unidade
-    const perm = await getUserUnitPermission(userId, inputUnitId);
-    if (perm) return inputUnitId;
-    // Fallback legado: se o inputUnitId for igual ao legacyUnitId
+    if (perms.some(p => p.unit_id === inputUnitId)) return inputUnitId;
     if (legacyUnitId === inputUnitId) return inputUnitId;
-    // Se não tem permissão, rejeitar (não usar fallback)
     return null;
   }
   
-  // Prioridade 2: campo legado (quando inputUnitId não foi informado)
-  if (legacyUnitId) return legacyUnitId;
-  
-  // Prioridade 3: primeira unidade nas permissões
-  const perms = await getUserUnitPermissions(userId);
+  // Sem inputUnitId: user_unit_permissions é a fonte principal
   if (perms.length > 0) return perms[0].unit_id;
+  
+  // Fallback legado: apenas se sem permissões granulares
+  if (legacyUnitId) return legacyUnitId;
   return null;
 }
 
@@ -705,9 +704,19 @@ export async function assertUnitPermission(
     return (perm as any)[permission] === true;
   }
   
-  // Fallback legado: se user.unit_id === unitId, permitir (compatibilidade temporária)
+  // V14-P1 FIX: Fallback legado com perfil MÍNIMO (não libera tudo)
+  // Apenas view_studies e print_reports são seguros sem permissão granular explícita
   if (legacyId === unitId) {
-    return true;
+    const LEGACY_FALLBACK: Record<string, boolean> = {
+      view_studies: true,
+      print_reports: true,
+      edit_reports: false,
+      view_anamnesis: false,
+      edit_anamnesis: false,
+      edit_exam_legend: false,
+      manage_templates: false,
+    };
+    return LEGACY_FALLBACK[permission] === true;
   }
   
   return false;
@@ -750,6 +759,7 @@ export async function setUserUnitPermissions(
   userId: number,
   permissions: Array<{
     unit_id: number;
+    group_key?: string;  // V14-P1 FIX: gravar group_key para rastreabilidade
     view_studies: boolean;
     edit_reports: boolean;
     view_anamnesis: boolean;
@@ -771,6 +781,7 @@ export async function setUserUnitPermissions(
       permissions.map((p) => ({
         user_id: userId,
         unit_id: p.unit_id,
+        group_key: (p.group_key as any) ?? 'outros',  // V14-P1 FIX: gravar group_key
         view_studies: p.view_studies,
         edit_reports: p.edit_reports,
         view_anamnesis: p.view_anamnesis,

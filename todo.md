@@ -1469,3 +1469,15 @@
 - [x] V13-P3: Botão anamnese usa canViewAnamnesis (ver) e canEditAnamnesis (editar) separadamente
 - [x] V13-P4: units.update() valida user_unit_permissions para unit_admin multiunidade
 - [x] V13-P5: admin.getUserPermissions() valida se usuário alvo pertence ao escopo do unit_admin
+
+## Auditoria V14 — Permissões (25/04/2026)
+- [x] V14-P1: assertUnitPermission fallback mínimo (view_studies+print_reports=true, resto=false)
+- [x] V14-P1: resolveEffectiveUnitId prioriza user_unit_permissions; legado só se sem permissões granulares
+- [x] V14-P1: units.myPermissions fallback mínimo (alinhado com assertUnitPermission)
+- [x] V14-P1: setUserUnitPermissions grava group_key no insert
+- [x] V14-P1: reports.create usa canAccessUnit (fonte única, não mais assertUnitPermission)
+- [x] V14-P1: studyMetadata.get/getBatch/save aceitam unit_id da tela; save usa canAccessUnit
+- [x] V14-P2: addDoctor valida escopo do unit_admin via user_unit_permissions
+- [x] V14-P2: listUsers filtra linked_units pelo escopo do unit_admin
+- [x] V14-P2: updateUser valida novo unit_id pertence ao escopo do unit_admin
+- [x] V14-P2: PacsQueryPage envia effectiveUnitId em studyMetadata.getBatch e save

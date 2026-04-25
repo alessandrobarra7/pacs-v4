@@ -101,10 +101,10 @@ export const reportsRouter = router({
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário não está vinculado a nenhuma unidade' });
         }
         
-        // V12-2 FIX: Validar edit_reports via assertUnitPermission (inclui fallback legado)
+        // V14-P1 FIX: Unificar em canAccessUnit (fonte única de autorização)
         if (ctx.user.role !== 'admin_master') {
-          const { assertUnitPermission } = await import('../db');
-          const allowed = await assertUnitPermission(ctx.user, effectiveUnitId, 'edit_reports');
+          const { canAccessUnit } = await import('../authorization');
+          const allowed = await canAccessUnit(ctx.user, effectiveUnitId, 'edit_reports');
           if (!allowed) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para criar laudos nesta unidade' });
           }
