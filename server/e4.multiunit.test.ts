@@ -78,6 +78,7 @@ vi.mock("./db", async (importOriginal) => {
     ...original,
     resolveUnitFilter: vi.fn(),
     getUserUnitPermissions: vi.fn(),
+    getUserUnitPermission: vi.fn(),
     assertUnitPermission: vi.fn().mockResolvedValue(true),
     getReportByStudyId: vi.fn(),
     getStudyById: vi.fn(),
@@ -97,6 +98,7 @@ vi.mock("./db", async (importOriginal) => {
 import {
   resolveUnitFilter,
   getUserUnitPermissions,
+  getUserUnitPermission,
   getReportByStudyId,
   getStudyById,
   getReportStatusByStudyUids,
@@ -285,6 +287,19 @@ describe("E4 — studies.getById: propagação de unitIds", () => {
 
   it("médico multiunidade: getStudyById recebe unitIds=[8,9]", async () => {
     vi.mocked(resolveUnitFilter).mockResolvedValue({ unitIds: [8, 9] });
+    vi.mocked(getUserUnitPermission).mockResolvedValue({
+      user_id: 10,
+      unit_id: 8,
+      view_studies: 1,
+      edit_reports: 1,
+      view_anamnesis: 1,
+      edit_anamnesis: 1,
+      edit_exam_legend: 1,
+      print_reports: 1,
+      manage_templates: 0,
+      group_key: 'medicos',
+      created_at: Date.now(),
+    } as any);
     vi.mocked(getStudyById).mockResolvedValue({
       id: 55,
       unit_id: 8,
