@@ -2,6 +2,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb, createAuditLog, resolveEffectiveUnitId, getUserUnitPermission } from "../db";
+import { hasUnitPermission } from "../permissions";
 
 export const anamnesisRouter = router({
     create: protectedProcedure
@@ -33,24 +34,17 @@ export const anamnesisRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { anamnesis } = await import("../../drizzle/schema");
         
-        // ERRO CRÍTICO 6 FIX: Validar permissão edit_anamnesis com unit_id selecionado
-        const { resolveEffectiveUnitId, assertUnitPermission } = await import("../db");
-        
+        // Validar permissão edit_anamnesis com unit_id selecionado
         let effectiveUnitId: number | null;
         if (ctx.user.role === 'admin_master') {
-          // admin_master pode usar qualquer unidade
           effectiveUnitId = input.unit_id;
         } else {
-          // Para usuários normais, validar que têm acesso à unidade selecionada
-          effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id, input.unit_id);
-          if (!effectiveUnitId) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário sem acesso à unidade solicitada' });
+          // Validar que tem acesso à unidade selecionada
+          const allowed = await hasUnitPermission(ctx.user, input.unit_id, 'edit_anamnesis');
+          if (!allowed) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Voce nao tem permissao para editar anamnese nesta unidade' });
           }
-          // Validar permissão edit_anamnesis
-          const hasPermission = await assertUnitPermission(ctx.user.id, effectiveUnitId, 'edit_anamnesis', ctx.user.unit_id);
-          if (!hasPermission) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para editar anamnese nesta unidade' });
-          }
+          effectiveUnitId = input.unit_id;
         }
         
         const [result] = await db.insert(anamnesis).values({
@@ -89,52 +83,40 @@ export const anamnesisRouter = router({
     getByStudyId: protectedProcedure
       .input(z.object({ study_instance_uid: z.string() }))
       .query(async ({ input, ctx }) => {
-        // F1-6: Verificar permissão view_anamnesis antes de retornar dados sensíveis
-        if (ctx.user.role !== 'admin_master') {
-          const { getUserUnitPermission } = await import('../db');
-          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-          if (effectiveUnitId) {
-            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
-            // Fallback para unit_id legado: se não tem perm mas tem unit_id legado, permite
-            if (perm && !perm.view_anamnesis) {
-              throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para visualizar anamnese' });
-            }
-          }
-        }
+        // Buscar anamnese primeiro para validar acesso a unidade correta
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { anamnesis } = await import("../../drizzle/schema");
-        const { eq, and: andOp } = await import("drizzle-orm");
+        const { eq } = await import("drizzle-orm");
         
-        // F1-6: Filtrar por unit_id do usuário para evitar acesso cross-unidade
-        const effectiveUnitId = ctx.user.role === 'admin_master'
-          ? undefined
-          : await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-        
-        const whereClause = effectiveUnitId
-          ? andOp(eq(anamnesis.study_instance_uid, input.study_instance_uid), eq(anamnesis.unit_id, effectiveUnitId))
-          : eq(anamnesis.study_instance_uid, input.study_instance_uid);
-        
-        const results = await db
+        // Buscar anamnese sem filtro para encontrar a unidade real
+        const anamnesisRecords = await db
           .select()
           .from(anamnesis)
-          .where(whereClause)
+          .where(eq(anamnesis.study_instance_uid, input.study_instance_uid))
           .limit(1);
         
-        // F3-3: Registrar acesso à anamnese (dado sensível)
-        if (results[0]) {
-          await createAuditLog({
-            user_id: ctx.user.id,
-            unit_id: ctx.user.unit_id ?? undefined,
-            action: 'CREATE_ANAMNESIS',
-            target_type: 'ANAMNESIS',
-            target_id: input.study_instance_uid,
-            ip_address: ctx.req.ip,
-            user_agent: ctx.req.headers['user-agent'],
-            metadata: { action: 'VIEW' },
-          });
+        const anamnesisRecord = anamnesisRecords[0];
+        if (!anamnesisRecord) return null;
+        
+        // Validar permissao view_anamnesis na unidade real da anamnese
+        if (ctx.user.role !== 'admin_master' && anamnesisRecord.unit_id) {
+          const allowed = await hasUnitPermission(ctx.user, anamnesisRecord.unit_id, 'view_anamnesis');
+          if (!allowed) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissao para visualizar anamnese' });
+          }
         }
-        return results[0] || null;
+        
+        // Registrar acesso à anamnese (dado sensível)
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: anamnesisRecord.unit_id ?? undefined,
+          action: 'VIEW_STUDY',
+          target_type: 'ANAMNESIS',
+          target_id: input.study_instance_uid,
+        });
+        
+        return anamnesisRecord;
       }),
 
 });
