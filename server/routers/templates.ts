@@ -8,6 +8,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import sanitizeHtml from "sanitize-html";
 import { REPORT_SANITIZE_OPTIONS } from "../reportSanitize";
+import { canAccessUnit } from "../authorization";
 
 export const templatesRouter = router({
     // Listar templates pessoais do usuário logado
@@ -48,10 +49,15 @@ export const templatesRouter = router({
     
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const template = await getTemplateById(input.id);
         if (!template) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Template not found' });
+        }
+        // Validar acesso: template global (sem unit_id) é acessível a todos; template de unidade exige acesso
+        if (template.unit_id) {
+          const canView = await canAccessUnit(ctx.user, template.unit_id, 'view_studies');
+          if (!canView) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado a este template' });
         }
         return template;
       }),
@@ -68,13 +74,14 @@ export const templatesRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
         const { templates } = await import('../../drizzle/schema');
+        const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
         const [result] = await db.insert(templates).values({
           name: input.name,
           modality: input.modality,
           exam_title: input.exam_title,
           bodyTemplate: input.bodyTemplate,
           owner_user_id: ctx.user.id,
-          unit_id: ctx.user.unit_id,
+          unit_id: effectiveUnitId,
           createdBy: ctx.user.id,
           isGlobal: false,
           isActive: true,
@@ -135,20 +142,15 @@ export const templatesRouter = router({
         if (input.isGlobal && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admin_master can create global templates' });
         }
-        // F2-6: Verificar permissão manage_templates para usuários não-admin
-        if (ctx.user.role !== 'admin_master') {
-          const { getUserUnitPermission } = await import('../db');
-          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-          if (effectiveUnitId) {
-            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
-            if (perm && !perm.manage_templates) {
-              throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para gerenciar templates' });
-            }
-          }
+        // Validar manage_templates via camada central
+        const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+        if (effectiveUnitId) {
+          const canManage = await canAccessUnit(ctx.user, effectiveUnitId, 'manage_templates');
+          if (!canManage) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para gerenciar templates' });
         }
         const id = await createTemplate({
           ...input,
-          unit_id: input.isGlobal ? null : ctx.user.unit_id,
+          unit_id: input.isGlobal ? null : effectiveUnitId,
           createdBy: ctx.user.id,
         });
         
@@ -170,19 +172,10 @@ export const templatesRouter = router({
         if (!template) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Template nao encontrado' });
         }
-        if (ctx.user.role !== 'admin_master' && template.unit_id !== ctx.user.unit_id) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
-        }
-        // F2-6: Verificar permissão manage_templates para usuários não-admin
-        if (ctx.user.role !== 'admin_master') {
-          const { getUserUnitPermission } = await import('../db');
-          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-          if (effectiveUnitId) {
-            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
-            if (perm && !perm.manage_templates) {
-              throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para gerenciar templates' });
-            }
-          }
+        // Validar manage_templates na unidade real do template via camada central
+        if (template.unit_id) {
+          const canManage = await canAccessUnit(ctx.user, template.unit_id, 'manage_templates');
+          if (!canManage) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para editar templates desta unidade' });
         }
         await updateTemplate(id, data);
         return { success: true };
@@ -195,19 +188,10 @@ export const templatesRouter = router({
         if (!template) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Template nao encontrado' });
         }
-        if (ctx.user.role !== 'admin_master' && template.unit_id !== ctx.user.unit_id) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
-        }
-        // F2-6: Verificar permissão manage_templates para usuários não-admin
-        if (ctx.user.role !== 'admin_master') {
-          const { getUserUnitPermission } = await import('../db');
-          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-          if (effectiveUnitId) {
-            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
-            if (perm && !perm.manage_templates) {
-              throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para gerenciar templates' });
-            }
-          }
+        // Validar manage_templates na unidade real do template via camada central
+        if (template.unit_id) {
+          const canManage = await canAccessUnit(ctx.user, template.unit_id, 'manage_templates');
+          if (!canManage) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para excluir templates desta unidade' });
         }
         await deleteTemplate(input.id);
         return { success: true };
@@ -222,6 +206,7 @@ export const templatesRouter = router({
         const template = await getTemplateById(input.id);
         if (!template) throw new TRPCError({ code: 'NOT_FOUND', message: 'Template não encontrado' });
         const { templates } = await import('../../drizzle/schema');
+        const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
         const [result] = await db.insert(templates).values({
           name: `${template.name} (minha cópia)`,
           modality: template.modality,
@@ -229,7 +214,7 @@ export const templatesRouter = router({
           bodyTemplate: template.bodyTemplate,
           fields: template.fields,
           owner_user_id: ctx.user.id,
-          unit_id: ctx.user.unit_id,
+          unit_id: effectiveUnitId,
           createdBy: ctx.user.id,
           isGlobal: false,
           isActive: true,

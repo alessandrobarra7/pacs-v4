@@ -1,16 +1,23 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getAnamnesisSimple, saveAnamnesisSimple, createAuditLog, getDb } from "../db";
+import { getAnamnesisSimple, saveAnamnesisSimple, createAuditLog, getDb, resolveEffectiveUnitId } from "../db";
 import { evaluateAndUpsertReadiness } from "./sla";
 import { anamnesis_simple } from "../../drizzle/schema";
 import { inArray } from "drizzle-orm";
+import { canAccessUnit, getStudyUnitId } from "../authorization";
 
 export const anamnesisSimpleRouter = router({
     /** Busca a anamnese de um estudo */
     getByStudy: protectedProcedure
       .input(z.object({ studyInstanceUid: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        // Validar permissão view_anamnesis na unidade real do estudo
+        const studyUnitId = await getStudyUnitId(input.studyInstanceUid);
+        if (studyUnitId) {
+          const canView = await canAccessUnit(ctx.user, studyUnitId, 'view_anamnesis');
+          if (!canView) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para visualizar anamnese deste estudo' });
+        }
         return await getAnamnesisSimple(input.studyInstanceUid);
       }),
 
@@ -23,9 +30,21 @@ export const anamnesisSimpleRouter = router({
         manualText: z.string().min(1, "O campo de indicação clínica é obrigatório"),
       }))
       .mutation(async ({ input, ctx }) => {
+        // Validar permissão edit_anamnesis na unidade real do estudo
+        const studyUnitId = await getStudyUnitId(input.studyInstanceUid);
+        let effectiveUnitId: number | null = null;
+        if (studyUnitId) {
+          const canEdit = await canAccessUnit(ctx.user, studyUnitId, 'edit_anamnesis');
+          if (!canEdit) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para editar anamnese deste estudo' });
+          effectiveUnitId = studyUnitId;
+        } else {
+          // Fallback para unidade efetiva do usuário
+          effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+        }
+
         await saveAnamnesisSimple({
           study_instance_uid: input.studyInstanceUid,
-          unit_id: ctx.user.unit_id ?? null,
+          unit_id: effectiveUnitId,
           created_by_user_id: ctx.user.id,
           patient_name: input.patientName ?? null,
           presets: input.presets,
@@ -38,12 +57,11 @@ export const anamnesisSimpleRouter = router({
           target_id: input.studyInstanceUid,
         });
         // Avaliar prontidão e iniciar SLA (apenas na primeira anamnese válida)
-        const unitId = ctx.user.unit_id;
         let readiness = null;
-        if (unitId) {
+        if (effectiveUnitId) {
           const result = await evaluateAndUpsertReadiness({
             studyInstanceUid: input.studyInstanceUid,
-            unitId,
+            unitId: effectiveUnitId,
             createdByUserId: ctx.user.id,
             manualText: input.manualText,
           });

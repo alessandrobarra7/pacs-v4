@@ -686,11 +686,19 @@ export async function resolveEffectiveUnitId(
  * - caso contrário: negar
  */
 export async function assertUnitPermission(
-  userId: number,
+  userOrId: number | { id: number; role: string; unit_id?: number | null },
   unitId: number,
   permission: 'view_studies' | 'edit_reports' | 'view_anamnesis' | 'print_reports' | 'manage_templates' | 'edit_anamnesis' | 'edit_exam_legend',
   legacyUnitId?: number | null
 ): Promise<boolean> {
+  // Suporte a objeto user completo ou apenas userId
+  const userId = typeof userOrId === 'number' ? userOrId : userOrId.id;
+  const role = typeof userOrId === 'object' ? userOrId.role : null;
+  const legacyId = typeof userOrId === 'object' ? (userOrId.unit_id ?? null) : (legacyUnitId ?? null);
+
+  // admin_master sempre autorizado
+  if (role === 'admin_master') return true;
+
   // Verificar se há registro em user_unit_permissions
   const perm = await getUserUnitPermission(userId, unitId);
   if (perm) {
@@ -698,7 +706,7 @@ export async function assertUnitPermission(
   }
   
   // Fallback legado: se user.unit_id === unitId, permitir (compatibilidade temporária)
-  if (legacyUnitId === unitId) {
+  if (legacyId === unitId) {
     return true;
   }
   

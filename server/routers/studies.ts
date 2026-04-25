@@ -5,6 +5,7 @@ import { getStudyById, getStudyByInstanceUid, getDb, getReportStatusByStudyUids,
 import { like, and } from "drizzle-orm";
 import { studies_cache } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
+import { canAccessUnit, getAllowedUnitIds } from "../authorization";
 
 export const studiesRouter = router({
     list: protectedProcedure
@@ -18,28 +19,30 @@ export const studiesRouter = router({
         unit_id: z.number().optional(), // multi-unidade: médico pode filtrar por unidade específica
       }))
       .query(async ({ input, ctx }) => {
-        // ERRO CRÍTICO 1 FIX: Resolver unitId via resolveEffectiveUnitId (multi-unidade)
-        const { resolveEffectiveUnitId, assertUnitPermission } = await import('../db');
-        
-        let unitId: number | null;
+        let unitId: number;
+
         if (ctx.user.role === 'admin_master') {
           // admin_master pode ver qualquer unidade
           unitId = input.unit_id || 0;
         } else {
-          // Para usuários normais, usar resolveEffectiveUnitId
-          unitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id, input.unit_id);
-          if (!unitId) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário sem acesso à unidade solicitada' });
+          // Resolver unidade via camada central de autorização
+          if (input.unit_id) {
+            // Unidade específica solicitada: validar acesso
+            const canView = await canAccessUnit(ctx.user, input.unit_id, 'view_studies');
+            if (!canView) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para visualizar estudos nesta unidade' });
+            }
+            unitId = input.unit_id;
+          } else {
+            // Sem unidade específica: usar primeira unidade com permissão
+            const allowedIds = await getAllowedUnitIds(ctx.user, 'view_studies');
+            if (!allowedIds || allowedIds.length === 0) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário sem acesso a nenhuma unidade' });
+            }
+            unitId = allowedIds[0];
           }
         }
 
-        // Validar permissão view_studies (bypass para admin_master)
-        if (ctx.user.role !== 'admin_master') {
-          const hasPermission = await assertUnitPermission(ctx.user.id, unitId, 'view_studies', ctx.user.unit_id);
-          if (!hasPermission) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para visualizar estudos nesta unidade' });
-          }
-        }
         const offset = (input.page - 1) * input.pageSize;
         
         const db = await getDb();
@@ -97,11 +100,10 @@ export const studiesRouter = router({
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Study not found' });
         }
         
-        // Validar permissão view_studies
-        if (ctx.user.role !== 'admin_master' && study.unit_id) {
-          const { assertUnitPermission } = await import('../db');
-          const hasPermission = await assertUnitPermission(ctx.user.id, study.unit_id, 'view_studies', ctx.user.unit_id);
-          if (!hasPermission) {
+        // Validar permissão view_studies via camada central (trata admin_master e fallback legado)
+        if (study.unit_id) {
+          const canView = await canAccessUnit(ctx.user, study.unit_id, 'view_studies');
+          if (!canView) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para visualizar este estudo' });
           }
         }
@@ -130,11 +132,10 @@ export const studiesRouter = router({
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Study not found' });
         }
         
-        // ERRO 6: Validar permissão view_studies
-        if (ctx.user.role !== 'admin_master' && study.unit_id) {
-          const { getUserUnitPermission } = await import('../db');
-          const perm = await getUserUnitPermission(ctx.user.id, study.unit_id);
-          if (!perm || !perm.view_studies) {
+        // Validar permissão view_studies via camada central (trata admin_master e fallback legado)
+        if (study.unit_id) {
+          const canView = await canAccessUnit(ctx.user, study.unit_id, 'view_studies');
+          if (!canView) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para abrir este estudo' });
           }
         }

@@ -263,7 +263,14 @@ export const adminRouter = router({
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
         const { getUserUnitPermissions } = await import('../db');
-        return getUserUnitPermissions(input.userId);
+        const perms = await getUserUnitPermissions(input.userId);
+        // unit_admin só pode ver permissões de unidades que ele gerencia
+        if (ctx.user.role === 'unit_admin') {
+          const { getAdminManagedUnitIds } = await import('../authorization');
+          const managedIds = await getAdminManagedUnitIds(ctx.user);
+          if (managedIds) return perms.filter(p => managedIds.includes(p.unit_id));
+        }
+        return perms;
       }),
 
     setUserPermissions: protectedProcedure
@@ -284,14 +291,15 @@ export const adminRouter = router({
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
-        // F1-5: unit_admin só pode definir permissões para unidades às quais ele próprio tem acesso
+        // unit_admin só pode definir permissões para unidades que ele gerencia
         if (ctx.user.role === 'unit_admin') {
-          const { getUserUnitPermission: getUnitPerm } = await import('../db');
-          for (const perm of input.permissions) {
-            const adminHasAccess = ctx.user.unit_id === perm.unit_id ||
-              !!(await getUnitPerm(ctx.user.id, perm.unit_id));
-            if (!adminHasAccess) {
-              throw new TRPCError({ code: 'FORBIDDEN', message: `Unit admin não tem acesso à unidade ${perm.unit_id}` });
+          const { getAdminManagedUnitIds } = await import('../authorization');
+          const managedIds = await getAdminManagedUnitIds(ctx.user);
+          if (managedIds) {
+            for (const perm of input.permissions) {
+              if (!managedIds.includes(perm.unit_id)) {
+                throw new TRPCError({ code: 'FORBIDDEN', message: `Unit admin não tem acesso à unidade ${perm.unit_id}` });
+              }
             }
           }
         }

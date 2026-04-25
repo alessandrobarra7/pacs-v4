@@ -8,6 +8,7 @@ import {
   createBillingVisitEvent, removeVisitEventForReport,
 } from "../db";
 import { and, inArray, desc } from "drizzle-orm";
+import { canAccessUnit } from "../authorization";
 import { closeReadinessOnReport, ensureReadinessExists } from "./sla";
 import {
   reports, report_versions, billing_report_items, billing_visit_events as billing_visit_events_table,
@@ -22,7 +23,12 @@ export const reportsRouter = router({
       .query(async ({ input, ctx }) => {
         // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
         const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
-        return await getReportByStudyId(input.studyId, unitId, unitIds);
+        const report = await getReportByStudyId(input.studyId, unitId, unitIds);
+        if (report && report.unit_id) {
+          const canView = await canAccessUnit(ctx.user, report.unit_id, 'view_studies');
+          if (!canView) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+        return report;
       }),
 
     getByStudyUid: protectedProcedure
@@ -37,7 +43,12 @@ export const reportsRouter = router({
         if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
         else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
         const rows = await db.select().from(reports).where(and(...conditions));
-        return rows[0] ?? null;
+        const report = rows[0] ?? null;
+        if (report && report.unit_id) {
+          const canView = await canAccessUnit(ctx.user, report.unit_id, 'view_studies');
+          if (!canView) return null;
+        }
+        return report;
       }),
 
     // Retorna laudo + dados do médico assinante (para impressão com carimbo)
@@ -55,6 +66,11 @@ export const reportsRouter = router({
         const rows = await db.select().from(reports).where(and(...conditions));
         const report = rows[0] ?? null;
         if (!report) return null;
+        // Validar permissão view_studies via camada central
+        if (report.unit_id) {
+          const canView = await canAccessUnit(ctx.user, report.unit_id, 'view_studies');
+          if (!canView) return null;
+        }
         // Buscar dados do médico que assinou
         // PRG-05: getUserById importado estaticamente no topo
         const signedByUserId = report.signedBy ?? report.author_user_id;
@@ -130,13 +146,10 @@ export const reportsRouter = router({
         if (!report) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
         }
-        // Verificar acesso: admin_master tem acesso total; outros verificam permissões granulares
-        if (ctx.user.role !== 'admin_master') {
-          const { assertUnitPermission } = await import('../db');
-          const hasPermission = await assertUnitPermission(ctx.user.id, report.unit_id ?? 0, 'edit_reports', ctx.user.unit_id);
-          if (!hasPermission) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para editar laudos nesta unidade' });
-          }
+        // Validar edit_reports via camada central (trata admin_master e fallback legado)
+        if (report.unit_id) {
+          const canEdit = await canAccessUnit(ctx.user, report.unit_id, 'edit_reports');
+          if (!canEdit) throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para editar laudos nesta unidade' });
         }
         // Bug fix B1: bloquear atualização direta de laudos assinados ou retificados.
         // Laudos nesse estado só podem ser alterados via reports.revise (com histórico e motivo).
@@ -186,19 +199,10 @@ export const reportsRouter = router({
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas médicos podem assinar laudos' });
         }
         
-        // Verificar acesso: admin_master tem acesso total; outros verificam via resolveEffectiveUnitId ou permissões por unidade
-        if (ctx.user.role !== 'admin_master') {
-          // PRG-06: usar resolveEffectiveUnitId em vez de ctx.user.unit_id legado (suporta médicos multi-unidade)
-          const effectiveUnitIdForAccess = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-          const hasAccess = effectiveUnitIdForAccess === report.unit_id ||
-            !!(await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0));
-          if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
-          
-          // Validar permissão edit_reports
-          const perm = await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0);
-          if (!perm || !perm.edit_reports) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para assinar laudos nesta unidade' });
-          }
+        // Validar edit_reports via camada central (trata admin_master e fallback legado)
+        if (report.unit_id) {
+          const canEdit = await canAccessUnit(ctx.user, report.unit_id, 'edit_reports');
+          if (!canEdit) throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para assinar laudos nesta unidade' });
         }
         const signedAt = new Date();
         await updateReport(input.id, {
@@ -286,12 +290,10 @@ export const reportsRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
         const report = await getReportById(input.id, undefined);
         if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
-        if (ctx.user.role !== 'admin_master') {
-          // PRG-06: usar resolveEffectiveUnitId em vez de ctx.user.unit_id legado (suporta médicos multi-unidade)
-          const effectiveUnitIdForAccess = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-          const hasAccess = effectiveUnitIdForAccess === report.unit_id ||
-            !!(await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0));
-          if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        // Validar edit_reports via camada central (trata admin_master e fallback legado)
+        if (report.unit_id) {
+          const canEdit = await canAccessUnit(ctx.user, report.unit_id, 'edit_reports');
+          if (!canEdit) throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para retificar laudos nesta unidade' });
         }
         if (report.status !== 'signed' && report.status !== 'revised') {
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Apenas laudos assinados podem ser retificados' });
@@ -364,12 +366,12 @@ export const reportsRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
         const report = await getReportById(input.id, undefined);
         if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
+        // Validar edit_reports via camada central (trata admin_master e fallback legado)
+        if (report.unit_id) {
+          const canEdit = await canAccessUnit(ctx.user, report.unit_id, 'edit_reports');
+          if (!canEdit) throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para excluir laudos nesta unidade' });
+        }
         if (ctx.user.role !== 'admin_master') {
-          // PRG-06: usar resolveEffectiveUnitId em vez de ctx.user.unit_id legado (suporta médicos multi-unidade)
-          const effectiveUnitIdForAccess = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-          const hasAccess = effectiveUnitIdForAccess === report.unit_id ||
-            !!(await getUserUnitPermission(ctx.user.id, report.unit_id ?? 0));
-          if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
           // LOG-01: não-admin_master não pode apagar laudos assinados ou retificados
           if (report.status === 'signed' || report.status === 'revised') {
             throw new TRPCError({
@@ -415,6 +417,13 @@ export const reportsRouter = router({
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        // Validar acesso ao laudo antes de retornar versões
+        const report = await getReportById(input.reportId, undefined);
+        if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
+        if (report.unit_id) {
+          const canView = await canAccessUnit(ctx.user, report.unit_id, 'view_studies');
+          if (!canView) throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
         // PRG-05: report_versions e desc importados estaticamente no topo
         return await db.select().from(report_versions)
           .where(eq(report_versions.report_id, input.reportId))

@@ -53,6 +53,15 @@ function makeContext(userOverrides: Partial<User> = {}): TrpcContext {
 
 // ── Mocks do banco de dados ───────────────────────────────────────────────────
 
+vi.mock("./authorization", () => ({
+  canAccessUnit: vi.fn().mockResolvedValue(true),
+  requireUnitPermission: vi.fn().mockResolvedValue(undefined),
+  getAllowedUnitIds: vi.fn().mockResolvedValue(null),
+  resolveRequestedUnit: vi.fn().mockResolvedValue(null),
+  getAdminManagedUnitIds: vi.fn().mockResolvedValue(null),
+  getStudyUnitId: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock("./db", async (importOriginal) => {
   const original = await importOriginal<typeof import("./db")>();
   return {
@@ -62,6 +71,10 @@ vi.mock("./db", async (importOriginal) => {
     createAuditLog: vi.fn().mockResolvedValue(undefined),
     assertUnitPermission: vi.fn().mockResolvedValue(true),
     getDb: vi.fn().mockResolvedValue({
+      select: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue([]),
       insert: vi.fn().mockReturnValue({
         values: vi.fn().mockResolvedValue(undefined),
       }),

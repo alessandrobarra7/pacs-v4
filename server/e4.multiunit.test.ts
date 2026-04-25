@@ -72,6 +72,16 @@ function makeCtx(userOverrides: Partial<User> = {}): TrpcContext {
 // ── Mocks do banco de dados ───────────────────────────────────────────────────
 // Mockamos o módulo inteiro. resolveUnitFilter é mockada diretamente para
 // controlar o retorno sem depender de getUserUnitPermissions (mesma closure).
+// Mock do módulo de autorização centralizado
+vi.mock("./authorization", () => ({
+  canAccessUnit: vi.fn().mockResolvedValue(true),
+  requireUnitPermission: vi.fn().mockResolvedValue(undefined),
+  getAllowedUnitIds: vi.fn().mockResolvedValue(null),
+  resolveRequestedUnit: vi.fn().mockResolvedValue(null),
+  getAdminManagedUnitIds: vi.fn().mockResolvedValue(null),
+  getStudyUnitId: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock("./db", async (importOriginal) => {
   const original = await importOriginal<typeof import("./db")>();
   return {
