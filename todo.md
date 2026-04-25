@@ -1460,3 +1460,12 @@
 - [x] V12-6: Corrigir frontend PacsQueryPage — usar myPermissions por unidade para canViewer, canLaudo, canCID, canPrint
 - [x] V12-7: Condicionar botão Imprimir a print_reports da unidade selecionada
 - [x] V12-8: Condicionar botão Anamnese a edit_anamnesis da unidade selecionada
+
+## Auditoria V13 — Permissões (25/04/2026)
+- [x] V13-P1: resolveUnitFilter prioriza user_unit_permissions; fallback legado apenas quando sem permissões granulares
+- [x] V13-P1: setUserUnitPermissions grava unit_id=null para usuários multiunidade (Opção A)
+- [x] V13-P3: PacsQueryPage — canViewStudies, canViewAnamnesis, canEditAnamnesis, canEditExamLegend como variáveis separadas
+- [x] V13-P3: EditableExamName usa canEditExamLegend (não canCID)
+- [x] V13-P3: Botão anamnese usa canViewAnamnesis (ver) e canEditAnamnesis (editar) separadamente
+- [x] V13-P4: units.update() valida user_unit_permissions para unit_admin multiunidade
+- [x] V13-P5: admin.getUserPermissions() valida se usuário alvo pertence ao escopo do unit_admin

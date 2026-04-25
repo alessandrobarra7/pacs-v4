@@ -135,8 +135,14 @@ export const unitsRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
         
-        if (ctx.user.role !== 'admin_master' && ctx.user.unit_id !== id) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
+        // V13-P5 FIX: unit_admin multiunidade deve poder editar unidades que gerencia via user_unit_permissions
+        if (ctx.user.role !== 'admin_master') {
+          const { getAdminManagedUnitIds } = await import('../authorization');
+          const managedIds = await getAdminManagedUnitIds(ctx.user);
+          const allowed = managedIds === null || (managedIds && managedIds.includes(id));
+          if (!allowed) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
+          }
         }
         
         await updateUnit(id, data);

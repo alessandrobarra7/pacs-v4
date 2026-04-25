@@ -262,13 +262,22 @@ export const adminRouter = router({
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
-        const { getUserUnitPermissions } = await import('../db');
+        const { getUserUnitPermissions, getUserById } = await import('../db');
         const perms = await getUserUnitPermissions(input.userId);
-        // unit_admin só pode ver permissões de unidades que ele gerencia
+        // V13-P5 FIX: unit_admin só pode ver permissões de usuários dentro do seu escopo
         if (ctx.user.role === 'unit_admin') {
           const { getAdminManagedUnitIds } = await import('../authorization');
           const managedIds = await getAdminManagedUnitIds(ctx.user);
-          if (managedIds) return perms.filter(p => managedIds.includes(p.unit_id));
+          if (managedIds) {
+            // Verificar se o usuário alvo pertence a pelo menos uma unidade gerenciada
+            const targetUser = await getUserById(input.userId);
+            const targetInScope = perms.some(p => managedIds.includes(p.unit_id))
+              || (targetUser?.unit_id != null && managedIds.includes(targetUser.unit_id));
+            if (!targetInScope) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário fora do seu escopo de administração' });
+            }
+            return perms.filter(p => managedIds.includes(p.unit_id));
+          }
         }
         return perms;
       }),

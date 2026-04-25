@@ -728,18 +728,20 @@ export async function resolveUnitFilter(
 ): Promise<{ unitId?: number; unitIds?: number[] }> {
   if (role === 'admin_master') return {};
   
-  // V12-1 FIX: Unir users.unit_id + user_unit_permissions (não priorizar um sobre o outro)
-  // Um usuário com unit_id legado E permissões granulares deve ter acesso a TODAS as unidades
+  // V13-P1 FIX: Priorizar user_unit_permissions; users.unit_id é apenas fallback legado
   const perms = await getUserUnitPermissions(userId);
-  const ids = new Set<number>(perms.map(p => p.unit_id));
+  const ids = perms.map(p => p.unit_id);
   
-  // Incluir unidade legada na união
-  if (legacyUnitId) ids.add(legacyUnitId);
+  if (ids.length > 0) {
+    // Usuário tem permissões granulares — usa somente elas
+    if (ids.length === 1) return { unitId: ids[0] };
+    return { unitIds: ids };
+  }
   
-  const unitIds = Array.from(ids);
-  if (unitIds.length === 0) return { unitIds: [] };
-  if (unitIds.length === 1) return { unitId: unitIds[0] };
-  return { unitIds };
+  // Fallback legado: sem permissões granulares, usar users.unit_id
+  if (legacyUnitId) return { unitId: legacyUnitId };
+  
+  return { unitIds: [] };
 }
 
 /** Define (replace) as permissões de um usuário para uma lista de unidades.
@@ -780,24 +782,15 @@ export async function setUserUnitPermissions(
     );
   }
 
-  // Sincronizar unit_id principal na tabela users:
-  // Se o usuário tem exatamente 1 unidade vinculada, define como unit_id principal.
-  // Se tem múltiplas, verifica se o unit_id atual ainda é válido; se não, usa o primeiro.
-  // Se não tem nenhuma, limpa o unit_id.
-  if (permissions.length === 0) {
-    await db.update(usersTable).set({ unit_id: null }).where(eq(usersTable.id, userId));
-  } else if (permissions.length === 1) {
+  // V13-P1 FIX: Sincronizar unit_id principal na tabela users (Opção A da auditoria):
+  // - 1 unidade: grava users.unit_id com a unidade única (compat. legada)
+  // - múltiplas unidades: grava users.unit_id = null (user_unit_permissions é a fonte da verdade)
+  // - 0 unidades: grava users.unit_id = null
+  if (permissions.length === 1) {
     await db.update(usersTable).set({ unit_id: permissions[0].unit_id }).where(eq(usersTable.id, userId));
   } else {
-    // Múltiplas unidades: verificar se o unit_id atual ainda está na lista
-    const currentUser = await db.select({ unit_id: usersTable.unit_id }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
-    const currentUnitId = currentUser[0]?.unit_id;
-    const validUnitIds = permissions.map(p => p.unit_id);
-    if (!currentUnitId || !validUnitIds.includes(currentUnitId)) {
-      // unit_id atual não está mais na lista — atualiza para o primeiro
-      await db.update(usersTable).set({ unit_id: permissions[0].unit_id }).where(eq(usersTable.id, userId));
-    }
-    // Se o unit_id atual ainda é válido, mantém como está
+    // 0 ou múltiplas unidades: limpar unit_id para forçar uso de user_unit_permissions
+    await db.update(usersTable).set({ unit_id: null }).where(eq(usersTable.id, userId));
   }
 }
 

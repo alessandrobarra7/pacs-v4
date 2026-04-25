@@ -451,17 +451,22 @@ export function PacsQueryPage() {
     ? selectedUnitId
     : (user?.unit_id || (allUnits.length > 0 ? allUnits[0].id : null));
 
-  // V12-6 FIX: Buscar permissões granulares da unidade selecionada
+  // V13-P3 FIX: Buscar permissões granulares da unidade selecionada
+  // Todas as decisões de UI devem usar estas variáveis, não o role global
   const { data: myPerms } = trpc.units.myPermissions.useQuery(
     { unitId: effectiveUnitId || 0 },
     { enabled: !!effectiveUnitId && !!user }
   );
-  // Permissões baseadas na unidade selecionada (não no role global)
-  // admin_master sempre tem todas as permissões
-  const canViewer = isAdminMaster ? true : (myPerms?.view_studies ?? false);
+  // Permissões granulares por unidade selecionada — admin_master sempre tem tudo
+  const canViewStudies = isAdminMaster ? true : (myPerms?.view_studies ?? false);
+  const canViewer = canViewStudies;
   const canLaudo = isAdminMaster ? true : (myPerms?.edit_reports ?? false);
-  const canCID = isAdminMaster ? true : (myPerms?.edit_anamnesis ?? false);
+  const canViewAnamnesis = isAdminMaster ? true : (myPerms?.view_anamnesis ?? false);
+  const canEditAnamnesis = isAdminMaster ? true : (myPerms?.edit_anamnesis ?? false);
+  const canEditExamLegend = isAdminMaster ? true : (myPerms?.edit_exam_legend ?? false);
   const canPrint = isAdminMaster ? true : (myPerms?.print_reports ?? false);
+  // canCID: alias de compatibilidade — editar anamnese requer edit_anamnesis
+  const canCID = canEditAnamnesis;
 
   const { data: unitData } = trpc.units.getById.useQuery(
     { id: effectiveUnitId || 0 },
@@ -1357,7 +1362,7 @@ export function PacsQueryPage() {
                           dbOverride={meta?.description_override || null}
                           dbExamCount={meta?.exam_count ?? 1}
                           onSaved={() => refetchMetadata()}
-                          canEdit={canCID}
+                          canEdit={canEditExamLegend}
                         />
                       </div>
                     </td>
@@ -1365,14 +1370,21 @@ export function PacsQueryPage() {
                     {/* Anamnese + SLA */}
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1.5">
-                        {canCID ? (
+                        {/* V13-P3 FIX: canViewAnamnesis=ver, canEditAnamnesis=editar */}
+                        {canViewAnamnesis || canEditAnamnesis ? (
                           <button
-                            onClick={() => { setSelectedStudy(study); setIsAnamnesisModalOpen(true); }}
-                            title={anamnesisStatusMap[study.studyInstanceUid] ? 'Anamnese preenchida — clique para editar' : 'Sem anamnese — clique para preencher'}
+                            onClick={() => { if (canEditAnamnesis) { setSelectedStudy(study); setIsAnamnesisModalOpen(true); } }}
+                            title={
+                              canEditAnamnesis
+                                ? (anamnesisStatusMap[study.studyInstanceUid] ? 'Anamnese preenchida — clique para editar' : 'Sem anamnese — clique para preencher')
+                                : (anamnesisStatusMap[study.studyInstanceUid] ? 'Anamnese preenchida (somente leitura)' : 'Sem anamnese')
+                            }
                             className={`relative w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
                               anamnesisStatusMap[study.studyInstanceUid]
                                 ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                : 'border-gray-200 bg-white text-gray-500 hover:bg-amber-50 hover:text-amber-700'
+                                : canEditAnamnesis
+                                  ? 'border-gray-200 bg-white text-gray-500 hover:bg-amber-50 hover:text-amber-700'
+                                  : 'border-gray-200 bg-white text-gray-400 cursor-default'
                             }`}
                           >
                             <Clipboard className="h-3.5 w-3.5" />
