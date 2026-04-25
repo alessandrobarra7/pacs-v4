@@ -184,16 +184,35 @@ export const adminRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { users } = await import("../../drizzle/schema");
         const { eq: eqOp } = await import("drizzle-orm");
-        // F1-5: unit_admin só pode editar usuários da sua própria unidade
+        // ERRO 2.4 FIX: unit_admin pode editar usuários multiunidade
+        // Verificar interseção de unidades
         if (ctx.user.role === 'unit_admin') {
           const targetUser = await db.select().from(users).where(eqOp(users.id, input.id)).limit(1);
-          const targetUnitId = targetUser[0]?.unit_id;
-          const adminUnitId = ctx.user.unit_id;
-          if (!adminUnitId || targetUnitId !== adminUnitId) {
-            // Verificar também via user_unit_permissions
-            const { getUserUnitPermission: getUnitPerm } = await import('../db');
-            const hasScope = targetUnitId ? !!(await getUnitPerm(ctx.user.id, targetUnitId)) : false;
-            if (!hasScope) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin só pode editar usuários da sua unidade' });
+          if (!targetUser[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
+          
+          const { user_unit_permissions } = await import("../../drizzle/schema");
+          const { inArray: inArrayOp } = await import("drizzle-orm");
+          
+          // Coletar todas as unidades do usuário-alvo
+          const targetUnits = new Set<number>();
+          if (targetUser[0].unit_id) targetUnits.add(targetUser[0].unit_id);
+          const targetPerms = await db.select({ unit_id: user_unit_permissions.unit_id })
+            .from(user_unit_permissions)
+            .where(eqOp(user_unit_permissions.user_id, targetUser[0].id));
+          targetPerms.forEach(p => targetUnits.add(p.unit_id));
+          
+          // Coletar todas as unidades do unit_admin
+          const adminUnits = new Set<number>();
+          if (ctx.user.unit_id) adminUnits.add(ctx.user.unit_id);
+          const adminPerms = await db.select({ unit_id: user_unit_permissions.unit_id })
+            .from(user_unit_permissions)
+            .where(eqOp(user_unit_permissions.user_id, ctx.user.id));
+          adminPerms.forEach(p => adminUnits.add(p.unit_id));
+          
+          // Verificar interseção
+          const hasIntersection = Array.from(targetUnits).some(u => adminUnits.has(u));
+          if (!hasIntersection) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin só pode editar usuários de suas unidades' });
           }
         }
         const updateData: Record<string, unknown> = {};
@@ -263,7 +282,20 @@ export const adminRouter = router({
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
         const { getUserUnitPermissions } = await import('../db');
-        return getUserUnitPermissions(input.userId);
+        const userPerms = await getUserUnitPermissions(input.userId);
+        
+        // ERRO 2.4 FIX: unit_admin só pode ver permissões de usuários de suas unidades
+        if (ctx.user.role === 'unit_admin') {
+          const adminPerms = await getUserUnitPermissions(ctx.user.id);
+          const adminUnitIds = new Set<number>();
+          if (ctx.user.unit_id) adminUnitIds.add(ctx.user.unit_id);
+          adminPerms.forEach(p => adminUnitIds.add(p.unit_id));
+          
+          // Filtrar apenas permissões que unit_admin pode ver
+          return userPerms.filter(p => adminUnitIds.has(p.unit_id));
+        }
+        
+        return userPerms;
       }),
 
     setUserPermissions: protectedProcedure
@@ -284,13 +316,16 @@ export const adminRouter = router({
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
-        // F1-5: unit_admin só pode definir permissões para unidades às quais ele próprio tem acesso
+        // ERRO 2.4 FIX: unit_admin só pode definir permissões para unidades às quais ele próprio tem acesso
         if (ctx.user.role === 'unit_admin') {
-          const { getUserUnitPermission: getUnitPerm } = await import('../db');
+          const { getUserUnitPermissions: getUnitPerms } = await import('../db');
+          const adminPerms = await getUnitPerms(ctx.user.id);
+          const adminUnitIds = new Set<number>();
+          if (ctx.user.unit_id) adminUnitIds.add(ctx.user.unit_id);
+          adminPerms.forEach(p => adminUnitIds.add(p.unit_id));
+          
           for (const perm of input.permissions) {
-            const adminHasAccess = ctx.user.unit_id === perm.unit_id ||
-              !!(await getUnitPerm(ctx.user.id, perm.unit_id));
-            if (!adminHasAccess) {
+            if (!adminUnitIds.has(perm.unit_id)) {
               throw new TRPCError({ code: 'FORBIDDEN', message: `Unit admin não tem acesso à unidade ${perm.unit_id}` });
             }
           }

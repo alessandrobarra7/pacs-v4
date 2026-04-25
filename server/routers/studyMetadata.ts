@@ -2,6 +2,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getStudyMetadata, getStudyMetadataBatch, upsertStudyMetadata, createAuditLog, resolveEffectiveUnitId, getUserUnitPermission } from "../db";
+import { hasUnitPermission } from "../permissions";
 
 export const studyMetadataRouter = router({
     /** Busca os metadados editados de um estudo para a unidade do usuário logado */
@@ -30,25 +31,30 @@ export const studyMetadataRouter = router({
         descriptionOverride: z.string().nullable().optional(),
         examCount: z.number().int().min(1).nullable().optional(),
         notes: z.string().nullable().optional(),
+        unit_id: z.number().optional(), // multi-unidade: usuario pode especificar unidade
       }))
       .mutation(async ({ input, ctx }) => {
-        // Resolver a unidade efetiva do usuario (bypass para admin_master)
+        // Determinar unidade para salvar metadados
         let unitId: number | null = null;
         
-        if (ctx.user.role !== 'admin_master') {
-          unitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-          if (!unitId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuario sem acesso a nenhuma unidade' });
-          
-          // Validar permissao edit_exam_legend
-          const perm = await getUserUnitPermission(ctx.user.id, unitId);
-          if (perm && !perm.edit_exam_legend) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Voce nao tem permissao para editar legenda de exame' });
-          }
-        } else {
+        if (ctx.user.role === 'admin_master') {
           // admin_master pode usar qualquer unidade
-          unitId = ctx.user.unit_id || (await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id));
-          if (!unitId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuario sem acesso a nenhuma unidade' });
+          unitId = input.unit_id ?? ctx.user.unit_id ?? (await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id));
+        } else {
+          // Usuarios normais precisam de edit_exam_legend na unidade
+          const targetUnitId = input.unit_id ?? ctx.user.unit_id;
+          if (!targetUnitId) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unidade nao especificada e usuario sem unidade padrao' });
+          }
+          
+          const allowed = await hasUnitPermission(ctx.user, targetUnitId, 'edit_exam_legend');
+          if (!allowed) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Voce nao tem permissao para editar legenda de exame nesta unidade' });
+          }
+          unitId = targetUnitId;
         }
+        
+        if (!unitId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuario sem acesso a nenhuma unidade' });
         await upsertStudyMetadata({
           study_instance_uid: input.studyInstanceUid,
           unit_id: unitId,
