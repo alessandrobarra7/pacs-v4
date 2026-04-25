@@ -12,7 +12,7 @@ import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
 import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 import { ExamPickerModal, ALL_CATALOG_EXAMS } from "@/components/ExamPickerModal";
-import { canReport, canAccessAdmin, canFillAnamnesis, canViewDICOM, type UserRole } from "../../../shared/permissions";
+import { canAccessAdmin, type UserRole } from "../../../shared/permissions";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
@@ -432,9 +432,6 @@ export function PacsQueryPage() {
   const { data: user } = trpc.auth.me.useQuery();
 
   const userRole = (user?.role || 'viewer') as UserRole;
-  const canLaudo = canReport(userRole);
-  const canCID = canFillAnamnesis(userRole);
-  const canViewer = canViewDICOM(userRole);
   const isAdmin = canAccessAdmin(userRole);
   const isAdminMaster = user?.role === 'admin_master';
 
@@ -453,6 +450,18 @@ export function PacsQueryPage() {
   const effectiveUnitId = canSelectUnit
     ? selectedUnitId
     : (user?.unit_id || (allUnits.length > 0 ? allUnits[0].id : null));
+
+  // V12-6 FIX: Buscar permissões granulares da unidade selecionada
+  const { data: myPerms } = trpc.units.myPermissions.useQuery(
+    { unitId: effectiveUnitId || 0 },
+    { enabled: !!effectiveUnitId && !!user }
+  );
+  // Permissões baseadas na unidade selecionada (não no role global)
+  // admin_master sempre tem todas as permissões
+  const canViewer = isAdminMaster ? true : (myPerms?.view_studies ?? false);
+  const canLaudo = isAdminMaster ? true : (myPerms?.edit_reports ?? false);
+  const canCID = isAdminMaster ? true : (myPerms?.edit_anamnesis ?? false);
+  const canPrint = isAdminMaster ? true : (myPerms?.print_reports ?? false);
 
   const { data: unitData } = trpc.units.getById.useQuery(
     { id: effectiveUnitId || 0 },
@@ -1455,15 +1464,19 @@ export function PacsQueryPage() {
                       )}
                     </td>
 
-                     {/* Imprimir */}
+                     {/* Imprimir — V12-7 FIX: condicional a print_reports da unidade selecionada */}
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => handlePrintReport(study)}
-                        title="Imprimir laudo"
-                        className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 inline-flex items-center justify-center transition-colors"
-                      >
-                        <Printer className="h-3.5 w-3.5" />
-                      </button>
+                      {canPrint ? (
+                        <button
+                          onClick={() => handlePrintReport(study)}
+                          title="Imprimir laudo"
+                          className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 inline-flex items-center justify-center transition-colors"
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
                     </td>
                     {/* Status */}
                     <td className="px-4 py-3 text-center">

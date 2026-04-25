@@ -137,20 +137,24 @@ export const templatesRouter = router({
         bodyTemplate: z.string(),
         fields: z.any().optional(),
         isGlobal: z.boolean().default(false),
+        unit_id: z.number().optional(), // V12-5 FIX: aceitar unit_id para usuários multiunidade
       }))
       .mutation(async ({ input, ctx }) => {
         if (input.isGlobal && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admin_master can create global templates' });
         }
-        // Validar manage_templates via camada central
-        const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+        // V12-5 FIX: Usar input.unit_id se fornecido (multiunidade), senão resolver automaticamente
+        const effectiveUnitId = ctx.user.role === 'admin_master'
+          ? (input.unit_id ?? null)
+          : await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id, input.unit_id);
         if (effectiveUnitId) {
           const canManage = await canAccessUnit(ctx.user, effectiveUnitId, 'manage_templates');
           if (!canManage) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para gerenciar templates' });
         }
+        const { unit_id: _unitInput, ...restInput } = input;
         const id = await createTemplate({
-          ...input,
-          unit_id: input.isGlobal ? null : effectiveUnitId,
+          ...restInput,
+          unit_id: restInput.isGlobal ? null : effectiveUnitId,
           createdBy: ctx.user.id,
         });
         

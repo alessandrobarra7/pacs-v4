@@ -1449,3 +1449,14 @@
 - [ ] FIN-FE-08: Criar página de gestão de preços de exames por unidade (CRUD de unit_exam_prices)
 - [ ] FIN-FE-09: Criar ambiente de auditoria de laudos com patient_price editável e indicador "Não configurado"
 - [ ] FIN-FE-10: Adicionar itens de navegação no FinanceShell para as novas páginas
+
+## Auditoria V12 — Permissões Granulares por Unidade
+
+- [x] V12-1: Corrigir resolveUnitFilter para unir users.unit_id + user_unit_permissions
+- [x] V12-2: Corrigir reports.ts create — usar assertUnitPermission com fallback legado para edit_reports
+- [x] V12-3: Corrigir pacs.ts startViewer — aceitar unit_id de qualquer usuário com permissão view_studies
+- [x] V12-4: Corrigir pacs.ts getViewerUrl — aceitar unit_id no input e validar view_studies
+- [x] V12-5: Corrigir templates.ts create — aceitar unit_id no input para usuários multiunidade
+- [x] V12-6: Corrigir frontend PacsQueryPage — usar myPermissions por unidade para canViewer, canLaudo, canCID, canPrint
+- [x] V12-7: Condicionar botão Imprimir a print_reports da unidade selecionada
+- [x] V12-8: Condicionar botão Anamnese a edit_anamnesis da unidade selecionada

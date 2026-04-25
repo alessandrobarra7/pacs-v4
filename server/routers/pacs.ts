@@ -224,10 +224,24 @@ export const pacsRouter = router({
           });
         }
 
-        // Determinar a unidade alvo: admin_master pode passar unit_id explícito
-        const targetUnitId = (ctx.user.role === 'admin_master' && input.unit_id)
-          ? input.unit_id
-          : ctx.user.unit_id;
+        // V12-3 FIX: Qualquer usuário pode passar unit_id se tiver permissão view_studies naquela unidade
+        let targetUnitId: number | null | undefined;
+        if (ctx.user.role === 'admin_master') {
+          targetUnitId = input.unit_id ?? ctx.user.unit_id;
+        } else if (input.unit_id) {
+          // Validar que o usuário tem view_studies na unidade solicitada
+          const { assertUnitPermission } = await import('../db');
+          const allowed = await assertUnitPermission(ctx.user, input.unit_id, 'view_studies');
+          if (!allowed) {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'Você não tem permissão para visualizar estudos nesta unidade.',
+            });
+          }
+          targetUnitId = input.unit_id;
+        } else {
+          targetUnitId = ctx.user.unit_id;
+        }
 
         if (!targetUnitId) {
           throw new TRPCError({
@@ -394,20 +408,31 @@ export const pacsRouter = router({
     getViewerUrl: protectedProcedure
       .input(z.object({
         studyInstanceUid: z.string(),
+        unit_id: z.number().optional(), // V12-4 FIX: aceitar unit_id para usuários multiunidade
       }))
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database não disponível' });
         
-        if (!ctx.user.unit_id && ctx.user.role !== 'admin_master') {
-          throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'Usuário não está associado a nenhuma unidade. Entre em contato com o administrador.',
-          });
+        // V12-4 FIX: Resolver unidade alvo com suporte a multiunidade
+        let targetUnitIdForViewer: number | null | undefined;
+        if (ctx.user.role === 'admin_master') {
+          targetUnitIdForViewer = input.unit_id ?? ctx.user.unit_id;
+        } else if (input.unit_id) {
+          // Validar que o usuário tem view_studies na unidade solicitada
+          const { assertUnitPermission } = await import('../db');
+          const allowed = await assertUnitPermission(ctx.user, input.unit_id, 'view_studies');
+          if (!allowed) {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'Você não tem permissão para visualizar estudos nesta unidade.',
+            });
+          }
+          targetUnitIdForViewer = input.unit_id;
+        } else {
+          targetUnitIdForViewer = ctx.user.unit_id;
         }
 
-        // Determinar a unidade alvo
-        const targetUnitIdForViewer = ctx.user.unit_id;
         if (!targetUnitIdForViewer) {
           throw new TRPCError({
             code: 'FORBIDDEN',

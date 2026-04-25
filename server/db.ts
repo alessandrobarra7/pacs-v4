@@ -728,16 +728,18 @@ export async function resolveUnitFilter(
 ): Promise<{ unitId?: number; unitIds?: number[] }> {
   if (role === 'admin_master') return {};
   
-  // Prioridade 1: Permissões granulares (novo modelo)
+  // V12-1 FIX: Unir users.unit_id + user_unit_permissions (não priorizar um sobre o outro)
+  // Um usuário com unit_id legado E permissões granulares deve ter acesso a TODAS as unidades
   const perms = await getUserUnitPermissions(userId);
-  const ids = perms.map(p => p.unit_id);
-  if (ids.length > 0) return { unitIds: ids };
+  const ids = new Set<number>(perms.map(p => p.unit_id));
   
-  // Prioridade 2: Fallback legado (campo users.unit_id)
-  if (legacyUnitId) return { unitId: legacyUnitId };
+  // Incluir unidade legada na união
+  if (legacyUnitId) ids.add(legacyUnitId);
   
-  // Sem acesso a nenhuma unidade
-  return { unitIds: [] };
+  const unitIds = Array.from(ids);
+  if (unitIds.length === 0) return { unitIds: [] };
+  if (unitIds.length === 1) return { unitId: unitIds[0] };
+  return { unitIds };
 }
 
 /** Define (replace) as permissões de um usuário para uma lista de unidades.
