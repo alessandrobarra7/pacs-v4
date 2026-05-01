@@ -77,33 +77,42 @@ export const pacsRouter = router({
           });
         }
         
+        // BUG-2 FIX: Helper formata Date para YYYYMMDD respeitando TZ do processo (America/Sao_Paulo via PM2)
+        const toDiscom = (d: Date) => {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}${m}${day}`;
+        };
+
         // Handle special date values
         let studyDate = input.studyDate;
+
         if (studyDate === 'TODAY') {
-          // Use server's local date (not UTC)
-          const now = new Date();
-          const year = now.getFullYear();
-          const month = String(now.getMonth() + 1).padStart(2, '0');
-          const day = String(now.getDate()).padStart(2, '0');
-          studyDate = `${year}${month}${day}`;
+          studyDate = toDiscom(new Date());
           console.log('[PACS Query] TODAY resolved to:', studyDate);
+
+        } else if (studyDate === 'YESTERDAY') {
+          // BUG-2 FIX: token YESTERDAY resolvido no servidor com TZ correto
+          const d = new Date();
+          d.setDate(d.getDate() - 1);
+          studyDate = toDiscom(d);
+          console.log('[PACS Query] YESTERDAY resolved to:', studyDate);
+
         } else if (studyDate === 'LAST_7_DAYS') {
-          // Calculate date 7 days ago
+          // BUG-2 FIX: range fechado (YYYYMMDD-YYYYMMDD) em vez de aberto (YYYYMMDD-)
           const now = new Date();
-          const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          const year = sevenDaysAgo.getFullYear();
-          const month = String(sevenDaysAgo.getMonth() + 1).padStart(2, '0');
-          const day = String(sevenDaysAgo.getDate()).padStart(2, '0');
-          studyDate = `${year}${month}${day}-`; // Range format: YYYYMMDD- means from that date to today
+          const from = new Date(now);
+          from.setDate(from.getDate() - 7);
+          studyDate = `${toDiscom(from)}-${toDiscom(now)}`;
           console.log('[PACS Query] LAST_7_DAYS resolved to:', studyDate);
+
         } else if (studyDate === 'LAST_30_DAYS') {
-          // Calculate date 30 days ago
+          // BUG-2 FIX: range fechado (YYYYMMDD-YYYYMMDD) em vez de aberto (YYYYMMDD-)
           const now = new Date();
-          const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-          const year = thirtyDaysAgo.getFullYear();
-          const month = String(thirtyDaysAgo.getMonth() + 1).padStart(2, '0');
-          const day = String(thirtyDaysAgo.getDate()).padStart(2, '0');
-          studyDate = `${year}${month}${day}-`; // Range format: YYYYMMDD- means from that date to today
+          const from = new Date(now);
+          from.setDate(from.getDate() - 30);
+          studyDate = `${toDiscom(from)}-${toDiscom(now)}`;
           console.log('[PACS Query] LAST_30_DAYS resolved to:', studyDate);
         }
         

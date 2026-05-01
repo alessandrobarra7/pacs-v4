@@ -1481,3 +1481,11 @@
 - [x] V14-P2: listUsers filtra linked_units pelo escopo do unit_admin
 - [x] V14-P2: updateUser valida novo unit_id pertence ao escopo do unit_admin
 - [x] V14-P2: PacsQueryPage envia effectiveUnitId em studyMetadata.getBatch e save
+
+## Bugs PacsQueryPage — Filtros de Data (01/05/2026)
+- [x] BUG-1: ecosystem.config.cjs — adicionar TZ=America/Sao_Paulo no env do PM2
+- [x] BUG-2: pacs.ts — adicionar token YESTERDAY + ranges fechados para LAST_7_DAYS e LAST_30_DAYS
+- [x] BUG-3: PacsQueryPage — auto-busca ao montar a tela (evitar dados stale do localStorage)
+- [x] BUG-4: PacsQueryPage — troca de unidade dispara nova busca automaticamente
+- [x] BUG-5: PacsQueryPage — handlePeriodChange usa token YESTERDAY em vez de calcular UTC no frontend
+- [x] BUG-6: PacsQueryPage — dead code sanitização de data: length === 8 → length === 10

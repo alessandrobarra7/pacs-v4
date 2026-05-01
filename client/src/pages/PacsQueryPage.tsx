@@ -685,7 +685,17 @@ export function PacsQueryPage() {
   useEffect(() => {
     try { setQueryResults(JSON.parse(localStorage.getItem(cacheKey) || '[]')); } catch { setQueryResults([]); }
     setCurrentPage(1);
-  }, [cacheKey]);
+    // BUG-4 FIX: troca de unidade dispara nova busca automática
+    if (effectiveUnitId) {
+      handlePeriodChange('today');
+    }
+  }, [cacheKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // BUG-3 FIX: auto-busca ao montar a tela — evita exibir dados stale do localStorage
+  useEffect(() => {
+    if (effectiveUnitId) {
+      handlePeriodChange('today');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (queryResults.length > 0) localStorage.setItem(cacheKey, JSON.stringify(queryResults));
@@ -784,7 +794,8 @@ export function PacsQueryPage() {
     const f = { ...filters, ...overrides };
     setIsQuerying(true);
     let studyDate = f.studyDate;
-    if (studyDate && studyDate.includes('-') && studyDate.length === 8) {
+    // BUG-6 FIX: datas do calendário têm formato yyyy-MM-dd (10 chars), não 8
+    if (studyDate && studyDate.includes('-') && studyDate.length === 10) {
       studyDate = studyDate.replace(/-/g, '');
     }
     queryPacs.mutate({
@@ -801,12 +812,9 @@ export function PacsQueryPage() {
     setSelectedDate(undefined);
     let studyDate = '';
     if (period === 'today') studyDate = 'TODAY';
-    else if (period === 'yesterday') {
-      const d = new Date(); d.setDate(d.getDate() - 1);
-      studyDate = d.toISOString().slice(0, 10).replace(/-/g, '');
-    } else if (period === 'all') {
-      studyDate = '';
-    }
+    // BUG-5 FIX: usar token YESTERDAY resolvido no servidor (TZ correto)
+    else if (period === 'yesterday') studyDate = 'YESTERDAY';
+    else if (period === 'all') studyDate = '';
     setFilters(f => ({ ...f, period, studyDate }));
     runQuery({ period, studyDate });
   };
