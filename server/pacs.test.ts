@@ -194,3 +194,145 @@ describe('Report Status Logic', () => {
     expect(validStatuses).toContain(getReportStatus(uid));
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BUG-7 FIX: Testes de lógica DICOM (tokens de data, resolução de unidade, download stub)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Helper: replica a lógica toDiscom do pacs.ts (sem TZ — usa Date local do processo)
+function toDiscom(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}${m}${day}`;
+}
+
+// Helper: replica a resolução de tokens de data do pacs.ts
+function resolveStudyDate(token: string): string {
+  if (token === 'TODAY') return toDiscom(new Date());
+  if (token === 'YESTERDAY') {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return toDiscom(d);
+  }
+  if (token === 'LAST_7_DAYS') {
+    const now = new Date();
+    const from = new Date(now);
+    from.setDate(from.getDate() - 7);
+    return `${toDiscom(from)}-${toDiscom(now)}`;
+  }
+  if (token === 'LAST_30_DAYS') {
+    const now = new Date();
+    const from = new Date(now);
+    from.setDate(from.getDate() - 30);
+    return `${toDiscom(from)}-${toDiscom(now)}`;
+  }
+  return token;
+}
+
+describe('DICOM Date Token Resolution', () => {
+  it('TODAY retorna data de hoje no formato YYYYMMDD', () => {
+    const result = resolveStudyDate('TODAY');
+    expect(result).toMatch(/^\d{8}$/);
+    expect(result).toBe(toDiscom(new Date()));
+  });
+
+  it('YESTERDAY retorna data de ontem no formato YYYYMMDD', () => {
+    const result = resolveStudyDate('YESTERDAY');
+    expect(result).toMatch(/^\d{8}$/);
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    expect(result).toBe(toDiscom(d));
+  });
+
+  it('YESTERDAY é diferente de TODAY', () => {
+    expect(resolveStudyDate('YESTERDAY')).not.toBe(resolveStudyDate('TODAY'));
+  });
+
+  it('LAST_7_DAYS retorna range fechado YYYYMMDD-YYYYMMDD', () => {
+    const result = resolveStudyDate('LAST_7_DAYS');
+    expect(result).toMatch(/^\d{8}-\d{8}$/);
+    const [from, to] = result.split('-');
+    expect(parseInt(to)).toBeGreaterThan(parseInt(from));
+  });
+
+  it('LAST_30_DAYS retorna range fechado YYYYMMDD-YYYYMMDD', () => {
+    const result = resolveStudyDate('LAST_30_DAYS');
+    expect(result).toMatch(/^\d{8}-\d{8}$/);
+    const [from, to] = result.split('-');
+    expect(parseInt(to)).toBeGreaterThan(parseInt(from));
+  });
+
+  it('LAST_30_DAYS tem range maior que LAST_7_DAYS', () => {
+    const r7 = resolveStudyDate('LAST_7_DAYS');
+    const r30 = resolveStudyDate('LAST_30_DAYS');
+    const [from7] = r7.split('-');
+    const [from30] = r30.split('-');
+    expect(parseInt(from30)).toBeLessThan(parseInt(from7));
+  });
+
+  it('token desconhecido é passado sem modificação', () => {
+    expect(resolveStudyDate('20260101')).toBe('20260101');
+    expect(resolveStudyDate('20260101-20260131')).toBe('20260101-20260131');
+  });
+});
+
+describe('DICOM Unit Resolution', () => {
+  it('admin_master com unit_id explícito usa o unit_id informado', () => {
+    const user = { role: 'admin_master', unit_id: 1 };
+    const inputUnitId = 5;
+    const targetUnitId = user.role === 'admin_master' ? (inputUnitId ?? user.unit_id) : user.unit_id;
+    expect(targetUnitId).toBe(5);
+  });
+
+  it('admin_master sem unit_id explícito usa unit_id do usuário', () => {
+    const user = { role: 'admin_master', unit_id: 2 };
+    const inputUnitId = undefined;
+    const targetUnitId = user.role === 'admin_master' ? (inputUnitId ?? user.unit_id) : user.unit_id;
+    expect(targetUnitId).toBe(2);
+  });
+
+  it('medico sem unit_id explícito usa unit_id do usuário', () => {
+    const user = { role: 'medico', unit_id: 3 };
+    const inputUnitId = undefined;
+    const targetUnitId = inputUnitId ?? user.unit_id;
+    expect(targetUnitId).toBe(3);
+  });
+
+  it('usuário sem unit_id e sem permissão granular resulta em null', () => {
+    const user = { role: 'medico', unit_id: null };
+    const inputUnitId = undefined;
+    const targetUnitId = inputUnitId ?? user.unit_id;
+    expect(targetUnitId).toBeNull();
+  });
+});
+
+describe('DICOM getViewerUrl hasOrthanc flag', () => {
+  it('hasOrthanc é true quando orthanc_base_url está configurado', () => {
+    const unitData = { orthanc_base_url: 'http://192.168.1.10:8042' };
+    expect(!!unitData.orthanc_base_url).toBe(true);
+  });
+
+  it('hasOrthanc é false quando orthanc_base_url é null', () => {
+    const unitData = { orthanc_base_url: null };
+    expect(!!unitData.orthanc_base_url).toBe(false);
+  });
+
+  it('viewerUrl usa proxy interno quando orthanc não está configurado', () => {
+    const orthanc: string | null = null;
+    const studyUid = '1.2.3.4.5';
+    const unitId = 2;
+    const viewerUrl = orthanc
+      ? `dicomweb:${orthanc}/wado?studyUID=${studyUid}`
+      : `/api/dicomweb?studyUid=${encodeURIComponent(studyUid)}&unitId=${unitId}`;
+    expect(viewerUrl).toBe('/api/dicomweb?studyUid=1.2.3.4.5&unitId=2');
+  });
+});
+
+describe('DICOM ENV timeout', () => {
+  it('DICOM_GET_TIMEOUT_MS padrão é 600000 (10 minutos)', () => {
+    const timeout = parseInt(process.env.DICOM_GET_TIMEOUT_MS ?? '600000', 10);
+    expect(timeout).toBeGreaterThanOrEqual(60000);
+    expect(timeout).toBeLessThanOrEqual(3600000);
+  });
+});

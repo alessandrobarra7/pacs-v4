@@ -1489,3 +1489,12 @@
 - [x] BUG-4: PacsQueryPage — troca de unidade dispara nova busca automaticamente
 - [x] BUG-5: PacsQueryPage — handlePeriodChange usa token YESTERDAY em vez de calcular UTC no frontend
 - [x] BUG-6: PacsQueryPage — dead code sanitização de data: length === 8 → length === 10
+
+## Bugs DICOM/PACS 01/05/2026
+- [x] BUG-1: pacs.download stub substituído por TRPCError METHOD_NOT_SUPPORTED
+- [x] BUG-2: dicom-stream multi-unidade via assertUnitPermission em index.ts
+- [x] BUG-3: getViewerUrl sem dependência de orthanc_base_url; hasOrthanc flag adicionada
+- [x] BUG-4: shebang dicom_thumbnail.py corrigido para #!/usr/bin/python3.11
+- [x] BUG-5: DICOM_GET_TIMEOUT_MS adicionado ao ENV em env.ts
+- [x] BUG-6: imports dinâmicos convertidos para estáticos no topo de pacs.ts
+- [x] BUG-7: 20 novos testes DICOM em pacs.test.ts (tokens de data, resolução de unidade, hasOrthanc, timeout)

@@ -1,7 +1,7 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getDb, getStudyMetadata, getStudyMetadataBatch, createAuditLog } from "../db";
+import { getDb, getStudyMetadata, getStudyMetadataBatch, createAuditLog, assertUnitPermission, getUserUnitPermission } from "../db";
 import { cFind } from "../dicom.service";
 import type { CFindResult } from "../dicom.service";
 import { MAX_UPLOAD_BYTES } from "../../shared/const";
@@ -9,6 +9,13 @@ import { getDicomWebUrl } from "../orthanc";
 import { inferExtension, isValidImageBuffer } from "../routerUtils";
 import { units } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
+// BUG-6 FIX: imports estáticos em vez de dinâmicos dentro dos procedures
+import { existsSync, readdirSync } from 'fs';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { ENV } from '../_core/env';
+
+const execFileAsync = promisify(execFile);
 
 export const pacsRouter = router({
     query: protectedProcedure
@@ -41,7 +48,6 @@ export const pacsRouter = router({
             targetUnitId = input.unit_id;
           } else {
             // Verificar se o usuário tem permissão nessa unidade
-            const { getUserUnitPermission } = await import('../db');
             const perm = await getUserUnitPermission(ctx.user.id, input.unit_id);
             if (perm) {
               targetUnitId = input.unit_id;
@@ -239,7 +245,6 @@ export const pacsRouter = router({
           targetUnitId = input.unit_id ?? ctx.user.unit_id;
         } else if (input.unit_id) {
           // Validar que o usuário tem view_studies na unidade solicitada
-          const { assertUnitPermission } = await import('../db');
           const allowed = await assertUnitPermission(ctx.user, input.unit_id, 'view_studies');
           if (!allowed) {
             throw new TRPCError({
@@ -280,7 +285,6 @@ export const pacsRouter = router({
         const localAeTitle = unit.pacs_local_ae_title || 'LAUDS';
         
         // Verificar cache existente — evita re-download se imagens já estão no disco
-        const { existsSync, readdirSync } = await import('fs');
         const studyCacheDir = `/tmp/dicom-cache/${input.studyInstanceUid}`;
         if (existsSync(studyCacheDir)) {
           const cachedFiles = readdirSync(studyCacheDir).filter((f: string) => f.endsWith('.dcm'));
@@ -318,18 +322,13 @@ export const pacsRouter = router({
 
         console.log(`[C-GET] Iniciando: StudyUID=${input.studyInstanceUid} PACS=${unit.pacs_ip}:${unit.pacs_port} AE=${unit.pacs_ae_title} LocalAE=${localAeTitle} User=${ctx.user.username}`);
 
-        const { execFile } = await import('child_process');
-        const { promisify } = await import('util');
-        const execFileAsync = promisify(execFile);
-
-        try {
+         try {
           // Executa dicom_move.py diretamente (sem wrapper .sh)
           // Em dev: import.meta.url aponta para server/routers.ts → mesmo nível
           // Em prod: dist/routers.js → dicom_move.py está em dist/ (copiado pelo build)
-          const { existsSync: _existsSync } = await import('fs');
           const _scriptPathSameLevel = new URL('./dicom_move.py', import.meta.url).pathname;
           const _scriptPathParent = new URL('../dicom_move.py', import.meta.url).pathname;
-          const scriptPath = _existsSync(_scriptPathSameLevel) ? _scriptPathSameLevel : _scriptPathParent;
+          const scriptPath = existsSync(_scriptPathSameLevel) ? _scriptPathSameLevel : _scriptPathParent;
           // Usar caminho absoluto do Python 3.11 e limpar PYTHONHOME/PYTHONPATH
           // para evitar conflito com o ambiente uv Python 3.13 do servidor
           const pythonBin = '/usr/bin/python3.11';
@@ -339,7 +338,8 @@ export const pacsRouter = router({
           const { stdout, stderr } = await execFileAsync(
             pythonBin,
             [scriptPath, JSON.stringify(moveInput)],
-            { timeout: 600000, env: cleanEnv } // 10 minutos para estudos grandes (CT com 200+ imagens)
+            // BUG-5 FIX: timeout via ENV.dicomGetTimeoutMs (padrão 600000ms = 10min)
+            { timeout: ENV.dicomGetTimeoutMs, env: cleanEnv }
           );
 
           if (stderr) {
@@ -429,7 +429,6 @@ export const pacsRouter = router({
           targetUnitIdForViewer = input.unit_id ?? ctx.user.unit_id;
         } else if (input.unit_id) {
           // Validar que o usuário tem view_studies na unidade solicitada
-          const { assertUnitPermission } = await import('../db');
           const allowed = await assertUnitPermission(ctx.user, input.unit_id, 'view_studies');
           if (!allowed) {
             throw new TRPCError({
@@ -452,20 +451,15 @@ export const pacsRouter = router({
         const [unitData] = await db.select().from(units).where(eq(units.id, targetUnitIdForViewer)).limit(1);
         if (!unitData) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unidade não encontrada' });
         
-        const orthancInternalUrl = unitData.orthanc_base_url;
-        // URL pública via Mikrotik NAT (para o frontend abrir o viewer diretamente)
+        // BUG-3 FIX: orthanc_base_url é opcional — unidades novas usam apenas PACS direto via C-GET
+        const orthancInternalUrl = unitData.orthanc_base_url ?? null;
         const orthancPublicUrl = unitData.orthanc_public_url || orthancInternalUrl;
-        
-        if (!orthancInternalUrl) {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: 'URL do Orthanc não configurada para esta unidade.',
-          });
-        }
-        
-        // URL interna para proxy DICOMweb do backend
-        const viewerUrl = getDicomWebUrl(orthancInternalUrl, input.studyInstanceUid);
-        // URL pública para o Orthanc Web Viewer (abre no browser do usuário)
+
+        // URL do viewer: usa DICOMweb do Orthanc se disponível, senão proxy interno via C-GET
+        const viewerUrl = orthancInternalUrl
+          ? getDicomWebUrl(orthancInternalUrl, input.studyInstanceUid)
+          : `/api/dicomweb?studyUid=${encodeURIComponent(input.studyInstanceUid)}&unitId=${targetUnitIdForViewer}`;
+
         const orthancWebViewerUrl = orthancPublicUrl
           ? `${orthancPublicUrl.replace(/\/$/, '')}/app/explorer.html#study?uuid=`
           : null;
@@ -485,9 +479,10 @@ export const pacsRouter = router({
           success: true,
           viewerUrl,
           studyInstanceUid: input.studyInstanceUid,
-          orthancUrl: orthancInternalUrl,
-          orthancPublicUrl,
-          orthancWebViewerUrl,
+          orthancUrl: orthancInternalUrl,           // null se não configurado
+          orthancPublicUrl: orthancPublicUrl ?? null,
+          orthancWebViewerUrl,                      // null se não configurado
+          hasOrthanc: !!orthancInternalUrl,         // BUG-3 FIX: flag para o frontend
         };
       }),
 
@@ -495,23 +490,12 @@ export const pacsRouter = router({
       .input(z.object({
         studyInstanceUid: z.string(),
       }))
-      .mutation(async ({ input, ctx }) => {
-        // TODO: Implement C-MOVE to download study from remote PACS to local Orthanc
-        
-        await createAuditLog({
-          user_id: ctx.user.id,
-          unit_id: ctx.user.unit_id,
-          action: 'PACS_DOWNLOAD',
-          target_type: 'STUDY',
-          target_id: input.studyInstanceUid,
-          ip_address: ctx.req.ip,
-          user_agent: ctx.req.headers['user-agent'],
+      // BUG-1 FIX: stub removido — não gravar audit log de operação que não ocorreu
+      .mutation(async () => {
+        throw new TRPCError({
+          code: 'METHOD_NOT_SUPPORTED',
+          message: 'Download via C-MOVE ainda não implementado. Use o botão "Visualizar" para acessar as imagens.',
         });
-        
-        return {
-          success: true,
-          message: 'Download não implementado ainda',
-        };
       }),
 
 });

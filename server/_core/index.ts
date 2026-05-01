@@ -612,12 +612,26 @@ async function startServer() {
         return res.end();
       }
 
-      // admin_master pode passar unitId via query param; demais usuários usam sua própria unit_id
+      // BUG-2 FIX: suporte a usuários multi-unidade via user_unit_permissions
       const queryUnitId = req.query.unitId ? parseInt(req.query.unitId as string, 10) : null;
-      const isAdminMaster = user.role === 'admin_master';
-      const unitId = (isAdminMaster && queryUnitId) ? queryUnitId : user.unit_id;
+      let unitId: number | null = null;
+
+      if (user.role === 'admin_master') {
+        unitId = queryUnitId ?? user.unit_id;
+      } else if (queryUnitId) {
+        const { assertUnitPermission } = await import('../db');
+        const allowed = await assertUnitPermission(user, queryUnitId, 'view_studies');
+        if (!allowed) {
+          sendEvent('error', { message: 'Você não tem permissão para visualizar estudos nesta unidade.' });
+          return res.end();
+        }
+        unitId = queryUnitId;
+      } else {
+        unitId = user.unit_id;
+      }
+
       if (!unitId) {
-        sendEvent('error', { message: 'Usuário sem unidade associada' });
+        sendEvent('error', { message: 'Usuário sem unidade associada. Selecione uma unidade e tente novamente.' });
         return res.end();
       }
 

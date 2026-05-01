@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3.11
 """
 Gera miniatura PNG 64x64 de um arquivo DICOM.
 Uso: python3 dicom_thumbnail.py <caminho_dcm>
