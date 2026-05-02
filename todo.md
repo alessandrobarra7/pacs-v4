@@ -1498,3 +1498,9 @@
 - [x] BUG-5: DICOM_GET_TIMEOUT_MS adicionado ao ENV em env.ts
 - [x] BUG-6: imports dinâmicos convertidos para estáticos no topo de pacs.ts
 - [x] BUG-7: 20 novos testes DICOM em pacs.test.ts (tokens de data, resolução de unidade, hasOrthanc, timeout)
+
+## Bugs de Performance DICOM (01/05/2026)
+- [x] BUG-DICOM-1 (crítico): batch de setStack com pendingIdsRef + batchTimerRef (evita O(n²) em TC)
+- [x] BUG-DICOM-2 (alto): remover vp.render() de goToSlice (Cornerstone já agenda render internamente)
+- [x] BUG-DICOM-3 (médio): substituir setInterval por requestAnimationFrame no cine
+- [x] BUG-DICOM-4 (baixo): remover phase das dependências de startStreamingViewer

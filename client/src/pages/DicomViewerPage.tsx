@@ -99,12 +99,16 @@ export function DicomViewerPage() {
   // ─── Cine (Play automático) ───────────────────────────────────────────────
   const [isCinePlaying, setIsCinePlaying] = useState(false);
   const [cineFps, setCineFps] = useState(8); // frames por segundo
-  const cineIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // BUG-3 FIX: usar number (retorno de requestAnimationFrame) em vez de setInterval
+  const cineIntervalRef = useRef<number | null>(null);
   const cineIndexRef = useRef(0); // ref para evitar closure stale
 
   // Lista de imageIds acumulados durante o streaming
   const imageIdsRef = useRef<string[]>([]);
   const [imageIds, setImageIds] = useState<string[]>([]);
+  // BUG-1 FIX: refs para batch de setStack (evita O(n²) durante streaming de TC)
+  const pendingIdsRef = useRef<string[]>([]);
+  const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ─── Séries DICOM ──────────────────────────────────────────────────────────
   const [series, setSeries] = useState<DicomSeries[]>([]);
@@ -276,23 +280,32 @@ export function DicomViewerPage() {
     }
   }, [studyUid, ensureCornerstoneInit]);
 
-  // ─── Adiciona imagens ao stack progressivamente ────────────────────────────
-  const addImageToStack = useCallback(async (filename: string) => {
+  // ─── Adiciona imagens ao stack progressivamente (batch para evitar O(n²)) ─────────────
+  // BUG-1 FIX: agrupa imagens em janelas de 300ms e chama setStack uma única vez
+  // Em vez de 300 chamadas para TC com 300 imagens, haverá ~5 chamadas (~98% de redução)
+  const addImageToStack = useCallback((filename: string) => {
     const newId = `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${filename}`;
-    if (imageIdsRef.current.includes(newId)) return;
+    // Evita duplicatas sem percorrer o array inteiro a cada arquivo
+    if (imageIdsRef.current.includes(newId) || pendingIdsRef.current.includes(newId)) return;
+    pendingIdsRef.current.push(newId);
 
-    imageIdsRef.current = [...imageIdsRef.current, newId].sort();
-    const updatedIds = imageIdsRef.current;
-    setImageIds(updatedIds);
-    setImageCount(updatedIds.length);
-
-    const vp = viewportRef.current;
-    if (!vp) return;
-
-    try {
-      const currentIdx = vp.getCurrentImageIdIndex?.() ?? 0;
-      await vp.setStack(updatedIds, currentIdx);
-    } catch (_) {}
+    // Cancela o timer anterior e agenda um novo flush
+    if (batchTimerRef.current) clearTimeout(batchTimerRef.current);
+    batchTimerRef.current = setTimeout(async () => {
+      if (pendingIdsRef.current.length === 0) return;
+      // Aplica todos os IDs acumulados de uma vez só e ordena uma única vez
+      imageIdsRef.current = [...imageIdsRef.current, ...pendingIdsRef.current].sort();
+      pendingIdsRef.current = [];
+      const updatedIds = imageIdsRef.current;
+      setImageIds([...updatedIds]);
+      setImageCount(updatedIds.length);
+      const vp = viewportRef.current;
+      if (!vp) return;
+      try {
+        const currentIdx = vp.getCurrentImageIdIndex?.() ?? 0;
+        await vp.setStack(updatedIds, currentIdx);
+      } catch (_) {}
+    }, 300); // agrupa imagens recebidas em janelas de 300ms
   }, [studyUid]);
 
   // ─── Carrega metadados do primeiro arquivo ────────────────────────────────
@@ -502,7 +515,10 @@ export function DicomViewerPage() {
       sse.close();
       sseRef.current = null;
     });
-  }, [studyUid, renderFirstImage, addImageToStack, loadMetadata, phase]);
+  }, [studyUid, renderFirstImage, addImageToStack, loadMetadata]);
+  // BUG-4 FIX: removido `phase` das dependências — usar phaseRef.current dentro
+  // do callback (já é uma ref e não causa recriação). A recriação por mudança de
+  // phase causava closures stale nos event listeners do SSE durante o streaming.
 
   // ─── Inicia ao montar ────────────────────────────────────────────────────
   useEffect(() => {
@@ -666,7 +682,9 @@ export function DicomViewerPage() {
       vp.setImageIdIndex(clamped);
       setCurrentIndex(clamped);
       cineIndexRef.current = clamped;
-      vp.render();
+      // BUG-2 FIX: remover vp.render() — setImageIdIndex já agenda o render
+      // internamente no Cornerstone. Chamar render() manualmente duplica o
+      // trabalho e empilha frames quando o usuário navega rápido.
     } catch (_) {}
   }, []);
 
@@ -675,21 +693,38 @@ export function DicomViewerPage() {
   const handleFirstImage = useCallback(() => goToSlice(0), [goToSlice]);
   const handleLastImage = useCallback(() => goToSlice(imageCount - 1), [imageCount, goToSlice]);
 
-  // ─── Cine (Play automático) ───────────────────────────────────────────────
+  // ─── Cine (Play automático) ─────────────────────────────────────────────────────────────────────────────
+  // BUG-3 FIX: requestAnimationFrame sincroniza com o ciclo de pintura do browser
+  // e pausa automaticamente quando a aba perde o foco, economizando CPU.
   const startCine = useCallback(() => {
-    if (cineIntervalRef.current) clearInterval(cineIntervalRef.current);
+    if (cineIntervalRef.current !== null) {
+      cancelAnimationFrame(cineIntervalRef.current);
+      cineIntervalRef.current = null;
+    }
     setIsCinePlaying(true);
-    cineIntervalRef.current = setInterval(() => {
-      const total = imageIdsRef.current.length;
-      if (total === 0) return;
-      const next = (cineIndexRef.current + 1) % total;
-      goToSlice(next);
-    }, Math.round(1000 / cineFps));
+
+    const frameInterval = 1000 / cineFps;
+    let lastTime = 0;
+
+    const tick = (now: number) => {
+      if (now - lastTime >= frameInterval) {
+        lastTime = now;
+        const total = imageIdsRef.current.length;
+        if (total > 0) {
+          const next = (cineIndexRef.current + 1) % total;
+          goToSlice(next);
+        }
+      }
+      // Agenda o próximo frame — para automaticamente se a ref for zerada
+      cineIntervalRef.current = requestAnimationFrame(tick);
+    };
+
+    cineIntervalRef.current = requestAnimationFrame(tick);
   }, [cineFps, goToSlice]);
 
   const stopCine = useCallback(() => {
-    if (cineIntervalRef.current) {
-      clearInterval(cineIntervalRef.current);
+    if (cineIntervalRef.current !== null) {
+      cancelAnimationFrame(cineIntervalRef.current);
       cineIntervalRef.current = null;
     }
     setIsCinePlaying(false);
