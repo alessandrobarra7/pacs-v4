@@ -531,9 +531,14 @@ export function DicomViewerPage() {
       if (renderingEngineRef.current) {
         try { renderingEngineRef.current.destroy(); } catch (_) {}
       }
-      // Para o cine ao desmontar
-      if (cineIntervalRef.current) {
-        clearInterval(cineIntervalRef.current);
+      // BUG-1 FIX: limpar batch timer ao desmontar (evita setState em ref nula)
+      if (batchTimerRef.current) {
+        clearTimeout(batchTimerRef.current);
+        batchTimerRef.current = null;
+      }
+      // BUG-3 FIX: cancelAnimationFrame em vez de clearInterval (cine migrou para RAF)
+      if (cineIntervalRef.current !== null) {
+        cancelAnimationFrame(cineIntervalRef.current);
         cineIntervalRef.current = null;
       }
     };

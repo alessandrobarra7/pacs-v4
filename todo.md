@@ -1504,3 +1504,7 @@
 - [x] BUG-DICOM-2 (alto): remover vp.render() de goToSlice (Cornerstone já agenda render internamente)
 - [x] BUG-DICOM-3 (médio): substituir setInterval por requestAnimationFrame no cine
 - [x] BUG-DICOM-4 (baixo): remover phase das dependências de startStreamingViewer
+
+## Cleanup DicomViewerPage (02/05/2026)
+- [x] VIEWER-CLEANUP: cancelAnimationFrame em vez de clearInterval no useEffect de desmontagem
+- [x] VIEWER-CLEANUP: batchTimerRef limpo no unmount (evita setState em ref nula)
