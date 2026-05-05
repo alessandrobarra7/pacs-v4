@@ -66,6 +66,27 @@ export interface NormalizedStudy {
 }
 
 /**
+ * Normaliza StudyDate para o formato esperado pelo Orthanc via C-FIND.
+ * Preserva intervalos DICOM válidos e converte apenas datas ISO simples.
+ */
+function normalizeDicomStudyDate(value?: string): string {
+  const v = (value || '').trim();
+  if (!v) return '';
+  // YYYYMMDD — já no formato DICOM correto, retornar sem alterar
+  if (/^\d{8}$/.test(v)) return v;
+  // YYYYMMDD-YYYYMMDD — intervalo fechado, preservar hífen
+  if (/^\d{8}-\d{8}$/.test(v)) return v;
+  // YYYYMMDD- — intervalo aberto à direita, preservar hífen
+  if (/^\d{8}-$/.test(v)) return v;
+  // -YYYYMMDD — intervalo aberto à esquerda, preservar hífen
+  if (/^-\d{8}$/.test(v)) return v;
+  // YYYY-MM-DD — data ISO do calendário HTML, converter para DICOM
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v.replace(/-/g, '');
+  // Formato desconhecido — retornar sem destruir hífens existentes
+  return v;
+}
+
+/**
  * Faz uma requisição HTTP para a REST API do Orthanc (sem autenticação)
  */
 async function orthancRequest(
@@ -136,8 +157,8 @@ export async function queryStudiesLocal(
       query['PatientID'] = `*${filters.patientId}*`;
     }
     if (filters.studyDate) {
-      // Orthanc aceita formato YYYYMMDD ou YYYYMMDD-YYYYMMDD
-      query['StudyDate'] = filters.studyDate.replace(/-/g, '');
+      // Orthanc aceita formato YYYYMMDD ou YYYYMMDD-YYYYMMDD (intervalo)
+      query['StudyDate'] = normalizeDicomStudyDate(filters.studyDate);
     }
     if (filters.accessionNumber) {
       query['AccessionNumber'] = `*${filters.accessionNumber}*`;
@@ -200,7 +221,7 @@ export async function queryStudiesRemote(
     const query: Record<string, string> = {
       PatientName: filters.patientName ? `*${filters.patientName}*` : '*',
       PatientID: filters.patientId ? `*${filters.patientId}*` : '',
-      StudyDate: filters.studyDate ? filters.studyDate.replace(/-/g, '') : '',
+      StudyDate: normalizeDicomStudyDate(filters.studyDate),
       AccessionNumber: filters.accessionNumber ? `*${filters.accessionNumber}*` : '',
       StudyInstanceUID: '',
       StudyDescription: '',

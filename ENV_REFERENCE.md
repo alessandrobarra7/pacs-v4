@@ -53,6 +53,9 @@ Copie para `.env` na VM1 e preencha os valores correspondentes.
 | `VITE_APP_LOGO` | Não | URL do logo da aplicação | — |
 | `VITE_API_BASE_URL` | Não | URL base da API (frontend) | `http://localhost:3000` |
 | `NODE_ENV` | Não | Ambiente de execução | `development` |
+| `TZ` | Não | Timezone do processo Node (PM2) | `America/Fortaleza` |
+| `APP_TIME_ZONE` | Não | Timezone explícito para cálculos de data DICOM | `America/Fortaleza` |
+| `DICOM_GET_TIMEOUT_MS` | Não | Timeout para C-GET DICOM em ms (padrão: 600000) | `900000` |
 
 ## Exemplo de `.env` para VM1
 
@@ -66,4 +69,9 @@ SESSION_DURATION_HOURS=24
 
 # Ambiente
 NODE_ENV=production
+
+# Timezone (não colocar no .env — definido no ecosystem.config.cjs)
+# TZ=America/Fortaleza
+# APP_TIME_ZONE=America/Fortaleza
+# DICOM_GET_TIMEOUT_MS=600000
 ```

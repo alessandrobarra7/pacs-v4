@@ -1508,3 +1508,9 @@
 ## Cleanup DicomViewerPage (02/05/2026)
 - [x] VIEWER-CLEANUP: cancelAnimationFrame em vez de clearInterval no useEffect de desmontagem
 - [x] VIEWER-CLEANUP: batchTimerRef limpo no unmount (evita setState em ref nula)
+
+## Bugs 05/05/2026 — Data/Timezone DICOM
+- [x] CORR-1: normalizeDicomStudyDate em orthanc.ts (preserva intervalos DICOM, converte apenas ISO simples)
+- [x] CORR-2: TZ America/Fortaleza + APP_TIME_ZONE em ecosystem.config.cjs (evita regressão no horário de verão)
+- [x] CORR-3: toDiscom → toDicomDateInTimeZone com Intl.DateTimeFormat explícito em pacs.ts
+- [x] ENV_REFERENCE.md atualizado com TZ, APP_TIME_ZONE, DICOM_GET_TIMEOUT_MS

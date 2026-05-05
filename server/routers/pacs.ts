@@ -83,42 +83,44 @@ export const pacsRouter = router({
           });
         }
         
-        // BUG-2 FIX: Helper formata Date para YYYYMMDD respeitando TZ do processo (America/Sao_Paulo via PM2)
-        const toDiscom = (d: Date) => {
-          const y = d.getFullYear();
-          const m = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
+        // FIX: helper usa Intl.DateTimeFormat com timezone explícito — independe do TZ da VM
+        const APP_TZ = process.env.APP_TIME_ZONE || 'America/Fortaleza';
+        const toDicomDateInTimeZone = (d: Date): string => {
+          const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: APP_TZ,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+          }).formatToParts(d);
+          const y = parts.find(p => p.type === 'year')!.value;
+          const m = parts.find(p => p.type === 'month')!.value;
+          const day = parts.find(p => p.type === 'day')!.value;
           return `${y}${m}${day}`;
         };
 
-        // Handle special date values
+        // Handle special date tokens
         let studyDate = input.studyDate;
 
         if (studyDate === 'TODAY') {
-          studyDate = toDiscom(new Date());
+          studyDate = toDicomDateInTimeZone(new Date());
           console.log('[PACS Query] TODAY resolved to:', studyDate);
 
         } else if (studyDate === 'YESTERDAY') {
-          // BUG-2 FIX: token YESTERDAY resolvido no servidor com TZ correto
-          const d = new Date();
-          d.setDate(d.getDate() - 1);
-          studyDate = toDiscom(d);
+          // FIX: subtração em ms evita edge cases de meia-noite com DST
+          const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
+          studyDate = toDicomDateInTimeZone(d);
           console.log('[PACS Query] YESTERDAY resolved to:', studyDate);
 
         } else if (studyDate === 'LAST_7_DAYS') {
-          // BUG-2 FIX: range fechado (YYYYMMDD-YYYYMMDD) em vez de aberto (YYYYMMDD-)
           const now = new Date();
-          const from = new Date(now);
-          from.setDate(from.getDate() - 7);
-          studyDate = `${toDiscom(from)}-${toDiscom(now)}`;
+          const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+          studyDate = `${toDicomDateInTimeZone(from)}-${toDicomDateInTimeZone(now)}`;
           console.log('[PACS Query] LAST_7_DAYS resolved to:', studyDate);
 
         } else if (studyDate === 'LAST_30_DAYS') {
-          // BUG-2 FIX: range fechado (YYYYMMDD-YYYYMMDD) em vez de aberto (YYYYMMDD-)
           const now = new Date();
-          const from = new Date(now);
-          from.setDate(from.getDate() - 30);
-          studyDate = `${toDiscom(from)}-${toDiscom(now)}`;
+          const from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+          studyDate = `${toDicomDateInTimeZone(from)}-${toDicomDateInTimeZone(now)}`;
           console.log('[PACS Query] LAST_30_DAYS resolved to:', studyDate);
         }
         
