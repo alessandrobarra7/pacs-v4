@@ -1,0 +1,85 @@
+{
+  "query": "DESCRIBE model_layouts; SELECT id, unit_id, preferences FROM model_layouts WHERE unit_id = 180001;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute DESCRIBE model_layouts; SELECT id, unit_id, preferences FROM model_layouts WHERE unit_id = 180001;",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "unit_id",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "UNI",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "header_html",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "footer_html",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "preferences",
+      "Type": "json",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "is_active",
+      "Type": "tinyint(1)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "1",
+      "Extra": ""
+    },
+    {
+      "Field": "created_by",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "createdAt",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    },
+    {
+      "Field": "updatedAt",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+    }
+  ],
+  "messages": [
+    "id\tunit_id\tpreferences",
+    "1\t180001\t{\"accentBgColor\": \"#f0f4f8\", \"accentBorderColor\": \"#d0d7de\", \"fontFamily\": \"Arial\", \"fontSize\": 11, \"headerBorderColor\": \"#1a365d\", \"headerTextColor\": \"#1a365d\", \"lineHeight\": 1.6, \"logoAlign\": \"left\", \"logoHeight\": 60, \"marginBottom\": 25, \"marginLeft\": 25, \"marginRight\": 25, \"marginTop\": 40, \"pageSize\": \"A4\", \"showCrm\": false, \"showHeaderDivider\": true, \"showPatientTable\": true, \"showStamp\": true, \"signaturePosition\": \"bottom-right\"}"
+  ],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tint\tNO\tPRI\tNULL\tauto_increment\nunit_id\tint\tNO\tUNI\tNULL\t\nheader_html\ttext\tYES\t\tNULL\t\nfooter_html\ttext\tYES\t\tNULL\t\npreferences\tjson\tYES\t\tNULL\t\nis_active\ttinyint(1)\tNO\t\t1\t\ncreated_by\tint\tNO\t\tNULL\t\ncreatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nupdatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\tDEFAULT_GENERATED on update CURRENT_TIMESTAMP\nid\tunit_id\tpreferences\n1\t180001\t{\"accentBgColor\": \"#f0f4f8\", \"accentBorderColor\": \"#d0d7de\", \"fontFamily\": \"Arial\", \"fontSize\": 11, \"headerBorderColor\": \"#1a365d\", \"headerTextColor\": \"#1a365d\", \"lineHeight\": 1.6, \"logoAlign\": \"left\", \"logoHeight\": 60, \"marginBottom\": 25, \"marginLeft\": 25, \"marginRight\": 25, \"marginTop\": 40, \"pageSize\": \"A4\", \"showCrm\": false, \"showHeaderDivider\": true, \"showPatientTable\": true, \"showStamp\": true, \"signaturePosition\": \"bottom-right\"}\n",
+  "stderr": "",
+  "execution_time_ms": 204
+}

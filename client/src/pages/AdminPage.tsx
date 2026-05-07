@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/table";
 import {
   Building2, Users, ClipboardList, Plus, Edit2, Trash2, Server, HardDrive,
-  Trash, RefreshCw, Power, PowerOff,
+  Trash, RefreshCw, Power, PowerOff, LayoutTemplate,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
@@ -556,6 +556,13 @@ export default function AdminPage() {
                             title="Editar"
                           >
                             <Edit2 className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => navigate(`/admin/layouts/${unit.id}`)}
+                            className="p-1.5 rounded text-blue-500 hover:bg-blue-50"
+                            title="Editor de Layout de Laudos"
+                          >
+                            <LayoutTemplate className="h-3.5 w-3.5" />
                           </button>
                           <button
                             onClick={() => { if (confirm(`Excluir "${unit.name}"?`)) deleteUnit.mutate({ id: unit.id }); }}
