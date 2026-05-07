@@ -1,8 +1,9 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronRight, UserPlus, Building2 } from "lucide-react";
+import { ChevronDown, ChevronRight, UserPlus, Building2, LayoutTemplate } from "lucide-react";
 import UnitUsersGroup from "./UnitUsersGroup";
 import { type UnitUser } from "./UnitUserRow";
 
@@ -58,6 +59,7 @@ export default function UnitUsersCard({
   onNewUserForUnit,
 }: UnitUsersCardProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const [, navigate] = useLocation();
   const { unit, totals, groups } = node;
 
   const summaryParts = [
@@ -99,6 +101,15 @@ export default function UnitUsersCard({
           </button>
 
           <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1"
+              onClick={() => navigate(`/admin/layouts/${unit.id}`)}
+            >
+              <LayoutTemplate className="h-3.5 w-3.5" />
+              Layout
+            </Button>
             <Button
               variant="outline"
               size="sm"

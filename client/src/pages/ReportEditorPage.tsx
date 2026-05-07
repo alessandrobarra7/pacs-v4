@@ -181,6 +181,12 @@ export default function ReportEditorPage() {
     { enabled: unitId > 0 }
   );
 
+  // Layout da unidade para o documento do laudo
+  const { data: unitLayout } = trpc.layouts.getByUnit.useQuery(
+    { unitId },
+    { enabled: unitId > 0 }
+  );
+
   // Laudo existente
   const { data: existingReport } = trpc.reports.getByStudyUid.useQuery(
     { studyInstanceUid: studyUid },

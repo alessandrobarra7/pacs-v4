@@ -141,6 +141,8 @@ export const reports = mysqlTable("reports", {
   previousVersionId: int("previousVersionId"),
   signedAt: timestamp("signedAt"),
   signedBy: int("signedBy"),
+  /** Snapshot do model_layout no momento da assinatura — garante fidelidade histórica */
+  layout_snapshot: json("layout_snapshot").$type<Record<string, unknown> | null>(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
@@ -158,7 +160,7 @@ export const audit_log = mysqlTable("audit_log", {
   id: int("id").autoincrement().primaryKey(),
   user_id: int("user_id"),
   unit_id: int("unit_id"),
-  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "DELETE_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA", "RESET_DOCTOR_BILLING"]).notNull(),
+  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "DELETE_REPORT", "REVISE_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "ACTIVATE_USER", "DEACTIVATE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA", "RESET_DOCTOR_BILLING", "CREATE_LAYOUT", "UPDATE_LAYOUT", "DELETE_LAYOUT"]).notNull(),
   target_type: varchar("target_type", { length: 50 }),
   target_id: varchar("target_id", { length: 100 }),
   ip_address: varchar("ip_address", { length: 45 }),
@@ -842,3 +844,26 @@ export const unit_exam_prices = mysqlTable("unit_exam_prices", {
 }));
 export type UnitExamPrice = typeof unit_exam_prices.$inferSelect;
 export type InsertUnitExamPrice = typeof unit_exam_prices.$inferInsert;
+
+/**
+ * Model Layouts — Layout visual do laudo por unidade
+ * Cada unidade tem no máximo um layout ativo (unit_id UNIQUE).
+ * Congela-se um LayoutSnapshot em reports.layout_snapshot na assinatura.
+ */
+export const model_layouts = mysqlTable("model_layouts", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull().unique(),
+  /** HTML do cabeçalho personalizado (sanitizado antes de salvar) */
+  header_html: text("header_html"),
+  /** HTML do rodapé personalizado (sanitizado antes de salvar) */
+  footer_html: text("footer_html"),
+  /** Preferências visuais: margens, fontes, cores, logo, assinatura */
+  preferences: json("preferences").$type<Record<string, unknown> | null>(),
+  is_active: boolean("is_active").default(true).notNull(),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ModelLayout = typeof model_layouts.$inferSelect;
+export type InsertModelLayout = typeof model_layouts.$inferInsert;

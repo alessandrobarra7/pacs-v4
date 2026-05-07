@@ -15,6 +15,7 @@ import { PacsQueryPage } from "./pages/PacsQueryPage";
 import ReportEditorPage from "./pages/ReportEditorPage";
 import { DicomViewerPage } from "./pages/DicomViewerPage";
 import AdminPage from "./pages/AdminPage";
+import LayoutEditorPage from "./pages/LayoutEditorPage";
 import { Redirect } from "wouter";
 import FinanceDashboard from "./pages/finance/FinanceDashboard";
 import FinanceMedicos from "./pages/finance/FinanceMedicos";
@@ -97,6 +98,7 @@ function Router() {
       <Route path="/dicom-viewer/:studyUid" component={() => <ProtectedRoute component={DicomViewerPage} />} />
       {/* Admin: admin_master e unit_admin */}
       <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} allowedRoles={['admin_master', 'unit_admin']} />} />
+      <Route path="/admin/layouts/:unitId" component={() => <ProtectedRoute component={LayoutEditorPage} allowedRoles={['admin_master', 'unit_admin']} />} />
       {/* Redirects de rotas legadas /billing/* para /financeiro/* */}
       <Route path="/billing/admin"><Redirect to="/financeiro/admin" /></Route>
       <Route path="/billing/unit"><Redirect to="/financeiro/responsaveis" /></Route>

@@ -1514,3 +1514,16 @@
 - [x] CORR-2: TZ America/Fortaleza + APP_TIME_ZONE em ecosystem.config.cjs (evita regressão no horário de verão)
 - [x] CORR-3: toDiscom → toDicomDateInTimeZone com Intl.DateTimeFormat explícito em pacs.ts
 - [x] ENV_REFERENCE.md atualizado com TZ, APP_TIME_ZONE, DICOM_GET_TIMEOUT_MS
+## Editor de Layout de Laudos (07/05/2026)
+- [x] LAYOUT-1: Migration 0032_model_layouts — tabela model_layouts no banco
+- [x] LAYOUT-2: Migration 0033_add_layout_audit_actions — ações CREATE_LAYOUT, UPDATE_LAYOUT, DELETE_LAYOUT no audit_log
+- [x] LAYOUT-3: Migration 0034_reports_add_layout_snapshot — coluna layout_snapshot em reports
+- [x] LAYOUT-4: schema.ts atualizado com model_layouts e layout_snapshot
+- [x] LAYOUT-5: shared/types.ts — layoutPreferencesSchema, LayoutPreferences, DEFAULT_LAYOUT_PREFERENCES, LayoutSnapshot
+- [x] LAYOUT-6: server/routers/layouts.ts — getByUnit, upsert, delete (com sanitização HTML e audit log)
+- [x] LAYOUT-7: server/routers.ts — layouts router registrado
+- [x] LAYOUT-8: ReportDocument.tsx — atualizado com stampUrl, headerHtml, footerHtml, preferences
+- [x] LAYOUT-9: ReportEditorPage.tsx — query trpc.layouts.getByUnit adicionada
+- [x] LAYOUT-10: UnitUsersCard.tsx — botão "Layout" adicionado com navigate para /admin/layouts/:unitId
+- [x] LAYOUT-11: LayoutEditorPage.tsx — criada com painel de controles + preview A4 (0 erros TypeScript)
+- [x] LAYOUT-12: App.tsx — rota /admin/layouts/:unitId registrada para LayoutEditorPage

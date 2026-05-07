@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef, useCallback } from "react";
 import DOMPurify from 'dompurify';
+import { DEFAULT_LAYOUT_PREFERENCES, type LayoutPreferences } from '../../../shared/types';
 
 // F1-4: Sanitiza HTML antes de atribuir ao innerHTML (previne XSS no visualizador de laudos)
 function sanitizeForDisplay(html: string): string {
@@ -37,8 +38,16 @@ interface ReportDocumentProps {
   doctorName?: string;
   crm?: string;
   signatureUrl?: string | null;
+  /** URL do carimbo do médico (stamp_url) */
+  stampUrl?: string | null;
   showSignature?: boolean;
   readOnly?: boolean;
+  /** HTML personalizado do cabeçalho (já sanitizado pelo backend) */
+  headerHtml?: string | null;
+  /** HTML personalizado do rodapé (já sanitizado pelo backend) */
+  footerHtml?: string | null;
+  /** Preferências visuais do layout da unidade */
+  preferences?: Partial<LayoutPreferences>;
 }
 
 const ReportDocument = forwardRef<ReportDocumentHandle, ReportDocumentProps>(
@@ -53,8 +62,12 @@ const ReportDocument = forwardRef<ReportDocumentHandle, ReportDocumentProps>(
       doctorName,
       crm,
       signatureUrl,
+      stampUrl,
       showSignature = false,
       readOnly = false,
+      headerHtml,
+      footerHtml,
+      preferences,
     },
     ref
   ) {
@@ -127,147 +140,167 @@ const ReportDocument = forwardRef<ReportDocumentHandle, ReportDocumentProps>(
     // studyDate já vem formatada como DD/MM/YYYY do ReportEditorPage
     const formatDate = (dateStr?: string) => dateStr ?? "";
 
+    // Mesclar preferences com defaults — garante que campos ausentes usem valores padrão
+    const prefs: LayoutPreferences = { ...DEFAULT_LAYOUT_PREFERENCES, ...preferences };
+
+    // Alinhamento da assinatura
+    const sigAlign = prefs.signaturePosition === 'bottom-left' ? 'left'
+      : prefs.signaturePosition === 'bottom-center' ? 'center' : 'right';
+    const sigMargin = prefs.signaturePosition === 'bottom-right' ? '0 0 8px auto'
+      : prefs.signaturePosition === 'bottom-left' ? '0 auto 8px 0' : '0 auto 8px';
+
     return (
       <div
         ref={containerRef}
         id="report-document"
         className="bg-white text-black shadow-lg mx-auto"
         style={{
-          width: "210mm",
-          minHeight: "297mm",
-          padding: "20mm 25mm 25mm 25mm",
-          fontFamily: "Arial, sans-serif",
-          fontSize: "11pt",
-          lineHeight: "1.6",
+          width: prefs.pageSize === 'Letter' ? '216mm' : '210mm',
+          minHeight: prefs.pageSize === 'Letter' ? '279mm' : '297mm',
+          padding: `${prefs.marginTop}mm ${prefs.marginRight}mm ${prefs.marginBottom}mm ${prefs.marginLeft}mm`,
+          fontFamily: `${prefs.fontFamily}, sans-serif`,
+          fontSize: `${prefs.fontSize}pt`,
+          lineHeight: String(prefs.lineHeight),
           boxSizing: "border-box",
         }}
       >
-        {/* Cabeçalho */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            borderBottom: "2px solid #1a365d",
-            paddingBottom: "10px",
-            marginBottom: "16px",
-            gap: "16px",
-          }}
-        >
-          {unitLogoUrl && (
-            <img
-              src={unitLogoUrl}
-              alt="Logo"
-              style={{ height: "60px", objectFit: "contain" }}
-            />
-          )}
-          <div style={{ flex: 1 }}>
-            <div
-              style={{
-                fontSize: "14pt",
-                fontWeight: "bold",
-                color: "#1a365d",
-              }}
-            >
-              {unitName || "Unidade de Saúde"}
-            </div>
-            <div style={{ fontSize: "9pt", color: "#555" }}>
-              Laudo de Exame de Imagem
+        {/* Cabeçalho — HTML personalizado OU cabeçalho padrão */}
+        {headerHtml ? (
+          <div
+            dangerouslySetInnerHTML={{ __html: sanitizeForDisplay(headerHtml) }}
+            style={{ marginBottom: '16px' }}
+          />
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              borderBottom: prefs.showHeaderDivider ? `2px solid ${prefs.headerBorderColor}` : 'none',
+              paddingBottom: "10px",
+              marginBottom: "16px",
+              gap: "16px",
+              justifyContent: prefs.logoAlign === 'right' ? 'flex-end'
+                : prefs.logoAlign === 'center' ? 'center' : 'flex-start',
+            }}
+          >
+            {unitLogoUrl && (
+              <img
+                src={unitLogoUrl}
+                alt="Logo"
+                style={{ height: `${prefs.logoHeight}px`, objectFit: "contain" }}
+              />
+            )}
+            <div style={{ flex: 1 }}>
+              <div
+                style={{
+                  fontSize: "14pt",
+                  fontWeight: "bold",
+                  color: prefs.headerTextColor,
+                }}
+              >
+                {unitName || "Unidade de Saúde"}
+              </div>
+              <div style={{ fontSize: "9pt", color: "#555" }}>
+                Laudo de Exame de Imagem
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Dados do Paciente */}
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            marginBottom: "16px",
-            fontSize: "10pt",
-          }}
-        >
-          <tbody>
-            <tr>
-              <td
-                style={{
-                  padding: "4px 8px",
-                  background: "#f0f4f8",
-                  fontWeight: "bold",
-                  width: "120px",
-                  border: "1px solid #d0d7de",
-                }}
-              >
-                Paciente:
-              </td>
-              <td
-                style={{
-                  padding: "4px 8px",
-                  border: "1px solid #d0d7de",
-                  textTransform: "uppercase",
-                }}
-              >
-                {patientName || "—"}
-              </td>
-              <td
-                style={{
-                  padding: "4px 8px",
-                  background: "#f0f4f8",
-                  fontWeight: "bold",
-                  width: "100px",
-                  border: "1px solid #d0d7de",
-                }}
-              >
-                Data:
-              </td>
-              <td
-                style={{
-                  padding: "4px 8px",
-                  border: "1px solid #d0d7de",
-                  width: "120px",
-                }}
-              >
-                {formatDate(studyDate)}
-              </td>
-            </tr>
-            <tr>
-              <td
-                style={{
-                  padding: "4px 8px",
-                  background: "#f0f4f8",
-                  fontWeight: "bold",
-                  border: "1px solid #d0d7de",
-                }}
-              >
-                Modalidade:
-              </td>
-              <td
-                style={{
-                  padding: "4px 8px",
-                  border: "1px solid #d0d7de",
-                }}
-              >
-                {modality || "—"}
-              </td>
-              <td
-                style={{
-                  padding: "4px 8px",
-                  background: "#f0f4f8",
-                  fontWeight: "bold",
-                  border: "1px solid #d0d7de",
-                }}
-              >
-                Médico:
-              </td>
-              <td
-                style={{
-                  padding: "4px 8px",
-                  border: "1px solid #d0d7de",
-                }}
-              >
-                {doctorName || "—"}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        {prefs.showPatientTable && (
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              marginBottom: "16px",
+              fontSize: "10pt",
+            }}
+          >
+            <tbody>
+              <tr>
+                <td
+                  style={{
+                    padding: "4px 8px",
+                    background: prefs.accentBgColor,
+                    fontWeight: "bold",
+                    width: "120px",
+                    border: `1px solid ${prefs.accentBorderColor}`,
+                  }}
+                >
+                  Paciente:
+                </td>
+                <td
+                  style={{
+                    padding: "4px 8px",
+                    border: `1px solid ${prefs.accentBorderColor}`,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {patientName || "—"}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 8px",
+                    background: prefs.accentBgColor,
+                    fontWeight: "bold",
+                    width: "100px",
+                    border: `1px solid ${prefs.accentBorderColor}`,
+                  }}
+                >
+                  Data:
+                </td>
+                <td
+                  style={{
+                    padding: "4px 8px",
+                    border: `1px solid ${prefs.accentBorderColor}`,
+                    width: "120px",
+                  }}
+                >
+                  {formatDate(studyDate)}
+                </td>
+              </tr>
+              <tr>
+                <td
+                  style={{
+                    padding: "4px 8px",
+                    background: prefs.accentBgColor,
+                    fontWeight: "bold",
+                    border: `1px solid ${prefs.accentBorderColor}`,
+                  }}
+                >
+                  Modalidade:
+                </td>
+                <td
+                  style={{
+                    padding: "4px 8px",
+                    border: `1px solid ${prefs.accentBorderColor}`,
+                  }}
+                >
+                  {modality || "—"}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 8px",
+                    background: prefs.accentBgColor,
+                    fontWeight: "bold",
+                    border: `1px solid ${prefs.accentBorderColor}`,
+                  }}
+                >
+                  Médico:
+                </td>
+                <td
+                  style={{
+                    padding: "4px 8px",
+                    border: `1px solid ${prefs.accentBorderColor}`,
+                  }}
+                >
+                  {doctorName || "—"}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        )}
 
         {/* Título do Exame */}
         {examTitle && (
@@ -291,7 +324,7 @@ const ReportDocument = forwardRef<ReportDocumentHandle, ReportDocumentProps>(
             fontWeight: "bold",
             fontSize: "10pt",
             marginBottom: "6px",
-            color: "#1a365d",
+            color: prefs.headerTextColor,
             textTransform: "uppercase",
             letterSpacing: "0.5px",
           }}
@@ -311,7 +344,7 @@ const ReportDocument = forwardRef<ReportDocumentHandle, ReportDocumentProps>(
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
             background: readOnly ? "transparent" : "#fafafa",
-            fontSize: "11pt",
+            fontSize: `${prefs.fontSize}pt`,
             lineHeight: "1.8",
           }}
           data-placeholder="Digite o laudo aqui..."
@@ -327,7 +360,7 @@ const ReportDocument = forwardRef<ReportDocumentHandle, ReportDocumentProps>(
               marginTop: "40px",
               paddingTop: "16px",
               borderTop: "1px solid #d0d7de",
-              textAlign: "center",
+              textAlign: sigAlign as "left" | "center" | "right",
             }}
           >
             {signatureUrl && (
@@ -339,36 +372,57 @@ const ReportDocument = forwardRef<ReportDocumentHandle, ReportDocumentProps>(
                   maxWidth: "200px",
                   objectFit: "contain",
                   display: "block",
-                  margin: "0 auto 8px",
+                  margin: sigMargin,
+                }}
+              />
+            )}
+            {/* Carimbo do médico */}
+            {prefs.showStamp && stampUrl && (
+              <img
+                src={stampUrl}
+                alt="Carimbo"
+                style={{
+                  maxHeight: "50px",
+                  maxWidth: "200px",
+                  objectFit: "contain",
+                  display: "block",
+                  margin: sigMargin,
                 }}
               />
             )}
             <div style={{ fontWeight: "bold", fontSize: "10pt" }}>
               {doctorName}
             </div>
-            {crm && (
+            {prefs.showCrm && crm && (
               <div style={{ fontSize: "9pt", color: "#555" }}>CRM: {crm}</div>
             )}
           </div>
         )}
 
-        {/* Rodapé */}
-        <div
-          style={{
-            marginTop: "30px",
-            paddingTop: "8px",
-            borderTop: "1px solid #e2e8f0",
-            fontSize: "8pt",
-            color: "#888",
-            textAlign: "center",
-          }}
-        >
-          Documento gerado em {new Date().toLocaleDateString("pt-BR")} às{" "}
-          {new Date().toLocaleTimeString("pt-BR", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </div>
+        {/* Rodapé — HTML personalizado OU rodapé padrão */}
+        {footerHtml ? (
+          <div
+            dangerouslySetInnerHTML={{ __html: sanitizeForDisplay(footerHtml) }}
+            style={{ marginTop: '30px' }}
+          />
+        ) : (
+          <div
+            style={{
+              marginTop: "30px",
+              paddingTop: "8px",
+              borderTop: "1px solid #e2e8f0",
+              fontSize: "8pt",
+              color: "#888",
+              textAlign: "center",
+            }}
+          >
+            Documento gerado em {new Date().toLocaleDateString("pt-BR")} às{" "}
+            {new Date().toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </div>
+        )}
       </div>
     );
   }
