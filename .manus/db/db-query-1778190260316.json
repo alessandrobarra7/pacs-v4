@@ -1,0 +1,35 @@
+{
+  "query": "SELECT id, study_instance_uid, status FROM reports LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, study_instance_uid, status FROM reports LIMIT 5;",
+  "rows": [
+    {
+      "id": "1",
+      "study_instance_uid": "1.2.392.200036.9125.2.224761048105.65124699749.321213779",
+      "status": "draft"
+    },
+    {
+      "id": "60001",
+      "study_instance_uid": "1.2.392.200036.9125.2.23221620918735124.65128125631.48522484",
+      "status": "signed"
+    },
+    {
+      "id": "90002",
+      "study_instance_uid": "1.2.392.200036.9125.2.23221620918735124.65128119697.48522443",
+      "status": "signed"
+    },
+    {
+      "id": "120001",
+      "study_instance_uid": "1.2.392.200036.9125.2.23221620918735124.65128123717.48522459",
+      "status": "revised"
+    },
+    {
+      "id": "150001",
+      "study_instance_uid": "NULL",
+      "status": "draft"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tstudy_instance_uid\tstatus\n1\t1.2.392.200036.9125.2.224761048105.65124699749.321213779\tdraft\n60001\t1.2.392.200036.9125.2.23221620918735124.65128125631.48522484\tsigned\n90002\t1.2.392.200036.9125.2.23221620918735124.65128119697.48522443\tsigned\n120001\t1.2.392.200036.9125.2.23221620918735124.65128123717.48522459\trevised\n150001\tNULL\tdraft\n",
+  "stderr": "",
+  "execution_time_ms": 261
+}

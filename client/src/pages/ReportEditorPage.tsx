@@ -1999,7 +1999,8 @@ function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; on
                   return (
                     <div key={phrase.id} className="flex items-start gap-1 px-2 py-1.5 hover:bg-blue-50 group">
                       <button
-                        onClick={() => { onFocus(); onInsert(phrase.content); }}
+                        onMouseDown={(e) => { e.preventDefault(); onFocus(); }}
+                        onClick={() => { onInsert(phrase.content); }}
                         className="flex-1 text-left text-xs text-gray-700 leading-relaxed"
                       >
                         {phrase.content}
