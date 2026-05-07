@@ -475,6 +475,12 @@ export function PacsQueryPage() {
     { enabled: !!effectiveUnitId }
   );
 
+  // Layout da unidade para impressão de laudos
+  const { data: unitLayout } = trpc.layouts.getByUnit.useQuery(
+    { unitId: effectiveUnitId || 0 },
+    { enabled: !!effectiveUnitId }
+  );
+
   // Wrapper que persiste a troca de unidade no localStorage
   const handleSelectUnit = (unitId: number) => {
     setSelectedUnitId(unitId);
@@ -947,10 +953,24 @@ export function PacsQueryPage() {
     }
     toast.dismiss('print-loading');
 
-    const LEGAL_FOOTER = 'Este documento foi gerado pela plataforma de sistema de laudos "Lauds", inscrita no CNPJ nº 12.345.678/0001-90. Em caso de dúvidas, entre em contato pelo número comercial 0800 896 555 489 625. Para mais informações, acesse nosso site www.lauds.com.br ou siga-nos no Instagram @lauds_radiologia.';
-    const logoHtml = logoUrl
-      ? `<img src="${logoUrl}" alt="Logo" style="max-height:75px;max-width:240px;object-fit:contain;" />`
-      : `<p style="font-size:9pt;color:#888;">Logo da unidade</p>`;
+    // ── Layout da unidade ──
+    const lPrefs = (unitLayout?.preferences as any) || {};
+    const lFont = lPrefs.fontFamily || 'Arial';
+    const lSize = lPrefs.fontSize || 11;
+    const lLine = lPrefs.lineHeight || 1.6;
+    const lMT = lPrefs.marginTop ?? 20;
+    const lMB = lPrefs.marginBottom ?? 20;
+    const lML = lPrefs.marginLeft ?? 20;
+    const lMR = lPrefs.marginRight ?? 20;
+    const lBorderColor = lPrefs.headerBorderColor || '#d0d0d0';
+    const lBgUrl = (unitLayout as any)?.background_image_url || '';
+    const lFooterUrl = (unitLayout as any)?.footer_image_url || '';
+    const lLogos: Array<{url:string;width:number;height:number}> = (unitLayout as any)?.logos || [];
+    // Logos HTML: até 3 logos lado a lado
+    const logosHtml = lLogos.filter((l: any) => l.url).length > 0
+      ? lLogos.filter((l: any) => l.url).map((l: any) => `<img src="${l.url}" alt="Logo" style="max-height:${l.height||60}px;max-width:${l.width||180}px;object-fit:contain;margin-right:6px;" />`).join('')
+      : (logoUrl ? `<img src="${logoUrl}" alt="Logo" style="max-height:60px;max-width:180px;object-fit:contain;" />` : `<p style="font-size:9pt;color:#888;">Logo da unidade</p>`);
+    const logoHtml = logosHtml;
     // Detectar se o body é JSON multi-seção [{title, body}, ...] e renderizar corretamente
     let bodyHtml = reportBody || '(Laudo não encontrado ou ainda não elaborado)';
     if (reportBody) {
@@ -996,41 +1016,27 @@ export function PacsQueryPage() {
       <head>
         <meta charset="UTF-8">
         <title>Laudo - ${patientName}</title>
-        <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
         <style>
           @page { size: A4; margin: 0; }
           * { box-sizing: border-box; margin: 0; padding: 0; }
-          body { margin: 0; font-family: 'Source Sans 3', 'Arial', sans-serif; font-size: 11pt; color: #1a1a1a; background: #fff; }
-          .doc { position: relative; width: 210mm; min-height: 297mm; padding: 18mm 22mm 32mm 22mm; }
-
-          /* ── Cabeçalho ── */
-          .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 6mm; border-bottom: 1.5px solid #d0d0d0; margin-bottom: 7mm; }
-          .header-logo { display: flex; align-items: center; }
-          .header-patient { text-align: right; font-size: 10pt; line-height: 1.9; color: #1a1a1a; }
+          body { margin: 0; font-family: '${lFont}', Arial, sans-serif; font-size: ${lSize}pt; color: #1a1a1a; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .doc { position: relative; width: 210mm; min-height: 297mm; padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
+            ${lBgUrl ? `background-image: url('${lBgUrl}'); background-size: cover; background-position: center; background-repeat: no-repeat;` : ''}
+          }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 5mm; border-bottom: 2px solid ${lBorderColor}; margin-bottom: 6mm; }
+          .header-logo { display: flex; align-items: center; gap: 6px; }
+          .header-patient { text-align: right; font-size: 9.5pt; line-height: 1.7; }
           .header-patient .label { font-weight: 700; }
-          .header-patient .row { display: block; }
-
-          /* ── Título do exame ── */
-          .exam-title { text-align: center; font-size: 13pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 7mm 0; color: #111; }
-
-          /* ── Corpo ── */
-          .body { min-height: 120mm; font-size: 11pt; line-height: 1.85; color: #1a1a1a; text-align: justify; white-space: pre-wrap; }
-
-          /* ── Assinatura ── */
-          .doctor-footer { margin-top: 12mm; display: flex; justify-content: center; }
+          .exam-title { text-align: center; font-size: 13pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 6mm 0; }
+          .body { min-height: 120mm; font-size: ${lSize}pt; line-height: ${lLine}; text-align: justify; white-space: pre-wrap; }
+          .doctor-footer { margin-top: 10mm; display: flex; justify-content: center; }
           .doctor-footer-inner { text-align: center; min-width: 180px; }
           .doctor-footer-inner .sig-line { border-top: 1px solid #444; margin-top: 2mm; padding-top: 3mm; font-size: 10pt; }
           .doctor-footer-inner .sig-name { font-weight: 700; font-size: 10.5pt; }
           .doctor-footer-inner .sig-crm { font-size: 9.5pt; color: #333; margin-top: 1mm; }
           .doctor-footer-inner .sig-date { font-size: 8.5pt; color: #666; margin-top: 1mm; }
           .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 6px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
-
-          /* ── Rodapé legal ── */
-          .footer { position: absolute; bottom: 10mm; left: 22mm; right: 22mm; border-top: 1px solid #e0e0e0; padding-top: 3mm; font-size: 7pt; color: #888; line-height: 1.5; text-align: center; }
-
-          @media print {
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          }
+          .footer-img { width: 100%; display: block; margin-top: 8mm; }
         </style>
       </head>
       <body>
@@ -1069,8 +1075,8 @@ export function PacsQueryPage() {
           </div>
           ` : ''}
 
-          <!-- Rodapé legal -->
-          <div class="footer">${LEGAL_FOOTER}</div>
+          <!-- Rodapé da unidade -->
+          ${lFooterUrl ? `<img src="${lFooterUrl}" class="footer-img" alt="Rodapé" />` : ''}
         </div>
         <script>setTimeout(() => window.print(), 400);<\/script>
       </body>
