@@ -521,15 +521,8 @@ export default function ReportEditorPage() {
   .sig-date { font-size: 8pt; color: #666; margin-top: 3px; }
   .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 6px; border-radius: 3px; font-weight: 700; margin-left: 6px; vertical-align: middle; }
 
-  /* RODAPÉ */
-  .zone-footer { position: fixed; bottom: 0; left: 0; right: 0; }
-  .footer-wave { width: 100%; display: block; height: 55px; }
-  .footer-text { background: linear-gradient(90deg, #1a6b8a 0%, #4ca8c4 50%, #6fb7c5 100%); padding: 2mm 18mm 4mm 18mm; font-size: 8.5pt; color: #fff; text-align: center; line-height: 1.6; font-family: Arial, Helvetica, sans-serif; }
-  .footer-date { font-size: 7.5pt; color: rgba(255,255,255,0.75); margin-top: 1px; }
-
-  @media print {
+   @media print {
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .zone-footer { position: fixed; bottom: 0; left: 0; right: 0; }
     .doctor-footer { break-inside: avoid; }
   }
 </style></head><body>
@@ -555,14 +548,7 @@ export default function ReportEditorPage() {
   <!-- ASSINATURA / CARIMBO -->
   ${doctorFooterHtml}
 
-  <!-- RODAPÉ INSTITUCIONAL -->
-  <div class="zone-footer">
-    <img src="${baseUrl}/report-footer-wave.svg" alt="" class="footer-wave" />
-    <div class="footer-text">
-      <div>${LEGAL_FOOTER}</div>
-      <div class="footer-date">Documento gerado em ${generatedAt}</div>
-    </div>
-  </div>
+  <!-- RODÁPÉ INSTITUCIONAL removido a pedido do usuário -->
 </div>
 <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
 </body></html>`;
@@ -889,14 +875,7 @@ export default function ReportEditorPage() {
                         </div>
                       )}
 
-                      {/* Rodapé institucional em cada página */}
-                      <div style={{ marginTop: "auto" }}>
-                        <img src="/report-footer-wave.svg" alt="" aria-hidden="true" style={{ width: "100%", display: "block", height: 55 }} />
-                        <div style={{ background: "linear-gradient(90deg, #1a6b8a 0%, #4ca8c4 50%, #6fb7c5 100%)", padding: "2mm 18mm 4mm 18mm", fontSize: "8.5pt", color: "#fff", textAlign: "center", lineHeight: 1.6, fontFamily: "Arial, Helvetica, sans-serif" }}>
-                          <div>{LEGAL_FOOTER}</div>
-                          <div style={{ fontSize: "7.5pt", color: "rgba(255,255,255,0.75)", marginTop: 1 }}>Documento gerado em {new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
-                        </div>
-                      </div>
+                      {/* Rodápé institucional removido a pedido do usuário */}
                     </div>
                   );
                 })}
@@ -1000,14 +979,7 @@ export default function ReportEditorPage() {
                   </div>
                 )}
 
-                {/* ══ RODAPÉ INSTITUCIONAL ══ */}
-                <div style={{ marginTop: "auto" }}>
-                  <img src="/report-footer-wave.svg" alt="" aria-hidden="true" style={{ width: "100%", display: "block", height: 55 }} />
-                  <div style={{ background: "linear-gradient(90deg, #1a6b8a 0%, #4ca8c4 50%, #6fb7c5 100%)", padding: "2mm 18mm 4mm 18mm", fontSize: "8.5pt", color: "#fff", textAlign: "center", lineHeight: 1.6, fontFamily: "Arial, Helvetica, sans-serif" }}>
-                    <div>{LEGAL_FOOTER}</div>
-                    <div style={{ fontSize: "7.5pt", color: "rgba(255,255,255,0.75)", marginTop: 1 }}>Documento gerado em {new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
-                  </div>
-                </div>
+                {/* ══ RODÁPÉ INSTITUCIONAL removido a pedido do usuário ══ */}
               </div>
             )}
           </div>
