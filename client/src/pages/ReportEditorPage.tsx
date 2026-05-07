@@ -494,10 +494,10 @@ export default function ReportEditorPage() {
 <style>
   @page { size: A4 portrait; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; color: #111; background: #fff; }
+  body { font-family: ${layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "'Times New Roman', Times, serif"}; font-size: ${layoutPrefs?.fontSize ? `${layoutPrefs.fontSize}pt` : '11pt'}; color: #111; background: #fff; line-height: ${layoutPrefs?.lineHeight ?? 1.6}; }
 
   /* CABEÇALHO */
-  .header { display: flex; align-items: stretch; border-bottom: 2px solid #1a6b8a; min-height: 90px; }
+  .header { display: flex; align-items: stretch; border-bottom: 2px solid ${layoutPrefs?.headerBorderColor ?? '#1a6b8a'}; min-height: 90px; }
   .header-logo { width: 180px; min-height: 90px; flex-shrink: 0; border-right: 1.5px solid #e0e0e0; display: flex; align-items: center; justify-content: center; padding: 8px 12px; background: #fafafa; }
   .header-info { flex: 1; padding: 10px 20px; display: flex; flex-direction: column; justify-content: center; gap: 5px; }
   .patient-name { font-size: 12pt; font-weight: 700; color: #111; text-transform: uppercase; letter-spacing: 0.02em; }
@@ -533,7 +533,7 @@ export default function ReportEditorPage() {
     .doctor-footer { break-inside: avoid; }
   }
 </style></head><body>
-<div style="position:relative;display:flex;flex-direction:column;min-height:100vh;">
+<div style="position:relative;display:flex;flex-direction:column;min-height:100vh;${layoutBgUrl ? `background:url('${layoutBgUrl}') center/cover no-repeat #fff;` : ''}">
   <!-- CABEÇALHO: Box do logo + Dados mínimos do paciente -->
   <div class="header">
     <div class="header-logo">${logoHtml}</div>
@@ -607,6 +607,12 @@ export default function ReportEditorPage() {
       } as LayoutSnapshot
     : null;
   const layoutPrefs = layoutSource?.preferences;
+  // GAP-BACKGROUND: imagem de fundo e posições dos blocos do layout da unidade
+  type BlockPos = { x: number; y: number; w: number; h: number; visible: boolean };
+  const rawLayout = unitLayout as Record<string, unknown> | null | undefined;
+  const layoutBgUrl: string | null = (rawLayout?.["background_image_url"] as string | null) ?? null;
+  const layoutBlockPos: Record<string, BlockPos> | null =
+    (rawLayout?.["block_positions"] as Record<string, BlockPos> | null) ?? null;
   const examDesc = examTitle || studyInfo?.studyDescription || "";
 
   return (
@@ -900,7 +906,7 @@ export default function ReportEditorPage() {
               <div style={{
                 width: "794px",
                 minHeight: "1123px",
-                background: "#fff",
+                background: layoutBgUrl ? `url('${layoutBgUrl}') center/cover no-repeat #fff` : "#fff",
                 // FIX GAP-2: aplicar tipografia e margens do layout da unidade
                 fontFamily: layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "'Times New Roman', Times, serif",
                 fontSize: layoutPrefs?.fontSize ? `${layoutPrefs.fontSize}pt` : "11pt",
