@@ -458,6 +458,25 @@ export default function ReportEditorPage() {
     }
   }, [existingReport, deleteReport, navigate, isAdminMaster, deleteReason]);
 
+  // FIX GAP-2: usar snapshot quando laudo já está assinado, caso contrário usar layout atual da unidade
+  const layoutSource = (isSigned && existingReport?.layout_snapshot)
+    ? existingReport.layout_snapshot as unknown as LayoutSnapshot
+    : unitLayout ? {
+        preferences:  unitLayout.preferences as LayoutPreferences,
+        header_html:  unitLayout.header_html ?? null,
+        footer_html:  unitLayout.footer_html ?? null,
+      } as LayoutSnapshot
+    : null;
+  const layoutPrefs = layoutSource?.preferences;
+  // GAP-BACKGROUND: imagem de fundo e posições dos blocos do layout da unidade
+  type BlockPos = { x: number; y: number; w: number; h: number; visible: boolean };
+  const rawLayout = unitLayout as Record<string, unknown> | null | undefined;
+  const layoutBgUrl: string | null = (rawLayout?.["background_image_url"] as string | null) ?? null;
+  const layoutBlockPos: Record<string, BlockPos> | null =
+    (rawLayout?.["block_positions"] as Record<string, BlockPos> | null) ?? null;
+  const layoutFooterUrl: string | null = (rawLayout?.["footer_image_url"] as string | null) ?? null;
+  const layoutLogos: Array<{ url: string; width: number; height: number; label: string }> =
+    Array.isArray(rawLayout?.["logos"]) ? (rawLayout!["logos"] as Array<{ url: string; width: number; height: number; label: string }>) : [];
   // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
   const patientName = formatPatientName(studyInfo?.patientName || "");
   const handlePrint = useCallback(() => {
@@ -558,7 +577,7 @@ export default function ReportEditorPage() {
 </body></html>`;
     const win = window.open('', '_blank', 'width=850,height=1100');
     if (win) { win.document.write(html); win.document.close(); }
-  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport]);
+  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, sectionRefs, examNames, isMultiSection]);
 
   // FIX BUG-2: inserir imagem inline no contentEditable
   // A imagem faz parte do documento, é salva no laudo e arrastável pelo browser nativamente.
@@ -587,25 +606,6 @@ export default function ReportEditorPage() {
   }, [isMultiSection]);
 
   // ── Render ───────────────────────────────────────────────────────────────
-  // FIX GAP-2: usar snapshot quando laudo já está assinado, caso contrário usar layout atual da unidade
-  const layoutSource = (isSigned && existingReport?.layout_snapshot)
-    ? existingReport.layout_snapshot as unknown as LayoutSnapshot
-    : unitLayout ? {
-        preferences:  unitLayout.preferences as LayoutPreferences,
-        header_html:  unitLayout.header_html ?? null,
-        footer_html:  unitLayout.footer_html ?? null,
-      } as LayoutSnapshot
-    : null;
-  const layoutPrefs = layoutSource?.preferences;
-  // GAP-BACKGROUND: imagem de fundo e posições dos blocos do layout da unidade
-  type BlockPos = { x: number; y: number; w: number; h: number; visible: boolean };
-  const rawLayout = unitLayout as Record<string, unknown> | null | undefined;
-  const layoutBgUrl: string | null = (rawLayout?.["background_image_url"] as string | null) ?? null;
-  const layoutBlockPos: Record<string, BlockPos> | null =
-    (rawLayout?.["block_positions"] as Record<string, BlockPos> | null) ?? null;
-  const layoutFooterUrl: string | null = (rawLayout?.["footer_image_url"] as string | null) ?? null;
-  const layoutLogos: Array<{ url: string; width: number; height: number; label: string }> =
-    Array.isArray(rawLayout?.["logos"]) ? (rawLayout!["logos"] as Array<{ url: string; width: number; height: number; label: string }>) : [];
   const examDesc = examTitle || studyInfo?.studyDescription || "";
 
   return (
