@@ -1527,3 +1527,27 @@
 - [x] LAYOUT-10: UnitUsersCard.tsx — botão "Layout" adicionado com navigate para /admin/layouts/:unitId
 - [x] LAYOUT-11: LayoutEditorPage.tsx — criada com painel de controles + preview A4 (0 erros TypeScript)
 - [x] LAYOUT-12: App.tsx — rota /admin/layouts/:unitId registrada para LayoutEditorPage
+
+## Aprimoramentos do Editor de Layout de Laudos (v2)
+
+- [x] Aprimoramento 1 — Temas de cor pré-configurados (5 temas: Hospitalar, Clínica, Elegante, Sóbrio, Quente)
+- [x] Aprimoramento 2 — Reordenação de blocos via drag-and-drop (framer-motion Reorder)
+- [x] Aprimoramento 3 — Preview tipográfico ao vivo na seção Tipografia
+- [x] Aprimoramento 4 — Visualização proporcional de margens (diagrama A4 com handles)
+- [x] Aprimoramento 5 — Editor rich text para cabeçalho/rodapé (negrito, itálico, sublinhado, alinhamento, cor, tamanho, toggle HTML)
+- [x] Aprimoramento 6 — Undo/Redo com useReducer (até 50 estados, Ctrl+Z / Ctrl+Y)
+- [x] Aprimoramento 7 — Indicador dirty "Alterações não salvas" + aviso beforeunload
+- [x] Aprimoramento 8 — Export/Import JSON do layout completo (inclui blockOrder)
+- [x] Aprimoramento 9 — Modo comparação "Editado vs Salvo" no preview
+
+## Aprimoramentos do Editor de Layout de Laudos (v2)
+
+- [x] Aprimoramento 1 - Temas de cor pre-configurados (5 temas: Hospitalar, Clinica, Elegante, Sobrio, Quente)
+- [x] Aprimoramento 2 - Reordenacao de blocos via drag-and-drop (framer-motion Reorder)
+- [x] Aprimoramento 3 - Preview tipografico ao vivo na secao Tipografia
+- [x] Aprimoramento 4 - Visualizacao proporcional de margens (diagrama A4)
+- [x] Aprimoramento 5 - Editor rich text para cabecalho/rodape (negrito, italico, sublinhado, alinhamento, cor, tamanho, toggle HTML)
+- [x] Aprimoramento 6 - Undo/Redo com useReducer (ate 50 estados, Ctrl+Z / Ctrl+Y)
+- [x] Aprimoramento 7 - Indicador dirty Alteracoes nao salvas + aviso beforeunload
+- [x] Aprimoramento 8 - Export/Import JSON do layout completo (inclui blockOrder)
+- [x] Aprimoramento 9 - Modo comparacao Editado vs Salvo no preview
