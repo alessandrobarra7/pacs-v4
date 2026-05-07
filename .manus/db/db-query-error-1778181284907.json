@@ -1,0 +1,18 @@
+{
+  "query": "DESCRIBE model_layouts; SELECT id, unit_id, created_at, updated_at, LEFT(CAST(preferences AS CHAR), 120) as preferences_preview, LEFT(IFNULL(header_html,''), 60) as header_preview, LEFT(IFNULL(footer_html,''), 60) as footer_preview FROM model_layouts LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute DESCRIBE model_layouts; SELECT id, unit_id, created_at, updated_at, LEFT(CAST(preferences AS CHAR), 120) as preferences_preview, LEFT(IFNULL(header_html,''), 60) as header_preview, LEFT(IFNULL(footer_html,''), 60) as footer_preview FROM model_layouts LIMIT 10;",
+  "returncode": 1,
+  "logs": [
+    "Field\tType\tNull\tKey\tDefault\tExtra",
+    "id\tint\tNO\tPRI\tNULL\tauto_increment",
+    "unit_id\tint\tNO\tUNI\tNULL\t",
+    "header_html\ttext\tYES\t\tNULL\t",
+    "footer_html\ttext\tYES\t\tNULL\t",
+    "preferences\tjson\tYES\t\tNULL\t",
+    "is_active\ttinyint(1)\tNO\t\t1\t",
+    "created_by\tint\tNO\t\tNULL\t",
+    "createdAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t",
+    "updatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\tDEFAULT_GENERATED on update CURRENT_TIMESTAMP",
+    "ERROR 1054 (42S22) at line 1: Unknown column 'created_at' in 'field list'"
+  ]
+}

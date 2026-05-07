@@ -1,0 +1,19 @@
+{
+  "query": "SELECT id, unit_id, is_active, created_by, createdAt, updatedAt, LEFT(CAST(preferences AS CHAR), 200) as preferences_preview FROM model_layouts LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, unit_id, is_active, created_by, createdAt, updatedAt, LEFT(CAST(preferences AS CHAR), 200) as preferences_preview FROM model_layouts LIMIT 10;",
+  "rows": [
+    {
+      "id": "1",
+      "unit_id": "180001",
+      "is_active": "1",
+      "created_by": "1",
+      "createdAt": "2026-05-07 16:36:14",
+      "updatedAt": "2026-05-07 16:36:14",
+      "preferences_preview": "{\"accentBgColor\": \"#f0f4f8\", \"accentBorderColor\": \"#d0d7de\", \"fontFamily\": \"Arial\", \"fontSize\": 11, \"headerBorderColor\": \"#1a365d\", \"headerTextColor\": \"#1a365d\", \"lineHeight\": 1.6, \"logoAlign\": \"left\""
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tunit_id\tis_active\tcreated_by\tcreatedAt\tupdatedAt\tpreferences_preview\n1\t180001\t1\t1\t2026-05-07 16:36:14\t2026-05-07 16:36:14\t{\"accentBgColor\": \"#f0f4f8\", \"accentBorderColor\": \"#d0d7de\", \"fontFamily\": \"Arial\", \"fontSize\": 11, \"headerBorderColor\": \"#1a365d\", \"headerTextColor\": \"#1a365d\", \"lineHeight\": 1.6, \"logoAlign\": \"left\"\n",
+  "stderr": "",
+  "execution_time_ms": 267
+}

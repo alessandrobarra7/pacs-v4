@@ -113,14 +113,6 @@ interface StudyInfo {
   examNames?: string[];
 }
 
-interface DraggableImage {
-  id: string;
-  src: string;
-  label: string;
-  x: number;
-  y: number;
-  width: number;
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatPatientName(name: string) {
@@ -157,7 +149,7 @@ export default function ReportEditorPage() {
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   // Aba ativa da sidebar
-  const [activeTab, setActiveTab] = useState<"exames" | "templates" | "frases" | "inserir">("exames");
+  const [activeTab, setActiveTab] = useState<"exames" | "conteudo" | "imagens">("exames");
 
   // Referência ao documento editável (seção única)
   const docRef = useRef<HTMLDivElement>(null);
@@ -169,11 +161,11 @@ export default function ReportEditorPage() {
   const [examNames, setExamNames] = useState<string[]>([]);
   const [sectionBodies, setSectionBodies] = useState<string[]>([]);
   const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // FIX BUG-1: rastreia qual seção está em foco no modo multi-seção
+  const activeSectionRef = useRef<number>(0);
   const isMultiSection = examNames.length > 1;
 
-  // Imagens arrastáveis sobre o documento
-  const [draggableImages, setDraggableImages] = useState<DraggableImage[]>([]);
-  const dragging = useRef<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
+  // FIX BUG-2: imagens inline no contentEditable (sem overlay arrastável)
 
   // Dados médicos (assinatura, logo, CRM)
   const unitId = studyInfo?.unitId ?? 0;
@@ -282,36 +274,43 @@ export default function ReportEditorPage() {
     }
   }, []);
 
-  // ── Inserir texto no cursor ──────────────────────────────────────────────
+  // FIX BUG-1: usar execCommand('insertText') em vez de range.insertNode()
+  // Garante cursor após o texto inserido (sem ordem reversa) e Undo/Redo nativo.
   const insertAtCursor = useCallback((text: string) => {
-    docRef.current?.focus();
-    const sel = window.getSelection();
-    let range: Range;
+    // Determinar o elemento editor correto para o modo ativo
+    const targetEl = isMultiSection
+      ? sectionRefs.current[activeSectionRef.current]
+      : docRef.current;
+
+    if (!targetEl) return;
+
+    // Restaurar foco e seleção salva antes de inserir
+    targetEl.focus();
+
     if (savedSelection.current) {
-      range = savedSelection.current;
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(savedSelection.current);
+    } else {
+      // Sem seleção salva: posicionar cursor no final do editor
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(targetEl);
+      range.collapse(false);
       sel?.removeAllRanges();
       sel?.addRange(range);
-    } else if (sel && sel.rangeCount > 0) {
-      range = sel.getRangeAt(0);
-    } else {
-      // Inserir no final
-      if (docRef.current) {
-        range = document.createRange();
-        range.selectNodeContents(docRef.current);
-        range.collapse(false);
-        sel?.removeAllRanges();
-        sel?.addRange(range);
-      } else return;
     }
-    range.deleteContents();
-    const textNode = document.createTextNode(text);
-    range.insertNode(textNode);
-    range.setStartAfter(textNode);
-    range.collapse(true);
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-    savedSelection.current = range.cloneRange();
-  }, []);
+
+    // execCommand garante: cursor avança após o texto, Undo/Redo nativo funciona,
+    // nós de texto são normalizados automaticamente pelo browser.
+    document.execCommand('insertText', false, text);
+
+    // Salvar a nova posição do cursor após a inserção
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      savedSelection.current = sel.getRangeAt(0).cloneRange();
+    }
+  }, [isMultiSection]);
 
   // ── Salvar rascunho ──────────────────────────────────────────────────────
   // ── Coletar body (simples ou multi-página) ──────────────────────────────
@@ -465,9 +464,7 @@ export default function ReportEditorPage() {
     const birthDate = studyInfo?.birthDate || '';
     const studyDateFormatted = studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : '';
     const bodyHtml = collectBody();
-    const draggableHtml = draggableImages.map(img =>
-      `<img src="${img.src}" alt="${img.label}" style="position:absolute;left:${img.x}px;top:${img.y}px;width:${img.width}px;" />`
-    ).join('');
+    // FIX BUG-2: imagens agora estão inline no contentEditable, capturadas pelo collectBody()
     const isSignedOrRevised = existingReport?.status === 'signed' || existingReport?.status === 'revised';
     const signedAtFormatted = existingReport?.signedAt
       ? new Date(existingReport.signedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -537,8 +534,6 @@ export default function ReportEditorPage() {
   }
 </style></head><body>
 <div style="position:relative;display:flex;flex-direction:column;min-height:100vh;">
-  ${draggableHtml}
-
   <!-- CABEÇALHO: Box do logo + Dados mínimos do paciente -->
   <div class="header">
     <div class="header-logo">${logoHtml}</div>
@@ -573,48 +568,33 @@ export default function ReportEditorPage() {
 </body></html>`;
     const win = window.open('', '_blank', 'width=850,height=1100');
     if (win) { win.document.write(html); win.document.close(); }
-  }, [medCtx, patientName, studyInfo, examTitle, docRef, draggableImages, existingReport]);
+  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport]);
 
-  // ── Drag de imagens sobre o documento ───────────────────────────────────
-  const handleMouseDown = useCallback((e: React.MouseEvent, id: string) => {
-    e.preventDefault();
-    const img = draggableImages.find(i => i.id === id);
-    if (!img) return;
-    dragging.current = { id, startX: e.clientX, startY: e.clientY, origX: img.x, origY: img.y };
-    const onMove = (ev: MouseEvent) => {
-      if (!dragging.current) return;
-      const dx = ev.clientX - dragging.current.startX;
-      const dy = ev.clientY - dragging.current.startY;
-      setDraggableImages(prev => prev.map(i =>
-        i.id === dragging.current!.id
-          ? { ...i, x: dragging.current!.origX + dx, y: dragging.current!.origY + dy }
-          : i
-      ));
-    };
-    const onUp = () => {
-      dragging.current = null;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [draggableImages]);
+  // FIX BUG-2: inserir imagem inline no contentEditable
+  // A imagem faz parte do documento, é salva no laudo e arrastável pelo browser nativamente.
+  const addInlineImage = useCallback((src: string | null, label: string) => {
+    if (!src) { toast.error('Imagem não disponível.'); return; }
 
-  const addDraggableImage = useCallback((src: string | null, label: string) => {
-    if (!src) { toast.error("Imagem não disponível para inserir."); return; }
-    setDraggableImages(prev => [...prev, {
-      id: `img_${Date.now()}`,
-      src,
-      label,
-      x: 40,
-      y: 40,
-      width: 160,
-    }]);
-  }, []);
+    const targetEl = isMultiSection
+      ? sectionRefs.current[activeSectionRef.current]
+      : docRef.current;
+    if (!targetEl) { toast.error('Clique no texto do laudo antes de inserir.'); return; }
 
-  const removeDraggableImage = useCallback((id: string) => {
-    setDraggableImages(prev => prev.filter(i => i.id !== id));
-  }, []);
+    targetEl.focus();
+    if (savedSelection.current) {
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(savedSelection.current);
+    }
+
+    const html = `<img src="${src}" alt="${label}" title="${label} — arraste para reposicionar" style="max-height:110px;max-width:240px;object-fit:contain;cursor:move;display:inline-block;vertical-align:middle;margin:4px;" draggable="true" />`;
+    document.execCommand('insertHTML', false, html);
+
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      savedSelection.current = sel.getRangeAt(0).cloneRange();
+    }
+  }, [isMultiSection]);
 
   // ── Render ───────────────────────────────────────────────────────────────
   // FIX GAP-2: usar snapshot quando laudo já está assinado, caso contrário usar layout atual da unidade
@@ -739,29 +719,24 @@ export default function ReportEditorPage() {
         <aside className="w-[340px] shrink-0 border-r border-gray-200 bg-gray-50 flex flex-col overflow-hidden print:hidden">
           {/* Abas */}
           <div className="flex border-b border-gray-200 bg-white">
-            {(["exames", "templates", "frases", "inserir"] as const).map((tab) => {
-              const icons = {
-                exames: <Search className="h-3.5 w-3.5" />,
-                templates: <FileText className="h-3.5 w-3.5" />,
-                frases: <MessageSquare className="h-3.5 w-3.5" />,
-                inserir: <Layers className="h-3.5 w-3.5" />,
-              };
-              const labels = { exames: "Exames", templates: "Templates", frases: "Frases", inserir: "Inserir" };
-              return (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
-                    activeTab === tab
-                      ? "text-blue-600 border-b-2 border-blue-600 bg-white"
-                      : "text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  {icons[tab]}
-                  {labels[tab]}
-                </button>
-              );
-            })}
+            {([
+              { id: "exames",   label: "Exame",    icon: <Search className="h-3.5 w-3.5" /> },
+              { id: "conteudo", label: "Conteúdo", icon: <FileText className="h-3.5 w-3.5" /> },
+              { id: "imagens",  label: "Imagens",  icon: <Layers className="h-3.5 w-3.5" /> },
+            ] as const).map(({ id, label, icon }) => (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
+                  activeTab === id
+                    ? "text-blue-600 border-b-2 border-blue-600 bg-white"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {icon}
+                {label}
+              </button>
+            ))}
           </div>
 
           {/* Conteúdo da aba */}
@@ -772,28 +747,24 @@ export default function ReportEditorPage() {
                 currentTitle={examTitle}
               />
             )}
-            {activeTab === "templates" && (
-              <TemplatesTab
+            {activeTab === "conteudo" && (
+              <ConteudoTab
                 onApplyTemplate={(body) => {
                   if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
                 }}
-              />
-            )}
-            {activeTab === "frases" && (
-              <FrasesTab
                 onInsert={insertAtCursor}
                 onFocus={saveSelection}
               />
             )}
-            {activeTab === "inserir" && (
-              <InserirTab
+            {activeTab === "imagens" && (
+              <ImagensTab
                 stampUrl={medCtx?.stampUrl ?? null}
                 doctorName={medCtx?.doctorName ?? ""}
                 crm={medCtx?.crm ?? ""}
                 unitLogoUrl={medCtx?.unitLogoUrl ?? null}
                 unitId={unitId}
                 isAdmin={user?.role === "admin_master" || user?.role === "unit_admin"}
-                onInsertImage={addDraggableImage}
+                onInsertImage={addInlineImage}
               />
             )}
           </div>
@@ -821,28 +792,7 @@ export default function ReportEditorPage() {
             className={isMultiSection ? "relative" : "relative bg-white shadow-md print:shadow-none"}
             style={isMultiSection ? { width: "794px" } : { width: "210mm", minHeight: "297mm" }}
           >
-            {/* Imagens arrastáveis */}
-            {draggableImages.filter(img => img != null && img.id != null).map((img) => (
-              <div
-                key={img.id}
-                style={{ position: "absolute", left: img.x, top: img.y, width: img.width, zIndex: 10, cursor: "grab" }}
-                onMouseDown={(e) => handleMouseDown(e, img.id)}
-              >
-                <div className="relative group">
-                  <img src={img.src} alt={img.label} style={{ width: "100%", display: "block" }} />
-                  <button
-                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity print:hidden"
-                    onClick={() => removeDraggableImage(img.id)}
-                    onMouseDown={(e) => e.stopPropagation()}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                  <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-white text-[8px] text-center py-0.5 opacity-0 group-hover:opacity-100 print:hidden">
-                    <GripVertical className="h-3 w-3 inline" /> {img.label}
-                  </div>
-                </div>
-              </div>
-            ))}
+            {/* FIX BUG-2: imagens agora são inline no contentEditable — overlay removido */}
 
             {/* ═══════════════════════════════════════════════════════════
                  DOCUMENTO LAUDO — Layout WYSIWYG
@@ -907,6 +857,7 @@ export default function ReportEditorPage() {
                           ref={el => { sectionRefs.current[i] = el; }}
                           contentEditable={isEditable}
                           suppressContentEditableWarning
+                          onFocus={() => { activeSectionRef.current = i; }}
                           onMouseUp={isEditable ? saveSelection : undefined}
                           onKeyUp={isEditable ? saveSelection : undefined}
                           data-placeholder={`Digite o laudo de ${name}...`}
@@ -2108,15 +2059,57 @@ function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; on
               </div>
             )}
           </div>
-        );
+         );
       })}
     </div>
   );
 }
+// ─── Aba Conteúdo (Templates + Frases unificados) ────────────────────────────────────────────────────────────────────────────────
+function ConteudoTab({
+  onApplyTemplate,
+  onInsert,
+  onFocus,
+}: {
+  onApplyTemplate: (body: string, examTitle?: string) => void;
+  onInsert: (text: string) => void;
+  onFocus: () => void;
+}) {
+  const [openSection, setOpenSection] = useState<"templates" | "frases">("templates");
 
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex border-b border-gray-100 px-3 py-2 gap-1">
+        <button
+          onClick={() => setOpenSection("templates")}
+          className={`flex-1 text-[11px] py-1.5 rounded-md font-medium transition-colors ${
+            openSection === "templates" ? "bg-blue-50 text-blue-700" : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Templates
+        </button>
+        <button
+          onClick={() => setOpenSection("frases")}
+          className={`flex-1 text-[11px] py-1.5 rounded-md font-medium transition-colors ${
+            openSection === "frases" ? "bg-blue-50 text-blue-700" : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Frases
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {openSection === "templates" && (
+          <TemplatesTab onApplyTemplate={onApplyTemplate} />
+        )}
+        {openSection === "frases" && (
+          <FrasesTab onInsert={onInsert} onFocus={onFocus} />
+        )}
+      </div>
+    </div>
+  );
+}
 
-// ─── Aba Inserir ──────────────────────────────────────────────────────────────
-function InserirTab({
+// ─── Aba Imagens (ex-InserirTab) ────────────────────────────────────────────────────────────────────────────────
+function ImagensTab({
   stampUrl,
   doctorName,
   crm,
