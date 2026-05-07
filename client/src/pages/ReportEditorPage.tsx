@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import DOMPurify from 'dompurify';
+import type { LayoutPreferences, LayoutSnapshot } from '../../../shared/types';
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -371,12 +372,23 @@ export default function ReportEditorPage() {
         await updateReport.mutateAsync({ id: reportId, body });
       }
       // Assinar + registrar evento financeiro atômico no backend
+      // FIX GAP-1: construir snapshot do layout no momento da assinatura
+      // Congela as configurações visuais para que alterações futuras na unidade
+      // não afetem laudos já assinados
+      const layoutSnapshot: LayoutSnapshot | null = unitLayout ? {
+        preferences:  unitLayout.preferences as LayoutPreferences,
+        header_html:  unitLayout.header_html ?? null,
+        footer_html:  unitLayout.footer_html ?? null,
+        capturedAt:   new Date().toISOString(),
+      } : null;
+
       const signResult = await signReport.mutateAsync({
         id: reportId,
         unit_id: studyInfo?.unitId ?? undefined,
         study_instance_uid: studyUid || undefined,
         patient_name: studyInfo?.patientName || undefined,
         study_date: studyInfo?.studyDate || undefined,
+        layout_snapshot: layoutSnapshot,  // FIX GAP-1: snapshot do layout
       });
 
       // Invalidar queries financeiras para atualizar saldo imediatamente
@@ -605,6 +617,16 @@ export default function ReportEditorPage() {
   }, []);
 
   // ── Render ───────────────────────────────────────────────────────────────
+  // FIX GAP-2: usar snapshot quando laudo já está assinado, caso contrário usar layout atual da unidade
+  const layoutSource = (isSigned && existingReport?.layout_snapshot)
+    ? existingReport.layout_snapshot as unknown as LayoutSnapshot
+    : unitLayout ? {
+        preferences:  unitLayout.preferences as LayoutPreferences,
+        header_html:  unitLayout.header_html ?? null,
+        footer_html:  unitLayout.footer_html ?? null,
+      } as LayoutSnapshot
+    : null;
+  const layoutPrefs = layoutSource?.preferences;
   const examDesc = examTitle || studyInfo?.studyDescription || "";
 
   return (
@@ -923,13 +945,19 @@ export default function ReportEditorPage() {
                 })}
               </div>
             ) : (
-              /* MODO PÁGINA ÚNICA: layout original preservado */
+              /* MODO PÁGINA Única: layout original preservado */
               <div style={{
                 width: "794px",
                 minHeight: "1123px",
                 background: "#fff",
-                fontFamily: "'Times New Roman', Times, serif",
-                fontSize: "11pt",
+                // FIX GAP-2: aplicar tipografia e margens do layout da unidade
+                fontFamily: layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "'Times New Roman', Times, serif",
+                fontSize: layoutPrefs?.fontSize ? `${layoutPrefs.fontSize}pt` : "11pt",
+                lineHeight: layoutPrefs?.lineHeight ?? 1.6,
+                paddingTop: layoutPrefs?.marginTop ? `${layoutPrefs.marginTop}mm` : undefined,
+                paddingRight: layoutPrefs?.marginRight ? `${layoutPrefs.marginRight}mm` : undefined,
+                paddingBottom: layoutPrefs?.marginBottom ? `${layoutPrefs.marginBottom}mm` : undefined,
+                paddingLeft: layoutPrefs?.marginLeft ? `${layoutPrefs.marginLeft}mm` : undefined,
                 color: "#111",
                 boxSizing: "border-box",
                 position: "relative",
@@ -937,7 +965,7 @@ export default function ReportEditorPage() {
                 flexDirection: "column",
               }}>
                 {/* ══ CABEÇALHO ══ */}
-                <div style={{ display: "flex", alignItems: "stretch", borderBottom: "2px solid #1a6b8a", minHeight: 90 }}>
+                <div style={{ display: "flex", alignItems: "stretch", borderBottom: `2px solid ${layoutPrefs?.headerBorderColor ?? "#1a6b8a"}`, minHeight: 90 }}>
                   <div style={{ width: 180, minHeight: 90, flexShrink: 0, borderRight: "1.5px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 12px", background: "#fafafa" }}>
                     {medCtx?.unitLogoUrl ? (
                       <img src={medCtx.unitLogoUrl} alt={medCtx.unitName || "Logo"} style={{ maxHeight: 70, maxWidth: 155, objectFit: "contain", display: "block" }} />

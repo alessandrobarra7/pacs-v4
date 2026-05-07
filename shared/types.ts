@@ -29,6 +29,11 @@ export const layoutPreferencesSchema = z.object({
   showHeaderDivider: z.boolean().default(true),
   showPatientTable:  z.boolean().default(true),
   pageSize:          z.enum(["A4", "Letter"]).default("A4"),
+  // FIX GAP-3: blockOrder persistido no banco junto com preferences
+  blockOrder:        z.array(z.enum([
+    "header_unit", "header_custom", "patient_data",
+    "report_body", "signature", "footer_custom",
+  ])).optional(),
 });
 
 export type LayoutPreferences = z.infer<typeof layoutPreferencesSchema>;
@@ -56,6 +61,8 @@ export const DEFAULT_LAYOUT_PREFERENCES: LayoutPreferences = {
   showHeaderDivider: true,
   showPatientTable:  true,
   pageSize:          "A4",
+  // FIX GAP-3: ordem padrão dos blocos
+  blockOrder:        ["header_unit", "header_custom", "patient_data", "report_body", "signature", "footer_custom"],
 };
 
 /**

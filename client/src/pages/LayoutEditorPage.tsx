@@ -316,6 +316,10 @@ export default function LayoutEditorPage() {
     };
     dispatch({ type: "RESET", payload: serverData });
     setSavedData(serverData);
+    // FIX GAP-3: restaurar blockOrder salvo ao abrir o editor
+    if (Array.isArray((layout.preferences as LayoutPreferences)?.blockOrder)) {
+      setBlockOrder((layout.preferences as LayoutPreferences).blockOrder as BlockId[]);
+    }
     setInitialized(true);
   }
 
@@ -364,7 +368,10 @@ export default function LayoutEditorPage() {
       unitId,
       headerHtml: data.header_html,
       footerHtml: data.footer_html,
-      preferences: data.preferences,
+      preferences: {
+        ...data.preferences,
+        blockOrder,  // FIX GAP-3: persistir ordem dos blocos no banco
+      },
     });
   };
 

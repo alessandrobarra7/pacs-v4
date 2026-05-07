@@ -188,6 +188,7 @@ export const reportsRouter = router({
         study_instance_uid: z.string().optional(),
         patient_name: z.string().optional(),
         study_date: z.string().optional(),
+        layout_snapshot: z.any().optional().nullable(),  // FIX GAP-1: snapshot do layout no momento da assinatura
       }))
       .mutation(async ({ input, ctx }) => {
         // Buscar laudo sem filtro de unit_id para suportar médicos multi-unidade
@@ -210,6 +211,7 @@ export const reportsRouter = router({
           status: 'signed',
           signedAt,
           signedBy: ctx.user.id,
+          layout_snapshot: input.layout_snapshot ?? null,  // FIX GAP-1: persistir snapshot do layout
         });
         
         // P2: Usar sempre report.unit_id como fonte de verdade para audit log e evento financeiro
