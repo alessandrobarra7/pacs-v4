@@ -19,10 +19,12 @@ import sanitizeHtml from 'sanitize-html';
 import { REPORT_SANITIZE_OPTIONS } from '../reportSanitize';
 
 const layoutInputSchema = z.object({
-  unitId:      z.number().int().positive(),
-  headerHtml:  z.string().max(5000).optional().nullable(),
-  footerHtml:  z.string().max(5000).optional().nullable(),
-  preferences: layoutPreferencesSchema.optional(),
+  unitId:             z.number().int().positive(),
+  headerHtml:         z.string().max(5000).optional().nullable(),
+  footerHtml:         z.string().max(5000).optional().nullable(),
+  preferences:        layoutPreferencesSchema.optional(),
+  backgroundImageUrl: z.string().optional().nullable(),
+  blockPositions:     z.record(z.string(), z.unknown()).optional().nullable(),
 });
 
 export const layoutsRouter = router({
@@ -81,19 +83,23 @@ export const layoutsRouter = router({
 
       if (isCreate) {
         await db.insert(model_layouts).values({
-          unit_id:     input.unitId,
-          header_html: safeHeaderHtml,
-          footer_html: safeFooterHtml,
-          preferences: input.preferences ?? null,
-          created_by:  ctx.user.id,
+          unit_id:              input.unitId,
+          header_html:          safeHeaderHtml,
+          footer_html:          safeFooterHtml,
+          preferences:          input.preferences ?? null,
+          background_image_url: input.backgroundImageUrl ?? null,
+          block_positions:      input.blockPositions ?? null,
+          created_by:           ctx.user.id,
         });
       } else {
         await db.update(model_layouts)
           .set({
-            header_html: safeHeaderHtml,
-            footer_html: safeFooterHtml,
-            preferences: input.preferences ?? null,
-            updatedAt:   new Date(),
+            header_html:          safeHeaderHtml,
+            footer_html:          safeFooterHtml,
+            preferences:          input.preferences ?? null,
+            background_image_url: input.backgroundImageUrl ?? null,
+            block_positions:      input.blockPositions ?? null,
+            updatedAt:            new Date(),
           })
           .where(eq(model_layouts.unit_id, input.unitId));
       }
