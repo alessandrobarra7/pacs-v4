@@ -473,9 +473,12 @@ export default function ReportEditorPage() {
     const generatedAt = new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     const baseUrl = window.location.origin;
 
-    const logoHtml = medCtx?.unitLogoUrl
-      ? `<img src="${medCtx.unitLogoUrl}" alt="${unitName}" style="max-height:70px;max-width:155px;object-fit:contain;display:block;" />`
-      : `<div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#1a6b8a 0%,#6fb7c5 100%);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20pt;font-weight:700;font-family:Arial,sans-serif;">${(unitName || 'U').charAt(0).toUpperCase()}</div>`;
+    // Logos do layout (até 3) têm prioridade; fallback para logo do médico ou inicial
+    const logoHtml = layoutLogos.length > 0
+      ? layoutLogos.map(l => `<img src="${l.url}" alt="${l.label || 'Logo'}" style="max-height:${l.height}px;max-width:${l.width}px;object-fit:contain;display:inline-block;margin:0 4px;" />`).join('')
+      : medCtx?.unitLogoUrl
+        ? `<img src="${medCtx.unitLogoUrl}" alt="${unitName}" style="max-height:70px;max-width:155px;object-fit:contain;display:block;" />`
+        : `<div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#1a6b8a 0%,#6fb7c5 100%);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20pt;font-weight:700;font-family:Arial,sans-serif;">${(unitName || 'U').charAt(0).toUpperCase()}</div>`;
 
     const doctorFooterHtml = isSignedOrRevised && medCtx?.doctorName ? `
       <div class="doctor-footer">
@@ -548,7 +551,8 @@ export default function ReportEditorPage() {
   <!-- ASSINATURA / CARIMBO -->
   ${doctorFooterHtml}
 
-  <!-- RODÁPÉ INSTITUCIONAL removido a pedido do usuário -->
+  <!-- RODAPÉ INSTITUCIONAL removido a pedido do usuário -->
+  ${layoutFooterUrl ? `<img src="${layoutFooterUrl}" alt="Rodapé" style="width:100%;display:block;margin-top:auto;" />` : ''}
 </div>
 <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
 </body></html>`;
@@ -599,6 +603,9 @@ export default function ReportEditorPage() {
   const layoutBgUrl: string | null = (rawLayout?.["background_image_url"] as string | null) ?? null;
   const layoutBlockPos: Record<string, BlockPos> | null =
     (rawLayout?.["block_positions"] as Record<string, BlockPos> | null) ?? null;
+  const layoutFooterUrl: string | null = (rawLayout?.["footer_image_url"] as string | null) ?? null;
+  const layoutLogos: Array<{ url: string; width: number; height: number; label: string }> =
+    Array.isArray(rawLayout?.["logos"]) ? (rawLayout!["logos"] as Array<{ url: string; width: number; height: number; label: string }>) : [];
   const examDesc = examTitle || studyInfo?.studyDescription || "";
 
   return (
@@ -817,7 +824,13 @@ export default function ReportEditorPage() {
                       {/* Cabeçalho completo por página */}
                       <div style={{ display: "flex", alignItems: "stretch", borderBottom: "2px solid #1a6b8a", minHeight: 90 }}>
                         <div style={{ width: 180, minHeight: 90, flexShrink: 0, borderRight: "1.5px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 12px", background: "#fafafa" }}>
-                          {medCtx?.unitLogoUrl ? (
+                          {layoutLogos.length > 0 ? (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", justifyContent: "center" }}>
+                              {layoutLogos.map((l, i) => (
+                                <img key={i} src={l.url} alt={l.label || "Logo"} style={{ maxHeight: l.height, maxWidth: l.width, objectFit: "contain", display: "inline-block" }} />
+                              ))}
+                            </div>
+                          ) : medCtx?.unitLogoUrl ? (
                             <img src={medCtx.unitLogoUrl} alt={medCtx.unitName || "Logo"} style={{ maxHeight: 70, maxWidth: 155, objectFit: "contain", display: "block" }} />
                           ) : (
                             <div style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg, #1a6b8a 0%, #6fb7c5 100%)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "20pt", fontWeight: 700, fontFamily: "Arial, sans-serif" }}>
@@ -903,7 +916,13 @@ export default function ReportEditorPage() {
                 {/* ══ CABEÇALHO ══ */}
                 <div style={{ display: "flex", alignItems: "stretch", borderBottom: `2px solid ${layoutPrefs?.headerBorderColor ?? "#1a6b8a"}`, minHeight: 90 }}>
                   <div style={{ width: 180, minHeight: 90, flexShrink: 0, borderRight: "1.5px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 12px", background: "#fafafa" }}>
-                    {medCtx?.unitLogoUrl ? (
+                    {layoutLogos.length > 0 ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", justifyContent: "center" }}>
+                        {layoutLogos.map((l, i) => (
+                          <img key={i} src={l.url} alt={l.label || "Logo"} style={{ maxHeight: l.height, maxWidth: l.width, objectFit: "contain", display: "inline-block" }} />
+                        ))}
+                      </div>
+                    ) : medCtx?.unitLogoUrl ? (
                       <img src={medCtx.unitLogoUrl} alt={medCtx.unitName || "Logo"} style={{ maxHeight: 70, maxWidth: 155, objectFit: "contain", display: "block" }} />
                     ) : (
                       <div style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg, #1a6b8a 0%, #6fb7c5 100%)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "20pt", fontWeight: 700, fontFamily: "Arial, sans-serif" }}>
@@ -979,7 +998,11 @@ export default function ReportEditorPage() {
                   </div>
                 )}
 
-                {/* ══ RODÁPÉ INSTITUCIONAL removido a pedido do usuário ══ */}
+                {/* ══ RODAPÉ INSTITUCIONAL removido a pedido do usuário ══ */}
+                {/* ══ RODAPÉ DO LAYOUT DA UNIDADE ══ */}
+                {layoutFooterUrl && (
+                  <img src={layoutFooterUrl} alt="Rodapé" style={{ width: "100%", display: "block", marginTop: "auto" }} />
+                )}
               </div>
             )}
           </div>

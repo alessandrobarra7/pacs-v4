@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE model_layouts ADD COLUMN footer_image_url TEXT NULL AFTER background_image_url; ALTER TABLE model_layouts ADD COLUMN logos JSON NULL AFTER footer_image_url;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute ALTER TABLE model_layouts ADD COLUMN footer_image_url TEXT NULL AFTER background_image_url; ALTER TABLE model_layouts ADD COLUMN logos JSON NULL AFTER footer_image_url;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1176
+}

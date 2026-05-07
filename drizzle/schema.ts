@@ -859,6 +859,10 @@ export const model_layouts = mysqlTable("model_layouts", {
   footer_html: text("footer_html"),
   /** URL da imagem de fundo do laudo (S3) */
   background_image_url: text("background_image_url"),
+  /** URL da imagem de rodapé (S3) */
+  footer_image_url: text("footer_image_url"),
+  /** Até 3 logos com URL e dimensões: [{url, width, height, label}] */
+  logos: json("logos").$type<Array<{url: string; width: number; height: number; label: string}> | null>(),
   /** Posições absolutas dos blocos no canvas (JSON: { logo: {x,y,w,h}, title: {...}, body: {...}, footer: {...} }) */
   block_positions: json("block_positions").$type<Record<string, unknown> | null>(),
   /** Preferências visuais: margens, fontes, cores, logo, assinatura */

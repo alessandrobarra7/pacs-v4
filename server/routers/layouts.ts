@@ -18,12 +18,21 @@ import { canAccessUnit } from '../authorization';
 import sanitizeHtml from 'sanitize-html';
 import { REPORT_SANITIZE_OPTIONS } from '../reportSanitize';
 
+const logoItemSchema = z.object({
+  url:    z.string(),
+  width:  z.number().int().min(20).max(600),
+  height: z.number().int().min(20).max(300),
+  label:  z.string().max(100),
+});
+
 const layoutInputSchema = z.object({
   unitId:             z.number().int().positive(),
   headerHtml:         z.string().max(5000).optional().nullable(),
   footerHtml:         z.string().max(5000).optional().nullable(),
   preferences:        layoutPreferencesSchema.optional(),
   backgroundImageUrl: z.string().optional().nullable(),
+  footerImageUrl:     z.string().optional().nullable(),
+  logos:              z.array(logoItemSchema).max(3).optional().nullable(),
   blockPositions:     z.record(z.string(), z.unknown()).optional().nullable(),
 });
 
@@ -88,6 +97,8 @@ export const layoutsRouter = router({
           footer_html:          safeFooterHtml,
           preferences:          input.preferences ?? null,
           background_image_url: input.backgroundImageUrl ?? null,
+          footer_image_url:     input.footerImageUrl ?? null,
+          logos:                input.logos ?? null,
           block_positions:      input.blockPositions ?? null,
           created_by:           ctx.user.id,
         });
@@ -98,6 +109,8 @@ export const layoutsRouter = router({
             footer_html:          safeFooterHtml,
             preferences:          input.preferences ?? null,
             background_image_url: input.backgroundImageUrl ?? null,
+            footer_image_url:     input.footerImageUrl ?? null,
+            logos:                input.logos ?? null,
             block_positions:      input.blockPositions ?? null,
             updatedAt:            new Date(),
           })
