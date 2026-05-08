@@ -1002,10 +1002,22 @@ export function PacsQueryPage() {
     // OPÇÃO 1: dimensões físicas do papel (mm) — 100vw/100vh != A4 na janela popup
     const paperW = pageSizeQ === 'Letter' ? '216mm' : '210mm';
     const paperH = pageSizeQ === 'Letter' ? '279mm' : '297mm';
-    // FUNDO: base64 + background-image no body (funciona em about:blank ao imprimir)
+    // FUNDO: base64 + background-image no body com dimensões físicas da folha
     const bgBase64Q = lBgUrl ? await fetchToBase64(lBgUrl) : null;
-    // bgLayerQ não é mais usado — fundo via CSS background-image no body
-    const bgLayerQ = '';
+    // FIX: overlay de opacidade via div position:fixed com dimensões em mm
+    const overlayAlphaQ = Math.round((1 - lBgOpacity) * 100) / 100;
+    const bgLayerQ = (bgBase64Q && overlayAlphaQ > 0) ? `
+      <div style="
+        position: fixed;
+        top: 0; left: 0;
+        width: ${paperW}; height: ${paperH};
+        background: rgba(255,255,255,${overlayAlphaQ});
+        z-index: 0;
+        pointer-events: none;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      "></div>
+    ` : '';
     const lLogos: Array<{url:string;width:number;height:number}> = (unitLayout as any)?.logos || [];
     // Logos HTML: até 3 logos lado a lado
     const logosHtml = lLogos.filter((l: any) => l.url).length > 0
@@ -1083,52 +1095,50 @@ export function PacsQueryPage() {
     printWindow.document.write(`<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"><title>Laudo - ${patientName}</title>
 <style>
-  /* P2: número de página via CSS counter nativo */
+  /* FIX full-bleed: margin:0 no @page → body representa a folha INTEIRA */
   @page {
     size: ${pageSizeQ} portrait;
-    margin: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-    @bottom-right {
-      content: "Página " counter(page) " de " counter(pages);
-      font-size: 8pt;
-      color: #888;
-      font-family: Arial, sans-serif;
-    }
+    margin: 0;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body {
+  html {
+    width: ${paperW};
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body {
+    /* FIX: padding simula as margens do layout */
+    padding-top:    ${lMT}mm;
+    padding-right:  ${lMR}mm;
+    padding-bottom: ${lMB}mm;
+    padding-left:   ${lML}mm;
+    min-height: ${paperH};
     font-family: ${fontStackQ};
     font-size: ${lSize}pt;
     color: #111;
     line-height: ${lLine};
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-  }
-  /* FUNDO: background-image no body — Chrome/Edge respeitam ao imprimir com -webkit-print-color-adjust:exact */
-  ${bgBase64Q ? `
-  body {
+    /* FIX: fundo com dimensões físicas exatas da folha */
+    ${bgBase64Q ? `
     background-image: url('${bgBase64Q}');
-    background-size: ${lBgSize};
-    background-position: center center;
-    background-repeat: no-repeat;
+    background-size: ${paperW} ${paperH};
+    background-position: left top;
+    background-repeat: repeat-y;
     background-attachment: fixed;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
+    ` : ''}
   }
-  /* Overlay branco semi-transparente para controlar opacidade do fundo sem afetar o texto */
-  body::after {
-    content: '';
+  /* Número de página via div position:fixed */
+  .page-number-fixed {
     position: fixed;
-    inset: 0;
-    background: rgba(255,255,255,${Math.round((1 - lBgOpacity) * 100) / 100});
-    z-index: 0;
-    pointer-events: none;
+    bottom: ${Math.max(lMB - 8, 4)}mm;
+    right: ${lMR}mm;
+    font-size: 8pt;
+    color: #888;
+    font-family: Arial, sans-serif;
   }
-  ` : ''}
-  /* Todo conteúdo fica acima do overlay */
-  body > * { position: relative; z-index: 1; }
   /* P4: cabeçalho repetível em múltiplas páginas via thead */
   table.print-layout { width: 100%; border-collapse: collapse; }
-  /* células transparentes para o fundo aparecer através */
   table.print-layout td, table.print-layout th { background: transparent !important; }
   thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
@@ -1151,35 +1161,30 @@ export function PacsQueryPage() {
   .report-body > p,
   .report-body > div:not(.exam-section) { margin-bottom: 3pt; }
   .report-body strong, .report-body b { font-weight: 700; }
-  /* P1: seções multi-exame */
   .exam-section { break-inside: avoid-page; margin-bottom: 18px; }
   .section-title {
-    font-size: 11pt;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    text-align: center;
-    padding: 6px 0;
-    border-bottom: 1px solid #e0e0e0;
-    margin-bottom: 10px;
+    font-size: 11pt; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; text-align: center;
+    padding: 6px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 10px;
   }
   .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .doctor-footer { text-align: center; margin: 14mm auto 0; max-width: 240px; page-break-inside: avoid; }
-  .sig-img { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .sig-img   { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
   .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .sig-line { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
-  .sig-name { font-weight: 700; font-size: 10pt; }
-  .sig-role { font-size: 9pt; color: #444; margin-top: 1pt; letter-spacing: 0.03em; }
-  .sig-crm { font-size: 9pt; color: #444; margin-top: 1pt; }
-  .sig-date { font-size: 8pt; color: #666; margin-top: 3pt; }
+  .sig-line  { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
+  .sig-name  { font-weight: 700; font-size: 10pt; }
+  .sig-role  { font-size: 9pt; color: #444; margin-top: 1pt; letter-spacing: 0.03em; }
+  .sig-crm   { font-size: 9pt; color: #444; margin-top: 1pt; }
+  .sig-date  { font-size: 8pt; color: #666; margin-top: 3pt; }
   .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 5px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
   @media print {
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .doctor-footer { page-break-inside: avoid; }
   }
 </style></head><body>
   ${bgLayerQ}
   ${draftWatermarkQ}
+  <div class="page-number-fixed">Página 1</div>
   <!-- P4: estrutura de tabela para cabeçalho repetível em múltiplas páginas -->
   <table class="print-layout">
     <thead>
@@ -1217,7 +1222,14 @@ export function PacsQueryPage() {
     </tbody>
   </table>
   <!-- P5: rodapé via tfoot (compatível com PDF) -->
-<script>setTimeout(() => window.print(), 400);<\/script>
+<script>
+  window.onload = function() {
+    var total = Math.ceil(document.body.scrollHeight / (297 * 96 / 25.4));
+    var el = document.querySelector('.page-number-fixed');
+    if (el) el.textContent = 'Página 1 de ' + (total || 1);
+    setTimeout(function() { window.print(); window.onafterprint = function() { window.close(); }; }, 400);
+  };
+<\/script>
 </body></html>`);
     printWindow.document.close();
   };

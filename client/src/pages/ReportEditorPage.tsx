@@ -610,60 +610,73 @@ export default function ReportEditorPage() {
       <div style="background:#fef3c7;border:1.5px solid #f59e0b;padding:6px 12px;border-radius:4px;margin-bottom:12px;font-size:9pt;color:#92400e;text-align:center;">⚠ LAUDO EM RASCUNHO — Não assinado — Não é um documento válido</div>
     ` : '';
 
-    // FUNDO: base64 + background-image no body (funciona em about:blank ao imprimir)
+    // FUNDO: base64 + background-image no body com dimensões físicas da folha
     const bgBase64 = layoutBgUrl ? await fetchToBase64(layoutBgUrl) : null;
-    // bgLayer não é mais usado — fundo via CSS background-image no body
-    const bgLayer = '';
+    // FIX: overlay de opacidade via div position:fixed com dimensões em mm
+    // body::after não é confiável em print — div com mm é mais preciso
+    const overlayAlpha = Math.round((1 - layoutBgOpacity) * 100) / 100;
+    const bgLayer = (bgBase64 && overlayAlpha > 0) ? `
+      <div style="
+        position: fixed;
+        top: 0; left: 0;
+        width: ${paperW}; height: ${paperH};
+        background: rgba(255,255,255,${overlayAlpha});
+        z-index: 0;
+        pointer-events: none;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      "></div>
+    ` : '';
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
 <style>
-  /* P2: número de página via CSS counter nativo */
+  /* FIX full-bleed: margin:0 no @page → body representa a folha INTEIRA */
+  /* Margens do layout são simuladas via padding no body */
   @page {
     size: ${pageSize} portrait;
-    margin: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-    @bottom-right {
-      content: "Página " counter(page) " de " counter(pages);
-      font-size: 8pt;
-      color: #888;
-      font-family: Arial, sans-serif;
-    }
+    margin: 0;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body {
+  html {
+    width: ${paperW};
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body {
+    /* FIX: padding simula as margens do layout */
+    padding-top:    ${lMT}mm;
+    padding-right:  ${lMR}mm;
+    padding-bottom: ${lMB}mm;
+    padding-left:   ${lML}mm;
+    /* FIX: min-height garante que body preenche ao menos uma folha inteira */
+    min-height: ${paperH};
     font-family: ${fontStack};
     font-size: ${lSize}pt;
     color: #111;
     line-height: ${lLine};
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-  }
-  /* FUNDO: background-image no body — Chrome/Edge respeitam ao imprimir com -webkit-print-color-adjust:exact */
-  ${bgBase64 ? `
-  body {
+    /* FIX: fundo com dimensões físicas exatas da folha */
+    ${bgBase64 ? `
     background-image: url('${bgBase64}');
-    background-size: ${layoutBgSize};
-    background-position: center center;
-    background-repeat: no-repeat;
+    background-size: ${paperW} ${paperH};
+    background-position: left top;
+    background-repeat: repeat-y;
     background-attachment: fixed;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
+    ` : ''}
   }
-  /* Overlay branco semi-transparente para controlar opacidade do fundo sem afetar o texto */
-  body::after {
-    content: '';
+  /* Número de página via div position:fixed (substitui @bottom-right que requer @page margin) */
+  .page-number-fixed {
     position: fixed;
-    inset: 0;
-    background: rgba(255,255,255,${Math.round((1 - layoutBgOpacity) * 100) / 100});
-    z-index: 0;
-    pointer-events: none;
+    bottom: ${Math.max(lMB - 8, 4)}mm;
+    right: ${lMR}mm;
+    font-size: 8pt;
+    color: #888;
+    font-family: Arial, sans-serif;
   }
-  ` : ''}
-  /* Todo conteúdo fica acima do overlay */
-  body > * { position: relative; z-index: 1; }
   /* P4: cabeçalho repetível em múltiplas páginas via thead */
   table.print-layout { width: 100%; border-collapse: collapse; }
-  /* células transparentes para o fundo aparecer através */
   table.print-layout td, table.print-layout th { background: transparent !important; }
   thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
@@ -689,32 +702,29 @@ export default function ReportEditorPage() {
   /* P1: seções multi-exame */
   .exam-section { break-inside: avoid-page; margin-bottom: 18px; }
   .section-title {
-    font-size: 11pt;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    text-align: center;
-    padding: 6px 0;
-    border-bottom: 1px solid #e0e0e0;
-    margin-bottom: 10px;
+    font-size: 11pt; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; text-align: center;
+    padding: 6px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 10px;
   }
   .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .doctor-footer { text-align: center; margin: 14mm auto 0; max-width: 240px; page-break-inside: avoid; }
-  .sig-img { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .sig-img   { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
   .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .sig-line { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
-  .sig-name { font-weight: 700; font-size: 10pt; }
-  .sig-role { font-size: 9pt; color: #444; margin-top: 1pt; letter-spacing: 0.03em; }
-  .sig-crm { font-size: 9pt; color: #444; margin-top: 1pt; }
-  .sig-date { font-size: 8pt; color: #666; margin-top: 3pt; }
+  .sig-line  { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
+  .sig-name  { font-weight: 700; font-size: 10pt; }
+  .sig-role  { font-size: 9pt; color: #444; margin-top: 1pt; letter-spacing: 0.03em; }
+  .sig-crm   { font-size: 9pt; color: #444; margin-top: 1pt; }
+  .sig-date  { font-size: 8pt; color: #666; margin-top: 3pt; }
   .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 5px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
   @media print {
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .doctor-footer { page-break-inside: avoid; }
   }
 </style></head><body>
   ${bgLayer}
   ${draftWatermark}
+  <!-- Número de página via div.page-number-fixed (substitui @bottom-right que precisa de @page margin) -->
+  <div class="page-number-fixed">Página 1</div>
   <!-- P4: estrutura de tabela para cabeçalho repetível em múltiplas páginas -->
   <table class="print-layout">
     <thead>
@@ -743,7 +753,16 @@ export default function ReportEditorPage() {
     </tbody>
   </table>
   <!-- P5: rodapé via tfoot (renderiza em todas as páginas, compatível com PDF) -->
-<script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
+<script>
+  window.onload = function() {
+    // Opção D: contador de páginas via JS antes de imprimir
+    var total = Math.ceil(document.body.scrollHeight / (297 * 96 / 25.4));
+    var el = document.querySelector('.page-number-fixed');
+    if (el) el.textContent = 'Página 1 de ' + (total || 1);
+    window.print();
+    window.onafterprint = function() { window.close(); };
+  };
+<\/script>
 </body></html>`;
     const win = window.open('', '_blank', 'width=850,height=1100');
     if (win) { win.document.write(html); win.document.close(); }
