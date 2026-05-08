@@ -1,0 +1,428 @@
+================================================================================
+  PACS PORTAL v4 — ORIENTAÇÕES DE CORREÇÃO
+  Setor: Visualizador DICOM (segunda auditoria)
+  Arquivo: client/src/pages/DicomViewerPage.tsx
+  Data: 08/05/2026
+  Problemas: 5 (2 médios · 3 baixos)
+================================================================================
+
+
+CONTEXTO
+-------------------------------------------------------------------------------
+As 4 correções da primeira auditoria estão corretas e mantidas:
+  ✓ BUG-1: batch de setStack (300ms) — O(n²) eliminado
+  ✓ BUG-2: vp.render() removido de goToSlice — sem renders duplicados
+  ✓ BUG-3: Cine com requestAnimationFrame — sincronizado com o browser
+  ✓ BUG-4: phase removida das dependências — closures stale eliminados
+  ✓ Cleanup: SSE, batchTimer e cineRAF corretamente limpos no unmount
+
+Os 5 novos problemas são de memory leak, closure stale residual,
+performance e robustez — nenhum quebra o funcionamento imediato,
+mas acumulam efeitos negativos em sessões longas.
+
+
+ORDEM DE EXECUÇÃO RECOMENDADA
+-------------------------------------------------------------------------------
+  1. ToolGroup nunca destruído (memory leak)           (15 min)
+  2. SSE error handler com phase stale                 ( 5 min)
+  3. includes() → Set para O(1)                        (10 min)
+  4. loadSeries sem guard de "já carregado"            ( 5 min)
+  5. WebGL context loss sem tratamento                 (10 min)
+
+
+================================================================================
+PROBLEMA 1 — MÉDIO · DicomViewerPage.tsx
+ToolGroup nunca destruído — memory leak acumula a cada retry/novo estudo
+================================================================================
+
+CAUSA
+  Cada chamada de startStreamingViewer (linha ~384) zera
+  cornerstoneInitRef.current = false, o que faz ensureCornerstoneInit
+  criar novos IDs únicos:
+    const toolGroupId = `PACS_TG_${Date.now()}`
+    const engineId    = `PACS_RE_${Date.now()}`
+    const viewportId  = `PACS_VP_${Date.now()}`
+
+  No cleanup do useEffect de desmontagem:
+    renderingEngineRef.current.destroy()  ← engine destruído corretamente ✓
+    // toolGroupRef.current é sobrescrito  ← ToolGroup NUNCA destruído ✗
+
+  O ToolGroupManager do Cornerstone mantém uma lista global de todos os
+  ToolGroups criados. Sem chamar ToolGroupManager.destroyToolGroup(),
+  cada retry ou novo estudo adiciona um ToolGroup permanente à memória.
+  Em uma sessão de trabalho com 10 estudos: 10 ToolGroups acumulados.
+
+ARQUIVO
+  client/src/pages/DicomViewerPage.tsx
+
+PASSO 1 — Adicionar ref para armazenar o toolGroupId
+
+  LOCALIZAR (linha ~65, onde ficam as refs):
+    const toolGroupRef = useRef<any>(null);
+
+  ADICIONAR logo abaixo:
+    const toolGroupIdRef = useRef<string | null>(null);  // FIX: guardar ID para destruição
+
+PASSO 2 — Salvar o toolGroupId quando for criado
+
+  LOCALIZAR em ensureCornerstoneInit (linha ~183):
+    const toolGroupId = `PACS_TG_${Date.now()}`;
+    const toolGroup = ToolGroupManager.createToolGroup(toolGroupId);
+    toolGroupRef.current = toolGroup;
+
+  ADICIONAR a linha de salvar o ID:
+    const toolGroupId = `PACS_TG_${Date.now()}`;
+    const toolGroup = ToolGroupManager.createToolGroup(toolGroupId);
+    toolGroupRef.current = toolGroup;
+    toolGroupIdRef.current = toolGroupId;  // FIX: guardar ID para poder destruir depois
+
+PASSO 3 — Destruir o ToolGroup no cleanup
+
+  LOCALIZAR o bloco return () => do useEffect de desmontagem (linha ~526):
+    return () => {
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
+      if (renderingEngineRef.current) {
+        try { renderingEngineRef.current.destroy(); } catch (_) {}
+      }
+      if (batchTimerRef.current) { ... }
+      if (cineIntervalRef.current !== null) { ... }
+    };
+
+  ADICIONAR destruição do ToolGroup ANTES de destruir o engine:
+    return () => {
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
+      // FIX: destruir ToolGroup antes do engine — evita memory leak no ToolGroupManager
+      if (toolGroupIdRef.current) {
+        try {
+          csTools.ToolGroupManager.destroyToolGroup(toolGroupIdRef.current);
+        } catch (_) {}
+        toolGroupRef.current = null;
+        toolGroupIdRef.current = null;
+      }
+      if (renderingEngineRef.current) {
+        try { renderingEngineRef.current.destroy(); } catch (_) {}
+        renderingEngineRef.current = null;
+      }
+      if (batchTimerRef.current) {
+        clearTimeout(batchTimerRef.current);
+        batchTimerRef.current = null;
+      }
+      if (cineIntervalRef.current !== null) {
+        cancelAnimationFrame(cineIntervalRef.current);
+        cineIntervalRef.current = null;
+      }
+    };
+
+OBSERVAÇÃO
+  csTools já está importado no topo do arquivo como:
+    import * as csTools from "@cornerstonejs/tools";
+  Portanto csTools.ToolGroupManager.destroyToolGroup() está disponível
+  sem import adicional.
+
+
+================================================================================
+PROBLEMA 2 — MÉDIO · DicomViewerPage.tsx
+SSE error handler usa phase stale em vez de phaseRef.current
+================================================================================
+
+CAUSA
+  O BUG-4 foi corrigido removendo phase das dependências de
+  startStreamingViewer (linha ~517). Mas dentro do handler do evento
+  error do SSE, ainda há uma leitura direta de phase:
+
+    sse.addEventListener("error", (e) => {
+      try { ... } catch {
+        if (phase !== "ready") {   ← phase capturada no closure — pode ser stale
+          setError("...");
+          setPhase("error");
+        }
+      }
+    });
+
+  O listener é registrado uma vez. Se phase mudar de "streaming" para
+  "ready" após o registro, um erro de rede posterior entra no catch e
+  encontra phase === "streaming" (valor stale do closure) em vez de
+  "ready" — a condição passa e o erro é exibido desnecessariamente.
+  Ou o inverso: phase === "ready" no closure quando na prática é outro
+  estado, e o erro é silenciado.
+
+ARQUIVO
+  client/src/pages/DicomViewerPage.tsx
+
+LOCALIZAR (linha ~504):
+  sse.addEventListener("error", (e) => {
+    try {
+      const data = JSON.parse((e as MessageEvent).data || "{}");
+      setError(data.message || "Erro ao carregar imagens do PACS");
+      setPhase("error");
+    } catch {
+      if (phase !== "ready") {       ← aqui
+        setError("Conexão com o servidor interrompida. Tente novamente.");
+        setPhase("error");
+      }
+    }
+    sse.close();
+    sseRef.current = null;
+  });
+
+ANTES
+  if (phase !== "ready") {
+
+DEPOIS
+  // FIX: usar phaseRef.current em vez de phase do closure (que pode ser stale)
+  // phaseRef é sincronizado pelo useEffect na linha 82 e sempre reflete o valor atual
+  if (phaseRef.current !== "ready") {
+
+
+================================================================================
+PROBLEMA 3 — BAIXO · DicomViewerPage.tsx
+addImageToStack.includes() é O(n) — Set garante O(1)
+================================================================================
+
+CAUSA
+  A checagem de duplicatas no addImageToStack usa Array.includes():
+    if (imageIdsRef.current.includes(newId) || pendingIdsRef.current.includes(newId))
+
+  Array.includes() percorre o array do início ao fim — O(n).
+  Para TC com 500 imagens, a última imagem percorre ~500 elementos.
+  Total estimado: 500×250 = ~125.000 comparações de string durante o download.
+  Com um Set o custo é O(1) independente do tamanho.
+
+ARQUIVO
+  client/src/pages/DicomViewerPage.tsx
+
+PASSO 1 — Adicionar a ref do Set
+
+  LOCALIZAR (linha ~107):
+    const imageIdsRef = useRef<string[]>([]);
+    const [imageIds, setImageIds] = useState<string[]>([]);
+
+  ADICIONAR logo abaixo:
+    // FIX: Set para checagem O(1) de duplicatas em addImageToStack
+    const imageIdsSet = useRef<Set<string>>(new Set());
+
+PASSO 2 — Substituir includes() por has()
+
+  LOCALIZAR em addImageToStack (linha ~289):
+    if (imageIdsRef.current.includes(newId) || pendingIdsRef.current.includes(newId)) return;
+
+  SUBSTITUIR por:
+    // FIX: O(1) em vez de O(n) — crítico para TC com 500+ imagens
+    if (imageIdsSet.current.has(newId)) return;
+
+  ADICIONAR logo abaixo (antes de pendingIdsRef.current.push):
+    imageIdsSet.current.add(newId);
+
+PASSO 3 — Limpar o Set junto com o array no reset
+
+  LOCALIZAR em startStreamingViewer (linha ~384, onde os arrays são zerados):
+    imageIdsRef.current = [];
+    setImageIds([]);
+    setImageCount(0);
+
+  ADICIONAR na mesma linha do reset:
+    imageIdsRef.current = [];
+    imageIdsSet.current.clear();   // FIX: limpar Set junto com o array
+    setImageIds([]);
+    setImageCount(0);
+
+PASSO 4 — Limpar o Set no cleanup do useEffect de desmontagem
+  No bloco return () => do useEffect:
+    imageIdsSet.current.clear();
+
+  Opcional mas bom para garantir GC dos strings quando o componente é desmontado.
+
+
+================================================================================
+PROBLEMA 4 — BAIXO · DicomViewerPage.tsx
+loadSeries sem guard — pode disparar múltiplas vezes na mesma sessão
+================================================================================
+
+CAUSA
+  O useEffect que chama loadSeries() dispara toda vez que phase === "ready".
+  Se phase oscilar entre "ready" e outro estado (ex: após erro parcial e
+  retry), loadSeries() é chamado novamente, gerando requests duplicados
+  ao endpoint /api/dicom-series/:studyUid.
+
+  O annotationsLoadedRef tem um guard equivalente, mas loadSeries usa
+  apenas seriesLoaded (useState) que é zerado junto com o componente
+  e não impede chamadas duplicadas dentro da mesma sessão de streaming.
+
+ARQUIVO
+  client/src/pages/DicomViewerPage.tsx
+
+PASSO 1 — Adicionar ref de guard para loadSeries
+
+  LOCALIZAR (linha ~115, onde ficam os states de séries):
+    const [seriesLoaded, setSeriesLoaded] = useState(false);
+
+  ADICIONAR logo abaixo:
+    // FIX: ref de guard para evitar loadSeries duplicado na mesma sessão
+    const seriesLoadedRef = useRef(false);
+
+PASSO 2 — Aplicar o guard no useEffect
+
+  LOCALIZAR (linha ~548):
+    useEffect(() => {
+      if (phase === "ready") {
+        loadSeries();
+      }
+    }, [phase, loadSeries]);
+
+  SUBSTITUIR por:
+    useEffect(() => {
+      // FIX: guard via ref — evita chamar loadSeries múltiplas vezes se phase
+      // voltar para "ready" após um retry na mesma sessão
+      if (phase === "ready" && !seriesLoadedRef.current) {
+        seriesLoadedRef.current = true;
+        loadSeries();
+      }
+    }, [phase, loadSeries]);
+
+PASSO 3 — Resetar o guard ao iniciar novo streaming
+
+  LOCALIZAR em startStreamingViewer (linha ~384, junto aos outros resets):
+    imageIdsRef.current = [];
+    setImageIds([]);
+    setImageCount(0);
+    cornerstoneInitRef.current = false;
+
+  ADICIONAR:
+    seriesLoadedRef.current = false;  // FIX: resetar guard para novo estudo
+
+
+================================================================================
+PROBLEMA 5 — BAIXO · DicomViewerPage.tsx
+Sem tratamento de perda de contexto WebGL — viewer para silenciosamente
+================================================================================
+
+CAUSA
+  O Cornerstone renderiza via WebGL. O contexto WebGL pode ser perdido quando:
+    - A aba fica em background por muito tempo
+    - A GPU fica sem memória (muitos estudos abertos)
+    - O driver de GPU é atualizado em background
+    - O sistema entra em modo de economia de energia
+
+  Quando isso ocorre, o canvas para de renderizar mas o React não sabe
+  que algo falhou — nenhum estado muda, nenhuma mensagem aparece.
+  O médico vê a tela congelada sem saber se é travamento ou hardware.
+  Em estações clínicas que ficam com o viewer aberto por horas, isso
+  é um cenário real.
+
+ARQUIVO
+  client/src/pages/DicomViewerPage.tsx
+
+PASSO 1 — Adicionar listener de webglcontextlost após inicializar o viewer
+
+  LOCALIZAR em ensureCornerstoneInit (linha ~231, após engine.enableElement):
+    const vp = engine.getViewport(viewportId) as any;
+    viewportRef.current = vp;
+
+  ADICIONAR logo abaixo:
+    // FIX: detectar perda de contexto WebGL — comum em abas inativas por muito tempo
+    // ou quando a GPU fica sem memória com múltiplos estudos abertos
+    const canvas = viewerRef.current?.querySelector('canvas');
+    if (canvas) {
+      canvas.addEventListener('webglcontextlost', (e: Event) => {
+        e.preventDefault(); // necessário para permitir restauração posterior
+        console.warn('[DicomViewer] Contexto WebGL perdido');
+        setError('O visualizador perdeu o contexto gráfico. Clique em "Recarregar" para continuar.');
+        setPhase('error');
+      });
+      canvas.addEventListener('webglcontextrestored', () => {
+        // O contexto foi restaurado pelo browser — sugerir reload do viewer
+        console.info('[DicomViewer] Contexto WebGL restaurado');
+        setError('Contexto gráfico restaurado. Clique em "Recarregar" para continuar.');
+      });
+    }
+
+PASSO 2 — Garantir que o botão de retry existe na tela de erro
+
+  LOCALIZAR o JSX que renderiza quando phase === "error":
+  Verificar se já existe um botão "Recarregar" ou "Tentar novamente".
+
+  Se não existir, adicionar no JSX do estado de erro:
+    {phase === 'error' && (
+      <div className="flex flex-col items-center gap-4 p-8">
+        <div className="text-red-600 text-sm text-center">{error}</div>
+        <button
+          onClick={() => {
+            setError(null);
+            setPhase('idle');
+            startStreamingViewer();
+          }}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm
+                     hover:bg-blue-700 transition-colors"
+        >
+          Recarregar visualizador
+        </button>
+      </div>
+    )}
+
+OBSERVAÇÃO
+  O evento webglcontextlost é parte da especificação WebGL e é suportado
+  por todos os browsers modernos. O e.preventDefault() é necessário para
+  sinalizar ao browser que a aplicação vai tentar recuperar o contexto.
+  A recuperação automática completa do Cornerstone requer re-inicialização
+  — por isso a mensagem orienta o médico a clicar em recarregar.
+
+
+================================================================================
+CHECKLIST DE VALIDAÇÃO
+================================================================================
+
+  PROBLEMA 1 — ToolGroup destruído
+  [ ] Abrir 3 estudos diferentes em sequência
+  [ ] Verificar no DevTools Memory que ToolGroups antigos são coletados
+  [ ] Não deve haver entradas acumuladas no ToolGroupManager após fechar viewers
+
+  PROBLEMA 2 — phase stale no SSE
+  [ ] Simular erro de rede após o carregamento completo (phase === "ready")
+  [ ] Se conexão cair, NÃO deve exibir mensagem de erro (fase já era "ready")
+  [ ] Simular erro durante streaming (phase === "streaming")
+  [ ] Deve exibir mensagem de erro normalmente
+
+  PROBLEMA 3 — Set para duplicatas
+  [ ] Abrir TC com 300+ imagens e verificar no React DevTools que o
+      número de chamadas de addImageToStack não causa lag
+  [ ] Nenhuma imagem duplicada no stack (imageIds sem repetição)
+
+  PROBLEMA 4 — Guard do loadSeries
+  [ ] Abrir viewer → séries carregadas uma vez
+  [ ] Simular phase voltando para "ready" → loadSeries NÃO chamado de novo
+  [ ] Abrir segundo estudo (novo studyUid) → séries carregadas normalmente
+
+  PROBLEMA 5 — WebGL context loss
+  [ ] Abrir viewer, minimizar por 30 min, voltar
+  [ ] Se contexto perdido: mensagem clara e botão "Recarregar"
+  [ ] Clicar "Recarregar" → viewer reinicia e carrega o estudo
+
+  GERAL
+  [ ] pnpm tsc --noEmit → zero erros TypeScript
+  [ ] Abrir 5 estudos em sequência → sem degradação de performance
+
+
+================================================================================
+RESUMO DAS ALTERAÇÕES
+================================================================================
+
+  Problema    Linhas alteradas   O que muda
+  ────────    ────────────────   ──────────
+  1           ~8 linhas          toolGroupIdRef + destroyToolGroup no cleanup
+  2           ~1 linha           phase → phaseRef.current no SSE error handler
+  3           ~6 linhas          imageIdsSet ref + has() + clear() no reset
+  4           ~4 linhas          seriesLoadedRef + guard no useEffect
+  5           ~15 linhas         webglcontextlost listener + botão de recarregar
+
+  Estimativa total: ~45 minutos + 15 min de teste
+
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================
