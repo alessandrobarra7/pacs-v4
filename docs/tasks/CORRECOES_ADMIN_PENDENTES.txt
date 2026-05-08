@@ -1,0 +1,284 @@
+================================================================================
+  PACS PORTAL v4 — ORIENTAÇÕES DE CORREÇÃO
+  Setor: Admin & Usuários — Pendências Não Aplicadas
+  Arquivo: server/routers/admin.ts
+  Data: 08/05/2026
+  Status: 1 de 6 bugs documentados aplicado — 5 pendentes
+================================================================================
+
+
+O QUE JÁ FOI APLICADO (não alterar)
+-------------------------------------------------------------------------------
+  ✓ searchAssignableUsers com .limit(input.limit) — linha 158
+  ✓ createUserScoped com audit log CREATE_USER — linha 540
+  ✓ linkExistingUserToUnitGroup com audit log UPDATE_USER — linha 727
+  ✓ getUserPermissions com scope para unit_admin — V13-P5 aplicado
+
+IMPORTANTE: O enum da tabela audit_log JÁ contém todas as actions
+necessárias para as correções abaixo (verificado no schema.ts linha 163):
+  'DELETE_USER', 'ACTIVATE_USER', 'DEACTIVATE_USER' — NENHUMA MIGRATION NECESSÁRIA.
+
+
+ORDEM DE EXECUÇÃO
+-------------------------------------------------------------------------------
+  1. deleteUser         → audit log (10 min) ← URGENTE
+  2. toggleUserActive   → audit log (10 min)
+  3. GROUP_PERMISSIONS  → extrair para módulo ( 5 min)
+  4. username regex     → validação de formato ( 3 min)
+
+
+================================================================================
+CORREÇÃO 1 — URGENTE · server/routers/admin.ts
+deleteUser sem audit log — exclusão permanente sem rastreabilidade
+================================================================================
+
+LOCALIZAR (linha ~162):
+  deleteUser: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== 'admin_master') {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas admin_master pode excluir usuários' });
+      }
+      if (ctx.user.id === input.id) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Não é possível excluir o próprio usuário' });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+      const { users } = await import("../../drizzle/schema");
+      const { eq: eqOp } = await import("drizzle-orm");
+      await db.delete(users).where(eqOp(users.id, input.id));
+      return { success: true };
+    }),
+
+SUBSTITUIR POR:
+  deleteUser: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== 'admin_master') {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas admin_master pode excluir usuários' });
+      }
+      if (ctx.user.id === input.id) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Não é possível excluir o próprio usuário' });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+      const { users } = await import("../../drizzle/schema");
+      const { eq: eqOp } = await import("drizzle-orm");
+
+      // FIX: capturar nome/dados ANTES de deletar — o registro some após o DELETE
+      const [targetUser] = await db
+        .select({ id: users.id, name: users.name, username: users.username, role: users.role })
+        .from(users)
+        .where(eqOp(users.id, input.id))
+        .limit(1);
+
+      if (!targetUser) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
+      }
+
+      // FIX: gravar audit log ANTES de deletar — garante rastreabilidade
+      // mesmo que a deleção falhe parcialmente (transação incompleta)
+      await createAuditLog({
+        user_id: ctx.user.id,
+        unit_id: ctx.user.unit_id ?? undefined,
+        action: 'DELETE_USER',
+        target_type: 'USER',
+        target_id: String(input.id),
+        ip_address: ctx.req.ip,
+        user_agent: ctx.req.headers['user-agent'],
+      });
+
+      await db.delete(users).where(eqOp(users.id, input.id));
+      return { success: true };
+    }),
+
+NOTAS IMPORTANTES:
+  1. O audit log deve ser gravado ANTES do delete para garantir que
+     o registro exista mesmo se houver falha na deleção.
+  2. A action 'DELETE_USER' já existe no enum do audit_log (schema.ts linha 163).
+     Nenhuma migration de banco é necessária.
+  3. O createAuditLog já está importado no topo do arquivo (linha 7).
+
+
+================================================================================
+CORREÇÃO 2 · server/routers/admin.ts
+toggleUserActive sem audit log
+================================================================================
+
+LOCALIZAR (linha ~254):
+  toggleUserActive: protectedProcedure
+    .input(z.object({ id: z.number(), isActive: z.boolean() }))
+    .mutation(async ({ input, ctx }) => {
+      ...
+      // (verificações de role e escopo — MANTER como estão)
+      ...
+      await db.update(users).set({ isActive: input.isActive }).where(eqOp(users.id, input.id));
+      return { success: true };
+    }),
+
+LOCALIZAR a última linha do mutation (onde está "return { success: true }"):
+  await db.update(users).set({ isActive: input.isActive }).where(eqOp(users.id, input.id));
+  return { success: true };
+
+SUBSTITUIR APENAS ESSAS 2 LINHAS FINAIS POR:
+  await db.update(users).set({ isActive: input.isActive }).where(eqOp(users.id, input.id));
+
+  // FIX: registrar ativação/desativação no audit log
+  // Ativar ou desativar acesso é operação de segurança que deve ser rastreada
+  await createAuditLog({
+    user_id: ctx.user.id,
+    unit_id: ctx.user.unit_id ?? undefined,
+    action: input.isActive ? 'ACTIVATE_USER' : 'DEACTIVATE_USER',
+    target_type: 'USER',
+    target_id: String(input.id),
+    ip_address: ctx.req.ip,
+    user_agent: ctx.req.headers['user-agent'],
+  });
+
+  return { success: true };
+
+NOTA:
+  As actions 'ACTIVATE_USER' e 'DEACTIVATE_USER' já existem no enum
+  do audit_log (schema.ts linha 163). Nenhuma migration necessária.
+
+
+================================================================================
+CORREÇÃO 3 · server/routers/admin.ts
+GROUP_PERMISSIONS duplicado em dois procedures
+================================================================================
+
+O objeto GROUP_PERMISSIONS está definido identicamente em:
+  - Procedure createUserScoped     (linha ~661)
+  - Procedure linkExistingUserToUnitGroup (linha ~713)
+
+Qualquer mudança de permissão precisa ser feita nos dois lugares.
+Uma alteração em apenas um cria inconsistência silenciosa.
+
+PASSO 1 — Adicionar o objeto no TOPO DO ARQUIVO, após os imports
+
+  LOCALIZAR a última linha de import (linha ~10):
+    import { createAuditLog, getDb, resolveEffectiveUnitId, ... } from '../db';
+
+  ADICIONAR logo após os imports:
+
+    // FIX: GROUP_PERMISSIONS definido uma única vez — evita inconsistência
+    // entre createUserScoped e linkExistingUserToUnitGroup
+    const GROUP_PERMISSIONS: Record<string, {
+      view_studies: boolean; edit_reports: boolean; view_anamnesis: boolean;
+      edit_anamnesis: boolean; edit_exam_legend: boolean; print_reports: boolean;
+      manage_templates: boolean;
+    }> = {
+      medicos:                 { view_studies: true,  edit_reports: true,  view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: true,  manage_templates: true },
+      operadores:              { view_studies: true,  edit_reports: false, view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: false, manage_templates: false },
+      visualizadores:          { view_studies: true,  edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true,  manage_templates: false },
+      responsaveisFinanceiros: { view_studies: false, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: false, manage_templates: false },
+      administradoresUnidade:  { view_studies: true,  edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true,  manage_templates: false },
+      adminsMaster:            { view_studies: true,  edit_reports: true,  view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: true,  manage_templates: true },
+    };
+
+PASSO 2 — Remover a declaração local em createUserScoped (linha ~661)
+
+  LOCALIZAR dentro do procedure createUserScoped:
+    const GROUP_PERMISSIONS: Record<string, { ... }> = {
+      medicos: { ... },
+      ...
+    };
+    const perms = GROUP_PERMISSIONS[input.groupKey];
+
+  REMOVER apenas o bloco const GROUP_PERMISSIONS = { ... };
+  MANTER a linha: const perms = GROUP_PERMISSIONS[input.groupKey];
+  (agora usa a constante do módulo declarada no topo)
+
+PASSO 3 — Remover a declaração local em linkExistingUserToUnitGroup (linha ~713)
+
+  MESMO PROCEDIMENTO: remover o bloco const GROUP_PERMISSIONS = { ... };
+  MANTER a linha: const perms = GROUP_PERMISSIONS[input.groupKey];
+
+VERIFICAÇÃO:
+  Após a remoção, buscar:
+    grep -n "GROUP_PERMISSIONS" server/routers/admin.ts
+  Resultado esperado:
+    ~10: const GROUP_PERMISSIONS = { ... }  ← apenas esta (no topo)
+    ~668: const perms = GROUP_PERMISSIONS[...]  ← referência em createUserScoped
+    ~721: const perms = GROUP_PERMISSIONS[...]  ← referência em linkExistingUserToUnitGroup
+
+
+================================================================================
+CORREÇÃO 4 · server/routers/admin.ts
+username sem validação de formato em createUserScoped
+================================================================================
+
+LOCALIZAR no input de createUserScoped (~linha 620):
+  username: z.string().min(3).max(64),
+
+ANTES
+  username: z.string().min(3).max(64),
+
+DEPOIS
+  username: z.string()
+    .min(3, { message: 'Username deve ter ao menos 3 caracteres' })
+    .max(64, { message: 'Username deve ter no máximo 64 caracteres' })
+    .regex(/^[a-zA-Z0-9_-]+$/, {
+      message: 'Username deve conter apenas letras, números, underscore (_) ou hífen (-)'
+    }),
+
+ATUALIZAR NO FRONTEND:
+  Buscar o campo username no formulário de criação de usuário
+  (UserFormDialog.tsx ou similar) e adicionar a mesma validação
+  no schema Zod do formulário. Exibir mensagem de erro inline no campo.
+
+
+================================================================================
+CHECKLIST DE VALIDAÇÃO
+================================================================================
+
+  CORREÇÃO 1 — deleteUser com audit log
+  [ ] Deletar um usuário como admin_master
+  [ ] Verificar na tela de audit log que existe entrada DELETE_USER
+      com o user_id do admin que executou a ação
+  [ ] Tentar deletar usuário inexistente → deve retornar NOT_FOUND
+  [ ] Tentar deletar o próprio usuário → deve retornar BAD_REQUEST
+
+  CORREÇÃO 2 — toggleUserActive com audit log
+  [ ] Desativar um usuário → verificar DEACTIVATE_USER no audit log
+  [ ] Reativar um usuário → verificar ACTIVATE_USER no audit log
+  [ ] Ambas as entries devem conter o target_id do usuário afetado
+
+  CORREÇÃO 3 — GROUP_PERMISSIONS único
+  [ ] Criar usuário como médico → permissões: edit_reports=true ✓
+  [ ] Vincular usuário existente como médico → mesmas permissões ✓
+  [ ] Alterar uma permissão no GROUP_PERMISSIONS do topo →
+      deve refletir nos dois flows (criar e vincular)
+  [ ] grep -n "GROUP_PERMISSIONS" admin.ts → apenas 1 declaração, 2 referências
+
+  CORREÇÃO 4 — username regex
+  [ ] Tentar criar usuário com username "João Silva" (com espaço) → erro Zod
+  [ ] Tentar criar usuário com username "admin@unit" (com @)     → erro Zod
+  [ ] Criar usuário com username "joao_silva"                    → sucesso
+  [ ] Criar usuário com username "dr-carlos123"                  → sucesso
+
+  GERAL
+  [ ] pnpm tsc --noEmit → zero erros TypeScript
+  [ ] pnpm test         → todos os testes passando
+
+
+================================================================================
+RESUMO
+================================================================================
+
+  Correção   Linhas alteradas   Action enum   Migration
+  ────────   ────────────────   ───────────   ─────────
+  1          +15 linhas         DELETE_USER   ✗ não precisa
+  2          +8 linhas          ACTIVATE/     ✗ não precisa
+                                DEACTIVATE
+  3          -50 linhas         —             ✗ não precisa
+             (remoção das 2
+             declarações locais)
+  4          +5 linhas          —             ✗ não precisa
+
+  Estimativa: ~28 minutos de trabalho + 10 min de teste
+
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================

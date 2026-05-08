@@ -8,6 +8,7 @@ Este diretório contém documentos de análise e orientações de correção a s
 |---|---|---|---|---|
 | [CORRECOES_SETOR_AUTH_RBAC.txt](./CORRECOES_SETOR_AUTH_RBAC.txt) | Autenticação & RBAC | 7 (2 médios · 5 baixos) | ~65 min | ⏳ Pendente |
 | [CORRECOES_VIEWER_DICOM_V2.txt](./CORRECOES_VIEWER_DICOM_V2.txt) | Visualizador DICOM (2ª auditoria) | 5 (2 médios · 3 baixos) | ~45 min | ⏳ Pendente |
+| [CORRECOES_ADMIN_PENDENTES.txt](./CORRECOES_ADMIN_PENDENTES.txt) | Admin & Usuários | 4 correções (1 urgente) | ~28 min | ⏳ Pendente |
 
 ---
 
@@ -36,3 +37,14 @@ Este diretório contém documentos de análise e orientações de correção a s
 - [ ] **P3** — `DicomViewerPage.tsx` → `imageIdsSet` (Set) para checagem O(1) de duplicatas em vez de `includes()` O(n) *(10 min)*
 - [ ] **P4** — `DicomViewerPage.tsx` → `seriesLoadedRef` guard no `useEffect` de `loadSeries` *(5 min)*
 - [ ] **P5** — `DicomViewerPage.tsx` → Listener `webglcontextlost` + botão "Recarregar visualizador" *(10 min)*
+
+---
+
+## CORRECOES_ADMIN_PENDENTES.txt
+
+**Ordem de execução recomendada:**
+
+- [ ] **C1 — URGENTE** — `server/routers/admin.ts` → `deleteUser`: capturar dados antes do DELETE + audit log `DELETE_USER` *(10 min)*
+- [ ] **C2** — `server/routers/admin.ts` → `toggleUserActive`: audit log `ACTIVATE_USER` / `DEACTIVATE_USER` *(10 min)*
+- [ ] **C3** — `server/routers/admin.ts` → `GROUP_PERMISSIONS`: extrair para constante única no topo do arquivo *(5 min)*
+- [ ] **C4** — `server/routers/admin.ts` → `createUserScoped`: validação de formato do `username` com regex *(3 min)*
