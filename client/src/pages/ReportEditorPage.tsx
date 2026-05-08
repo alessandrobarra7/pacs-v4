@@ -514,6 +514,8 @@ export default function ReportEditorPage() {
   const rawLayout = unitLayout as Record<string, unknown> | null | undefined;
   const toAbsUrl = (u: string | null | undefined) => u && u.startsWith('/') ? `${window.location.origin}${u}` : (u || null);
   const layoutBgUrl: string | null = toAbsUrl((rawLayout?.["background_image_url"] as string | null) ?? null);
+  const layoutBgOpacity: number = parseFloat((rawLayout?.["background_opacity"] as string | null) ?? '1.0');
+  const layoutBgSize: string = (rawLayout?.["background_size"] as string | null) ?? 'cover';
   const layoutBlockPos: Record<string, BlockPos> | null =
     (rawLayout?.["block_positions"] as Record<string, BlockPos> | null) ?? null;
   const layoutFooterUrl: string | null = toAbsUrl((rawLayout?.["footer_image_url"] as string | null) ?? null);
@@ -607,7 +609,7 @@ export default function ReportEditorPage() {
 
     // P1: background via div position:fixed z-index:-1 (atrás do conteúdo)
     const bgBase64 = layoutBgUrl ? await fetchToBase64(layoutBgUrl) : null;
-    const bgLayer = bgBase64 ? `<div style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:-1;pointer-events:none;-webkit-print-color-adjust:exact;print-color-adjust:exact;"><img src="${bgBase64}" style="width:100%;height:100%;object-fit:cover;display:block;" /></div>` : '';
+    const bgLayer = bgBase64 ? `<div style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:-1;pointer-events:none;-webkit-print-color-adjust:exact;print-color-adjust:exact;opacity:${layoutBgOpacity};"><img src="${bgBase64}" style="width:100%;height:100%;object-fit:${layoutBgSize};display:block;" /></div>` : '';
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>

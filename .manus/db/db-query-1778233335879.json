@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `model_layouts`\n  ADD COLUMN `background_opacity` DECIMAL(3,2) NOT NULL DEFAULT 1.00,\n  ADD COLUMN `background_size` VARCHAR(30) NOT NULL DEFAULT 'cover';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute ALTER TABLE `model_layouts`\n  ADD COLUMN `background_opacity` DECIMAL(3,2) NOT NULL DEFAULT 1.00,\n  ADD COLUMN `background_size` VARCHAR(30) NOT NULL DEFAULT 'cover';",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 629
+}

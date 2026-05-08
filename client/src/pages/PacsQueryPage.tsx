@@ -996,10 +996,12 @@ export function PacsQueryPage() {
     const lMR = lPrefs.marginRight ?? 20;
     const lBorderColor = lPrefs.headerBorderColor || '#d0d0d0';
     const lBgUrl = toAbsUrl((unitLayout as any)?.background_image_url || '');
+    const lBgOpacity = parseFloat((unitLayout as any)?.background_opacity ?? '1.0');
+    const lBgSize = (unitLayout as any)?.background_size ?? 'cover';
     const pageSizeQ = lPrefs.pageSize ?? 'A4';
     // P1: background via div position:fixed z-index:-1 (atrás do conteúdo)
     const bgBase64Q = lBgUrl ? await fetchToBase64(lBgUrl) : null;
-    const bgLayerQ = bgBase64Q ? `<div style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:-1;pointer-events:none;-webkit-print-color-adjust:exact;print-color-adjust:exact;"><img src="${bgBase64Q}" style="width:100%;height:100%;object-fit:cover;display:block;" /></div>` : '';
+    const bgLayerQ = bgBase64Q ? `<div style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:-1;pointer-events:none;-webkit-print-color-adjust:exact;print-color-adjust:exact;opacity:${lBgOpacity};"><img src="${bgBase64Q}" style="width:100%;height:100%;object-fit:${lBgSize};display:block;" /></div>` : '';
     const lLogos: Array<{url:string;width:number;height:number}> = (unitLayout as any)?.logos || [];
     // Logos HTML: até 3 logos lado a lado
     const logosHtml = lLogos.filter((l: any) => l.url).length > 0

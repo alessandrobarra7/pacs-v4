@@ -81,6 +81,8 @@ export default function LayoutEditorPage() {
   const [bgUrl, setBgUrl] = useState<string | null>(null);
   const [bgPreview, setBgPreview] = useState<string | null>(null);
   const [bgFile, setBgFile] = useState<File | null>(null);
+  const [bgOpacity, setBgOpacity] = useState<number>(1.0);
+  const [bgSizeOption, setBgSizeOption] = useState<string>('cover');
 
   // Imagem de rodapé
   const [footerUrl, setFooterUrl] = useState<string | null>(null);
@@ -121,6 +123,12 @@ export default function LayoutEditorPage() {
     if (layoutData.background_image_url) {
       setBgUrl(layoutData.background_image_url);
       setBgPreview(layoutData.background_image_url);
+    }
+    if ((layoutData as { background_opacity?: string | null }).background_opacity != null) {
+      setBgOpacity(Number((layoutData as { background_opacity?: string | null }).background_opacity));
+    }
+    if ((layoutData as { background_size?: string | null }).background_size) {
+      setBgSizeOption((layoutData as { background_size?: string | null }).background_size!);
     }
     if ((layoutData as { footer_image_url?: string | null }).footer_image_url) {
       const fu = (layoutData as { footer_image_url?: string | null }).footer_image_url!;
@@ -343,6 +351,8 @@ export default function LayoutEditorPage() {
       await upsertLayout.mutateAsync({
         unitId,
         backgroundImageUrl: finalBgUrl ?? undefined,
+        backgroundOpacity:  bgOpacity,
+        backgroundSize:     bgSizeOption as 'cover' | 'contain' | '100% 100%' | '210mm 297mm',
         footerImageUrl:     finalFooterUrl ?? undefined,
         logos:              finalLogos.length > 0 ? finalLogos : undefined,
         blockPositions:     positions as unknown as Record<string, unknown>,
@@ -495,6 +505,42 @@ export default function LayoutEditorPage() {
               </label>
             )}
             <p className="text-xs text-gray-400 mt-2">Timbre ou papel timbrado da clínica. Aparece atrás de todo o conteúdo.</p>
+
+            {/* Slider de opacidade */}
+            <div className="mt-3 space-y-1">
+              <label className="text-xs font-medium text-gray-600">
+                Opacidade: <span className="text-blue-600 font-semibold">{Math.round(bgOpacity * 100)}%</span>
+              </label>
+              <input
+                type="range"
+                min={0.05}
+                max={1.0}
+                step={0.05}
+                value={bgOpacity}
+                onChange={e => { setBgOpacity(parseFloat(e.target.value)); setIsDirty(true); }}
+                className="w-full h-1.5 accent-blue-600"
+              />
+              <div className="flex justify-between text-[10px] text-gray-400">
+                <span>5% (quase invisível)</span>
+                <span>50% (marca d'água)</span>
+                <span>100% (sólido)</span>
+              </div>
+            </div>
+
+            {/* Seletor de modo de escala */}
+            <div className="mt-3 space-y-1">
+              <label className="text-xs font-medium text-gray-600">Modo de escala</label>
+              <select
+                value={bgSizeOption}
+                onChange={e => { setBgSizeOption(e.target.value); setIsDirty(true); }}
+                className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              >
+                <option value="cover">Preencher página (cover) — recomendado para A4</option>
+                <option value="contain">Mostrar imagem completa (contain) — sem corte</option>
+                <option value="100% 100%">Esticar para A4 — posicionamento exato</option>
+                <option value="210mm 297mm">Tamanho fixo A4 — mais preciso</option>
+              </select>
+            </div>
           </section>
 
           <hr className="border-gray-100" />

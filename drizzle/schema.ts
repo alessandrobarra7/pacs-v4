@@ -859,6 +859,10 @@ export const model_layouts = mysqlTable("model_layouts", {
   footer_html: text("footer_html"),
   /** URL da imagem de fundo do laudo (S3) */
   background_image_url: text("background_image_url"),
+  /** Opacidade do fundo: 0.05 a 1.00 */
+  background_opacity: decimal("background_opacity", { precision: 3, scale: 2 }).default('1.00'),
+  /** CSS background-size: cover | contain | 100% 100% | 210mm 297mm */
+  background_size: varchar("background_size", { length: 30 }).default('cover'),
   /** URL da imagem de rodapé (S3) */
   footer_image_url: text("footer_image_url"),
   /** Até 3 logos com URL e dimensões: [{url, width, height, label}] */
