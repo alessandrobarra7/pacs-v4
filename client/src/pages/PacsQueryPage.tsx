@@ -1021,35 +1021,69 @@ export function PacsQueryPage() {
       </div>
     `;
 
-    const printWindow = window.open('', '_blank', 'width=850,height=1000');
+    const printWindow = window.open('', '_blank', 'width=850,height=1100');
     if (!printWindow) { toast.error('Bloqueador de pop-up ativo. Permita pop-ups para imprimir.'); return; }
     printWindow.document.write(`<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"><title>Laudo - ${patientName}</title>
 <style>
-  @page { size: A4 portrait; margin: 20mm 18mm 20mm 18mm; }
+  @page {
+    size: A4 portrait;
+    margin: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
+    ${lBgUrl ? `background: url('${lBgUrl}') center/cover no-repeat;` : ''}
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: '${lFont}', Arial, sans-serif; font-size: ${lSize}pt; color: #111; background: #fff; line-height: ${lLine}; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .header { display: flex; align-items: center; gap: 18px; padding-bottom: 10px; border-bottom: 2px solid ${lBorderColor}; margin-bottom: 14px; }
-  .header-logo { flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  html, body {
+    font-family: '${lFont}', Arial, sans-serif;
+    font-size: ${lSize}pt;
+    color: #111;
+    background: #fff;
+    line-height: ${lLine};
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* CABEÇALHO */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-bottom: 8pt;
+    border-bottom: 2px solid ${lBorderColor};
+    margin-bottom: 12pt;
+  }
+  .header-logo { flex-shrink: 0; }
   .header-title { flex: 1; text-align: center; }
-  .header-title .clinic-name { font-size: 13pt; font-weight: 700; text-transform: uppercase; color: #111; letter-spacing: 0.04em; }
-  .header-title .clinic-sub { font-size: 10pt; color: #333; margin-top: 2px; }
-  .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.06em; color: #111; margin: 10px 0 14px 0; }
-  .report-body { font-size: ${lSize}pt; line-height: ${lLine}; color: #111; }
-  .report-body p { margin: 0 0 4px 0; }
-  .report-body div { margin: 0 0 4px 0; }
-  .report-body h1, .report-body h2, .report-body h3 { font-size: ${lSize}pt; font-weight: 700; margin: 8px 0 2px 0; text-transform: uppercase; }
-  .doctor-footer { text-align: center; margin: 16mm auto 6mm; max-width: 260px; break-inside: avoid; }
-  .sig-img { max-height: 50px; max-width: 180px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .stamp-img { max-height: 100px; max-width: 220px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .sig-line { border-top: 1px solid #333; width: 180px; margin: 0 auto 3mm; }
-  .sig-name { font-weight: 700; font-size: 10pt; color: #111; }
-  .sig-crm { font-size: 9pt; color: #333; margin-top: 1px; }
-  .sig-date { font-size: 8.5pt; color: #444; margin-top: 4px; }
-  .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 6px; border-radius: 3px; font-weight: 700; margin-left: 6px; vertical-align: middle; }
-  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .doctor-footer { break-inside: avoid; } }
+  .clinic-name { font-size: 14pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+  .clinic-sub { font-size: 10pt; color: #444; margin-top: 2pt; }
+  /* DADOS DO PACIENTE */
+  .patient-data { font-size: 10pt; line-height: 1.7; margin-bottom: 12pt; }
+  /* TÍTULO DO EXAME */
+  .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
+  /* CORPO DO LAUDO */
+  .report-body { font-size: ${lSize}pt; line-height: ${lLine}; }
+  .report-body > p,
+  .report-body > div:not(.section-block) { margin-bottom: 3pt; }
+  .report-body strong, .report-body b { font-weight: 700; }
+  .section-block { margin-bottom: 10pt; }
+  .section-title { font-weight: 700; font-size: ${lSize}pt; text-transform: uppercase; margin-bottom: 3pt; }
+  /* ASSINATURA */
+  .doctor-footer { text-align: center; margin: 14mm auto 0; max-width: 240px; page-break-inside: avoid; }
+  .sig-img { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .sig-line { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
+  .sig-name { font-weight: 700; font-size: 10pt; }
+  .sig-role { font-size: 9pt; color: #444; margin-top: 1pt; letter-spacing: 0.03em; }
+  .sig-crm { font-size: 9pt; color: #444; margin-top: 1pt; }
+  .sig-date { font-size: 8pt; color: #666; margin-top: 3pt; }
+  .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 5px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
+  /* RODAPÉ IMAGEM */
+  .footer-img-wrap { position: running(footer); text-align: center; }
+  @page { @bottom-center { content: element(footer); } }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .doctor-footer { page-break-inside: avoid; }
+  }
 </style></head><body>
-<div style="position:relative;min-height:100%;${lBgUrl ? `background:url('${lBgUrl}') center/cover no-repeat #fff;` : ''}">
+  <!-- CABEÇALHO -->
   <div class="header">
     <div class="header-logo">${logoHtml}</div>
     <div class="header-title">
@@ -1057,20 +1091,25 @@ export function PacsQueryPage() {
       <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
     </div>
   </div>
-  ${patientDataHtml}
+  <!-- DADOS DO PACIENTE -->
+  <div class="patient-data">${patientDataHtml}</div>
+  <!-- TÍTULO DO EXAME -->
   ${reportTitle ? `<div class="exam-title">${reportTitle}</div>` : ''}
+  <!-- CORPO DO LAUDO -->
   <div class="report-body">${bodyHtml}</div>
+  <!-- ASSINATURA -->
   ${isSignedOrRevised && doctorName ? `
   <div class="doctor-footer">
     ${doctorStampUrl ? `<img src="${doctorStampUrl}" alt="Carimbo" class="stamp-img" />` : ''}
     ${doctorSignatureUrl ? `<img src="${doctorSignatureUrl}" alt="Assinatura" class="sig-img" />` : ''}
     <div class="sig-line"></div>
     <div class="sig-name">${doctorName}${reportStatus === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
+    <div class="sig-role">MÉDICO RADIOLOGISTA</div>
     ${doctorCrm ? `<div class="sig-crm">CRM: ${doctorCrm}</div>` : ''}
     ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
   </div>` : ''}
-  ${lFooterUrl ? `<div style="position:fixed;bottom:0;left:0;right:0;"><img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;" /></div>` : ''}
-</div>
+  <!-- RODAPÉ IMAGEM -->
+  ${lFooterUrl ? `<div style="margin-top:auto;padding-top:10mm;"><img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;" /></div>` : ''}
 <script>setTimeout(() => window.print(), 400);<\/script>
 </body></html>`);
     printWindow.document.close();
