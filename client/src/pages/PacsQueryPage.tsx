@@ -999,9 +999,12 @@ export function PacsQueryPage() {
     const lBgOpacity = parseFloat((unitLayout as any)?.background_opacity ?? '1.0');
     const lBgSize = (unitLayout as any)?.background_size ?? 'cover';
     const pageSizeQ = lPrefs.pageSize ?? 'A4';
-    // P1: background via div position:fixed z-index:-1 (atrás do conteúdo)
+    // OPÇÃO 1: dimensões físicas do papel (mm) — 100vw/100vh != A4 na janela popup
+    const paperW = pageSizeQ === 'Letter' ? '216mm' : '210mm';
+    const paperH = pageSizeQ === 'Letter' ? '279mm' : '297mm';
+    // OPÇÃO 1+3: background com dimensões físicas em mm + html background-image
     const bgBase64Q = lBgUrl ? await fetchToBase64(lBgUrl) : null;
-    const bgLayerQ = bgBase64Q ? `<div style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:-1;pointer-events:none;-webkit-print-color-adjust:exact;print-color-adjust:exact;opacity:${lBgOpacity};"><img src="${bgBase64Q}" style="width:100%;height:100%;object-fit:${lBgSize};display:block;" /></div>` : '';
+    const bgLayerQ = bgBase64Q ? `<div style="position:fixed;top:0;left:0;width:${paperW};height:${paperH};z-index:-1;pointer-events:none;opacity:${lBgOpacity};-webkit-print-color-adjust:exact;print-color-adjust:exact;"><img src="${bgBase64Q}" style="width:100%;height:100%;object-fit:${lBgSize};display:block;" /></div>` : '';
     const lLogos: Array<{url:string;width:number;height:number}> = (unitLayout as any)?.logos || [];
     // Logos HTML: até 3 logos lado a lado
     const logosHtml = lLogos.filter((l: any) => l.url).length > 0
@@ -1091,17 +1094,21 @@ export function PacsQueryPage() {
     }
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* OPÇÃO 3: fundo no <html> cobre todas as páginas impressas */
+  ${bgBase64Q ? `html { background-image: url('${bgBase64Q}'); background-size: ${lBgSize}; background-position: center top; background-repeat: no-repeat; background-attachment: fixed; -webkit-print-color-adjust: exact; print-color-adjust: exact; }` : ''}
   html, body {
     font-family: ${fontStackQ};
     font-size: ${lSize}pt;
     color: #111;
-    background: transparent;
+    /* FIX: sem background:#fff — bloquearia o fundo da página */
     line-height: ${lLine};
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
   /* P4: cabeçalho repetível em múltiplas páginas via thead */
   table.print-layout { width: 100%; border-collapse: collapse; }
+  /* FIX: células transparentes para o fundo aparecer através */
+  table.print-layout td, table.print-layout th { background: transparent !important; }
   thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
   tbody { display: table-row-group; }
