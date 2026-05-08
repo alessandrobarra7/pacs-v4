@@ -1142,7 +1142,9 @@ export function PacsQueryPage() {
       </td></tr>
     </thead>
     <tfoot>
-      <tr><td><div style="height:${footerReservedMmQ > 0 ? '6mm' : '4mm'};"></div></td></tr>
+      <tr><td style="padding:0;">
+        ${lFooterUrl ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />` : `<div style="height:4mm;"></div>`}
+      </td></tr>
     </tfoot>
     <tbody>
       <tr><td>
@@ -1162,8 +1164,7 @@ export function PacsQueryPage() {
       </td></tr>
     </tbody>
   </table>
-  <!-- P5: rodapé com position:fixed para repetir em todas as páginas -->
-  ${lFooterUrl ? `<div style="position:fixed;bottom:0;left:0;right:0;"><img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" /></div>` : ''}
+  <!-- P5: rodapé via tfoot (compatível com PDF) -->
 <script>setTimeout(() => window.print(), 400);<\/script>
 </body></html>`);
     printWindow.document.close();

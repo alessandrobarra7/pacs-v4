@@ -683,7 +683,9 @@ export default function ReportEditorPage() {
       </td></tr>
     </thead>
     <tfoot>
-      <tr><td><div style="height:${footerReservedMm > 0 ? '6mm' : '4mm'};"></div></td></tr>
+      <tr><td style="padding:0;">
+        ${layoutFooterUrl ? `<img src="${layoutFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />` : `<div style="height:4mm;"></div>`}
+      </td></tr>
     </tfoot>
     <tbody>
       <tr><td>
@@ -694,8 +696,7 @@ export default function ReportEditorPage() {
       </td></tr>
     </tbody>
   </table>
-  <!-- P5: rodapé com position:fixed para repetir em todas as páginas -->
-  ${layoutFooterUrl ? `<div style="position:fixed;bottom:0;left:0;right:0;"><img src="${layoutFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" /></div>` : ''}
+  <!-- P5: rodapé via tfoot (renderiza em todas as páginas, compatível com PDF) -->
 <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
 </body></html>`;
     const win = window.open('', '_blank', 'width=850,height=1100');
