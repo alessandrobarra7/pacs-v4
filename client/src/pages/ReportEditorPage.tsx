@@ -610,9 +610,10 @@ export default function ReportEditorPage() {
       <div style="background:#fef3c7;border:1.5px solid #f59e0b;padding:6px 12px;border-radius:4px;margin-bottom:12px;font-size:9pt;color:#92400e;text-align:center;">⚠ LAUDO EM RASCUNHO — Não assinado — Não é um documento válido</div>
     ` : '';
 
-    // OPÇÃO 1+3: background com dimensões físicas em mm + html background-image
+    // FUNDO: base64 + background-image no body (funciona em about:blank ao imprimir)
     const bgBase64 = layoutBgUrl ? await fetchToBase64(layoutBgUrl) : null;
-    const bgLayer = bgBase64 ? `<div style="position:fixed;top:0;left:0;width:${paperW};height:${paperH};z-index:-1;pointer-events:none;opacity:${layoutBgOpacity};-webkit-print-color-adjust:exact;print-color-adjust:exact;"><img src="${bgBase64}" style="width:100%;height:100%;object-fit:${layoutBgSize};display:block;" /></div>` : '';
+    // bgLayer não é mais usado — fundo via CSS background-image no body
+    const bgLayer = '';
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
@@ -629,20 +630,40 @@ export default function ReportEditorPage() {
     }
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  /* OPÇÃO 3: fundo no <html> cobre todas as páginas impressas */
-  ${bgBase64 ? `html { background-image: url('${bgBase64}'); background-size: ${layoutBgSize}; background-position: center top; background-repeat: no-repeat; background-attachment: fixed; -webkit-print-color-adjust: exact; print-color-adjust: exact; }` : ''}
   html, body {
     font-family: ${fontStack};
     font-size: ${lSize}pt;
     color: #111;
-    /* FIX: sem background:#fff — bloquearia o fundo da página */
     line-height: ${lLine};
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
+  /* FUNDO: background-image no body — Chrome/Edge respeitam ao imprimir com -webkit-print-color-adjust:exact */
+  ${bgBase64 ? `
+  body {
+    background-image: url('${bgBase64}');
+    background-size: ${layoutBgSize};
+    background-position: center center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* Overlay branco semi-transparente para controlar opacidade do fundo sem afetar o texto */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: rgba(255,255,255,${Math.round((1 - layoutBgOpacity) * 100) / 100});
+    z-index: 0;
+    pointer-events: none;
+  }
+  ` : ''}
+  /* Todo conteúdo fica acima do overlay */
+  body > * { position: relative; z-index: 1; }
   /* P4: cabeçalho repetível em múltiplas páginas via thead */
   table.print-layout { width: 100%; border-collapse: collapse; }
-  /* FIX: células transparentes para o fundo aparecer através */
+  /* células transparentes para o fundo aparecer através */
   table.print-layout td, table.print-layout th { background: transparent !important; }
   thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
