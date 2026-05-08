@@ -997,14 +997,8 @@ export function PacsQueryPage() {
     const lBorderColor = lPrefs.headerBorderColor || '#d0d0d0';
     const lBgUrl = toAbsUrl((unitLayout as any)?.background_image_url || '');
     const pageSizeQ = lPrefs.pageSize ?? 'A4';
-    // P1: background via position:fixed (browsers ignoram background dentro de @page)
+    // P1: background via CSS no body (position:fixed é renderizado fora do fluxo no PDF)
     const bgBase64Q = lBgUrl ? await fetchToBase64(lBgUrl) : null;
-    const bgLayerQ = bgBase64Q ? `
-      <div style="position:fixed;top:0;left:0;width:100%;height:100%;
-                  background:url('${bgBase64Q}')center/cover no-repeat;
-                  z-index:-1;pointer-events:none;
-                  -webkit-print-color-adjust:exact;print-color-adjust:exact;"></div>
-    ` : '';
     const lLogos: Array<{url:string;width:number;height:number}> = (unitLayout as any)?.logos || [];
     // Logos HTML: até 3 logos lado a lado
     const logosHtml = lLogos.filter((l: any) => l.url).length > 0
@@ -1098,7 +1092,7 @@ export function PacsQueryPage() {
     font-family: ${fontStackQ};
     font-size: ${lSize}pt;
     color: #111;
-    background: #fff;
+    background: ${bgBase64Q ? `url('${bgBase64Q}') center/cover no-repeat #fff` : '#fff'};
     line-height: ${lLine};
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
@@ -1153,7 +1147,6 @@ export function PacsQueryPage() {
     .doctor-footer { page-break-inside: avoid; }
   }
 </style></head><body>
-  ${bgLayerQ}
   ${draftWatermarkQ}
   <!-- P4: estrutura de tabela para cabeçalho repetível em múltiplas páginas -->
   <table class="print-layout">
