@@ -1131,6 +1131,7 @@ export function PacsQueryPage() {
   /* Número de página via div position:fixed */
   .page-number-fixed {
     position: fixed;
+    z-index: 3;                              /* FIX: acima de tudo */
     bottom: ${Math.max(lMB - 8, 4)}mm;
     right: ${lMR}mm;
     font-size: 8pt;
@@ -1138,7 +1139,12 @@ export function PacsQueryPage() {
     font-family: Arial, sans-serif;
   }
   /* P4: cabeçalho repetível em múltiplas páginas via thead */
-  table.print-layout { width: 100%; border-collapse: collapse; }
+  table.print-layout {
+    position: relative;                      /* FIX: cria stacking context */
+    z-index: 2;                              /* FIX: acima do overlay branco (z:0) */
+    width: 100%;
+    border-collapse: collapse;
+  }
   table.print-layout td, table.print-layout th { background: transparent !important; }
   thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
