@@ -132,6 +132,47 @@ function formatDicomDate(dateStr: string | undefined) {
   return dateStr;
 }
 
+// ─── Utilitários de impressão (fora do componente para evitar re-criação a cada render) ─
+
+// P8/P4: mapeamento de fontes com fallback seguro
+const SAFE_FONTS: Record<string, string> = {
+  'Arial':           'Arial, Helvetica, sans-serif',
+  'Calibri':         'Calibri, "Gill Sans", sans-serif',
+  'Times New Roman': '"Times New Roman", Times, serif',
+  'Georgia':         'Georgia, "Times New Roman", serif',
+  'Helvetica':       '"Helvetica Neue", Helvetica, Arial, sans-serif',
+  'Verdana':         'Verdana, Geneva, sans-serif',
+};
+
+// P1/P2: converte uma URL de imagem para base64 — necessário para janela de print (popup)
+async function fetchToBase64(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null; // falhou silenciosamente — imprime sem fundo
+  }
+}
+
+// P7/P4: converter imagens <img> para base64 para garantir que apareçam na janela de impressão
+async function convertImagesToBase64(html: string): Promise<string> {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const images = doc.querySelectorAll('img');
+  await Promise.all(Array.from(images).map(async (img) => {
+    const b64 = await fetchToBase64(img.src);
+    if (b64) img.src = b64;
+  }));
+  return doc.body.innerHTML;
+}
+
 // ─── Componente Principal ─────────────────────────────────────────────────────
 export default function ReportEditorPage() {
   const [, navigate] = useLocation();
@@ -481,36 +522,6 @@ export default function ReportEditorPage() {
   // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
   const patientName = formatPatientName(studyInfo?.patientName || "");
 
-  // P8: mapeamento de fontes com fallback seguro
-  const SAFE_FONTS: Record<string, string> = {
-    'Arial':           'Arial, Helvetica, sans-serif',
-    'Calibri':         'Calibri, "Gill Sans", sans-serif',
-    'Times New Roman': '"Times New Roman", Times, serif',
-    'Georgia':         'Georgia, "Times New Roman", serif',
-    'Helvetica':       '"Helvetica Neue", Helvetica, Arial, sans-serif',
-    'Verdana':         'Verdana, Geneva, sans-serif',
-  };
-
-  // P7: converter imagens para base64 para garantir que apareçam na janela de impressão
-  const convertImagesToBase64 = async (html: string): Promise<string> => {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const images = doc.querySelectorAll('img');
-    await Promise.all(Array.from(images).map(async (img) => {
-      try {
-        const response = await fetch(img.src, { credentials: 'include' });
-        const blob = await response.blob();
-        const base64 = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(blob);
-        });
-        img.src = base64;
-      } catch { /* manter URL original se falhar */ }
-    }));
-    return doc.body.innerHTML;
-  };
-
   const handlePrint = useCallback(async () => {
     const birthDate = studyInfo?.birthDate || '';
     const studyDateFormatted = studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : '';
@@ -567,7 +578,7 @@ export default function ReportEditorPage() {
         ${medCtx.stampUrl ? `<img src="${medCtx.stampUrl}" alt="Carimbo" class="stamp-img" />` : ''}
         <div class="sig-line"></div>
         <div class="sig-name">${medCtx.doctorName}${existingReport?.status === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
-        <div class="sig-role">MÉDICO RADIOLOGISTA</div>
+        ${(medCtx as any)?.specialty ? `<div class="sig-role">${(medCtx as any).specialty}</div>` : ''}
         ${medCtx.crm ? `<div class="sig-crm">CRM: ${medCtx.crm}</div>` : ''}
         ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
       </div>
@@ -594,6 +605,16 @@ export default function ReportEditorPage() {
       <div style="background:#fef3c7;border:1.5px solid #f59e0b;padding:6px 12px;border-radius:4px;margin-bottom:12px;font-size:9pt;color:#92400e;text-align:center;">⚠ LAUDO EM RASCUNHO — Não assinado — Não é um documento válido</div>
     ` : '';
 
+      // P1: background via position:fixed (browsers ignoram background dentro de @page)
+    // Pre-converter para base64 garante que aparece na janela popup (about:blank)
+    const bgBase64 = layoutBgUrl ? await fetchToBase64(layoutBgUrl) : null;
+    const bgHtmlLayer = bgBase64 ? `
+      <div style="position:fixed;top:0;left:0;width:100%;height:100%;
+                  background:url('${bgBase64}')center/cover no-repeat;
+                  z-index:-1;pointer-events:none;
+                  -webkit-print-color-adjust:exact;print-color-adjust:exact;"></div>
+    ` : '';
+
     const html = `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
 <style>
@@ -601,7 +622,6 @@ export default function ReportEditorPage() {
   @page {
     size: ${pageSize} portrait;
     margin: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-    ${layoutBgUrl ? `background: url('${layoutBgUrl}') center/cover no-repeat;` : ''}
     @bottom-right {
       content: "Página " counter(page) " de " counter(pages);
       font-size: 8pt;
@@ -669,6 +689,7 @@ export default function ReportEditorPage() {
     .doctor-footer { page-break-inside: avoid; }
   }
 </style></head><body>
+  ${bgHtmlLayer}
   ${draftWatermark}
   <!-- P4: estrutura de tabela para cabeçalho repetível em múltiplas páginas -->
   <table class="print-layout">
@@ -702,7 +723,7 @@ export default function ReportEditorPage() {
 </body></html>`;
     const win = window.open('', '_blank', 'width=850,height=1100');
     if (win) { win.document.write(html); win.document.close(); }
-  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, sectionRefs, examNames, isMultiSection, SAFE_FONTS, convertImagesToBase64]);
+  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, sectionRefs, examNames, isMultiSection]);
 
   // FIX BUG-2: inserir imagem inline no contentEditable
   // A imagem faz parte do documento, é salva no laudo e arrastável pelo browser nativamente.

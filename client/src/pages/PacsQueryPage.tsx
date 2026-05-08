@@ -13,10 +13,28 @@ import { AnamnesisModal } from "@/components/AnamnesisModal";
 import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 import { ExamPickerModal, ALL_CATALOG_EXAMS } from "@/components/ExamPickerModal";
 import { canAccessAdmin, type UserRole } from "../../../shared/permissions";
+
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+
+// P1: converte URL de imagem para base64 — necessário para janela de print (popup about:blank)
+async function fetchToBase64(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
 
 const PAGE_SIZE = 20;
 /** Converte data DICOM (YYYYMMDD) + hora (HHMMSS) em objeto Date */
@@ -979,6 +997,14 @@ export function PacsQueryPage() {
     const lBorderColor = lPrefs.headerBorderColor || '#d0d0d0';
     const lBgUrl = toAbsUrl((unitLayout as any)?.background_image_url || '');
     const pageSizeQ = lPrefs.pageSize ?? 'A4';
+    // P1: background via position:fixed (browsers ignoram background dentro de @page)
+    const bgBase64Q = lBgUrl ? await fetchToBase64(lBgUrl) : null;
+    const bgLayerQ = bgBase64Q ? `
+      <div style="position:fixed;top:0;left:0;width:100%;height:100%;
+                  background:url('${bgBase64Q}')center/cover no-repeat;
+                  z-index:-1;pointer-events:none;
+                  -webkit-print-color-adjust:exact;print-color-adjust:exact;"></div>
+    ` : '';
     const lLogos: Array<{url:string;width:number;height:number}> = (unitLayout as any)?.logos || [];
     // Logos HTML: até 3 logos lado a lado
     const logosHtml = lLogos.filter((l: any) => l.url).length > 0
@@ -1060,7 +1086,6 @@ export function PacsQueryPage() {
   @page {
     size: ${pageSizeQ} portrait;
     margin: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-    ${lBgUrl ? `background: url('${lBgUrl}') center/cover no-repeat;` : ''}
     @bottom-right {
       content: "Página " counter(page) " de " counter(pages);
       font-size: 8pt;
@@ -1128,6 +1153,7 @@ export function PacsQueryPage() {
     .doctor-footer { page-break-inside: avoid; }
   }
 </style></head><body>
+  ${bgLayerQ}
   ${draftWatermarkQ}
   <!-- P4: estrutura de tabela para cabeçalho repetível em múltiplas páginas -->
   <table class="print-layout">
@@ -1158,7 +1184,7 @@ export function PacsQueryPage() {
           ${doctorSignatureUrl ? `<img src="${doctorSignatureUrl}" alt="Assinatura" class="sig-img" />` : ''}
           <div class="sig-line"></div>
           <div class="sig-name">${doctorName}${reportStatus === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
-          <div class="sig-role">MÉDICO RADIOLOGISTA</div>
+
           ${doctorCrm ? `<div class="sig-crm">CRM: ${doctorCrm}</div>` : ''}
           ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
         </div>` : ''}
