@@ -605,8 +605,9 @@ export default function ReportEditorPage() {
       <div style="background:#fef3c7;border:1.5px solid #f59e0b;padding:6px 12px;border-radius:4px;margin-bottom:12px;font-size:9pt;color:#92400e;text-align:center;">⚠ LAUDO EM RASCUNHO — Não assinado — Não é um documento válido</div>
     ` : '';
 
-    // P1: background via CSS no body (position:fixed é renderizado fora do fluxo no PDF)
+    // P1: background via div position:fixed z-index:-1 (atrás do conteúdo)
     const bgBase64 = layoutBgUrl ? await fetchToBase64(layoutBgUrl) : null;
+    const bgLayer = bgBase64 ? `<div style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:-1;pointer-events:none;-webkit-print-color-adjust:exact;print-color-adjust:exact;"><img src="${bgBase64}" style="width:100%;height:100%;object-fit:cover;display:block;" /></div>` : '';
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
@@ -627,7 +628,7 @@ export default function ReportEditorPage() {
     font-family: ${fontStack};
     font-size: ${lSize}pt;
     color: #111;
-    background: ${bgBase64 ? `url('${bgBase64}') center/cover no-repeat #fff` : '#fff'};
+    background: transparent;
     line-height: ${lLine};
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
@@ -682,6 +683,7 @@ export default function ReportEditorPage() {
     .doctor-footer { page-break-inside: avoid; }
   }
 </style></head><body>
+  ${bgLayer}
   ${draftWatermark}
   <!-- P4: estrutura de tabela para cabeçalho repetível em múltiplas páginas -->
   <table class="print-layout">
