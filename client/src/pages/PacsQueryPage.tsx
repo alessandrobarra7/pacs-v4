@@ -1013,14 +1013,12 @@ export function PacsQueryPage() {
 
     // Bloco de dados do paciente em lista vertical (mesmo modelo do editor de laudos)
     const patientDataHtml = `
-      <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
-        <tbody>
-          <tr><td style="padding:1.5px 0;font-size:9.5pt;white-space:nowrap;padding-right:6px;">Nome do paciente:</td><td style="padding:1.5px 0;font-size:9.5pt;">${patientName}</td></tr>
-          ${birthDateFormatted ? `<tr><td style="padding:1.5px 0;font-size:9.5pt;white-space:nowrap;padding-right:6px;">Data de nascimento:</td><td style="padding:1.5px 0;font-size:9.5pt;">${birthDateFormatted}</td></tr>` : ''}
-          ${sexFormatted ? `<tr><td style="padding:1.5px 0;font-size:9.5pt;white-space:nowrap;padding-right:6px;">Sexo:</td><td style="padding:1.5px 0;font-size:9.5pt;">${sexFormatted}</td></tr>` : ''}
-          ${studyDate !== '-' ? `<tr><td style="padding:1.5px 0;font-size:9.5pt;white-space:nowrap;padding-right:6px;">Data de realização do exame:</td><td style="padding:1.5px 0;font-size:9.5pt;">${studyDate}</td></tr>` : ''}
-        </tbody>
-      </table>
+      <div style="margin-bottom:14px;font-size:9.5pt;line-height:1.8;">
+        <div>Nome do paciente: ${patientName}</div>
+        ${birthDateFormatted ? `<div>Data de nascimento: ${birthDateFormatted}</div>` : ''}
+        ${sexFormatted ? `<div>Sexo: ${sexFormatted}</div>` : ''}
+        ${studyDate !== '-' ? `<div>Data de realização do exame: ${studyDate}</div>` : ''}
+      </div>
     `;
 
     const printWindow = window.open('', '_blank', 'width=850,height=1000');

@@ -500,15 +500,13 @@ export default function ReportEditorPage() {
 
     // Bloco de dados do paciente em lista vertical (modelo de referência)
     const patientDataHtml = `
-      <table class="patient-table">
-        <tbody>
-          <tr><td class="pt-label">Nome do paciente:</td><td class="pt-value">${patientName || '—'}</td></tr>
-          ${birthDate ? `<tr><td class="pt-label">Data de nascimento:</td><td class="pt-value">${birthDate}</td></tr>` : ''}
-          ${sexFormatted ? `<tr><td class="pt-label">Sexo:</td><td class="pt-value">${sexFormatted}</td></tr>` : ''}
-          ${studyDateFormatted ? `<tr><td class="pt-label">Data de realização do exame:</td><td class="pt-value">${studyDateFormatted}</td></tr>` : ''}
-          ${studyInfo?.accessionNumber ? `<tr><td class="pt-label">Número de requisição:</td><td class="pt-value">${studyInfo.accessionNumber}</td></tr>` : ''}
-        </tbody>
-      </table>
+      <div style="margin-bottom:14px;font-size:9.5pt;line-height:1.8;">
+        <div>Nome do paciente: ${patientName || '—'}</div>
+        ${birthDate ? `<div>Data de nascimento: ${birthDate}</div>` : ''}
+        ${sexFormatted ? `<div>Sexo: ${sexFormatted}</div>` : ''}
+        ${studyDateFormatted ? `<div>Data de realização do exame: ${studyDateFormatted}</div>` : ''}
+        ${studyInfo?.accessionNumber ? `<div>Número de requisição: ${studyInfo.accessionNumber}</div>` : ''}
+      </div>
     `;
 
     const doctorFooterHtml = isSignedOrRevised && medCtx?.doctorName ? `
@@ -535,12 +533,6 @@ export default function ReportEditorPage() {
   .header-title { flex: 1; text-align: center; }
   .header-title .clinic-name { font-size: 13pt; font-weight: 700; text-transform: uppercase; color: #111; letter-spacing: 0.04em; }
   .header-title .clinic-sub { font-size: 10pt; color: #333; margin-top: 2px; }
-
-  /* DADOS DO PACIENTE */
-  .patient-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-  .patient-table td { padding: 1.5px 0; font-size: 9.5pt; vertical-align: top; }
-  .pt-label { color: #111; white-space: nowrap; padding-right: 6px; font-weight: 400; }
-  .pt-value { color: #111; font-weight: 400; }
 
   /* TÍTULO DO EXAME */
   .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.06em; color: #111; margin: 10px 0 14px 0; }
