@@ -970,13 +970,14 @@ export function PacsQueryPage() {
     const lLine = lPrefs.lineHeight || 1.6;
     const lMT = lPrefs.marginTop ?? 20;
     // P5: reservar margem inferior para o rodapé
-    const lFooterUrl = (unitLayout as any)?.footer_image_url || '';
+    const toAbsUrl = (u: string) => u && u.startsWith('/') ? `${window.location.origin}${u}` : u;
+    const lFooterUrl = toAbsUrl((unitLayout as any)?.footer_image_url || '');
     const footerReservedMmQ = lFooterUrl ? 30 : 0;
     const lMB = (lPrefs.marginBottom ?? 20) + footerReservedMmQ;
     const lML = lPrefs.marginLeft ?? 20;
     const lMR = lPrefs.marginRight ?? 20;
     const lBorderColor = lPrefs.headerBorderColor || '#d0d0d0';
-    const lBgUrl = (unitLayout as any)?.background_image_url || '';
+    const lBgUrl = toAbsUrl((unitLayout as any)?.background_image_url || '');
     const pageSizeQ = lPrefs.pageSize ?? 'A4';
     const lLogos: Array<{url:string;width:number;height:number}> = (unitLayout as any)?.logos || [];
     // Logos HTML: até 3 logos lado a lado

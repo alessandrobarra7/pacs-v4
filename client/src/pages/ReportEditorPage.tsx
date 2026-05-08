@@ -471,10 +471,11 @@ export default function ReportEditorPage() {
   // GAP-BACKGROUND: imagem de fundo e posições dos blocos do layout da unidade
   type BlockPos = { x: number; y: number; w: number; h: number; visible: boolean };
   const rawLayout = unitLayout as Record<string, unknown> | null | undefined;
-  const layoutBgUrl: string | null = (rawLayout?.["background_image_url"] as string | null) ?? null;
+  const toAbsUrl = (u: string | null | undefined) => u && u.startsWith('/') ? `${window.location.origin}${u}` : (u || null);
+  const layoutBgUrl: string | null = toAbsUrl((rawLayout?.["background_image_url"] as string | null) ?? null);
   const layoutBlockPos: Record<string, BlockPos> | null =
     (rawLayout?.["block_positions"] as Record<string, BlockPos> | null) ?? null;
-  const layoutFooterUrl: string | null = (rawLayout?.["footer_image_url"] as string | null) ?? null;
+  const layoutFooterUrl: string | null = toAbsUrl((rawLayout?.["footer_image_url"] as string | null) ?? null);
   const layoutLogos: Array<{ url: string; width: number; height: number; label: string }> =
     Array.isArray(rawLayout?.["logos"]) ? (rawLayout!["logos"] as Array<{ url: string; width: number; height: number; label: string }>) : [];
   // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
