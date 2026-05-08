@@ -955,63 +955,86 @@ export function PacsQueryPage() {
 
     // ── Layout da unidade ──
     const lPrefs = (unitLayout?.preferences as any) || {};
-    const lFont = lPrefs.fontFamily || 'Arial';
+    // P8: mapeamento de fontes com fallback seguro
+    const SAFE_FONTS_Q: Record<string, string> = {
+      'Arial':           'Arial, Helvetica, sans-serif',
+      'Calibri':         'Calibri, "Gill Sans", sans-serif',
+      'Times New Roman': '"Times New Roman", Times, serif',
+      'Georgia':         'Georgia, "Times New Roman", serif',
+      'Helvetica':       '"Helvetica Neue", Helvetica, Arial, sans-serif',
+      'Verdana':         'Verdana, Geneva, sans-serif',
+    };
+    const rawFontQ = lPrefs.fontFamily || 'Arial';
+    const fontStackQ = SAFE_FONTS_Q[rawFontQ] ?? `${rawFontQ}, Arial, sans-serif`;
     const lSize = lPrefs.fontSize || 11;
     const lLine = lPrefs.lineHeight || 1.6;
     const lMT = lPrefs.marginTop ?? 20;
-    const lMB = lPrefs.marginBottom ?? 20;
+    // P5: reservar margem inferior para o rodapé
+    const lFooterUrl = (unitLayout as any)?.footer_image_url || '';
+    const footerReservedMmQ = lFooterUrl ? 30 : 0;
+    const lMB = (lPrefs.marginBottom ?? 20) + footerReservedMmQ;
     const lML = lPrefs.marginLeft ?? 20;
     const lMR = lPrefs.marginRight ?? 20;
     const lBorderColor = lPrefs.headerBorderColor || '#d0d0d0';
     const lBgUrl = (unitLayout as any)?.background_image_url || '';
-    const lFooterUrl = (unitLayout as any)?.footer_image_url || '';
+    const pageSizeQ = lPrefs.pageSize ?? 'A4';
     const lLogos: Array<{url:string;width:number;height:number}> = (unitLayout as any)?.logos || [];
     // Logos HTML: até 3 logos lado a lado
     const logosHtml = lLogos.filter((l: any) => l.url).length > 0
       ? lLogos.filter((l: any) => l.url).map((l: any) => `<img src="${l.url}" alt="Logo" style="max-height:${l.height||60}px;max-width:${l.width||180}px;object-fit:contain;margin-right:6px;" />`).join('')
       : (logoUrl ? `<img src="${logoUrl}" alt="Logo" style="max-height:60px;max-width:180px;object-fit:contain;" />` : `<p style="font-size:9pt;color:#888;">Logo da unidade</p>`);
     const logoHtml = logosHtml;
-    // Detectar se o body é JSON multi-seção [{title, body}, ...] e renderizar corretamente
+
+    // P7: converter imagens para base64
+    const convertImgsQ = async (html: string): Promise<string> => {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const imgs = doc.querySelectorAll('img');
+      await Promise.all(Array.from(imgs).map(async (img) => {
+        try {
+          const res = await fetch(img.src, { credentials: 'include' });
+          const blob = await res.blob();
+          const b64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+          img.src = b64;
+        } catch { /* manter URL original se falhar */ }
+      }));
+      return doc.body.innerHTML;
+    };
+
+    // P1: detectar multi-seção e renderizar corretamente
     let bodyHtml = reportBody || '(Laudo não encontrado ou ainda não elaborado)';
     if (reportBody) {
       try {
         const parsed = JSON.parse(reportBody);
         if (Array.isArray(parsed) && parsed.length > 0 && 'body' in parsed[0]) {
-          // Laudo multi-seção: renderizar cada seção com título e corpo
-          bodyHtml = parsed.map((section: { title: string; body: string }) => {
-            const sectionTitle = section.title ? `<div style="font-weight:700;font-size:12pt;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4mm;padding-bottom:2mm;border-bottom:1px solid #d0d0d0;">${section.title}</div>` : '';
-            return `<div style="margin-bottom:8mm;">${sectionTitle}<div>${section.body || ''}</div></div>`;
-          }).join('');
+          bodyHtml = parsed.map((section: { title: string; body: string }, i: number) => `
+            <div class="exam-section" style="margin-bottom:18px;${i > 0 ? 'page-break-before:auto;' : ''}">
+              <div class="section-title">${section.title || ''}</div>
+              <div class="section-body">${section.body || ''}</div>
+            </div>
+          `).join('');
         }
       } catch {
         // Não é JSON — body é HTML puro, usar como está
       }
     }
+    // P7: converter imagens do corpo para base64
+    bodyHtml = await convertImgsQ(bodyHtml);
 
     // Rodapé do médico assinante
     const signedAtFormatted = signedAt
       ? signedAt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
       : '';
     const isSignedOrRevised = reportStatus === 'signed' || reportStatus === 'revised';
-    const revisedBadge = reportStatus === 'revised' ? `<span style="background:#f59e0b;color:#fff;font-size:7pt;padding:1px 6px;border-radius:3px;font-weight:bold;margin-left:6px;">RETIFICADO</span>` : '';
-    const doctorFooterHtml = isSignedOrRevised && doctorName ? `
-      <div style="margin-top:8mm;border-top:1px solid #ccc;padding-top:4mm;display:flex;align-items:flex-end;justify-content:flex-end;gap:8mm;">
-        ${doctorStampUrl ? `<img src="${doctorStampUrl}" alt="Carimbo" style="max-height:80px;max-width:200px;object-fit:contain;" />` : ''}
-        <div style="text-align:center;">
-          ${doctorSignatureUrl ? `<img src="${doctorSignatureUrl}" alt="Assinatura" style="max-height:50px;max-width:180px;object-fit:contain;display:block;margin:0 auto 2mm;" />` : ''}
-          <div style="border-top:1px solid #333;padding-top:2mm;font-size:9pt;">
-            <strong>${doctorName}</strong>${revisedBadge}<br/>
-            ${doctorCrm ? `CRM: ${doctorCrm}<br/>` : ''}
-            ${signedAtFormatted ? `<span style="font-size:8pt;color:#555;">Assinado em: ${signedAtFormatted}</span>` : ''}
-          </div>
-        </div>
-      </div>
-    ` : '';
 
     const unitName = unitData?.name || '';
     const sexFormatted = sex === 'M' ? 'Masculino' : sex === 'F' ? 'Feminino' : sex;
 
-    // Bloco de dados do paciente em lista vertical (mesmo modelo do editor de laudos)
+    // Bloco de dados do paciente em lista vertical
     const patientDataHtml = `
       <div style="margin-bottom:14px;font-size:9.5pt;line-height:1.8;">
         <div>Nome do paciente: ${patientName}</div>
@@ -1021,19 +1044,32 @@ export function PacsQueryPage() {
       </div>
     `;
 
+    // P9: marca d'água RASCUNHO para laudos não assinados
+    const draftWatermarkQ = !isSignedOrRevised ? `
+      <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);font-size:72pt;font-weight:900;color:rgba(200,50,50,0.10);pointer-events:none;user-select:none;white-space:nowrap;font-family:Arial,sans-serif;letter-spacing:0.1em;-webkit-print-color-adjust:exact;print-color-adjust:exact;">RASCUNHO</div>
+      <div style="background:#fef3c7;border:1.5px solid #f59e0b;padding:6px 12px;border-radius:4px;margin-bottom:12px;font-size:9pt;color:#92400e;text-align:center;">⚠ LAUDO EM RASCUNHO — Não assinado — Não é um documento válido</div>
+    ` : '';
+
     const printWindow = window.open('', '_blank', 'width=850,height=1100');
     if (!printWindow) { toast.error('Bloqueador de pop-up ativo. Permita pop-ups para imprimir.'); return; }
     printWindow.document.write(`<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"><title>Laudo - ${patientName}</title>
 <style>
+  /* P2: número de página via CSS counter nativo */
   @page {
-    size: A4 portrait;
+    size: ${pageSizeQ} portrait;
     margin: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
     ${lBgUrl ? `background: url('${lBgUrl}') center/cover no-repeat;` : ''}
+    @bottom-right {
+      content: "Página " counter(page) " de " counter(pages);
+      font-size: 8pt;
+      color: #888;
+      font-family: Arial, sans-serif;
+    }
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
-    font-family: '${lFont}', Arial, sans-serif;
+    font-family: ${fontStackQ};
     font-size: ${lSize}pt;
     color: #111;
     background: #fff;
@@ -1041,31 +1077,42 @@ export function PacsQueryPage() {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  /* CABEÇALHO */
+  /* P4: cabeçalho repetível em múltiplas páginas via thead */
+  table.print-layout { width: 100%; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+  tbody { display: table-row-group; }
   .header {
     display: flex;
     align-items: center;
     gap: 16px;
     padding-bottom: 8pt;
     border-bottom: 2px solid ${lBorderColor};
-    margin-bottom: 12pt;
+    margin-bottom: 4mm;
   }
   .header-logo { flex-shrink: 0; }
   .header-title { flex: 1; text-align: center; }
   .clinic-name { font-size: 14pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
   .clinic-sub { font-size: 10pt; color: #444; margin-top: 2pt; }
-  /* DADOS DO PACIENTE */
   .patient-data { font-size: 10pt; line-height: 1.7; margin-bottom: 12pt; }
-  /* TÍTULO DO EXAME */
   .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
-  /* CORPO DO LAUDO */
   .report-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .report-body > p,
-  .report-body > div:not(.section-block) { margin-bottom: 3pt; }
+  .report-body > div:not(.exam-section) { margin-bottom: 3pt; }
   .report-body strong, .report-body b { font-weight: 700; }
-  .section-block { margin-bottom: 10pt; }
-  .section-title { font-weight: 700; font-size: ${lSize}pt; text-transform: uppercase; margin-bottom: 3pt; }
-  /* ASSINATURA */
+  /* P1: seções multi-exame */
+  .exam-section { break-inside: avoid-page; margin-bottom: 18px; }
+  .section-title {
+    font-size: 11pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    text-align: center;
+    padding: 6px 0;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 10px;
+  }
+  .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .doctor-footer { text-align: center; margin: 14mm auto 0; max-width: 240px; page-break-inside: avoid; }
   .sig-img { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
   .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
@@ -1075,41 +1122,48 @@ export function PacsQueryPage() {
   .sig-crm { font-size: 9pt; color: #444; margin-top: 1pt; }
   .sig-date { font-size: 8pt; color: #666; margin-top: 3pt; }
   .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 5px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
-  /* RODAPÉ IMAGEM */
-  .footer-img-wrap { position: running(footer); text-align: center; }
-  @page { @bottom-center { content: element(footer); } }
   @media print {
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .doctor-footer { page-break-inside: avoid; }
   }
 </style></head><body>
-  <!-- CABEÇALHO -->
-  <div class="header">
-    <div class="header-logo">${logoHtml}</div>
-    <div class="header-title">
-      <div class="clinic-name">${unitName}</div>
-      <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
-    </div>
-  </div>
-  <!-- DADOS DO PACIENTE -->
-  <div class="patient-data">${patientDataHtml}</div>
-  <!-- TÍTULO DO EXAME -->
-  ${reportTitle ? `<div class="exam-title">${reportTitle}</div>` : ''}
-  <!-- CORPO DO LAUDO -->
-  <div class="report-body">${bodyHtml}</div>
-  <!-- ASSINATURA -->
-  ${isSignedOrRevised && doctorName ? `
-  <div class="doctor-footer">
-    ${doctorStampUrl ? `<img src="${doctorStampUrl}" alt="Carimbo" class="stamp-img" />` : ''}
-    ${doctorSignatureUrl ? `<img src="${doctorSignatureUrl}" alt="Assinatura" class="sig-img" />` : ''}
-    <div class="sig-line"></div>
-    <div class="sig-name">${doctorName}${reportStatus === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
-    <div class="sig-role">MÉDICO RADIOLOGISTA</div>
-    ${doctorCrm ? `<div class="sig-crm">CRM: ${doctorCrm}</div>` : ''}
-    ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
-  </div>` : ''}
-  <!-- RODAPÉ IMAGEM -->
-  ${lFooterUrl ? `<div style="margin-top:auto;padding-top:10mm;"><img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;" /></div>` : ''}
+  ${draftWatermarkQ}
+  <!-- P4: estrutura de tabela para cabeçalho repetível em múltiplas páginas -->
+  <table class="print-layout">
+    <thead>
+      <tr><td>
+        <div class="header">
+          <div class="header-logo">${logoHtml}</div>
+          <div class="header-title">
+            <div class="clinic-name">${unitName}</div>
+            <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
+          </div>
+        </div>
+      </td></tr>
+    </thead>
+    <tfoot>
+      <tr><td><div style="height:${footerReservedMmQ > 0 ? '6mm' : '4mm'};"></div></td></tr>
+    </tfoot>
+    <tbody>
+      <tr><td>
+        <div class="patient-data">${patientDataHtml}</div>
+        ${reportTitle ? `<div class="exam-title">${reportTitle}</div>` : ''}
+        <div class="report-body">${bodyHtml}</div>
+        ${isSignedOrRevised && doctorName ? `
+        <div class="doctor-footer">
+          ${doctorStampUrl ? `<img src="${doctorStampUrl}" alt="Carimbo" class="stamp-img" />` : ''}
+          ${doctorSignatureUrl ? `<img src="${doctorSignatureUrl}" alt="Assinatura" class="sig-img" />` : ''}
+          <div class="sig-line"></div>
+          <div class="sig-name">${doctorName}${reportStatus === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
+          <div class="sig-role">MÉDICO RADIOLOGISTA</div>
+          ${doctorCrm ? `<div class="sig-crm">CRM: ${doctorCrm}</div>` : ''}
+          ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
+        </div>` : ''}
+      </td></tr>
+    </tbody>
+  </table>
+  <!-- P5: rodapé com position:fixed para repetir em todas as páginas -->
+  ${lFooterUrl ? `<div style="position:fixed;bottom:0;left:0;right:0;"><img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" /></div>` : ''}
 <script>setTimeout(() => window.print(), 400);<\/script>
 </body></html>`);
     printWindow.document.close();

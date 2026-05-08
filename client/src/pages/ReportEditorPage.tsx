@@ -479,17 +479,68 @@ export default function ReportEditorPage() {
     Array.isArray(rawLayout?.["logos"]) ? (rawLayout!["logos"] as Array<{ url: string; width: number; height: number; label: string }>) : [];
   // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
   const patientName = formatPatientName(studyInfo?.patientName || "");
-  const handlePrint = useCallback(() => {
+
+  // P8: mapeamento de fontes com fallback seguro
+  const SAFE_FONTS: Record<string, string> = {
+    'Arial':           'Arial, Helvetica, sans-serif',
+    'Calibri':         'Calibri, "Gill Sans", sans-serif',
+    'Times New Roman': '"Times New Roman", Times, serif',
+    'Georgia':         'Georgia, "Times New Roman", serif',
+    'Helvetica':       '"Helvetica Neue", Helvetica, Arial, sans-serif',
+    'Verdana':         'Verdana, Geneva, sans-serif',
+  };
+
+  // P7: converter imagens para base64 para garantir que apareçam na janela de impressão
+  const convertImagesToBase64 = async (html: string): Promise<string> => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const images = doc.querySelectorAll('img');
+    await Promise.all(Array.from(images).map(async (img) => {
+      try {
+        const response = await fetch(img.src, { credentials: 'include' });
+        const blob = await response.blob();
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+        img.src = base64;
+      } catch { /* manter URL original se falhar */ }
+    }));
+    return doc.body.innerHTML;
+  };
+
+  const handlePrint = useCallback(async () => {
     const birthDate = studyInfo?.birthDate || '';
     const studyDateFormatted = studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : '';
     const sexFormatted = studyInfo?.sex ? (studyInfo.sex.toUpperCase() === 'M' ? 'Masculino' : studyInfo.sex.toUpperCase() === 'F' ? 'Feminino' : studyInfo.sex) : '';
-    const bodyHtml = collectBody();
     const isSignedOrRevised = existingReport?.status === 'signed' || existingReport?.status === 'revised';
     const signedAtFormatted = existingReport?.signedAt
       ? new Date(existingReport.signedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
       : '';
     const unitName = medCtx?.unitName || '';
-    const baseUrl = window.location.origin;
+
+    // P1: detectar multi-seção e renderizar cada seção como bloco separado
+    const rawBody = collectBody();
+    let bodyHtml: string;
+    if (isMultiSection) {
+      try {
+        const sections: { title: string; body: string }[] = JSON.parse(rawBody);
+        bodyHtml = sections.map((sec, i) => `
+          <div class="exam-section" style="margin-bottom:18px;${i > 0 ? 'page-break-before:auto;' : ''}">
+            <div class="section-title">${sec.title}</div>
+            <div class="section-body">${sec.body}</div>
+          </div>
+        `).join('');
+      } catch {
+        bodyHtml = rawBody; // fallback seguro
+      }
+    } else {
+      bodyHtml = rawBody;
+    }
+
+    // P7: converter imagens do corpo para base64
+    bodyHtml = await convertImagesToBase64(bodyHtml);
 
     // Logos do layout (até 3) têm prioridade; fallback para logo da unidade ou inicial
     const logoHtml = layoutLogos.length > 0
@@ -498,7 +549,7 @@ export default function ReportEditorPage() {
         ? `<img src="${medCtx.unitLogoUrl}" alt="${unitName}" style="max-height:70px;max-width:155px;object-fit:contain;display:block;" />`
         : `<div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#1a6b8a 0%,#6fb7c5 100%);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20pt;font-weight:700;font-family:Arial,sans-serif;">${(unitName || 'U').charAt(0).toUpperCase()}</div>`;
 
-    // Bloco de dados do paciente em lista vertical (modelo de referência)
+    // Bloco de dados do paciente em lista vertical
     const patientDataHtml = `
       <div style="margin-bottom:14px;font-size:9.5pt;line-height:1.8;">
         <div>Nome do paciente: ${patientName || '—'}</div>
@@ -521,26 +572,45 @@ export default function ReportEditorPage() {
       </div>
     ` : '';
 
+    // P3: margens do @page a partir das preferências do layout
     const lMT = layoutPrefs?.marginTop ?? 20;
-    const lMB = layoutPrefs?.marginBottom ?? 20;
+    // P5: reservar margem inferior para o rodapé (estimativa de 30mm se houver imagem)
+    const footerReservedMm = layoutFooterUrl ? 30 : 0;
+    const lMB = (layoutPrefs?.marginBottom ?? 20) + footerReservedMm;
     const lML = layoutPrefs?.marginLeft ?? 18;
     const lMR = layoutPrefs?.marginRight ?? 18;
-    const lFont = layoutPrefs?.fontFamily || 'Arial';
+    // P8: usar stack de fontes com fallback seguro
+    const rawFont = layoutPrefs?.fontFamily || 'Arial';
+    const fontStack = SAFE_FONTS[rawFont] ?? `${rawFont}, Arial, sans-serif`;
     const lSize = layoutPrefs?.fontSize || 11;
     const lLine = layoutPrefs?.lineHeight ?? 1.6;
     const lBorderColor = layoutPrefs?.headerBorderColor ?? '#1a6b8a';
+    const pageSize = (layoutPrefs as any)?.pageSize ?? 'A4';
+
+    // P9: marca d'água RASCUNHO para laudos não assinados
+    const draftWatermark = !isSignedOrRevised ? `
+      <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);font-size:72pt;font-weight:900;color:rgba(200,50,50,0.10);pointer-events:none;user-select:none;white-space:nowrap;font-family:Arial,sans-serif;letter-spacing:0.1em;-webkit-print-color-adjust:exact;print-color-adjust:exact;">RASCUNHO</div>
+      <div style="background:#fef3c7;border:1.5px solid #f59e0b;padding:6px 12px;border-radius:4px;margin-bottom:12px;font-size:9pt;color:#92400e;text-align:center;">⚠ LAUDO EM RASCUNHO — Não assinado — Não é um documento válido</div>
+    ` : '';
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
 <style>
+  /* P2: número de página via CSS counter nativo */
   @page {
-    size: A4 portrait;
+    size: ${pageSize} portrait;
     margin: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
     ${layoutBgUrl ? `background: url('${layoutBgUrl}') center/cover no-repeat;` : ''}
+    @bottom-right {
+      content: "Página " counter(page) " de " counter(pages);
+      font-size: 8pt;
+      color: #888;
+      font-family: Arial, sans-serif;
+    }
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
-    font-family: '${lFont}', Arial, sans-serif;
+    font-family: ${fontStack};
     font-size: ${lSize}pt;
     color: #111;
     background: #fff;
@@ -548,13 +618,18 @@ export default function ReportEditorPage() {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+  /* P4: cabeçalho repetível em múltiplas páginas via thead */
+  table.print-layout { width: 100%; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+  tbody { display: table-row-group; }
   .header {
     display: flex;
     align-items: center;
     gap: 16px;
     padding-bottom: 8pt;
     border-bottom: 2px solid ${lBorderColor};
-    margin-bottom: 12pt;
+    margin-bottom: 4mm;
   }
   .header-logo { flex-shrink: 0; }
   .header-title { flex: 1; text-align: center; }
@@ -564,10 +639,21 @@ export default function ReportEditorPage() {
   .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
   .report-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .report-body > p,
-  .report-body > div:not(.section-block) { margin-bottom: 3pt; }
+  .report-body > div:not(.exam-section) { margin-bottom: 3pt; }
   .report-body strong, .report-body b { font-weight: 700; }
-  .section-block { margin-bottom: 10pt; }
-  .section-title { font-weight: 700; font-size: ${lSize}pt; text-transform: uppercase; margin-bottom: 3pt; }
+  /* P1: seções multi-exame */
+  .exam-section { break-inside: avoid-page; margin-bottom: 18px; }
+  .section-title {
+    font-size: 11pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    text-align: center;
+    padding: 6px 0;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 10px;
+  }
+  .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .doctor-footer { text-align: center; margin: 14mm auto 0; max-width: 240px; page-break-inside: avoid; }
   .sig-img { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
   .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
@@ -582,23 +668,39 @@ export default function ReportEditorPage() {
     .doctor-footer { page-break-inside: avoid; }
   }
 </style></head><body>
-  <div class="header">
-    <div class="header-logo">${logoHtml}</div>
-    <div class="header-title">
-      <div class="clinic-name">${unitName || ''}</div>
-      <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
-    </div>
-  </div>
-  <div class="patient-data">${patientDataHtml}</div>
-  ${examTitle ? `<div class="exam-title">${examTitle}</div>` : ''}
-  <div class="report-body">${bodyHtml}</div>
-  ${doctorFooterHtml}
-  ${layoutFooterUrl ? `<div style="margin-top:auto;padding-top:10mm;"><img src="${layoutFooterUrl}" alt="Rodapé" style="width:100%;display:block;" /></div>` : ''}
+  ${draftWatermark}
+  <!-- P4: estrutura de tabela para cabeçalho repetível em múltiplas páginas -->
+  <table class="print-layout">
+    <thead>
+      <tr><td>
+        <div class="header">
+          <div class="header-logo">${logoHtml}</div>
+          <div class="header-title">
+            <div class="clinic-name">${unitName || ''}</div>
+            <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
+          </div>
+        </div>
+      </td></tr>
+    </thead>
+    <tfoot>
+      <tr><td><div style="height:${footerReservedMm > 0 ? '6mm' : '4mm'};"></div></td></tr>
+    </tfoot>
+    <tbody>
+      <tr><td>
+        <div class="patient-data">${patientDataHtml}</div>
+        ${examTitle ? `<div class="exam-title">${examTitle}</div>` : ''}
+        <div class="report-body">${bodyHtml}</div>
+        ${doctorFooterHtml}
+      </td></tr>
+    </tbody>
+  </table>
+  <!-- P5: rodapé com position:fixed para repetir em todas as páginas -->
+  ${layoutFooterUrl ? `<div style="position:fixed;bottom:0;left:0;right:0;"><img src="${layoutFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" /></div>` : ''}
 <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
 </body></html>`;
     const win = window.open('', '_blank', 'width=850,height=1100');
     if (win) { win.document.write(html); win.document.close(); }
-  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, sectionRefs, examNames, isMultiSection]);
+  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, sectionRefs, examNames, isMultiSection, SAFE_FONTS, convertImagesToBase64]);
 
   // FIX BUG-2: inserir imagem inline no contentEditable
   // A imagem faz parte do documento, é salva no laudo e arrastável pelo browser nativamente.
@@ -895,7 +997,7 @@ export default function ReportEditorPage() {
                       {isLastPage && isSigned && medCtx?.doctorName && (
                         <div style={{ padding: "8mm 18mm 6mm 18mm", display: "flex", justifyContent: "center" }}>
                           <div style={{ textAlign: "center", minWidth: 180, maxWidth: 260 }}>
-                            {medCtx.signatureUrl && <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 55, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2mm", filter: "hue-rotate(200deg) saturate(1.5)" }} />}
+                            {medCtx.signatureUrl && <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 55, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2mm", }} />}
                             {medCtx.stampUrl && <img src={medCtx.stampUrl} alt="Carimbo" style={{ maxHeight: 110, maxWidth: 240, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />}
                             <div style={{ borderTop: "1.5px solid #333", width: "100%", marginBottom: "3mm" }} />
                             <div style={{ fontWeight: 700, fontSize: "10.5pt", textTransform: "uppercase", color: "#111", letterSpacing: "0.02em" }}>
@@ -1005,8 +1107,8 @@ export default function ReportEditorPage() {
                 {isSigned && medCtx?.doctorName && (
                   <div style={{ padding: "8mm 18mm 6mm 18mm", display: "flex", justifyContent: "center" }}>
                     <div style={{ textAlign: "center", minWidth: 180, maxWidth: 260 }}>
-                      {medCtx.signatureUrl && <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 55, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2mm", filter: "hue-rotate(200deg) saturate(1.5)" }} />}
-                      {medCtx.stampUrl && <img src={medCtx.stampUrl} alt="Carimbo" style={{ maxHeight: 110, maxWidth: 240, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />}
+                      {medCtx.signatureUrl && <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 55, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2mm",}} />}
+                       {medCtx.stampUrl && <img src={medCtx.stampUrl} alt="Carimbo" style={{ maxHeight: 110, maxWidth: 240, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />}
                       <div style={{ borderTop: "1.5px solid #333", width: "100%", marginBottom: "3mm" }} />
                       <div style={{ fontWeight: 700, fontSize: "10.5pt", textTransform: "uppercase", color: "#111", letterSpacing: "0.02em" }}>
                         {medCtx.doctorName}
