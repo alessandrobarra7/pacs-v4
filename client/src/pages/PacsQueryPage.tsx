@@ -1122,9 +1122,9 @@ export function PacsQueryPage() {
     /* FIX: fundo com dimensões físicas exatas da folha */
     ${bgBase64Q ? `
     background-image: url('${bgBase64Q}');
-    background-size: ${paperW} ${paperH};
-    background-position: left top;
-    background-repeat: repeat-y;
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
     background-attachment: fixed;
     ` : ''}
   }

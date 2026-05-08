@@ -660,9 +660,9 @@ export default function ReportEditorPage() {
     /* FIX: fundo com dimensões físicas exatas da folha */
     ${bgBase64 ? `
     background-image: url('${bgBase64}');
-    background-size: ${paperW} ${paperH};
-    background-position: left top;
-    background-repeat: repeat-y;
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
     background-attachment: fixed;
     ` : ''}
   }
