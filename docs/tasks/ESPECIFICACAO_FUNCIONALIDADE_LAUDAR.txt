@@ -1,0 +1,486 @@
+================================================================================
+  PACS PORTAL v4 — ESPECIFICAÇÃO E ORIENTAÇÕES
+  Funcionalidade: Fluxo Completo de Laudar para o Médico
+  Data: 08/05/2026
+  Objetivo: Tornar o ato de laudar rápido, organizado e especializado
+================================================================================
+
+
+============================================================
+PARTE 1 — SITUAÇÃO ATUAL: O QUE JÁ EXISTE
+============================================================
+
+O sistema já tem a estrutura completa para laudar. O problema não é
+de arquitetura — é de conteúdo e de refinamento da experiência.
+
+O QUE JÁ ESTÁ PRONTO E FUNCIONANDO:
+─────────────────────────────────────
+  ✓ Editor de laudo com contentEditable e formatação rica
+  ✓ Sidebar com 3 abas: Exame | Conteúdo | Imagens
+  ✓ Aba Exame: árvore hierárquica com 96 tipos de exame organizados
+    por modalidade (RX, TC, US, RM) e região anatômica
+  ✓ Aba Conteúdo: templates e frases unificados com toggle interno
+  ✓ Templates com campos: name, modality, exam_title, bodyTemplate
+  ✓ Templates globais (admin_master cria, médico usa)
+  ✓ Templates pessoais (médico cria e gerencia os próprios)
+  ✓ Copiar template global como pessoal ("Usar como base")
+  ✓ Banco de frases prontas com grupos por modalidade (RX, TC, US, RM)
+  ✓ Frases pessoais do médico
+  ✓ Inserção de assinatura e carimbo inline no laudo
+  ✓ Laudo multi-exame (múltiplas seções por estudo)
+  ✓ Salvar rascunho, assinar, retificar
+  ✓ Impressão com fundo, margens, cabeçalho e rodapé da unidade
+
+SEEDS JÁ EXISTENTES (0025_seed_phrases_templates.sql):
+  ✓ 5 grupos de frases globais (RX, TC, US, RM, Geral)
+  ✓ ~70 frases globais distribuídas pelos grupos
+  ✓ 6 templates globais de laudo (RX Tórax, TC Crânio, US Abdome +3)
+
+
+============================================================
+PARTE 2 — O QUE FALTA: GAPS ENTRE SITUAÇÃO ATUAL E OBJETIVO
+============================================================
+
+GAP 1 — POUCOS TEMPLATES (o mais impactante)
+  Situação: 6 templates globais para 96 tipos de exame
+  Objetivo: ~60-80 templates cobrindo os exames mais laudados
+  Impacto: médico abre laudo de "RM de Joelho" e não encontra template
+            → digita tudo do zero → lentidão e inconsistência
+
+GAP 2 — SEM CAMPO CATEGORY (anatomia)
+  Situação: templates agrupados apenas por modality (RX, TC, US, RM)
+  Objetivo: agrupamento por região anatômica DENTRO de cada modalidade
+            Ex: RM → Joelho, RM → Crânio, TC → Tórax, TC → Abdome
+  Impacto: médico vê lista plana de templates sem organização
+
+GAP 3 — SEM AUTO-SUGESTÃO DE TEMPLATE
+  Situação: médico seleciona exame na aba Exame, mas a aba Conteúdo
+            não filtra automaticamente os templates para aquele exame
+  Objetivo: ao selecionar "RM de Joelho", a aba Conteúdo mostra
+            automaticamente os templates de RM de Joelho no topo
+  Impacto: médico precisa navegar manualmente para encontrar o template
+
+GAP 4 — SEM TELA ADMINISTRATIVA DE TEMPLATES
+  Situação: admin_master cria templates via editor interno à aba Conteúdo
+            (mesma interface do médico, com um botão "Global")
+  Objetivo: tela dedicada no painel admin para criar/organizar templates
+            por categoria, vincular a unidades, visualizar com preview
+  Impacto: gestão de templates está misturada com o fluxo do médico
+
+GAP 5 — TEMPLATES SEM SEÇÕES ESTRUTURADAS
+  Situação: bodyTemplate é HTML livre — médico pode escrever qualquer coisa
+  Objetivo: templates com seções fixas (Técnica / Achados / Impressão)
+            com placeholder de texto que o médico substitui
+  Impacto: laudos inconsistentes entre médicos da mesma unidade
+
+GAP 6 — FRASES NÃO VINCULADAS AO EXAME SELECIONADO
+  Situação: FrasesTab mostra todos os grupos de frases (RX, TC, US, RM)
+            sem filtrar pelo exame atual
+  Objetivo: ao laudar "TC de Crânio", frases de TC aparecem primeiro
+            e destacadas; frases de US ficam minimizadas
+  Impacto: médico percorre lista longa para achar a frase certa
+
+GAP 7 — DOCUMENTO DO ORIENTACAO PROPÕE COISAS INCORRETAS
+  Estas partes do documento devem ser IGNORADAS:
+  ✗ Tabela user_customizations — REDUNDANTE. Assinatura, carimbo
+    e frases já existem nas tabelas users e phrases.
+  ✗ API REST (POST /api/layouts/create) — ERRADO. O projeto usa tRPC.
+    Criar REST quebraria type-safety e auth middleware.
+  ✗ Adicionar content/category em model_layouts — ERRADO. model_layouts
+    é layout visual (fundo, margens). Conteúdo fica em templates.
+  ✗ "usuário root" — não existe. O role correto é admin_master.
+
+
+============================================================
+PARTE 3 — LIMPEZA DE FUNCIONALIDADE (o que simplificar)
+============================================================
+
+REMOVER OU SIMPLIFICAR DO EDITOR DO MÉDICO:
+────────────────────────────────────────────
+
+  SIMPLIFICAR — Formulário de criação de template pessoal
+    Situação: dentro da aba Conteúdo, o médico pode criar template
+              com nome, modalidade, título e bodyTemplate completo
+    Problema: criar um template inteiro dentro do editor de laudo é
+              trabalhoso — o médico quer salvar o laudo atual como
+              template, não criar um do zero
+    Solução: substituir o formulário complexo por um único botão
+             "Salvar este laudo como meu template"
+             → popup simples pede apenas: nome e opcionalmente
+               uma categoria/tag para o template
+             → o bodyTemplate é o conteúdo atual do editor
+
+  REMOVER — Toggle Templates/Frases interno à ConteudoTab
+    Situação: ConteudoTab tem dois botões internos (Templates | Frases)
+    Problema: dois níveis de navegação — aba Conteúdo + toggle interno
+    Solução: exibir Templates e Frases na mesma tela da aba Conteúdo
+             como seções colapsáveis, sem toggle. O template fica no
+             topo (mais usado), frases logo abaixo.
+
+  SIMPLIFICAR — Aba Imagens
+    Situação: aba Imagens tem logos da unidade, carimbo e assinatura
+    Solução: manter, mas mover o botão de assinatura para a área fixa
+             abaixo do editor (ao lado de Salvar/Assinar), não como aba.
+             Assinatura é assinada UMA VEZ no final — não durante a edição.
+
+  MANTER COMO ESTÁ:
+    ✓ Aba Exame (árvore de exames) — bem implementada
+    ✓ Editor contentEditable — funciona corretamente
+    ✓ Salvar rascunho / Assinar — fluxo correto
+    ✓ Laudo multi-exame — funcional
+
+
+============================================================
+PARTE 4 — O QUE CRIAR (por ordem de prioridade)
+============================================================
+
+PRIORIDADE 1 — SEEDS DE TEMPLATES (maior impacto, menor esforço)
+──────────────────────────────────────────────────────────────────
+Criar novo arquivo de migration SQL com templates completos.
+Cada template deve ter: name, modality, exam_title, bodyTemplate (HTML)
+
+Estrutura recomendada do bodyTemplate:
+  <h3>Técnica</h3>
+  <p>[texto da técnica do exame]</p>
+  <h3>Achados</h3>
+  <p><strong>[Estrutura 1]:</strong> [achado normal].</p>
+  <p><strong>[Estrutura 2]:</strong> [achado normal].</p>
+  <h3>Impressão Diagnóstica</h3>
+  <p>[conclusão — exame dentro dos limites da normalidade].</p>
+
+LISTA DE TEMPLATES A CRIAR (prioridade clínica):
+
+  RADIOGRAFIA (RX):
+  ─────────────────
+  1.  RX Tórax PA — Normal (JÁ EXISTE)
+  2.  RX Tórax PA — Consolidação Pneumônica
+  3.  RX Coluna Cervical — Normal
+  4.  RX Coluna Lombar — Normal
+  5.  RX Coluna Lombar — Espondilose
+  6.  RX Joelho — Normal
+  7.  RX Joelho — Gonartrose
+  8.  RX Ombro — Normal
+  9.  RX Pé / Tornozelo — Normal
+  10. RX Mão / Punho — Normal
+  11. RX Pelve — Normal
+  12. RX Crânio — Normal
+  13. RX Seios da Face — Normal
+  14. RX Abdome Simples — Normal
+
+  TOMOGRAFIA (TC):
+  ─────────────────
+  15. TC Crânio sem Contraste — Normal (JÁ EXISTE)
+  16. TC Crânio com Contraste — Normal
+  17. TC Crânio — AVC Isquêmico Agudo
+  18. TC Crânio — Hemorragia Subaracnóidea
+  19. TC Tórax — Normal (Alta Resolução)
+  20. TC Tórax — Derrame Pleural
+  21. TC Abdome e Pelve — Normal
+  22. TC Abdome — Colelitíase
+  23. TC Abdome — Apendicite Aguda
+  24. TC Coluna Lombar — Hérnia de Disco
+  25. TC Coluna Lombar — Normal
+  26. TC Coluna Cervical — Normal
+  27. TC Seios da Face — Sinusite
+  28. TC Seios da Face — Normal
+
+  ULTRASSOM (US):
+  ─────────────────
+  29. US Abdome Total — Normal (JÁ EXISTE)
+  30. US Abdome — Colelitíase
+  31. US Abdome — Esteatose Hepática
+  32. US Pelve Feminina — Normal
+  33. US Pelve Feminina — Mioma Uterino
+  34. US Obstétrico Morfológico — Normal
+  35. US Obstétrico — Normal (1º trimestre)
+  36. US Tireoide — Normal
+  37. US Tireoide — Nódulo Colóide
+  38. US Rins e Vias Urinárias — Normal
+  39. US Rins — Nefrolitíase
+  40. US Testículos — Normal
+  41. US Mama — Normal
+  42. US Ombro — Tendinite do Manguito
+  43. US Doppler de Carótidas — Normal
+  44. US Doppler Venoso MMII — Normal (sem TVP)
+
+  RESSONÂNCIA (RM):
+  ─────────────────
+  45. RM Crânio sem e com Contraste — Normal
+  46. RM Crânio — Esclerose Múltipla
+  47. RM Crânio — AVC Isquêmico
+  48. RM Coluna Lombar — Normal
+  49. RM Coluna Lombar — Hérnia de Disco
+  50. RM Coluna Lombar — Estenose de Canal
+  51. RM Coluna Cervical — Normal
+  52. RM Coluna Cervical — Discopatia
+  53. RM Joelho — Normal
+  54. RM Joelho — Rotura de Menisco
+  55. RM Joelho — Lesão do LCA
+  56. RM Ombro — Normal
+  57. RM Ombro — Rotura do Manguito Rotador
+  58. RM Quadril — Normal
+  59. RM Tornozelo — Normal
+  60. RM Pelve Feminina — Normal
+
+ARQUIVO A CRIAR:
+  drizzle/0037_seed_templates_completos.sql
+  Usar INSERT IGNORE com isGlobal=TRUE, unit_id=NULL, owner_user_id=NULL
+
+
+PRIORIDADE 2 — CAMPO category NA TABELA templates
+───────────────────────────────────────────────────
+
+MIGRATION — drizzle/0038_templates_add_category.sql:
+  ALTER TABLE `templates`
+  ADD COLUMN `category` VARCHAR(100) NULL
+    COMMENT 'Região anatômica: Crânio, Tórax, Joelho, etc.'
+    AFTER `exam_title`;
+
+ATUALIZAR drizzle/schema.ts:
+  export const templates = mysqlTable("templates", {
+    ...campos existentes...
+    exam_title: varchar("exam_title", { length: 255 }),
+    category:   varchar("category",   { length: 100 }),  // NOVO
+    bodyTemplate: text("bodyTemplate").notNull(),
+    ...
+  });
+
+ATUALIZAR os SEEDs dos 60 templates (acima) para incluir category:
+  Ex: ('RM Joelho — Normal', 'RM', 'Ressonância Magnética de Joelho', 'Joelho', ...)
+
+ATUALIZAR templatesRouter (server/routers/templates.ts):
+  Em createPersonal e create: adicionar category ao input:
+    category: z.string().max(100).optional(),
+  Em listGlobal: ordenar por modality, category, name:
+    .orderBy(templates.modality, templates.category, templates.name)
+
+
+PRIORIDADE 3 — AUTO-SUGESTÃO DE TEMPLATE PELO EXAME
+─────────────────────────────────────────────────────
+
+Quando o médico seleciona um exame na ExamesTab, a aba Conteúdo deve
+mostrar os templates correspondentes automaticamente no topo.
+
+IMPLEMENTAR em ReportEditorPage.tsx:
+
+  PASSO 1 — Passar o exame selecionado para ConteudoTab:
+    // Estado já existe: examTitle e studyInfo?.modality
+    // Adicionar currentModality e currentExam como props de ConteudoTab
+
+    {activeTab === "conteudo" && (
+      <ConteudoTab
+        onApplyTemplate={...}
+        onInsert={insertAtCursor}
+        onFocus={saveSelection}
+        currentModality={studyInfo?.modality || ""}   // NOVO
+        currentExamTitle={examTitle}                  // NOVO
+      />
+    )}
+
+  PASSO 2 — Em TemplatesTab, filtrar e destacar templates sugeridos:
+    // Props novas: currentModality, currentExamTitle
+    const suggestedTemplates = globalTemplates.filter(t => {
+      if (!currentModality) return false;
+      const modalityMatch = t.modality?.toLowerCase() === currentModality.toLowerCase();
+      const examMatch = currentExamTitle &&
+        t.exam_title?.toLowerCase().includes(currentExamTitle.toLowerCase());
+      return modalityMatch || examMatch;
+    });
+
+    // Renderizar sugestões no topo com destaque visual:
+    {suggestedTemplates.length > 0 && (
+      <div className="border-b border-blue-100 pb-3 mb-3">
+        <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-2">
+          ✦ Sugeridos para {currentExamTitle || currentModality}
+        </p>
+        {suggestedTemplates.map(t => (
+          <TemplateCard key={t.id} template={t} onApply={onApplyTemplate} highlighted />
+        ))}
+      </div>
+    )}
+
+  PASSO 3 — Mapeamento de modalidade DICOM para modality dos templates:
+    // DICOM usa: "CT", "MR", "CR", "DX", "US" — templates usam "TC", "RM", "RX", "US"
+    const MODALITY_MAP: Record<string, string> = {
+      'CT': 'TC', 'MR': 'RM', 'CR': 'RX', 'DX': 'RX',
+      'US': 'US', 'MG': 'MG', 'NM': 'NM', 'PT': 'PET',
+    };
+    const normalizedModality = MODALITY_MAP[studyInfo?.modality?.toUpperCase()] ?? studyInfo?.modality;
+
+
+PRIORIDADE 4 — SIMPLIFICAR CRIAÇÃO DE TEMPLATE PESSOAL
+────────────────────────────────────────────────────────
+
+Substituir o formulário de 4 campos na TemplatesTab por um único botão
+fixo abaixo do editor: "Salvar como meu template".
+
+ADICIONAR botão na barra de ações do editor (linha ~888, área de botões):
+  <Button
+    variant="outline"
+    size="sm"
+    onClick={() => setShowSaveTemplateDialog(true)}
+  >
+    <Save className="h-3.5 w-3.5 mr-1" />
+    Salvar como template
+  </Button>
+
+ADICIONAR dialog simples:
+  <Dialog open={showSaveTemplateDialog} onOpenChange={setShowSaveTemplateDialog}>
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Salvar como meu template</DialogTitle>
+      </DialogHeader>
+      <Input
+        placeholder="Nome do template (ex: RM Joelho Normal — meu padrão)"
+        value={saveTemplateName}
+        onChange={e => setSaveTemplateName(e.target.value)}
+      />
+      <DialogFooter>
+        <Button onClick={handleSaveAsTemplate}>Salvar</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+IMPLEMENTAR handleSaveAsTemplate:
+  const handleSaveAsTemplate = async () => {
+    if (!saveTemplateName.trim()) return;
+    const currentBody = collectBody(); // já existe — captura o HTML atual
+    await createPersonal.mutateAsync({
+      name: saveTemplateName.trim(),
+      modality: studyInfo?.modality || undefined,
+      exam_title: examTitle || undefined,
+      bodyTemplate: currentBody,
+    });
+    setShowSaveTemplateDialog(false);
+    setSaveTemplateName('');
+    toast.success('Template salvo na sua biblioteca!');
+  };
+
+  REMOVER o formulário de criação de template de dentro da TemplatesTab.
+  MANTER apenas: lista de templates pessoais, busca, aplicar, excluir.
+
+
+PRIORIDADE 5 — SEÇÕES FIXAS NO EDITOR (Técnica / Achados / Impressão)
+──────────────────────────────────────────────────────────────────────
+
+Quando um template é aplicado, o editor mostra o HTML com as seções.
+O placeholder já funciona com o CSS:
+  [contenteditable]:empty:before { content: attr(placeholder); color: #aaa; }
+
+Para reforçar a estrutura, o bodyTemplate dos seeds deve sempre usar:
+  <h3>Técnica</h3>     ← seção não editável pelo médico (cor cinza)
+  <h3>Achados</h3>     ← médico edita o conteúdo abaixo
+  <h3>Impressão Diagnóstica</h3>  ← médico escreve a conclusão
+
+Adicionar CSS no editor para diferenciar visualmente os títulos de seção:
+  // No bloco de style do contentEditable ou no CSS global do editor:
+  [contenteditable] h3 {
+    color: #1e40af;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 12px 0 4px;
+    padding-bottom: 2px;
+    border-bottom: 1px solid #bfdbfe;
+  }
+
+
+PRIORIDADE 6 — TELA ADMINISTRATIVA DE TEMPLATES
+─────────────────────────────────────────────────
+
+Criar client/src/pages/TemplateManagerPage.tsx
+Acessível via: /admin/templates (apenas admin_master e unit_admin com manage_templates)
+
+ESTRUTURA DA TELA:
+  Painel esquerdo (30%):
+    - Filtro por modalidade (RX | TC | US | RM | Todos)
+    - Filtro por categoria anatômica
+    - Filtro por unidade (admin_master vê todas)
+    - Lista de templates com nome, modalidade, categoria
+    - Botão "Novo template"
+
+  Painel direito (70%):
+    - Formulário: name, modality (select), category (select ou texto livre),
+      exam_title, isGlobal (toggle), unit_id (select, admin_master)
+    - Editor rich text do bodyTemplate (mesmo ReportDocument em modo editável)
+    - Preview ao vivo do laudo com o template aplicado
+    - Botões: Salvar | Duplicar | Excluir
+
+  ROTA em App.tsx:
+    <Route path="/admin/templates" component={TemplateManagerPage} />
+
+  LINK em AdminPage.tsx:
+    <Button onClick={() => navigate('/admin/templates')}>
+      Gerenciar Templates de Laudo
+    </Button>
+
+
+============================================================
+PARTE 5 — FLUXO IDEAL DO MÉDICO APÓS AS MELHORIAS
+============================================================
+
+  1. Médico clica em "Laudar" no estudo
+  2. Editor abre → aba Exame ativa
+  3. Médico clica em "RM" → "Extremidades" → "Joelho"
+     → exam_title = "Ressonância Magnética de Joelho" é definido
+     → aba Conteúdo muda automaticamente e mostra templates de RM/Joelho
+  4. Médico clica no template "RM Joelho — Normal"
+     → bodyTemplate com Técnica, Achados e Impressão é inserido
+  5. Médico edita apenas o que difere do normal (ex: "rotura parcial de menisco medial")
+  6. Se precisar de uma frase: rola para baixo na aba Conteúdo → seção Frases
+     → frases de RM aparecem primeiro (filtradas pela modalidade)
+  7. Médico insere assinatura (botão fixo abaixo do editor)
+  8. Clica "Assinar" → laudo salvo e assinado
+
+  TEMPO ESTIMADO COM AS MELHORIAS: 2-5 minutos por laudo normal
+  TEMPO ATUAL SEM TEMPLATES: 10-20 minutos (digitação do zero)
+
+
+============================================================
+PARTE 6 — ESTIMATIVA DE ESFORÇO
+============================================================
+
+  Tarefa                                    Arquivo(s)            Tempo
+  ─────                                     ─────────             ─────
+  Seeds 60 templates (SQL)                  0037_seed_*.sql       3-4h
+  Migration category                        0038_*.sql            30min
+  Atualizar schema + router (category)      schema.ts, routers    30min
+  Auto-sugestão de template                 ReportEditorPage.tsx  3h
+  Simplificar criação de template pessoal   ReportEditorPage.tsx  2h
+  CSS de seções h3 no editor               ReportEditorPage.tsx  30min
+  Tela admin de templates                   TemplateManagerPage   1 dia
+
+  TOTAL ESTIMADO: 2-3 dias de desenvolvimento
+  IMPACTO IMEDIATO (só os seeds): 3-4h de SQL → resolve 80% do problema
+
+
+============================================================
+PARTE 7 — CHECKLIST DE VALIDAÇÃO
+============================================================
+
+  SEEDS
+  [ ] Pelo menos 1 template para cada um dos 60 exames listados
+  [ ] Todos com isGlobal=TRUE, unit_id=NULL, owner_user_id=NULL
+  [ ] bodyTemplate com as 3 seções: Técnica, Achados, Impressão
+  [ ] Campo category preenchido (ex: "Joelho", "Crânio", "Tórax")
+
+  AUTO-SUGESTÃO
+  [ ] Selecionar "RM de Joelho" → templates de RM/Joelho aparecem no topo
+  [ ] Selecionar "TC de Crânio" → templates de TC/Crânio aparecem no topo
+  [ ] Sem exame selecionado → todos os templates aparecem normalmente
+
+  SALVAR COMO TEMPLATE
+  [ ] Editar um laudo → clicar "Salvar como template"
+  [ ] Nome digitado → template aparece na lista pessoal
+  [ ] Template aplicável em novos laudos
+
+  TELA ADMIN
+  [ ] admin_master acessa /admin/templates
+  [ ] Criar template com modalidade e categoria → aparece na lista do médico
+  [ ] Preview ao vivo funciona com o bodyTemplate
+
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================
