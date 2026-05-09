@@ -190,7 +190,8 @@ export default function ReportEditorPage() {
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   // Aba ativa da sidebar
-  const [activeTab, setActiveTab] = useState<"exames" | "conteudo" | "imagens">("exames");
+  // Redesign: 3 abas diretas conforme REDESIGN_EDITOR_LAUDOS.txt
+  const [activeTab, setActiveTab] = useState<"modelos" | "frases" | "carimbo">("modelos");
   // DnD: controla o highlight do editor quando um item está sendo arrastado sobre ele
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -916,18 +917,19 @@ export default function ReportEditorPage() {
           {/* Abas */}
           <div className="flex border-b border-gray-200 bg-white">
             {([
-              { id: "exames",   label: "Exame",    icon: <Search className="h-3.5 w-3.5" /> },
-              { id: "conteudo", label: "Conteúdo", icon: <FileText className="h-3.5 w-3.5" /> },
-              { id: "imagens",  label: "Imagens",  icon: <Layers className="h-3.5 w-3.5" /> },
+              { id: "modelos", label: "Modelos",  icon: <GripVertical className="h-3.5 w-3.5" /> },
+              { id: "frases",  label: "Frases",   icon: <MessageSquare className="h-3.5 w-3.5" /> },
+              { id: "carimbo", label: "Carimbo",  icon: <Layers className="h-3.5 w-3.5" /> },
             ] as const).map(({ id, label, icon }) => (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
-                  activeTab === id
-                    ? "text-blue-600 border-b-2 border-blue-600 bg-white"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
+                className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[10px] font-medium transition-colors
+                  ${
+                    activeTab === id
+                      ? "text-blue-600 border-b-2 border-blue-600 bg-white"
+                      : "text-gray-400 hover:text-gray-600"
+                  }`}
               >
                 {icon}
                 {label}
@@ -935,32 +937,30 @@ export default function ReportEditorPage() {
             ))}
           </div>
 
-          {/* Conteúdo da aba */}
+          {/* Conteúdo da aba — Redesign */}
           <div className="flex-1 overflow-y-auto">
-            {activeTab === "exames" && (
-              <ExamesTab
-                onSelectExam={(name) => setExamTitle(name)}
-                currentTitle={examTitle}
+            {activeTab === "modelos" && (
+              <ModelosTab
+                onApplyTemplate={(body, examTitle) => {
+                  if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
+                  if (examTitle) setExamTitle(examTitle);
+                }}
+                currentExamTitle={examTitle}
+                currentModality={studyInfo?.modality || ""}
               />
             )}
-            {activeTab === "conteudo" && (
-              <ConteudoTab
-                onApplyTemplate={(body) => {
-                  if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
-                }}
+            {activeTab === "frases" && (
+              <FrasesTab
                 onInsert={insertAtCursor}
                 onFocus={saveSelection}
               />
             )}
-            {activeTab === "imagens" && (
-              <ImagensTab
+            {activeTab === "carimbo" && (
+              <CarimboTab
+                signatureUrl={medCtx?.signatureUrl ?? null}
                 stampUrl={medCtx?.stampUrl ?? null}
                 doctorName={medCtx?.doctorName ?? ""}
                 crm={medCtx?.crm ?? ""}
-                unitLogoUrl={medCtx?.unitLogoUrl ?? null}
-                unitId={unitId}
-                isAdmin={user?.role === "admin_master" || user?.role === "unit_admin"}
-                onInsertImage={addInlineImage}
               />
             )}
           </div>
@@ -983,6 +983,22 @@ export default function ReportEditorPage() {
         </aside>
 
         {/* ── ÁREA DO DOCUMENTO ────────────────────────────────────────── */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+        {/* MOD 8 — Campo de seleção de exame compacto acima do editor */}
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-gray-50/50 print:hidden">
+          <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+          <input
+            value={examTitle}
+            onChange={e => setExamTitle(e.target.value)}
+            placeholder="Tipo de exame (ex: RM de Joelho)..."
+            className="flex-1 text-xs bg-transparent focus:outline-none text-gray-700 placeholder:text-gray-300"
+          />
+          {examTitle && (
+            <button onClick={() => setExamTitle("")} className="text-gray-300 hover:text-gray-500">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
         <main className="flex-1 overflow-y-auto bg-gray-100 flex justify-center py-8 print:bg-white print:p-0 print:block">
           <div
             className={isMultiSection ? "relative" : "relative bg-white shadow-md print:shadow-none"}
@@ -1075,6 +1091,23 @@ export default function ReportEditorPage() {
                             e.preventDefault();
                             setIsDragOver(false);
                             activeSectionRef.current = i;
+                            // Payload JSON unificado (ModelosTab, FrasesTab, CarimboTab)
+                            const jsonRaw = e.dataTransfer.getData('application/json');
+                            if (jsonRaw) {
+                              try {
+                                const payload = JSON.parse(jsonRaw);
+                                if (payload.type === 'template') {
+                                  const el = sectionRefs.current[i];
+                                  if (el) el.innerHTML = sanitizeHtmlForEditor(payload.data);
+                                } else if (payload.type === 'phrase') {
+                                  insertAtCursor(payload.data);
+                                } else if (payload.type === 'signature' || payload.type === 'stamp') {
+                                  insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
+                                }
+                              } catch (_) {}
+                              return;
+                            }
+                            // Legado: text/x-report-template
                             const templateRaw = e.dataTransfer.getData('text/x-report-template');
                             if (templateRaw) {
                               try {
@@ -1216,6 +1249,23 @@ export default function ReportEditorPage() {
                     onDrop={isEditable ? (e) => {
                       e.preventDefault();
                       setIsDragOver(false);
+                      // Payload JSON unificado (ModelosTab, FrasesTab, CarimboTab)
+                      const jsonRaw = e.dataTransfer.getData('application/json');
+                      if (jsonRaw) {
+                        try {
+                          const payload = JSON.parse(jsonRaw);
+                          if (payload.type === 'template') {
+                            if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(payload.data);
+                            if (payload.examTitle) setExamTitle(payload.examTitle);
+                          } else if (payload.type === 'phrase') {
+                            insertAtCursor(payload.data);
+                          } else if (payload.type === 'signature' || payload.type === 'stamp') {
+                            insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
+                          }
+                        } catch (_) {}
+                        return;
+                      }
+                      // Legado: text/x-report-template
                       const templateRaw = e.dataTransfer.getData('text/x-report-template');
                       if (templateRaw) {
                         try {
@@ -1270,8 +1320,8 @@ export default function ReportEditorPage() {
           </div>
 
         </main>
+        </div>{/* fim div wrapper MOD 8 */}
       </div>
-
       {/* Modal de motivo de retificação */}
       {showReviseModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -2205,6 +2255,168 @@ function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string, exa
   );
 }
 
+// ─── ModelosTab (Redesign) ────────────────────────────────────────────────────
+function ModelosTab({
+  onApplyTemplate,
+  currentExamTitle,
+  currentModality,
+}: {
+  onApplyTemplate: (body: string, examTitle?: string) => void;
+  currentExamTitle: string;
+  currentModality: string;
+}) {
+  const { data: rawPersonal = [] }  = trpc.templates.listMine.useQuery();
+  const { data: rawGlobal = [] }    = trpc.templates.listGlobal.useQuery();
+  const [search, setSearch]         = useState("");
+  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
+
+  const norm  = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const terms = norm(search.trim());
+
+  const getCategory = (t: any): string => {
+    if (t.category) return t.category;
+    const title = t.exam_title || t.name || "";
+    const words = title.split(/[\s\-\u2014]+/);
+    const skip = new Set(["rm", "tc", "rx", "us", "ct", "mr", "cr", "dx",
+      "ressonancia", "tomografia", "radiografia", "ultrassom",
+      "ultrassonografia", "radiologia", "de", "do", "da", "dos", "das"]);
+    const region = words.find((w: string) => w.length > 2 && !skip.has(w.toLowerCase()));
+    return region ? region.charAt(0).toUpperCase() + region.slice(1) : "Geral";
+  };
+
+  const allTemplates = [...rawGlobal, ...rawPersonal].filter(Boolean);
+
+  const suggested = currentExamTitle
+    ? allTemplates.filter(t => {
+        const mod   = (t.modality || "").toLowerCase();
+        const title = (t.exam_title || t.name || "").toLowerCase();
+        const dicomToLocal: Record<string, string> = { ct: "tc", mr: "rm", cr: "rx", dx: "rx", us: "us" };
+        const localMod = dicomToLocal[currentModality.toLowerCase()] ?? currentModality.toLowerCase();
+        return mod === localMod || title.includes(norm(currentExamTitle).split(" ")[0]);
+      })
+    : [];
+
+  const filtered = terms
+    ? allTemplates.filter(t =>
+        norm(t.name).includes(terms) ||
+        norm(t.exam_title || "").includes(terms) ||
+        norm(getCategory(t)).includes(terms)
+      )
+    : allTemplates;
+
+  const grouped = filtered.reduce<Record<string, typeof allTemplates>>((acc, t) => {
+    const cat = getCategory(t);
+    (acc[cat] ||= []).push(t);
+    return acc;
+  }, {});
+
+  const toggleCategory = (cat: string) =>
+    setOpenCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
+
+  const TemplateCard = ({ t, highlighted = false }: { t: any; highlighted?: boolean }) => (
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "copy";
+        e.dataTransfer.setData("application/json", JSON.stringify({
+          type: "template",
+          data: t.bodyTemplate,
+          examTitle: t.exam_title || undefined,
+        }));
+        (e.currentTarget as HTMLElement).style.opacity = "0.5";
+      }}
+      onDragEnd={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+      onClick={() => onApplyTemplate(t.bodyTemplate, t.exam_title || undefined)}
+      className={`flex items-start gap-2 p-3 border rounded-md cursor-grab active:cursor-grabbing transition-colors hover:border-blue-300 hover:bg-blue-50/60 group ${
+        highlighted ? "border-blue-200 bg-blue-50/40" : "border-gray-200 bg-white"
+      }`}
+      title="Arraste para o laudo ou clique para aplicar"
+    >
+      <GripVertical className="h-4 w-4 text-gray-300 group-hover:text-blue-400 shrink-0 mt-0.5 transition-colors" />
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium text-gray-800 truncate">{t.name}</p>
+        {t.exam_title && (
+          <p className="text-[10px] text-gray-400 truncate mt-0.5">{t.exam_title}</p>
+        )}
+      </div>
+      {(t as any).owner_user_id && (
+        <span className="text-[9px] bg-green-100 text-green-600 rounded px-1 py-0.5 shrink-0 font-medium">meu</span>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="p-3 border-b border-gray-100">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-gray-400" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar modelo..."
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+          />
+        </div>
+        <p className="text-[10px] text-gray-400 mt-1.5">Arraste para o laudo ou clique para aplicar</p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+        {!search && suggested.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wider mb-2">
+              ✦ Sugeridos para este exame
+            </p>
+            <div className="space-y-2">
+              {suggested.map(t => <TemplateCard key={`s-${t.id}`} t={t} highlighted />)}
+            </div>
+          </div>
+        )}
+
+        {Object.entries(grouped).map(([cat, items]) => {
+          const isOpen = openCategories[cat] ?? true;
+          return (
+            <div key={cat}>
+              <button
+                onClick={() => toggleCategory(cat)}
+                className="w-full flex items-center justify-between mb-2 group"
+              >
+                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider group-hover:text-gray-700 transition-colors">
+                  {cat}
+                </span>
+                <div className="flex items-center gap-1">
+                  <span className="text-[9px] bg-gray-100 text-gray-500 rounded-full px-1.5 py-0.5">
+                    {items.length}
+                  </span>
+                  {isOpen
+                    ? <ChevronDown className="h-3 w-3 text-gray-400" />
+                    : <ChevronRight className="h-3 w-3 text-gray-400" />
+                  }
+                </div>
+              </button>
+              {isOpen && (
+                <div className="space-y-2">
+                  {items.map(t => <TemplateCard key={t.id} t={t} />)}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {filtered.length === 0 && (
+          <div className="text-center py-8">
+            <p className="text-xs text-gray-400">Nenhum modelo encontrado</p>
+            {search && (
+              <button onClick={() => setSearch("")} className="text-xs text-blue-500 mt-1 hover:underline">
+                Limpar busca
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Aba Frases ───────────────────────────────────────────────────────────────
 function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; onFocus: () => void }) {
   const { data: rawGroups = [], refetch: refetchGroups } = trpc.phrases.listGroups.useQuery();
@@ -2298,7 +2510,8 @@ function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; on
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.effectAllowed = 'copy';
-                        e.dataTransfer.setData('text/plain', phrase.content);
+                        e.dataTransfer.setData('application/json', JSON.stringify({ type: 'phrase', data: phrase.content }));
+                                        e.dataTransfer.setData('text/plain', phrase.content); // fallback
                         (e.currentTarget as HTMLDivElement).style.opacity = '0.5';
                       }}
                       onDragEnd={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = '1'; }}
@@ -2370,6 +2583,101 @@ function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; on
     </div>
   );
 }
+
+// ─── CarimboTab (Redesign) ────────────────────────────────────────────────────
+function CarimboTab({
+  signatureUrl,
+  stampUrl,
+  doctorName,
+  crm,
+}: {
+  signatureUrl: string | null;
+  stampUrl: string | null;
+  doctorName: string;
+  crm: string;
+}) {
+  const DraggableImage = ({
+    src,
+    type,
+    label,
+    hint,
+  }: {
+    src: string;
+    type: "signature" | "stamp";
+    label: string;
+    hint: string;
+  }) => (
+    <div className="space-y-1.5">
+      <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">{label}</p>
+      <div
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = "copy";
+          e.dataTransfer.setData("application/json", JSON.stringify({ type, data: src }));
+          (e.currentTarget as HTMLElement).style.opacity = "0.5";
+        }}
+        onDragEnd={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+        className="border-2 border-dashed border-gray-200 rounded-lg p-3 flex items-center
+                   justify-center min-h-[90px] cursor-grab active:cursor-grabbing
+                   hover:border-blue-300 hover:bg-blue-50/40 transition-colors group"
+        title={`Arraste para inserir ${label.toLowerCase()} no laudo`}
+      >
+        <img src={src} alt={label} className="max-h-16 max-w-full object-contain" />
+      </div>
+      <p className="text-[10px] text-gray-400">{hint}</p>
+    </div>
+  );
+
+  const EmptySlot = ({ label, message }: { label: string; message: string }) => (
+    <div className="space-y-1.5">
+      <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">{label}</p>
+      <div className="border-2 border-dashed border-gray-100 rounded-lg p-4 flex flex-col
+                      items-center justify-center min-h-[90px] bg-gray-50/50">
+        <p className="text-xs text-gray-400 text-center">{message}</p>
+        <p className="text-[10px] text-gray-300 mt-1 text-center">
+          Configure no perfil via Admin → Usuários
+        </p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="p-4 space-y-5">
+      {doctorName && (
+        <div className="bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+          <p className="text-xs font-medium text-gray-700">{doctorName}</p>
+          {crm && <p className="text-[10px] text-gray-400 mt-0.5">{crm}</p>}
+        </div>
+      )}
+      {signatureUrl ? (
+        <DraggableImage
+          src={signatureUrl}
+          type="signature"
+          label="Assinatura"
+          hint="Arraste para a área de assinatura do laudo"
+        />
+      ) : (
+        <EmptySlot label="Assinatura" message="Sem assinatura cadastrada" />
+      )}
+      <div className="border-t border-gray-100" />
+      {stampUrl ? (
+        <DraggableImage
+          src={stampUrl}
+          type="stamp"
+          label="Carimbo"
+          hint="Arraste para a área de carimbo do laudo"
+        />
+      ) : (
+        <EmptySlot label="Carimbo" message="Sem carimbo cadastrado" />
+      )}
+      <p className="text-[10px] text-gray-400 bg-blue-50 rounded p-2 leading-relaxed">
+        Arraste a assinatura ou carimbo para a área correspondente no final do laudo.
+        Ao assinar, eles serão incluídos automaticamente.
+      </p>
+    </div>
+  );
+}
+
 // ─── Aba Conteúdo (Templates + Frases unificados) ────────────────────────────────────────────────────────────────────────────────
 function ConteudoTab({
   onApplyTemplate,
