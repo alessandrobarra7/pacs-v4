@@ -407,6 +407,7 @@ export function DicomViewerPage() {
     setImageIds([]);
     setImageCount(0);
     cornerstoneInitRef.current = false;
+    seriesLoadedRef.current = false; // FIX P4: resetar guard ao reiniciar — permite recarregar séries
 
     let firstFileReceived = false;
     let localTotal = 0;
