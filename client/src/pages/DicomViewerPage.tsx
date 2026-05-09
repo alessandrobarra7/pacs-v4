@@ -63,6 +63,7 @@ export function DicomViewerPage() {
   const [location, navigate] = useLocation();
   const viewerRef = useRef<HTMLDivElement>(null);
   const toolGroupRef = useRef<any>(null);
+  const toolGroupIdRef = useRef<string | null>(null); // FIX P1: guardar ID para destroyToolGroup no cleanup
   const viewportRef = useRef<any>(null);
   const renderingEngineRef = useRef<any>(null);
   const cornerstoneInitRef = useRef(false);
@@ -105,6 +106,7 @@ export function DicomViewerPage() {
 
   // Lista de imageIds acumulados durante o streaming
   const imageIdsRef = useRef<string[]>([]);
+  const imageIdsSetRef = useRef<Set<string>>(new Set()); // FIX P3: Set para checagem O(1) de duplicatas
   const [imageIds, setImageIds] = useState<string[]>([]);
   // BUG-1 FIX: refs para batch de setStack (evita O(n²) durante streaming de TC)
   const pendingIdsRef = useRef<string[]>([]);
@@ -114,6 +116,7 @@ export function DicomViewerPage() {
   const [series, setSeries] = useState<DicomSeries[]>([]);
   const [activeSeries, setActiveSeries] = useState<string | null>(null);
   const [seriesLoaded, setSeriesLoaded] = useState(false);
+  const seriesLoadedRef = useRef(false); // FIX P4: ref para evitar closure stale no guard de loadSeries
 
   // ─── Anamnese ──────────────────────────────────────────────────────────────
   const [showAnamnesisPanel, setShowAnamnesisPanel] = useState(false);
@@ -181,6 +184,7 @@ export function DicomViewerPage() {
     });
 
     const toolGroupId = `PACS_TG_${Date.now()}`;
+    toolGroupIdRef.current = toolGroupId; // FIX P1: salvar ID para destruir no cleanup
     const toolGroup = ToolGroupManager.createToolGroup(toolGroupId);
     toolGroupRef.current = toolGroup;
 
@@ -229,6 +233,22 @@ export function DicomViewerPage() {
     setViewport(vp);
 
     if (toolGroup) toolGroup.addViewport(viewportId, engineId);
+
+    // FIX P5: detectar perda de contexto WebGL — comum em abas inativas por muito tempo
+    // ou quando a GPU fica sem memória com múltiplos estudos abertos
+    const canvas = viewerRef.current?.querySelector('canvas');
+    if (canvas) {
+      canvas.addEventListener('webglcontextlost', (e: Event) => {
+        e.preventDefault(); // necessário para permitir restauração posterior
+        console.warn('[DicomViewer] Contexto WebGL perdido');
+        setError('O visualizador perdeu o contexto gráfico. Clique em "Recarregar" para continuar.');
+        setPhase('error');
+      });
+      canvas.addEventListener('webglcontextrestored', () => {
+        console.info('[DicomViewer] Contexto WebGL restaurado');
+        setError('Contexto gráfico restaurado. Clique em "Recarregar" para continuar.');
+      });
+    }
 
     // Atualiza WL ao interagir
     viewerRef.current?.addEventListener("mousemove", () => {
@@ -285,8 +305,9 @@ export function DicomViewerPage() {
   // Em vez de 300 chamadas para TC com 300 imagens, haverá ~5 chamadas (~98% de redução)
   const addImageToStack = useCallback((filename: string) => {
     const newId = `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${filename}`;
-    // Evita duplicatas sem percorrer o array inteiro a cada arquivo
-    if (imageIdsRef.current.includes(newId) || pendingIdsRef.current.includes(newId)) return;
+    // FIX P3: checagem O(1) via Set em vez de includes() O(n)
+    if (imageIdsSetRef.current.has(newId)) return;
+    imageIdsSetRef.current.add(newId);
     pendingIdsRef.current.push(newId);
 
     // Cancela o timer anterior e agenda um novo flush
@@ -296,6 +317,7 @@ export function DicomViewerPage() {
       // Aplica todos os IDs acumulados de uma vez só e ordena uma única vez
       imageIdsRef.current = [...imageIdsRef.current, ...pendingIdsRef.current].sort();
       pendingIdsRef.current = [];
+      // FIX P3: manter o Set sincronizado com o array (já foram adicionados no has() acima)
       const updatedIds = imageIdsRef.current;
       setImageIds([...updatedIds]);
       setImageCount(updatedIds.length);
@@ -329,7 +351,8 @@ export function DicomViewerPage() {
 
   // ─── Carrega lista de séries do estudo ────────────────────────────────────────────
   const loadSeries = useCallback(async () => {
-    if (!studyUid || seriesLoaded) return;
+    // FIX P4: usar seriesLoadedRef.current em vez de seriesLoaded (evita closure stale)
+    if (!studyUid || seriesLoadedRef.current) return;
     try {
       const resp = await fetch(`/api/dicom-series/${studyUid}`);
       if (!resp.ok) return;
@@ -337,10 +360,11 @@ export function DicomViewerPage() {
       if (data.success && Array.isArray(data.series) && data.series.length > 0) {
         setSeries(data.series);
         setActiveSeries(data.series[0].seriesUid);
+        seriesLoadedRef.current = true; // FIX P4: resetar guard para novo estudo
         setSeriesLoaded(true);
       }
     } catch (_) {}
-  }, [studyUid, seriesLoaded]);
+  }, [studyUid]); // FIX P4: removido seriesLoaded das deps — agora usa seriesLoadedRef.current
 
   // ─── Troca a série ativa no viewport ────────────────────────────────────────────
   const switchSeries = useCallback(async (targetSeries: DicomSeries) => {
@@ -379,6 +403,7 @@ export function DicomViewerPage() {
     setTotalCount(0);
     setDownloadProgress("Conectando ao PACS...");
     imageIdsRef.current = [];
+    imageIdsSetRef.current.clear(); // FIX P3: limpar Set ao reiniciar o viewer
     setImageIds([]);
     setImageCount(0);
     cornerstoneInitRef.current = false;
@@ -507,7 +532,8 @@ export function DicomViewerPage() {
         setError(data.message || "Erro ao carregar imagens do PACS");
         setPhase("error");
       } catch {
-        if (phase !== "ready") {
+        // FIX P2: usar phaseRef.current em vez de phase (evita closure stale)
+        if (phaseRef.current !== "ready") {
           setError("Conexão com o servidor interrompida. Tente novamente.");
           setPhase("error");
         }
@@ -530,6 +556,14 @@ export function DicomViewerPage() {
       }
       if (renderingEngineRef.current) {
         try { renderingEngineRef.current.destroy(); } catch (_) {}
+      }
+      // FIX P1: destruir ToolGroup ao desmontar — evita memory leak no ToolGroupManager
+      if (toolGroupIdRef.current) {
+        try {
+          const { ToolGroupManager } = csTools;
+          ToolGroupManager.destroyToolGroup(toolGroupIdRef.current);
+        } catch (_) {}
+        toolGroupIdRef.current = null;
       }
       // BUG-1 FIX: limpar batch timer ao desmontar (evita setState em ref nula)
       if (batchTimerRef.current) {
