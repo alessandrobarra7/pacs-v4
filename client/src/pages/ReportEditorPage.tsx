@@ -191,6 +191,8 @@ export default function ReportEditorPage() {
 
   // Aba ativa da sidebar
   const [activeTab, setActiveTab] = useState<"exames" | "conteudo" | "imagens">("exames");
+  // DnD: controla o highlight do editor quando um item está sendo arrastado sobre ele
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // Referência ao documento editável (seção única)
   const docRef = useRef<HTMLDivElement>(null);
@@ -1061,7 +1063,40 @@ export default function ReportEditorPage() {
                           onMouseUp={isEditable ? saveSelection : undefined}
                           onKeyUp={isEditable ? saveSelection : undefined}
                           data-placeholder={`Digite o laudo de ${name}...`}
-                          style={{ flex: 1, minHeight: "60mm", outline: "none", lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", cursor: isEditable ? "text" : "default", fontFamily: "'Times New Roman', Times, serif" }}
+                          // FIX DnD: drop nas seções do modo multi-exame
+                          onDragOver={isEditable ? (e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'copy';
+                            activeSectionRef.current = i;
+                            setIsDragOver(true);
+                          } : undefined}
+                          onDragLeave={isEditable ? () => setIsDragOver(false) : undefined}
+                          onDrop={isEditable ? (e) => {
+                            e.preventDefault();
+                            setIsDragOver(false);
+                            activeSectionRef.current = i;
+                            const templateRaw = e.dataTransfer.getData('text/x-report-template');
+                            if (templateRaw) {
+                              try {
+                                const { body } = JSON.parse(templateRaw);
+                                const el = sectionRefs.current[i];
+                                if (el) el.innerHTML = sanitizeHtmlForEditor(body);
+                              } catch (_) {}
+                              return;
+                            }
+                            const plainText = e.dataTransfer.getData('text/plain');
+                            if (plainText) insertAtCursor(plainText);
+                          } : undefined}
+                          style={{
+                            flex: 1, minHeight: "60mm",
+                            outline: isDragOver && activeSectionRef.current === i ? "2px dashed #3b82f6" : "none",
+                            borderRadius: "4px",
+                            lineHeight: 1.6, fontSize: "11pt", color: "#111",
+                            textAlign: "left", whiteSpace: "pre-wrap",
+                            cursor: isEditable ? "text" : "default",
+                            fontFamily: "'Times New Roman', Times, serif",
+                            transition: "outline 0.1s ease",
+                          }}
                         />
                       </div>
 
@@ -1171,7 +1206,39 @@ export default function ReportEditorPage() {
                     onMouseUp={isEditable ? saveSelection : undefined}
                     onKeyUp={isEditable ? saveSelection : undefined}
                     data-placeholder="Digite o laudo aqui..."
-                    style={{ flex: 1, minHeight: "60mm", outline: "none", lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", cursor: isEditable ? "text" : "default", fontFamily: "'Times New Roman', Times, serif" }}
+                    // FIX DnD: receber drop de templates e frases da sidebar
+                    onDragOver={isEditable ? (e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'copy';
+                      setIsDragOver(true);
+                    } : undefined}
+                    onDragLeave={isEditable ? () => setIsDragOver(false) : undefined}
+                    onDrop={isEditable ? (e) => {
+                      e.preventDefault();
+                      setIsDragOver(false);
+                      const templateRaw = e.dataTransfer.getData('text/x-report-template');
+                      if (templateRaw) {
+                        try {
+                          const { body, examTitle } = JSON.parse(templateRaw);
+                          if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
+                          if (examTitle) setExamTitle(examTitle);
+                        } catch (_) {}
+                        return;
+                      }
+                      const plainText = e.dataTransfer.getData('text/plain');
+                      if (plainText) insertAtCursor(plainText);
+                    } : undefined}
+                    style={{
+                      flex: 1, minHeight: "60mm",
+                      outline: isDragOver ? "2px dashed #3b82f6" : "none",
+                      borderRadius: isDragOver ? "4px" : undefined,
+                      backgroundColor: isDragOver ? "rgba(59,130,246,0.04)" : undefined,
+                      lineHeight: 1.6, fontSize: "11pt", color: "#111",
+                      textAlign: "left", whiteSpace: "pre-wrap",
+                      cursor: isEditable ? "text" : "default",
+                      fontFamily: "'Times New Roman', Times, serif",
+                      transition: "outline 0.1s ease, background-color 0.1s ease",
+                    }}
                   />
                 </div>
 
@@ -1294,6 +1361,9 @@ export default function ReportEditorPage() {
           * { overflow: visible !important; }
           .print\\:hidden { display: none !important; }
           [contenteditable] { outline: none !important; }
+          /* FIX DnD: cursor e feedback nos itens arrastáveis da sidebar */
+          [draggable="true"] { cursor: grab; user-select: none; }
+          [draggable="true"]:active { cursor: grabbing; }
         }
         [contenteditable]:empty:before {
           content: attr(data-placeholder);
@@ -1878,7 +1948,21 @@ function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string, exa
   const unmapped = myTemplates.filter(t => !mappedIds.has(t.id));
 
   const renderItem = (t: typeof myTemplates[0]) => (
-    <div key={t.id} className="flex items-start gap-1 px-3 py-2 hover:bg-blue-50 group border-b border-gray-100 last:border-0">
+    <div
+      key={t.id}
+      className="flex items-start gap-1 px-3 py-2 hover:bg-blue-50 group border-b border-gray-100 last:border-0"
+      // FIX DnD: tornar o card de template arrastável
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'copy';
+        e.dataTransfer.setData('text/x-report-template', JSON.stringify({
+          body:      t.bodyTemplate,
+          examTitle: (t as any).exam_title || undefined,
+        }));
+        (e.currentTarget as HTMLDivElement).style.opacity = '0.5';
+      }}
+      onDragEnd={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = '1'; }}
+    >
       <button
         onClick={() => onApplyTemplate(t.bodyTemplate, (t as any).exam_title || undefined)}
         className="flex-1 text-left min-w-0"
@@ -2010,7 +2094,21 @@ function TemplatesTab({ onApplyTemplate }: { onApplyTemplate: (body: string, exa
                 <span className="text-[10px] text-blue-500">{globalTemplates.length} templates</span>
               </div>
               {globalTemplates.map(t => (
-                <div key={t.id} className="flex items-start gap-1 px-3 py-2 hover:bg-blue-50 group border-t border-blue-100">
+                <div
+                  key={t.id}
+                  className="flex items-start gap-1 px-3 py-2 hover:bg-blue-50 group border-t border-blue-100"
+                  // FIX DnD: tornar o card de template global arrastável
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'copy';
+                    e.dataTransfer.setData('text/x-report-template', JSON.stringify({
+                      body:      t.bodyTemplate,
+                      examTitle: (t as any).exam_title || undefined,
+                    }));
+                    (e.currentTarget as HTMLDivElement).style.opacity = '0.5';
+                  }}
+                  onDragEnd={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = '1'; }}
+                >
                   <button
                     onClick={() => onApplyTemplate(t.bodyTemplate, (t as any).exam_title || undefined)}
                     className="flex-1 text-left min-w-0"
@@ -2193,7 +2291,18 @@ function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; on
                 {groupPhrases.map(phrase => {
                   const isGlobalPhrase = (phrase as any).is_global === true || (phrase as any).is_global === 1;
                   return (
-                    <div key={phrase.id} className="flex items-start gap-1 px-2 py-1.5 hover:bg-blue-50 group">
+                    <div
+                      key={phrase.id}
+                      className="flex items-start gap-1 px-2 py-1.5 hover:bg-blue-50 group"
+                      // FIX DnD: tornar a frase arrastável
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'copy';
+                        e.dataTransfer.setData('text/plain', phrase.content);
+                        (e.currentTarget as HTMLDivElement).style.opacity = '0.5';
+                      }}
+                      onDragEnd={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = '1'; }}
+                    >
                       <button
                         onMouseDown={(e) => { e.preventDefault(); onFocus(); }}
                         onClick={() => { onInsert(phrase.content); }}
