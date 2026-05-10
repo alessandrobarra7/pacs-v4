@@ -917,8 +917,8 @@ export default function ReportEditorPage() {
           {/* Abas */}
           <div className="flex border-b border-gray-200 bg-white">
             {([
-              { id: "modelos", label: "Modelos",  icon: <GripVertical className="h-3.5 w-3.5" /> },
-              { id: "frases",  label: "Frases",   icon: <MessageSquare className="h-3.5 w-3.5" /> },
+              { id: "modelos", label: "Laudos Normal",  icon: <GripVertical className="h-3.5 w-3.5" /> },
+              { id: "frases",  label: "Trechos",   icon: <MessageSquare className="h-3.5 w-3.5" /> },
               { id: "carimbo", label: "Carimbo",  icon: <Layers className="h-3.5 w-3.5" /> },
             ] as const).map(({ id, label, icon }) => (
               <button
