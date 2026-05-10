@@ -1,0 +1,387 @@
+================================================================================
+  PACS PORTAL v4 — DIAGNÓSTICO E CORREÇÃO
+  Impressão de Laudos Multi-Exame — 4 Bugs Identificados
+  Referência: exemplo92.pdf (3 exames RX, 3 páginas, conteúdo errado)
+  Arquivo: client/src/pages/ReportEditorPage.tsx
+  Data: 10/05/2026
+================================================================================
+
+
+O QUE O PDF MOSTRA
+-------------------------------------------------------------------------------
+O laudo tem 3 exames: RX Abdome + RX Coluna Torácica + RX Coluna Lombossacra
+
+  Página 1: RX ABDOME SIMPLES
+    → Conteúdo: RM de Joelho (ERRADO — deveria ser RX Abdome)
+
+  Página 2: RX COLUNA TORÁCICA + RX COLUNA LOMBOSSACRA juntos
+    → Conteúdo: RM Coluna Lombar IDÊNTICO nos dois exames (ERRADO)
+
+  Página 3: Em branco — apenas fundo decorativo
+
+  Número de página: "Página 1 de 2" em TODAS as páginas (ERRADO)
+
+4 bugs distintos identificados no código. Todos em handlePrint e no
+bloco de aplicação de template.
+
+
+================================================================================
+BUG 1 — CRÍTICO
+onApplyTemplate usa docRef.current — null no modo multi-seção
+Causa do conteúdo errado em todas as seções
+================================================================================
+
+CAUSA
+  Quando o médico arrasta ou clica um template na aba Modelos,
+  a função onApplyTemplate passada para ModelosTab é:
+
+    onApplyTemplate={(body, examTitle) => {
+      if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
+      if (examTitle) setExamTitle(examTitle);
+    }}
+
+  No modo multi-seção (3 exames), docRef.current é SEMPRE null — o editor
+  de página única não existe nesse modo. O if(docRef.current) é false e
+  o template nunca é aplicado à seção ativa.
+
+  O médico clica/arrasta o template e parece que funcionou (sem erro),
+  mas o conteúdo da seção não mudou. As seções ficam com o conteúdo
+  que foi carregado antes ou com o que foi digitado diretamente —
+  geralmente o mesmo template RM (de um rascunho anterior).
+
+LOCALIZAR (linha ~982):
+  onApplyTemplate={(body, examTitle) => {
+    if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
+    if (examTitle) setExamTitle(examTitle);
+  }}
+
+SUBSTITUIR POR:
+  onApplyTemplate={(body, examTitle) => {
+    // FIX BUG-1: aplicar na seção ativa em multi-seção ou no editor único
+    if (isMultiSection) {
+      // Usar a seção que está em foco (activeSectionRef rastreia o índice)
+      const activeEl = sectionRefs.current[activeSectionRef.current];
+      if (activeEl) {
+        activeEl.innerHTML = sanitizeHtmlForEditor(body);
+        activeEl.focus(); // devolver o foco para a seção após aplicar
+      }
+    } else {
+      if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
+    }
+    if (examTitle) setExamTitle(examTitle);
+  }}
+
+VERIFICAÇÃO
+  Abrir laudo com 3 exames → selecionar a seção 2 (clicar no editor da seção 2)
+  → na aba Modelos, arrastar/clicar um template → conteúdo deve aparecer
+  SOMENTE na seção 2, sem alterar as seções 1 e 3.
+
+
+================================================================================
+BUG 2 — CRÍTICO
+Número de página sempre "Página 1 de X" em todas as páginas
+================================================================================
+
+CAUSA
+  O JavaScript no print template calcula o total de páginas e seta
+  o texto do elemento .page-number-fixed:
+
+    var total = Math.ceil(document.body.scrollHeight / (297 * 96 / 25.4));
+    var el = document.querySelector('.page-number-fixed');
+    if (el) el.textContent = 'Página 1 de ' + (total || 1);
+
+  O elemento .page-number-fixed tem position:fixed — repete em TODAS
+  as páginas. Mas o texto foi setado como "Página 1 de X" e nunca muda.
+  O resultado: todas as páginas mostram "Página 1 de 2".
+
+  Adicionalmente: no modo multi-exame com div.print-page, o cálculo
+  de scrollHeight é impreciso porque os divs têm height:297mm fixo —
+  o browser pode não ter renderizado completamente antes do cálculo.
+
+SOLUÇÃO — Usar CSS counter nativo em vez de JavaScript
+
+  LOCALIZAR no bloco <style> do print template:
+    .page-number-fixed {
+      position: fixed;
+      z-index: 3;
+      bottom: ...mm;
+      right: ...mm;
+      font-size: 8pt;
+      color: #888;
+      font-family: Arial, sans-serif;
+    }
+
+  SUBSTITUIR POR:
+    /* FIX BUG-2: CSS counter nativo para número de página correto por página */
+    /* Funciona com divs.print-page (modo multi-exame) e com table (modo único) */
+    .page-number-fixed {
+      position: fixed;
+      z-index: 3;
+      bottom: ${Math.max(lMB - 8, 4)}mm;
+      right: ${lMR}mm;
+      font-size: 8pt;
+      color: #888;
+      font-family: Arial, sans-serif;
+    }
+    /* O contador via conteúdo CSS funciona em chromium-based (Chrome, Edge) */
+    .page-number-fixed::after {
+      content: "Página " counter(page) " de " counter(pages);
+    }
+
+  REMOVER o bloco <script> que setava o número de página via JS:
+
+    ANTES:
+      <script>
+        window.onload = function() {
+          var total = Math.ceil(document.body.scrollHeight / (297 * 96 / 25.4));
+          var el = document.querySelector('.page-number-fixed');
+          if (el) el.textContent = 'Página 1 de ' + (total || 1);
+          window.print();
+          window.onafterprint = function() { window.close(); };
+        };
+      </script>
+
+    DEPOIS (manter apenas o print e close, sem a numeração):
+      <script>
+        window.onload = function() {
+          window.print();
+          window.onafterprint = function() { window.close(); };
+        };
+      </script>
+
+  TAMBÉM: deixar o elemento vazio no HTML (o conteúdo vem do ::after):
+    <div class="page-number-fixed"></div>
+
+OBSERVAÇÃO
+  O CSS counter(page) / counter(pages) funciona nativamente no Chrome
+  e Edge (Chromium). No Firefox, pode não funcionar — nesse caso o
+  número de página não aparece, mas não quebra o layout.
+  Para Firefox: adicionar fallback dentro do ::after com texto estático
+    .page-number-fixed::after {
+      content: "Página " counter(page);  /* sem "de N" — Firefox não suporta counter(pages) */
+    }
+
+
+================================================================================
+BUG 3 — ALTO
+Página em branco (página 3 do PDF) — div.print-page extra
+================================================================================
+
+CAUSA
+  Cada seção multi-exame é envolvida em um div.print-page com:
+    height: 297mm
+    page-break-after: always  (todas exceto a última)
+    break-after: avoid        (apenas a última)
+
+  O laudo tem 3 seções → 3 divs.print-page → deveria gerar 3 páginas.
+  Mas o PDF mostra a seção 1 na página 1 e as seções 2+3 juntas
+  na página 2 — isso indica que o JSON.parse do body FALHOU e o
+  código caiu no FALLBACK (tabela única, não divs separados).
+
+  O fallback tabela renderiza todas as seções em fluxo contínuo.
+  Com 3 seções curtas (RX), o conteúdo total não enche 2 páginas.
+  A página 3 em branco vem do background:
+
+    A imagem de fundo usa background-size: cover no body.
+    O body tem min-height implícito mas quando a tabela não
+    preenche completamente a 2ª página, o browser pode adicionar
+    uma 3ª página ao tentar completar o min-height do elemento.
+
+  O outro cenário: se o makePage FOI chamado (3 divs), a última
+  div tem break-after:avoid mas as anteriores geram 2 páginas de
+  conteúdo + 1 página vazia pela div.print-page vazia do background.
+
+CAUSA RAIZ DO JSON.PARSE FALHAR
+  O body salvo pode não ser um JSON válido se:
+    1. O laudo foi criado em modo single-section e depois re-aberto
+       em multi-section — o body está em HTML, não em JSON
+    2. O collectBody() retornou HTML com caracteres que quebram o JSON
+       (aspas duplas não escapadas no innerHTML)
+
+CORREÇÃO PARTE A — Proteger o JSON.parse do conteúdo HTML
+  Verificar se o rawBody começa com '[' antes de tentar parse:
+
+  ANTES:
+    if (isMultiSection) {
+      try {
+        const sections: { title: string; body: string }[] = JSON.parse(rawBody);
+        bodyHtml = sections.map(...).join('');
+      } catch {
+        bodyHtml = rawBody; // fallback
+      }
+    }
+
+  DEPOIS:
+    if (isMultiSection) {
+      const isJsonBody = rawBody.trimStart().startsWith('[');
+      if (isJsonBody) {
+        try {
+          const sections: { title: string; body: string }[] = JSON.parse(rawBody);
+          bodyHtml = sections.map((sec, i) => `
+            <div class="exam-section" style="margin-bottom:18px;">
+              <div class="section-title">${sec.title}</div>
+              <div class="section-body">${sec.body}</div>
+            </div>
+          `).join('');
+        } catch {
+          bodyHtml = rawBody; // fallback para HTML legado
+        }
+      } else {
+        // Body está em HTML (laudo criado em modo single e re-aberto em multi)
+        // Mostrar com título genérico
+        bodyHtml = `
+          <div class="exam-section">
+            <div class="section-title">${examNames[0] || 'LAUDO'}</div>
+            <div class="section-body">${rawBody}</div>
+          </div>
+        `;
+      }
+    }
+
+CORREÇÃO PARTE B — Eliminar a página em branco no modo tabela
+  Quando o fallback tabela é usado, adicionar overflow:hidden ao body
+  e remover min-height que força extra page:
+
+  LOCALIZAR no bloco CSS do modo tabela (fallback):
+    body {
+      margin: 0; padding: 0;
+      ...
+      min-height: ${paperH};
+      ...
+    }
+
+  SUBSTITUIR por (remover min-height no modo fallback):
+    body {
+      margin: 0; padding: 0;
+      font-family: ${fontStack};
+      font-size: ${lSize}pt;
+      color: #111;
+      line-height: ${lLine};
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      /* FIX BUG-3: sem min-height — evita página em branco extra */
+    }
+
+CORREÇÃO PARTE C — Adicionar table-layout ao CSS do modo tabela
+  O tbody da tabela deve crescer para preencher o espaço disponível
+  sem criar páginas extras:
+
+  LOCALIZAR no CSS:
+    table.print-layout { ... }
+
+  ADICIONAR:
+    table.print-layout {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      border-collapse: collapse;
+      height: 100%; /* FIX BUG-3: tabela usa toda a altura disponível */
+    }
+    table.print-layout tbody tr td {
+      vertical-align: top;
+    }
+
+
+================================================================================
+BUG 4 — MÉDIO
+Seções com conteúdo duplicado ou errado
+(consequência do Bug 1 — aplicação de template não funcionava)
+================================================================================
+
+CAUSA
+  Derivado do Bug 1: como onApplyTemplate não aplicava o conteúdo
+  nas seções em modo multi-seção, o médico aplicou templates pensando
+  que funcionou. O que apareceu no laudo foi o conteúdo residual
+  (de um rascunho anterior ou do docRef da página única).
+
+  Adicionalmente: quando um laudo salvo em modo single-section é
+  reaberto em modo multi-section, somente a seção[0] recebe o body
+  existente. As demais seções ficam vazias. Se o médico aplicar um
+  template sem perceber que está na seção errada, todas as seções
+  exceto a 0 ficam com o mesmo template aplicado.
+
+  O código de inicialização (linha ~283):
+    if (sectionRefs.current[0]) {
+      sectionRefs.current[0].innerHTML = sanitizeHtmlForEditor(existingReport.body);
+    }
+    // sectionRefs[1] e sectionRefs[2] ficam vazios — sem inicialização!
+
+CORREÇÃO — Após a correção do Bug 1, o problema de aplicação é resolvido.
+  Mas para evitar seções[1+] ficarem vazias ao reabrir, adicionar
+  um placeholder visual:
+
+  LOCALIZAR (linha ~1100): o div contentEditable de cada seção
+    <div
+      ref={el => { sectionRefs.current[i] = el; }}
+      contentEditable={isEditable}
+      ...
+    />
+
+  ADICIONAR data-placeholder nas seções (índice > 0):
+    data-placeholder={i === 0
+      ? "Digite o laudo aqui..."
+      : `Digite o laudo de ${examNames[i] || 'exame'} aqui...`
+    }
+
+  ADICIONAR CSS para exibir placeholder quando vazio:
+    [contenteditable][data-placeholder]:empty::before {
+      content: attr(data-placeholder);
+      color: #aaa;
+      pointer-events: none;
+    }
+
+  Isso deixa claro para o médico que precisa preencher cada seção.
+
+
+================================================================================
+CHECKLIST DE VALIDAÇÃO
+================================================================================
+
+  BUG 1 — Template aplicado na seção correta
+  [ ] Abrir laudo com 3 exames
+  [ ] Clicar na seção 2 (mover cursor para lá)
+  [ ] Arrastar template da aba Modelos → conteúdo aparece SOMENTE na seção 2
+  [ ] Seções 1 e 3 permanecem inalteradas
+
+  BUG 2 — Número de página correto
+  [ ] Imprimir laudo de 3 páginas
+  [ ] Página 1 mostra "Página 1 de 3"
+  [ ] Página 2 mostra "Página 2 de 3"
+  [ ] Página 3 mostra "Página 3 de 3"
+
+  BUG 3 — Sem página em branco
+  [ ] Imprimir laudo com 3 seções curtas → 2 páginas (sem a 3ª em branco)
+  [ ] Imprimir laudo com 3 seções longas → 3 páginas (sem página extra)
+  [ ] Imprimir laudo single-section reaberto em multi → sem página em branco
+
+  BUG 4 — Conteúdo correto por seção
+  [ ] Abrir laudo de 3 exames com conteúdo diferente em cada seção
+  [ ] Imprimir → cada seção mostra seu próprio conteúdo
+  [ ] Seções sem conteúdo mostram placeholder visual no editor
+
+  GERAL
+  [ ] pnpm tsc --noEmit → zero erros TypeScript
+
+
+================================================================================
+RESUMO
+================================================================================
+
+  Bug   Causa raiz                           Arquivo              Gravidade
+  ───   ──────────                           ───────              ─────────
+  1     onApplyTemplate usa docRef.current   ReportEditorPage     CRÍTICO
+        null em multi-seção                  linha 982-983
+  2     JS seta "Página 1 de X" em           ReportEditorPage     CRÍTICO
+        position:fixed que repete igual      bloco <script>
+  3     min-height + background div          ReportEditorPage     ALTO
+        cria página extra em branco          bloco <style>
+  4     Derivado do Bug 1 — conteúdo         ReportEditorPage     MÉDIO
+        residual ou vazio nas seções         linha ~283
+
+  Todos os 4 bugs estão no mesmo arquivo.
+  Estimativa: 40 minutos de trabalho + 15 minutos de teste.
+
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================

@@ -656,6 +656,8 @@ export default function ReportEditorPage() {
     line-height: ${lLine};
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    /* FIX BUG-3: sem min-height — evita página em branco extra */
+    overflow: hidden;
   }
   /* div.print-page = uma folha A4 completa com padding, fundo e conteúdo */
   .print-page {
@@ -685,6 +687,7 @@ export default function ReportEditorPage() {
     }
   }
   /* Número de página via div position:fixed (substitui @bottom-right que requer @page margin) */
+  /* FIX BUG-2: CSS counter nativo para número de página correto por página */
   .page-number-fixed {
     position: fixed;
     z-index: 3;                              /* FIX: acima de tudo */
@@ -694,14 +697,19 @@ export default function ReportEditorPage() {
     color: #888;
     font-family: Arial, sans-serif;
   }
+  .page-number-fixed::after {
+    content: "Página " counter(page) " de " counter(pages);
+  }
   /* P4: cabeçalho repetível em múltiplas páginas via thead */
   table.print-layout {
     position: relative;                      /* FIX: cria stacking context */
     z-index: 2;                              /* FIX: acima do overlay branco (z:0) */
     width: 100%;
     border-collapse: collapse;
+    height: 100%;                            /* FIX BUG-3: tabela usa toda a altura disponível */
   }
   table.print-layout td, table.print-layout th { background: transparent !important; }
+  table.print-layout tbody tr td { vertical-align: top; }
   thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
   tbody { display: table-row-group; }
@@ -748,7 +756,8 @@ export default function ReportEditorPage() {
   ${bgLayer}
   ${draftWatermark}
   <!-- Número de página via div.page-number-fixed (substitui @bottom-right que precisa de @page margin) -->
-  <div class="page-number-fixed">Página 1</div>
+  <!-- FIX BUG-2: conteúdo via CSS counter(page)/counter(pages) -->
+  <div class="page-number-fixed"></div>
   <!-- MULTI-EXAME: cada exame = div.print-page com height:297mm e page-break-after:always -->
   <!-- Abordagem div-por-página é mais confiável que múltiplas tabelas no Chrome -->
   ${(() => {
@@ -802,10 +811,6 @@ export default function ReportEditorPage() {
   <!-- P5: rodapé via tfoot (renderiza em todas as páginas, compatível com PDF) -->
 <script>
   window.onload = function() {
-    // Opção D: contador de páginas via JS antes de imprimir
-    var total = Math.ceil(document.body.scrollHeight / (297 * 96 / 25.4));
-    var el = document.querySelector('.page-number-fixed');
-    if (el) el.textContent = 'Página 1 de ' + (total || 1);
     window.print();
     window.onafterprint = function() { window.close(); };
   };
@@ -980,7 +985,16 @@ export default function ReportEditorPage() {
             {activeTab === "modelos" && (
               <ModelosTab
                 onApplyTemplate={(body, examTitle) => {
-                  if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
+                  // FIX BUG-1: aplicar na seção ativa em multi-seção ou no editor único
+                  if (isMultiSection) {
+                    const activeEl = sectionRefs.current[activeSectionRef.current];
+                    if (activeEl) {
+                      activeEl.innerHTML = sanitizeHtmlForEditor(body);
+                      activeEl.focus();
+                    }
+                  } else {
+                    if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
+                  }
                   if (examTitle) setExamTitle(examTitle);
                 }}
                 currentExamTitle={examTitle}
