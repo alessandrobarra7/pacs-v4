@@ -7,7 +7,6 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { useAuth } from "./_core/hooks/useAuth";
 import Dashboard from "./pages/Dashboard";
 import Units from "./pages/Units";
-import Studies from "./pages/Studies";
 import Templates from "./pages/Templates";
 import Login from "./pages/Login";
 import { ViewerPage } from "./pages/ViewerPage";
@@ -93,7 +92,7 @@ function Router() {
       <Route path="/" component={() => <ProtectedRoute component={PacsQueryPage} />} />
       <Route path="/dashboard" component={() => <ProtectedRoute component={Dashboard} />} />
       <Route path="/units" component={() => <ProtectedRoute component={Units} />} />
-      <Route path="/studies" component={() => <ProtectedRoute component={Studies} />} />
+      <Route path="/studies"><Redirect to="/" /></Route>
       <Route path="/templates" component={() => <ProtectedRoute component={Templates} />} />
       <Route path="/viewer/:studyId" component={() => <ProtectedRoute component={ViewerPage} />} />
       <Route path="/pacs-query" component={() => <ProtectedRoute component={PacsQueryPage} />} />

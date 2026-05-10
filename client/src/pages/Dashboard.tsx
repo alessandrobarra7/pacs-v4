@@ -88,7 +88,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 md:grid-cols-3">
-              <Link href="/studies">
+              <Link href="/">
                 <Button variant="outline" className="w-full justify-start h-auto py-4">
                   <Activity className="mr-2 h-5 w-5" />
                   <div className="text-left">
