@@ -110,33 +110,35 @@ export const financeSimpleRouter = router({
       const startDate = new Date(input.year, input.month - 1, 1);
       const endDate = new Date(input.year, input.month, 1);
 
-      const unitFilter =
+      // Parte da tabela units para mostrar TODAS as unidades, mesmo sem laudos no mês
+      const unitIdFilter =
         ctx.user.role === "unit_admin" && ctx.user.unit_id
-          ? eq(billing_visit_events.unit_id, ctx.user.unit_id)
+          ? eq(units.id, ctx.user.unit_id)
           : undefined;
 
       const rows = await db
         .select({
-          unit_id: billing_visit_events.unit_id,
+          unit_id: units.id,
           unit_name: units.name,
-          total_laudos: sql<number>`COUNT(*)`,
+          total_laudos: sql<number>`COALESCE(COUNT(${billing_visit_events.id}), 0)`,
           system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
           doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
           system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
           doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
-          system_pending_count: sql<number>`SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NULL THEN 1 ELSE 0 END)`,
-          doctor_pending_count: sql<number>`SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NULL THEN 1 ELSE 0 END)`,
+          system_pending_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NULL AND ${billing_visit_events.id} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
+          doctor_pending_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NULL AND ${billing_visit_events.id} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
         })
-        .from(billing_visit_events)
-        .leftJoin(units, eq(units.id, billing_visit_events.unit_id))
-        .where(
+        .from(units)
+        .leftJoin(
+          billing_visit_events,
           and(
+            eq(billing_visit_events.unit_id, units.id),
             sql`${billing_visit_events.createdAt} >= ${startDate}`,
             sql`${billing_visit_events.createdAt} < ${endDate}`,
-            unitFilter,
           )
         )
-        .groupBy(billing_visit_events.unit_id, units.name)
+        .where(unitIdFilter)
+        .groupBy(units.id, units.name)
         .orderBy(units.name);
 
       return rows.map((r) => ({
