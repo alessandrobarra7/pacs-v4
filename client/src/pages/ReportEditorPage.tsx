@@ -735,32 +735,52 @@ export default function ReportEditorPage() {
   <!-- Número de página via div.page-number-fixed (substitui @bottom-right que precisa de @page margin) -->
   <div class="page-number-fixed">Página 1</div>
   <!-- P4: estrutura de tabela para cabeçalho repetível em múltiplas páginas -->
-  <table class="print-layout">
-    <thead>
-      <tr><td>
-        <div class="header">
-          <div class="header-logo">${logoHtml}</div>
-          <div class="header-title">
-            <div class="clinic-name">${unitName || ''}</div>
-            <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
-          </div>
+  <!-- MULTI-EXAME: cada exame = tabela independente com page-break-after:always -->
+  ${(() => {
+    // Verificar se bodyHtml contém múltiplas seções (modo multi-exame)
+    // Neste caso isMultiSection já foi tratado acima e bodyHtml contém as seções concatenadas
+    // Precisamos gerar uma tabela por seção para que cada exame tenha sua própria folha
+    const headerHtml = `
+      <div class="header">
+        <div class="header-logo">${logoHtml}</div>
+        <div class="header-title">
+          <div class="clinic-name">${unitName || ''}</div>
+          <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
         </div>
-      </td></tr>
-    </thead>
-    <tfoot>
-      <tr><td style="padding:0;">
-        ${layoutFooterUrl ? `<img src="${layoutFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />` : `<div style="height:4mm;"></div>`}
-      </td></tr>
-    </tfoot>
-    <tbody>
-      <tr><td>
-        <div class="patient-data">${patientDataHtml}</div>
-        ${examTitle ? `<div class="exam-title">${examTitle}</div>` : ''}
-        <div class="report-body">${bodyHtml}</div>
-        ${doctorFooterHtml}
-      </td></tr>
-    </tbody>
-  </table>
+      </div>`;
+    const footerHtml = layoutFooterUrl
+      ? `<img src="${layoutFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
+      : `<div style="height:4mm;"></div>`;
+    const makeTable = (content: string, isLast: boolean) => `
+      <table class="print-layout" style="${isLast ? '' : 'page-break-after:always;'}">
+        <thead><tr><td>${headerHtml}</td></tr></thead>
+        <tfoot><tr><td style="padding:0;">${footerHtml}</td></tr></tfoot>
+        <tbody><tr><td>
+          <div class="patient-data">${patientDataHtml}</div>
+          ${content}
+        </td></tr></tbody>
+      </table>`;
+    // Tentar parsear seções multi-exame do rawBody original
+    try {
+      const rawBodyForSplit = collectBody();
+      const secs: { title: string; body: string }[] = JSON.parse(rawBodyForSplit);
+      if (secs && secs.length > 1) {
+        return secs.map((sec, i) => {
+          const isLast = i === secs.length - 1;
+          const secContent = `
+            <div class="exam-title">${sec.title}</div>
+            <div class="report-body">${sec.body}</div>
+            ${isLast ? doctorFooterHtml : ''}`;
+          return makeTable(secContent, isLast);
+        }).join('');
+      }
+    } catch {}
+    // Fallback: página única
+    return makeTable(`
+      ${examTitle ? `<div class="exam-title">${examTitle}</div>` : ''}
+      <div class="report-body">${bodyHtml}</div>
+      ${doctorFooterHtml}`, true);
+  })()}
   <!-- P5: rodapé via tfoot (renderiza em todas as páginas, compatível com PDF) -->
 <script>
   window.onload = function() {
