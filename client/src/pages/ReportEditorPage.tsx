@@ -647,27 +647,42 @@ export default function ReportEditorPage() {
     print-color-adjust: exact !important;
   }
   body {
-    /* FIX: padding simula as margens do layout */
-    padding-top:    ${lMT}mm;
-    padding-right:  ${lMR}mm;
-    padding-bottom: ${lMB}mm;
-    padding-left:   ${lML}mm;
-    /* FIX: min-height garante que body preenche ao menos uma folha inteira */
-    min-height: ${paperH};
+    /* MULTI-EXAME: body sem padding/background — cada div.print-page gerencia seu próprio espaço */
+    margin: 0;
+    padding: 0;
     font-family: ${fontStack};
     font-size: ${lSize}pt;
     color: #111;
     line-height: ${lLine};
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-    /* FIX: fundo com dimensões físicas exatas da folha */
+  }
+  /* div.print-page = uma folha A4 completa com padding, fundo e conteúdo */
+  .print-page {
+    width: ${paperW};
+    height: ${paperH};
+    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
+    box-sizing: border-box;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     ${bgBase64 ? `
     background-image: url('${bgBase64}');
     background-size: cover;
     background-position: center center;
     background-repeat: no-repeat;
-    background-attachment: fixed;
     ` : ''}
+  }
+  @media print {
+    .print-page {
+      page-break-after: always;
+      break-after: page;
+    }
+    .print-page:last-child {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
   }
   /* Número de página via div position:fixed (substitui @bottom-right que requer @page margin) */
   .page-number-fixed {
@@ -748,17 +763,8 @@ export default function ReportEditorPage() {
     const footerHtml = layoutFooterUrl
       ? `<img src="${layoutFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
       : `<div style="height:4mm;"></div>`;
-    const makePage = (content: string, isLast: boolean) => `
-      <div class="print-page" style="
-        width: ${paperW};
-        min-height: ${paperH};
-        padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-        box-sizing: border-box;
-        position: relative;
-        ${isLast ? '' : 'page-break-after: always; break-after: page;'}
-        display: flex;
-        flex-direction: column;
-      ">
+    const makePage = (content: string) => `
+      <div class="print-page">
         ${headerHtml}
         <div style="flex:1;">
           <div class="patient-data">${patientDataHtml}</div>
@@ -777,7 +783,7 @@ export default function ReportEditorPage() {
             <div class="exam-title">${sec.title}</div>
             <div class="report-body">${sec.body}</div>
             ${isLast ? doctorFooterHtml : ''}`;
-          return makePage(secContent, isLast);
+          return makePage(secContent);
         }).join('');
       }
     } catch {}
