@@ -29,6 +29,9 @@ import FinanceContasReceber from "./pages/finance/FinanceContasReceber";
 import FinanceResponsavelDivida from "./pages/finance/FinanceResponsavelDivida";
 import FinanceUnidadeDetalhe from "./pages/finance/FinanceUnidadeDetalhe";
 import FinanceResponsavelDetalhe from "./pages/finance/FinanceResponsavelDetalhe";
+import FinanceDashboard2 from "./pages/finance2/FinanceDashboard2";
+import FinancePagamentos from "./pages/finance2/FinancePagamentos";
+import FinanceMeuFinanceiro2 from "./pages/finance2/FinanceMeuFinanceiro2";
 import { useLocation } from "wouter";
 import { useEffect } from "react";
 
@@ -127,6 +130,10 @@ function Router() {
       <Route path="/financeiro/medicos/:id" component={() => <ProtectedRoute component={FinanceMedicoDetalhe} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
       <Route path="/financeiro/unidades/:id" component={() => <ProtectedRoute component={FinanceUnidadeDetalhe} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
       <Route path="/financeiro/responsaveis/:id" component={() => <ProtectedRoute component={FinanceResponsavelDetalhe} allowedRoles={['admin_master', 'responsavel_financeiro']} />} />
+      {/* Módulo financeiro simplificado v2 */}
+      <Route path="/financeiro2" component={() => <ProtectedRoute component={FinanceDashboard2} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
+      <Route path="/financeiro2/pagamentos" component={() => <ProtectedRoute component={FinancePagamentos} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
+      <Route path="/financeiro2/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro2} allowedRoles={['medico', 'admin_master']} />} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

@@ -36,6 +36,7 @@ import { financeRouter } from "./routers/finance";
 import { slaRouter } from "./routers/sla";
 import { layoutsRouter } from "./routers/layouts";
 import { storageRouter } from "./routers/storage";
+import { financeSimpleRouter } from "./routers/financeSimple";
 
 export const appRouter = router({
   system: systemRouter,
@@ -145,6 +146,7 @@ export const appRouter = router({
   sla: slaRouter,
   layouts: layoutsRouter,
   storage: storageRouter,
+  financeSimple: financeSimpleRouter,
 });
 
 export type AppRouter = typeof appRouter;
