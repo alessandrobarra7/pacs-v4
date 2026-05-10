@@ -525,10 +525,29 @@ export function PacsQueryPage() {
   }, [allUnits, selectedUnitId]);
 
   const unitName = unitData?.name || (effectiveUnitId ? 'Carregando...' : 'Sem unidade');
-  const cacheKey = `pacs_query_results_unit_${effectiveUnitId || 'none'}`;
-
-  const [filters, setFilters] = useState({ patientName: "", studyDate: "", period: "today" });
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+   const cacheKey = `pacs_query_results_unit_${effectiveUnitId || 'none'}`;
+  // PERSIST-FILTER: chave de sessão para restaurar o filtro ao voltar do editor
+  const filterSessionKey = `pacs_filter_unit_${effectiveUnitId || 'none'}`;
+  const [filters, setFilters] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem(filterSessionKey);
+      if (saved) return JSON.parse(saved);
+    } catch { /* ignorar */ }
+    return { patientName: "", studyDate: "TODAY", period: "today" };
+  });
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(() => {
+    try {
+      const saved = sessionStorage.getItem(filterSessionKey);
+      if (saved) {
+        const f = JSON.parse(saved);
+        if (f.period === 'custom' && f.studyDate && f.studyDate.length === 8) {
+          const y = parseInt(f.studyDate.slice(0,4)), m = parseInt(f.studyDate.slice(4,6)) - 1, d = parseInt(f.studyDate.slice(6,8));
+          return new Date(y, m, d);
+        }
+      }
+    } catch { /* ignorar */ }
+    return undefined;
+  });
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [queryResults, setQueryResults] = useState<any[]>(() => {
     try { return JSON.parse(localStorage.getItem(cacheKey) || '[]'); } catch { return []; }
@@ -839,7 +858,10 @@ export function PacsQueryPage() {
     // BUG-5 FIX: usar token YESTERDAY resolvido no servidor (TZ correto)
     else if (period === 'yesterday') studyDate = 'YESTERDAY';
     else if (period === 'all') studyDate = '';
-    setFilters(f => ({ ...f, period, studyDate }));
+    const newFilters = { ...filters, period, studyDate };
+    setFilters(newFilters);
+    // PERSIST-FILTER: salvar filtro na sessão para restaurar ao voltar do editor
+    try { sessionStorage.setItem(filterSessionKey, JSON.stringify(newFilters)); } catch { /* ignorar */ }
     runQuery({ period, studyDate });
   };
 
@@ -852,7 +874,10 @@ export function PacsQueryPage() {
       return;
     }
     const studyDate = format(date, 'yyyyMMdd');
-    setFilters(f => ({ ...f, period: 'custom', studyDate }));
+    const newFilters = { ...filters, period: 'custom', studyDate };
+    setFilters(newFilters);
+    // PERSIST-FILTER: salvar filtro customizado na sessão
+    try { sessionStorage.setItem(filterSessionKey, JSON.stringify(newFilters)); } catch { /* ignorar */ }
     runQuery({ period: 'custom', studyDate });
   };
 
@@ -860,7 +885,10 @@ export function PacsQueryPage() {
     // Bug fix A1: enviar 'LAST_7_DAYS' diretamente ao servidor (que já resolve o período correto).
     // Antes: enviava 'LAST_30_DAYS' e filtrava localmente, causando divergência entre toast e tela.
     setSelectedDate(undefined);
-    setFilters(f => ({ ...f, period: 'last7days' }));
+    const newFiltersL7 = { ...filters, period: 'last7days', studyDate: 'LAST_7_DAYS' };
+    setFilters(newFiltersL7);
+    // PERSIST-FILTER: salvar filtro últimos 7 dias na sessão
+    try { sessionStorage.setItem(filterSessionKey, JSON.stringify(newFiltersL7)); } catch { /* ignorar */ }
     setIsQuerying(true);
     queryPacs.mutate({
       patientName: filters.patientName,
@@ -1399,7 +1427,7 @@ export function PacsQueryPage() {
           <input
             placeholder="Buscar paciente..."
             value={filters.patientName}
-            onChange={(e) => setFilters(f => ({ ...f, patientName: e.target.value }))}
+            onChange={(e) => setFilters((f: typeof filters) => ({ ...f, patientName: e.target.value }))}
             onKeyDown={(e) => e.key === 'Enter' && runQuery()}
             className="h-8 pl-8 pr-3 text-sm border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-600 w-44"
           />
