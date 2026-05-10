@@ -2455,12 +2455,23 @@ function ModelosTab({
         })}
 
         {filtered.length === 0 && (
-          <div className="text-center py-8">
-            <p className="text-xs text-gray-400">Nenhum modelo encontrado</p>
-            {search && (
-              <button onClick={() => setSearch("")} className="text-xs text-blue-500 mt-1 hover:underline">
-                Limpar busca
-              </button>
+          <div className="text-center py-8 px-4">
+            {search ? (
+              <>
+                <p className="text-xs text-gray-400 mb-2">Nenhum modelo encontrado para &quot;{search}&quot;</p>
+                <button onClick={() => setSearch("")} className="text-xs text-blue-500 hover:underline">
+                  Limpar busca
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-gray-400 mb-1">Nenhum modelo disponível</p>
+                <p className="text-xs text-gray-300 leading-relaxed">
+                  O administrador pode criar modelos em{" "}
+                  <span className="font-medium text-gray-400">Admin → Templates de Laudo</span>.
+                  Você também pode criar seus próprios modelos pessoais.
+                </p>
+              </>
             )}
           </div>
         )}
@@ -2526,7 +2537,13 @@ function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; on
       )}
 
       {groups.length === 0 && (
-        <p className="text-xs text-gray-400 text-center py-4">Nenhum grupo criado</p>
+        <div className="text-center py-8 px-4">
+          <p className="text-sm text-gray-400 mb-1">Nenhum grupo de frases</p>
+          <p className="text-xs text-gray-300 leading-relaxed">
+            Crie grupos e frases pessoais clicando em &quot;+ Grupo&quot; acima.
+            As frases ficam salvas no seu login para uso futuro.
+          </p>
+        </div>
       )}
 
       {groups.map(group => {

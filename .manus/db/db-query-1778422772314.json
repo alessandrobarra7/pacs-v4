@@ -1,0 +1,13 @@
+{
+  "query": "SELECT COUNT(*) as laudos_referenciando FROM reports WHERE template_id IN (SELECT id FROM templates WHERE isGlobal = TRUE AND owner_user_id IS NULL AND unit_id IS NULL);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT COUNT(*) as laudos_referenciando FROM reports WHERE template_id IN (SELECT id FROM templates WHERE isGlobal = TRUE AND owner_user_id IS NULL AND unit_id IS NULL);",
+  "rows": [
+    {
+      "laudos_referenciando": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "laudos_referenciando\n0\n",
+  "stderr": "",
+  "execution_time_ms": 972
+}

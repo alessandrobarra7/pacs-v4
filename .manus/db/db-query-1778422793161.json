@@ -1,0 +1,9 @@
+{
+  "query": "\nUPDATE `reports`\nSET `template_id` = NULL\nWHERE `template_id` IN (\n  SELECT `id` FROM `templates`\n  WHERE `isGlobal` = TRUE\n    AND `owner_user_id` IS NULL\n    AND `unit_id` IS NULL\n);\n\nDELETE FROM `templates`\nWHERE `isGlobal` = TRUE\n  AND `owner_user_id` IS NULL\n  AND `unit_id` IS NULL;\n\nDELETE FROM `phrases`\nWHERE `group_id` IN (1000, 1001, 1002, 1003, 1004);\n\nDELETE FROM `phrase_groups`\nWHERE `id` IN (1000, 1001, 1002, 1003, 1004);\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nUPDATE `reports`\nSET `template_id` = NULL\nWHERE `template_id` IN (\n  SELECT `id` FROM `templates`\n  WHERE `isGlobal` = TRUE\n    AND `owner_user_id` IS NULL\n    AND `unit_id` IS NULL\n);\n\nDELETE FROM `templates`\nWHERE `isGlobal` = TRUE\n  AND `owner_user_id` IS NULL\n  AND `unit_id` IS NULL;\n\nDELETE FROM `phrases`\nWHERE `group_id` IN (1000, 1001, 1002, 1003, 1004);\n\nDELETE FROM `phrase_groups`\nWHERE `id` IN (1000, 1001, 1002, 1003, 1004);\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 413
+}
