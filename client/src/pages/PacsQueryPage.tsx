@@ -1090,12 +1090,23 @@ export function PacsQueryPage() {
       <div style="background:#fef3c7;border:1.5px solid #f59e0b;padding:6px 12px;border-radius:4px;margin-bottom:12px;font-size:9pt;color:#92400e;text-align:center;">⚠ LAUDO EM RASCUNHO — Não assinado — Não é um documento válido</div>
     ` : '';
 
+    // Rodapé do médico (bloco reutilizado em todas as páginas do multi-seção)
+    const doctorFooterHtml = isSignedOrRevised && doctorName ? `
+      <div class="doctor-footer">
+        ${doctorStampUrl ? `<img src="${doctorStampUrl}" alt="Carimbo" class="stamp-img" />` : ''}
+        ${doctorSignatureUrl ? `<img src="${doctorSignatureUrl}" alt="Assinatura" class="sig-img" />` : ''}
+        <div class="sig-line"></div>
+        <div class="sig-name">${doctorName}${reportStatus === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
+        ${doctorCrm ? `<div class="sig-crm">CRM: ${doctorCrm}</div>` : ''}
+        ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
+      </div>` : '';
+
     const printWindow = window.open('', '_blank', 'width=850,height=1100');
     if (!printWindow) { toast.error('Bloqueador de pop-up ativo. Permita pop-ups para imprimir.'); return; }
     printWindow.document.write(`<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"><title>Laudo - ${patientName}</title>
 <style>
-  /* FIX full-bleed: margin:0 no @page → body representa a folha INTEIRA */
+  /* SYNC ReportEditorPage: full-bleed — @page margin:0 → body = folha inteira */
   @page {
     size: ${pageSizeQ} portrait;
     margin: 0;
@@ -1107,45 +1118,67 @@ export function PacsQueryPage() {
     print-color-adjust: exact !important;
   }
   body {
-    /* FIX: padding simula as margens do layout */
-    padding-top:    ${lMT}mm;
-    padding-right:  ${lMR}mm;
-    padding-bottom: ${lMB}mm;
-    padding-left:   ${lML}mm;
-    min-height: ${paperH};
+    /* SYNC: body sem padding/background — cada div.print-page gerencia seu próprio espaço */
+    margin: 0;
+    padding: 0;
     font-family: ${fontStackQ};
     font-size: ${lSize}pt;
     color: #111;
     line-height: ${lLine};
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-    /* FIX: fundo com dimensões físicas exatas da folha */
+    overflow: hidden;
+  }
+  /* div.print-page = uma folha A4 completa com padding, fundo e conteúdo */
+  .print-page {
+    width: ${paperW};
+    height: ${paperH};
+    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
+    box-sizing: border-box;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     ${bgBase64Q ? `
     background-image: url('${bgBase64Q}');
     background-size: cover;
     background-position: center center;
     background-repeat: no-repeat;
-    background-attachment: fixed;
     ` : ''}
   }
-  /* Número de página via div position:fixed */
+  @media print {
+    .print-page {
+      page-break-after: always;
+      break-after: page;
+    }
+    .print-page:last-child {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+  }
+  /* SYNC BUG-2: CSS counter nativo para número de página */
   .page-number-fixed {
     position: fixed;
-    z-index: 3;                              /* FIX: acima de tudo */
+    z-index: 3;
     bottom: ${Math.max(lMB - 8, 4)}mm;
     right: ${lMR}mm;
     font-size: 8pt;
     color: #888;
     font-family: Arial, sans-serif;
   }
-  /* P4: cabeçalho repetível em múltiplas páginas via thead */
-  table.print-layout {
-    position: relative;                      /* FIX: cria stacking context */
-    z-index: 2;                              /* FIX: acima do overlay branco (z:0) */
-    width: 100%;
-    border-collapse: collapse;
+  .page-number-fixed::after {
+    content: 'Página ' counter(page) ' de ' counter(pages);
   }
-  table.print-layout td, table.print-layout th { background: transparent !important; }
+  /* Tabela fallback (laudo único longo — cabeçalho repetível) */
+  table.print-layout {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    border-collapse: collapse;
+    vertical-align: top;
+  }
+  table.print-layout td, table.print-layout th { background: transparent !important; vertical-align: top; }
   thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
   tbody { display: table-row-group; }
@@ -1165,9 +1198,8 @@ export function PacsQueryPage() {
   .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
   .report-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .report-body > p,
-  .report-body > div:not(.exam-section) { margin-bottom: 3pt; }
+  .report-body > div { margin-bottom: 3pt; }
   .report-body strong, .report-body b { font-weight: 700; }
-  .exam-section { break-inside: avoid-page; margin-bottom: 18px; }
   .section-title {
     font-size: 11pt; font-weight: 700; text-transform: uppercase;
     letter-spacing: 0.06em; text-align: center;
@@ -1179,7 +1211,6 @@ export function PacsQueryPage() {
   .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
   .sig-line  { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
   .sig-name  { font-weight: 700; font-size: 10pt; }
-  .sig-role  { font-size: 9pt; color: #444; margin-top: 1pt; letter-spacing: 0.03em; }
   .sig-crm   { font-size: 9pt; color: #444; margin-top: 1pt; }
   .sig-date  { font-size: 8pt; color: #666; margin-top: 3pt; }
   .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 5px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
@@ -1188,52 +1219,64 @@ export function PacsQueryPage() {
     .doctor-footer { page-break-inside: avoid; }
   }
 </style></head><body>
-  ${bgLayerQ}
   ${draftWatermarkQ}
-  <div class="page-number-fixed">Página 1</div>
-  <!-- P4: estrutura de tabela para cabeçalho repetível em múltiplas páginas -->
-  <table class="print-layout">
-    <thead>
-      <tr><td>
-        <div class="header">
-          <div class="header-logo">${logoHtml}</div>
-          <div class="header-title">
-            <div class="clinic-name">${unitName}</div>
-            <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
-          </div>
+  <div class="page-number-fixed"></div>
+  <!-- SYNC ReportEditorPage: multi-seção = div.print-page por exame; único = tabela com thead repetível -->
+  ${(() => {
+    const headerHtml = `
+      <div class="header">
+        <div class="header-logo">${logoHtml}</div>
+        <div class="header-title">
+          <div class="clinic-name">${unitName}</div>
+          <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
         </div>
-      </td></tr>
-    </thead>
-    <tfoot>
-      <tr><td style="padding:0;">
-        ${lFooterUrl ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />` : `<div style="height:4mm;"></div>`}
-      </td></tr>
-    </tfoot>
-    <tbody>
-      <tr><td>
-        <div class="patient-data">${patientDataHtml}</div>
-        ${reportTitle ? `<div class="exam-title">${reportTitle}</div>` : ''}
-        <div class="report-body">${bodyHtml}</div>
-        ${isSignedOrRevised && doctorName ? `
-        <div class="doctor-footer">
-          ${doctorStampUrl ? `<img src="${doctorStampUrl}" alt="Carimbo" class="stamp-img" />` : ''}
-          ${doctorSignatureUrl ? `<img src="${doctorSignatureUrl}" alt="Assinatura" class="sig-img" />` : ''}
-          <div class="sig-line"></div>
-          <div class="sig-name">${doctorName}${reportStatus === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
-
-          ${doctorCrm ? `<div class="sig-crm">CRM: ${doctorCrm}</div>` : ''}
-          ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
-        </div>` : ''}
-      </td></tr>
-    </tbody>
-  </table>
-  <!-- P5: rodapé via tfoot (compatível com PDF) -->
+      </div>`;
+    const footerHtml = lFooterUrl
+      ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
+      : `<div style="height:4mm;"></div>`;
+    const makePage = (content: string) => `
+      <div class="print-page">
+        ${headerHtml}
+        <div style="flex:1;">
+          <div class="patient-data">${patientDataHtml}</div>
+          ${content}
+        </div>
+        <div style="margin-top:auto;">${footerHtml}</div>
+      </div>`;
+    // Tentar parsear seções multi-exame
+    try {
+      const parsed = JSON.parse(reportBody);
+      if (Array.isArray(parsed) && parsed.length > 1 && 'body' in parsed[0]) {
+        return parsed.map((sec: { title: string; body: string }, i: number) => {
+          const isLast = i === parsed.length - 1;
+          const secContent = `
+            <div class="exam-title">${sec.title || ''}</div>
+            <div class="report-body">${sec.body || ''}</div>
+            ${isLast ? doctorFooterHtml : ''}`;
+          return makePage(secContent);
+        }).join('');
+      }
+    } catch { /* não é JSON */ }
+    // Fallback: página única com tabela (cabeçalho repetível em laudos longos)
+    return `
+      <div class="print-page" style="height:auto;min-height:${paperH};">
+        <table class="print-layout">
+          <thead><tr><td>${headerHtml}</td></tr></thead>
+          <tfoot><tr><td style="padding:0;">${footerHtml}</td></tr></tfoot>
+          <tbody><tr><td>
+            <div class="patient-data">${patientDataHtml}</div>
+            ${reportTitle ? `<div class="exam-title">${reportTitle}</div>` : ''}
+            <div class="report-body">${bodyHtml}</div>
+            ${doctorFooterHtml}
+          </td></tr></tbody>
+        </table>
+      </div>`;
+  })()
+  }
 <script>
   window.onload = function() {
-    var total = Math.ceil(document.body.scrollHeight / (297 * 96 / 25.4));
-    var el = document.querySelector('.page-number-fixed');
-    if (el) el.textContent = 'Página 1 de ' + (total || 1);
-    setTimeout(function() { window.print(); window.onafterprint = function() { window.close(); }; }, 400);
+    window.print();
+    window.onafterprint = function() { window.close(); };
   };
 <\/script>
 </body></html>`);
