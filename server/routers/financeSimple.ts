@@ -437,4 +437,55 @@ export const financeSimpleRouter = router({
 
       return { systemPrices, doctorPrices };
     }),
+
+  /**
+   * Busca os preços padrão da unidade (default_system_price, default_doctor_price)
+   */
+  getUnitDefaultPrices: protectedProcedure
+    .input(z.object({ unit_id: z.number().int() }))
+    .query(async ({ input, ctx }) => {
+      assertAdmin(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const rows = await db
+        .select({
+          id: units.id,
+          name: units.name,
+          default_system_price: units.default_system_price,
+          default_doctor_price: units.default_doctor_price,
+        })
+        .from(units)
+        .where(eq(units.id, input.unit_id))
+        .limit(1);
+      const u = rows[0];
+      if (!u) throw new TRPCError({ code: "NOT_FOUND" });
+      return {
+        unit_id: u.id,
+        unit_name: u.name,
+        default_system_price: u.default_system_price ? parseFloat(String(u.default_system_price)) : null,
+        default_doctor_price: u.default_doctor_price ? parseFloat(String(u.default_doctor_price)) : null,
+      };
+    }),
+
+  /**
+   * Configura os preços padrão da unidade (admin_master only)
+   */
+  setUnitDefaultPrices: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().int(),
+      default_system_price: z.number().min(0),
+      default_doctor_price: z.number().min(0),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin_master") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.update(units)
+        .set({
+          default_system_price: String(input.default_system_price),
+          default_doctor_price: String(input.default_doctor_price),
+        })
+        .where(eq(units.id, input.unit_id));
+      return { ok: true };
+    }),
 });

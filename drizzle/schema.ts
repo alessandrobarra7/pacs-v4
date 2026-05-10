@@ -22,6 +22,9 @@ export const units = mysqlTable("units", {
   equipment_info: text("equipment_info"),
   // PRG-03: coluna logoUrl removida (duplicata) — usar logo_url como campo canônico
   logo_url: text("logo_url"),
+  // Preço padrão por laudo: valor cobrado pelo sistema e valor pago ao médico
+  default_system_price: decimal("default_system_price", { precision: 10, scale: 2 }),
+  default_doctor_price: decimal("default_doctor_price", { precision: 10, scale: 2 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

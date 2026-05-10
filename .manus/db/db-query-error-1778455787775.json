@@ -1,0 +1,8 @@
+{
+  "query": "ALTER TABLE units ADD COLUMN default_system_price DECIMAL(10,2) AFTER logo_url, ADD COLUMN default_doctor_price DECIMAL(10,2) AFTER default_system_price;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute ALTER TABLE units ADD COLUMN default_system_price DECIMAL(10,2) AFTER logo_url, ADD COLUMN default_doctor_price DECIMAL(10,2) AFTER default_system_price;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'default_system_price' in 'units'"
+  ]
+}

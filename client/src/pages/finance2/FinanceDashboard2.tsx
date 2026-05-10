@@ -7,10 +7,11 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
-  Building2, ChevronLeft, ChevronRight, DollarSign,
-  FileText, CheckCircle2, Clock, AlertCircle, ChevronDown, ChevronUp, X
+  Building2, ChevronLeft, DollarSign,
+  FileText, CheckCircle2, Clock, AlertCircle, X, Settings
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -177,7 +178,84 @@ function DoctorRow({
   );
 }
 
-// ─── Painel de detalhes da unidade selecionada ────────────────────────────────
+// ─── Modal de configuração de preços padrão da unidade ─────────────────────────────────
+function PriceConfigModal({ unitId, unitName, onClose }: { unitId: number; unitName: string; onClose: () => void }) {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.financeSimple.getUnitDefaultPrices.useQuery({ unit_id: unitId });
+  const [sysPrice, setSysPrice] = useState("");
+  const [docPrice, setDocPrice] = useState("");
+
+  // Preenche os campos quando os dados carregam
+  if (!isLoading && data && sysPrice === "" && docPrice === "") {
+    setSysPrice(data.default_system_price != null ? String(data.default_system_price) : "");
+    setDocPrice(data.default_doctor_price != null ? String(data.default_doctor_price) : "");
+  }
+
+  const save = trpc.financeSimple.setUnitDefaultPrices.useMutation({
+    onSuccess: () => {
+      toast.success("Preços atualizados com sucesso");
+      utils.financeSimple.unitSummary.invalidate();
+      onClose();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+          <div>
+            <p className="text-white font-semibold">Configurar Preços</p>
+            <p className="text-slate-400 text-xs">{unitName}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1.5">Preço por laudo — Sistema (R$)</label>
+            <Input
+              type="number" min="0" step="0.01"
+              value={sysPrice}
+              onChange={(e) => setSysPrice(e.target.value)}
+              placeholder="Ex: 3.50"
+              className="bg-slate-800 border-slate-600 text-white"
+            />
+            <p className="text-xs text-slate-500 mt-1">Valor que a unidade deve pagar ao sistema por laudo assinado.</p>
+          </div>
+          <div>
+            <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1.5">Preço por laudo — Médico (R$)</label>
+            <Input
+              type="number" min="0" step="0.01"
+              value={docPrice}
+              onChange={(e) => setDocPrice(e.target.value)}
+              placeholder="Ex: 25.00"
+              className="bg-slate-800 border-slate-600 text-white"
+            />
+            <p className="text-xs text-slate-500 mt-1">Valor padrão que a unidade paga ao médico por laudo. Aplica-se a novos laudos assinados.</p>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" className="flex-1 border-slate-600 text-slate-300" onClick={onClose}>Cancelar</Button>
+            <Button
+              className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white"
+              disabled={save.isPending}
+              onClick={() => save.mutate({
+                unit_id: unitId,
+                default_system_price: parseFloat(sysPrice) || 0,
+                default_doctor_price: parseFloat(docPrice) || 0,
+              })}
+            >
+              {save.isPending ? "Salvando..." : "Salvar Preços"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Painel de detalhes da unidade selecionada ────────────────────────────────────────────
 function UnitDetail({
   unit, year, month
 }: {
@@ -185,7 +263,7 @@ function UnitDetail({
 }) {
   const utils = trpc.useUtils();
   const { user } = useAuth();
-
+  const [showPriceModal, setShowPriceModal] = useState(false);
   const { data: doctors, isLoading } = trpc.financeSimple.doctorSummaryByUnit.useQuery({
     unit_id: unit.unit_id, year, month
   });
@@ -242,6 +320,16 @@ function UnitDetail({
             )}
           </div>
         </div>
+
+        {/* Botão configurar preços (admin_master) */}
+        {user?.role === "admin_master" && (
+          <button
+            onClick={() => setShowPriceModal(true)}
+            className="mt-2 flex items-center gap-1.5 text-xs text-slate-400 hover:text-cyan-400 transition-colors"
+          >
+            <Settings className="h-3.5 w-3.5" /> Configurar preços por laudo
+          </button>
+        )}
 
         {/* Botão marcar sistema pago */}
         {user?.role === "admin_master" && (
@@ -319,6 +407,13 @@ function UnitDetail({
           </div>
         )}
       </div>
+    {showPriceModal && (
+      <PriceConfigModal
+        unitId={unit.unit_id}
+        unitName={unit.unit_name}
+        onClose={() => setShowPriceModal(false)}
+      />
+    )}
     </div>
   );
 }

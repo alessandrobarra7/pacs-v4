@@ -1778,8 +1778,23 @@ export async function createBillingVisitEvent(data: {
     ? await getActiveDoctorPrice(responsibleId, data.unit_id, data.doctor_user_id, data.signed_at)
     : null;
 
-  const systemAmt = systemPrice ? parseFloat(systemPrice.price_per_report ?? "0") : null;
-  const doctorAmt = doctorPrice ? parseFloat(doctorPrice.price_per_report ?? "0") : null;
+  let systemAmt = systemPrice ? parseFloat(systemPrice.price_per_report ?? "0") : null;
+  let doctorAmt = doctorPrice ? parseFloat(doctorPrice.price_per_report ?? "0") : null;
+
+  // Fallback: usa default_system_price e default_doctor_price da unidade quando não há responsável financeiro
+  if (systemAmt === null || doctorAmt === null) {
+    const unitRow = await db.select({
+      default_system_price: units.default_system_price,
+      default_doctor_price: units.default_doctor_price,
+    }).from(units).where(eq(units.id, data.unit_id)).limit(1);
+    const unitDefaults = unitRow[0];
+    if (systemAmt === null && unitDefaults?.default_system_price != null) {
+      systemAmt = parseFloat(String(unitDefaults.default_system_price));
+    }
+    if (doctorAmt === null && unitDefaults?.default_doctor_price != null) {
+      doctorAmt = parseFloat(String(unitDefaults.default_doctor_price));
+    }
+  }
 
   const pricingStatus =
     systemAmt !== null && doctorAmt !== null ? "ok" :
