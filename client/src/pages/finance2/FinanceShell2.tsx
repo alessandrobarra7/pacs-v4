@@ -60,7 +60,7 @@ export function FinanceShell2({ children }: { children: React.ReactNode }) {
     <aside className="w-56 shrink-0 flex flex-col bg-slate-900 border-r border-slate-800 min-h-screen">
       {/* Logo / voltar */}
       <div className="px-4 py-4 border-b border-slate-800">
-        <Link href="/studies">
+        <Link href="/">
           <a className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm">
             <ChevronLeft className="h-4 w-4" />
             <span>Voltar ao PACS</span>
