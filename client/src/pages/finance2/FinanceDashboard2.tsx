@@ -7,8 +7,8 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
-  Building2, ChevronLeft, DollarSign,
-  FileText, CheckCircle2, Clock, AlertCircle, X, Settings
+  Building2, ChevronLeft, ChevronRight, DollarSign,
+  FileText, CheckCircle2, Clock, AlertCircle, X, Settings, CalendarDays
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -255,6 +255,93 @@ function PriceConfigModal({ unitId, unitName, onClose }: { unitId: number; unitN
   );
 }
 
+// ─── Modal de configuração de ciclo de pagamento ─────────────────────────────
+function CycleConfigModal({ unitId, unitName, onClose }: { unitId: number; unitName: string; onClose: () => void }) {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.financeSimple.getUnitCycle.useQuery({ unit_id: unitId });
+  const [startDay, setStartDay] = useState("");
+  const [endDay, setEndDay] = useState("");
+
+  if (!isLoading && data && startDay === "" && endDay === "") {
+    setStartDay(String(data.start_day ?? 1));
+    setEndDay(String(data.end_day ?? 31));
+  }
+
+  const save = trpc.financeSimple.setUnitCycle.useMutation({
+    onSuccess: () => {
+      toast.success("Ciclo de pagamento atualizado");
+      utils.financeSimple.unitSummary.invalidate();
+      onClose();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const startDayNum = parseInt(startDay) || 1;
+  const endDayNum = parseInt(endDay) || 31;
+  const crossesMonth = startDayNum > endDayNum;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+          <div>
+            <p className="text-white font-semibold">Ciclo de Pagamento</p>
+            <p className="text-slate-400 text-xs">{unitName}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <p className="text-xs text-slate-400">
+            Defina o dia de início e fim do ciclo mensal de pagamento desta unidade.
+            O sistema usará este período para calcular os laudos e valores do ciclo.
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1.5">Dia de Início</label>
+              <Input
+                type="number" min="1" max="31"
+                value={startDay}
+                onChange={(e) => setStartDay(e.target.value)}
+                placeholder="1"
+                className="bg-slate-800 border-slate-600 text-white"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1.5">Dia de Fim</label>
+              <Input
+                type="number" min="1" max="31"
+                value={endDay}
+                onChange={(e) => setEndDay(e.target.value)}
+                placeholder="31"
+                className="bg-slate-800 border-slate-600 text-white"
+              />
+            </div>
+          </div>
+          {/* Preview do ciclo */}
+          <div className={`rounded-lg px-4 py-3 text-xs ${crossesMonth ? "bg-violet-500/10 border border-violet-500/30 text-violet-300" : "bg-slate-800/60 border border-slate-700 text-slate-300"}`}>
+            {crossesMonth ? (
+              <span>Ciclo cruza meses: do dia <strong>{startDayNum}</strong> ao dia <strong>{endDayNum}</strong> do mês seguinte</span>
+            ) : (
+              <span>Ciclo mensal: do dia <strong>{startDayNum}</strong> ao dia <strong>{endDayNum}</strong> do mesmo mês</span>
+            )}
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" className="flex-1 border-slate-600 text-slate-300" onClick={onClose}>Cancelar</Button>
+            <Button
+              className="flex-1 bg-violet-600 hover:bg-violet-500 text-white"
+              disabled={save.isPending}
+              onClick={() => save.mutate({ unit_id: unitId, start_day: startDayNum, end_day: endDayNum })}
+            >
+              {save.isPending ? "Salvando..." : "Salvar Ciclo"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 // ─── Painel de detalhes da unidade selecionada ────────────────────────────────────────────
 function UnitDetail({
   unit, year, month
@@ -264,6 +351,7 @@ function UnitDetail({
   const utils = trpc.useUtils();
   const { user } = useAuth();
   const [showPriceModal, setShowPriceModal] = useState(false);
+  const [showCycleModal, setShowCycleModal] = useState(false);
   const { data: doctors, isLoading } = trpc.financeSimple.doctorSummaryByUnit.useQuery({
     unit_id: unit.unit_id, year, month
   });
@@ -321,14 +409,23 @@ function UnitDetail({
           </div>
         </div>
 
-        {/* Botão configurar preços (admin_master) */}
+        {/* Botões de configuração (admin_master) */}
         {user?.role === "admin_master" && (
-          <button
-            onClick={() => setShowPriceModal(true)}
-            className="mt-2 flex items-center gap-1.5 text-xs text-slate-400 hover:text-cyan-400 transition-colors"
-          >
-            <Settings className="h-3.5 w-3.5" /> Configurar preços por laudo
-          </button>
+          <div className="mt-2 flex items-center gap-3 flex-wrap">
+            <button
+              onClick={() => setShowPriceModal(true)}
+              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-cyan-400 transition-colors"
+            >
+              <Settings className="h-3.5 w-3.5" /> Configurar preços por laudo
+            </button>
+            <span className="text-slate-700">|</span>
+            <button
+              onClick={() => setShowCycleModal(true)}
+              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-violet-400 transition-colors"
+            >
+              <CalendarDays className="h-3.5 w-3.5" /> Configurar ciclo de pagamento
+            </button>
+          </div>
         )}
 
         {/* Botão marcar sistema pago */}
@@ -412,6 +509,13 @@ function UnitDetail({
         unitId={unit.unit_id}
         unitName={unit.unit_name}
         onClose={() => setShowPriceModal(false)}
+      />
+    )}
+    {showCycleModal && (
+      <CycleConfigModal
+        unitId={unit.unit_id}
+        unitName={unit.unit_name}
+        onClose={() => setShowCycleModal(false)}
       />
     )}
     </div>

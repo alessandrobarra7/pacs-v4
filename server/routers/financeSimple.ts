@@ -488,4 +488,58 @@ export const financeSimpleRouter = router({
         .where(eq(units.id, input.unit_id));
       return { ok: true };
     }),
+
+  /**
+   * Busca o ciclo de pagamento configurado para a unidade (admin_master only)
+   */
+  getUnitCycle: protectedProcedure
+    .input(z.object({ unit_id: z.number().int() }))
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin_master") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const rows = await db
+        .select({
+          id: units.id,
+          name: units.name,
+          billing_cycle_start_day: units.billing_cycle_start_day,
+          billing_cycle_end_day: units.billing_cycle_end_day,
+        })
+        .from(units)
+        .where(eq(units.id, input.unit_id))
+        .limit(1);
+      const u = rows[0];
+      if (!u) throw new TRPCError({ code: "NOT_FOUND" });
+      return {
+        unit_id: u.id,
+        unit_name: u.name,
+        start_day: u.billing_cycle_start_day ?? 1,
+        end_day: u.billing_cycle_end_day ?? 31,
+      };
+    }),
+
+  /**
+   * Configura o ciclo de pagamento da unidade (admin_master only)
+   * start_day: dia do mês de início (1-31)
+   * end_day: dia do mês de fim (1-31)
+   * Se start_day > end_day, o ciclo cruza mêses (ex: 15 ao 14 do mês seguinte)
+   */
+  setUnitCycle: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().int(),
+      start_day: z.number().int().min(1).max(31),
+      end_day: z.number().int().min(1).max(31),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin_master") throw new TRPCError({ code: "FORBIDDEN" });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.update(units)
+        .set({
+          billing_cycle_start_day: input.start_day,
+          billing_cycle_end_day: input.end_day,
+        })
+        .where(eq(units.id, input.unit_id));
+      return { ok: true };
+    }),
 });

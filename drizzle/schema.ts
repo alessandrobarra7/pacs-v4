@@ -25,6 +25,10 @@ export const units = mysqlTable("units", {
   // Preço padrão por laudo: valor cobrado pelo sistema e valor pago ao médico
   default_system_price: decimal("default_system_price", { precision: 10, scale: 2 }),
   default_doctor_price: decimal("default_doctor_price", { precision: 10, scale: 2 }),
+  // Ciclo de pagamento: dia do mês de início e fim (1-31)
+  // Ex: start=1, end=31 → mês calendário; start=15, end=14 → ciclo do dia 15 ao 14 do mês seguinte
+  billing_cycle_start_day: int("billing_cycle_start_day").default(1),
+  billing_cycle_end_day: int("billing_cycle_end_day").default(31),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
