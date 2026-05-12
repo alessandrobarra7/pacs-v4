@@ -528,26 +528,64 @@ export function PacsQueryPage() {
    const cacheKey = `pacs_query_results_unit_${effectiveUnitId || 'none'}`;
   // PERSIST-FILTER: chave de sessão para restaurar o filtro ao voltar do editor
   const filterSessionKey = `pacs_filter_unit_${effectiveUnitId || 'none'}`;
+
+  // FIX: usar selectedUnitId (síncrono do localStorage) para a inicialização
+  // effectiveUnitId depende de allUnits (async) — pode ser null no primeiro render
+  // para médicos com acesso multi-unidade, causando reset para "Hoje" ao voltar
+  const initKey = `pacs_filter_unit_${selectedUnitId || (user as any)?.unit_id || 'none'}`;
+
   const [filters, setFilters] = useState(() => {
     try {
-      const saved = sessionStorage.getItem(filterSessionKey);
+      const saved = sessionStorage.getItem(initKey);
       if (saved) return JSON.parse(saved);
     } catch { /* ignorar */ }
     return { patientName: "", studyDate: "TODAY", period: "today" };
   });
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(() => {
     try {
-      const saved = sessionStorage.getItem(filterSessionKey);
+      const saved = sessionStorage.getItem(initKey);
       if (saved) {
         const f = JSON.parse(saved);
         if (f.period === 'custom' && f.studyDate && f.studyDate.length === 8) {
-          const y = parseInt(f.studyDate.slice(0,4)), m = parseInt(f.studyDate.slice(4,6)) - 1, d = parseInt(f.studyDate.slice(6,8));
+          const y = parseInt(f.studyDate.slice(0,4));
+          const m = parseInt(f.studyDate.slice(4,6)) - 1;
+          const d = parseInt(f.studyDate.slice(6,8));
           return new Date(y, m, d);
         }
       }
     } catch { /* ignorar */ }
     return undefined;
   });
+
+  // FIX: quando effectiveUnitId carregar (async) e for diferente do initKey,
+  // garantir que o filtro correto seja restaurado (caso multi-unidade)
+  const filtersRestoredRef = useRef(false);
+  useEffect(() => {
+    if (!effectiveUnitId) return;
+    if (filtersRestoredRef.current) return; // só restaura uma vez por mount
+    const key = `pacs_filter_unit_${effectiveUnitId}`;
+    const initKeyUsed = `pacs_filter_unit_${selectedUnitId || (user as any)?.unit_id || 'none'}`;
+    if (key === initKeyUsed) {
+      // A chave usada no useState já era a correta — não precisa restaurar
+      filtersRestoredRef.current = true;
+      return;
+    }
+    // A chave mudou (médico multi-unidade) — restaurar filtro correto
+    try {
+      const saved = sessionStorage.getItem(key);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setFilters(parsed);
+        if (parsed.period === 'custom' && parsed.studyDate?.length === 8) {
+          const y = parseInt(parsed.studyDate.slice(0,4));
+          const m = parseInt(parsed.studyDate.slice(4,6)) - 1;
+          const d = parseInt(parsed.studyDate.slice(6,8));
+          setSelectedDate(new Date(y, m, d));
+        }
+      }
+    } catch { /* ignorar */ }
+    filtersRestoredRef.current = true;
+  }, [effectiveUnitId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [queryResults, setQueryResults] = useState<any[]>(() => {
     try { return JSON.parse(localStorage.getItem(cacheKey) || '[]'); } catch { return []; }
