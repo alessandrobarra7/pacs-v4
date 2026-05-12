@@ -15,6 +15,8 @@ import {
   units,
   financial_responsible_units,
   user_unit_permissions,
+  financial_responsibles,
+  billing_doctor_unit_prices,
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, sql, desc, inArray } from "drizzle-orm";
 import { getResponsibleIdForUser } from "../db";
@@ -126,6 +128,7 @@ export const financeSimpleRouter = router({
     .input(z.object({
       year: z.number().int(),
       month: z.number().int().min(1).max(12),
+      responsible_id: z.number().int().optional(),
     }))
     .query(async ({ input, ctx }) => {
       assertAdmin(ctx.user.role);
@@ -157,6 +160,18 @@ export const financeSimpleRouter = router({
         }
       }
 
+      // Filtro opcional por responsável financeiro
+      if (input.responsible_id) {
+        const linkedUnits = await db
+          .select({ unit_id: financial_responsible_units.unit_id })
+          .from(financial_responsible_units)
+          .where(eq(financial_responsible_units.financial_responsible_id, input.responsible_id));
+        const respUnitIds = linkedUnits.map(u => u.unit_id);
+        if (respUnitIds.length === 0) return [];
+        unitIdFilter = unitIdFilter
+          ? and(unitIdFilter, inArray(units.id, respUnitIds)) as ReturnType<typeof eq>
+          : inArray(units.id, respUnitIds) as ReturnType<typeof eq>;
+      }
       const rows = await db
         .select({
           unit_id: units.id,
@@ -428,6 +443,22 @@ export const financeSimpleRouter = router({
         )
         .orderBy(desc(billing_visit_events.createdAt));
 
+      // Buscar preço vigente do médico por unidade (ends_at IS NULL = ativo)
+      const doctorPriceRows = await db
+        .select({
+          unit_id: billing_doctor_unit_prices.unit_id,
+          price_per_report: billing_doctor_unit_prices.price_per_report,
+        })
+        .from(billing_doctor_unit_prices)
+        .where(
+          and(
+            eq(billing_doctor_unit_prices.doctor_user_id, ctx.user.id),
+            isNull(billing_doctor_unit_prices.ends_at),
+          )
+        );
+      const priceByUnit = new Map(
+        doctorPriceRows.map(p => [p.unit_id, Number(p.price_per_report ?? 0)])
+      );
       return {
         summary: summary.map((r) => ({
           unit_id: r.unit_id,
@@ -437,13 +468,13 @@ export const financeSimpleRouter = router({
           doctor_paid: toMoney(r.doctor_paid ?? 0),
           doctor_pending: subMoney(r.doctor_total, r.doctor_paid ?? 0),   // FIX float
           last_received_at: r.last_received_at,
+          price_per_report: priceByUnit.get(r.unit_id) ?? null,  // NOVO: valor vigente
         })),
         events,
       };
     }),
-
   /**
-   * Configuração de preços por unidade — leitura
+   * Configuração de preços por unidade — leituraa
    */
   getPriceConfig: protectedProcedure
     .input(z.object({ unit_id: z.number().int() }))
@@ -670,5 +701,57 @@ export const financeSimpleRouter = router({
       });
 
       return { units: result, responsavelId };
+    }),
+
+  /**
+   * Resumo por Responsável Financeiro — para admin_master
+   * Agrupa billing_visit_events por financial_responsible_id
+   */
+  responsibleSummary: protectedProcedure
+    .input(z.object({
+      year: z.number().int(),
+      month: z.number().int().min(1).max(12),
+    }))
+    .query(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin_master") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito ao admin master" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const startDate = new Date(input.year, input.month - 1, 1);
+      const endDate = new Date(input.year, input.month, 1);
+      const rows = await db
+        .select({
+          responsible_id: billing_visit_events.financial_responsible_id,
+          responsible_name: financial_responsibles.legal_name,
+          unit_count: sql<number>`COUNT(DISTINCT ${billing_visit_events.unit_id})`,
+          total_laudos: sql<number>`COUNT(*)`,
+          system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
+          system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
+          doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
+          doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
+        })
+        .from(billing_visit_events)
+        .leftJoin(financial_responsibles, eq(financial_responsibles.id, billing_visit_events.financial_responsible_id))
+        .where(
+          and(
+            sql`${billing_visit_events.createdAt} >= ${startDate}`,
+            sql`${billing_visit_events.createdAt} < ${endDate}`,
+          )
+        )
+        .groupBy(billing_visit_events.financial_responsible_id, financial_responsibles.legal_name)
+        .orderBy(financial_responsibles.legal_name);
+      return rows.map(r => ({
+        responsible_id: r.responsible_id,
+        responsible_name: r.responsible_name ?? "Sem responsável",
+        unit_count: Number(r.unit_count),
+        total_laudos: Number(r.total_laudos),
+        system_total: toMoney(r.system_total),
+        system_paid: toMoney(r.system_paid),
+        system_pending: subMoney(r.system_total, r.system_paid),
+        doctor_total: toMoney(r.doctor_total),
+        doctor_paid: toMoney(r.doctor_paid),
+        doctor_pending: subMoney(r.doctor_total, r.doctor_paid),
+      }));
     }),
 });

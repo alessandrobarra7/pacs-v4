@@ -1,6 +1,8 @@
 /**
  * FinanceDashboard2 — Módulo financeiro simplificado
- * Layout: sidebar (FinanceShell2) + coluna esquerda = lista de unidades | corpo direito = médicos, valores, transações
+ * Nível 1: lista de Responsáveis Financeiros com totais
+ * Nível 2: ao selecionar um responsável, mostra suas unidades
+ * Nível 3: ao selecionar uma unidade, mostra médicos e ações de pagamento
  * Desenvolvimento StudioBarra7
  */
 import { useState, useEffect } from "react";
@@ -8,7 +10,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
   Building2, ChevronLeft, ChevronRight, DollarSign,
-  FileText, CheckCircle2, AlertCircle, X, Settings, CalendarDays
+  FileText, CheckCircle2, AlertCircle, X, Settings, CalendarDays, ArrowLeft
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -236,10 +238,22 @@ export default function FinanceDashboard2() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
+  // Nível 1: responsável selecionado
+  const [selectedResponsible, setSelectedResponsible] = useState<{ id: number | null; name: string } | null>(null);
+  // Nível 2: unidade selecionada
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
-  const { data: units, isLoading } = trpc.financeSimple.unitSummary.useQuery({ year, month });
-  const { data: dashData } = trpc.financeSimple.dashboard.useQuery({ year, month });
-  const selectedUnit = units?.find(u => u.unit_id === selectedUnitId) ?? units?.[0] ?? null;
+
+  // Dados nível 1: resumo por responsável
+  const { data: responsibles, isLoading: loadingResp } = trpc.financeSimple.responsibleSummary.useQuery({ year, month });
+
+  // Dados nível 2: unidades do responsável selecionado
+  const { data: units, isLoading: loadingUnits } = trpc.financeSimple.unitSummary.useQuery(
+    { year, month, responsible_id: selectedResponsible?.id ?? undefined },
+    { enabled: selectedResponsible !== null }
+  );
+
+  const selectedUnit = units?.find(u => u.unit_id === selectedUnitId) ?? null;
+
   function prevMonth() {
     setSelectedUnitId(null);
     if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1);
@@ -248,60 +262,74 @@ export default function FinanceDashboard2() {
     setSelectedUnitId(null);
     if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1);
   }
+
   return (
     <FinanceShell2>
       <div className="flex flex-col h-full overflow-hidden">
-        {/* Barra de mês + cards de resumo */}
-        <div className="shrink-0 border-b border-slate-800 bg-slate-900/50">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800/60">
-            <h2 className="text-white font-semibold text-sm">Dashboard Financeiro</h2>
-            <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5">
-              <button onClick={prevMonth} className="text-slate-400 hover:text-white transition-colors px-1"><ChevronLeft className="h-4 w-4" /></button>
-              <span className="text-white font-medium text-sm min-w-[130px] text-center">{MONTHS[month - 1]} {year}</span>
-              <button onClick={nextMonth} className="text-slate-400 hover:text-white transition-colors px-1"><ChevronRight className="h-4 w-4" /></button>
-            </div>
+        {/* Barra de mês */}
+        <div className="shrink-0 border-b border-slate-800 bg-slate-900/50 px-5 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {selectedResponsible && (
+              <button
+                onClick={() => { setSelectedResponsible(null); setSelectedUnitId(null); }}
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+            )}
+            <h2 className="text-white font-semibold text-sm">
+              {selectedResponsible
+                ? selectedResponsible.id === null ? "Sem Responsável" : selectedResponsible.name
+                : "Dashboard Financeiro"}
+            </h2>
           </div>
-          <div className="grid grid-cols-4 gap-3 px-5 py-3">
-            {[
-              { label: "Laudos", value: String(dashData?.total_laudos ?? 0), color: "text-blue-400" },
-              { label: "Sistema total", value: fmtBRL(dashData?.system_total ?? 0), color: "text-cyan-400", sub: dashData?.system_pending ? `${fmtBRL(dashData.system_pending)} pend.` : undefined },
-              { label: "Médicos total", value: fmtBRL(dashData?.doctor_total ?? 0), color: "text-amber-400", sub: dashData?.doctor_pending ? `${fmtBRL(dashData.doctor_pending)} pend.` : undefined },
-              { label: "Pendências", value: String((dashData?.system_pending_count ?? 0) + (dashData?.doctor_pending_count ?? 0)), color: "text-rose-400", sub: `${dashData?.system_pending_count ?? 0} sist. · ${dashData?.doctor_pending_count ?? 0} méd.` },
-            ].map(c => (
-              <div key={c.label} className="bg-slate-800/50 rounded-lg px-4 py-2.5">
-                <p className="text-xs text-slate-500 uppercase tracking-wide">{c.label}</p>
-                <p className={`text-lg font-bold ${c.color}`}>{c.value}</p>
-                {c.sub && <p className="text-xs text-slate-500">{c.sub}</p>}
-              </div>
-            ))}
+          <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5">
+            <button onClick={prevMonth} className="text-slate-400 hover:text-white transition-colors px-1"><ChevronLeft className="h-4 w-4" /></button>
+            <span className="text-white font-medium text-sm min-w-[130px] text-center">{MONTHS[month - 1]} {year}</span>
+            <button onClick={nextMonth} className="text-slate-400 hover:text-white transition-colors px-1"><ChevronRight className="h-4 w-4" /></button>
           </div>
         </div>
-        {/* Layout duas colunas */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Coluna esquerda — lista de unidades */}
-          <div className="w-64 shrink-0 border-r border-slate-800 overflow-y-auto bg-slate-900/50">
-            <div className="px-4 py-3 border-b border-slate-800">
-              <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Unidades</p>
-            </div>
-            {isLoading ? (
-              <div className="p-3 space-y-2">{[1,2,3,4].map(i => <div key={i} className="h-14 bg-slate-800/40 rounded-lg animate-pulse" />)}</div>
-            ) : !units?.length ? (
-              <div className="p-4 text-center text-slate-500 text-xs">Nenhum laudo em {MONTHS[month-1]} {year}</div>
+
+        {/* Nível 1: lista de responsáveis */}
+        {!selectedResponsible && (
+          <div className="flex-1 overflow-y-auto p-5">
+            {loadingResp ? (
+              <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-24 bg-slate-800/40 rounded-xl animate-pulse" />)}</div>
+            ) : !responsibles?.length ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <DollarSign className="h-12 w-12 text-slate-700 mb-3" />
+                <p className="text-slate-400 text-sm">Nenhum laudo faturado em {MONTHS[month-1]} {year}</p>
+              </div>
             ) : (
-              <div className="p-2 space-y-1">
-                {units.map((u) => {
-                  const isSelected = (selectedUnit?.unit_id === u.unit_id);
-                  const hasPending = u.system_pending > 0 || u.doctor_pending > 0;
+              <div className="space-y-3">
+                {responsibles.map((r) => {
+                  const hasPending = r.system_pending > 0 || r.doctor_pending > 0;
                   return (
-                    <button key={u.unit_id} onClick={() => setSelectedUnitId(u.unit_id)} className={`w-full text-left rounded-lg px-3 py-2.5 transition-all ${isSelected ? "bg-cyan-500/20 border border-cyan-500/40" : "hover:bg-slate-800/60 border border-transparent"}`}>
-                      <div className="flex items-center justify-between mb-1">
-                        <p className={`text-sm font-medium truncate ${isSelected ? "text-cyan-300" : "text-white"}`}>{u.unit_name}</p>
-                        {hasPending && <AlertCircle className="h-3.5 w-3.5 text-rose-400 shrink-0 ml-1" />}
+                    <button
+                      key={r.responsible_id ?? "none"}
+                      onClick={() => setSelectedResponsible({ id: r.responsible_id, name: r.responsible_name })}
+                      className="w-full text-left bg-slate-800/60 border border-slate-700 hover:border-cyan-500/40 hover:bg-slate-800 rounded-xl p-4 transition-all"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <p className="text-white font-semibold">{r.responsible_name}</p>
+                          <p className="text-slate-400 text-xs mt-0.5">
+                            {r.unit_count} unidade{r.unit_count !== 1 ? "s" : ""} · {r.total_laudos} laudos
+                          </p>
+                        </div>
+                        {hasPending && <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />}
                       </div>
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="text-slate-400">{u.total_laudos} laudos</span>
-                        {u.system_pending > 0 && <span className="text-rose-400">S: {fmtBRL(u.system_pending)}</span>}
-                        {u.doctor_pending > 0 && <span className="text-amber-400">M: {fmtBRL(u.doctor_pending)}</span>}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-slate-900/60 rounded-lg p-2.5">
+                          <p className="text-xs text-slate-500 mb-1">Sistema</p>
+                          <p className="text-sm font-semibold text-cyan-400">{fmtBRL(r.system_total)}</p>
+                          {r.system_pending > 0 && <p className="text-xs text-rose-400">{fmtBRL(r.system_pending)} pend.</p>}
+                        </div>
+                        <div className="bg-slate-900/60 rounded-lg p-2.5">
+                          <p className="text-xs text-slate-500 mb-1">Médicos</p>
+                          <p className="text-sm font-semibold text-amber-400">{fmtBRL(r.doctor_total)}</p>
+                          {r.doctor_pending > 0 && <p className="text-xs text-amber-500">{fmtBRL(r.doctor_pending)} pend.</p>}
+                        </div>
                       </div>
                     </button>
                   );
@@ -309,18 +337,55 @@ export default function FinanceDashboard2() {
               </div>
             )}
           </div>
-          {/* Corpo direito — detalhes da unidade selecionada */}
-          <div className="flex-1 overflow-hidden">
-            {!selectedUnit ? (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <Building2 className="h-12 w-12 text-slate-700 mb-3" />
-                <p className="text-slate-500 text-sm">Selecione uma unidade para ver os detalhes</p>
+        )}
+
+        {/* Nível 2: unidades do responsável + detalhe */}
+        {selectedResponsible && (
+          <div className="flex flex-1 overflow-hidden">
+            {/* Coluna esquerda — unidades */}
+            <div className="w-64 shrink-0 border-r border-slate-800 overflow-y-auto bg-slate-900/50">
+              <div className="px-4 py-3 border-b border-slate-800">
+                <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Unidades</p>
               </div>
-            ) : (
-              <UnitDetail unit={selectedUnit} year={year} month={month} />
-            )}
+              {loadingUnits ? (
+                <div className="p-3 space-y-2">{[1,2,3].map(i => <div key={i} className="h-14 bg-slate-800/40 rounded-lg animate-pulse" />)}</div>
+              ) : !units?.length ? (
+                <div className="p-4 text-center text-slate-500 text-xs">Nenhum laudo em {MONTHS[month-1]} {year}</div>
+              ) : (
+                <div className="p-2 space-y-1">
+                  {units.map((u) => {
+                    const isSelected = selectedUnitId === u.unit_id;
+                    const hasPending = u.system_pending > 0 || u.doctor_pending > 0;
+                    return (
+                      <button key={u.unit_id} onClick={() => setSelectedUnitId(u.unit_id)} className={`w-full text-left rounded-lg px-3 py-2.5 transition-all ${isSelected ? "bg-cyan-500/20 border border-cyan-500/40" : "hover:bg-slate-800/60 border border-transparent"}`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className={`text-sm font-medium truncate ${isSelected ? "text-cyan-300" : "text-white"}`}>{u.unit_name}</p>
+                          {hasPending && <AlertCircle className="h-3.5 w-3.5 text-rose-400 shrink-0 ml-1" />}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-slate-400">{u.total_laudos} laudos</span>
+                          {u.system_pending > 0 && <span className="text-rose-400">S: {fmtBRL(u.system_pending)}</span>}
+                          {u.doctor_pending > 0 && <span className="text-amber-400">M: {fmtBRL(u.doctor_pending)}</span>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {/* Corpo direito — detalhe da unidade */}
+            <div className="flex-1 overflow-hidden">
+              {!selectedUnit ? (
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <Building2 className="h-12 w-12 text-slate-700 mb-3" />
+                  <p className="text-slate-500 text-sm">Selecione uma unidade para ver os detalhes</p>
+                </div>
+              ) : (
+                <UnitDetail unit={selectedUnit} year={year} month={month} />
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </FinanceShell2>
   );
