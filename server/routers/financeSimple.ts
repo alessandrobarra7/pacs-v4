@@ -14,6 +14,7 @@ import {
   users,
   units,
   financial_responsible_units,
+  user_unit_permissions,
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, sql, desc, inArray } from "drizzle-orm";
 import { getResponsibleIdForUser } from "../db";
@@ -134,11 +135,27 @@ export const financeSimpleRouter = router({
       const startDate = new Date(input.year, input.month - 1, 1);
       const endDate = new Date(input.year, input.month, 1);
 
-      // Parte da tabela units para mostrar TODAS as unidades, mesmo sem laudos no mês
-      const unitIdFilter =
-        ctx.user.role === "unit_admin" && ctx.user.unit_id
-          ? eq(units.id, ctx.user.unit_id)
-          : undefined;
+      // Filtro de unidades: unit_admin vê apenas suas unidades (unit_id fixo OU via permissões)
+      let unitIdFilter: ReturnType<typeof eq> | ReturnType<typeof inArray> | undefined = undefined;
+      if (ctx.user.role === "unit_admin") {
+        if (ctx.user.unit_id) {
+          unitIdFilter = eq(units.id, ctx.user.unit_id);
+        } else {
+          const perms = await db
+            .select({ unit_id: user_unit_permissions.unit_id })
+            .from(user_unit_permissions)
+            .where(and(
+              eq(user_unit_permissions.user_id, ctx.user.id),
+              eq(user_unit_permissions.group_key, "administradoresUnidade")
+            ));
+          const unitIds = perms.map(p => p.unit_id);
+          if (unitIds.length > 0) {
+            unitIdFilter = inArray(units.id, unitIds);
+          } else {
+            return [];
+          }
+        }
+      }
 
       const rows = await db
         .select({
