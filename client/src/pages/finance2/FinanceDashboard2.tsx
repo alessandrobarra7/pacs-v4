@@ -3,7 +3,7 @@
  * Layout: coluna esquerda = lista de unidades | corpo direito = médicos, valores, transações
  * Desenvolvimento StudioBarra7
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
@@ -185,11 +185,13 @@ function PriceConfigModal({ unitId, unitName, onClose }: { unitId: number; unitN
   const [sysPrice, setSysPrice] = useState("");
   const [docPrice, setDocPrice] = useState("");
 
-  // Preenche os campos quando os dados carregam
-  if (!isLoading && data && sysPrice === "" && docPrice === "") {
-    setSysPrice(data.default_system_price != null ? String(data.default_system_price) : "");
-    setDocPrice(data.default_doctor_price != null ? String(data.default_doctor_price) : "");
-  }
+  // FIX: preencher campos via useEffect — nunca chamar setState no render (React error #301)
+  useEffect(() => {
+    if (!isLoading && data) {
+      setSysPrice(data.default_system_price != null ? String(data.default_system_price) : "");
+      setDocPrice(data.default_doctor_price != null ? String(data.default_doctor_price) : "");
+    }
+  }, [data, isLoading]);
 
   const save = trpc.financeSimple.setUnitDefaultPrices.useMutation({
     onSuccess: () => {
@@ -262,10 +264,13 @@ function CycleConfigModal({ unitId, unitName, onClose }: { unitId: number; unitN
   const [startDay, setStartDay] = useState("");
   const [endDay, setEndDay] = useState("");
 
-  if (!isLoading && data && startDay === "" && endDay === "") {
-    setStartDay(String(data.start_day ?? 1));
-    setEndDay(String(data.end_day ?? 31));
-  }
+  // FIX: preencher campos via useEffect — nunca chamar setState no render (React error #301)
+  useEffect(() => {
+    if (!isLoading && data) {
+      setStartDay(String(data.start_day ?? 1));
+      setEndDay(String(data.end_day ?? 31));
+    }
+  }, [data, isLoading]);
 
   const save = trpc.financeSimple.setUnitCycle.useMutation({
     onSuccess: () => {
