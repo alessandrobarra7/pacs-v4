@@ -13,8 +13,10 @@ import {
   billing_visit_events,
   users,
   units,
+  financial_responsible_units,
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, sql, desc, inArray } from "drizzle-orm";
+import { getResponsibleIdForUser } from "../db";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -541,5 +543,93 @@ export const financeSimpleRouter = router({
         })
         .where(eq(units.id, input.unit_id));
       return { ok: true };
+    }),
+
+  /**
+   * Resumo financeiro para o Responsável Financeiro logado
+   * Retorna as unidades vinculadas + resumo de laudos/valores por mês
+   */
+  myResponsavelSummary: protectedProcedure
+    .input(z.object({
+      year: z.number().int(),
+      month: z.number().int().min(1).max(12),
+    }))
+    .query(async ({ input, ctx }) => {
+      if (ctx.user.role !== "responsavel_financeiro" && ctx.user.role !== "admin_master") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Descobrir o ID do responsável vinculado ao usuário
+      const responsavelId = await getResponsibleIdForUser(ctx.user.id);
+      if (!responsavelId) {
+        return { units: [], responsavelId: null };
+      }
+
+      // Buscar unidades vinculadas ao responsável (vigência ativa)
+      const linkedUnits = await db
+        .select({
+          unit_id: financial_responsible_units.unit_id,
+          unit_name: units.name,
+        })
+        .from(financial_responsible_units)
+        .leftJoin(units, eq(units.id, financial_responsible_units.unit_id))
+        .where(
+          and(
+            eq(financial_responsible_units.financial_responsible_id, responsavelId),
+            isNull(financial_responsible_units.ends_at),
+          )
+        );
+
+      if (linkedUnits.length === 0) {
+        return { units: [], responsavelId };
+      }
+
+      const unitIds = linkedUnits.map((u) => u.unit_id);
+      const startDate = new Date(input.year, input.month - 1, 1);
+      const endDate = new Date(input.year, input.month, 1);
+
+      // Resumo por unidade
+      const summary = await db
+        .select({
+          unit_id: billing_visit_events.unit_id,
+          unit_name: units.name,
+          total_laudos: sql<number>`COUNT(*)`,
+          system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
+          system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
+          doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
+          doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
+        })
+        .from(billing_visit_events)
+        .leftJoin(units, eq(units.id, billing_visit_events.unit_id))
+        .where(
+          and(
+            inArray(billing_visit_events.unit_id, unitIds),
+            sql`${billing_visit_events.createdAt} >= ${startDate}`,
+            sql`${billing_visit_events.createdAt} < ${endDate}`,
+          )
+        )
+        .groupBy(billing_visit_events.unit_id, units.name)
+        .orderBy(units.name);
+
+      // Montar mapa de unidades vinculadas (inclui unidades sem laudos no mês)
+      const summaryMap = new Map(summary.map((s) => [s.unit_id, s]));
+      const result = linkedUnits.map((lu) => {
+        const s = summaryMap.get(lu.unit_id);
+        return {
+          unit_id: lu.unit_id,
+          unit_name: lu.unit_name ?? "Unidade",
+          total_laudos: s ? Number(s.total_laudos) : 0,
+          system_total: s ? Number(s.system_total) : 0,
+          system_paid: s ? Number(s.system_paid) : 0,
+          system_pending: s ? Number(s.system_total) - Number(s.system_paid) : 0,
+          doctor_total: s ? Number(s.doctor_total) : 0,
+          doctor_paid: s ? Number(s.doctor_paid) : 0,
+          doctor_pending: s ? Number(s.doctor_total) - Number(s.doctor_paid) : 0,
+        };
+      });
+
+      return { units: result, responsavelId };
     }),
 });

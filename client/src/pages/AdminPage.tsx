@@ -8,15 +8,24 @@ import {
 } from "@/components/ui/table";
 import {
   Building2, Users, ClipboardList, Plus, Edit2, Trash2, Server, HardDrive,
-  Trash, RefreshCw, Power, PowerOff, LayoutTemplate,
+  Trash, RefreshCw, Power, PowerOff, LayoutTemplate, Wallet, Link as LinkIcon,
+  UserCheck, X, ChevronDown, ChevronUp,
 } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 import UnitFormDialog, { type UnitFormData } from "@/components/UnitFormDialog";
 import UserFormDialog, { type UserFormData } from "@/components/UserFormDialog";
 import { UserExplorerLayout } from "@/components/UserExplorerLayout";
 
-type Tab = "units" | "users" | "audit" | "cache";
+type Tab = "units" | "users" | "audit" | "cache" | "responsaveis";
 
 const ROLE_LABELS: Record<string, string> = {
   admin_master: "Admin Master",
@@ -163,6 +172,356 @@ function CachePanel() {
           <HardDrive className="h-10 w-10 mb-3 opacity-30" />
           <p className="text-sm">Nenhum estudo em cache no momento</p>
           <p className="text-xs mt-1">Os estudos aparecem aqui após serem baixados pelo visualizador</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Painel de Responsáveis Financeiros ─────────────────────────────────────
+function ResponsaveisPanel({ allUnits }: { allUnits: { id: number; name: string }[] }) {
+  const utils = trpc.useUtils();
+  const { data: responsaveis = [], isLoading } = trpc.billing.listResponsibles.useQuery();
+  const { data: availableUsers = [] } = trpc.billing.listAvailableUsers.useQuery();
+
+  // Estado dos modais
+  const [showCreate, setShowCreate] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [showLinkUnit, setShowLinkUnit] = useState<number | null>(null);
+  const [showLinkUser, setShowLinkUser] = useState<number | null>(null);
+
+  // Formulário de criação
+  const [createForm, setCreateForm] = useState({
+    person_type: "PJ" as "PF" | "PJ",
+    legal_name: "",
+    trade_name: "",
+    cpf_cnpj: "",
+    email: "",
+    phone: "",
+  });
+
+  // Formulário de vínculo de unidade
+  const [linkUnitForm, setLinkUnitForm] = useState({ unitId: "", startsAt: new Date().toISOString().split("T")[0] });
+  // Formulário de vínculo de usuário
+  const [linkUserForm, setLinkUserForm] = useState({ userId: "" });
+
+  const createResp = trpc.billing.createResponsible.useMutation({
+    onSuccess: () => { toast.success("Responsável criado!"); setShowCreate(false); setCreateForm({ person_type: "PJ", legal_name: "", trade_name: "", cpf_cnpj: "", email: "", phone: "" }); utils.billing.listResponsibles.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const linkUnit = trpc.billing.linkUnit.useMutation({
+    onSuccess: () => { toast.success("Unidade vinculada!"); setShowLinkUnit(null); setLinkUnitForm({ unitId: "", startsAt: new Date().toISOString().split("T")[0] }); utils.billing.listUnitsForResponsibleWithNames.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const unlinkUnit = trpc.billing.unlinkUnit.useMutation({
+    onSuccess: () => { toast.success("Unidade desvinculada!"); utils.billing.listUnitsForResponsibleWithNames.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const linkUser = trpc.billing.linkUser.useMutation({
+    onSuccess: () => { toast.success("Usuário vinculado!"); setShowLinkUser(null); setLinkUserForm({ userId: "" }); utils.billing.listUsersForResponsibleWithNames.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const unlinkUser = trpc.billing.unlinkUser.useMutation({
+    onSuccess: () => { toast.success("Usuário desvinculado!"); utils.billing.listUsersForResponsibleWithNames.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  function fmtDate(d: Date | string | null | undefined) {
+    if (!d) return "—";
+    const dt = typeof d === "string" ? new Date(d + (d.includes("T") ? "" : "T00:00:00")) : d;
+    return dt.toLocaleDateString("pt-BR");
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Responsáveis Financeiros</h2>
+          <p className="text-sm text-gray-500">Entidades pagadoras vinculadas às unidades do sistema</p>
+        </div>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="px-4 py-2 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1.5"
+        >
+          <Plus className="h-4 w-4" />
+          Novo Responsável
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+      ) : responsaveis.length === 0 ? (
+        <div className="bg-white rounded border border-gray-200 flex flex-col items-center justify-center py-16 text-gray-400">
+          <Wallet className="h-10 w-10 mb-3 opacity-30" />
+          <p className="text-sm">Nenhum responsável financeiro cadastrado</p>
+          <p className="text-xs mt-1">Clique em "Novo Responsável" para começar</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {responsaveis.map((r: any) => (
+            <ResponsavelCard
+              key={r.id}
+              responsible={r}
+              allUnits={allUnits}
+              availableUsers={availableUsers as any[]}
+              expanded={expandedId === r.id}
+              onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
+              onLinkUnit={() => { setShowLinkUnit(r.id); setLinkUnitForm({ unitId: "", startsAt: new Date().toISOString().split("T")[0] }); }}
+              onLinkUser={() => { setShowLinkUser(r.id); setLinkUserForm({ userId: "" }); }}
+              onUnlinkUnit={(unitId) => unlinkUnit.mutate({ financialResponsibleId: r.id, unitId })}
+              onUnlinkUser={(userId) => unlinkUser.mutate({ financialResponsibleId: r.id, userId })}
+              fmtDate={fmtDate}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Modal: Criar Responsável */}
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Novo Responsável Financeiro</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Tipo</Label>
+                <Select value={createForm.person_type} onValueChange={(v) => setCreateForm({ ...createForm, person_type: v as "PF" | "PJ" })}>
+                  <SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PJ">Pessoa Jurídica</SelectItem>
+                    <SelectItem value="PF">Pessoa Física</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">CPF / CNPJ</Label>
+                <Input className="h-9 mt-1" placeholder={createForm.person_type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"} value={createForm.cpf_cnpj} onChange={(e) => setCreateForm({ ...createForm, cpf_cnpj: e.target.value })} />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Razão Social / Nome</Label>
+              <Input className="h-9 mt-1" placeholder="Nome completo ou razão social" value={createForm.legal_name} onChange={(e) => setCreateForm({ ...createForm, legal_name: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Nome Fantasia</Label>
+              <Input className="h-9 mt-1" placeholder="Opcional" value={createForm.trade_name} onChange={(e) => setCreateForm({ ...createForm, trade_name: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">E-mail</Label>
+                <Input className="h-9 mt-1" type="email" placeholder="email@exemplo.com" value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} />
+              </div>
+              <div>
+                <Label className="text-xs">Telefone</Label>
+                <Input className="h-9 mt-1" placeholder="(00) 00000-0000" value={createForm.phone} onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancelar</Button>
+            <Button disabled={!createForm.legal_name || createResp.isPending} onClick={() => createResp.mutate(createForm)}>
+              {createResp.isPending ? "Criando..." : "Criar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Vincular Unidade */}
+      <Dialog open={showLinkUnit !== null} onOpenChange={(open) => !open && setShowLinkUnit(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Vincular Unidade</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs">Unidade</Label>
+              <Select value={linkUnitForm.unitId} onValueChange={(v) => setLinkUnitForm({ ...linkUnitForm, unitId: v })}>
+                <SelectTrigger className="h-9 mt-1"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                <SelectContent>
+                  {allUnits.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Vigência a partir de</Label>
+              <Input type="date" className="h-9 mt-1" value={linkUnitForm.startsAt} onChange={(e) => setLinkUnitForm({ ...linkUnitForm, startsAt: e.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLinkUnit(null)}>Cancelar</Button>
+            <Button
+              disabled={!linkUnitForm.unitId || linkUnit.isPending}
+              onClick={() => showLinkUnit !== null && linkUnit.mutate({ financialResponsibleId: showLinkUnit, unitId: parseInt(linkUnitForm.unitId), startsAt: linkUnitForm.startsAt })}
+            >
+              {linkUnit.isPending ? "Vinculando..." : "Vincular"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Vincular Usuário */}
+      <Dialog open={showLinkUser !== null} onOpenChange={(open) => !open && setShowLinkUser(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Vincular Usuário</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs">Usuário</Label>
+              <Select value={linkUserForm.userId} onValueChange={(v) => setLinkUserForm({ userId: v })}>
+                <SelectTrigger className="h-9 mt-1"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                <SelectContent>
+                  {(availableUsers as any[]).map((u: any) => (
+                    <SelectItem key={u.id} value={String(u.id)}>
+                      {u.name || u.username} ({ROLE_LABELS[u.role] || u.role})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-gray-500">O usuário vinculado poderá acessar o painel financeiro deste responsável.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLinkUser(null)}>Cancelar</Button>
+            <Button
+              disabled={!linkUserForm.userId || linkUser.isPending}
+              onClick={() => showLinkUser !== null && linkUser.mutate({ financialResponsibleId: showLinkUser, userId: parseInt(linkUserForm.userId) })}
+            >
+              {linkUser.isPending ? "Vinculando..." : "Vincular"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── Card de Responsável Financeiro ──────────────────────────────────────────
+function ResponsavelCard({
+  responsible, allUnits, availableUsers, expanded, onToggleExpand,
+  onLinkUnit, onLinkUser, onUnlinkUnit, onUnlinkUser, fmtDate,
+}: {
+  responsible: any;
+  allUnits: { id: number; name: string }[];
+  availableUsers: any[];
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onLinkUnit: () => void;
+  onLinkUser: () => void;
+  onUnlinkUnit: (unitId: number) => void;
+  onUnlinkUser: (userId: number) => void;
+  fmtDate: (d: any) => string;
+}) {
+  const { data: linkedUnits = [] } = trpc.billing.listUnitsForResponsibleWithNames.useQuery(
+    { financialResponsibleId: responsible.id },
+    { enabled: expanded },
+  );
+  const { data: linkedUsers = [] } = trpc.billing.listUsersForResponsibleWithNames.useQuery(
+    { financialResponsibleId: responsible.id },
+    { enabled: expanded },
+  );
+
+  return (
+    <div className="bg-white rounded border border-gray-200 overflow-hidden">
+      {/* Cabeçalho do card */}
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center">
+            <Wallet className="h-4 w-4 text-emerald-600" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">{responsible.legal_name}</p>
+            {responsible.trade_name && <p className="text-xs text-gray-500">{responsible.trade_name}</p>}
+          </div>
+          <Badge variant="outline" className="text-xs ml-1">{responsible.person_type}</Badge>
+          <Badge variant="outline" className={`text-xs ${responsible.isActive ? "text-green-600 border-green-600" : "text-gray-400"}`}>
+            {responsible.isActive ? "Ativo" : "Inativo"}
+          </Badge>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onLinkUnit}
+            className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50"
+          >
+            <LinkIcon className="h-3 w-3" /> Unidade
+          </button>
+          <button
+            onClick={onLinkUser}
+            className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50"
+          >
+            <UserCheck className="h-3 w-3" /> Usuário
+          </button>
+          <button
+            onClick={onToggleExpand}
+            className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50"
+          >
+            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {expanded ? "Ocultar" : "Ver detalhes"}
+          </button>
+        </div>
+      </div>
+
+      {/* Detalhes expandidos */}
+      {expanded && (
+        <div className="border-t border-gray-100 px-4 py-3 bg-gray-50 grid grid-cols-2 gap-4">
+          {/* Unidades vinculadas */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Unidades Vinculadas</p>
+            {(linkedUnits as any[]).length === 0 ? (
+              <p className="text-xs text-gray-400">Nenhuma unidade vinculada</p>
+            ) : (
+              <div className="space-y-1.5">
+                {(linkedUnits as any[]).map((lu: any) => (
+                  <div key={lu.id} className="flex items-center justify-between bg-white rounded px-2.5 py-1.5 border border-gray-100">
+                    <div>
+                      <p className="text-xs font-medium text-gray-800">{lu.unit_name || `Unidade #${lu.unit_id}`}</p>
+                      <p className="text-xs text-gray-400">desde {fmtDate(lu.starts_at)}{lu.ends_at ? ` até ${fmtDate(lu.ends_at)}` : ""}</p>
+                    </div>
+                    {!lu.ends_at && (
+                      <button
+                        onClick={() => onUnlinkUnit(lu.unit_id)}
+                        className="text-red-400 hover:text-red-600 ml-2"
+                        title="Desvincular"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* Usuários vinculados */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Usuários Vinculados</p>
+            {(linkedUsers as any[]).length === 0 ? (
+              <p className="text-xs text-gray-400">Nenhum usuário vinculado</p>
+            ) : (
+              <div className="space-y-1.5">
+                {(linkedUsers as any[]).map((lu: any) => (
+                  <div key={lu.id} className="flex items-center justify-between bg-white rounded px-2.5 py-1.5 border border-gray-100">
+                    <div>
+                      <p className="text-xs font-medium text-gray-800">{lu.user_name || lu.user_username || `#${lu.user_id}`}</p>
+                      <p className="text-xs text-gray-400">{ROLE_LABELS[lu.user_role] || lu.user_role}</p>
+                    </div>
+                    <button
+                      onClick={() => onUnlinkUser(lu.user_id)}
+                      className="text-red-400 hover:text-red-600 ml-2"
+                      title="Desvincular"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* Info de contato */}
+          {(responsible.email || responsible.phone || responsible.cpf_cnpj) && (
+            <div className="col-span-2 border-t border-gray-100 pt-2">
+              <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Contato</p>
+              <div className="flex gap-4">
+                {responsible.email && <span className="text-xs text-gray-600">{responsible.email}</span>}
+                {responsible.phone && <span className="text-xs text-gray-600">{responsible.phone}</span>}
+                {responsible.cpf_cnpj && <span className="text-xs text-gray-600">{responsible.cpf_cnpj}</span>}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -439,6 +798,7 @@ export default function AdminPage() {
     ...(canManageUsers ? [{ key: "users" as Tab, label: "Usuários", icon: <Users className="h-4 w-4" /> }] : []),
     { key: "audit", label: "Auditoria", icon: <ClipboardList className="h-4 w-4" /> },
     { key: "cache", label: "Cache DICOM", icon: <HardDrive className="h-4 w-4" /> },
+    ...(isAdminMaster ? [{ key: "responsaveis" as Tab, label: "Responsáveis Financeiros", icon: <Wallet className="h-4 w-4" /> }] : []),
   ];
 
   const effectiveTab = (!isAdminMaster && activeTab === "units") ? "users" : activeTab;
@@ -641,6 +1001,11 @@ export default function AdminPage() {
 
         {/* ── ABA CACHE ── */}
         {effectiveTab === "cache" && <CachePanel />}
+
+        {/* ── ABA RESPONSÁVEIS FINANCEIROS ── */}
+        {effectiveTab === "responsaveis" && isAdminMaster && (
+          <ResponsaveisPanel allUnits={units.map((u: any) => ({ id: u.id, name: u.name }))} />
+        )}
       </div>
 
       {/* Diálogos */}

@@ -1551,3 +1551,16 @@
 - [x] Aprimoramento 7 - Indicador dirty Alteracoes nao salvas + aviso beforeunload
 - [x] Aprimoramento 8 - Export/Import JSON do layout completo (inclui blockOrder)
 - [x] Aprimoramento 9 - Modo comparacao Editado vs Salvo no preview
+
+## Consolidação do Módulo Financeiro (12/05/2026)
+- [x] FIN-1: Criar aba "Responsáveis Financeiros" no AdminPage com CRUD completo (criar, vincular unidade, vincular usuário)
+- [x] FIN-2: Adicionar procedure billing.unlinkUnit ao billingRouter (encerrar vigência de unidade)
+- [x] FIN-3: Adicionar procedure billing.listAvailableUsers ao billingRouter (usuários para vincular como responsável)
+- [ ] FIN-4: Limpar App.tsx — remover rotas finance/* e finance2/* e billing/*, manter apenas /financeiro/*
+- [ ] FIN-5: Criar novo FinanceShell.tsx com entrada por role (médico → meu-financeiro, responsavel → responsavel, admin → admin)
+- [ ] FIN-6: Construir tela /financeiro/meu-financeiro (médico) — extrato por unidade usando financeSimple.myFinanceiro
+- [x] FIN-7: Construir tela /financeiro/responsavel (responsavel_financeiro) — unidades vinculadas, médicos, dívida ao sistema
+- [ ] FIN-8: Construir tela /financeiro/admin (admin_master) — visão hierárquica de todos os responsáveis → unidades
+- [x] FIN-9: Atualizar botão Financeiro no PacsQueryPage para apontar para /financeiro (com redirect por role)
+- [ ] FIN-10: Garantir que markDoctorPaid e markSystemPaid são independentes
+- [ ] FIN-11: Testar os 3 fluxos e salvar checkpoint

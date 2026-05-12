@@ -1317,4 +1317,90 @@ export const billingRouter = router({
         }
         return Array.from(map.values());
       }),
+
+    // ── Desvincular Unidade de Responsável ────────────────────────────────────
+    unlinkUnit: protectedProcedure
+      .input(z.object({
+        financialResponsibleId: z.number(),
+        unitId: z.number(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        await db.update(financial_responsible_units)
+          .set({ ends_at: new Date() })
+          .where(
+            and(
+              eq(financial_responsible_units.financial_responsible_id, input.financialResponsibleId),
+              eq(financial_responsible_units.unit_id, input.unitId),
+              isNull(financial_responsible_units.ends_at),
+            )
+          );
+        return { success: true };
+      }),
+
+    // ── Listar usuários disponíveis para vincular como responsável ────────────
+    listAvailableUsers: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const rows = await db
+          .select({
+            id: users.id,
+            name: users.name,
+            username: users.username,
+            email: users.email,
+            role: users.role,
+          })
+          .from(users)
+          .where(eq(users.isActive, true))
+          .orderBy(users.name);
+        return rows;
+      }),
+
+    // ── Listar usuários vinculados ao responsável (com nome) ─────────────────
+    listUsersForResponsibleWithNames: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const rows = await db
+          .select({
+            id: financial_responsible_users.id,
+            user_id: financial_responsible_users.user_id,
+            user_name: users.name,
+            user_username: users.username,
+            user_email: users.email,
+            user_role: users.role,
+          })
+          .from(financial_responsible_users)
+          .leftJoin(users, eq(users.id, financial_responsible_users.user_id))
+          .where(eq(financial_responsible_users.financial_responsible_id, input.financialResponsibleId));
+        return rows;
+      }),
+
+    // ── Listar unidades vinculadas ao responsável (com nome da unidade) ──────
+    listUnitsForResponsibleWithNames: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const rows = await db
+          .select({
+            id: financial_responsible_units.id,
+            unit_id: financial_responsible_units.unit_id,
+            unit_name: units.name,
+            starts_at: financial_responsible_units.starts_at,
+            ends_at: financial_responsible_units.ends_at,
+          })
+          .from(financial_responsible_units)
+          .leftJoin(units, eq(units.id, financial_responsible_units.unit_id))
+          .where(eq(financial_responsible_units.financial_responsible_id, input.financialResponsibleId))
+          .orderBy(financial_responsible_units.starts_at);
+        return rows;
+      }),
 });

@@ -25,19 +25,25 @@ const NAV_ITEMS: NavItem[] = [
     icon: LayoutDashboard,
     label: "Dashboard",
     path: "/financeiro2",
-    roles: ["admin_master", "unit_admin", "responsavel_financeiro"],
+    roles: ["admin_master", "unit_admin"],
   },
   {
     icon: Building2,
     label: "Pagamentos",
     path: "/financeiro2/pagamentos",
-    roles: ["admin_master", "unit_admin", "responsavel_financeiro"],
+    roles: ["admin_master", "unit_admin"],
   },
   {
     icon: DollarSign,
     label: "Meu Financeiro",
     path: "/financeiro2/meu-financeiro",
     roles: ["medico"],
+  },
+  {
+    icon: Building2,
+    label: "Minhas Unidades",
+    path: "/financeiro2/responsavel",
+    roles: ["responsavel_financeiro"],
   },
 ];
 
