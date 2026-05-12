@@ -18,6 +18,28 @@ import {
 import { eq, and, isNull, isNotNull, sql, desc, inArray } from "drizzle-orm";
 import { getResponsibleIdForUser } from "../db";
 
+// ─── helpers monetários ─────────────────────────────────────────────────────
+
+/**
+ * Subtrai dois valores monetários com precisão de centavos.
+ * Converte para inteiros (centavos), subtrai e converte de volta.
+ * Evita erros de ponto flutuante: 120.50 - 120.00 = 0.50 exato.
+ */
+function subMoney(a: number | string, b: number | string): number {
+  const centA = Math.round(Number(a) * 100);
+  const centB = Math.round(Number(b) * 100);
+  return (centA - centB) / 100;
+}
+
+/**
+ * Converte valor do banco (string decimal do MySQL) para número seguro.
+ * Usa Math.round para evitar imprecisões de representação IEEE 754.
+ */
+function toMoney(v: number | string | null | undefined): number {
+  if (v === null || v === undefined) return 0;
+  return Math.round(Number(v) * 100) / 100;
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 type AllowedAdminRole = "admin_master" | "unit_admin" | "responsavel_financeiro";
@@ -84,12 +106,12 @@ export const financeSimpleRouter = router({
       const r = rows[0];
       return {
         total_laudos: Number(r.total_laudos),
-        system_total: Number(r.system_total),
-        doctor_total: Number(r.doctor_total),
-        system_paid: Number(r.system_paid),
-        doctor_paid: Number(r.doctor_paid),
-        system_pending: Number(r.system_total) - Number(r.system_paid),
-        doctor_pending: Number(r.doctor_total) - Number(r.doctor_paid),
+        system_total: toMoney(r.system_total),
+        doctor_total: toMoney(r.doctor_total),
+        system_paid: toMoney(r.system_paid),
+        doctor_paid: toMoney(r.doctor_paid),
+        system_pending: subMoney(r.system_total, r.system_paid),   // FIX float
+        doctor_pending: subMoney(r.doctor_total, r.doctor_paid),   // FIX float
         system_pending_count: Number(r.system_pending_count),
         doctor_pending_count: Number(r.doctor_pending_count),
       };
@@ -147,12 +169,12 @@ export const financeSimpleRouter = router({
         unit_id: r.unit_id,
         unit_name: r.unit_name ?? "Unidade",
         total_laudos: Number(r.total_laudos),
-        system_total: Number(r.system_total),
-        doctor_total: Number(r.doctor_total),
-        system_paid: Number(r.system_paid),
-        doctor_paid: Number(r.doctor_paid),
-        system_pending: Number(r.system_total) - Number(r.system_paid),
-        doctor_pending: Number(r.doctor_total) - Number(r.doctor_paid),
+        system_total: toMoney(r.system_total),
+        doctor_total: toMoney(r.doctor_total),
+        system_paid: toMoney(r.system_paid),
+        doctor_paid: toMoney(r.doctor_paid),
+        system_pending: subMoney(r.system_total, r.system_paid),   // FIX float
+        doctor_pending: subMoney(r.doctor_total, r.doctor_paid),   // FIX float
         system_pending_count: Number(r.system_pending_count),
         doctor_pending_count: Number(r.doctor_pending_count),
       }));
@@ -201,9 +223,9 @@ export const financeSimpleRouter = router({
         doctor_user_id: r.doctor_user_id,
         doctor_name: r.doctor_name ?? "Médico",
         total_laudos: Number(r.total_laudos),
-        doctor_total: Number(r.doctor_total),
-        doctor_paid: Number(r.doctor_paid),
-        doctor_pending: Number(r.doctor_total) - Number(r.doctor_paid),
+        doctor_total: toMoney(r.doctor_total),
+        doctor_paid: toMoney(r.doctor_paid),
+        doctor_pending: subMoney(r.doctor_total, r.doctor_paid),   // FIX float
         doctor_pending_count: Number(r.doctor_pending_count),
         last_received_at: r.last_received_at,
       }));
@@ -394,9 +416,9 @@ export const financeSimpleRouter = router({
           unit_id: r.unit_id,
           unit_name: r.unit_name ?? "Unidade",
           total_laudos: Number(r.total_laudos),
-          doctor_total: Number(r.doctor_total),
-          doctor_paid: Number(r.doctor_paid),
-          doctor_pending: Number(r.doctor_total) - Number(r.doctor_paid),
+          doctor_total: toMoney(r.doctor_total),
+          doctor_paid: toMoney(r.doctor_paid ?? 0),
+          doctor_pending: subMoney(r.doctor_total, r.doctor_paid ?? 0),   // FIX float
           last_received_at: r.last_received_at,
         })),
         events,
@@ -621,12 +643,12 @@ export const financeSimpleRouter = router({
           unit_id: lu.unit_id,
           unit_name: lu.unit_name ?? "Unidade",
           total_laudos: s ? Number(s.total_laudos) : 0,
-          system_total: s ? Number(s.system_total) : 0,
-          system_paid: s ? Number(s.system_paid) : 0,
-          system_pending: s ? Number(s.system_total) - Number(s.system_paid) : 0,
-          doctor_total: s ? Number(s.doctor_total) : 0,
-          doctor_paid: s ? Number(s.doctor_paid) : 0,
-          doctor_pending: s ? Number(s.doctor_total) - Number(s.doctor_paid) : 0,
+          system_total: s ? toMoney(s.system_total) : 0,
+          system_paid: s ? toMoney(s.system_paid) : 0,
+          system_pending: s ? subMoney(s.system_total, s.system_paid) : 0,   // FIX float
+          doctor_total: s ? toMoney(s.doctor_total) : 0,
+          doctor_paid: s ? toMoney(s.doctor_paid) : 0,
+          doctor_pending: s ? subMoney(s.doctor_total, s.doctor_paid) : 0,   // FIX float
         };
       });
 
