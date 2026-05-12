@@ -106,9 +106,8 @@ function Router() {
       <Route path="/billing/admin"><Redirect to="/financeiro/admin" /></Route>
       <Route path="/billing/unit"><Redirect to="/financeiro/responsaveis" /></Route>
       <Route path="/billing/doctor"><Redirect to="/financeiro/meu-financeiro" /></Route>
-      {/* Novo módulo financeiro */}
-      {/* Dashboard financeiro: apenas admin_master, unit_admin, responsavel_financeiro */}
-      <Route path="/financeiro" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
+      {/* Módulo financeiro legado — redirecionado para /financeiro2 */}
+      <Route path="/financeiro"><Redirect to="/financeiro2" /></Route>
       {/* Médicos: admin_master, unit_admin, responsavel_financeiro */}
       <Route path="/financeiro/medicos" component={() => <ProtectedRoute component={FinanceMedicos} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
       {/* Unidades: admin_master, unit_admin, responsavel_financeiro */}
@@ -130,11 +129,11 @@ function Router() {
       <Route path="/financeiro/medicos/:id" component={() => <ProtectedRoute component={FinanceMedicoDetalhe} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
       <Route path="/financeiro/unidades/:id" component={() => <ProtectedRoute component={FinanceUnidadeDetalhe} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
       <Route path="/financeiro/responsaveis/:id" component={() => <ProtectedRoute component={FinanceResponsavelDetalhe} allowedRoles={['admin_master', 'responsavel_financeiro']} />} />
-      {/* Redirects de /financeiro2 para /financeiro estável */}
-      <Route path="/financeiro2"><Redirect to="/financeiro" /></Route>
-      <Route path="/financeiro2/pagamentos"><Redirect to="/financeiro" /></Route>
-      <Route path="/financeiro2/meu-financeiro"><Redirect to="/financeiro/meu-financeiro" /></Route>
-      <Route path="/financeiro2/responsavel"><Redirect to="/financeiro/responsaveis" /></Route>
+      {/* Módulo financeiro simplificado v2 — ATIVO na navegação principal */}
+      <Route path="/financeiro2" component={() => <ProtectedRoute component={FinanceDashboard2} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
+      <Route path="/financeiro2/pagamentos" component={() => <ProtectedRoute component={FinancePagamentos} allowedRoles={['admin_master', 'unit_admin', 'responsavel_financeiro']} />} />
+      <Route path="/financeiro2/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro2} allowedRoles={['medico', 'admin_master']} />} />
+      <Route path="/financeiro2/responsavel" component={() => <ProtectedRoute component={FinanceMeuResponsavel} allowedRoles={['responsavel_financeiro', 'admin_master']} />} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
