@@ -1606,3 +1606,12 @@
 - [x] FinanceMeuFinanceiro2: exibir ciclo por unidade (ex: "Ciclo: 15/04 – 14/05")
 - [x] myResponsavelSummary: adicionar cycle_start_day/cycle_end_day ao retorno
 - [x] FinanceMeuResponsavel: exibir ciclo por unidade na lista de unidades
+
+## Auditoria v38 — Consolidação do Modelo por Eventos (13/05/2026)
+- [x] Salvar relatorio_completo_versao38_financeiro.txt em docs/
+- [x] Auditar createBillingVisitEvent em reports.ts — criação automática não-bloqueante confirmada
+- [x] Auditar createBillingVisitEvent em db.ts — desacoplamento do ciclo confirmado (try/catch)
+- [x] Auditar calcCycleDates — todas as 4 ocorrências restantes usam ciclo da unidade (unitRow[0]?.s/e), não (1,31) fixo
+- [x] Auditar billing.ts — ainda usa billing_cycles apenas para configuração (UnitFormDialog, AdminPage), não para cálculo financeiro
+- [x] Auditar billing_report_items — atualização em reports.ts é legado não-bloqueante, não afeta financeiro principal
+- [x] Confirmar: PRIORIDADES 1-4 do relatório v38 já implementadas nas sessões anteriores
