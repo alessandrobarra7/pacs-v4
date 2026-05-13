@@ -1,0 +1,80 @@
+{
+  "query": "SELECT r.id, r.status, r.unit_id, r.author_user_id, r.signedAt\nFROM reports r\nLEFT JOIN billing_visit_events bve ON bve.report_id = r.id\nWHERE r.status IN ('signed','revised')\n  AND bve.id IS NULL\nORDER BY r.id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT r.id, r.status, r.unit_id, r.author_user_id, r.signedAt\nFROM reports r\nLEFT JOIN billing_visit_events bve ON bve.report_id = r.id\nWHERE r.status IN ('signed','revised')\n  AND bve.id IS NULL\nORDER BY r.id;",
+  "rows": [
+    {
+      "id": "60001",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-03 19:00:15"
+    },
+    {
+      "id": "90002",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-03 21:56:56"
+    },
+    {
+      "id": "120001",
+      "status": "revised",
+      "unit_id": "180001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-04 02:35:45"
+    },
+    {
+      "id": "180006",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-11 18:25:22"
+    },
+    {
+      "id": "180007",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-11 18:31:47"
+    },
+    {
+      "id": "180008",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-11 18:33:08"
+    },
+    {
+      "id": "180009",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-11 18:34:49"
+    },
+    {
+      "id": "270002",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-12 23:15:42"
+    },
+    {
+      "id": "480002",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-14 22:38:39"
+    },
+    {
+      "id": "870001",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-19 23:56:30"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tstatus\tunit_id\tauthor_user_id\tsignedAt\n60001\tsigned\t180001\t1\t2026-04-03 19:00:15\n90002\tsigned\t180001\t1\t2026-04-03 21:56:56\n120001\trevised\t180001\t1\t2026-04-04 02:35:45\n180006\tsigned\t210001\t1\t2026-04-11 18:25:22\n180007\tsigned\t210001\t1\t2026-04-11 18:31:47\n180008\tsigned\t210001\t1\t2026-04-11 18:33:08\n180009\tsigned\t210001\t1\t2026-04-11 18:34:49\n270002\tsigned\t210001\t1\t2026-04-12 23:15:42\n480002\tsigned\t180001\t1\t2026-04-14 22:38:39\n870001\tsigned\t180001\t1\t2026-04-19 23:56:30\n",
+  "stderr": "",
+  "execution_time_ms": 266
+}

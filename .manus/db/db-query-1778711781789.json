@@ -1,0 +1,21 @@
+{
+  "query": "SELECT bcc.*, u.name as unit_name\nFROM billing_cycle_configs bcc\nJOIN units u ON u.id = bcc.unit_id\nWHERE bcc.unit_id IN (180001, 210001);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT bcc.*, u.name as unit_name\nFROM billing_cycle_configs bcc\nJOIN units u ON u.id = bcc.unit_id\nWHERE bcc.unit_id IN (180001, 210001);",
+  "rows": [
+    {
+      "id": "1",
+      "unit_id": "180001",
+      "doctor_cycle_day": "20",
+      "system_cycle_day": "20",
+      "is_active": "1",
+      "createdAt": "2026-04-08 10:52:36",
+      "updatedAt": "2026-04-08 22:50:02",
+      "created_by": "1",
+      "unit_name": "PACS Principal"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tunit_id\tdoctor_cycle_day\tsystem_cycle_day\tis_active\tcreatedAt\tupdatedAt\tcreated_by\tunit_name\n1\t180001\t20\t20\t1\t2026-04-08 10:52:36\t2026-04-08 22:50:02\t1\tPACS Principal\n",
+  "stderr": "",
+  "execution_time_ms": 275
+}

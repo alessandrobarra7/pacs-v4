@@ -1,0 +1,40 @@
+{
+  "query": "SHOW TABLES LIKE 'billing_%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SHOW TABLES LIKE 'billing_%';",
+  "rows": [
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_%)": "billing_cycle_configs"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_%)": "billing_cycle_doctor_summary"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_%)": "billing_cycle_system_summary"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_%)": "billing_cycles"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_%)": "billing_doctor_unit_prices"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_%)": "billing_monthly_doctor_by_unit"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_%)": "billing_monthly_system_by_unit"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_%)": "billing_report_items"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_%)": "billing_system_unit_prices"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_%)": "billing_visit_events"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_%)\nbilling_cycle_configs\nbilling_cycle_doctor_summary\nbilling_cycle_system_summary\nbilling_cycles\nbilling_doctor_unit_prices\nbilling_monthly_doctor_by_unit\nbilling_monthly_system_by_unit\nbilling_report_items\nbilling_system_unit_prices\nbilling_visit_events\n",
+  "stderr": "",
+  "execution_time_ms": 295
+}

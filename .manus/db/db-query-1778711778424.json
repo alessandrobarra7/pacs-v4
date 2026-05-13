@@ -1,0 +1,20 @@
+{
+  "query": "SELECT r.id, r.status, r.unit_id, r.author_user_id, r.signedAt, r.signedBy,\n  u.role as author_role, u2.role as signer_role\nFROM reports r\nLEFT JOIN users u ON u.id = r.author_user_id\nLEFT JOIN users u2 ON u2.id = r.signedBy\nWHERE r.id = 870001;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT r.id, r.status, r.unit_id, r.author_user_id, r.signedAt, r.signedBy,\n  u.role as author_role, u2.role as signer_role\nFROM reports r\nLEFT JOIN users u ON u.id = r.author_user_id\nLEFT JOIN users u2 ON u2.id = r.signedBy\nWHERE r.id = 870001;",
+  "rows": [
+    {
+      "id": "870001",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-19 23:56:30",
+      "signedBy": "1",
+      "author_role": "admin_master",
+      "signer_role": "admin_master"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tstatus\tunit_id\tauthor_user_id\tsignedAt\tsignedBy\tauthor_role\tsigner_role\n870001\tsigned\t180001\t1\t2026-04-19 23:56:30\t1\tadmin_master\tadmin_master\n",
+  "stderr": "",
+  "execution_time_ms": 268
+}

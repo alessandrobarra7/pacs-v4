@@ -25,7 +25,7 @@ import UnitFormDialog, { type UnitFormData } from "@/components/UnitFormDialog";
 import UserFormDialog, { type UserFormData } from "@/components/UserFormDialog";
 import { UserExplorerLayout } from "@/components/UserExplorerLayout";
 
-type Tab = "units" | "users" | "audit" | "cache" | "responsaveis";
+type Tab = "units" | "users" | "audit" | "cache" | "responsaveis" | "billing_diagnostic";
 
 const ROLE_LABELS: Record<string, string> = {
   admin_master: "Admin Master",
@@ -528,6 +528,177 @@ function ResponsavelCard({
   );
 }
 
+// ─── Painel de Diagnóstico Financeiro ──────────────────────────────────────────
+function BillingDiagnosticPanel() {
+  const utils = trpc.useUtils();
+  const [dryRun, setDryRun] = useState(true);
+  const [reprocessResult, setReprocessResult] = useState<any>(null);
+  const [repriceDryRun, setRepriceDryRun] = useState(true);
+  const [repriceResult, setRepriceResult] = useState<any>(null);
+
+  const { data: diagnostic, isLoading: loadingDiag, refetch: refetchDiag } =
+    trpc.financeSimple.financialDiagnostic.useQuery({ limit: 200 });
+
+  const reprocess = trpc.financeSimple.reprocessBillingEvents.useMutation({
+    onSuccess: (data) => {
+      setReprocessResult(data);
+      if (!data.dry_run) {
+        toast.success(`Reprocessamento concluído: ${data.created} criados, ${data.failed} falhas`);
+        refetchDiag();
+        utils.financeSimple.financialDiagnostic.invalidate();
+      }
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const reprice = trpc.financeSimple.repriceMissingEvents.useMutation({
+    onSuccess: (data) => {
+      setRepriceResult(data);
+      if (!data.dry_run) {
+        toast.success(`Reprecificação concluída: ${data.updated} atualizados`);
+        refetchDiag();
+      }
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Resumo do diagnóstico */}
+      <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">Diagnóstico Financeiro</h3>
+            <p className="text-sm text-gray-500">Laudos assinados sem evento financeiro ou com valor zero</p>
+          </div>
+          <button
+            onClick={() => refetchDiag()}
+            className="px-3 py-1.5 text-sm rounded border border-gray-300 hover:bg-gray-50 flex items-center gap-1.5"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Atualizar
+          </button>
+        </div>
+        {loadingDiag ? (
+          <p className="text-sm text-gray-400">Carregando...</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-red-50 rounded-lg p-4 border border-red-100">
+              <p className="text-2xl font-bold text-red-700">{diagnostic?.missing_billing_count ?? 0}</p>
+              <p className="text-sm text-red-600 mt-1">Laudos sem evento financeiro</p>
+            </div>
+            <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-100">
+              <p className="text-2xl font-bold text-yellow-700">{diagnostic?.zero_billing_count ?? 0}</p>
+              <p className="text-sm text-yellow-600 mt-1">Eventos com valor zero</p>
+            </div>
+            <div className="bg-orange-50 rounded-lg p-4 border border-orange-100">
+              <p className="text-2xl font-bold text-orange-700">{diagnostic?.failed_events_count ?? 0}</p>
+              <p className="text-sm text-orange-600 mt-1">Falhas registradas no audit log</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Reprocessador de eventos faltantes */}
+      <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <h3 className="text-base font-semibold text-gray-900 mb-1">Reprocessar Eventos Faltantes</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Cria billing_visit_events para todos os laudos assinados que não têm evento financeiro.
+          Use <strong>Simulação</strong> primeiro para ver o que será criado.
+        </p>
+        <div className="flex items-center gap-3 mb-4">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={dryRun}
+              onChange={(e) => setDryRun(e.target.checked)}
+              className="rounded"
+            />
+            Modo simulação (dry run)
+          </label>
+          <button
+            onClick={() => reprocess.mutate({ dry_run: dryRun, limit: 1000 })}
+            disabled={reprocess.isPending}
+            className={`px-4 py-2 rounded text-sm font-medium text-white flex items-center gap-1.5 ${
+              dryRun ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'
+            } disabled:opacity-50`}
+          >
+            {reprocess.isPending ? 'Processando...' : dryRun ? 'Simular Reprocessamento' : 'Executar Reprocessamento'}
+          </button>
+        </div>
+        {reprocessResult && (
+          <div className={`rounded-lg p-4 text-sm ${
+            reprocessResult.dry_run ? 'bg-blue-50 border border-blue-200' : 'bg-green-50 border border-green-200'
+          }`}>
+            {reprocessResult.dry_run ? (
+              <p className="text-blue-800">
+                <strong>Simulação:</strong> {reprocessResult.would_create} laudos seriam processados.
+              </p>
+            ) : (
+              <div className="text-green-800">
+                <p><strong>Concluído:</strong> {reprocessResult.created} eventos criados, {reprocessResult.failed} falhas.</p>
+                {reprocessResult.errors?.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-red-700">Ver erros ({reprocessResult.errors.length})</summary>
+                    <ul className="mt-1 space-y-1">
+                      {reprocessResult.errors.map((e: any, i: number) => (
+                        <li key={i} className="text-xs text-red-600">Laudo #{e.report_id}: {e.error}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Reprecificador de eventos com valor zero */}
+      <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <h3 className="text-base font-semibold text-gray-900 mb-1">Reprecificar Eventos com Valor Zero</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Aplica os preços configurados (por unidade) nos eventos que têm valor zero.
+        </p>
+        <div className="flex items-center gap-3 mb-4">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={repriceDryRun}
+              onChange={(e) => setRepriceDryRun(e.target.checked)}
+              className="rounded"
+            />
+            Modo simulação (dry run)
+          </label>
+          <button
+            onClick={() => reprice.mutate({ dry_run: repriceDryRun })}
+            disabled={reprice.isPending}
+            className={`px-4 py-2 rounded text-sm font-medium text-white flex items-center gap-1.5 ${
+              repriceDryRun ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-600 hover:bg-amber-700'
+            } disabled:opacity-50`}
+          >
+            {reprice.isPending ? 'Processando...' : repriceDryRun ? 'Simular Reprecificação' : 'Executar Reprecificação'}
+          </button>
+        </div>
+        {repriceResult && (
+          <div className={`rounded-lg p-4 text-sm ${
+            repriceResult.dry_run ? 'bg-blue-50 border border-blue-200' : 'bg-green-50 border border-green-200'
+          }`}>
+            {repriceResult.dry_run ? (
+              <p className="text-blue-800">
+                <strong>Simulação:</strong> {repriceResult.would_update} eventos seriam atualizados.
+              </p>
+            ) : (
+              <p className="text-green-800">
+                <strong>Concluído:</strong> {repriceResult.updated} eventos atualizados de {repriceResult.total_zero} com valor zero.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Página Principal ─────────────────────────────────────────────────────────
 export default function AdminPage() {
   const [, navigate] = useLocation();
@@ -799,6 +970,7 @@ export default function AdminPage() {
     { key: "audit", label: "Auditoria", icon: <ClipboardList className="h-4 w-4" /> },
     { key: "cache", label: "Cache DICOM", icon: <HardDrive className="h-4 w-4" /> },
     ...(isAdminMaster ? [{ key: "responsaveis" as Tab, label: "Responsáveis Financeiros", icon: <Wallet className="h-4 w-4" /> }] : []),
+    ...(isAdminMaster ? [{ key: "billing_diagnostic" as Tab, label: "Diagnóstico Financeiro", icon: <RefreshCw className="h-4 w-4" /> }] : []),
   ];
 
   const effectiveTab = (!isAdminMaster && activeTab === "units") ? "users" : activeTab;
@@ -1005,6 +1177,10 @@ export default function AdminPage() {
         {/* ── ABA RESPONSÁVEIS FINANCEIROS ── */}
         {effectiveTab === "responsaveis" && isAdminMaster && (
           <ResponsaveisPanel allUnits={units.map((u: any) => ({ id: u.id, name: u.name }))} />
+        )}
+        {/* ── ABA DIAGNÓSTICO FINANCEIRO ── */}
+        {effectiveTab === "billing_diagnostic" && isAdminMaster && (
+          <BillingDiagnosticPanel />
         )}
       </div>
 

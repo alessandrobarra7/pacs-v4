@@ -1,0 +1,16 @@
+{
+  "query": "SELECT \n  (SELECT COUNT(*) FROM billing_visit_events) as visit_events,\n  (SELECT COUNT(*) FROM billing_cycles) as cycles,\n  (SELECT COUNT(*) FROM billing_cycle_configs) as cycle_configs,\n  (SELECT COUNT(*) FROM reports WHERE status IN ('signed','revised')) as signed_reports;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT \n  (SELECT COUNT(*) FROM billing_visit_events) as visit_events,\n  (SELECT COUNT(*) FROM billing_cycles) as cycles,\n  (SELECT COUNT(*) FROM billing_cycle_configs) as cycle_configs,\n  (SELECT COUNT(*) FROM reports WHERE status IN ('signed','revised')) as signed_reports;",
+  "rows": [
+    {
+      "visit_events": "28",
+      "cycles": "8",
+      "cycle_configs": "1",
+      "signed_reports": "38"
+    }
+  ],
+  "messages": [],
+  "stdout": "visit_events\tcycles\tcycle_configs\tsigned_reports\n28\t8\t1\t38\n",
+  "stderr": "",
+  "execution_time_ms": 300
+}

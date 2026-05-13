@@ -19,7 +19,7 @@ import {
   billing_doctor_unit_prices,
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, sql, desc, inArray } from "drizzle-orm";
-import { getResponsibleIdForUser } from "../db";
+import { getResponsibleIdForUser, createBillingVisitEvent } from "../db";
 
 // ─── helpers monetários ─────────────────────────────────────────────────────
 
@@ -954,5 +954,104 @@ export const financeSimpleRouter = router({
         }
       }
       return { dry_run: false, updated, total_zero: zeroEvents.length };
+    }),
+
+  /**
+   * FIN-R1: Reprocessar billing_visit_events faltantes.
+   * Busca todos os laudos assinados/revisados sem evento financeiro e cria os eventos.
+   * dry_run=true apenas lista os laudos afetados sem criar nada.
+   * dry_run=false cria os eventos para todos os laudos listados.
+   * Restrito a admin_master.
+   */
+  reprocessBillingEvents: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().optional(),
+      dry_run: z.boolean().default(true),
+      limit: z.number().min(1).max(1000).default(500),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      const { reports, studies_cache } = await import('../../drizzle/schema');
+
+      // Busca laudos assinados/revisados sem billing_visit_event correspondente
+      // Faz LEFT JOIN com studies_cache para obter patient_name e study_date
+      const missing = await db
+        .select({
+          report_id: reports.id,
+          unit_id: reports.unit_id,
+          author_user_id: reports.author_user_id,
+          study_instance_uid: reports.study_instance_uid,
+          signedAt: reports.signedAt,
+          patient_name: studies_cache.patient_name,
+          study_date: studies_cache.study_date,
+        })
+        .from(reports)
+        .leftJoin(billing_visit_events, eq(billing_visit_events.report_id, reports.id))
+        .leftJoin(
+          studies_cache,
+          and(
+            eq(studies_cache.study_instance_uid, reports.study_instance_uid),
+            eq(studies_cache.unit_id, reports.unit_id),
+          )
+        )
+        .where(and(
+          sql`${reports.status} IN ('signed', 'revised')`,
+          isNull(billing_visit_events.id),
+          input.unit_id ? eq(reports.unit_id, input.unit_id) : undefined,
+        ))
+        .orderBy(reports.signedAt)
+        .limit(input.limit);
+
+      if (input.dry_run) {
+        return {
+          dry_run: true,
+          would_create: missing.length,
+          reports: missing.map(r => ({
+            report_id: r.report_id,
+            unit_id: r.unit_id,
+            author_user_id: r.author_user_id,
+            signedAt: r.signedAt,
+          })),
+        };
+      }
+
+      let created = 0;
+      let failed = 0;
+      const errors: { report_id: number; error: string }[] = [];
+
+      for (const r of missing) {
+        // Laudos sem unit_id não podem ter evento financeiro
+        if (!r.unit_id) {
+          failed++;
+          errors.push({ report_id: r.report_id, error: 'unit_id ausente no laudo' });
+          continue;
+        }
+        try {
+          await createBillingVisitEvent({
+            report_id: r.report_id,
+            study_instance_uid: r.study_instance_uid ?? undefined,
+            unit_id: r.unit_id,
+            doctor_user_id: r.author_user_id ?? ctx.user.id,
+            patient_name: r.patient_name ?? undefined,
+            study_date: r.study_date instanceof Date ? r.study_date.toISOString().slice(0, 10) : (r.study_date ?? undefined),
+            signed_at: r.signedAt ? new Date(r.signedAt) : new Date(),
+          });
+          created++;
+        } catch (err) {
+          failed++;
+          const msg = err instanceof Error ? err.message : String(err);
+          errors.push({ report_id: r.report_id, error: msg });
+        }
+      }
+
+      return {
+        dry_run: false,
+        total_missing: missing.length,
+        created,
+        failed,
+        errors: errors.slice(0, 50), // limita erros retornados
+      };
     }),
 });

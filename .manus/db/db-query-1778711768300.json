@@ -1,0 +1,70 @@
+{
+  "query": "SELECT r.id, r.signedAt, r.unit_id,\n  (SELECT MIN(bve.signed_at) FROM billing_visit_events bve) as first_event_date\nFROM reports r\nLEFT JOIN billing_visit_events bve ON bve.report_id = r.id\nWHERE r.status IN ('signed','revised')\n  AND bve.id IS NULL\nORDER BY r.signedAt;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT r.id, r.signedAt, r.unit_id,\n  (SELECT MIN(bve.signed_at) FROM billing_visit_events bve) as first_event_date\nFROM reports r\nLEFT JOIN billing_visit_events bve ON bve.report_id = r.id\nWHERE r.status IN ('signed','revised')\n  AND bve.id IS NULL\nORDER BY r.signedAt;",
+  "rows": [
+    {
+      "id": "60001",
+      "signedAt": "2026-04-03 19:00:15",
+      "unit_id": "180001",
+      "first_event_date": "2026-04-14 23:08:59"
+    },
+    {
+      "id": "90002",
+      "signedAt": "2026-04-03 21:56:56",
+      "unit_id": "180001",
+      "first_event_date": "2026-04-14 23:08:59"
+    },
+    {
+      "id": "120001",
+      "signedAt": "2026-04-04 02:35:45",
+      "unit_id": "180001",
+      "first_event_date": "2026-04-14 23:08:59"
+    },
+    {
+      "id": "180006",
+      "signedAt": "2026-04-11 18:25:22",
+      "unit_id": "210001",
+      "first_event_date": "2026-04-14 23:08:59"
+    },
+    {
+      "id": "180007",
+      "signedAt": "2026-04-11 18:31:47",
+      "unit_id": "210001",
+      "first_event_date": "2026-04-14 23:08:59"
+    },
+    {
+      "id": "180008",
+      "signedAt": "2026-04-11 18:33:08",
+      "unit_id": "210001",
+      "first_event_date": "2026-04-14 23:08:59"
+    },
+    {
+      "id": "180009",
+      "signedAt": "2026-04-11 18:34:49",
+      "unit_id": "210001",
+      "first_event_date": "2026-04-14 23:08:59"
+    },
+    {
+      "id": "270002",
+      "signedAt": "2026-04-12 23:15:42",
+      "unit_id": "210001",
+      "first_event_date": "2026-04-14 23:08:59"
+    },
+    {
+      "id": "480002",
+      "signedAt": "2026-04-14 22:38:39",
+      "unit_id": "180001",
+      "first_event_date": "2026-04-14 23:08:59"
+    },
+    {
+      "id": "870001",
+      "signedAt": "2026-04-19 23:56:30",
+      "unit_id": "180001",
+      "first_event_date": "2026-04-14 23:08:59"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tsignedAt\tunit_id\tfirst_event_date\n60001\t2026-04-03 19:00:15\t180001\t2026-04-14 23:08:59\n90002\t2026-04-03 21:56:56\t180001\t2026-04-14 23:08:59\n120001\t2026-04-04 02:35:45\t180001\t2026-04-14 23:08:59\n180006\t2026-04-11 18:25:22\t210001\t2026-04-14 23:08:59\n180007\t2026-04-11 18:31:47\t210001\t2026-04-14 23:08:59\n180008\t2026-04-11 18:33:08\t210001\t2026-04-14 23:08:59\n180009\t2026-04-11 18:34:49\t210001\t2026-04-14 23:08:59\n270002\t2026-04-12 23:15:42\t210001\t2026-04-14 23:08:59\n480002\t2026-04-14 22:38:39\t180001\t2026-04-14 23:08:59\n870001\t2026-04-19 23:56:30\t180001\t2026-04-14 23:08:59\n",
+  "stderr": "",
+  "execution_time_ms": 284
+}

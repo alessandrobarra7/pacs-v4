@@ -1,0 +1,190 @@
+{
+  "query": "SELECT r.id, r.status, r.unit_id, r.author_user_id, r.signedAt, r.signedBy,\n  bve.id as event_id\nFROM reports r\nLEFT JOIN billing_visit_events bve ON bve.report_id = r.id\nWHERE r.status IN ('signed','revised')\nORDER BY r.id DESC\nLIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT r.id, r.status, r.unit_id, r.author_user_id, r.signedAt, r.signedBy,\n  bve.id as event_id\nFROM reports r\nLEFT JOIN billing_visit_events bve ON bve.report_id = r.id\nWHERE r.status IN ('signed','revised')\nORDER BY r.id DESC\nLIMIT 20;",
+  "rows": [
+    {
+      "id": "1050001",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "signedAt": "2026-05-10 09:30:08",
+      "signedBy": "1",
+      "event_id": "240001"
+    },
+    {
+      "id": "1020002",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "signedAt": "2026-05-10 08:59:29",
+      "signedBy": "1",
+      "event_id": "210002"
+    },
+    {
+      "id": "1020001",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "signedAt": "2026-05-10 08:53:57",
+      "signedBy": "1",
+      "event_id": "210001"
+    },
+    {
+      "id": "990001",
+      "status": "revised",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "signedAt": "2026-05-07 23:18:33",
+      "signedBy": "1",
+      "event_id": "180001"
+    },
+    {
+      "id": "870001",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-19 23:56:30",
+      "signedBy": "1",
+      "event_id": "NULL"
+    },
+    {
+      "id": "600024",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "5520015",
+      "signedAt": "2026-04-10 10:00:00",
+      "signedBy": "5520015",
+      "event_id": "120023"
+    },
+    {
+      "id": "600023",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "5520015",
+      "signedAt": "2026-04-09 10:00:00",
+      "signedBy": "5520015",
+      "event_id": "120022"
+    },
+    {
+      "id": "600022",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "5520015",
+      "signedAt": "2026-04-08 10:00:00",
+      "signedBy": "5520015",
+      "event_id": "120021"
+    },
+    {
+      "id": "600021",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "5520015",
+      "signedAt": "2026-04-07 10:00:00",
+      "signedBy": "5520015",
+      "event_id": "120020"
+    },
+    {
+      "id": "600020",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "5520015",
+      "signedAt": "2026-04-04 10:00:00",
+      "signedBy": "5520015",
+      "event_id": "120019"
+    },
+    {
+      "id": "600019",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "5520015",
+      "signedAt": "2026-04-03 10:00:00",
+      "signedBy": "5520015",
+      "event_id": "120018"
+    },
+    {
+      "id": "600018",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "5520015",
+      "signedAt": "2026-04-02 10:00:00",
+      "signedBy": "5520015",
+      "event_id": "120017"
+    },
+    {
+      "id": "600017",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "5520015",
+      "signedAt": "2026-04-01 10:00:00",
+      "signedBy": "5520015",
+      "event_id": "120016"
+    },
+    {
+      "id": "600016",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-07 10:00:00",
+      "signedBy": "1",
+      "event_id": "120015"
+    },
+    {
+      "id": "600015",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-04 10:00:00",
+      "signedBy": "1",
+      "event_id": "120014"
+    },
+    {
+      "id": "600014",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-03 10:00:00",
+      "signedBy": "1",
+      "event_id": "120013"
+    },
+    {
+      "id": "600013",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-02 10:00:00",
+      "signedBy": "1",
+      "event_id": "120012"
+    },
+    {
+      "id": "600012",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "1",
+      "signedAt": "2026-04-01 10:00:00",
+      "signedBy": "1",
+      "event_id": "120011"
+    },
+    {
+      "id": "600011",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "5520015",
+      "signedAt": "2026-04-14 10:00:00",
+      "signedBy": "5520015",
+      "event_id": "120010"
+    },
+    {
+      "id": "600010",
+      "status": "signed",
+      "unit_id": "180001",
+      "author_user_id": "5520015",
+      "signedAt": "2026-04-11 10:00:00",
+      "signedBy": "5520015",
+      "event_id": "120009"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tstatus\tunit_id\tauthor_user_id\tsignedAt\tsignedBy\tevent_id\n1050001\tsigned\t210001\t1\t2026-05-10 09:30:08\t1\t240001\n1020002\tsigned\t210001\t1\t2026-05-10 08:59:29\t1\t210002\n1020001\tsigned\t210001\t1\t2026-05-10 08:53:57\t1\t210001\n990001\trevised\t210001\t1\t2026-05-07 23:18:33\t1\t180001\n870001\tsigned\t180001\t1\t2026-04-19 23:56:30\t1\tNULL\n600024\tsigned\t210001\t5520015\t2026-04-10 10:00:00\t5520015\t120023\n600023\tsigned\t210001\t5520015\t2026-04-09 10:00:00\t5520015\t120022\n600022\tsigned\t210001\t5520015\t2026-04-08 10:00:00\t5520015\t120021\n600021\tsigned\t210001\t5520015\t2026-04-07 10:00:00\t5520015\t120020\n600020\tsigned\t210001\t5520015\t2026-04-04 10:00:00\t5520015\t120019\n600019\tsigned\t210001\t5520015\t2026-04-03 10:00:00\t5520015\t120018\n600018\tsigned\t210001\t5520015\t2026-04-02 10:00:00\t5520015\t120017\n600017\tsigned\t210001\t5520015\t2026-04-01 10:00:00\t5520015\t120016\n600016\tsigned\t180001\t1\t2026-04-07 10:00:00\t1\t120015\n600015\tsigned\t180001\t1\t2026-04-04 10:00:00\t1\t120014\n600014\tsigned\t180001\t1\t2026-04-03 10:00:00\t1\t120013\n600013\tsigned\t180001\t1\t2026-04-02 10:00:00\t1\t120012\n600012\tsigned\t180001\t1\t2026-04-01 10:00:00\t1\t120011\n600011\tsigned\t180001\t5520015\t2026-04-14 10:00:00\t5520015\t120010\n600010\tsigned\t180001\t5520015\t2026-04-11 10:00:00\t5520015\t120009\n",
+  "stderr": "",
+  "execution_time_ms": 282
+}

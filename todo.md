@@ -1572,3 +1572,10 @@
 - [ ] FIN-C4: FinanceMeuFinanceiro2 — aviso de pricing_status + mensagem "sem laudo" melhorada
 - [ ] FIN-C5: financeSimple.ts — procedure repriceMissingEvents
 - [ ] FIN-C6: FinanceDashboard2 — UI de configuração explícita + integração com financialDiagnostic
+
+## Reprocessador de Billing Events (13/05/2026)
+- [x] FIN-R1: financeSimple.ts — procedure reprocessBillingEvents (dry_run + execução real)
+- [x] FIN-R2: AdminPage.tsx — nova aba "Diagnóstico Financeiro" com BillingDiagnosticPanel
+- [x] FIN-R3: BillingDiagnosticPanel — cards de diagnóstico (faltantes, zeros, falhas)
+- [x] FIN-R4: BillingDiagnosticPanel — botão Reprocessar com modo simulação e modo execução
+- [x] FIN-R5: BillingDiagnosticPanel — botão Reprecificar integrado ao painel
