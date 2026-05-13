@@ -36,13 +36,12 @@ type EventItem = {
 
 interface ExtractModalProps {
   unit: SummaryItem;
-  year: number;
-  month: number;
+  referenceDate: string;
   events: EventItem[];
   onClose: () => void;
 }
 
-function ExtractModal({ unit, year, month, events, onClose }: ExtractModalProps) {
+function ExtractModal({ unit, referenceDate, events, onClose }: ExtractModalProps) {
   const unitEvents = events.filter(e => e.unit_id === unit.unit_id);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
@@ -50,7 +49,7 @@ function ExtractModal({ unit, year, month, events, onClose }: ExtractModalProps)
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
           <div>
             <h2 className="text-white font-semibold">{unit.unit_name}</h2>
-            <p className="text-slate-400 text-xs">{MONTHS[month-1]} {year} · {unitEvents.length} laudos</p>
+            <p className="text-slate-400 text-xs">Ciclo atual · {unitEvents.length} laudos</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
         </div>
@@ -128,7 +127,8 @@ export default function FinanceMeuFinanceiro2() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [selectedUnit, setSelectedUnit] = useState<SummaryItem | null>(null);
 
-  const { data, isLoading } = trpc.financeSimple.myFinanceiro.useQuery({ year, month });
+  const referenceDate = new Date(year, month - 1, 15).toISOString();
+  const { data, isLoading } = trpc.financeSimple.myFinanceiro.useQuery({ reference_date: referenceDate });
 
   function prevMonth() {
     if (month === 1) { setMonth(12); setYear(y => y - 1); }
@@ -238,8 +238,7 @@ export default function FinanceMeuFinanceiro2() {
       {selectedUnit !== null && (
         <ExtractModal
           unit={selectedUnit}
-          year={year}
-          month={month}
+          referenceDate={referenceDate}
           events={data?.events ?? []}
           onClose={() => setSelectedUnit(null)}
         />

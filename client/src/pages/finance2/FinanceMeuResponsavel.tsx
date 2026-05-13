@@ -24,13 +24,13 @@ function fmtBRL(v: number) {
 
 // ─── Modal de médicos de uma unidade ─────────────────────────────────────────
 function DoctorsModal({
-  unitId, unitName, year, month, onClose,
+  unitId, unitName, referenceDate, onClose,
 }: {
-  unitId: number; unitName: string; year: number; month: number; onClose: () => void;
+  unitId: number; unitName: string; referenceDate: string; onClose: () => void;
 }) {
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.financeSimple.doctorSummaryByUnit.useQuery({
-    unit_id: unitId, year, month,
+    unit_id: unitId, reference_date: referenceDate,
   });
   const markPaid = trpc.financeSimple.markDoctorPaid.useMutation({
     onSuccess: () => {
@@ -47,7 +47,7 @@ function DoctorsModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
           <div>
             <p className="text-white font-semibold">{unitName}</p>
-            <p className="text-slate-400 text-xs">{MONTHS[month - 1]} {year} — médicos</p>
+            <p className="text-slate-400 text-xs">Ciclo atual — médicos</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
             <X className="h-5 w-5" />
@@ -90,8 +90,7 @@ function DoctorsModal({
                             onClick={() => markPaid.mutate({
                               unit_id: unitId,
                               doctor_user_id: doc.doctor_user_id,
-                              year,
-                              month,
+                              reference_date: referenceDate,
                             })}
                           >
                             Marcar pago
@@ -121,7 +120,8 @@ export default function FinanceMeuResponsavel() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [selectedUnit, setSelectedUnit] = useState<{ id: number; name: string } | null>(null);
 
-  const { data, isLoading } = trpc.financeSimple.myResponsavelSummary.useQuery({ year, month });
+  const referenceDate = new Date(year, month - 1, 15).toISOString();
+  const { data, isLoading } = trpc.financeSimple.myResponsavelSummary.useQuery({ reference_date: referenceDate });
 
   function prevMonth() {
     if (month === 1) { setMonth(12); setYear((y) => y - 1); }
@@ -275,8 +275,7 @@ export default function FinanceMeuResponsavel() {
         <DoctorsModal
           unitId={selectedUnit.id}
           unitName={selectedUnit.name}
-          year={year}
-          month={month}
+          referenceDate={referenceDate}
           onClose={() => setSelectedUnit(null)}
         />
       )}

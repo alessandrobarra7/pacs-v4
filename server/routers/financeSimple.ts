@@ -43,6 +43,50 @@ function toMoney(v: number | string | null | undefined): number {
   return Math.round(Number(v) * 100) / 100;
 }
 
+// ─── calcCycleDates ─────────────────────────────────────────────────────────
+/**
+ * Calcula as datas de início e fim do ciclo de faturamento de uma unidade.
+ * startDay/endDay: dias configurados na tabela units (billing_cycle_start_day/end_day)
+ * refDate: qualquer data dentro do ciclo desejado (ex: "hoje")
+ * Suporta ciclos que cruzam meses (ex: dia 15 ao dia 14 do mês seguinte).
+ * Fallback: se startDay/endDay não configurados, usa 1→31 do mês da refDate.
+ */
+function calcCycleDates(
+  startDay: number | null | undefined,
+  endDay: number | null | undefined,
+  refDate: Date
+): { cycleStart: Date; cycleEnd: Date; label: string } {
+  const sd = startDay ?? 1;
+  const ed = endDay ?? 31;
+  const d = refDate.getDate();
+  const m = refDate.getMonth();
+  const y = refDate.getFullYear();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  if (sd <= ed) {
+    // Ciclo dentro do mesmo mês (ex: 1→31 ou 5→25)
+    return {
+      cycleStart: new Date(y, m, sd),
+      cycleEnd:   new Date(y, m, ed + 1),
+      label: `${pad(sd)}/${pad(m + 1)} – ${pad(ed)}/${pad(m + 1)}`,
+    };
+  } else {
+    // Ciclo cruza meses (ex: 15→14)
+    if (d >= sd) {
+      return {
+        cycleStart: new Date(y, m, sd),
+        cycleEnd:   new Date(y, m + 1, ed + 1),
+        label: `${pad(sd)}/${pad(m + 1)} – ${pad(ed)}/${pad(m + 2)}`,
+      };
+    } else {
+      return {
+        cycleStart: new Date(y, m - 1, sd),
+        cycleEnd:   new Date(y, m, ed + 1),
+        label: `${pad(sd)}/${pad(m)} – ${pad(ed)}/${pad(m + 1)}`,
+      };
+    }
+  }
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 type AllowedAdminRole = "admin_master" | "unit_admin" | "responsavel_financeiro";
@@ -70,16 +114,16 @@ export const financeSimpleRouter = router({
    */
   dashboard: protectedProcedure
     .input(z.object({
-      year: z.number().int(),
-      month: z.number().int().min(1).max(12),
+      reference_date: z.string().datetime().optional(), // ISO string; default = hoje
     }))
     .query(async ({ input, ctx }) => {
       assertAdmin(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      const startDate = new Date(input.year, input.month - 1, 1);
-      const endDate = new Date(input.year, input.month, 1);
+      const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      // dashboard usa ciclo global (1-31) pois agrega todas as unidades
+      const { cycleStart: startDate, cycleEnd: endDate } = calcCycleDates(1, 31, refDate);
 
       // Filtro por unidade para unit_admin / responsavel_financeiro
       const unitFilter =
@@ -126,8 +170,7 @@ export const financeSimpleRouter = router({
    */
   unitSummary: protectedProcedure
     .input(z.object({
-      year: z.number().int(),
-      month: z.number().int().min(1).max(12),
+      reference_date: z.string().datetime().optional(),
       responsible_id: z.number().int().optional(),
     }))
     .query(async ({ input, ctx }) => {
@@ -135,8 +178,10 @@ export const financeSimpleRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      const startDate = new Date(input.year, input.month - 1, 1);
-      const endDate = new Date(input.year, input.month, 1);
+      const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      // Para unitSummary, cada unidade pode ter ciclo diferente.
+      // Usamos ciclo 1-31 como janela comum; drill-down por unidade usa ciclo específico.
+      const { cycleStart: startDate, cycleEnd: endDate } = calcCycleDates(1, 31, refDate);
 
       // Filtro de unidades: unit_admin vê apenas suas unidades (unit_id fixo OU via permissões)
       let unitIdFilter: ReturnType<typeof eq> | ReturnType<typeof inArray> | undefined = undefined;
@@ -218,16 +263,21 @@ export const financeSimpleRouter = router({
   doctorSummaryByUnit: protectedProcedure
     .input(z.object({
       unit_id: z.number().int(),
-      year: z.number().int(),
-      month: z.number().int().min(1).max(12),
+      reference_date: z.string().datetime().optional(),
     }))
     .query(async ({ input, ctx }) => {
       assertAdmin(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      const startDate = new Date(input.year, input.month - 1, 1);
-      const endDate = new Date(input.year, input.month, 1);
+      const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      // Busca ciclo configurado para esta unidade
+      const unitRow = await db.select({
+        s: units.billing_cycle_start_day,
+        e: units.billing_cycle_end_day,
+      }).from(units).where(eq(units.id, input.unit_id)).limit(1);
+      const { cycleStart: startDate, cycleEnd: endDate, label: cycle_label } =
+        calcCycleDates(unitRow[0]?.s, unitRow[0]?.e, refDate);
 
       const rows = await db
         .select({
@@ -270,16 +320,20 @@ export const financeSimpleRouter = router({
     .input(z.object({
       unit_id: z.number().int(),
       doctor_user_id: z.number().int(),
-      year: z.number().int(),
-      month: z.number().int().min(1).max(12),
+      reference_date: z.string().datetime().optional(),
     }))
     .query(async ({ input, ctx }) => {
       assertAdmin(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      const startDate = new Date(input.year, input.month - 1, 1);
-      const endDate = new Date(input.year, input.month, 1);
+      const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      const unitRow = await db.select({
+        s: units.billing_cycle_start_day,
+        e: units.billing_cycle_end_day,
+      }).from(units).where(eq(units.id, input.unit_id)).limit(1);
+      const { cycleStart: startDate, cycleEnd: endDate } =
+        calcCycleDates(unitRow[0]?.s, unitRow[0]?.e, refDate);
 
       const rows = await db
         .select({
@@ -316,8 +370,7 @@ export const financeSimpleRouter = router({
     .input(z.object({
       unit_id: z.number().int(),
       doctor_user_id: z.number().int(),
-      year: z.number().int(),
-      month: z.number().int().min(1).max(12),
+      reference_date: z.string().datetime().optional(),
       note: z.string().max(500).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -325,8 +378,13 @@ export const financeSimpleRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      const startDate = new Date(input.year, input.month - 1, 1);
-      const endDate = new Date(input.year, input.month, 1);
+      const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      const unitRow = await db.select({
+        s: units.billing_cycle_start_day,
+        e: units.billing_cycle_end_day,
+      }).from(units).where(eq(units.id, input.unit_id)).limit(1);
+      const { cycleStart: startDate, cycleEnd: endDate } =
+        calcCycleDates(unitRow[0]?.s, unitRow[0]?.e, refDate);
       const now = new Date();
 
       await db
@@ -351,8 +409,7 @@ export const financeSimpleRouter = router({
   markSystemPaid: protectedProcedure
     .input(z.object({
       unit_id: z.number().int(),
-      year: z.number().int(),
-      month: z.number().int().min(1).max(12),
+      reference_date: z.string().datetime().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin_master") {
@@ -361,8 +418,13 @@ export const financeSimpleRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      const startDate = new Date(input.year, input.month - 1, 1);
-      const endDate = new Date(input.year, input.month, 1);
+      const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      const unitRow = await db.select({
+        s: units.billing_cycle_start_day,
+        e: units.billing_cycle_end_day,
+      }).from(units).where(eq(units.id, input.unit_id)).limit(1);
+      const { cycleStart: startDate, cycleEnd: endDate } =
+        calcCycleDates(unitRow[0]?.s, unitRow[0]?.e, refDate);
       const now = new Date();
 
       await db
@@ -385,16 +447,18 @@ export const financeSimpleRouter = router({
    */
   myFinanceiro: protectedProcedure
     .input(z.object({
-      year: z.number().int(),
-      month: z.number().int().min(1).max(12),
+      reference_date: z.string().datetime().optional(),
     }))
     .query(async ({ input, ctx }) => {
       assertMedico(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      const startDate = new Date(input.year, input.month - 1, 1);
-      const endDate = new Date(input.year, input.month, 1);
+      // myFinanceiro: cada unidade tem seu próprio ciclo; usamos janela ampla (3 meses)
+      // para buscar todos os eventos e depois agrupamos por unidade.
+      // O ciclo específico por unidade é exibido no frontend via cycle_label.
+      const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      const { cycleStart: startDate, cycleEnd: endDate } = calcCycleDates(1, 31, refDate);
 
       // Resumo por unidade
       const summary = await db
@@ -622,8 +686,7 @@ export const financeSimpleRouter = router({
    */
   myResponsavelSummary: protectedProcedure
     .input(z.object({
-      year: z.number().int(),
-      month: z.number().int().min(1).max(12),
+      reference_date: z.string().datetime().optional(),
     }))
     .query(async ({ input, ctx }) => {
       if (ctx.user.role !== "responsavel_financeiro" && ctx.user.role !== "admin_master") {
@@ -658,8 +721,8 @@ export const financeSimpleRouter = router({
       }
 
       const unitIds = linkedUnits.map((u) => u.unit_id);
-      const startDate = new Date(input.year, input.month - 1, 1);
-      const endDate = new Date(input.year, input.month, 1);
+      const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      const { cycleStart: startDate, cycleEnd: endDate } = calcCycleDates(1, 31, refDate);
 
       // Resumo por unidade
       const summary = await db
@@ -710,8 +773,7 @@ export const financeSimpleRouter = router({
    */
   responsibleSummary: protectedProcedure
     .input(z.object({
-      year: z.number().int(),
-      month: z.number().int().min(1).max(12),
+      reference_date: z.string().datetime().optional(),
     }))
     .query(async ({ input, ctx }) => {
       if (ctx.user.role !== "admin_master") {
@@ -719,8 +781,8 @@ export const financeSimpleRouter = router({
       }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const startDate = new Date(input.year, input.month - 1, 1);
-      const endDate = new Date(input.year, input.month, 1);
+      const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      const { cycleStart: startDate, cycleEnd: endDate } = calcCycleDates(1, 31, refDate);
       const rows = await db
         .select({
           responsible_id: billing_visit_events.financial_responsible_id,

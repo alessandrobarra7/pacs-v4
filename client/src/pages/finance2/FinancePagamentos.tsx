@@ -30,13 +30,13 @@ function fmtDate(d: Date | string | null | undefined) {
 
 // ─── Modal de laudos individuais ─────────────────────────────────────────────
 function EventsModal({
-  unitId, doctorId, doctorName, year, month, onClose,
+  unitId, doctorId, doctorName, referenceDate, onClose,
 }: {
   unitId: number; doctorId: number; doctorName: string;
-  year: number; month: number; onClose: () => void;
+  referenceDate: string; onClose: () => void;
 }) {
   const { data, isLoading } = trpc.financeSimple.eventsByDoctorUnit.useQuery({
-    unit_id: unitId, doctor_user_id: doctorId, year, month,
+    unit_id: unitId, doctor_user_id: doctorId, reference_date: referenceDate,
   });
 
   return (
@@ -46,7 +46,7 @@ function EventsModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
           <div>
             <p className="text-white font-semibold">{doctorName}</p>
-            <p className="text-slate-400 text-xs">{MONTHS[month-1]} {year} — laudos individuais</p>
+            <p className="text-slate-400 text-xs">Laudos individuais do ciclo</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
             <X className="h-5 w-5" />
@@ -110,7 +110,7 @@ function EventsModal({
 
 // ─── Linha de médico ──────────────────────────────────────────────────────────
 function DoctorRow({
-  doctor, unitId, year, month,
+  doctor, unitId, referenceDate,
 }: {
   doctor: {
     doctor_user_id: number; doctor_name: string;
@@ -118,7 +118,7 @@ function DoctorRow({
     doctor_paid: number; doctor_pending: number;
     doctor_pending_count: number; last_received_at: Date | null;
   };
-  unitId: number; year: number; month: number;
+  unitId: number; referenceDate: string;
 }) {
   const { user } = useAuth();
   const utils = trpc.useUtils();
@@ -182,8 +182,7 @@ function DoctorRow({
                 markPaid.mutate({
                   unit_id: unitId,
                   doctor_user_id: doctor.doctor_user_id,
-                  year,
-                  month,
+                  reference_date: referenceDate,
                 })
               }
             >
@@ -197,8 +196,7 @@ function DoctorRow({
           unitId={unitId}
           doctorId={doctor.doctor_user_id}
           doctorName={doctor.doctor_name}
-          year={year}
-          month={month}
+          referenceDate={referenceDate}
           onClose={() => setShowModal(false)}
         />
       )}
@@ -208,7 +206,7 @@ function DoctorRow({
 
 // ─── Bloco de unidade ─────────────────────────────────────────────────────────
 function UnitBlock({
-  unit, year, month,
+  unit, referenceDate,
 }: {
   unit: {
     unit_id: number; unit_name: string; total_laudos: number;
@@ -216,14 +214,14 @@ function UnitBlock({
     system_pending_count: number; doctor_total: number;
     doctor_paid: number; doctor_pending: number; doctor_pending_count: number;
   };
-  year: number; month: number;
+  referenceDate: string;
 }) {
   const { user } = useAuth();
   const [expanded, setExpanded] = useState(true);
   const utils = trpc.useUtils();
 
   const { data: doctors, isLoading } = trpc.financeSimple.doctorSummaryByUnit.useQuery(
-    { unit_id: unit.unit_id, year, month },
+    { unit_id: unit.unit_id, reference_date: referenceDate },
     { enabled: expanded }
   );
 
@@ -288,7 +286,7 @@ function UnitBlock({
               variant="outline"
               className="text-xs border-cyan-600/50 text-cyan-400 hover:bg-cyan-500/10 hover:border-cyan-500"
               disabled={markSystemPaid.isPending}
-              onClick={() => markSystemPaid.mutate({ unit_id: unit.unit_id, year, month })}
+              onClick={() => markSystemPaid.mutate({ unit_id: unit.unit_id, reference_date: referenceDate })}
             >
               {markSystemPaid.isPending ? "..." : "Marcar sistema pago"}
             </Button>
@@ -316,8 +314,7 @@ function UnitBlock({
                   key={doc.doctor_user_id}
                   doctor={doc}
                   unitId={unit.unit_id}
-                  year={year}
-                  month={month}
+                  referenceDate={referenceDate}
                 />
               ))}
             </div>
@@ -334,7 +331,8 @@ export default function FinancePagamentos() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
 
-  const { data: units, isLoading } = trpc.financeSimple.unitSummary.useQuery({ year, month });
+  const referenceDate = new Date(year, month - 1, 15).toISOString();
+  const { data: units, isLoading } = trpc.financeSimple.unitSummary.useQuery({ reference_date: referenceDate });
 
   function prevMonth() {
     if (month === 1) { setMonth(12); setYear(y => y - 1); }
@@ -376,7 +374,7 @@ export default function FinancePagamentos() {
         ) : (
           <div className="space-y-4">
             {units.map((u) => (
-              <UnitBlock key={u.unit_id} unit={u} year={year} month={month} />
+              <UnitBlock key={u.unit_id} unit={u} referenceDate={referenceDate} />
             ))}
           </div>
         )}

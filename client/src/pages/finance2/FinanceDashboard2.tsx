@@ -147,12 +147,12 @@ function CycleConfigModal({ unitId, unitName, onClose }: { unitId: number; unitN
 }
 
 // ─── Painel de detalhes da unidade selecionada ────────────────────────────────
-function UnitDetail({ unit, year, month }: { unit: any; year: number; month: number }) {
+function UnitDetail({ unit, referenceDate }: { unit: any; referenceDate: string }) {
   const utils = trpc.useUtils();
   const { user } = useAuth();
   const [showPriceModal, setShowPriceModal] = useState(false);
   const [showCycleModal, setShowCycleModal] = useState(false);
-  const { data: doctors, isLoading } = trpc.financeSimple.doctorSummaryByUnit.useQuery({ unit_id: unit.unit_id, year, month });
+  const { data: doctors, isLoading } = trpc.financeSimple.doctorSummaryByUnit.useQuery({ unit_id: unit.unit_id, reference_date: referenceDate });
   const markSystemPaid = trpc.financeSimple.markSystemPaid.useMutation({
     onSuccess: () => {
       toast.success(`Pagamento ao sistema da ${unit.unit_name} marcado como pago`);
@@ -204,7 +204,7 @@ function UnitDetail({ unit, year, month }: { unit: any; year: number; month: num
               <DollarSign className="h-4 w-4 text-cyan-400" />
               <span className="text-sm text-slate-300">Pagamento ao sistema: <span className="text-cyan-400 font-semibold">{fmtBRL(unit.system_total)}</span></span>
             </div>
-            <Button size="sm" variant="outline" className="text-xs border-cyan-600/50 text-cyan-400 hover:bg-cyan-500/10 hover:border-cyan-500" disabled={markSystemPaid.isPending} onClick={() => markSystemPaid.mutate({ unit_id: unit.unit_id, year, month })}>
+            <Button size="sm" variant="outline" className="text-xs border-cyan-600/50 text-cyan-400 hover:bg-cyan-500/10 hover:border-cyan-500" disabled={markSystemPaid.isPending} onClick={() => markSystemPaid.mutate({ unit_id: unit.unit_id, reference_date: referenceDate })}>
               {markSystemPaid.isPending ? "..." : "Marcar sistema pago"}
             </Button>
           </div>
@@ -223,7 +223,7 @@ function UnitDetail({ unit, year, month }: { unit: any; year: number; month: num
           </div>
         ) : (
           <div className="divide-y divide-slate-700/30">
-            {doctors.map((doc) => <DoctorRow key={doc.doctor_user_id} doctor={doc} unitId={unit.unit_id} year={year} month={month} />)}
+            {doctors.map((doc) => <DoctorRow key={doc.doctor_user_id} doctor={doc} unitId={unit.unit_id} referenceDate={referenceDate} />)}
           </div>
         )}
       </div>
@@ -231,6 +231,11 @@ function UnitDetail({ unit, year, month }: { unit: any; year: number; month: num
       {showCycleModal && <CycleConfigModal unitId={unit.unit_id} unitName={unit.unit_name} onClose={() => setShowCycleModal(false)} />}
     </div>
   );
+}
+
+// helper: gera ISO string para o primeiro dia do mês/ano selecionado
+function toRefDate(year: number, month: number): string {
+  return new Date(year, month - 1, 15).toISOString();
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -243,12 +248,14 @@ export default function FinanceDashboard2() {
   // Nível 2: unidade selecionada
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
 
+  const referenceDate = toRefDate(year, month);
+
   // Dados nível 1: resumo por responsável
-  const { data: responsibles, isLoading: loadingResp } = trpc.financeSimple.responsibleSummary.useQuery({ year, month });
+  const { data: responsibles, isLoading: loadingResp } = trpc.financeSimple.responsibleSummary.useQuery({ reference_date: referenceDate });
 
   // Dados nível 2: unidades do responsável selecionado
   const { data: units, isLoading: loadingUnits } = trpc.financeSimple.unitSummary.useQuery(
-    { year, month, responsible_id: selectedResponsible?.id ?? undefined },
+    { reference_date: referenceDate, responsible_id: selectedResponsible?.id ?? undefined },
     { enabled: selectedResponsible !== null }
   );
 
@@ -381,7 +388,7 @@ export default function FinanceDashboard2() {
                   <p className="text-slate-500 text-sm">Selecione uma unidade para ver os detalhes</p>
                 </div>
               ) : (
-                <UnitDetail unit={selectedUnit} year={year} month={month} />
+                <UnitDetail unit={selectedUnit} referenceDate={referenceDate} />
               )}
             </div>
           </div>

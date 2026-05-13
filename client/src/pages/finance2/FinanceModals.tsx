@@ -26,14 +26,20 @@ export function fmtDate(d: Date | string | null | undefined) {
 
 // ─── Modal de laudos individuais ─────────────────────────────────────────────
 export function LaudosModal({
-  doctorUserId, unitId, year, month, doctorName, onClose
+  doctorUserId, unitId, referenceDate, doctorName, onClose
 }: {
-  doctorUserId: number; unitId: number; year: number; month: number;
-  doctorName: string; onClose: () => void;
+  doctorUserId: number;
+  unitId: number;
+  referenceDate: string;
+  doctorName: string;
+  onClose: () => void;
 }) {
   const { data, isLoading } = trpc.financeSimple.eventsByDoctorUnit.useQuery({
-    doctor_user_id: doctorUserId, unit_id: unitId, year, month
+    doctor_user_id: doctorUserId,
+    unit_id: unitId,
+    reference_date: referenceDate,
   });
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="absolute inset-0" onClick={onClose} />
@@ -41,7 +47,7 @@ export function LaudosModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
           <div>
             <p className="text-white font-semibold">{doctorName}</p>
-            <p className="text-slate-400 text-xs">{MONTHS[month-1]} {year} — laudos individuais</p>
+            <p className="text-slate-400 text-xs">Laudos individuais do ciclo</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
             <X className="h-5 w-5" />
@@ -102,15 +108,20 @@ export function LaudosModal({
 
 // ─── Linha de médico (compartilhada) ─────────────────────────────────────────
 export function DoctorRow({
-  doctor, unitId, year, month
+  doctor, unitId, referenceDate
 }: {
   doctor: {
-    doctor_user_id: number; doctor_name: string;
-    total_laudos: number; doctor_total: number;
-    doctor_paid: number; doctor_pending: number;
-    doctor_pending_count: number; last_received_at?: Date | null;
+    doctor_user_id: number;
+    doctor_name: string;
+    total_laudos: number;
+    doctor_total: number;
+    doctor_paid: number;
+    doctor_pending: number;
+    doctor_pending_count: number;
+    last_received_at?: Date | null;
   };
-  unitId: number; year: number; month: number;
+  unitId: number;
+  referenceDate: string;
 }) {
   const { user } = useAuth();
   const [showModal, setShowModal] = useState(false);
@@ -126,6 +137,7 @@ export function DoctorRow({
   });
   const canMark = user?.role === "admin_master" || user?.role === "unit_admin" || user?.role === "responsavel_financeiro";
   const allPaid = (doctor.doctor_pending_count ?? 0) === 0;
+
   return (
     <>
       <div className="flex items-center justify-between px-5 py-3.5 hover:bg-slate-800/30 transition-colors">
@@ -172,8 +184,7 @@ export function DoctorRow({
               onClick={() => markPaid.mutate({
                 doctor_user_id: doctor.doctor_user_id,
                 unit_id: unitId,
-                year,
-                month,
+                reference_date: referenceDate,
               })}
             >
               {markPaid.isPending ? "..." : "Marcar pago"}
@@ -188,8 +199,7 @@ export function DoctorRow({
         <LaudosModal
           doctorUserId={doctor.doctor_user_id}
           unitId={unitId}
-          year={year}
-          month={month}
+          referenceDate={referenceDate}
           doctorName={doctor.doctor_name ?? "Médico"}
           onClose={() => setShowModal(false)}
         />
