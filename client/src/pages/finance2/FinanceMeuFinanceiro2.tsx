@@ -12,6 +12,8 @@ import { FinanceShell2 } from "./FinanceShell2";
 type SummaryItem = {
   unit_id: number;
   unit_name: string;
+  cycle_start_day: number;
+  cycle_end_day: number;
   total_laudos: number;
   doctor_total: number;
   doctor_paid: number;
@@ -190,7 +192,20 @@ export default function FinanceMeuFinanceiro2() {
                   <div>
                     <p className="text-white font-semibold text-base">{u.unit_name}</p>
                     <p className="text-slate-400 text-xs mt-0.5">
-                      {MONTHS[month-1]} {year}
+                      {(() => {
+                        const pad = (n: number) => String(n).padStart(2, '0');
+                        const sd = u.cycle_start_day ?? 1;
+                        const ed = u.cycle_end_day ?? 31;
+                        const d = new Date(year, month - 1, 1);
+                        let label: string;
+                        if (sd <= ed) {
+                          label = `${pad(sd)}/${pad(month)} – ${pad(ed)}/${pad(month)}`;
+                        } else {
+                          const nextM = month === 12 ? 1 : month + 1;
+                          label = `${pad(sd)}/${pad(month)} – ${pad(ed)}/${pad(nextM)}`;
+                        }
+                        return <span>Ciclo: {label}</span>;
+                      })()}
                       {u.price_per_report != null ? (
                         <span className="ml-2 text-cyan-400">· R$ {Number(u.price_per_report).toFixed(2).replace(".", ",")} / laudo</span>
                       ) : (

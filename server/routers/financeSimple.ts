@@ -122,8 +122,10 @@ export const financeSimpleRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      // dashboard usa ciclo global (1-31) pois agrega todas as unidades
-      const { cycleStart: startDate, cycleEnd: endDate } = calcCycleDates(1, 31, refDate);
+      // dashboard agrega todas as unidades (cada uma com ciclo diferente).
+      // Usa janela de 3 meses centrada no refDate para cobrir qualquer ciclo por unidade.
+      const startDate = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
+      const endDate = new Date(refDate.getFullYear(), refDate.getMonth() + 2, 1);
 
       // Filtro por unidade para unit_admin / responsavel_financeiro
       const unitFilter =
@@ -179,9 +181,10 @@ export const financeSimpleRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      // Para unitSummary, cada unidade pode ter ciclo diferente.
-      // Usamos ciclo 1-31 como janela comum; drill-down por unidade usa ciclo específico.
-      const { cycleStart: startDate, cycleEnd: endDate } = calcCycleDates(1, 31, refDate);
+      // unitSummary: cada unidade tem ciclo diferente.
+      // Usa janela de 3 meses centrada no refDate; drill-down por unidade usa ciclo específico.
+      const startDate = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
+      const endDate = new Date(refDate.getFullYear(), refDate.getMonth() + 2, 1);
 
       // Filtro de unidades: unit_admin vê apenas suas unidades (unit_id fixo OU via permissões)
       let unitIdFilter: ReturnType<typeof eq> | ReturnType<typeof inArray> | undefined = undefined;
@@ -466,6 +469,8 @@ export const financeSimpleRouter = router({
         .select({
           unit_id: billing_visit_events.unit_id,
           unit_name: units.name,
+          cycle_start_day: units.billing_cycle_start_day,
+          cycle_end_day: units.billing_cycle_end_day,
           total_laudos: sql<number>`COUNT(*)`,
           doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
           doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
@@ -529,6 +534,8 @@ export const financeSimpleRouter = router({
         summary: summary.map((r) => ({
           unit_id: r.unit_id,
           unit_name: r.unit_name ?? "Unidade",
+          cycle_start_day: r.cycle_start_day ?? 1,
+          cycle_end_day: r.cycle_end_day ?? 31,
           total_laudos: Number(r.total_laudos),
           doctor_total: toMoney(r.doctor_total),
           doctor_paid: toMoney(r.doctor_paid ?? 0),
@@ -707,6 +714,8 @@ export const financeSimpleRouter = router({
         .select({
           unit_id: financial_responsible_units.unit_id,
           unit_name: units.name,
+          cycle_start_day: units.billing_cycle_start_day,
+          cycle_end_day: units.billing_cycle_end_day,
         })
         .from(financial_responsible_units)
         .leftJoin(units, eq(units.id, financial_responsible_units.unit_id))
@@ -757,6 +766,8 @@ export const financeSimpleRouter = router({
         return {
           unit_id: lu.unit_id,
           unit_name: lu.unit_name ?? "Unidade",
+          cycle_start_day: lu.cycle_start_day ?? 1,
+          cycle_end_day: lu.cycle_end_day ?? 31,
           total_laudos: s ? Number(s.total_laudos) : 0,
           system_total: s ? toMoney(s.system_total) : 0,
           system_paid: s ? toMoney(s.system_paid) : 0,
@@ -785,7 +796,10 @@ export const financeSimpleRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      const { cycleStart: startDate, cycleEnd: endDate } = calcCycleDates(1, 31, refDate);
+      // responsibleSummary: agrega por responsável (múltiplas unidades com ciclos diferentes).
+      // Usa janela de 3 meses centrada no refDate.
+      const startDate = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
+      const endDate = new Date(refDate.getFullYear(), refDate.getMonth() + 2, 1);
       const rows = await db
         .select({
           responsible_id: billing_visit_events.financial_responsible_id,

@@ -221,7 +221,21 @@ export default function FinanceMeuResponsavel() {
                     </div>
                     <div>
                       <p className="text-white font-semibold">{u.unit_name}</p>
-                      <p className="text-slate-400 text-xs">{u.total_laudos} laudos no período</p>
+                      <p className="text-slate-400 text-xs">
+                        {u.total_laudos} laudos
+                        {' · '}
+                        {(() => {
+                          const pad = (n: number) => String(n).padStart(2, '0');
+                          const sd = u.cycle_start_day ?? 1;
+                          const ed = u.cycle_end_day ?? 31;
+                          if (sd <= ed) {
+                            return `Ciclo: ${pad(sd)}/${pad(month)} – ${pad(ed)}/${pad(month)}`;
+                          } else {
+                            const nextM = month === 12 ? 1 : month + 1;
+                            return `Ciclo: ${pad(sd)}/${pad(month)} – ${pad(ed)}/${pad(nextM)}`;
+                          }
+                        })()}
+                      </p>
                     </div>
                   </div>
                   <button

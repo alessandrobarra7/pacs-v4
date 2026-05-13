@@ -1597,3 +1597,12 @@
 - [x] FIN-C5: Remover BillingAdminPage.tsx, BillingDoctorPage.tsx, BillingUnitPage.tsx
 - [x] FIN-C6: Remover pasta finance/ (12 arquivos de páginas antigas)
 - [x] FIN-C7: Salvar relatorio_ultima_versao_o_que_falta_financeiro.txt em docs/
+
+## Consolidação Módulo Financeiro v37 (13/05/2026)
+- [x] Salvar relatorio_versao37_o_que_ainda_falta.txt no repositório (docs/)
+- [x] Auditar createBillingVisitEvent — desacoplamento do ciclo já estava correto
+- [x] Eliminar calcCycleDates(1, 31) global: dashboard, unitSummary, responsibleSummary → janela 3 meses
+- [x] myFinanceiro: adicionar cycle_start_day/cycle_end_day ao retorno do summary
+- [x] FinanceMeuFinanceiro2: exibir ciclo por unidade (ex: "Ciclo: 15/04 – 14/05")
+- [x] myResponsavelSummary: adicionar cycle_start_day/cycle_end_day ao retorno
+- [x] FinanceMeuResponsavel: exibir ciclo por unidade na lista de unidades
