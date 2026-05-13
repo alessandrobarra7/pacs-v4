@@ -1564,3 +1564,11 @@
 - [x] FIN-9: Atualizar botão Financeiro no PacsQueryPage para apontar para /financeiro (com redirect por role)
 - [ ] FIN-10: Garantir que markDoctorPaid e markSystemPaid são independentes
 - [ ] FIN-11: Testar os 3 fluxos e salvar checkpoint
+
+## Correções Módulo Financeiro — Eventos Zeros (12/05/2026)
+- [ ] FIN-C1: reports.ts — audit log BILLING_EVENT_FAILED no catch de createBillingVisitEvent
+- [ ] FIN-C2: reports.ts — usar report.author_user_id (não ctx.user.id) no doctor_user_id do billing event
+- [ ] FIN-C3: financeSimple.ts — procedure financialDiagnostic (admin_master)
+- [ ] FIN-C4: FinanceMeuFinanceiro2 — aviso de pricing_status + mensagem "sem laudo" melhorada
+- [ ] FIN-C5: financeSimple.ts — procedure repriceMissingEvents
+- [ ] FIN-C6: FinanceDashboard2 — UI de configuração explícita + integração com financialDiagnostic

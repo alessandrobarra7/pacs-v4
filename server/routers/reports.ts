@@ -236,15 +236,29 @@ export const reportsRouter = router({
               report_id: input.id,
               study_instance_uid: input.study_instance_uid ?? report.study_instance_uid ?? undefined,
               unit_id: effectiveUnitId,
-              doctor_user_id: ctx.user.id,
+              // FIX-C2: usar o médico AUTOR do laudo, não quem está assinando
+              // admin_master pode assinar laudos de médicos — o crédito é do médico
+              doctor_user_id: report.author_user_id ?? ctx.user.id,
               patient_name: input.patient_name ?? undefined,
               study_date: input.study_date ?? undefined,
               signed_at: signedAt,
             });
             doctor_amount_due = billingResult.doctor_amount_due;
           } catch (billingErr) {
-            // Billing não bloqueia a assinatura — apenas loga o erro
-            console.error('[sign] Billing event failed (non-blocking):', billingErr);
+            // FIX-C1: Billing não bloqueia a assinatura — mas registra no audit_log para visibilidade
+            const errMsg = billingErr instanceof Error ? billingErr.message : String(billingErr);
+            console.error('[sign] Billing event failed (non-blocking):', errMsg);
+            try {
+              await createAuditLog({
+                user_id: ctx.user.id,
+                unit_id: effectiveUnitId,
+                action: 'BILLING_EVENT_FAILED',
+                target_type: 'REPORT',
+                target_id: String(input.id),
+                ip_address: ctx.req.ip,
+                user_agent: ctx.req.headers['user-agent'],
+              });
+            } catch (_) { /* audit também não pode bloquear a assinatura */ }
           }
         }
         

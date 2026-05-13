@@ -430,6 +430,7 @@ export const financeSimpleRouter = router({
           exam_name_snapshot: billing_visit_events.exam_name_snapshot,
           doctor_amount_due: billing_visit_events.doctor_amount_due,
           doctor_received_at: billing_visit_events.doctor_received_at,
+          pricing_status: billing_visit_events.pricing_status,  // FIN-C4: aviso de preço não configurado
           createdAt: billing_visit_events.createdAt,
         })
         .from(billing_visit_events)
@@ -753,5 +754,143 @@ export const financeSimpleRouter = router({
         doctor_paid: toMoney(r.doctor_paid),
         doctor_pending: subMoney(r.doctor_total, r.doctor_paid),
       }));
+    }),
+
+  /**
+   * FIN-C3: Diagnóstico financeiro — lista laudos assinados sem evento de billing
+   * ou com valor zero, para identificar a causa raiz dos eventos zerados.
+   * Restrito a admin_master.
+   */
+  financialDiagnostic: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().optional(),
+      limit: z.number().min(1).max(500).default(100),
+    }))
+    .query(async ({ input, ctx }) => {
+      if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      const { reports, audit_log } = await import('../../drizzle/schema');
+
+      // Laudos assinados sem billing_visit_event correspondente
+      const missingBilling = await db
+        .select({
+          report_id: reports.id,
+          unit_id: reports.unit_id,
+          author_user_id: reports.author_user_id,
+          study_instance_uid: reports.study_instance_uid,
+          signedAt: reports.signedAt,
+          signedBy: reports.signedBy,
+        })
+        .from(reports)
+        .leftJoin(billing_visit_events, eq(billing_visit_events.report_id, reports.id))
+        .where(and(
+          eq(reports.status, 'signed'),
+          isNull(billing_visit_events.id),
+          input.unit_id ? eq(reports.unit_id, input.unit_id) : undefined,
+        ))
+        .orderBy(desc(reports.signedAt))
+        .limit(input.limit);
+
+      // Laudos com billing_visit_event mas valor zero
+      const zeroBilling = await db
+        .select({
+          id: billing_visit_events.id,
+          report_id: billing_visit_events.report_id,
+          unit_id: billing_visit_events.unit_id,
+          doctor_user_id: billing_visit_events.doctor_user_id,
+          system_amount_due: billing_visit_events.system_amount_due,
+          doctor_amount_due: billing_visit_events.doctor_amount_due,
+          pricing_status: billing_visit_events.pricing_status,
+          createdAt: billing_visit_events.createdAt,
+        })
+        .from(billing_visit_events)
+        .where(and(
+          sql`(${billing_visit_events.system_amount_due} = 0 OR ${billing_visit_events.system_amount_due} IS NULL)`,
+          input.unit_id ? eq(billing_visit_events.unit_id, input.unit_id) : undefined,
+        ))
+        .orderBy(desc(billing_visit_events.createdAt))
+        .limit(input.limit);
+
+      // Contar BILLING_EVENT_FAILED no audit_log
+      const failedEvents = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(audit_log)
+        .where(eq(audit_log.action, 'BILLING_EVENT_FAILED'));
+
+      return {
+        missing_billing_count: missingBilling.length,
+        zero_billing_count: zeroBilling.length,
+        failed_events_count: Number(failedEvents[0]?.count ?? 0),
+        missing_billing: missingBilling,
+        zero_billing: zeroBilling,
+      };
+    }),
+
+  /**
+   * FIN-C5: Reprecificar eventos com valor zero.
+   * dry_run=true apenas lista; dry_run=false aplica as atualizações.
+   * Restrito a admin_master.
+   */
+  repriceMissingEvents: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().optional(),
+      dry_run: z.boolean().default(true),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+
+      const zeroEvents = await db
+        .select({
+          id: billing_visit_events.id,
+          unit_id: billing_visit_events.unit_id,
+          doctor_user_id: billing_visit_events.doctor_user_id,
+        })
+        .from(billing_visit_events)
+        .where(and(
+          sql`(${billing_visit_events.system_amount_due} = 0 OR ${billing_visit_events.system_amount_due} IS NULL)`,
+          input.unit_id ? eq(billing_visit_events.unit_id, input.unit_id) : undefined,
+        ))
+        .limit(500);
+
+      if (input.dry_run) {
+        return { dry_run: true, would_update: zeroEvents.length, events: zeroEvents };
+      }
+
+      let updated = 0;
+      for (const evt of zeroEvents) {
+        const doctorPrice = await db
+          .select()
+          .from(billing_doctor_unit_prices)
+          .where(and(
+            eq(billing_doctor_unit_prices.unit_id, evt.unit_id),
+            eq(billing_doctor_unit_prices.doctor_user_id, evt.doctor_user_id),
+          ))
+          .limit(1);
+        const unit = await db
+          .select({ sys: units.default_system_price, doc: units.default_doctor_price })
+          .from(units)
+          .where(eq(units.id, evt.unit_id))
+          .limit(1);
+        // billing_doctor_unit_prices tem apenas price_per_report (valor do médico)
+        // O preço do sistema vem de units.default_system_price
+        const docPrice = doctorPrice[0]?.price_per_report ?? unit[0]?.doc ?? '0';
+        const sysPrice = unit[0]?.sys ?? '0';
+        if (Number(sysPrice) > 0 || Number(docPrice) > 0) {
+          await db
+            .update(billing_visit_events)
+            .set({
+              system_amount_due: String(sysPrice),
+              doctor_amount_due: String(docPrice),
+              // 'ok' = preço configurado e aplicado; 'pending_both' = sem preço
+              pricing_status: 'ok',
+            })
+            .where(eq(billing_visit_events.id, evt.id));
+          updated++;
+        }
+      }
+      return { dry_run: false, updated, total_zero: zeroEvents.length };
     }),
 });

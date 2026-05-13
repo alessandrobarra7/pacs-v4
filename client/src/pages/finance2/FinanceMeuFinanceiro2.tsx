@@ -30,6 +30,7 @@ type EventItem = {
   exam_name_snapshot: string | null;
   doctor_amount_due: string | null;
   doctor_received_at: Date | null;
+  pricing_status: string | null;  // FIN-C4: aviso de preço não configurado
   createdAt: Date;
 };
 
@@ -78,8 +79,12 @@ function ExtractModal({ unit, year, month, events, onClose }: ExtractModalProps)
                     <td className="px-4 py-2.5 text-slate-400 hidden md:table-cell text-xs">
                       {fmtDate(ev.study_date ?? ev.createdAt)}
                     </td>
-                    <td className="px-4 py-2.5 text-amber-400 text-right font-medium">
-                      {ev.doctor_amount_due ? fmtBRL(Number(ev.doctor_amount_due)) : "—"}
+                    <td className="px-4 py-2.5 text-right font-medium">
+                      {ev.pricing_status && ev.pricing_status !== 'ok' ? (
+                        <span className="text-orange-400 text-xs" title={`Sem preço (${ev.pricing_status})`}>⚠ R$ 0,00</span>
+                      ) : (
+                        <span className="text-amber-400">{ev.doctor_amount_due ? fmtBRL(Number(ev.doctor_amount_due)) : "—"}</span>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       {ev.doctor_received_at ? (
