@@ -1615,3 +1615,15 @@
 - [x] Auditar billing.ts — ainda usa billing_cycles apenas para configuração (UnitFormDialog, AdminPage), não para cálculo financeiro
 - [x] Auditar billing_report_items — atualização em reports.ts é legado não-bloqueante, não afeta financeiro principal
 - [x] Confirmar: PRIORIDADES 1-4 do relatório v38 já implementadas nas sessões anteriores
+
+## Testes de Integração Financeiro v39 (13/05/2026)
+- [x] Salvar relatorio_completo_versao39_financeiro.txt em docs/
+- [x] T1 — Assinar laudo cria exatamente 1 billing_visit_event
+- [x] T2 — Assinar mesmo laudo 2x não duplica o evento (idempotência)
+- [x] T3 — Mesmo paciente em datas diferentes gera eventos separados
+- [x] T4 — Unidades com ciclos diferentes usam seus próprios ciclos (calcCycleDates)
+- [x] T5 — Médico em várias unidades tem financeiro separado por unidade
+- [x] T6 — Responsável financeiro acessa pagamentos e vê apenas suas unidades
+- [x] T7 — Root visualiza todos os responsáveis (auditoria correta)
+- [x] Auditar dependências de billing_monthly no frontend — nenhuma encontrada
+- [x] Confirmar: finance2 é o único módulo financeiro ativo (páginas antigas já removidas)

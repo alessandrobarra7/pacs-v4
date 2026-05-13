@@ -1,0 +1,628 @@
+RELATÓRIO TÉCNICO COMPLETO — ANÁLISE DA VERSÃO 39 DO MÓDULO FINANCEIRO E PONTOS AINDA PENDENTES
+
+OBJETIVO
+
+Este documento foi criado para explicar detalhadamente:
+- o estado atual da arquitetura financeira do sistema;
+- o que já evoluiu até a versão 39;
+- o que ainda permanece incorreto;
+- quais riscos ainda existem;
+- quais pontos ainda precisam ser consolidados;
+- a importância técnica de cada item envolvido.
+
+O foco principal agora não é mais:
+- criar novas tabelas;
+- criar novos dashboards;
+- criar novos módulos.
+
+O foco principal agora é:
+
+CONSOLIDAR E ESTABILIZAR DEFINITIVAMENTE A ARQUITETURA FINANCEIRA.
+
+====================================================================
+1. A REGRA MAIS IMPORTANTE DO SISTEMA
+====================================================================
+
+Toda a arquitetura financeira do sistema deve obedecer à seguinte regra:
+
+CADA LAUDO FINALIZADO/ASSINADO = 1 EVENTO FINANCEIRO
+
+Essa regra é o núcleo do sistema financeiro.
+
+Tudo depende dela:
+- extratos;
+- pagamentos;
+- auditoria;
+- ciclos;
+- produção médica;
+- dívida do responsável financeiro;
+- cobrança do sistema;
+- dashboards;
+- relatórios.
+
+Se essa regra falhar:
+todo o financeiro quebra.
+
+====================================================================
+2. O BANCO DE DADOS JÁ ESTÁ MADURO
+====================================================================
+
+A análise das últimas versões mostrou que o banco de dados já possui praticamente toda a estrutura necessária para o funcionamento correto do financeiro.
+
+Estruturas modernas já existentes:
+
+EVENTOS FINANCEIROS
+- billing_visit_events
+
+PREÇO MÉDICO POR UNIDADE
+- billing_doctor_unit_prices
+
+PREÇO SISTEMA POR UNIDADE
+- billing_system_unit_prices
+
+CICLO POR UNIDADE
+- units.billing_cycle_start_day
+- units.billing_cycle_end_day
+
+PREÇO PADRÃO
+- units.default_system_price
+- units.default_doctor_price
+
+SLA
+- unit_report_sla_configs
+- report_readiness
+
+TEMPLATES
+- templates.owner_user_id
+- templates.exam_title
+
+LAYOUTS
+- model_layouts
+
+FRASES
+- phrase_groups
+- phrases
+
+Isso confirma que:
+o banco já está praticamente pronto.
+
+====================================================================
+3. O PRINCIPAL PROBLEMA NÃO É MAIS O BANCO
+====================================================================
+
+Esse é um ponto extremamente importante.
+
+O principal problema agora não é:
+- falta de tabela;
+- falta de campo;
+- falta de modelagem.
+
+O principal problema agora é:
+
+CONSISTÊNCIA OPERACIONAL DA ARQUITETURA FINANCEIRA.
+
+====================================================================
+4. billing_visit_events É O CENTRO DO FINANCEIRO
+====================================================================
+
+A tabela mais importante atualmente é:
+
+billing_visit_events
+
+Ela já representa corretamente:
+1 laudo assinado = 1 evento financeiro.
+
+Campos importantes já existentes:
+
+- report_id
+- unit_id
+- doctor_user_id
+- financial_responsible_id
+- signed_at
+- doctor_amount_due
+- system_amount_due
+- doctor_price_applied
+- system_price_applied
+
+Essa tabela já suporta:
+- extratos;
+- auditoria;
+- pagamentos;
+- produção médica;
+- dívida sistema;
+- dívida médico;
+- ciclos financeiros.
+
+====================================================================
+5. O MAIOR RISCO AINDA EXISTENTE
+====================================================================
+
+O maior risco atual é:
+
+PARTE DO SISTEMA USAR billing_visit_events
+ENQUANTO OUTRA PARTE AINDA USA LÓGICA ANTIGA.
+
+Esse é hoje o principal fator de inconsistência.
+
+====================================================================
+6. POR QUE ISSO É PERIGOSO
+====================================================================
+
+Se:
+- backend usa billing_visit_events;
+- frontend usa billing_monthly_*;
+- dashboards usam billing_cycle_*;
+- pagamentos usam summaries antigos;
+
+o sistema começa a apresentar:
+
+- valores divergentes;
+- extratos diferentes;
+- dashboards inconsistentes;
+- produção errada;
+- financeiro aparentemente “instável”.
+
+====================================================================
+7. billing_visit_events PRECISA VIRAR A FONTE OFICIAL
+====================================================================
+
+A recomendação técnica definitiva é:
+
+billing_visit_events
+=
+FONTE OFICIAL DO FINANCEIRO.
+
+Todas as telas devem depender dela.
+
+Todos os cálculos devem depender dela.
+
+Toda auditoria deve depender dela.
+
+====================================================================
+8. O EVENTO FINANCEIRO PRECISA SER AUTOMÁTICO
+====================================================================
+
+Quando o médico assina/finaliza um laudo:
+
+o sistema precisa obrigatoriamente criar um billing_visit_event.
+
+Se isso falhar:
+- o laudo existe;
+- o estudo existe;
+- o paciente aparece;
+- mas o financeiro fica vazio.
+
+====================================================================
+9. IMPORTÂNCIA DA CRIAÇÃO AUTOMÁTICA DO EVENTO
+====================================================================
+
+Toda a arquitetura financeira depende disso.
+
+Sem evento financeiro:
+- o médico não possui saldo;
+- o responsável não possui dívida;
+- o root não consegue auditar;
+- os extratos ficam vazios;
+- os pagamentos não fecham.
+
+====================================================================
+10. O EVENTO NÃO PODE DEPENDER DO CICLO
+====================================================================
+
+Esse ainda é um dos pontos mais importantes que precisam ser estabilizados.
+
+O evento financeiro NÃO pode depender:
+- da existência do ciclo;
+- do fechamento do ciclo;
+- do período do ciclo.
+
+====================================================================
+11. COMO A LÓGICA CORRETA DEVERIA FUNCIONAR
+====================================================================
+
+Fluxo correto:
+
+1. Médico assina/finaliza laudo.
+2. Sistema cria billing_visit_event.
+3. Evento grava:
+   - signed_at;
+   - médico;
+   - unidade;
+   - responsável financeiro;
+   - valor médico;
+   - valor sistema.
+4. O ciclo apenas filtra os eventos depois.
+
+====================================================================
+12. IMPORTÂNCIA DO DESACOPLAMENTO DO CICLO
+====================================================================
+
+Se o evento depender do ciclo:
+- eventos podem não nascer;
+- financeiro pode zerar;
+- unidades sem ciclo podem falhar;
+- períodos podem quebrar.
+
+Por isso:
+o evento deve existir independentemente do ciclo.
+
+====================================================================
+13. O CICLO DEVE SER APENAS FILTRO
+====================================================================
+
+O ciclo não deve:
+- criar evento;
+- bloquear evento;
+- gerar saldo;
+- gerar produção.
+
+O ciclo deve apenas responder:
+
+“quais eventos pertencem a este período?”
+
+====================================================================
+14. O SISTEMA AINDA POSSUI SINAIS DE MÊS FIXO
+====================================================================
+
+Ainda existem sinais de consultas semelhantes a:
+
+calcCycleDates(1, 31, refDate)
+
+Isso significa:
+partes do sistema ainda usam lógica mensal fixa.
+
+====================================================================
+15. IMPORTÂNCIA DA REMOÇÃO DO MÊS FIXO
+====================================================================
+
+Cada unidade pode possuir:
+- ciclo diferente;
+- fechamento diferente;
+- período diferente.
+
+Exemplo:
+
+Hospital A:
+01 até 31
+
+Hospital B:
+15 até 14
+
+Clínica C:
+10 até 09
+
+Logo:
+não pode existir dependência global do dia 1 ao dia 31.
+
+====================================================================
+16. O CICLO PRECISA SER BUSCADO POR UNIDADE
+====================================================================
+
+Fluxo correto:
+
+1. Buscar unidade.
+2. Buscar ciclo da unidade.
+3. Filtrar billing_visit_events daquela unidade.
+4. Somar eventos daquele período.
+
+====================================================================
+17. O SISTEMA AINDA POSSUI ESTRUTURAS ANTIGAS
+====================================================================
+
+Ainda coexistem:
+- billing_visit_events
+- billing_monthly_*
+- billing_cycle_*
+- billing_report_items
+
+Isso mostra que:
+a migração ainda não foi totalmente concluída.
+
+====================================================================
+18. IMPORTÂNCIA DE ELIMINAR A LÓGICA ANTIGA
+====================================================================
+
+Enquanto existirem múltiplas arquiteturas:
+- o sistema continuará suscetível a divergências;
+- telas continuarão inconsistentes;
+- auditorias continuarão frágeis;
+- manutenção continuará difícil.
+
+====================================================================
+19. finance2 PRECISA VIRAR O ÚNICO MÓDULO FINANCEIRO
+====================================================================
+
+O sistema ainda possui:
+- telas antigas;
+- rotas antigas;
+- estruturas antigas.
+
+O correto é:
+
+finance2
+=
+módulo financeiro oficial.
+
+====================================================================
+20. IMPORTÂNCIA DA CONSOLIDAÇÃO DO finance2
+====================================================================
+
+Enquanto coexistirem:
+- finance/
+- finance2/
+- billing.ts
+- finance.ts
+- financeSimple.ts
+
+o sistema continuará:
+- híbrido;
+- inconsistente;
+- difícil manutenção.
+
+====================================================================
+21. O MÉDICO PRECISA DE VISÃO POR UNIDADE
+====================================================================
+
+O médico precisa visualizar:
+- unidades;
+- valor por laudo;
+- quantidade de laudos;
+- ciclo;
+- total;
+- pago;
+- pendente;
+- extrato.
+
+====================================================================
+22. IMPORTÂNCIA DA VISÃO POR UNIDADE
+====================================================================
+
+O médico pode trabalhar em várias unidades.
+
+Cada unidade pode:
+- pagar valor diferente;
+- possuir ciclo diferente;
+- possuir produção diferente.
+
+Logo:
+o financeiro do médico deve ser separado por unidade.
+
+====================================================================
+23. O RESPONSÁVEL FINANCEIRO AINDA PRECISA MELHORAR
+====================================================================
+
+O responsável financeiro precisa visualizar:
+- suas unidades;
+- médicos;
+- dívida médica;
+- dívida sistema;
+- extratos;
+- pagamentos;
+- produção.
+
+Tudo separado por unidade.
+
+====================================================================
+24. IMPORTÂNCIA DA SEPARAÇÃO DAS DÍVIDAS
+====================================================================
+
+O responsável financeiro possui duas obrigações diferentes:
+
+1. pagar médicos;
+2. pagar o sistema.
+
+Essas dívidas nunca devem ser misturadas.
+
+====================================================================
+25. O ROOT PRECISA DE VISÃO OPERACIONAL
+====================================================================
+
+O root precisa:
+- configurar unidades;
+- configurar ciclos;
+- configurar valores;
+- visualizar responsáveis;
+- visualizar inconsistências;
+- auditar eventos financeiros.
+
+====================================================================
+26. IMPORTÂNCIA DA CONFIGURAÇÃO FINANCEIRA DA UNIDADE
+====================================================================
+
+Sem configuração financeira clara:
+- eventos podem nascer incompletos;
+- valores podem ficar errados;
+- ciclos podem falhar;
+- responsáveis podem não aparecer.
+
+====================================================================
+27. O ROOT PRECISA DE ALERTAS TÉCNICOS
+====================================================================
+
+O sistema precisa mostrar:
+
+LAUDOS ASSINADOS SEM EVENTO FINANCEIRO
+
+Isso é essencial para:
+- manutenção;
+- auditoria;
+- estabilidade.
+
+====================================================================
+28. O REPROCESSADOR CONTINUA ESSENCIAL
+====================================================================
+
+Como existem laudos antigos:
+o sistema precisa continuar possuindo ferramenta para:
+- localizar laudos sem evento;
+- criar eventos faltantes;
+- preencher valores;
+- preencher responsáveis;
+- evitar duplicidade.
+
+====================================================================
+29. O VALOR HISTÓRICO PRECISA SER PRESERVADO
+====================================================================
+
+billing_visit_events deve salvar:
+- doctor_amount_due;
+- system_amount_due.
+
+Isso impede:
+recalcular laudos antigos com preço novo.
+
+====================================================================
+30. IMPORTÂNCIA DO VALOR HISTÓRICO
+====================================================================
+
+Se o médico mudar:
+R$ 25,00
+→
+R$ 45,00
+
+os eventos antigos precisam continuar:
+R$ 25,00.
+
+====================================================================
+31. O SISTEMA NÃO PODE AGRUPAR PACIENTE ÚNICO
+====================================================================
+
+A regra correta é:
+
+cada laudo finalizado
+=
+novo evento financeiro.
+
+Mesmo paciente em várias datas:
+=
+eventos separados.
+
+====================================================================
+32. O SISTEMA NÃO PODE CALCULAR POR INCIDÊNCIA
+====================================================================
+
+Não deve calcular por:
+- tórax;
+- crânio;
+- joelho;
+- incidência;
+- legenda;
+- modalidade.
+
+O cálculo é:
+1 laudo = 1 evento.
+
+====================================================================
+33. O FRONTEND AINDA PRECISA SER SIMPLIFICADO
+====================================================================
+
+Ainda existem:
+- telas antigas;
+- lógica híbrida;
+- dashboards excessivos;
+- rotas redundantes.
+
+====================================================================
+34. IMPORTÂNCIA DA SIMPLIFICAÇÃO
+====================================================================
+
+Quanto mais simples:
+- mais previsível;
+- mais auditável;
+- mais fácil manutenção;
+- menos inconsistência financeira.
+
+====================================================================
+35. TESTES MAIS IMPORTANTES DO SISTEMA
+====================================================================
+
+Teste 1:
+Assinar laudo.
+Resultado esperado:
+1 billing_visit_event criado.
+
+Teste 2:
+Assinar novamente o mesmo laudo.
+Resultado esperado:
+não duplicar evento.
+
+Teste 3:
+Mesmo paciente em várias datas.
+Resultado esperado:
+eventos separados.
+
+Teste 4:
+Unidades com ciclos diferentes.
+Resultado esperado:
+cada unidade usa seu próprio ciclo.
+
+Teste 5:
+Médico em várias unidades.
+Resultado esperado:
+financeiro separado por unidade.
+
+Teste 6:
+Responsável financeiro acessa pagamentos.
+Resultado esperado:
+vê apenas suas unidades.
+
+Teste 7:
+Root visualiza responsáveis.
+Resultado esperado:
+auditoria correta.
+
+====================================================================
+36. PRIORIDADES ABSOLUTAS
+====================================================================
+
+PRIORIDADE 1:
+Garantir criação automática do billing_visit_event.
+
+PRIORIDADE 2:
+Desacoplar evento financeiro do ciclo.
+
+PRIORIDADE 3:
+Eliminar mês fixo global.
+
+PRIORIDADE 4:
+Consolidar billing_visit_events como fonte oficial.
+
+PRIORIDADE 5:
+Eliminar dependência das estruturas antigas.
+
+PRIORIDADE 6:
+Consolidar finance2 como único módulo financeiro.
+
+PRIORIDADE 7:
+Simplificar frontend financeiro.
+
+PRIORIDADE 8:
+Estabilizar auditoria financeira.
+
+====================================================================
+37. CONCLUSÃO FINAL
+====================================================================
+
+A versão 39 representa avanço importante.
+
+O banco já está praticamente pronto.
+
+O sistema já possui:
+- eventos financeiros;
+- preços por unidade;
+- ciclos por unidade;
+- telas modernas;
+- reprocessador;
+- arquitetura financeira madura.
+
+Porém:
+a arquitetura ainda não foi totalmente consolidada.
+
+O principal risco atual é:
+partes diferentes do sistema ainda utilizarem fontes financeiras diferentes.
+
+Agora o principal trabalho não é mais criar estrutura.
+
+Agora o principal trabalho é:
+
+CONSOLIDAR DEFINITIVAMENTE A ARQUITETURA FINANCEIRA BASEADA EM billing_visit_events.
