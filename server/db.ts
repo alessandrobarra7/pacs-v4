@@ -1757,13 +1757,27 @@ export async function createBillingVisitEvent(data: {
     .replace(/\^/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
   const studyDate = data.study_date ?? data.signed_at.toISOString().slice(0, 10);
 
-  // Busca ciclos ativos (antes do INSERT para evitar race condition)
-  const doctorCycle = await getOrCreateActiveCycle(
-    data.unit_id, "doctor", data.signed_at, data.financial_responsible_id
-  );
-  const systemCycle = await getOrCreateActiveCycle(
-    data.unit_id, "system", data.signed_at, data.financial_responsible_id
-  );
+  // Busca ciclos ativos de forma NÃO-BLOQUEANTE.
+  // O evento financeiro DEVE ser criado mesmo quando não há ciclo configurado.
+  // O ciclo é apenas filtro de visualização — não é pré-requisito do evento.
+  let doctorCycleId: number | null = null;
+  let systemCycleId: number | null = null;
+  try {
+    const doctorCycle = await getOrCreateActiveCycle(
+      data.unit_id, "doctor", data.signed_at, data.financial_responsible_id
+    );
+    doctorCycleId = doctorCycle.id;
+  } catch (cycleErr) {
+    console.warn(`[billing] Ciclo médico não encontrado para unit=${data.unit_id}:`, cycleErr instanceof Error ? cycleErr.message : cycleErr);
+  }
+  try {
+    const systemCycle = await getOrCreateActiveCycle(
+      data.unit_id, "system", data.signed_at, data.financial_responsible_id
+    );
+    systemCycleId = systemCycle.id;
+  } catch (cycleErr) {
+    console.warn(`[billing] Ciclo sistema não encontrado para unit=${data.unit_id}:`, cycleErr instanceof Error ? cycleErr.message : cycleErr);
+  }
 
   const responsible = data.financial_responsible_id
     ? data.financial_responsible_id
@@ -1810,8 +1824,8 @@ export async function createBillingVisitEvent(data: {
     report_key: reportKey,
     patient_name: normalizedName,
     study_date: studyDate ? new Date(studyDate + 'T00:00:00Z') : null,
-    doctor_cycle_id: doctorCycle.id,
-    system_cycle_id: systemCycle.id,
+    doctor_cycle_id: doctorCycleId,
+    system_cycle_id: systemCycleId,
     system_price_applied: systemAmt !== null ? String(systemAmt) : null,
     doctor_price_applied: doctorAmt !== null ? String(doctorAmt) : null,
     system_amount_due: systemAmt !== null ? String(systemAmt) : null,
@@ -1828,7 +1842,10 @@ export async function createBillingVisitEvent(data: {
     return { event: existing[0], created: false, doctor_amount_due: existing[0].doctor_amount_due };
   }
 
-  await updateCycleSummaries(doctorCycle.id, systemCycle.id, data.unit_id, data.doctor_user_id, responsibleId, doctorAmt, systemAmt);
+  // Atualiza summaries de ciclo apenas quando os ciclos existem
+  if (doctorCycleId !== null || systemCycleId !== null) {
+    await updateCycleSummaries(doctorCycleId ?? 0, systemCycleId ?? 0, data.unit_id, data.doctor_user_id, responsibleId, doctorAmt, systemAmt);
+  }
 
   const newEvent = await db.select().from(billing_visit_events)
     .where(eq(billing_visit_events.id, insertId)).limit(1);

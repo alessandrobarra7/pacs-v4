@@ -454,11 +454,12 @@ export const financeSimpleRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // myFinanceiro: cada unidade tem seu próprio ciclo; usamos janela ampla (3 meses)
-      // para buscar todos os eventos e depois agrupamos por unidade.
+      // myFinanceiro: janela de 3 meses centrada no refDate (mês anterior + atual + seguinte).
+      // Garante cobertura de qualquer ciclo por unidade (ex: 15/04→14/05).
       // O ciclo específico por unidade é exibido no frontend via cycle_label.
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      const { cycleStart: startDate, cycleEnd: endDate } = calcCycleDates(1, 31, refDate);
+      const startDate = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
+      const endDate = new Date(refDate.getFullYear(), refDate.getMonth() + 2, 1);
 
       // Resumo por unidade
       const summary = await db
@@ -722,7 +723,9 @@ export const financeSimpleRouter = router({
 
       const unitIds = linkedUnits.map((u) => u.unit_id);
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      const { cycleStart: startDate, cycleEnd: endDate } = calcCycleDates(1, 31, refDate);
+      // myResponsavel: janela de 3 meses centrada no refDate para cobrir qualquer ciclo por unidade.
+      const startDate = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
+      const endDate = new Date(refDate.getFullYear(), refDate.getMonth() + 2, 1);
 
       // Resumo por unidade
       const summary = await db

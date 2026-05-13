@@ -2,7 +2,7 @@
  * DoctorPriceManager
  *
  * Componente para configurar preços por laudo de cada médico em cada unidade.
- * Integrado na BillingAdminPage — visível apenas para admin_master.
+ * Integrado no AdminPage — visível apenas para admin_master.
  *
  * Fluxo:
  *  1. Selecionar unidade

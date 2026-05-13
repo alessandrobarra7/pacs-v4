@@ -1579,3 +1579,21 @@
 - [x] FIN-R3: BillingDiagnosticPanel — cards de diagnóstico (faltantes, zeros, falhas)
 - [x] FIN-R4: BillingDiagnosticPanel — botão Reprocessar com modo simulação e modo execução
 - [x] FIN-R5: BillingDiagnosticPanel — botão Reprecificar integrado ao painel
+
+## Consolidação do Módulo Financeiro (13/05/2026)
+- [x] FIN-C1: db.ts — desacoplar createBillingVisitEvent do ciclo (try/catch não-bloqueante)
+- [x] FIN-C2: financeSimple.ts — myFinanceiro usa janela de 3 meses em vez de ciclo global 1-31
+- [x] FIN-C3: financeSimple.ts — myResponsavel usa janela de 3 meses em vez de ciclo global 1-31
+- [x] FIN-C4: App.tsx — responsavel_financeiro pode acessar /financeiro2 e /financeiro2/pagamentos
+- [x] FIN-C5: Remover BillingAdminPage.tsx, BillingDoctorPage.tsx, BillingUnitPage.tsx
+- [x] FIN-C6: Remover pasta finance/ (12 arquivos de páginas antigas)
+- [x] FIN-C7: Salvar relatorio_ultima_versao_o_que_falta_financeiro.txt em docs/
+
+## Consolidação do Módulo Financeiro (13/05/2026)
+- [x] FIN-C1: db.ts — desacoplar createBillingVisitEvent do ciclo (try/catch não-bloqueante)
+- [x] FIN-C2: financeSimple.ts — myFinanceiro usa janela de 3 meses em vez de ciclo global 1-31
+- [x] FIN-C3: financeSimple.ts — myResponsavel usa janela de 3 meses em vez de ciclo global 1-31
+- [x] FIN-C4: App.tsx — responsavel_financeiro pode acessar /financeiro2 e /financeiro2/pagamentos
+- [x] FIN-C5: Remover BillingAdminPage.tsx, BillingDoctorPage.tsx, BillingUnitPage.tsx
+- [x] FIN-C6: Remover pasta finance/ (12 arquivos de páginas antigas)
+- [x] FIN-C7: Salvar relatorio_ultima_versao_o_que_falta_financeiro.txt em docs/
