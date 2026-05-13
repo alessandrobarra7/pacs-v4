@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE billing_visit_events ADD COLUMN signed_at TIMESTAMP NULL DEFAULT NULL COMMENT 'Data real da assinatura do laudo - base para filtros de ciclo financeiro';\nUPDATE billing_visit_events SET signed_at = createdAt WHERE signed_at IS NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute ALTER TABLE billing_visit_events ADD COLUMN signed_at TIMESTAMP NULL DEFAULT NULL COMMENT 'Data real da assinatura do laudo - base para filtros de ciclo financeiro';\nUPDATE billing_visit_events SET signed_at = createdAt WHERE signed_at IS NULL;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 533
+}

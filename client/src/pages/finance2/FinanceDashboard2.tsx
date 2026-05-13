@@ -235,7 +235,7 @@ function UnitDetail({ unit, referenceDate }: { unit: any; referenceDate: string 
 
 // helper: gera ISO string para o primeiro dia do mês/ano selecionado
 function toRefDate(year: number, month: number): string {
-  return new Date(year, month - 1, 15).toISOString();
+  return new Date(year, month - 1, 1).toISOString();
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────

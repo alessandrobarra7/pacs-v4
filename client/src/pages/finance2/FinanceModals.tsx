@@ -79,7 +79,7 @@ export function LaudosModal({
                       {(ev as any).modality_snapshot ?? "—"}
                     </td>
                     <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
-                      {fmtDate((ev as any).study_date ?? ev.createdAt)}
+                      {fmtDate((ev as any).study_date ?? (ev as any).signed_at)}
                     </td>
                     <td className="px-4 py-3 text-amber-400 text-right font-medium">
                       {ev.doctor_amount_due ? fmtBRL(Number(ev.doctor_amount_due)) : "—"}

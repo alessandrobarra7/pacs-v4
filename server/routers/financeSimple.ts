@@ -144,8 +144,8 @@ export const financeSimpleRouter = router({
         .from(billing_visit_events)
         .where(
           and(
-            sql`${billing_visit_events.createdAt} >= ${startDate}`,
-            sql`${billing_visit_events.createdAt} < ${endDate}`,
+            sql`${billing_visit_events.signed_at} >= ${startDate}`,
+            sql`${billing_visit_events.signed_at} < ${endDate}`,
             unitFilter,
           )
         );
@@ -234,8 +234,8 @@ export const financeSimpleRouter = router({
           billing_visit_events,
           and(
             eq(billing_visit_events.unit_id, units.id),
-            sql`${billing_visit_events.createdAt} >= ${startDate}`,
-            sql`${billing_visit_events.createdAt} < ${endDate}`,
+            sql`${billing_visit_events.signed_at} >= ${startDate}`,
+            sql`${billing_visit_events.signed_at} < ${endDate}`,
           )
         )
         .where(unitIdFilter)
@@ -294,8 +294,8 @@ export const financeSimpleRouter = router({
         .where(
           and(
             eq(billing_visit_events.unit_id, input.unit_id),
-            sql`${billing_visit_events.createdAt} >= ${startDate}`,
-            sql`${billing_visit_events.createdAt} < ${endDate}`,
+            sql`${billing_visit_events.signed_at} >= ${startDate}`,
+            sql`${billing_visit_events.signed_at} < ${endDate}`,
           )
         )
         .groupBy(billing_visit_events.doctor_user_id, users.name)
@@ -347,18 +347,18 @@ export const financeSimpleRouter = router({
           doctor_amount_due: billing_visit_events.doctor_amount_due,
           doctor_received_at: billing_visit_events.doctor_received_at,
           system_paid_at: billing_visit_events.system_paid_at,
-          createdAt: billing_visit_events.createdAt,
+          signed_at: billing_visit_events.signed_at,
         })
         .from(billing_visit_events)
         .where(
           and(
             eq(billing_visit_events.unit_id, input.unit_id),
             eq(billing_visit_events.doctor_user_id, input.doctor_user_id),
-            sql`${billing_visit_events.createdAt} >= ${startDate}`,
-            sql`${billing_visit_events.createdAt} < ${endDate}`,
+            sql`${billing_visit_events.signed_at} >= ${startDate}`,
+            sql`${billing_visit_events.signed_at} < ${endDate}`,
           )
         )
-        .orderBy(desc(billing_visit_events.createdAt));
+        .orderBy(desc(billing_visit_events.signed_at));
 
       return rows;
     }),
@@ -394,8 +394,8 @@ export const financeSimpleRouter = router({
           and(
             eq(billing_visit_events.unit_id, input.unit_id),
             eq(billing_visit_events.doctor_user_id, input.doctor_user_id),
-            sql`${billing_visit_events.createdAt} >= ${startDate}`,
-            sql`${billing_visit_events.createdAt} < ${endDate}`,
+            sql`${billing_visit_events.signed_at} >= ${startDate}`,
+            sql`${billing_visit_events.signed_at} < ${endDate}`,
             isNull(billing_visit_events.doctor_received_at),
           )
         );
@@ -433,8 +433,8 @@ export const financeSimpleRouter = router({
         .where(
           and(
             eq(billing_visit_events.unit_id, input.unit_id),
-            sql`${billing_visit_events.createdAt} >= ${startDate}`,
-            sql`${billing_visit_events.createdAt} < ${endDate}`,
+            sql`${billing_visit_events.signed_at} >= ${startDate}`,
+            sql`${billing_visit_events.signed_at} < ${endDate}`,
             isNull(billing_visit_events.system_paid_at),
           )
         );
@@ -475,8 +475,8 @@ export const financeSimpleRouter = router({
         .where(
           and(
             eq(billing_visit_events.doctor_user_id, ctx.user.id),
-            sql`${billing_visit_events.createdAt} >= ${startDate}`,
-            sql`${billing_visit_events.createdAt} < ${endDate}`,
+            sql`${billing_visit_events.signed_at} >= ${startDate}`,
+            sql`${billing_visit_events.signed_at} < ${endDate}`,
           )
         )
         .groupBy(billing_visit_events.unit_id, units.name)
@@ -495,18 +495,18 @@ export const financeSimpleRouter = router({
           doctor_amount_due: billing_visit_events.doctor_amount_due,
           doctor_received_at: billing_visit_events.doctor_received_at,
           pricing_status: billing_visit_events.pricing_status,  // FIN-C4: aviso de preço não configurado
-          createdAt: billing_visit_events.createdAt,
+          signed_at: billing_visit_events.signed_at,
         })
         .from(billing_visit_events)
         .leftJoin(units, eq(units.id, billing_visit_events.unit_id))
         .where(
           and(
             eq(billing_visit_events.doctor_user_id, ctx.user.id),
-            sql`${billing_visit_events.createdAt} >= ${startDate}`,
-            sql`${billing_visit_events.createdAt} < ${endDate}`,
+            sql`${billing_visit_events.signed_at} >= ${startDate}`,
+            sql`${billing_visit_events.signed_at} < ${endDate}`,
           )
         )
-        .orderBy(desc(billing_visit_events.createdAt));
+        .orderBy(desc(billing_visit_events.signed_at));
 
       // Buscar preço vigente do médico por unidade (ends_at IS NULL = ativo)
       const doctorPriceRows = await db
@@ -740,8 +740,8 @@ export const financeSimpleRouter = router({
         .where(
           and(
             inArray(billing_visit_events.unit_id, unitIds),
-            sql`${billing_visit_events.createdAt} >= ${startDate}`,
-            sql`${billing_visit_events.createdAt} < ${endDate}`,
+            sql`${billing_visit_events.signed_at} >= ${startDate}`,
+            sql`${billing_visit_events.signed_at} < ${endDate}`,
           )
         )
         .groupBy(billing_visit_events.unit_id, units.name)
@@ -798,8 +798,8 @@ export const financeSimpleRouter = router({
         .leftJoin(financial_responsibles, eq(financial_responsibles.id, billing_visit_events.financial_responsible_id))
         .where(
           and(
-            sql`${billing_visit_events.createdAt} >= ${startDate}`,
-            sql`${billing_visit_events.createdAt} < ${endDate}`,
+            sql`${billing_visit_events.signed_at} >= ${startDate}`,
+            sql`${billing_visit_events.signed_at} < ${endDate}`,
           )
         )
         .groupBy(billing_visit_events.financial_responsible_id, financial_responsibles.legal_name)
@@ -864,14 +864,14 @@ export const financeSimpleRouter = router({
           system_amount_due: billing_visit_events.system_amount_due,
           doctor_amount_due: billing_visit_events.doctor_amount_due,
           pricing_status: billing_visit_events.pricing_status,
-          createdAt: billing_visit_events.createdAt,
+          signed_at: billing_visit_events.signed_at,
         })
         .from(billing_visit_events)
         .where(and(
           sql`(${billing_visit_events.system_amount_due} = 0 OR ${billing_visit_events.system_amount_due} IS NULL)`,
           input.unit_id ? eq(billing_visit_events.unit_id, input.unit_id) : undefined,
         ))
-        .orderBy(desc(billing_visit_events.createdAt))
+        .orderBy(desc(billing_visit_events.signed_at))
         .limit(input.limit);
 
       // Contar BILLING_EVENT_FAILED no audit_log

@@ -596,6 +596,9 @@ export const billing_visit_events = mysqlTable("billing_visit_events", {
   system_paid_at: timestamp("system_paid_at"),
   // SCH-01: snapshot do status do laudo no momento do evento financeiro (signed ou revised)
   report_status_snapshot: mysqlEnum("report_status_snapshot", ["signed", "revised"]).default("signed"),
+  /** Data real da assinatura do laudo — base para filtros de ciclo financeiro.
+   * NULL para eventos legados; preenchido com createdAt via migration. */
+  signed_at: timestamp("signed_at"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({

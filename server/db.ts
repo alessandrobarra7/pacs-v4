@@ -1817,6 +1817,7 @@ export async function createBillingVisitEvent(data: {
     system_amount_due: systemAmt !== null ? String(systemAmt) : null,
     doctor_amount_due: doctorAmt !== null ? String(doctorAmt) : null,
     pricing_status: pricingStatus,
+    signed_at: data.signed_at,
   }).onDuplicateKeyUpdate({ set: { report_key: reportKey } });
 
   const insertId = Number(insertResult[0].insertId);

@@ -31,7 +31,7 @@ type EventItem = {
   doctor_amount_due: string | null;
   doctor_received_at: Date | null;
   pricing_status: string | null;  // FIN-C4: aviso de preço não configurado
-  createdAt: Date;
+  signed_at: Date | null;
 };
 
 interface ExtractModalProps {
@@ -76,7 +76,7 @@ function ExtractModal({ unit, referenceDate, events, onClose }: ExtractModalProp
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-slate-400 hidden md:table-cell text-xs">
-                      {fmtDate(ev.study_date ?? ev.createdAt)}
+                      {fmtDate(ev.study_date ?? ev.signed_at)}
                     </td>
                     <td className="px-4 py-2.5 text-right font-medium">
                       {ev.pricing_status && ev.pricing_status !== 'ok' ? (
@@ -127,7 +127,7 @@ export default function FinanceMeuFinanceiro2() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [selectedUnit, setSelectedUnit] = useState<SummaryItem | null>(null);
 
-  const referenceDate = new Date(year, month - 1, 15).toISOString();
+  const referenceDate = new Date(year, month - 1, 1).toISOString();
   const { data, isLoading } = trpc.financeSimple.myFinanceiro.useQuery({ reference_date: referenceDate });
 
   function prevMonth() {
