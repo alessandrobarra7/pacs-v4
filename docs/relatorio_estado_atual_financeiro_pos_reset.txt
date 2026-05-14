@@ -1,0 +1,359 @@
+RELATÓRIO TÉCNICO — ESTADO ATUAL DO FINANCEIRO APÓS RESET CONTROLADO E CAUSAS DOS ERROS
+
+DATA: 14/05/2026
+
+====================================================================
+1. OBJETIVO
+====================================================================
+
+Este documento relata o estado atual do módulo financeiro após o reset financeiro controlado realizado no banco de dados.
+
+O objetivo é apresentar ao desenvolvedor:
+
+- quais dados existem atualmente;
+- quais tabelas financeiras estão zeradas;
+- quais laudos assinados ainda existem;
+- por que o financeiro não consegue funcionar;
+- quais são as causas prováveis dos erros;
+- qual deve ser a prioridade de correção.
+
+====================================================================
+2. CONTEXTO
+====================================================================
+
+Foi realizado backup completo do banco antes de qualquer alteração.
+
+Backup gerado:
+
+/root/backup_pacs_portal_20260514_010901.sql
+
+Depois disso, foi executado um reset financeiro controlado, limpando apenas tabelas financeiras, sem apagar:
+
+- usuários;
+- unidades;
+- laudos;
+- estudos;
+- templates;
+- layouts;
+- frases;
+- configurações PACS.
+
+A intenção do reset foi remover resíduos financeiros antigos, ciclos conflitantes, vínculos duplicados e preços sobrepostos.
+
+====================================================================
+3. ESTADO ATUAL DAS TABELAS FINANCEIRAS
+====================================================================
+
+Após o reset, o diagnóstico mostrou:
+
+billing_visit_events: 0
+billing_cycles: 0
+billing_cycle_doctor_summary: 0
+billing_cycle_system_summary: 0
+billing_monthly_doctor_by_unit: 0
+billing_monthly_system_by_unit: 0
+billing_report_items: 0
+billing_doctor_unit_prices: 0
+billing_system_unit_prices: 0
+financial_responsible_units: 0
+financial_responsible_users: 0
+financial_responsibles: 0
+
+Isso significa que atualmente não existe nenhuma configuração financeira cadastrada no banco.
+
+====================================================================
+4. LAUDOS ASSINADOS AINDA EXISTEM
+====================================================================
+
+Mesmo com as tabelas financeiras zeradas, os laudos continuam existindo.
+
+Foram identificados 5 laudos assinados/revisados:
+
+report_id 32
+unidade: HOSPITAL DA CRIANÇA
+unit_id: 20
+médico: Dr Claudia
+medico_id: 8519
+status: signed
+signedAt: 2026-05-12 22:08:35
+
+report_id 24
+unidade: unidade teste
+unit_id: 2
+médico: gian carvalho
+medico_id: 268
+status: signed
+signedAt: 2026-04-11 21:56:25
+
+report_id 19
+unidade: unidade teste
+unit_id: 2
+médico: gian carvalho
+medico_id: 268
+status: signed
+signedAt: 2026-04-10 11:20:21
+
+report_id 14
+unidade: unidade teste
+unit_id: 2
+médico: gian carvalho
+medico_id: 268
+status: signed
+signedAt: 2026-04-04 13:38:26
+
+report_id 13
+unidade: unidade teste
+unit_id: 2
+médico: gian carvalho
+medico_id: 268
+status: revised
+signedAt: 2026-04-04 09:59:16
+
+====================================================================
+5. VISÃO COMPLETA ATUAL DOS LAUDOS X FINANCEIRO
+====================================================================
+
+A visão completa mostrou que todos os laudos estão sem dados financeiros vinculados.
+
+Para todos os report_id listados:
+
+financial_responsible_id: NULL
+legal_name: NULL
+trade_name: NULL
+preco_medico: NULL
+preco_sistema: NULL
+
+Isso é esperado após o reset, porque as tabelas financeiras foram zeradas.
+
+Porém, o problema atual é que a interface do sistema não está conseguindo recriar esses dados financeiros.
+
+====================================================================
+6. PROBLEMA IMEDIATO IDENTIFICADO
+====================================================================
+
+O usuário tentou criar um responsável financeiro e vincular à unidade pela interface, mas nada foi gravado no banco.
+
+Foi executado:
+
+SELECT * FROM financial_responsibles;
+SELECT * FROM financial_responsible_units;
+
+Resultado:
+nenhuma linha retornada.
+
+Isso confirma que a tentativa feita pela tela não criou:
+
+- financial_responsibles;
+- financial_responsible_units.
+
+Portanto, o problema atual é:
+
+A tela/rota de criação de responsável financeiro e vínculo com unidade não está gravando no banco.
+
+====================================================================
+7. CAUSA PRINCIPAL ATUAL
+====================================================================
+
+Após o reset, a causa imediata do financeiro não funcionar é:
+
+não existe base financeira mínima recriada.
+
+Ou seja, o sistema não possui:
+
+- responsável financeiro;
+- vínculo responsável x unidade;
+- preço do sistema por unidade;
+- preço do médico por unidade;
+- ciclo financeiro;
+- eventos financeiros.
+
+Sem isso, o financeiro não consegue gerar billing_visit_events.
+
+====================================================================
+8. CAUSA ANTERIOR IDENTIFICADA NOS LOGS
+====================================================================
+
+Antes do reset, foi identificado nos logs do backend o erro:
+
+Duplicate entry '20-doctor-2026-04-30' for key 'billing_cycles.uq_cycle'
+
+Esse erro ocorria durante:
+
+getOrCreateActiveCycle()
+→ createBillingVisitEvent()
+
+O log também mostrava:
+
+financial_responsible_id = NULL
+
+Isso indicava que o backend tentava criar billing_cycles automaticamente, mesmo quando o ciclo já existia, e ainda sem resolver corretamente o responsável financeiro.
+
+Esse erro impedia o nascimento do billing_visit_event.
+
+====================================================================
+9. O QUE O RESET PROVOU
+====================================================================
+
+O reset financeiro provou que:
+
+1. O problema não era apenas sujeira antiga no banco.
+2. O banco foi limpo corretamente.
+3. O problema agora aparece em outro ponto: a tela não consegue recriar a base financeira.
+4. O backend ainda precisa ser revisado nas rotas de criação/configuração financeira.
+5. O sistema depende de uma sequência de cadastro que precisa funcionar perfeitamente.
+
+====================================================================
+10. CAUSAS PROVÁVEIS DO ERRO NA INTERFACE
+====================================================================
+
+As causas prováveis para a tela não gravar responsável financeiro/vínculo são:
+
+1. Rota TRPC incorreta ou não chamada pelo frontend.
+2. Mutation de criação não executando.
+3. Erro silencioso no frontend.
+4. Permissão bloqueando o usuário.
+5. Validação de formulário impedindo envio.
+6. Backend rejeitando a operação sem retornar erro visível.
+7. Falha no audit_log interferindo na operação.
+8. Endpoint antigo sendo usado pelo frontend.
+9. Finance2 exibindo tela nova, mas chamando rota antiga.
+10. Falta de tratamento de erro na tela.
+
+====================================================================
+11. ERRO DE AUDITORIA OBSERVADO NOS LOGS
+====================================================================
+
+Os logs também mostraram falha recorrente em audit_log:
+
+Data truncated for column 'action' at row 1
+
+Isso indica que o sistema está tentando gravar uma ação de auditoria maior ou diferente do limite aceito pela coluna action.
+
+Esse erro pode não ser a causa direta da falha de criação financeira, mas precisa ser corrigido, porque pode interferir em mutations se não estiver isolado corretamente.
+
+A auditoria não pode impedir operação principal.
+
+Se falhar audit_log, a criação do responsável financeiro não deve ser bloqueada.
+
+====================================================================
+12. PROBLEMA ARQUITETURAL AINDA EXISTENTE
+====================================================================
+
+O módulo financeiro ainda possui sinais de dependência excessiva de billing_cycles.
+
+A regra correta é:
+
+CADA LAUDO FINALIZADO = 1 EVENTO FINANCEIRO
+
+billing_visit_events deve ser o núcleo do financeiro.
+
+billing_cycles deve servir apenas como filtro/organizador visual.
+
+O erro anterior mostrou que o sistema ainda tenta criar ciclo no momento da assinatura e, se o ciclo falha, o billing_visit_event não nasce.
+
+Isso precisa ser corrigido no código.
+
+====================================================================
+13. PRIORIDADE DE CORREÇÃO
+====================================================================
+
+PRIORIDADE 1 — Corrigir criação de responsável financeiro pela interface
+
+A tela precisa conseguir gravar em:
+
+financial_responsibles
+
+PRIORIDADE 2 — Corrigir vínculo responsável x unidade
+
+A tela precisa conseguir gravar em:
+
+financial_responsible_units
+
+PRIORIDADE 3 — Corrigir configuração de preços
+
+A tela precisa conseguir gravar em:
+
+billing_system_unit_prices
+billing_doctor_unit_prices
+
+PRIORIDADE 4 — Corrigir criação de ciclo financeiro
+
+A tela ou backend precisa conseguir criar ciclos sem duplicidade e com responsável correto.
+
+PRIORIDADE 5 — Corrigir criação de billing_visit_events
+
+Após assinar laudo, o sistema precisa criar o evento financeiro automaticamente.
+
+====================================================================
+14. TESTE MÍNIMO ESPERADO APÓS CORREÇÃO
+====================================================================
+
+Depois das correções, o fluxo mínimo deve ser:
+
+1. Criar responsável financeiro.
+2. Vincular responsável à unidade.
+3. Configurar valor do sistema por laudo.
+4. Configurar valor do médico por laudo.
+5. Configurar ciclo financeiro da unidade.
+6. Assinar um laudo novo.
+7. Verificar se nasceu billing_visit_event.
+
+Consulta de validação:
+
+SELECT
+  id,
+  report_id,
+  unit_id,
+  doctor_user_id,
+  financial_responsible_id,
+  signed_at,
+  doctor_amount_due,
+  system_amount_due,
+  pricing_status
+FROM billing_visit_events
+ORDER BY id DESC;
+
+Resultado esperado:
+ao menos 1 registro criado.
+
+====================================================================
+15. ESTADO ATUAL RESUMIDO
+====================================================================
+
+Laudos assinados existem: SIM
+Usuários existem: SIM
+Unidades existem: SIM
+Banco estrutural está sincronizado: SIM
+Tabelas financeiras foram zeradas: SIM
+Responsável financeiro recriado pela tela: NÃO
+Vínculo responsável/unidade recriado pela tela: NÃO
+Preços recriados pela tela: NÃO
+Ciclos recriados corretamente: NÃO
+billing_visit_events criado: NÃO
+
+====================================================================
+16. CONCLUSÃO
+====================================================================
+
+O módulo financeiro está atualmente sem dados financeiros porque o reset controlado limpou corretamente as tabelas financeiras.
+
+O problema agora não é mais resíduo antigo no banco.
+
+O problema atual é que a interface/backend não está conseguindo recriar os dados financeiros básicos:
+
+- responsável financeiro;
+- vínculo com unidade;
+- preços;
+- ciclos.
+
+Além disso, o erro anterior nos logs mostrou que o backend ainda possui problema crítico em getOrCreateActiveCycle(), com tentativa de inserir ciclo duplicado e financial_responsible_id NULL.
+
+As correções devem focar primeiro na base operacional do financeiro:
+
+1. Criar responsável financeiro pela interface.
+2. Vincular responsável à unidade.
+3. Configurar preços.
+4. Configurar ciclo.
+5. Garantir nascimento do billing_visit_event.
+
+Sem isso, o módulo financeiro continuará vazio e sem possibilidade de cálculo.
