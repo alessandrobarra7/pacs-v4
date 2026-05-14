@@ -1,0 +1,222 @@
+================================================================================
+REFERÊNCIA DE AMBIENTES — PACS PORTAL (pacs-v4)
+Gerado em: 14/05/2026
+================================================================================
+
+REGRA FUNDAMENTAL
+-----------------
+Cada comando deve ser executado no ambiente correto.
+Este documento define ONDE cada ação deve ser realizada.
+
+================================================================================
+1. MAPA DOS AMBIENTES
+================================================================================
+
+VM1 — PORTAL (Aplicação Node.js)
+---------------------------------
+  IP público:    45.189.160.17
+  IP interno:    172.16.3.100
+  Domínio:       lauds.com.br
+  OS:            Ubuntu 22.04 LTS
+  Diretório:     /var/www/pacs-portal
+  Processo PM2:  pacs-portal
+  Porta app:     3000 (via Nginx → HTTPS 443)
+  Banco:         Conecta remotamente na VM2 (172.16.3.101:3306)
+  Uploads:       /var/www/pacs-portal/uploads/ (NÃO versionar, NÃO apagar)
+
+VM2 — BANCO DE DADOS (MySQL)
+------------------------------
+  IP interno:    172.16.3.101
+  OS:            Ubuntu 22.04 LTS
+  SGBD:          MySQL 8.0
+  Porta:         3306
+  Banco:         pacs_portal
+  Usuário root:  root / senha: 137946
+  Usuário app:   pacs_user / senha: PacsPortal2025
+  Acesso externo: apenas de 172.16.3.100 (VM1)
+
+================================================================================
+2. COMANDOS POR AMBIENTE
+================================================================================
+
+--- ATUALIZAR CÓDIGO (sempre na VM1) ---
+
+  cd /var/www/pacs-portal && git pull origin main && pnpm install && pnpm build && pm2 restart pacs-portal
+
+--- VERIFICAR LOGS DA APLICAÇÃO (sempre na VM1) ---
+
+  pm2 logs pacs-portal --lines 50
+
+--- VERIFICAR STATUS DO PROCESSO (sempre na VM1) ---
+
+  pm2 status
+
+--- REINICIAR APLICAÇÃO (sempre na VM1) ---
+
+  pm2 restart pacs-portal
+
+--- VERIFICAR VERSÃO DO CÓDIGO ATUAL (sempre na VM1) ---
+
+  cd /var/www/pacs-portal && git log --oneline -3
+
+--- BACKUP DE UPLOADS (sempre na VM1) ---
+
+  tar -czf /backup/pacs-uploads-$(date +%Y%m%d).tar.gz /var/www/pacs-portal/uploads/
+
+--- ACESSAR O BANCO DE DADOS (sempre na VM2) ---
+
+  mysql -u root -p137946 pacs_portal
+
+--- EXECUTAR SQL PONTUAL (sempre na VM2) ---
+
+  mysql -u root -p137946 pacs_portal -e "<SQL AQUI>"
+
+--- BACKUP DO BANCO (sempre na VM2) ---
+
+  mysqldump -u pacs_user -pPacsPortal2025 pacs_portal > /backup/pacs_portal_$(date +%Y%m%d).sql
+
+--- VERIFICAR TABELAS DO BANCO (sempre na VM2) ---
+
+  mysql -u root -p137946 pacs_portal -e "SHOW TABLES;"
+
+--- VERIFICAR LOGS DO MYSQL (sempre na VM2) ---
+
+  sudo tail -f /var/log/mysql/error.log
+
+================================================================================
+3. ORDEM OBRIGATÓRIA DE DEPLOY
+================================================================================
+
+REGRA DE OURO: Banco ANTES do código.
+Nunca atualize o código (VM1) sem antes aplicar as migrações (VM2).
+
+PASSO 1 — Na VM2: aplicar migrações SQL pendentes
+  mysql -u root -p137946 pacs_portal -e "<SQL DA MIGRAÇÃO>"
+
+PASSO 2 — Na VM1: atualizar código e reiniciar
+  cd /var/www/pacs-portal && git pull origin main && pnpm install && pnpm build && pm2 restart pacs-portal
+
+PASSO 3 — Na VM1: verificar se subiu sem erros
+  pm2 logs pacs-portal --lines 30
+
+================================================================================
+4. MIGRAÇÕES PENDENTES PARA O BANCO (VM2)
+================================================================================
+
+As migrações abaixo devem ser aplicadas na VM2 antes do próximo git pull na VM1.
+
+--- MIGRAÇÃO 1: Adicionar BILLING_EVENT_FAILED ao enum audit_log ---
+(Aplicar na VM2 — já confirmado como pendente)
+
+  mysql -u root -p137946 pacs_portal -e "ALTER TABLE audit_log MODIFY COLUMN action ENUM('LOGIN','LOGOUT','VIEW_STUDY','OPEN_VIEWER','CREATE_REPORT','UPDATE_REPORT','SIGN_REPORT','DELETE_REPORT','REVISE_REPORT','CREATE_USER','UPDATE_USER','DELETE_USER','ACTIVATE_USER','DEACTIVATE_USER','CREATE_UNIT','UPDATE_UNIT','DELETE_UNIT','PACS_QUERY','PACS_DOWNLOAD','CREATE_ANAMNESIS','EDIT_STUDY_METADATA','RESET_DOCTOR_BILLING','CREATE_LAYOUT','UPDATE_LAYOUT','DELETE_LAYOUT','BILLING_EVENT_FAILED') NOT NULL;"
+
+STATUS: Aplicada na VM2 em 14/05/2026. Pendente na VM1 (banco da VM1 não existe — VM1 usa VM2).
+
+--- MIGRAÇÃO 2: Corrigir signed_at NULL em billing_visit_events ---
+(Aplicar na VM2 — se houver registros com signed_at NULL)
+
+  mysql -u root -p137946 pacs_portal -e "UPDATE billing_visit_events SET signed_at = createdAt WHERE signed_at IS NULL;"
+
+STATUS: Pendente. Aplicar na VM2 após confirmar que há registros com signed_at NULL.
+Verificar antes com:
+  mysql -u root -p137946 pacs_portal -e "SELECT COUNT(*) FROM billing_visit_events WHERE signed_at IS NULL;"
+
+================================================================================
+5. VERIFICAÇÕES DE SAÚDE DO SISTEMA
+================================================================================
+
+--- Verificar contagem de registros nas tabelas principais (VM2) ---
+
+  mysql -u root -p137946 pacs_portal -e "SELECT 'units' AS tabela, COUNT(*) AS total FROM units UNION ALL SELECT 'users', COUNT(*) FROM users UNION ALL SELECT 'reports', COUNT(*) FROM reports UNION ALL SELECT 'billing_visit_events', COUNT(*) FROM billing_visit_events UNION ALL SELECT 'billing_cycles', COUNT(*) FROM billing_cycles UNION ALL SELECT 'financial_responsibles', COUNT(*) FROM financial_responsibles;"
+
+--- Verificar laudos assinados sem billing_visit_event (VM2) ---
+
+  mysql -u root -p137946 pacs_portal -e "SELECT COUNT(*) AS laudos_sem_evento FROM reports r LEFT JOIN billing_visit_events bve ON bve.report_id = r.id WHERE r.status IN ('signed','revised') AND bve.id IS NULL;"
+
+--- Verificar ciclos com ano errado (VM2) ---
+
+  mysql -u root -p137946 pacs_portal -e "SELECT id, unit_id, cycle_type, starts_at, ends_at, status FROM billing_cycles WHERE YEAR(starts_at) > 2026 OR YEAR(starts_at) < 2025;"
+
+--- Verificar enum atual do audit_log (VM2) ---
+
+  mysql -u root -p137946 pacs_portal -e "SHOW COLUMNS FROM audit_log LIKE 'action';"
+
+--- Verificar versão do código rodando (VM1) ---
+
+  cd /var/www/pacs-portal && git log --oneline -1
+
+--- Verificar se PM2 está rodando (VM1) ---
+
+  pm2 status
+
+--- Verificar se Nginx está respondendo (VM1) ---
+
+  sudo nginx -t && sudo systemctl status nginx
+
+================================================================================
+6. ESTRUTURA DO REPOSITÓRIO (pacs-v4)
+================================================================================
+
+Repositório:   https://github.com/alessandrobarra7/pacs-v4
+Branch ativa:  main
+Diretório VM1: /var/www/pacs-portal
+
+Arquivos principais:
+  ecosystem.config.cjs     → Configuração do PM2 (processo, porta, timezone)
+  drizzle/schema.ts        → Schema completo do banco (fonte de verdade)
+  drizzle/*.sql            → Migrações geradas pelo Drizzle Kit
+  server/db.ts             → Helpers de banco de dados
+  server/routers/          → Procedures tRPC (financeSimple.ts, reports.ts, etc.)
+  client/src/pages/        → Páginas do frontend
+  client/src/pages/finance2/ → Módulo financeiro v2 (ativo)
+  docs/                    → Documentação técnica e relatórios
+  DEPLOY.md                → Guia de deploy e migrações históricas
+
+Routers do servidor:
+  financeSimple.ts  → Dashboard financeiro, ciclos, eventos (módulo principal)
+  billing.ts        → Configuração de responsáveis, preços, ciclos (legado ativo)
+  finance.ts        → Equipe da unidade, Orthanc (legado ativo)
+  reports.ts        → Criação, assinatura e revisão de laudos
+  pacs.ts           → Busca DICOM, proxy DICOMweb
+  admin.ts          → Administração de usuários e unidades
+  units.ts          → CRUD de unidades
+  auth.ts           → Login local e OAuth
+
+Páginas do frontend (finance2/):
+  FinanceDashboard2.tsx     → Dashboard admin_master / unit_admin
+  FinanceMeuFinanceiro2.tsx → Tela do médico (seus laudos por ciclo)
+  FinanceMeuResponsavel.tsx → Tela do responsável financeiro
+  FinancePagamentos.tsx     → Gestão de pagamentos (admin_master / unit_admin)
+  FinanceShell2.tsx         → Shell de navegação do módulo financeiro
+  FinanceModals.tsx         → Modais compartilhados
+
+================================================================================
+7. ROLES DE USUÁRIO E ACESSOS
+================================================================================
+
+  admin_master       → Acesso total ao sistema
+  unit_admin         → Acesso à sua unidade (estudos, laudos, financeiro)
+  medico             → Acesso a estudos, laudos e financeiro pessoal
+  responsavel_financeiro → Acesso a /financeiro2/responsavel (suas unidades)
+  operador           → Acesso a estudos (sem financeiro)
+  viewer             → Somente visualização (sem financeiro)
+
+Rotas financeiras:
+  /financeiro2            → admin_master, unit_admin
+  /financeiro2/pagamentos → admin_master, unit_admin
+  /financeiro2/meu-financeiro → medico, admin_master
+  /financeiro2/responsavel    → responsavel_financeiro, admin_master
+
+================================================================================
+8. CONEXÃO DO BANCO
+================================================================================
+
+String de conexão usada no .env da VM1:
+  DATABASE_URL=mysql://pacs_user:PacsPortal2025@172.16.3.101:3306/pacs_portal
+
+O banco está EXCLUSIVAMENTE na VM2.
+A VM1 NÃO tem MySQL instalado — toda operação de banco é feita na VM2.
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================
