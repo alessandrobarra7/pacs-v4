@@ -1,0 +1,341 @@
+================================================================================
+ANÁLISE DE COERÊNCIA — RELATÓRIO DE PROBLEMA CRÍTICO NO BACKEND FINANCEIRO
+================================================================================
+Data da análise : 2026-05-13
+Documento base  : relatorio_problema_backend_financeiro.txt
+Versão do código: commit c2a800e (branch main, repositório pacs-v4)
+Analista        : Manus AI
+================================================================================
+
+AVISO: Este documento é SOMENTE ANÁLISE. Nenhuma modificação foi realizada.
+As correções serão discutidas com o usuário antes de qualquer implementação.
+
+================================================================================
+VEREDICTO GERAL
+================================================================================
+
+O relatório descreve um problema REAL que existiu no código.
+Porém, a maioria das correções descritas JÁ FORAM IMPLEMENTADAS em versões
+anteriores do código (sessões de desenvolvimento anteriores a este relatório).
+
+O código atual (commit c2a800e) está MAIS AVANÇADO do que o relatório sugere.
+
+Situação de cada problema descrito:
+
+  ✅ JÁ CORRIGIDO: Problema 1 — duplicate key bloqueando billing_visit_event
+  ✅ JÁ CORRIGIDO: Problema 2 — billing_visit_event depende do ciclo
+  ✅ JÁ CORRIGIDO: Problema 3 — financial_responsible_id NULL bloqueia evento
+  ✅ JÁ CORRIGIDO: Problema 4 — consultas sem validade temporal correta
+  🔴 PROBLEMA REAL RESTANTE: enum audit_log.action sem BILLING_EVENT_FAILED
+
+================================================================================
+ANÁLISE DETALHADA — PROBLEMA A PROBLEMA
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+PROBLEMA 1: "Duplicate entry '20-doctor-2026-04-30' for key billing_cycles.uq_cycle"
+────────────────────────────────────────────────────────────────────────────────
+
+STATUS: ✅ JÁ CORRIGIDO no código atual.
+
+O relatório afirma que getOrCreateActiveCycle() lança "Duplicate entry" e
+isso impede a criação do billing_visit_event.
+
+Análise do código atual (db.ts, linhas 1762-1785):
+
+  A função createBillingVisitEvent chama getOrCreateActiveCycle em dois
+  blocos try/catch SEPARADOS e INDEPENDENTES:
+
+    try {
+      const doctorCycle = await getOrCreateActiveCycle(...);
+      doctorCycleId = doctorCycle.id;
+    } catch (cycleErr) {
+      // Apenas loga — NÃO relança a exceção
+      console.warn('[billing] Ciclo médico não encontrado...');
+      // doctorCycleId permanece null
+    }
+
+    try {
+      const systemCycle = await getOrCreateActiveCycle(...);
+      systemCycleId = systemCycle.id;
+    } catch (cycleErr) {
+      // Apenas loga — NÃO relança a exceção
+      console.warn('[billing] Ciclo sistema não encontrado...');
+      // systemCycleId permanece null
+    }
+
+  Resultado: mesmo que getOrCreateActiveCycle lance "Duplicate entry",
+  o erro é CAPTURADO e o fluxo continua. O INSERT de billing_visit_events
+  acontece logo depois, com doctor_cycle_id = null e system_cycle_id = null.
+
+  Adicionalmente, getOrCreateActiveCycle tem proteção própria contra duplicata:
+  - Primeiro busca ciclo existente com starts_at <= refDate <= ends_at
+  - Se não encontrar, busca por starts_at exato (ciclo fechado)
+  - Só insere se nenhum dos dois existir
+
+  A constraint uq_cycle é: (unit_id, cycle_type, starts_at)
+  O erro de duplicata só ocorre em condição de corrida (race condition) quando
+  dois processos tentam criar o mesmo ciclo simultaneamente — improvável em
+  uso normal, e mesmo assim o try/catch o absorve.
+
+CONCLUSÃO: O problema descrito no relatório NÃO MAIS OCORRE no código atual.
+
+────────────────────────────────────────────────────────────────────────────────
+PROBLEMA 2: "billing_visit_event não nasce quando o ciclo falha"
+────────────────────────────────────────────────────────────────────────────────
+
+STATUS: ✅ JÁ CORRIGIDO no código atual.
+
+O relatório afirma: "createBillingVisitEvent falha → billing_visit_events
+NÃO nasce."
+
+Análise do código atual (db.ts, linhas 1816-1848):
+
+  O INSERT de billing_visit_events acontece APÓS os try/catch dos ciclos:
+
+    const insertResult = await db.insert(billing_visit_events).values({
+      ...
+      doctor_cycle_id: doctorCycleId,   // pode ser null
+      system_cycle_id: systemCycleId,   // pode ser null
+      ...
+    }).onDuplicateKeyUpdate({ set: { report_key: reportKey } });
+
+  O INSERT usa onDuplicateKeyUpdate para garantir idempotência.
+  O evento NASCE independentemente do estado dos ciclos.
+
+  Em reports.ts (linhas 232-263), createBillingVisitEvent é chamado dentro
+  de um try/catch externo:
+
+    try {
+      const billingResult = await createBillingVisitEvent({...});
+    } catch (billingErr) {
+      // Não bloqueia a assinatura
+      console.error('[sign] Billing event failed (non-blocking):', errMsg);
+    }
+
+  Ou seja: mesmo que createBillingVisitEvent lance exceção (o que não deveria
+  acontecer com o código atual), a assinatura do laudo não é bloqueada.
+
+CONCLUSÃO: O princípio "CADA LAUDO FINALIZADO = 1 EVENTO FINANCEIRO" está
+implementado corretamente no código atual.
+
+────────────────────────────────────────────────────────────────────────────────
+PROBLEMA 3: "financial_responsible_id = NULL"
+────────────────────────────────────────────────────────────────────────────────
+
+STATUS: ✅ TRATADO CORRETAMENTE no código atual (com fallback).
+
+O relatório trata financial_responsible_id = NULL como erro crítico.
+
+Análise do código atual (db.ts, linhas 1783-1812):
+
+  O código resolve o responsável em duas etapas:
+
+  ETAPA 1 — Usa o responsável passado como parâmetro (se houver):
+    const responsible = data.financial_responsible_id
+      ? data.financial_responsible_id
+      : (await getActiveResponsibleForUnit(data.unit_id, data.signed_at))
+          ?.financial_responsible_id ?? null;
+
+  ETAPA 2 — Se não há responsável, usa preços padrão da unidade como fallback:
+    if (systemAmt === null || doctorAmt === null) {
+      const unitRow = await db.select({
+        default_system_price: units.default_system_price,
+        default_doctor_price: units.default_doctor_price,
+      }).from(units).where(eq(units.id, data.unit_id)).limit(1);
+      // Usa default_system_price e default_doctor_price como fallback
+    }
+
+  Resultado: mesmo sem responsável financeiro configurado, o evento nasce com:
+  - financial_responsible_id = null
+  - system_amount_due = default_system_price da unidade (se configurado)
+  - doctor_amount_due = default_doctor_price da unidade (se configurado)
+  - pricing_status = "ok" (se ambos os defaults existem) ou "pending_*"
+
+  A função getActiveResponsibleForUnit usa a query correta com validade temporal:
+    starts_at <= atDate AND (ends_at IS NULL OR ends_at >= atDate)
+
+CONCLUSÃO: financial_responsible_id = NULL é tratado com fallback. O evento
+nasce. A questão é OPERACIONAL: se a unidade não tem default_system_price e
+default_doctor_price configurados, o evento nasce com pricing_status =
+"pending_both". Isso é correto — o reprocessador pode corrigir depois.
+
+────────────────────────────────────────────────────────────────────────────────
+PROBLEMA 4: "Consultas sem validade temporal correta"
+────────────────────────────────────────────────────────────────────────────────
+
+STATUS: ✅ JÁ IMPLEMENTADO corretamente no código atual.
+
+O relatório recomenda:
+  starts_at <= data_evento AND (ends_at IS NULL OR ends_at >= data_evento)
+
+Análise do código atual:
+
+  getActiveResponsibleForUnit (db.ts, linha 985):
+    .where(and(
+      eq(financial_responsible_units.unit_id, unitId),
+      lte(financial_responsible_units.starts_at, at),
+      or(isNull(financial_responsible_units.ends_at),
+         gte(financial_responsible_units.ends_at, at))
+    ))
+    .orderBy(desc(financial_responsible_units.starts_at))
+    .limit(1)
+
+  getActiveSystemPrice (db.ts, linha ~1005):
+    Mesma lógica com starts_at <= at AND (ends_at IS NULL OR ends_at >= at)
+
+  getActiveDoctorPrice: Mesma lógica.
+
+CONCLUSÃO: A query de validade temporal está implementada exatamente como
+o relatório recomenda.
+
+────────────────────────────────────────────────────────────────────────────────
+PROBLEMA REAL RESTANTE: enum audit_log.action sem 'BILLING_EVENT_FAILED'
+────────────────────────────────────────────────────────────────────────────────
+
+STATUS: 🔴 PROBLEMA REAL — Precisa de migração SQL.
+
+Identificado na análise anterior e confirmado agora.
+
+O schema.ts define 'BILLING_EVENT_FAILED' no enum da coluna action.
+Porém, nenhuma migração SQL foi gerada e aplicada para adicionar esse valor
+ao enum no banco de dados.
+
+A última migração que modificou o enum foi 0033_add_layout_audit_actions.sql,
+que NÃO incluiu 'BILLING_EVENT_FAILED'.
+
+Impacto: quando o código tenta gravar action = 'BILLING_EVENT_FAILED' no
+audit_log após uma falha de billing, o MySQL rejeita com:
+  "Data truncated for column 'action' at row 1"
+
+Esse erro é capturado em try/catch separado (reports.ts, linha 257) e NÃO
+bloqueia a assinatura do laudo. Mas gera ruído nos logs e impede a rastreabilidade
+de falhas de billing.
+
+================================================================================
+SITUAÇÃO REAL DO SISTEMA HOJE
+================================================================================
+
+Com base na auditoria completa do código, o fluxo atual de assinatura é:
+
+1. Usuário assina laudo
+2. reports.ts chama createBillingVisitEvent em try/catch não-bloqueante
+3. createBillingVisitEvent:
+   a. Tenta criar/buscar ciclo (try/catch não-bloqueante — falha é absorvida)
+   b. Resolve responsável financeiro (fallback para preços padrão da unidade)
+   c. Calcula preços (system + doctor)
+   d. Insere billing_visit_event com onDuplicateKeyUpdate (idempotente)
+   e. Retorna o evento criado
+4. Se createBillingVisitEvent lançar exceção (improvável):
+   a. Tenta gravar BILLING_EVENT_FAILED no audit_log
+   b. Esse audit_log FALHA porque o enum não tem o valor (bug confirmado)
+   c. A assinatura continua normalmente
+
+RESULTADO ESPERADO: billing_visit_events DEVE ser criado em toda assinatura.
+
+SE billing_visit_events está vazio no VM2, as causas possíveis são:
+  A. O código do VM2 está desatualizado (não tem o commit com o try/catch)
+  B. A unidade não tem effectiveUnitId no contexto da assinatura
+  C. O role do usuário não é 'medico' nem 'admin_master'
+  D. O banco do VM2 tem alguma constraint diferente que rejeita o INSERT
+
+================================================================================
+DIAGNÓSTICO DO VM2 — COMO CONFIRMAR A CAUSA REAL
+================================================================================
+
+Execute no VM2 após uma assinatura de laudo:
+
+PASSO 1 — Verificar se o código está atualizado:
+  cd /home/ubuntu/pacs-backend
+  git log --oneline -5
+  -- O commit mais recente deve ser c2a800e ou posterior
+
+PASSO 2 — Verificar se billing_visit_events está sendo inserido:
+  SELECT COUNT(*) FROM billing_visit_events;
+  -- Se 0, o INSERT não está acontecendo
+
+PASSO 3 — Verificar os logs do backend após uma assinatura:
+  pm2 logs pacs --lines 100 | grep -E "billing|Billing|BILLING"
+  -- Procurar por:
+  --   "[billing] Ciclo médico não encontrado" → ciclo falhou (esperado, não-bloqueante)
+  --   "[sign] Billing event failed" → createBillingVisitEvent lançou exceção
+  --   "Data truncated for column 'action'" → enum desatualizado (não-bloqueante)
+
+PASSO 4 — Verificar o role do usuário que está assinando:
+  SELECT id, name, role FROM users WHERE id = <id_do_medico>;
+  -- Deve ser 'medico' ou 'admin_master'
+
+PASSO 5 — Verificar se a unidade tem effectiveUnitId:
+  SELECT * FROM user_unit_permissions WHERE user_id = <id_do_medico>;
+  -- Deve ter pelo menos um registro com a unidade correta
+
+================================================================================
+AÇÕES NECESSÁRIAS
+================================================================================
+
+AÇÃO 1 — URGENTE: Atualizar o código do VM2
+  cd /home/ubuntu/pacs-backend
+  git pull origin main
+  pm2 restart pacs
+
+AÇÃO 2 — IMPORTANTE: Migração do enum audit_log no VM2
+  Execute no MySQL do VM2:
+
+  ALTER TABLE `audit_log`
+  MODIFY COLUMN `action` ENUM(
+    'LOGIN','LOGOUT','VIEW_STUDY','OPEN_VIEWER',
+    'CREATE_REPORT','UPDATE_REPORT','SIGN_REPORT','DELETE_REPORT','REVISE_REPORT',
+    'CREATE_USER','UPDATE_USER','DELETE_USER','ACTIVATE_USER','DEACTIVATE_USER',
+    'CREATE_UNIT','UPDATE_UNIT','DELETE_UNIT',
+    'PACS_QUERY','PACS_DOWNLOAD',
+    'CREATE_ANAMNESIS','EDIT_STUDY_METADATA',
+    'RESET_DOCTOR_BILLING',
+    'CREATE_LAYOUT','UPDATE_LAYOUT','DELETE_LAYOUT',
+    'BILLING_EVENT_FAILED'
+  ) NOT NULL;
+
+AÇÃO 3 — RECOMENDADO: Configurar preços padrão nas unidades (fallback)
+  UPDATE units SET default_system_price = 15.00, default_doctor_price = 10.00
+  WHERE id IN (2, 20);
+  -- Ajuste os valores conforme a realidade de cada unidade
+
+AÇÃO 4 — RECOMENDADO: Gerar migração SQL no código para o enum
+  cd /home/ubuntu/pacs-portal
+  pnpm drizzle-kit generate
+  -- Verificar o arquivo gerado e aplicar via webdev_execute_sql
+
+AÇÃO 5 — APÓS ATUALIZAÇÃO: Executar o reprocessador
+  Admin → Diagnóstico Financeiro → Simular → Executar
+
+================================================================================
+O QUE NÃO PRECISA SER ALTERADO NO CÓDIGO
+================================================================================
+
+Os seguintes itens do relatório descrevem problemas que JÁ ESTÃO CORRIGIDOS:
+
+1. getOrCreateActiveCycle() com duplicate key → CORRIGIDO (try/catch absorve)
+2. billing_visit_event dependendo do ciclo → CORRIGIDO (ciclo é não-bloqueante)
+3. financial_responsible_id NULL bloqueando → CORRIGIDO (fallback implementado)
+4. Consultas sem validade temporal → CORRIGIDO (starts_at/ends_at corretos)
+
+Não há necessidade de refatorar a arquitetura financeira.
+O código atual já implementa a arquitetura correta:
+  billing_visit_events = núcleo financeiro
+  billing_cycles = agrupador/filtro visual (não-bloqueante)
+
+================================================================================
+CONCLUSÃO
+================================================================================
+
+O relatório descreve problemas REAIS que existiram em versões anteriores do
+código. O código atual (commit c2a800e) já corrigiu todos esses problemas.
+
+O problema principal no VM2 é quase certamente que o código está DESATUALIZADO
+— o VM2 não recebeu o git pull com as correções implementadas nas últimas sessões.
+
+Após git pull + pm2 restart no VM2, o sistema deve funcionar corretamente.
+A única migração SQL necessária é a do enum audit_log (Ação 2 acima).
+
+================================================================================
+FIM DA ANÁLISE
+================================================================================

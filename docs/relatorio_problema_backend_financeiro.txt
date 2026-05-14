@@ -1,0 +1,181 @@
+RELATÓRIO TÉCNICO — PROBLEMA CRÍTICO IDENTIFICADO NO MÓDULO FINANCEIRO
+
+DATA: 14/05/2026
+
+====================================================================
+OBJETIVO
+====================================================================
+
+Este documento tem como objetivo relatar o problema crítico identificado no backend do módulo financeiro após:
+- limpeza controlada do financeiro;
+- recriação das configurações financeiras;
+- testes reais de assinatura de laudo;
+- análise dos logs do backend;
+- validação direta no banco de dados.
+
+O objetivo é orientar as correções necessárias no código.
+
+====================================================================
+RESUMO EXECUTIVO
+====================================================================
+
+O problema principal NÃO está:
+- na estrutura do banco;
+- nas tabelas;
+- nas migrations.
+
+O problema principal está na lógica do backend financeiro.
+
+Mais especificamente:
+
+O backend está tentando recriar billing_cycles automaticamente,
+mesmo quando o ciclo já existe.
+
+Além disso:
+- o financial_responsible_id está chegando NULL;
+- o billing_visit_event não é criado quando o ciclo falha;
+- o financeiro está excessivamente dependente de billing_cycles.
+
+====================================================================
+DIAGNÓSTICO REALIZADO
+====================================================================
+
+Foi realizado:
+- backup completo do banco;
+- limpeza das tabelas financeiras;
+- recriação dos vínculos financeiros;
+- recriação dos preços;
+- reinício do backend;
+- novo teste de assinatura de laudo.
+
+Mesmo após o reset financeiro:
+billing_visit_events continuou vazio.
+
+Isso comprovou que:
+o problema não era resíduos antigos no banco.
+
+====================================================================
+LOG CRÍTICO IDENTIFICADO
+====================================================================
+
+Erro encontrado nos logs do backend:
+
+Duplicate entry '20-doctor-2026-04-30' for key 'billing_cycles.uq_cycle'
+
+Trecho identificado:
+
+[sign] Billing event failed (non-blocking)
+
+insert into billing_cycles (...)
+
+financial_responsible_id = NULL
+
+====================================================================
+CONCLUSÃO TÉCNICA
+====================================================================
+
+A função:
+
+getOrCreateActiveCycle()
+
+está com lógica incorreta.
+
+Fluxo atual do sistema:
+
+1. usuário assina laudo
+2. backend tenta criar billing_cycle
+3. billing_cycle já existe
+4. ocorre duplicate key
+5. createBillingVisitEvent falha
+6. billing_visit_events NÃO nasce
+
+Resultado:
+- financeiro vazio;
+- extratos vazios;
+- médico sem saldo;
+- responsável financeiro sem dívida;
+- root sem auditoria.
+
+====================================================================
+PROBLEMA ARQUITETURAL MAIS IMPORTANTE
+====================================================================
+
+O sistema financeiro atualmente depende excessivamente de:
+
+billing_cycles
+
+Isso está incorreto.
+
+A arquitetura correta definida para o sistema é:
+
+CADA LAUDO FINALIZADO = 1 EVENTO FINANCEIRO
+
+Ou seja:
+
+billing_visit_events
+=
+núcleo financeiro do sistema.
+
+billing_cycles
+=
+apenas agrupador/filtro visual.
+
+Hoje o sistema faz o contrário:
+- tenta gerar o financeiro a partir do ciclo;
+- e isso está causando toda a instabilidade.
+
+====================================================================
+CORREÇÕES NECESSÁRIAS
+====================================================================
+
+1. Corrigir getOrCreateActiveCycle()
+
+Fluxo correto:
+- buscar ciclo existente;
+- reutilizar se existir;
+- criar apenas se não existir;
+- tratar duplicate key corretamente.
+
+2. Resolver financial_responsible_id antes do ciclo
+
+O backend precisa:
+- localizar unidade;
+- localizar vínculo ativo;
+- resolver responsável financeiro;
+- só depois trabalhar com ciclo.
+
+3. billing_visit_event deve nascer independente do ciclo
+
+Fluxo correto:
+- assina laudo;
+- cria billing_visit_event;
+- depois organiza visualmente em ciclo.
+
+4. billing_cycles não pode bloquear financeiro
+
+billing_cycles deve apenas:
+- agrupar;
+- filtrar;
+- organizar visualmente.
+
+5. Corrigir consultas com validade temporal
+
+Todas as consultas precisam usar:
+
+starts_at <= data_evento
+AND (ends_at IS NULL OR ends_at >= data_evento)
+
+====================================================================
+RECOMENDAÇÃO FINAL
+====================================================================
+
+O desenvolvimento deve focar exclusivamente em:
+
+ESTABILIZAÇÃO DA ARQUITETURA FINANCEIRA.
+
+Prioridades:
+- garantir nascimento do billing_visit_event;
+- desacoplar evento do ciclo;
+- corrigir duplicate key;
+- resolver financial_responsible_id;
+- consolidar billing_visit_events como núcleo financeiro.
