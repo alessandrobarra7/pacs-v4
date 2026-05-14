@@ -1,0 +1,234 @@
+================================================================================
+RELATÓRIO DE ANÁLISE DO BANCO DE DADOS — VM2 vs CÓDIGO
+================================================================================
+Data da análise : 2026-05-13
+Versão do código: commit 4e9734d (branch main, repositório pacs-v4)
+Banco analisado : VM2 (produção) — schema extraído via Textocolado.txt
+Analista        : Manus AI
+================================================================================
+
+
+1. METODOLOGIA
+--------------------------------------------------------------------------------
+O schema do VM2 foi extraído a partir do arquivo "Textocolado.txt" fornecido
+pelo usuário, que contém a listagem de todas as tabelas e colunas do banco de
+dados de produção no formato:
+    tabela: <nome>  coluna: <nome>  tabela: <nome>  coluna: <nome> ...
+
+O schema do código foi extraído diretamente do arquivo drizzle/schema.ts e das
+migrações SQL em drizzle/*.sql.
+
+A comparação foi realizada tabela a tabela, coluna a coluna, usando um script
+Python (scripts/extract_vm2_schema.py) para garantir precisão.
+
+
+2. RESULTADO GERAL
+--------------------------------------------------------------------------------
+STATUS: ✅ BANCO DE DADOS SINCRONIZADO COM O CÓDIGO
+
+Total de tabelas no código : 36
+Total de tabelas no VM2    : 36
+Tabelas faltando no VM2    : 0 (NENHUMA)
+Tabelas extras no VM2      : 0 (NENHUMA)
+Tabelas com divergência    : 3 (colunas extras legadas — inofensivas)
+
+Conclusão: O banco de dados do VM2 está totalmente sincronizado com o código.
+Não é necessário executar nenhum ALTER TABLE ou CREATE TABLE para que o sistema
+funcione corretamente.
+
+
+3. DIVERGÊNCIAS ENCONTRADAS (INOFENSIVAS)
+--------------------------------------------------------------------------------
+As divergências abaixo são colunas EXTRAS no VM2 que não existem mais no
+schema do código. Elas são resquícios de versões anteriores. O Drizzle ORM
+ignora automaticamente colunas extras ao fazer SELECT — elas não causam erros
+e não afetam o funcionamento do sistema.
+
+3.1 Tabela: billing_monthly_doctor_by_unit
+    Colunas extras no VM2: closedAt, closedBy
+    Origem: migração 0020 (versão antiga do módulo financeiro)
+    Impacto: NENHUM
+
+3.2 Tabela: billing_monthly_system_by_unit
+    Colunas extras no VM2: closedAt, closedBy
+    Origem: migração 0020 (versão antiga do módulo financeiro)
+    Impacto: NENHUM
+
+3.3 Tabela: user_unit_permissions
+    Coluna extra no VM2: created_at (snake_case)
+    Origem: versão antiga antes da padronização para camelCase (createdAt)
+    Impacto: NENHUM
+
+
+4. VERIFICAÇÃO COMPLETA DAS 36 TABELAS
+--------------------------------------------------------------------------------
+Todas as tabelas abaixo existem tanto no VM2 quanto no código, com todas as
+colunas necessárias presentes:
+
+  anamnesis                      ✅ OK
+  anamnesis_simple               ✅ OK
+  audit_log                      ✅ OK  (colunas: id, user_id, unit_id, action,
+                                         target_type, target_id, ip_address,
+                                         user_agent, metadata, timestamp)
+  billing_cycle_configs          ✅ OK
+  billing_cycle_doctor_summary   ✅ OK  (inclui: pending_pricing_count,
+                                         received_at, received_by,
+                                         createdAt, updatedAt)
+  billing_cycle_system_summary   ✅ OK  (inclui: pending_pricing_count,
+                                         paid_at, paid_by,
+                                         createdAt, updatedAt)
+  billing_cycles                 ✅ OK  (inclui: closedAt, closedBy,
+                                         paid_status, paid_at,
+                                         paid_by_user_id, paid_note)
+  billing_doctor_unit_prices     ✅ OK
+  billing_monthly_doctor_by_unit ✅ OK  (colunas extras inofensivas)
+  billing_monthly_system_by_unit ✅ OK  (colunas extras inofensivas)
+  billing_report_items           ✅ OK
+  billing_system_unit_prices     ✅ OK
+  billing_visit_events           ✅ OK  (inclui: report_key, patient_name,
+                                         study_date, report_status_snapshot,
+                                         signed_at, doctor_received_at,
+                                         system_paid_at)
+  contract_custom_expenses       ✅ OK
+  contract_revenues              ✅ OK
+  dicom_annotations              ✅ OK
+  exam_legends                   ✅ OK
+  financial_responsible_units    ✅ OK
+  financial_responsible_users    ✅ OK
+  financial_responsibles         ✅ OK
+  model_layouts                  ✅ OK  (inclui: background_image_url,
+                                         footer_image_url, logos,
+                                         block_positions, background_opacity,
+                                         background_size)
+  phrase_groups                  ✅ OK
+  phrases                        ✅ OK
+  report_readiness               ✅ OK
+  report_versions                ✅ OK
+  reports                        ✅ OK
+  studies_cache                  ✅ OK
+  study_metadata                 ✅ OK
+  templates                      ✅ OK
+  unit_doctor_compensation_rules ✅ OK
+  unit_doctor_scales             ✅ OK
+  unit_exam_prices               ✅ OK
+  unit_report_sla_configs        ✅ OK
+  units                          ✅ OK  (inclui: billing_cycle_start_day,
+                                         billing_cycle_end_day)
+  user_unit_permissions          ✅ OK  (coluna extra created_at inofensiva)
+  users                          ✅ OK
+
+
+5. AÇÕES NECESSÁRIAS NO VM2
+--------------------------------------------------------------------------------
+Apesar do schema estar sincronizado, há 2 ações operacionais pendentes:
+
+--------------------------------------------------------------------------------
+AÇÃO 1 — CORRIGIR CICLO CORROMPIDO (URGENTE)
+--------------------------------------------------------------------------------
+Problema:
+  Existe um registro em billing_cycles com id=60001 que tem starts_at='2027-04-12'
+  (ano 2027 em vez de 2026). Isso causa falha silenciosa na criação de
+  billing_visit_events para laudos assinados em abril/maio de 2026, pois a
+  função getOrCreateActiveCycle não consegue determinar o ciclo correto.
+
+Sintoma:
+  Laudos assinados na unidade associada ao ciclo id=60001 não geram
+  billing_visit_event, resultando em ausência de registros financeiros.
+
+Como executar:
+  1. Conecte ao MySQL do VM2:
+     mysql -u root -p137946 pacs
+
+  2. Execute o SQL:
+     UPDATE billing_cycles
+     SET starts_at = '2026-04-12', ends_at = '2026-05-11'
+     WHERE id = 60001 AND starts_at = '2027-04-12';
+
+  3. Verifique o resultado:
+     SELECT id, unit_id, starts_at, ends_at, cycle_type
+     FROM billing_cycles
+     WHERE id = 60001;
+
+  Resultado esperado: starts_at = '2026-04-12', ends_at = '2026-05-11'
+
+--------------------------------------------------------------------------------
+AÇÃO 2 — REPROCESSAR BILLING_VISIT_EVENTS HISTÓRICOS (RECOMENDADO)
+--------------------------------------------------------------------------------
+Problema:
+  A tabela billing_visit_events no VM2 está vazia (0 registros) porque o código
+  de criação automática de eventos só foi ativado recentemente. Laudos assinados
+  antes da ativação do código não têm evento correspondente.
+
+Impacto:
+  Sem os eventos históricos, o módulo financeiro não consegue calcular
+  corretamente os valores devidos para ciclos anteriores.
+
+Como executar:
+  1. Certifique-se de que o VM2 está rodando a versão mais recente do código
+     (git pull && npm run build && pm2 restart pacs)
+
+  2. Acesse o sistema como admin_master
+
+  3. Navegue até: Admin → Diagnóstico Financeiro
+
+  4. Clique em "Simular Reprocessamento" (dry run = true)
+     - O sistema vai mostrar quantos laudos serão processados sem gravar nada
+     - Verifique se o número parece correto
+
+  5. Desmarque "Simulação" e clique em "Executar Reprocessamento"
+     - O sistema vai criar um billing_visit_event para cada laudo assinado
+       que ainda não tem evento
+     - Um relatório será exibido com: criados, falhas, motivo das falhas
+
+  6. Após o reprocessamento, verifique:
+     SELECT COUNT(*) FROM billing_visit_events;
+     -- Deve retornar um número próximo ao total de laudos assinados
+
+  Observação: Execute a AÇÃO 1 (corrigir ciclo corrompido) ANTES desta ação.
+
+
+6. AÇÕES OPCIONAIS (LIMPEZA)
+--------------------------------------------------------------------------------
+As ações abaixo são opcionais e podem ser executadas futuramente para manter
+o banco limpo. Não afetam o funcionamento do sistema.
+
+6.1 Remover colunas legadas de billing_monthly_*
+    ALTER TABLE billing_monthly_doctor_by_unit
+      DROP COLUMN closedAt,
+      DROP COLUMN closedBy;
+
+    ALTER TABLE billing_monthly_system_by_unit
+      DROP COLUMN closedAt,
+      DROP COLUMN closedBy;
+
+    ATENÇÃO: Verifique se há dados nessas colunas antes de remover.
+    SELECT COUNT(*) FROM billing_monthly_doctor_by_unit WHERE closedAt IS NOT NULL;
+
+6.2 Remover coluna legada de user_unit_permissions
+    ALTER TABLE user_unit_permissions DROP COLUMN created_at;
+
+    ATENÇÃO: Verifique se há dados nessa coluna antes de remover.
+    SELECT COUNT(*) FROM user_unit_permissions WHERE created_at IS NOT NULL;
+
+
+7. RESUMO EXECUTIVO PARA O RESPONSÁVEL TÉCNICO
+--------------------------------------------------------------------------------
+O banco de dados do VM2 está em bom estado e sincronizado com o código.
+Não há migrações estruturais pendentes.
+
+As duas ações prioritárias são operacionais:
+
+  PRIORIDADE 1 (URGENTE):
+    Corrigir o ciclo corrompido (id=60001, starts_at=2027-04-12)
+    → Impede criação de eventos financeiros para uma unidade específica
+
+  PRIORIDADE 2 (RECOMENDADO):
+    Executar o reprocessador de billing_visit_events
+    → Popula os eventos históricos que faltam no módulo financeiro
+
+Ambas as ações podem ser executadas sem downtime e sem risco de perda de dados.
+
+
+================================================================================
+FIM DO RELATÓRIO
+================================================================================
