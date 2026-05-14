@@ -1792,8 +1792,8 @@ export async function createBillingVisitEvent(data: {
     ? await getActiveDoctorPrice(responsibleId, data.unit_id, data.doctor_user_id, data.signed_at)
     : null;
 
-  let systemAmt = systemPrice ? parseFloat(systemPrice.price_per_report ?? "0") : null;
-  let doctorAmt = doctorPrice ? parseFloat(doctorPrice.price_per_report ?? "0") : null;
+  let systemAmt = systemPrice ? Math.round(Number(systemPrice.price_per_report ?? 0) * 100) / 100 : null;
+  let doctorAmt = doctorPrice ? Math.round(Number(doctorPrice.price_per_report ?? 0) * 100) / 100 : null;
 
   // Fallback: usa default_system_price e default_doctor_price da unidade quando não há responsável financeiro
   if (systemAmt === null || doctorAmt === null) {
@@ -1803,10 +1803,10 @@ export async function createBillingVisitEvent(data: {
     }).from(units).where(eq(units.id, data.unit_id)).limit(1);
     const unitDefaults = unitRow[0];
     if (systemAmt === null && unitDefaults?.default_system_price != null) {
-      systemAmt = parseFloat(String(unitDefaults.default_system_price));
+      systemAmt = Math.round(Number(unitDefaults.default_system_price) * 100) / 100;
     }
     if (doctorAmt === null && unitDefaults?.default_doctor_price != null) {
-      doctorAmt = parseFloat(String(unitDefaults.default_doctor_price));
+      doctorAmt = Math.round(Number(unitDefaults.default_doctor_price) * 100) / 100;
     }
   }
 

@@ -1,0 +1,109 @@
+================================================================================
+COMANDOS VM2 — VERIFICAÇÃO E CORREÇÃO DO BANCO DE DADOS
+================================================================================
+Banco: pacs_portal | Usuário: root | Senha: 137946
+Execute um por vez. Copie e cole diretamente no terminal do VM2.
+================================================================================
+
+========================================
+BLOCO 1 — VERIFICAR TABELAS EXISTENTES
+========================================
+Esperado: 36 tabelas listadas
+
+mysql -u root -p137946 pacs_portal -e "SHOW TABLES;"
+
+========================================
+BLOCO 2 — VERIFICAR CONTAGEM DE REGISTROS NAS TABELAS PRINCIPAIS
+========================================
+
+mysql -u root -p137946 pacs_portal -e "SELECT 'units' AS tabela, COUNT(*) AS total FROM units UNION ALL SELECT 'users', COUNT(*) FROM users UNION ALL SELECT 'reports', COUNT(*) FROM reports UNION ALL SELECT 'billing_visit_events', COUNT(*) FROM billing_visit_events UNION ALL SELECT 'billing_cycles', COUNT(*) FROM billing_cycles UNION ALL SELECT 'financial_responsibles', COUNT(*) FROM financial_responsibles UNION ALL SELECT 'financial_responsible_units', COUNT(*) FROM financial_responsible_units UNION ALL SELECT 'billing_system_unit_prices', COUNT(*) FROM billing_system_unit_prices UNION ALL SELECT 'billing_doctor_unit_prices', COUNT(*) FROM billing_doctor_unit_prices UNION ALL SELECT 'billing_cycle_configs', COUNT(*) FROM billing_cycle_configs;"
+
+========================================
+BLOCO 3 — VERIFICAR LAUDOS ASSINADOS SEM BILLING_VISIT_EVENT
+========================================
+Esperado: 0 (se o sistema está funcionando)
+Se > 0: precisa rodar o reprocessador
+
+mysql -u root -p137946 pacs_portal -e "SELECT COUNT(*) AS laudos_sem_evento FROM reports r LEFT JOIN billing_visit_events bve ON bve.report_id = r.id WHERE r.status IN ('signed','revised') AND bve.id IS NULL;"
+
+========================================
+BLOCO 4 — VERIFICAR CICLOS CORROMPIDOS (ANO ERRADO)
+========================================
+Esperado: 0 linhas (se existir, precisa corrigir)
+
+mysql -u root -p137946 pacs_portal -e "SELECT id, unit_id, cycle_type, starts_at, ends_at, status FROM billing_cycles WHERE YEAR(starts_at) > 2026 OR YEAR(starts_at) < 2025;"
+
+========================================
+BLOCO 5 — VERIFICAR ENUM ATUAL DO AUDIT_LOG
+========================================
+Verificar se BILLING_EVENT_FAILED já está no enum
+
+mysql -u root -p137946 pacs_portal -e "SHOW COLUMNS FROM audit_log LIKE 'action';"
+
+========================================
+BLOCO 6 — VERIFICAR RESPONSÁVEL FINANCEIRO ATIVO POR UNIDADE
+========================================
+
+mysql -u root -p137946 pacs_portal -e "SELECT u.id AS unit_id, u.name AS unidade, fr.legal_name AS responsavel, fru.starts_at, fru.ends_at FROM units u LEFT JOIN financial_responsible_units fru ON fru.unit_id = u.id AND fru.starts_at <= NOW() AND (fru.ends_at IS NULL OR fru.ends_at >= NOW()) LEFT JOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id ORDER BY u.id;"
+
+========================================
+BLOCO 7 — VERIFICAR PREÇOS ATIVOS POR UNIDADE
+========================================
+
+mysql -u root -p137946 pacs_portal -e "SELECT u.name AS unidade, fr.legal_name AS responsavel, bsup.price_per_report AS preco_sistema, bsup.starts_at, bsup.ends_at FROM billing_system_unit_prices bsup JOIN units u ON u.id = bsup.unit_id JOIN financial_responsibles fr ON fr.id = bsup.financial_responsible_id WHERE bsup.starts_at <= NOW() AND (bsup.ends_at IS NULL OR bsup.ends_at >= NOW());"
+
+========================================
+BLOCO 8 — VERIFICAR PREÇOS PADRÃO DAS UNIDADES (FALLBACK)
+========================================
+
+mysql -u root -p137946 pacs_portal -e "SELECT id, name, default_system_price, default_doctor_price FROM units;"
+
+========================================
+BLOCO 9 — VERIFICAR ÚLTIMOS ERROS NO AUDIT_LOG
+========================================
+
+mysql -u root -p137946 pacs_portal -e "SELECT id, action, target_type, target_id, timestamp FROM audit_log ORDER BY timestamp DESC LIMIT 20;"
+
+========================================
+BLOCO 10 — VERIFICAR BILLING_VISIT_EVENTS RECENTES
+========================================
+
+mysql -u root -p137946 pacs_portal -e "SELECT id, report_id, unit_id, doctor_user_id, financial_responsible_id, pricing_status, system_amount_due, doctor_amount_due, signed_at FROM billing_visit_events ORDER BY signed_at DESC LIMIT 20;"
+
+================================================================================
+CORREÇÕES NECESSÁRIAS (executar apenas se os blocos acima indicarem problema)
+================================================================================
+
+========================================
+CORREÇÃO A — Corrigir ciclo com ano errado (se Bloco 4 retornar linhas)
+========================================
+
+mysql -u root -p137946 pacs_portal -e "UPDATE billing_cycles SET starts_at = '2026-04-12', ends_at = '2026-05-11' WHERE YEAR(starts_at) > 2026 AND unit_id IS NOT NULL;"
+
+========================================
+CORREÇÃO B — Adicionar BILLING_EVENT_FAILED ao enum do audit_log
+(executar se Bloco 5 não mostrar BILLING_EVENT_FAILED na lista)
+========================================
+
+mysql -u root -p137946 pacs_portal -e "ALTER TABLE audit_log MODIFY COLUMN action ENUM('LOGIN','LOGOUT','VIEW_STUDY','OPEN_VIEWER','CREATE_REPORT','UPDATE_REPORT','SIGN_REPORT','DELETE_REPORT','REVISE_REPORT','CREATE_USER','UPDATE_USER','DELETE_USER','ACTIVATE_USER','DEACTIVATE_USER','CREATE_UNIT','UPDATE_UNIT','DELETE_UNIT','PACS_QUERY','PACS_DOWNLOAD','CREATE_ANAMNESIS','EDIT_STUDY_METADATA','RESET_DOCTOR_BILLING','CREATE_LAYOUT','UPDATE_LAYOUT','DELETE_LAYOUT','BILLING_EVENT_FAILED') NOT NULL;"
+
+========================================
+CORREÇÃO C — Configurar preços padrão nas unidades (se Bloco 8 mostrar NULL)
+========================================
+Ajuste os valores (15.00 e 10.00) conforme a realidade de cada unidade
+
+mysql -u root -p137946 pacs_portal -e "UPDATE units SET default_system_price = 15.00, default_doctor_price = 10.00 WHERE default_system_price IS NULL OR default_doctor_price IS NULL;"
+
+================================================================================
+VERIFICAÇÃO FINAL — APÓS CORREÇÕES E git pull + pm2 restart
+================================================================================
+
+Assine um laudo de teste e execute:
+
+mysql -u root -p137946 pacs_portal -e "SELECT id, report_id, unit_id, financial_responsible_id, pricing_status, system_amount_due, doctor_amount_due, signed_at FROM billing_visit_events ORDER BY id DESC LIMIT 5;"
+
+Resultado esperado: 1 nova linha com pricing_status = 'ok' ou 'pending_*'
+
+================================================================================
+FIM DOS COMANDOS
+================================================================================

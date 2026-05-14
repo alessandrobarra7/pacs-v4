@@ -1,0 +1,355 @@
+================================================================================
+  PACS PORTAL v4 — DOCUMENTO DE STATUS FINANCEIRO
+  Pontos Resolvidos · Pontos Pendentes · Objetivo do Módulo
+  Versão de referência: v41 | Data: 14/05/2026
+================================================================================
+
+
+====================================================================
+1. OBJETIVO DO SISTEMA FINANCEIRO
+====================================================================
+
+O módulo financeiro do PACS Portal tem um propósito único e simples:
+
+  REGISTRAR E EXIBIR O REPASSE FINANCEIRO DE CADA LAUDO ASSINADO.
+
+Não é um ERP. Não é um sistema contábil. Não é um banco.
+É um controle de produção médica e repasse financeiro.
+
+────────────────────────────────────────────────────────────────────
+REGRA CENTRAL — IMUTÁVEL
+────────────────────────────────────────────────────────────────────
+
+  CADA LAUDO FINALIZADO/ASSINADO = 1 EVENTO FINANCEIRO
+
+  O evento nasce do laudo.
+  O ciclo apenas filtra os eventos por data.
+  O ciclo não calcula, não cria e não condiciona o evento.
+
+────────────────────────────────────────────────────────────────────
+O QUE CADA USUÁRIO PRECISA RESPONDER
+────────────────────────────────────────────────────────────────────
+
+MÉDICO:
+  "Em qual unidade trabalhei? Quantos laudos fiz? Quanto vou receber?
+   O que já foi pago e o que está pendente?"
+
+RESPONSÁVEL FINANCEIRO:
+  "Quais unidades administro? Quanto devo a cada médico?
+   Quanto devo ao sistema? O que já paguei?"
+  → Dívida médico e dívida sistema são SEMPRE separadas.
+
+ADMINISTRADOR:
+  "Quais responsáveis existem? Cada um tem quais unidades?
+   Tudo está configurado? Existe laudo sem evento financeiro?
+   Existe evento sem valor configurado?"
+
+────────────────────────────────────────────────────────────────────
+O QUE O CICLO É
+────────────────────────────────────────────────────────────────────
+
+O ciclo é um FILTRO DE DATAS por unidade.
+Cada unidade tem start_day e end_day configurados pelo admin.
+
+Exemplos:
+  Hospital da Criança  → dia 01 ao dia 31
+  Unidade Teste        → dia 15 ao dia 14 do mês seguinte
+  Clínica Norte        → dia 10 ao dia 09 do mês seguinte
+
+O evento financeiro existe mesmo sem ciclo configurado.
+Se não houver ciclo, os eventos existem — apenas não há filtro ativo.
+
+
+====================================================================
+2. PONTOS RESOLVIDOS (histórico v24 → v41)
+====================================================================
+
+────────────────────────────────────────────────────────────────────
+ARQUITETURA E LIMPEZA
+────────────────────────────────────────────────────────────────────
+
+[v41] BillingAdminPage.tsx, BillingDoctorPage.tsx, BillingUnitPage.tsx
+      removidos do codebase. Dead code eliminado.
+
+[v41] Pasta finance/ (módulo legado completo) removida.
+      FinanceDashboard, FinanceMedicos, FinanceMeuFinanceiro,
+      FinanceAdmin, FinanceResponsaveis — todos excluídos.
+
+[v28] FinanceDashboard2 adicionado FinanceShell2.
+      Admin e unit_admin passaram a ter sidebar com "Dashboard" e
+      "Pagamentos" — antes ficavam presos sem navegação.
+
+[v27] Rotas /financeiro* reorganizadas com FinanceRedirect por role.
+      Cada perfil navega para a tela correta automaticamente.
+      /templates e /units com allowedRoles corretos (segurança).
+
+[v26] React error #301 corrigido em FinanceDashboard2.
+      PriceConfigModal e CycleConfigModal pararam de causar loop infinito.
+
+────────────────────────────────────────────────────────────────────
+EVENTO FINANCEIRO — CRIAÇÃO
+────────────────────────────────────────────────────────────────────
+
+[v41] getOrCreateActiveCycle envolvido em try-catch NÃO-BLOQUEANTE.
+      Se o ciclo falhar, o evento é criado com doctor_cycle_id = null.
+      Antes: falha no ciclo = evento não criado = zeros no financeiro.
+      Depois: falha no ciclo = evento criado sem FK de ciclo = correto.
+
+[v35] Campo signed_at adicionado a billing_visit_events.
+      Armazena a data real da assinatura do laudo.
+      Todos os filtros de data migrados de createdAt para signed_at.
+      Eventos reprocessados aparecem no ciclo correto (não no dia
+      do reprocessamento).
+
+[v32] doctor_user_id usa report.author_user_id ?? ctx.user.id.
+      Se admin_master assina laudo do Dr. João, o crédito é do Dr. João.
+      Antes: crédito ia para o admin — médico não via o evento.
+
+[v32] BILLING_EVENT_FAILED adicionado ao enum de audit_log.
+      Falhas na criação de evento são registradas e rastreáveis.
+
+[v25] subMoney() e toMoney() em financeSimple.ts.
+      Aritmética de centavos correta — sem erros de ponto flutuante.
+
+────────────────────────────────────────────────────────────────────
+CICLO POR UNIDADE
+────────────────────────────────────────────────────────────────────
+
+[v41] Frontend computa cycle_label a partir de cycle_start_day e
+      cycle_end_day retornados pelo backend para cada unidade.
+      Cards mostram "Ciclo: 01/05 – 31/05" ou "Ciclo: 15/05 – 14/06".
+
+[v35] reference_date substituiu year/month como input nas procedures.
+      Mais preciso: data de referência em vez de mês fixo.
+      referenceDate usa dia 1 do mês (não dia 15) — evita edge cases.
+
+[v33] calcCycleDates() helper implementado em financeSimple.ts.
+      Calcula start/end do ciclo dado start_day, end_day e refDate.
+      Suporta ciclos que cruzam meses (ex: dia 15→14 mês seguinte).
+
+[v33] Procedures de drill-down usam ciclo per-unidade corretamente:
+      doctorSummaryByUnit, eventsByDoctorUnit,
+      markDoctorPaid, markSystemPaid.
+      Todas leem units.billing_cycle_start_day/end_day.
+
+────────────────────────────────────────────────────────────────────
+TELAS FINANCEIRAS
+────────────────────────────────────────────────────────────────────
+
+[v41] Aviso "Preço não configurado" exibido no card quando
+      price_per_report é null. Médico entende por que vê R$ 0,00.
+
+[v32] FinanceMeuFinanceiro2 redesenhado: cards por unidade com
+      laudos, valor/laudo, total, pago, pendente.
+      Extrato imprimível com lista de pacientes implementado.
+
+[v31] FinanceDashboard2 em 3 níveis:
+      Nível 1: responsáveis financeiros
+      Nível 2: unidades do responsável
+      Nível 3: médicos da unidade (DoctorsModal)
+
+[v31] FinanceMeuResponsavel mostra dívida médico e dívida sistema
+      em blocos separados por card de unidade.
+
+[v31] responsibleSummary procedure adicionada: agrega laudos e
+      dívida do sistema por responsável financeiro (nível 1 do root).
+
+────────────────────────────────────────────────────────────────────
+DIAGNÓSTICO E TESTES
+────────────────────────────────────────────────────────────────────
+
+[v41] billing.integration.test.ts com 7 cenários críticos (T1–T7):
+      assinatura única, idempotência, múltiplos laudos por paciente,
+      ciclos diferentes, médico em várias unidades,
+      escopo do responsável, visão do root.
+
+[v41] AdminPage com aba billing_diagnostic e BillingDiagnosticPanel.
+      Admin vê laudos sem evento e dispara reprocessamento via UI.
+
+[v32] financialDiagnostic procedure: compara laudos assinados vs
+      eventos criados. Retorna missing_events_count e pending_pricing_count.
+
+[v32] repriceMissingEvents procedure: precifica retroativamente
+      eventos com pricing_status="pending_both". Modo dry_run disponível.
+
+
+====================================================================
+3. PONTOS AINDA A RESOLVER
+====================================================================
+
+────────────────────────────────────────────────────────────────────
+🔴 CRÍTICO — totais do card inflados (3 meses em vez do ciclo)
+────────────────────────────────────────────────────────────────────
+
+PROBLEMA:
+  myFinanceiro usa janela de 3 meses centrada no mês selecionado.
+  O SUM soma TODOS os eventos da janela — não apenas do ciclo da unidade.
+  Card mostra "Ciclo: 01/05–31/05" mas total inclui abril e junho.
+
+CORREÇÃO NO FRONTEND (sem alterar backend):
+  FinanceMeuFinanceiro2.tsx — ao renderizar o card, recalcular
+  totais filtrando o array de events pelo ciclo da unidade:
+
+    const sd = u.cycle_start_day ?? 1;
+    const ed = u.cycle_end_day ?? 31;
+    const { cycleStart, cycleEnd } = calcCycleDates(sd, ed, refDate);
+    const unitEvts = events.filter(e =>
+      e.unit_id === u.unit_id &&
+      e.signed_at != null &&
+      new Date(e.signed_at) >= cycleStart &&
+      new Date(e.signed_at) < cycleEnd
+    );
+    const total_laudos   = unitEvts.length;
+    const doctor_total   = Math.round(unitEvts.reduce((s,e) => s + Number(e.doctor_amount_due || 0), 0) * 100) / 100;
+    const doctor_paid    = Math.round(unitEvts.filter(e => e.doctor_received_at).reduce((s,e) => s + Number(e.doctor_amount_due || 0), 0) * 100) / 100;
+    const doctor_pending = Math.round((doctor_total - doctor_paid) * 100) / 100;
+
+  Usar esses valores recalculados em vez dos vindos do backend.
+  Aplicar o mesmo em FinanceMeuResponsavel.tsx.
+
+  DEPENDÊNCIA: calcCycleDates deve existir no cliente.
+    Criar: client/src/lib/calcCycleDates.ts (copiar função de financeSimple.ts)
+    Importar em FinanceMeuFinanceiro2.tsx e FinanceMeuResponsavel.tsx.
+
+────────────────────────────────────────────────────────────────────
+🔴 CRÍTICO — signed_at = NULL para todos os eventos históricos
+────────────────────────────────────────────────────────────────────
+
+PROBLEMA:
+  O ALTER TABLE adicionou a coluna mas o UPDATE falhou com erro
+  de nome de coluna (created_at vs createdAt).
+  Eventos históricos têm signed_at = NULL.
+  Filtros por signed_at retornam zero eventos históricos.
+
+EXECUTAR NO SERVIDOR (urgente):
+  mysql -u root -p pacs_portal -e "
+    UPDATE billing_visit_events
+    SET signed_at = createdAt
+    WHERE signed_at IS NULL;
+  "
+
+  VERIFICAR:
+  SELECT COUNT(*) total,
+         SUM(signed_at IS NULL) nulos,
+         SUM(signed_at IS NOT NULL) preenchidos
+  FROM billing_visit_events;
+  → nulos deve ser 0
+
+────────────────────────────────────────────────────────────────────
+🟠 ALTO — responsavel_financeiro com escopo errado (introduzido no v41)
+────────────────────────────────────────────────────────────────────
+
+PROBLEMA:
+  App.tsx v41 adicionou responsavel_financeiro ao allowedRoles de:
+    /financeiro2            → FinanceDashboard2
+    /financeiro2/pagamentos → FinancePagamentos
+
+  FinanceDashboard2 mostra TODOS os responsáveis do sistema.
+  Um responsável que acesse /financeiro2 vê dados de outros responsáveis.
+
+CORREÇÃO (reverter):
+  /financeiro2:           allowedRoles={['admin_master', 'unit_admin']}
+  /financeiro2/pagamentos: allowedRoles={['admin_master', 'unit_admin']}
+
+  O responsável tem sua rota dedicada: /financeiro2/responsavel
+
+────────────────────────────────────────────────────────────────────
+🟠 ALTO — Tela de configuração financeira da unidade (não existe)
+────────────────────────────────────────────────────────────────────
+
+PROBLEMA:
+  Não existe uma tela clara onde o admin configura a unidade
+  antes de começar a laudar:
+    — Vincular responsável financeiro
+    — Configurar ciclo (start_day / end_day)
+    — Configurar valor do sistema por laudo
+    — Configurar valor de cada médico por laudo
+
+  PriceConfigModal e CycleConfigModal existem mas estão em ícones
+  escondidos. Um admin novo nunca vai encontrar sem orientação.
+
+  Sem esta configuração: todos os eventos têm pricing_status="pending_both"
+  e os valores aparecem como R$ 0,00.
+
+────────────────────────────────────────────────────────────────────
+🟡 MÉDIO — parseFloat em db.ts (fallback de preço)
+────────────────────────────────────────────────────────────────────
+
+LOCALIZAÇÃO: server/db.ts linhas 1795–1796
+  systemAmt = parseFloat(systemPrice.price_per_report ?? "0")
+  doctorAmt = parseFloat(unitDefaults.default_doctor_price ?? "0")
+
+PROBLEMA: possível erro de centavos no valor armazenado em
+  doctor_amount_due quando usa o fallback default_doctor_price.
+
+CORREÇÃO: Math.round(Number(v ?? 0) * 100) / 100
+
+────────────────────────────────────────────────────────────────────
+🟡 MÉDIO — Tabelas legadas no banco (não usadas pelo módulo ativo)
+────────────────────────────────────────────────────────────────────
+
+  billing_report_items       — só atualizada em revisões, não consultada
+  billing_monthly_doctor_by_unit  — legado, não consultada
+  billing_monthly_system_by_unit  — legado, não consultada
+  billing_cycle_configs      — mecanismo antigo de ciclo, não consultada
+
+  Podem ser descontinuadas após confirmar que nenhuma consulta as usa.
+
+────────────────────────────────────────────────────────────────────
+🟡 MÉDIO — getOrCreateActiveCycle ainda chamado (baixo risco)
+────────────────────────────────────────────────────────────────────
+
+PROBLEMA: mesmo não-bloqueante, ainda gera entradas em billing_cycles
+  que não são usadas pelas consultas ativas. Complexidade desnecessária.
+
+AÇÃO FUTURA: remover a chamada e setar doctor_cycle_id = null sempre.
+
+────────────────────────────────────────────────────────────────────
+🟢 BAIXO — templates.category inexistente
+────────────────────────────────────────────────────────────────────
+
+  ReportEditorPage.tsx linha 2329: if (t.category) — campo não existe
+  no banco nem no schema. Remover a referência ou criar a migration.
+
+
+====================================================================
+4. SEQUÊNCIA RECOMENDADA DE AÇÕES
+====================================================================
+
+  HOJE (urgente, sem deploy):
+    [1] UPDATE billing_visit_events SET signed_at = createdAt WHERE signed_at IS NULL
+
+  PRÓXIMO DEPLOY:
+    [2] Reverter allowedRoles de /financeiro2 (remover responsavel_financeiro)
+    [3] Adicionar calcCycleDates.ts no cliente
+    [4] Corrigir totais do card em FinanceMeuFinanceiro2 e FinanceMeuResponsavel
+        usando filtro JS por ciclo da unidade
+
+  MÉDIO PRAZO:
+    [5] Criar tela de configuração financeira da unidade
+    [6] Corrigir parseFloat em db.ts (linhas 1795–1796)
+
+  LIMPEZA (quando houver janela):
+    [7] Descontinuar billing_report_items, billing_monthly_*, billing_cycle_configs
+    [8] Remover chamada de getOrCreateActiveCycle de createBillingVisitEvent
+    [9] Remover referência a templates.category no código
+
+
+====================================================================
+5. RESUMO: O QUE O FINANCEIRO DEVE SER
+====================================================================
+
+  SIMPLES    — qualquer usuário entende o que está vendo em 30 segundos.
+  AUDITÁVEL  — cada valor tem origem rastreável (report_id, signed_at).
+  CONFIÁVEL  — o que o sistema mostra bate exatamente com o que aconteceu.
+
+  Nada mais. Sem analytics. Sem dashboards corporativos.
+  Sem margem operacional. Sem inteligência de negócios.
+
+  O financeiro do PACS deve ser apenas:
+  CONTROLE DE PRODUÇÃO MÉDICA E REPASSE.
+
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================
