@@ -73,6 +73,9 @@ export default function UnitFormDialog({
   const [editingSystemPrice, setEditingSystemPrice] = useState(false);
   const [systemPriceValue, setSystemPriceValue] = useState("");
   const [selectedResponsibleId, setSelectedResponsibleId] = useState<number | null>(null);
+  // Criação inline de responsável
+  const [showCreateResp, setShowCreateResp] = useState(false);
+  const [createRespForm, setCreateRespForm] = useState({ legal_name: "", person_type: "PJ" as "PF" | "PJ", cpf_cnpj: "", email: "", phone: "" });
 
   // Teste de conexão DICOM (na aba Dados)
   const [testingDicom, setTestingDicom] = useState(false);
@@ -135,8 +138,19 @@ export default function UnitFormDialog({
   });
 
   const linkResponsibleDirect = trpc.billing.linkResponsibleToUnitDirect.useMutation({
-    onSuccess: () => { toast.success("Responsável vinculado"); setSelectedResponsibleId(null); refetchUnitCtx(); },
+    onSuccess: () => { toast.success("Responsável vinculado"); setSelectedResponsibleId(null); refetchUnitCtx(); utils.billing.listResponsibles.invalidate(); },
     onError: (e) => toast.error(e.message || "Erro ao vincular responsável"),
+  });
+  const createAndLinkResponsible = trpc.billing.createResponsible.useMutation({
+    onSuccess: async (data) => {
+      await utils.billing.listResponsibles.invalidate();
+      if (unit?.id) {
+        linkResponsibleDirect.mutate({ unitId: unit.id, responsibleId: data.id, startsAt: new Date().toISOString() });
+      }
+      setShowCreateResp(false);
+      setCreateRespForm({ legal_name: "", person_type: "PJ", cpf_cnpj: "", email: "", phone: "" });
+    },
+    onError: (e) => toast.error(e.message || "Erro ao criar responsável"),
   });
 
   const testOrthancConnection = trpc.finance.testOrthancConnection.useMutation({
@@ -468,20 +482,69 @@ export default function UnitFormDialog({
                 )}
 
                 <div className="border-t border-border pt-4">
-                  <Label className="text-sm font-medium">Vincular responsável</Label>
-                  <p className="text-xs text-muted-foreground mt-1 mb-3">Selecione um responsável cadastrado para vincular a esta unidade.</p>
-                  <div className="flex gap-3">
-                    <select value={selectedResponsibleId ?? ""} onChange={e => setSelectedResponsibleId(e.target.value ? Number(e.target.value) : null)}
-                      className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring">
-                      <option value="">Selecione um responsável...</option>
-                      {responsibles?.filter(r => r.isActive && r.legal_name !== "Sem Responsável").map(r => (
-                        <option key={r.id} value={r.id}>{r.legal_name}{r.trade_name ? ` (${r.trade_name})` : ""}</option>
-                      ))}
-                    </select>
-                    <Button type="button" disabled={!selectedResponsibleId || linkResponsibleDirect.isPending} onClick={handleLinkResponsible}>
-                      {linkResponsibleDirect.isPending ? "Vinculando..." : "Vincular"}
-                    </Button>
+                  <div className="flex items-center justify-between mb-1">
+                    <Label className="text-sm font-medium">Vincular responsável</Label>
+                    <button type="button" onClick={() => setShowCreateResp(v => !v)}
+                      className="text-xs text-primary hover:underline flex items-center gap-1">
+                      <Plus className="h-3 w-3" />{showCreateResp ? "Cancelar" : "Novo responsável"}
+                    </button>
                   </div>
+                  {showCreateResp ? (
+                    <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3 mb-3">
+                      <p className="text-xs font-medium text-muted-foreground">Criar e vincular novo responsável financeiro</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="col-span-2">
+                          <Label className="text-xs">Nome / Razão Social *</Label>
+                          <Input className="h-8 mt-1 text-sm" placeholder="Ex: Hospital São Lucas LTDA" value={createRespForm.legal_name}
+                            onChange={e => setCreateRespForm(f => ({ ...f, legal_name: e.target.value }))} />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Tipo</Label>
+                          <select value={createRespForm.person_type} onChange={e => setCreateRespForm(f => ({ ...f, person_type: e.target.value as "PF" | "PJ" }))}
+                            className="w-full h-8 mt-1 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                            <option value="PJ">Pessoa Jurídica</option>
+                            <option value="PF">Pessoa Física</option>
+                          </select>
+                        </div>
+                        <div>
+                          <Label className="text-xs">{createRespForm.person_type === "PJ" ? "CNPJ" : "CPF"}</Label>
+                          <Input className="h-8 mt-1 text-sm" placeholder={createRespForm.person_type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"}
+                            value={createRespForm.cpf_cnpj} onChange={e => setCreateRespForm(f => ({ ...f, cpf_cnpj: e.target.value }))} />
+                        </div>
+                        <div>
+                          <Label className="text-xs">E-mail</Label>
+                          <Input className="h-8 mt-1 text-sm" type="email" placeholder="contato@empresa.com"
+                            value={createRespForm.email} onChange={e => setCreateRespForm(f => ({ ...f, email: e.target.value }))} />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Telefone</Label>
+                          <Input className="h-8 mt-1 text-sm" placeholder="(00) 00000-0000"
+                            value={createRespForm.phone} onChange={e => setCreateRespForm(f => ({ ...f, phone: e.target.value }))} />
+                        </div>
+                      </div>
+                      <Button type="button" size="sm" className="w-full"
+                        disabled={!createRespForm.legal_name.trim() || createAndLinkResponsible.isPending}
+                        onClick={() => createAndLinkResponsible.mutate({ ...createRespForm, email: createRespForm.email || undefined, phone: createRespForm.phone || undefined, cpf_cnpj: createRespForm.cpf_cnpj || undefined })}>
+                        {createAndLinkResponsible.isPending ? <><Loader2 className="h-3 w-3 mr-2 animate-spin" />Criando...</> : "Criar e vincular"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-muted-foreground mt-1 mb-3">Selecione um responsável cadastrado para vincular a esta unidade{!responsibles?.filter(r => r.isActive && r.legal_name !== "Sem Responsável").length ? " — ou clique em \"Novo responsável\" para criar" : ""}.</p>
+                      <div className="flex gap-3">
+                        <select value={selectedResponsibleId ?? ""} onChange={e => setSelectedResponsibleId(e.target.value ? Number(e.target.value) : null)}
+                          className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring">
+                          <option value="">Selecione um responsável...</option>
+                          {responsibles?.filter(r => r.isActive && r.legal_name !== "Sem Responsável").map(r => (
+                            <option key={r.id} value={r.id}>{r.legal_name}{r.trade_name ? ` (${r.trade_name})` : ""}</option>
+                          ))}
+                        </select>
+                        <Button type="button" disabled={!selectedResponsibleId || linkResponsibleDirect.isPending} onClick={handleLinkResponsible}>
+                          {linkResponsibleDirect.isPending ? "Vinculando..." : "Vincular"}
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {unitCtx?.responsibleHistory && unitCtx.responsibleHistory.length > 1 && (
