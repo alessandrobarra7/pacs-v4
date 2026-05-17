@@ -103,7 +103,7 @@ function DoctorPriceCard({
     return starts <= now && (!ends || ends >= now);
   });
 
-  const setDoctorPrice = trpc.billing.setDoctorPrice.useMutation({
+  const setDoctorPrice = trpc.financeSimple.setDoctorPrice.useMutation({
     onSuccess: () => {
       toast.success(`Preço de ${doctor.name} configurado com sucesso!`);
       setShowSetPrice(false);
@@ -280,7 +280,7 @@ export function DoctorPriceManager({
     data: prices,
     isLoading: loadingPrices,
     refetch: refetchPrices,
-  } = trpc.billing.listDoctorPrices.useQuery(
+  } = trpc.financeSimple.listDoctorPrices.useQuery(
     { financialResponsibleId, unitId: unitId! },
     { enabled: !!unitId }
   );

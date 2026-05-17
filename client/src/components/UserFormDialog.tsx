@@ -183,12 +183,12 @@ export default function UserFormDialog({
   const isMedicoEditing = isEditing && role === "medico" && currentUserRole === "admin_master";
   const isMedicoCreating = !isEditing && role === "medico" && currentUserRole === "admin_master";
 
-  const { data: doctorFullCtx, refetch: refetchDoctorCtx } = trpc.billing.getDoctorFullContext.useQuery(
+  const { data: doctorFullCtx, refetch: refetchDoctorCtx } = trpc.financeSimple.getDoctorFullContext.useQuery(
     { doctorUserId: user?.id ?? 0 },
     { enabled: isMedicoEditing && !!user?.id }
   );
 
-  const setDoctorPriceDirect = trpc.billing.setDoctorPriceDirect.useMutation({
+  const setDoctorPriceDirect = trpc.financeSimple.setDoctorPriceDirect.useMutation({
     onSuccess: () => {
       toast.success("Preço atualizado");
       setEditingPriceUnitId(null);

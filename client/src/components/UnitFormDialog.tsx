@@ -114,16 +114,16 @@ export default function UnitFormDialog({
     onError: (e) => { toast.error(e.message || "Erro ao remover logo"); setRemovingLogo(false); },
   });
 
-  const { data: unitCtx, refetch: refetchUnitCtx } = trpc.billing.getUnitFullContext.useQuery(
+  const { data: unitCtx, refetch: refetchUnitCtx } = trpc.financeSimple.getUnitFullContext.useQuery(
     { unitId: unit?.id ?? 0 },
     { enabled: isEditing && !!unit?.id && open }
   );
 
-  const { data: responsibles } = trpc.billing.listResponsibles.useQuery(undefined, {
+  const { data: responsibles } = trpc.financeSimple.listResponsibles.useQuery(undefined, {
     enabled: isEditing && open,
   });
 
-  const { data: teamMembers, refetch: refetchTeam } = trpc.billing.listTeamMembers.useQuery(
+  const { data: teamMembers, refetch: refetchTeam } = trpc.financeSimple.listTeamMembers.useQuery(
     { unitId: unit?.id ?? 0 },
     { enabled: isEditing && !!unit?.id && open && activeTab === "equipe" }
   );
@@ -132,18 +132,18 @@ export default function UnitFormDialog({
     enabled: isEditing && open && activeTab === "equipe",
   });
 
-  const setSystemPriceDirect = trpc.billing.setSystemPriceDirect.useMutation({
+  const setSystemPriceDirect = trpc.financeSimple.setSystemPriceDirect.useMutation({
     onSuccess: () => { toast.success("Custo do sistema atualizado"); setEditingSystemPrice(false); refetchUnitCtx(); },
     onError: (e) => toast.error(e.message || "Erro ao atualizar custo"),
   });
 
-  const linkResponsibleDirect = trpc.billing.linkResponsibleToUnitDirect.useMutation({
-    onSuccess: () => { toast.success("Responsável vinculado"); setSelectedResponsibleId(null); refetchUnitCtx(); utils.billing.listResponsibles.invalidate(); },
+  const linkResponsibleDirect = trpc.financeSimple.linkResponsibleToUnitDirect.useMutation({
+    onSuccess: () => { toast.success("Responsável vinculado"); setSelectedResponsibleId(null); refetchUnitCtx(); utils.financeSimple.listResponsibles.invalidate(); },
     onError: (e) => toast.error(e.message || "Erro ao vincular responsável"),
   });
-  const createAndLinkResponsible = trpc.billing.createResponsible.useMutation({
+  const createAndLinkResponsible = trpc.financeSimple.createResponsible.useMutation({
     onSuccess: async (data) => {
-      await utils.billing.listResponsibles.invalidate();
+      await utils.financeSimple.listResponsibles.invalidate();
       if (unit?.id) {
         linkResponsibleDirect.mutate({ unitId: unit.id, responsibleId: data.id, startsAt: new Date().toISOString() });
       }
@@ -153,17 +153,17 @@ export default function UnitFormDialog({
     onError: (e) => toast.error(e.message || "Erro ao criar responsável"),
   });
 
-  const testOrthancConnection = trpc.billing.testOrthancConnection.useMutation({
+  const testOrthancConnection = trpc.financeSimple.testOrthancConnection.useMutation({
     onSuccess: (data) => { setDicomTestResult(data); setTestingDicom(false); },
     onError: (e) => { setDicomTestResult({ ok: false, message: e.message }); setTestingDicom(false); },
   });
 
-  const addTeamMember = trpc.billing.addTeamMember.useMutation({
+  const addTeamMember = trpc.financeSimple.addTeamMember.useMutation({
     onSuccess: () => { toast.success("Membro adicionado"); setAddingTeamUserId(null); refetchTeam(); },
     onError: (e) => toast.error(e.message || "Erro ao adicionar membro"),
   });
 
-  const removeTeamMember = trpc.billing.removeTeamMember.useMutation({
+  const removeTeamMember = trpc.financeSimple.removeTeamMember.useMutation({
     onSuccess: () => { toast.success("Membro removido"); refetchTeam(); },
     onError: (e) => toast.error(e.message || "Erro ao remover membro"),
   });

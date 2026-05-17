@@ -25,7 +25,7 @@ export default function UnitDoctorsTab({ unitId }: UnitDoctorsTabProps) {
   const { data: linkedDoctors = [], isLoading: loadingLinked } = trpc.units.listDoctors.useQuery(
     { unitId }, { enabled: !!unitId },
   );
-  const { data: unitCtx, isLoading: loadingCtx } = trpc.billing.getUnitFullContext.useQuery(
+  const { data: unitCtx, isLoading: loadingCtx } = trpc.financeSimple.getUnitFullContext.useQuery(
     { unitId }, { enabled: !!unitId },
   );
   const { data: allDoctors = [], isLoading: loadingAll } = trpc.units.listAllDoctors.useQuery();
@@ -39,7 +39,7 @@ export default function UnitDoctorsTab({ unitId }: UnitDoctorsTabProps) {
       else { toast.success("Médico vinculado com sucesso!"); }
       setSelectedDoctorId("");
       utils.units.listDoctors.invalidate({ unitId });
-      utils.billing.getUnitFullContext.invalidate({ unitId });
+      utils.financeSimple.getUnitFullContext.invalidate({ unitId });
     },
     onError: (e) => toast.error(e.message || "Erro ao vincular médico"),
   });
@@ -48,17 +48,17 @@ export default function UnitDoctorsTab({ unitId }: UnitDoctorsTabProps) {
     onSuccess: () => {
       toast.success("Médico removido da unidade.");
       utils.units.listDoctors.invalidate({ unitId });
-      utils.billing.getUnitFullContext.invalidate({ unitId });
+      utils.financeSimple.getUnitFullContext.invalidate({ unitId });
     },
     onError: (e) => toast.error(e.message || "Erro ao remover médico"),
   });
 
-  const setDoctorPriceDirect = trpc.billing.setDoctorPriceDirect.useMutation({
+  const setDoctorPriceDirect = trpc.financeSimple.setDoctorPriceDirect.useMutation({
     onSuccess: () => {
       toast.success("Preço atualizado com sucesso!");
       setEditingDoctorId(null);
       setEditingPriceValue("");
-      utils.billing.getUnitFullContext.invalidate({ unitId });
+      utils.financeSimple.getUnitFullContext.invalidate({ unitId });
     },
     onError: (e) => toast.error(e.message || "Erro ao salvar preço"),
   });

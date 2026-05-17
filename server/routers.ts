@@ -30,7 +30,6 @@ import { annotationsRouter } from "./routers/annotations";
 import { studyMetadataRouter } from "./routers/studyMetadata";
 import { phrasesRouter } from "./routers/phrases";
 import { medicalDataRouter } from "./routers/medicalData";
-import { billingRouter } from "./routers/billing";
 import { adminRouter } from "./routers/admin";
 import { slaRouter } from "./routers/sla";
 import { layoutsRouter } from "./routers/layouts";
@@ -139,7 +138,6 @@ export const appRouter = router({
   studyMetadata: studyMetadataRouter,
   phrases: phrasesRouter,
   medicalData: medicalDataRouter,
-  billing: billingRouter,
   admin: adminRouter,
   sla: slaRouter,
   layouts: layoutsRouter,

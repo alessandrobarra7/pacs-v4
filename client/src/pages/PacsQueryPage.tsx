@@ -93,7 +93,7 @@ function formatSex(sex: string): string {
 
 /** Componente: Banner financeiro discreto para médicos e responsáveis */
 function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefined; userRole: string }) {
-  const { data: info, isLoading, isError } = trpc.billing.getUnitFinancialInfo.useQuery(
+  const { data: info, isLoading, isError } = trpc.financeSimple.getUnitFinancialInfo.useQuery(
     { unit_id: unitId! },
     { staleTime: 0, enabled: !!unitId }
   );

@@ -181,8 +181,8 @@ function CachePanel() {
 // ─── Painel de Responsáveis Financeiros ─────────────────────────────────────
 function ResponsaveisPanel({ allUnits }: { allUnits: { id: number; name: string }[] }) {
   const utils = trpc.useUtils();
-  const { data: responsaveis = [], isLoading } = trpc.billing.listResponsibles.useQuery();
-  const { data: availableUsers = [] } = trpc.billing.listAvailableUsers.useQuery();
+  const { data: responsaveis = [], isLoading } = trpc.financeSimple.listResponsibles.useQuery();
+  const { data: availableUsers = [] } = trpc.financeSimple.listAvailableUsers.useQuery();
 
   // Estado dos modais
   const [showCreate, setShowCreate] = useState(false);
@@ -205,24 +205,24 @@ function ResponsaveisPanel({ allUnits }: { allUnits: { id: number; name: string 
   // Formulário de vínculo de usuário
   const [linkUserForm, setLinkUserForm] = useState({ userId: "" });
 
-  const createResp = trpc.billing.createResponsible.useMutation({
-    onSuccess: () => { toast.success("Responsável criado!"); setShowCreate(false); setCreateForm({ person_type: "PJ", legal_name: "", trade_name: "", cpf_cnpj: "", email: "", phone: "" }); utils.billing.listResponsibles.invalidate(); },
+  const createResp = trpc.financeSimple.createResponsible.useMutation({
+    onSuccess: () => { toast.success("Responsável criado!"); setShowCreate(false); setCreateForm({ person_type: "PJ", legal_name: "", trade_name: "", cpf_cnpj: "", email: "", phone: "" }); utils.financeSimple.listResponsibles.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
-  const linkUnit = trpc.billing.linkUnit.useMutation({
-    onSuccess: () => { toast.success("Unidade vinculada!"); setShowLinkUnit(null); setLinkUnitForm({ unitId: "", startsAt: new Date().toISOString().split("T")[0] }); utils.billing.listUnitsForResponsibleWithNames.invalidate(); },
+  const linkUnit = trpc.financeSimple.linkUnit.useMutation({
+    onSuccess: () => { toast.success("Unidade vinculada!"); setShowLinkUnit(null); setLinkUnitForm({ unitId: "", startsAt: new Date().toISOString().split("T")[0] }); utils.financeSimple.listUnitsForResponsibleWithNames.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
-  const unlinkUnit = trpc.billing.unlinkUnit.useMutation({
-    onSuccess: () => { toast.success("Unidade desvinculada!"); utils.billing.listUnitsForResponsibleWithNames.invalidate(); },
+  const unlinkUnit = trpc.financeSimple.unlinkUnit.useMutation({
+    onSuccess: () => { toast.success("Unidade desvinculada!"); utils.financeSimple.listUnitsForResponsibleWithNames.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
-  const linkUser = trpc.billing.linkUser.useMutation({
-    onSuccess: () => { toast.success("Usuário vinculado!"); setShowLinkUser(null); setLinkUserForm({ userId: "" }); utils.billing.listUsersForResponsibleWithNames.invalidate(); },
+  const linkUser = trpc.financeSimple.linkUser.useMutation({
+    onSuccess: () => { toast.success("Usuário vinculado!"); setShowLinkUser(null); setLinkUserForm({ userId: "" }); utils.financeSimple.listUsersForResponsibleWithNames.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
-  const unlinkUser = trpc.billing.unlinkUser.useMutation({
-    onSuccess: () => { toast.success("Usuário desvinculado!"); utils.billing.listUsersForResponsibleWithNames.invalidate(); },
+  const unlinkUser = trpc.financeSimple.unlinkUser.useMutation({
+    onSuccess: () => { toast.success("Usuário desvinculado!"); utils.financeSimple.listUsersForResponsibleWithNames.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -407,11 +407,11 @@ function ResponsavelCard({
   onUnlinkUser: (userId: number) => void;
   fmtDate: (d: any) => string;
 }) {
-  const { data: linkedUnits = [] } = trpc.billing.listUnitsForResponsibleWithNames.useQuery(
+  const { data: linkedUnits = [] } = trpc.financeSimple.listUnitsForResponsibleWithNames.useQuery(
     { financialResponsibleId: responsible.id },
     { enabled: expanded },
   );
-  const { data: linkedUsers = [] } = trpc.billing.listUsersForResponsibleWithNames.useQuery(
+  const { data: linkedUsers = [] } = trpc.financeSimple.listUsersForResponsibleWithNames.useQuery(
     { financialResponsibleId: responsible.id },
     { enabled: expanded },
   );
@@ -830,7 +830,7 @@ export default function AdminPage() {
     onError: (e) => toast.error(`Erro ao salvar dados médicos: ${e.message}`),
   });
 
-  const setDoctorPriceDirect = trpc.billing.setDoctorPriceDirect.useMutation();
+  const setDoctorPriceDirect = trpc.financeSimple.setDoctorPriceDirect.useMutation();
 
   // (updateLogo foi movido para antes de handleSaveUnit — Bug fix N3)
 

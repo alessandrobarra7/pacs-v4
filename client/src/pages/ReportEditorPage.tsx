@@ -435,8 +435,8 @@ export default function ReportEditorPage() {
       });
 
       // Invalidar queries financeiras para atualizar saldo imediatamente
-      void utils.billing.getUnitFinancialInfo.invalidate();
-      void utils.billing.getDoctorSummary.invalidate();
+      void utils.financeSimple.getUnitFinancialInfo.invalidate();
+      void utils.financeSimple.getDoctorSummary.invalidate();
       // Toast informativo com valor gerado pelo backend
       const amt = signResult?.doctor_amount_due;
       if (amt && parseFloat(amt) > 0) {
