@@ -14,6 +14,7 @@ type SummaryItem = {
   unit_name: string;
   cycle_start_day: number;
   cycle_end_day: number;
+  cycle_label?: string;  // E5: label do ciclo calculado pelo backend
   total_laudos: number;
   doctor_total: number;
   doctor_paid: number;
@@ -129,7 +130,7 @@ export default function FinanceMeuFinanceiro() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [selectedUnit, setSelectedUnit] = useState<SummaryItem | null>(null);
 
-  const referenceDate = new Date(year, month - 1, 1).toISOString();
+  const referenceDate = new Date(year, month - 1, 15).toISOString();
   const { data, isLoading } = trpc.financeSimple.myFinanceiro.useQuery({ reference_date: referenceDate });
 
   function prevMonth() {
@@ -216,20 +217,8 @@ export default function FinanceMeuFinanceiro() {
                   <div>
                     <p className="text-white font-semibold text-base">{u.unit_name}</p>
                     <p className="text-slate-400 text-xs mt-0.5">
-                      {(() => {
-                        const pad = (n: number) => String(n).padStart(2, '0');
-                        const sd = u.cycle_start_day ?? 1;
-                        const ed = u.cycle_end_day ?? 31;
-                        const d = new Date(year, month - 1, 1);
-                        let label: string;
-                        if (sd <= ed) {
-                          label = `${pad(sd)}/${pad(month)} – ${pad(ed)}/${pad(month)}`;
-                        } else {
-                          const nextM = month === 12 ? 1 : month + 1;
-                          label = `${pad(sd)}/${pad(month)} – ${pad(ed)}/${pad(nextM)}`;
-                        }
-                        return <span>Ciclo: {label}</span>;
-                      })()}
+                      {/* E5: cycle_label vem do backend (calcCycleDates), fallback simples se ausente */}
+                      <span>Ciclo: {u.cycle_label ?? `${u.cycle_start_day ?? 1}/${String(month).padStart(2,'0')} – ${u.cycle_end_day ?? 31}/${String(month).padStart(2,'0')}`}</span>
                       {u.price_per_report != null ? (
                         <span className="ml-2 text-cyan-400">· R$ {Number(u.price_per_report).toFixed(2).replace(".", ",")} / laudo</span>
                       ) : (

@@ -126,11 +126,6 @@ function Router() {
       <Route path="/financeiro/dashboard" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin']} />} />
       <Route path="/financeiro/configuracao" component={() => <ProtectedRoute component={FinanceConfiguracao} allowedRoles={['admin_master']} />} />
 
-      {/* Redirects de URLs legadas /billing/* */}
-      <Route path="/billing/admin"><Redirect to="/financeiro/pagamentos" /></Route>
-      <Route path="/billing/unit"><Redirect to="/financeiro/responsavel" /></Route>
-      <Route path="/billing/doctor"><Redirect to="/financeiro/meu-financeiro" /></Route>
-
       {/* 404 */}
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />

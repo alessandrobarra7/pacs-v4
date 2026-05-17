@@ -384,6 +384,14 @@ function ReadinessChecklist({ unitId }: { unitId: number }) {
         ? "Todos os laudos precificados"
         : `${data.pending_pricing_count} laudo(s) com precificação pendente — use Reprocessar abaixo`,
     },
+    // E9: laudos assinados sem evento financeiro
+    {
+      label: "Laudos sem evento financeiro",
+      ok: (data.missing_events_count ?? 0) === 0,
+      detail: (data.missing_events_count ?? 0) === 0
+        ? "Todos os laudos possuem evento financeiro"
+        : `${data.missing_events_count} laudo(s) assinado(s) sem evento financeiro — clique em Reprocessar abaixo`,
+    },
   ];
 
   const allOk = items.every(i => i.ok);
@@ -436,8 +444,19 @@ export function FinanceConfiguracao() {
 
   const reprocess = trpc.financeSimple.reprocessBillingEvents.useMutation({
     onSuccess: (result: any) => {
-      toast.success(`Reprocessamento concluído: ${result?.updated ?? 0} evento(s) atualizados`);
+      toast.success(
+        `Reprocessamento concluído: ${result?.created ?? 0} evento(s) criado(s)` +
+        (result?.failed ? `, ${result.failed} falha(s)` : '')
+      );
       utils.financeSimple.unitFinancialReadiness.invalidate();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const reprice = trpc.financeSimple.repriceMissingEvents.useMutation({
+    onSuccess: (result: any) => {
+      toast.success(`Reprecificação concluída: ${result?.updated ?? 0} evento(s) atualizados`);
+      utils.financeSimple.unitFinancialReadiness.invalidate({ unit_id: selectedUnitId! });
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -583,25 +602,44 @@ export function FinanceConfiguracao() {
               <div className="px-5 py-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-white">Reprocessar eventos pendentes</p>
+                    <p className="text-sm text-white">Reprocessar eventos faltantes</p>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Recalcula preços dos laudos com <code className="text-violet-300 bg-slate-800 px-1 rounded">pricing_status ≠ ok</code> nesta unidade.
-                      {readiness && readiness.pending_pricing_count > 0 && (
-                        <span className="ml-1 text-rose-400 font-medium">{readiness.pending_pricing_count} pendente(s)</span>
-                      )}
+                      Cria eventos financeiros para laudos assinados que ainda não possuem registro.
                     </p>
                   </div>
                   <Button
                     size="sm"
                     variant="outline"
                     className="border-violet-600/50 text-violet-400 hover:bg-violet-500/10 hover:border-violet-500 shrink-0"
-                    disabled={!reprocess || reprocess.isPending || (readiness?.pending_pricing_count ?? 0) === 0}
-                    onClick={() => reprocess?.mutate({ unit_id: selectedUnitId })}
+                    disabled={reprocess.isPending}
+                    onClick={() => reprocess.mutate({ unit_id: selectedUnitId, dry_run: false })}
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${reprocess?.isPending ? "animate-spin" : ""}`} />
-                    {reprocess?.isPending ? "Processando..." : "Reprocessar"}
+                    <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${reprocess.isPending ? "animate-spin" : ""}`} />
+                    {reprocess.isPending ? "Processando..." : "Reprocessar"}
                   </Button>
                 </div>
+
+                {/* Botão Reprecificar — só aparece quando há eventos com precificação pendente */}
+                {readiness && readiness.pending_pricing_count > 0 && (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-white">Reprecificar eventos sem preço</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Aplica os preços configurados aos laudos com precificação pendente.{" "}
+                        <span className="text-rose-400 font-medium">{readiness.pending_pricing_count} pendente(s)</span>
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-amber-600/50 text-amber-400 hover:bg-amber-500/10 shrink-0"
+                      disabled={reprice.isPending}
+                      onClick={() => reprice.mutate({ unit_id: selectedUnitId!, dry_run: false })}
+                    >
+                      {reprice.isPending ? "Processando..." : "Reprecificar"}
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </>

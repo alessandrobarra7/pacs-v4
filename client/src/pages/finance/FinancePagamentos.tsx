@@ -331,7 +331,7 @@ export default function FinancePagamentos() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
 
-  const referenceDate = new Date(year, month - 1, 1).toISOString();
+  const referenceDate = new Date(year, month - 1, 15).toISOString();
   const { data: units, isLoading } = trpc.financeSimple.unitSummary.useQuery({ reference_date: referenceDate });
 
   function prevMonth() {

@@ -106,9 +106,9 @@ function UnitDetail({ unit, referenceDate }: { unit: any; referenceDate: string 
   );
 }
 
-// helper: gera ISO string para o primeiro dia do mês/ano selecionado
+// helper: gera ISO string para o dia 15 do mês/ano selecionado (ponto de referência seguro para calcCycleDates)
 function toRefDate(year: number, month: number): string {
-  return new Date(year, month - 1, 1).toISOString();
+  return new Date(year, month - 1, 15).toISOString();
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────

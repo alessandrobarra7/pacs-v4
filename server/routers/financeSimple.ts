@@ -609,18 +609,23 @@ export const financeSimpleRouter = router({
         doctorPriceRows.map(p => [p.unit_id, Number(p.price_per_report ?? 0)])
       );
       return {
-        summary: summary.map((r) => ({
-          unit_id: r.unit_id,
-          unit_name: r.unit_name ?? "Unidade",
-          cycle_start_day: r.cycle_start_day ?? 1,
-          cycle_end_day: r.cycle_end_day ?? 31,
-          total_laudos: Number(r.total_laudos),
-          doctor_total: toMoney(r.doctor_total),
-          doctor_paid: toMoney(r.doctor_paid ?? 0),
-          doctor_pending: subMoney(r.doctor_total, r.doctor_paid ?? 0),   // FIX float
-          last_received_at: r.last_received_at,
-          price_per_report: priceByUnit.get(r.unit_id) ?? null,  // NOVO: valor vigente
-        })),
+        summary: summary.map((r) => {
+          // E5: cycle_label calculado pelo backend usando calcCycleDates (mesmo algoritmo do dashboard)
+          const { label: cycle_label } = calcCycleDates(r.cycle_start_day, r.cycle_end_day, refDate);
+          return {
+            unit_id: r.unit_id,
+            unit_name: r.unit_name ?? "Unidade",
+            cycle_start_day: r.cycle_start_day ?? 1,
+            cycle_end_day: r.cycle_end_day ?? 31,
+            cycle_label,
+            total_laudos: Number(r.total_laudos),
+            doctor_total: toMoney(r.doctor_total),
+            doctor_paid: toMoney(r.doctor_paid ?? 0),
+            doctor_pending: subMoney(r.doctor_total, r.doctor_paid ?? 0),
+            last_received_at: r.last_received_at,
+            price_per_report: priceByUnit.get(r.unit_id) ?? null,
+          };
+        }),
         events,
       };
     }),
@@ -2690,25 +2695,35 @@ export const financeSimpleRouter = router({
         );
       const pendingPricingCount = Number(pendingRows[0]?.count ?? 0);
 
-      // 8. Laudos sem evento billing (missing events)
+      // 8. Laudos signed sem evento billing (missing events) — corrigido E2
+      const { reports: reportsTable } = await import('../../drizzle/schema');
       const missingRows = await db
         .select({ count: sql<number>`COUNT(*)` })
-        .from(billing_visit_events)
+        .from(reportsTable)
         .where(
           and(
-            eq(billing_visit_events.unit_id, input.unit_id),
-            isNull(billing_visit_events.financial_responsible_id),
+            eq(reportsTable.unit_id, input.unit_id),
+            eq(reportsTable.status, 'signed'),
+            isNull(
+              db.select({ id: billing_visit_events.id })
+                .from(billing_visit_events)
+                .where(eq(billing_visit_events.report_id, reportsTable.id))
+                .limit(1)
+            ),
           )
         );
       const missingEventsCount = Number(missingRows[0]?.count ?? 0);
 
+      // E4: isReady exige também hasResponsibleUser
       const isReady =
         unit.isActive &&
         hasResponsible &&
+        hasResponsibleUser &&
         hasCycle &&
         (hasSpecificSystemPrice || hasDefaultSystemPrice) &&
         (hasDefaultDoctorPrice || doctorsWithPrice > 0) &&
-        pendingPricingCount === 0;
+        pendingPricingCount === 0 &&
+        missingEventsCount === 0;
 
       return {
         unit_id: input.unit_id,
@@ -2730,5 +2745,57 @@ export const financeSimpleRouter = router({
         missing_events_count: missingEventsCount,
         is_ready: isReady,
       };
+    }),
+
+  /**
+   * E3 — Lista todos os médicos que assinaram laudos na unidade (com ou sem preço configurado)
+   * Usado na tela de Configuração para exibir médicos sem preço (que ficavam invisíveis antes)
+   */
+  listDoctorsForUnit: protectedProcedure
+    .input(z.object({ unit_id: z.number().int() }))
+    .query(async ({ input, ctx }) => {
+      assertAdmin(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { reports: reportsTable } = await import('../../drizzle/schema');
+      // Busca médicos distintos que assinaram laudos nesta unidade
+      const doctorRows = await db
+        .selectDistinct({
+          doctor_user_id: reportsTable.author_user_id,
+          doctor_name: users.name,
+        })
+        .from(reportsTable)
+        .innerJoin(users, eq(users.id, reportsTable.author_user_id))
+        .where(
+          and(
+            eq(reportsTable.unit_id, input.unit_id),
+            eq(reportsTable.status, 'signed'),
+          )
+        );
+      if (!doctorRows.length) return [];
+      // Busca preços configurados para cada médico nesta unidade
+      const doctorIds = doctorRows.map(d => d.doctor_user_id);
+      const priceRows = await db
+        .select({
+          doctor_user_id: billing_doctor_unit_prices.doctor_user_id,
+          amount: billing_doctor_unit_prices.price_per_report,
+          starts_at: billing_doctor_unit_prices.starts_at,
+        })
+        .from(billing_doctor_unit_prices)
+        .where(
+          and(
+            eq(billing_doctor_unit_prices.unit_id, input.unit_id),
+            inArray(billing_doctor_unit_prices.doctor_user_id, doctorIds),
+            isNull(billing_doctor_unit_prices.ends_at),
+          )
+        );
+      const priceMap = new Map(priceRows.map(p => [p.doctor_user_id, p]));
+      return doctorRows.map(d => ({
+        doctor_user_id: d.doctor_user_id,
+        doctor_name: d.doctor_name,
+        has_price: priceMap.has(d.doctor_user_id),
+        price_per_report: priceMap.get(d.doctor_user_id)?.amount ?? null, // amount = price_per_report do schema
+        price_starts_at: priceMap.get(d.doctor_user_id)?.starts_at ?? null,
+      }));
     }),
 });

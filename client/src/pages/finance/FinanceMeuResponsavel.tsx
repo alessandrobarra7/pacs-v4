@@ -124,7 +124,7 @@ export default function FinanceMeuResponsavel() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [selectedUnit, setSelectedUnit] = useState<{ id: number; name: string } | null>(null);
 
-  const referenceDate = new Date(year, month - 1, 1).toISOString();
+  const referenceDate = new Date(year, month - 1, 15).toISOString();
   const { data, isLoading } = trpc.financeSimple.myResponsavelSummary.useQuery({ reference_date: referenceDate });
 
   function prevMonth() {
