@@ -169,7 +169,7 @@ export const audit_log = mysqlTable("audit_log", {
   id: int("id").autoincrement().primaryKey(),
   user_id: int("user_id"),
   unit_id: int("unit_id"),
-  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "DELETE_REPORT", "REVISE_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "ACTIVATE_USER", "DEACTIVATE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA", "RESET_DOCTOR_BILLING", "CREATE_LAYOUT", "UPDATE_LAYOUT", "DELETE_LAYOUT", "BILLING_EVENT_FAILED"]).notNull(),
+  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "DELETE_REPORT", "REVISE_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "ACTIVATE_USER", "DEACTIVATE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA", "RESET_DOCTOR_BILLING", "CREATE_LAYOUT", "UPDATE_LAYOUT", "DELETE_LAYOUT", "BILLING_EVENT_FAILED", "FINANCIAL_ENABLED", "FINANCIAL_DISABLED", "BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED", "BILLING_EVENT_CANCELLED"]).notNull(),
   target_type: varchar("target_type", { length: 50 }),
   target_id: varchar("target_id", { length: 100 }),
   ip_address: varchar("ip_address", { length: 45 }),
@@ -594,6 +594,8 @@ export const billing_visit_events = mysqlTable("billing_visit_events", {
   /** Nome do exame no momento do laudo (snapshot para auditoria) */
   exam_name_snapshot: varchar("exam_name_snapshot", { length: 200 }),
   pricing_status: mysqlEnum("pricing_status", ["ok", "pending_system_price", "pending_doctor_price", "pending_both"]).notNull().default("pending_both"),
+  /** P8: status financeiro do evento — active | cancelled | reversed | adjusted */
+  financial_status: mysqlEnum("financial_status", ["active", "cancelled", "reversed", "adjusted"]).notNull().default("active"),
   doctor_received_at: timestamp("doctor_received_at"),
   /** P4: auditoria — quem marcou o pagamento ao médico */
   doctor_received_by_user_id: int("doctor_received_by_user_id"),

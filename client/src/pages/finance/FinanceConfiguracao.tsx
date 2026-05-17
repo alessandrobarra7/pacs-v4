@@ -370,13 +370,15 @@ function ReadinessChecklist({ unitId }: { unitId: number }) {
         : "Sem preço de sistema — configure acima",
     },
     {
-      label: "Médicos com preço configurado",
-      ok: data.has_default_doctor_price || data.doctors_with_price > 0,
-      detail: data.doctors_with_price > 0
-        ? `${data.doctors_with_price} médico(s) com preço`
-        : data.has_default_doctor_price
-          ? "Usando preço padrão da unidade"
-          : "Sem preço de médico — configure na tabela acima",
+      label: "Preço configurado para todos os médicos",
+      ok: data.doctor_price_ok ?? (data.has_default_doctor_price || data.doctors_with_price > 0),
+      detail: data.has_default_doctor_price
+        ? "Usando preço padrão da unidade (fallback)"
+        : (data.doctors_without_price ?? 0) > 0
+          ? `${data.doctors_without_price} médico(s) sem preço configurado de ${data.total_doctors ?? data.doctors_with_price} total`
+          : data.doctors_with_price > 0
+            ? `${data.doctors_with_price} médico(s) com preço específico`
+            : "Sem preço de médico — configure na tabela acima",
     },
     {
       label: "Eventos com precificação pendente",

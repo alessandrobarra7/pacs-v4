@@ -58,6 +58,7 @@ import {
   listSystemPricesForUnit,
   listDoctorPricesForUnit,
   getActiveResponsibleForUnit,
+  getActiveSystemPrice,
   upsertSystemUnitPrice,
   upsertDoctorUnitPrice,
   closeBillingCycle,
@@ -172,6 +173,55 @@ function assertAdmin(role: string) {
   }
 }
 
+/**
+ * P4 (v50) — assertCanAccessFinancialUnit
+ * Garante que o usuário tem vínculo com a unidade solicitada.
+ * - admin_master: acesso irrestrito
+ * - unit_admin: verifica user_unit_permissions
+ * - responsavel_financeiro: verifica financial_responsible_units
+ */
+async function assertCanAccessFinancialUnit(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  user: { id: number; role: string },
+  unitId: number
+): Promise<void> {
+  if (user.role === 'admin_master') return;
+
+  if (user.role === 'unit_admin') {
+    const perm = await db
+      .select({ unit_id: user_unit_permissions.unit_id })
+      .from(user_unit_permissions)
+      .where(and(
+        eq(user_unit_permissions.user_id, user.id),
+        eq(user_unit_permissions.unit_id, unitId),
+      ))
+      .limit(1);
+    if (!perm.length)
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem acesso a esta unidade.' });
+    return;
+  }
+
+  if (user.role === 'responsavel_financeiro') {
+    const responsibleId = await getResponsibleIdForUser(user.id);
+    if (!responsibleId)
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem responsável financeiro vinculado.' });
+    const link = await db
+      .select({ id: financial_responsible_units.id })
+      .from(financial_responsible_units)
+      .where(and(
+        eq(financial_responsible_units.financial_responsible_id, responsibleId),
+        eq(financial_responsible_units.unit_id, unitId),
+        isNull(financial_responsible_units.ends_at),
+      ))
+      .limit(1);
+    if (!link.length)
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Esta unidade não está vinculada ao seu perfil financeiro.' });
+    return;
+  }
+
+  throw new TRPCError({ code: 'FORBIDDEN' });
+}
+
 function assertMedico(role: string) {
   if (role !== "medico" && role !== "admin_master") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a médicos" });
@@ -237,6 +287,7 @@ export const financeSimpleRouter = router({
               eq(billing_visit_events.unit_id, u.id),
               sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
               sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+              ne(billing_visit_events.financial_status, 'cancelled'), // P8D
             ));
           return r[0];
         })
@@ -346,6 +397,7 @@ export const financeSimpleRouter = router({
               eq(billing_visit_events.unit_id, u.id),
               sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
               sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+              ne(billing_visit_events.financial_status, 'cancelled'), // P8D
             ));
           return {
             unit_id: u.id,
@@ -415,6 +467,7 @@ export const financeSimpleRouter = router({
             eq(billing_visit_events.unit_id, input.unit_id),
             sql`${billing_visit_events.signed_at} >= ${startDate}`,
             sql`${billing_visit_events.signed_at} < ${endDate}`,
+            ne(billing_visit_events.financial_status, 'cancelled'), // P8D
           )
         )
         .groupBy(billing_visit_events.doctor_user_id, users.name)
@@ -472,6 +525,7 @@ export const financeSimpleRouter = router({
       assertAdmin(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id); // P4
 
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
       const unitRow = await db.select({
@@ -523,9 +577,9 @@ export const financeSimpleRouter = router({
       assertAdmin(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id); // P4
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      // P1F: usar resolveFinancialCycle para garantir ciclo real
+      // P1F: usar resolveFinancialCycle para garantir ciclo reall
       const { startDate, endDate } = await resolveFinancialCycle(db, input.unit_id, refDate);
       const now = new Date();
       await db
@@ -553,11 +607,10 @@ export const financeSimpleRouter = router({
       reference_date: z.string().datetime().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      if (ctx.user.role !== "admin_master") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas admin_master pode marcar pagamento ao sistema" });
-      }
+      assertAdmin(ctx.user.role); // P7: responsavel_financeiro também pode marcar (Opção B)
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id); // P7: só unidades autorizadas
 
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
       // P1F: usar resolveFinancialCycle para garantir ciclo real
@@ -621,6 +674,7 @@ export const financeSimpleRouter = router({
               eq(billing_visit_events.unit_id, u.id),
               sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
               sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+              ne(billing_visit_events.financial_status, 'cancelled'), // P8D
             ));
           return {
             unit_id: u.id,
@@ -651,6 +705,9 @@ export const financeSimpleRouter = router({
               exam_name_snapshot: billing_visit_events.exam_name_snapshot,
               doctor_amount_due: billing_visit_events.doctor_amount_due,
               doctor_received_at: billing_visit_events.doctor_received_at,
+              doctor_received_by_user_id: billing_visit_events.doctor_received_by_user_id,
+              /** P6A: nome de quem marcou pago (subquery) */
+              paid_by_name: sql<string | null>`(SELECT u2.name FROM users u2 WHERE u2.id = ${billing_visit_events.doctor_received_by_user_id} LIMIT 1)`,
               pricing_status: billing_visit_events.pricing_status,
               signed_at: billing_visit_events.signed_at,
             })
@@ -661,6 +718,7 @@ export const financeSimpleRouter = router({
               eq(billing_visit_events.unit_id, u.id),
               sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
               sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+              ne(billing_visit_events.financial_status, 'cancelled'), // P8D
             ))
             .orderBy(desc(billing_visit_events.signed_at));
         })
@@ -2093,7 +2151,10 @@ export const financeSimpleRouter = router({
         startsAt: z.string(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        assertAdmin(ctx.user.role);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        await assertCanAccessFinancialUnit(db, ctx.user, input.unitId); // P4
         // C4: Não criar mais "Sem Responsável" automaticamente.
         // Exigir que a unidade já tenha um responsável financeiro ativo.
         
@@ -2143,7 +2204,10 @@ export const financeSimpleRouter = router({
         startsAt: z.string(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        assertAdmin(ctx.user.role);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        await assertCanAccessFinancialUnit(db, ctx.user, input.unitId); // P4
         // C4: Não criar mais "Sem Responsável" automaticamente.
         // Exigir que a unidade já tenha um responsável financeiro ativo.
         
@@ -2709,8 +2773,8 @@ export const financeSimpleRouter = router({
       assertAdmin(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-      // 1. Dados básicos da unidade
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id); // P4
+      // 1. Dados básicos da unidadee
       const unitRow = await db
         .select({
           id: units.id,
@@ -2795,6 +2859,20 @@ export const financeSimpleRouter = router({
       const doctorsWithPrice = doctorPriceRows.length;
       const hasDefaultDoctorPrice = !!(unit.default_doctor_price && Number(unit.default_doctor_price) > 0);
 
+      // P3 (v50): total de médicos distintos com laudos assinados na unidade
+      const { reports: reportsTable } = await import('../../drizzle/schema');
+      const totalDoctorRows = await db
+        .selectDistinct({ doctor_user_id: reportsTable.author_user_id })
+        .from(reportsTable)
+        .where(and(
+          eq(reportsTable.unit_id, input.unit_id),
+          sql`${reportsTable.status} IN ('signed', 'revised')`,
+        ));
+      const totalDoctors = totalDoctorRows.length;
+      const doctorsWithoutPrice = Math.max(0, totalDoctors - doctorsWithPrice);
+      // Aprovado se: preço padrão existe OU todos os médicos com laudos têm preço específico
+      const doctorPriceOk = hasDefaultDoctorPrice || doctorsWithPrice >= totalDoctors;
+
       // 7. Eventos com pricing_status pendente
       const pendingRows = await db
         .select({ count: sql<number>`COUNT(*)` })
@@ -2808,7 +2886,6 @@ export const financeSimpleRouter = router({
       const pendingPricingCount = Number(pendingRows[0]?.count ?? 0);
 
       // 8. Laudos signed sem evento billing (missing events) — P6: LEFT JOIN (mais robusto)
-      const { reports: reportsTable } = await import('../../drizzle/schema');
       const missingRows = await db
         .select({ count: sql<number>`COUNT(*)` })
         .from(reportsTable)
@@ -2832,7 +2909,7 @@ export const financeSimpleRouter = router({
         hasResponsibleUser &&
         hasCycle &&
         (hasSpecificSystemPrice || hasDefaultSystemPrice) &&
-        (hasDefaultDoctorPrice || doctorsWithPrice > 0) &&
+        doctorPriceOk &&
         pendingPricingCount === 0 &&
         missingEventsCount === 0;
 
@@ -2852,6 +2929,9 @@ export const financeSimpleRouter = router({
         system_price: systemPrice,
         has_default_doctor_price: hasDefaultDoctorPrice,
         doctors_with_price: doctorsWithPrice,
+        total_doctors: totalDoctors,
+        doctors_without_price: doctorsWithoutPrice,
+        doctor_price_ok: doctorPriceOk,
         pending_pricing_count: pendingPricingCount,
          missing_events_count: missingEventsCount,
         is_ready: isReady,
@@ -2867,14 +2947,51 @@ export const financeSimpleRouter = router({
       enabled: z.boolean(),
     }))
     .mutation(async ({ input, ctx }) => {
-      if (ctx.user.role !== 'admin_master')
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas admin_master pode alterar financial_enabled' });
+      assertAdmin(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id); // P4
+
+      // P2: Validar readiness antes de ativar
+      if (input.enabled) {
+        const unitRow = await db
+          .select({
+            isActive: units.isActive,
+            s: units.billing_cycle_start_day,
+            e: units.billing_cycle_end_day,
+            sys: units.default_system_price,
+          })
+          .from(units)
+          .where(eq(units.id, input.unit_id))
+          .limit(1);
+        const u = unitRow[0];
+        if (!u?.isActive)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'A unidade precisa estar ativa para habilitar o financeiro.' });
+        if (!u.s || !u.e)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Configure o ciclo financeiro antes de ativar.' });
+        const responsible = await getActiveResponsibleForUnit(input.unit_id, new Date());
+        if (!responsible)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Vincule um responsável financeiro antes de ativar.' });
+        const sysPrice = await getActiveSystemPrice(responsible.financial_responsible_id, input.unit_id, new Date());
+        const hasPrice = sysPrice || (u.sys && Number(u.sys) > 0);
+        if (!hasPrice)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Configure o preço do sistema antes de ativar.' });
+      }
+
       await db
         .update(units)
         .set({ financial_enabled: input.enabled })
         .where(eq(units.id, input.unit_id));
+
+      // P2: Registrar ativação/desativação no audit_log
+      await createAuditLog({
+        user_id: ctx.user.id,
+        unit_id: input.unit_id,
+        action: input.enabled ? 'FINANCIAL_ENABLED' : 'FINANCIAL_DISABLED',
+        target_type: 'UNIT',
+        target_id: String(input.unit_id),
+      }).catch(() => {}); // não bloquear o fluxo
+
       return { ok: true };
     }),
   /**
@@ -2927,5 +3044,44 @@ export const financeSimpleRouter = router({
         price_per_report: priceMap.get(d.doctor_user_id)?.amount ?? null, // amount = price_per_report do schema
         price_starts_at: priceMap.get(d.doctor_user_id)?.starts_at ?? null,
       }));
+    }),
+
+  /**
+   * P8C (v50): Cancelar um evento financeiro de laudo.
+   * Apenas admin_master pode cancelar. O evento não é deletado — apenas marcado como 'cancelled'.
+   * Eventos cancelados não entram nos cálculos de resumo (filtrado em todas as queries de summary).
+   */
+  cancelBillingEvent: protectedProcedure
+    .input(z.object({
+      event_id: z.number().int(),
+      reason: z.string().min(5).max(500).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== 'admin_master')
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas admin_master pode cancelar eventos financeiros' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      const evtRow = await db
+        .select({ id: billing_visit_events.id, unit_id: billing_visit_events.unit_id, financial_status: billing_visit_events.financial_status })
+        .from(billing_visit_events)
+        .where(eq(billing_visit_events.id, input.event_id))
+        .limit(1);
+      if (!evtRow.length)
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Evento financeiro não encontrado' });
+      const evt = evtRow[0];
+      if (evt.financial_status === 'cancelled')
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Evento já está cancelado' });
+      await db
+        .update(billing_visit_events)
+        .set({ financial_status: 'cancelled' })
+        .where(eq(billing_visit_events.id, input.event_id));
+      await createAuditLog({
+        user_id: ctx.user.id,
+        unit_id: evt.unit_id,
+        action: 'BILLING_EVENT_CANCELLED',
+        target_type: 'BILLING_EVENT',
+        target_id: String(input.event_id),
+      }).catch(() => {});
+      return { ok: true, event_id: input.event_id };
     }),
 });

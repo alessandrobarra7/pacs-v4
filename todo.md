@@ -1665,3 +1665,43 @@
 ### P7 — BAIXO: Tabelas mortas ainda sendo escritas
 - [x] P7A: Remover bloco billing_report_items de server/routers/reports.ts
 - [x] P7B: Remover chamada updateCycleSummaries de server/db.ts
+
+## CORREÇÕES MÓDULO FINANCEIRO v50
+
+### P1 — CRÍTICO: Migration SQL ausente para novos campos
+- [x] P1: Criar drizzle/0040_financial_module_columns.sql (financial_enabled, doctor_received_by_user_id, system_paid_by_user_id, financial_status)
+- [x] P1: Aplicar migration financial_status no banco dev (webdev_execute_sql)
+- [x] P1: Adicionar financial_status ao schema Drizzle
+
+### P2 — ALTA: setFinancialEnabled sem validação de readiness no backend
+- [x] P: Adicionar validação de readiness (isActive, ciclo, responsável, preço) em setFinancialEnabled
+- [x] P: Registrar ativação/desativação no audit_log
+
+### P3 — ALTA: Checklist não valida "todos os médicos com preço"
+- [x] P: Adicionar total_doctors e doctors_without_price ao retorno de unitFinancialReadiness
+- [x] P: Atualizar condição isReady para doctorPriceOk
+- [x] P: Atualizar ReadinessChecklist no frontend
+
+### P4 — ALTA: Sem assertCanAccessFinancialUnit
+- [x] P: Criar função assertCanAccessFinancialUnit em financeSimple.ts
+- [x] P: Aplicar nas 7 procedures prioritárias
+
+### P5 — MÉDIA: financial_enabled não integrado ao fluxo de assinatura
+- [x] P: createBillingVisitEvent registra audit_log se unidade inativa
+
+### P6 — MÉDIA: Auditoria de pagamento não exibida na interface
+- [x] PA: myFinanceiro retorna doctor_received_by_user_id + paid_by_name
+- [x] PB: ExtractModal exibe "por [nome]" ao lado de "Pago"
+- [x] PC: DoctorsModal exibe data do pagamento
+
+### P7 — MÉDIA: markSystemPaid — decisão de acesso
+- [x] P: Implementar Opção B (responsavel_financeiro + assertCanAccessFinancialUnit)
+
+### P8 — MÉDIA: Política de retificação/cancelamento
+- [x] P8A: Migration financial_status aplicada no banco
+- [x] P8B: Schema Drizzle atualizado com financial_status
+- [x] PC: Criar procedure cancelBillingEvent
+- [x] PD: Filtrar financial_status != 'cancelled' em todas as queries de summary
+
+### P9 — BAIXO: updateCycleSummaries dead code em db.ts
+- [x] P: Remover função updateCycleSummaries de db.ts

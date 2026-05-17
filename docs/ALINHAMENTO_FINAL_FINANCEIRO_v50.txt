@@ -1,0 +1,607 @@
+================================================================================
+RELATÓRIO FINAL DE ALINHAMENTO — MÓDULO FINANCEIRO
+pacs-v4-main v50
+Consolidação: análise direta do código + relatorio_e_plano_alinhamento_financeiro_v50.txt
+================================================================================
+
+LÓGICA FINAL ESPERADA DO SISTEMA
+----------------------------------
+1. Cada laudo assinado gera 1 evento financeiro.
+2. Cada unidade possui sua própria configuração financeira.
+3. Cada médico recebe conforme o valor definido para aquela unidade.
+4. Cada responsável financeiro visualiza apenas suas unidades.
+5. Todos os totais usam o ciclo financeiro real da unidade.
+6. O que aparece na tela é exatamente o que será pago.
+
+================================================================================
+PARTE 1 — O QUE ESTÁ CORRETO NA v50
+================================================================================
+
+O v50 representa o maior salto qualitativo desde o início da reformulação.
+Os itens abaixo foram verificados diretamente no código:
+
+✅ resolveFinancialCycle — função central criada e aplicada nas procedures principais.
+   Todas as procedures de resumo agora usam ciclo real por unidade.
+   Janela de 3 meses completamente removida.
+
+✅ myFinanceiro — busca unidades do médico individualmente e aplica calcCycleDates
+   por unidade. Retorna cycle_start_date e cycle_end_date para o frontend usar
+   na marcação de pagamento.
+
+✅ myResponsavelSummary — usa calcCycleDates por unidade vinculada.
+
+✅ unitSummary, responsibleSummary, dashboard — usam ciclo real por unidade.
+
+✅ markDoctorPaid — usa resolveFinancialCycle + grava doctor_received_by_user_id.
+
+✅ markSystemPaid — usa resolveFinancialCycle + grava system_paid_by_user_id.
+   Restrito exclusivamente a admin_master.
+
+✅ Schema: financial_enabled em units (boolean, default false).
+
+✅ Schema: doctor_received_by_user_id e system_paid_by_user_id em billing_visit_events.
+
+✅ setFinancialEnabled — procedure existe no backend.
+
+✅ listDoctorsForUnit — procedure criada e usada corretamente no frontend.
+   FinanceConfiguracao usa listDoctorsForUnit (médicos sem preço visíveis).
+
+✅ billing_report_items — removido de reports.ts (escrita eliminada).
+
+✅ Sem resíduos de finance2, FinanceShell2 ou rotas /billing/*.
+
+✅ Auditoria de quem marcou pagamento implementada no backend.
+
+================================================================================
+PARTE 2 — O QUE AINDA ESTÁ INCOMPLETO OU INCORRETO
+================================================================================
+
+A análise direta do código revelou os seguintes pontos que o documento
+de alinhamento identifica corretamente e que ainda precisam de implementação,
+mais pontos adicionais encontrados pela análise do código.
+
+================================================================================
+PONTO 1 — CRÍTICO
+Migrations SQL ausentes para os novos campos
+================================================================================
+
+CONFIRMADO PELO DOCUMENTO E PELO CÓDIGO.
+
+O schema Drizzle foi atualizado com os novos campos:
+  - units.financial_enabled
+  - billing_visit_events.doctor_received_by_user_id
+  - billing_visit_events.system_paid_by_user_id
+
+Nenhum arquivo de migration SQL foi criado para esses campos.
+O sistema compila normalmente, mas quebra em produção com:
+  "Unknown column 'financial_enabled' in 'field list'"
+  "Unknown column 'doctor_received_by_user_id' in 'field list'"
+
+CORREÇÃO — Criar migration SQL:
+
+  Arquivo: drizzle/0034_financial_module_columns.sql
+
+  ALTER TABLE units
+    ADD COLUMN financial_enabled BOOLEAN NOT NULL DEFAULT FALSE
+      AFTER isActive;
+
+  ALTER TABLE billing_visit_events
+    ADD COLUMN doctor_received_by_user_id INT NULL
+      AFTER doctor_received_at,
+    ADD COLUMN system_paid_by_user_id INT NULL
+      AFTER system_paid_at;
+
+  Após criar o arquivo, executar e validar em ambiente de teste antes de produção.
+  Confirmar que o build continua passando e que a assinatura de laudo funciona.
+
+================================================================================
+PONTO 2 — ALTA PRIORIDADE
+setFinancialEnabled sem validação de readiness no backend
+================================================================================
+
+CONFIRMADO PELO DOCUMENTO. IDENTIFICADO NO CÓDIGO.
+
+setFinancialEnabled (linha 2864 de financeSimple.ts) executa diretamente:
+  await db.update(units).set({ financial_enabled: input.enabled })...
+
+Não chama unitFinancialReadiness. Não verifica se a unidade está pronta.
+Um admin pode ativar o financeiro de uma unidade sem ciclo, sem responsável,
+sem preços configurados. A proteção existe apenas no frontend (botão desabilitado).
+
+RISCO: contornar o frontend (chamada direta à API) ativa o financeiro
+em unidade sem configuração.
+
+CORREÇÃO — Adicionar validação no backend:
+
+  Em setFinancialEnabled, quando input.enabled === true:
+
+  // Não permitir ativação sem readiness completo
+  if (input.enabled) {
+    const unitRow = await db.select({
+      isActive: units.isActive,
+      s: units.billing_cycle_start_day,
+      e: units.billing_cycle_end_day,
+      sys: units.default_system_price,
+      doc: units.default_doctor_price,
+    }).from(units).where(eq(units.id, input.unit_id)).limit(1);
+
+    const u = unitRow[0];
+    if (!u?.isActive) {
+      throw new TRPCError({ code: 'BAD_REQUEST',
+        message: 'A unidade precisa estar ativa para habilitar o financeiro.' });
+    }
+    if (!u.s || !u.e) {
+      throw new TRPCError({ code: 'BAD_REQUEST',
+        message: 'Configure o ciclo financeiro antes de ativar.' });
+    }
+
+    const responsible = await getActiveResponsibleForUnit(input.unit_id, new Date());
+    if (!responsible) {
+      throw new TRPCError({ code: 'BAD_REQUEST',
+        message: 'Vincule um responsável financeiro antes de ativar.' });
+    }
+
+    const sysPrice = await getActiveSystemPrice(
+      responsible.financial_responsible_id, input.unit_id, new Date()
+    );
+    const hasPrice = sysPrice || (u.sys && Number(u.sys) > 0);
+    if (!hasPrice) {
+      throw new TRPCError({ code: 'BAD_REQUEST',
+        message: 'Configure o preço do sistema antes de ativar.' });
+    }
+  }
+
+  Registrar ativação/desativação no audit_log:
+    await createAuditLog({
+      user_id: ctx.user.id,
+      unit_id: input.unit_id,
+      action: input.enabled ? 'FINANCIAL_ENABLED' : 'FINANCIAL_DISABLED',
+      target_type: 'UNIT',
+      target_id: String(input.unit_id),
+    });
+
+================================================================================
+PONTO 3 — ALTA PRIORIDADE
+Checklist não valida "todos os médicos vinculados com preço"
+================================================================================
+
+IDENTIFICADO NO CÓDIGO. CONFIRMADO PELO DOCUMENTO.
+
+unitFinancialReadiness verifica:
+  hasDefaultDoctorPrice || doctorsWithPrice > 0
+
+Essa condição é aprovada se APENAS UM médico tiver preço e não houver default.
+A unidade pode ter 5 médicos vinculados, 4 sem preço, e o checklist passa.
+
+REGRA CORRETA (conforme documento):
+  Pronto quando:
+    - existe preço padrão do médico (fallback)
+  OU
+    - todos os médicos que assinaram laudos na unidade têm preço específico
+
+CORREÇÃO em unitFinancialReadiness (financeSimple.ts, bloco 6):
+
+  Adicionar consulta do total de médicos distintos com laudos na unidade:
+    const { reports: reportsTable } = await import('../../drizzle/schema');
+    const totalDoctorRows = await db
+      .selectDistinct({ doctor_user_id: reportsTable.author_user_id })
+      .from(reportsTable)
+      .where(and(
+        eq(reportsTable.unit_id, input.unit_id),
+        eq(reportsTable.status, 'signed'),
+      ));
+    const totalDoctors = totalDoctorRows.length;
+
+  Adicionar ao retorno:
+    total_doctors: totalDoctors,
+    doctors_without_price: totalDoctors - doctorsWithPrice,
+
+  Atualizar a condição de readiness para médicos:
+    // Aprovado se: preço padrão existe OU todos os médicos têm preço específico
+    const doctorPriceOk = hasDefaultDoctorPrice || doctorsWithPrice >= totalDoctors;
+
+  Usar doctorPriceOk na fórmula de isReady:
+    (hasDefaultDoctorPrice || doctorsWithPrice >= totalDoctors) &&
+
+  Atualizar o checklist no frontend (ReadinessChecklist em FinanceConfiguracao.tsx):
+    {
+      label: "Preço configurado para todos os médicos",
+      ok: data.has_default_doctor_price || data.doctors_with_price >= data.total_doctors,
+      detail: data.has_default_doctor_price
+        ? `Usando preço padrão: R$ ${data.system_price?.toFixed(2)}/laudo`
+        : data.doctors_without_price > 0
+          ? `${data.doctors_without_price} médico(s) sem preço configurado`
+          : `${data.doctors_with_price} médico(s) com preço`,
+    }
+
+================================================================================
+PONTO 4 — ALTA PRIORIDADE
+Sem validação de escopo por unidade — responsavel_financeiro pode acessar qualquer unidade
+================================================================================
+
+IDENTIFICADO NO CÓDIGO. CITADO PELO DOCUMENTO.
+
+assertAdmin inclui responsavel_financeiro. Procedures como markDoctorPaid,
+eventsByDoctorUnit e unitFinancialReadiness recebem qualquer unit_id sem verificar
+se aquele responsável financeiro tem vínculo com aquela unidade.
+
+Um responsavel_financeiro pode, via chamada direta à API:
+- ver eventos de unidades que não são suas
+- marcar pagamentos em unidades que não gerencia
+
+CORREÇÃO — Criar helper assertCanAccessFinancialUnit:
+
+  Adicionar em financeSimple.ts após assertAdmin (linha ~155):
+
+  async function assertCanAccessFinancialUnit(
+    db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+    user: { id: number; role: string },
+    unitId: number
+  ): Promise<void> {
+    // admin_master acessa tudo
+    if (user.role === 'admin_master') return;
+
+    // unit_admin: verificar vínculo de administração
+    if (user.role === 'unit_admin') {
+      const perm = await db
+        .select({ unit_id: user_unit_permissions.unit_id })
+        .from(user_unit_permissions)
+        .where(and(
+          eq(user_unit_permissions.user_id, user.id),
+          eq(user_unit_permissions.unit_id, unitId),
+        ))
+        .limit(1);
+      if (!perm.length) {
+        throw new TRPCError({ code: 'FORBIDDEN',
+          message: 'Sem acesso a esta unidade.' });
+      }
+      return;
+    }
+
+    // responsavel_financeiro: verificar vínculo financeiro
+    if (user.role === 'responsavel_financeiro') {
+      const responsibleId = await getResponsibleIdForUser(user.id);
+      if (!responsibleId) {
+        throw new TRPCError({ code: 'FORBIDDEN',
+          message: 'Sem responsável financeiro vinculado.' });
+      }
+      const link = await db
+        .select({ id: financial_responsible_units.id })
+        .from(financial_responsible_units)
+        .where(and(
+          eq(financial_responsible_units.financial_responsible_id, responsibleId),
+          eq(financial_responsible_units.unit_id, unitId),
+          isNull(financial_responsible_units.ends_at),
+        ))
+        .limit(1);
+      if (!link.length) {
+        throw new TRPCError({ code: 'FORBIDDEN',
+          message: 'Esta unidade não está vinculada ao seu perfil financeiro.' });
+      }
+      return;
+    }
+
+    throw new TRPCError({ code: 'FORBIDDEN' });
+  }
+
+  Aplicar em todas as procedures que recebem unit_id:
+
+  Procedures prioritárias para aplicação imediata:
+    markDoctorPaid       → await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id)
+    eventsByDoctorUnit   → await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id)
+    unitFinancialReadiness → await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id)
+    setDoctorPriceDirect → await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id)
+    setSystemPriceDirect → await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id)
+    repriceMissingEvents → await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id)
+    reprocessBillingEvents → await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id)
+
+================================================================================
+PONTO 5 — MÉDIA PRIORIDADE
+financial_enabled não integrado ao fluxo de assinatura de laudos
+================================================================================
+
+CITADO PELO DOCUMENTO. CONFIRMADO PELO CÓDIGO.
+
+Quando financial_enabled = false, o sistema ainda cria eventos financeiros
+normalmente em createBillingVisitEvent. Não há alerta, não há diferenciação.
+
+REGRA RECOMENDADA (conforme documento):
+- Não bloquear a assinatura do laudo (ato assistencial).
+- Gerar o evento financeiro, mas marcar um alerta.
+- Deixar visível para o admin.
+
+CORREÇÃO em server/db.ts — createBillingVisitEvent:
+
+  Adicionar verificação do financial_enabled após buscar a unidade:
+
+    const unitCheck = await db
+      .select({ financial_enabled: units.financial_enabled })
+      .from(units)
+      .where(eq(units.id, data.unit_id))
+      .limit(1);
+
+    const financialActive = unitCheck[0]?.financial_enabled ?? false;
+
+    // Gravar no audit_log se financeiro inativo
+    if (!financialActive) {
+      try {
+        await createAuditLog({
+          user_id: data.doctor_user_id,
+          unit_id: data.unit_id,
+          action: 'BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED',
+          target_type: 'REPORT',
+          target_id: String(data.report_id),
+        });
+      } catch (e) {
+        // não bloquear o fluxo
+      }
+    }
+
+  Incluir no retorno de createBillingVisitEvent:
+    financial_enabled: financialActive
+
+  No relatório de diagnóstico financeiro (financialDiagnostic), adicionar
+  contagem de laudos em unidades com financial_enabled = false:
+    events_in_disabled_units: /* COUNT(*) WHERE unit.financial_enabled = false */
+
+================================================================================
+PONTO 6 — MÉDIA PRIORIDADE
+Auditoria de pagamento gravada no banco mas não exibida na interface
+================================================================================
+
+CITADO PELO DOCUMENTO. CONFIRMADO PELO CÓDIGO.
+
+Os campos doctor_received_by_user_id e system_paid_by_user_id são gravados
+corretamente em markDoctorPaid e markSystemPaid (quando as migrations existirem).
+
+Porém, nenhuma tela exibe essas informações. O extrato do médico e o modal
+do responsável não mostram "Marcado por: [nome do usuário] em [data]".
+
+CORREÇÃO — PARTE A: retornar o dado nas procedures
+
+  Em myFinanceiro, incluir no select de events:
+    doctor_received_by_user_id: billing_visit_events.doctor_received_by_user_id,
+
+  Em eventsByDoctorUnit, incluir:
+    system_paid_by_user_id: billing_visit_events.system_paid_by_user_id,
+    doctor_received_by_user_id: billing_visit_events.doctor_received_by_user_id,
+
+  Fazer JOIN com users para obter o nome de quem marcou:
+    paid_by_name: sql<string>`(
+      SELECT u.name FROM users u
+      WHERE u.id = ${billing_visit_events.doctor_received_by_user_id}
+    )`
+
+CORREÇÃO — PARTE B: exibir na interface
+
+  No ExtractModal de FinanceMeuFinanceiro.tsx, ao lado de "Pago":
+    {ev.doctor_received_at && ev.paid_by_name && (
+      <span className="text-xs text-slate-500">
+        por {ev.paid_by_name}
+      </span>
+    )}
+
+  No DoctorsModal de FinanceMeuResponsavel.tsx, exibir data do pagamento:
+    {doc.last_received_at && (
+      <p className="text-xs text-slate-500">
+        Pago em {fmtDate(doc.last_received_at)}
+      </p>
+    )}
+
+================================================================================
+PONTO 7 — MÉDIA PRIORIDADE
+Decisão pendente: quem pode marcar pagamento ao sistema
+================================================================================
+
+CITADO PELO DOCUMENTO. CONFIRMADO PELO CÓDIGO.
+
+markSystemPaid está restrito exclusivamente a admin_master (linha 556).
+O documento aponta que essa decisão precisa ser tomada explicitamente.
+
+OPÇÃO A (atual): somente admin_master confirma pagamento ao sistema.
+  Vantagem: controle centralizado.
+  Desvantagem: responsável financeiro não consegue autogerir seu débito.
+
+OPÇÃO B (recomendada pelo documento): responsavel_financeiro também pode marcar,
+  mas apenas nas unidades vinculadas a ele.
+
+IMPLEMENTAÇÃO DA OPÇÃO B (quando decidida):
+
+  Substituir em markSystemPaid:
+    ANTES:
+      if (ctx.user.role !== "admin_master") { throw ... }
+    DEPOIS:
+      assertAdmin(ctx.user.role);
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id);
+
+================================================================================
+PONTO 8 — MÉDIA PRIORIDADE
+Política de laudos retificados e cancelados indefinida
+================================================================================
+
+CITADO PELO DOCUMENTO. CONFIRMADO PELA ANÁLISE.
+
+Quando um laudo é retificado (revise), o sistema atualiza apenas
+report_status_snapshot para 'revised' em billing_visit_events.
+Nenhum ajuste financeiro é gerado. O valor do laudo permanece o mesmo.
+
+O schema de billing_visit_events tem um enum com 'cancelled' em
+readiness_status, mas não existe campo de status financeiro do evento
+(active / cancelled / reversed / adjusted).
+
+REGRA RECOMENDADA (conforme documento):
+
+  Correção textual do laudo → manter evento, sem ajuste.
+  Cancelamento do laudo → marcar evento como cancelled, não apagar.
+  Troca de médico responsável → estornar evento antigo, criar novo.
+  Troca de unidade → estornar evento antigo, criar novo na unidade correta.
+
+CORREÇÃO — PARTE A: adicionar campo de status ao evento
+
+  Migration:
+    ALTER TABLE billing_visit_events
+      ADD COLUMN financial_status ENUM('active', 'cancelled', 'reversed', 'adjusted')
+        NOT NULL DEFAULT 'active'
+        AFTER pricing_status;
+
+  Schema Drizzle:
+    financial_status: mysqlEnum("financial_status",
+      ["active", "cancelled", "reversed", "adjusted"]
+    ).notNull().default("active"),
+
+CORREÇÃO — PARTE B: procedure de cancelamento de evento
+
+  cancelBillingEvent: protectedProcedure
+    .input(z.object({
+      event_id: z.number().int(),
+      reason: z.string().min(5),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== 'admin_master')
+        throw new TRPCError({ code: 'FORBIDDEN' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+
+      await db
+        .update(billing_visit_events)
+        .set({ financial_status: 'cancelled' })
+        .where(eq(billing_visit_events.id, input.event_id));
+
+      await createAuditLog({
+        user_id: ctx.user.id,
+        action: 'BILLING_EVENT_CANCELLED',
+        target_type: 'BILLING_EVENT',
+        target_id: String(input.event_id),
+      });
+
+      return { ok: true };
+    }),
+
+CORREÇÃO — PARTE C: filtrar eventos cancelados das somas
+
+  Em todas as queries de summary, adicionar:
+    ne(billing_visit_events.financial_status, 'cancelled')
+
+================================================================================
+PONTO 9 — BAIXO
+updateCycleSummaries — função ainda existe mas não é chamada
+================================================================================
+
+IDENTIFICADO NO CÓDIGO.
+
+O comentário na linha 1845 de db.ts diz "updateCycleSummaries removida".
+A chamada foi eliminada, mas a função ainda existe (linha 1855).
+Dead code que pode causar confusão em manutenção futura.
+
+CORREÇÃO:
+  Remover completamente a função updateCycleSummaries de db.ts.
+  Verificar antes: grep -rn "updateCycleSummaries" server/
+  Confirmar zero chamadas antes de deletar.
+
+================================================================================
+PARTE 3 — PLANO DE IMPLEMENTAÇÃO COMPLETO
+================================================================================
+
+FASE 1 — BANCO DE DADOS (executar antes de qualquer deploy)
+Prioridade: CRÍTICA
+
+  1. Criar migration 0034_financial_module_columns.sql
+     - units.financial_enabled
+     - billing_visit_events.doctor_received_by_user_id
+     - billing_visit_events.system_paid_by_user_id
+
+  2. Aplicar migration em ambiente de teste.
+  3. Confirmar que npm run build passa sem erros.
+  4. Testar fluxo completo: assinar laudo → evento criado.
+  5. Aplicar em produção.
+
+FASE 2 — SEGURANÇA E VALIDAÇÃO (bloco de correções críticas)
+Prioridade: ALTA
+
+  6. Criar função assertCanAccessFinancialUnit no financeSimple.ts
+  7. Aplicar assertCanAccessFinancialUnit nas 7 procedures prioritárias
+  8. Adicionar validação de readiness em setFinancialEnabled
+     (checklist no backend antes de ativar)
+  9. Corrigir checklist de médicos: "todos com preço ou fallback padrão"
+     - Adicionar total_doctors ao retorno de unitFinancialReadiness
+     - Atualizar condição de isReady
+     - Atualizar ReadinessChecklist no frontend
+
+FASE 3 — FUNCIONALIDADE FINANCEIRA (ciclo completo confiável)
+Prioridade: MÉDIA
+
+  10. Integrar financial_enabled ao fluxo de assinatura
+      - createBillingVisitEvent registra audit_log se unidade inativa
+  11. Exibir auditoria de pagamento na interface
+      - ExtractModal do médico: quem marcou pago
+      - Modal do responsável: data e quem marcou
+  12. Decidir e implementar markSystemPaid para responsavel_financeiro
+      - Escolher Opção A ou B e documentar
+  13. Remover updateCycleSummaries de db.ts
+
+FASE 4 — INTEGRIDADE HISTÓRICA (estabilizar para produção)
+Prioridade: MÉDIA
+
+  14. Criar migration para financial_status em billing_visit_events
+  15. Criar procedure cancelBillingEvent
+  16. Filtrar eventos cancelled de todas as queries de summary
+  17. Documentar política formal de retificação e cancelamento
+
+================================================================================
+PARTE 4 — CHECKLIST DE VALIDAÇÃO COMPLETA
+================================================================================
+
+Como admin_master:
+  [ ] Criar unidade sem ciclo → checklist mostra ❌ Ciclo não configurado
+  [ ] Tentar ativar financeiro sem ciclo → backend retorna erro claro
+  [ ] Configurar tudo → checklist mostra ✅ em todos os itens
+  [ ] Ativar financeiro → financial_enabled = true confirmado no banco
+  [ ] Assinar laudo → evento criado com signed_at dentro do ciclo
+  [ ] Marcar médico pago → doctor_received_at e doctor_received_by_user_id preenchidos
+  [ ] Marcar sistema pago → system_paid_at e system_paid_by_user_id preenchidos
+  [ ] Verificar que apenas eventos do ciclo foram marcados
+
+Como médico:
+  [ ] Abril: 2 laudos. Maio: 3 laudos. Junho: 4 laudos.
+  [ ] Selecionar maio → card mostra exatamente 3 laudos e valor correto
+  [ ] Extrato → 3 linhas (somente maio)
+  [ ] Selecionar abril → 2 laudos, não afetados
+  [ ] Selecionar junho → 4 laudos pendentes
+
+Como responsavel_financeiro:
+  [ ] Ver apenas unidades vinculadas (não ver unidades de outros responsáveis)
+  [ ] Tentar acessar unit_id de outro responsável via API → FORBIDDEN
+  [ ] Ver total médicos e sistema corretos no ciclo
+  [ ] Abrir modal de médicos → value/laudo exibido corretamente
+  [ ] Marcar pagamento → somente eventos do ciclo marcados
+
+No banco:
+  [ ] billing_visit_events.signed_at dentro do ciclo da unidade
+  [ ] doctor_received_by_user_id preenchido após pagamento
+  [ ] system_paid_by_user_id preenchido após pagamento
+  [ ] financial_enabled = false → audit_log tem entrada BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED
+
+================================================================================
+PARTE 5 — RESUMO EXECUTIVO DE TODOS OS PONTOS
+================================================================================
+
+  #  | NÍVEL    | STATUS v50    | DESCRIÇÃO
+  ---|----------|---------------|--------------------------------------------------
+  P1 | CRÍTICO  | ABERTO ❌     | Migrations SQL ausentes para 3 novos campos
+  P2 | ALTA     | ABERTO ❌     | setFinancialEnabled sem validação de readiness
+  P3 | ALTA     | ABERTO ❌     | Checklist não valida "todos os médicos com preço"
+  P4 | ALTA     | ABERTO ❌     | Sem assertCanAccessFinancialUnit — escopo não protegido
+  P5 | MÉDIA    | ABERTO ❌     | financial_enabled não integrado ao fluxo de assinatura
+  P6 | MÉDIA    | ABERTO ❌     | Auditoria de pagamento não exibida na interface
+  P7 | MÉDIA    | DECISÃO ⚠️   | markSystemPaid: só admin_master ou também responsavel?
+  P8 | MÉDIA    | ABERTO ❌     | Política de retificação/cancelamento indefinida
+  P9 | BAIXO    | ABERTO ❌     | updateCycleSummaries dead code ainda no db.ts
+
+  Itens corretamente implementados no v50: ✅ 15+ pontos (ver Parte 1)
+
+================================================================================
+FIM DO DOCUMENTO
+Código analisado: pacs-v4-main v50
+Documentos base: análise direta + relatorio_e_plano_alinhamento_financeiro_v50.txt
+Maio 2026
+================================================================================

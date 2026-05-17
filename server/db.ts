@@ -1815,6 +1815,28 @@ export async function createBillingVisitEvent(data: {
     systemAmt !== null ? "pending_doctor_price" :
     doctorAmt !== null ? "pending_system_price" : "pending_both";
 
+  // P5 (v50): registrar audit_log se unidade com financial_enabled = false
+  // Não bloqueia a criação do evento — apenas registra para diagnóstico
+  try {
+    const unitCheck = await db
+      .select({ financial_enabled: units.financial_enabled })
+      .from(units)
+      .where(eq(units.id, data.unit_id))
+      .limit(1);
+    const financialActive = unitCheck[0]?.financial_enabled ?? false;
+    if (!financialActive) {
+      await createAuditLog({
+        user_id: data.doctor_user_id,
+        unit_id: data.unit_id,
+        action: 'BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED',
+        target_type: 'REPORT',
+        target_id: String(data.report_id),
+      });
+    }
+  } catch (auditErr) {
+    console.warn('[billing] audit_log BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED falhou:', auditErr instanceof Error ? auditErr.message : auditErr);
+  }
+
   const insertResult = await db.insert(billing_visit_events).values({
     report_id: data.report_id,
     study_instance_uid: data.study_instance_uid ?? null,
@@ -1849,71 +1871,7 @@ export async function createBillingVisitEvent(data: {
   return { event: newEvent[0], created: true, doctor_amount_due: doctorAmt !== null ? String(doctorAmt) : null };
 }
 
-/**
- * Atualiza os consolidados de ciclo após um novo evento de laudo.
- */
-async function updateCycleSummaries(
-  doctorCycleId: number,
-  systemCycleId: number,
-  unitId: number,
-  doctorUserId: number,
-  financialResponsibleId: number | null,
-  doctorAmt: number | null,
-  systemAmt: number | null
-) {
-  const db = await getDb();
-  if (!db) return;
-
-  // Doctor summary
-  const doctorAmtStr = String(doctorAmt ?? 0);
-  const isPendingDoctor = doctorAmt === null ? 1 : 0;
-
-  await db.insert(billing_cycle_doctor_summary).values({
-    doctor_cycle_id: doctorCycleId,
-    unit_id: unitId,
-    doctor_user_id: doctorUserId,
-    financial_responsible_id: financialResponsibleId,
-    reports_count: 1,
-    amount_due: doctorAmtStr,
-    pending_pricing_count: isPendingDoctor,
-  }).onDuplicateKeyUpdate({
-    set: {
-      reports_count: drizzleSql2`reports_count + 1`,
-      amount_due: drizzleSql2`amount_due + ${doctorAmtStr}`,
-      pending_pricing_count: drizzleSql2`pending_pricing_count + ${isPendingDoctor}`,
-    },
-  });
-
-  // System summary
-  const systemAmtStr = String(systemAmt ?? 0);
-  const isPendingSystem = systemAmt === null ? 1 : 0;
-
-  await db.insert(billing_cycle_system_summary).values({
-    system_cycle_id: systemCycleId,
-    unit_id: unitId,
-    financial_responsible_id: financialResponsibleId,
-    reports_count: 1,
-    amount_due: systemAmtStr,
-    pending_pricing_count: isPendingSystem,
-  }).onDuplicateKeyUpdate({
-    set: {
-      reports_count: drizzleSql2`reports_count + 1`,
-      amount_due: drizzleSql2`amount_due + ${systemAmtStr}`,
-      pending_pricing_count: drizzleSql2`pending_pricing_count + ${isPendingSystem}`,
-    },
-  });
-
-  // Atualiza totais do ciclo
-  await db.update(billing_cycles).set({
-    total_reports: drizzleSql2`total_reports + 1`,
-    total_amount: drizzleSql2`total_amount + ${doctorAmtStr}`,
-  }).where(eq(billing_cycles.id, doctorCycleId));
-
-  await db.update(billing_cycles).set({
-    total_reports: drizzleSql2`total_reports + 1`,
-    total_amount: drizzleSql2`total_amount + ${systemAmtStr}`,
-  }).where(eq(billing_cycles.id, systemCycleId));
-}
+// P9 (v50): updateCycleSummaries removida — dead code (não era chamada após v49)
 
 /**
  * Remove o billing_visit_event de um laudo e decrementa os consolidados de ciclo.

@@ -101,8 +101,11 @@ function DoctorsModal({
                           </Button>
                         </div>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-emerald-400 text-xs">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Quitado
+                        <span className="inline-flex flex-col items-center gap-0.5 text-emerald-400 text-xs">
+                          <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Quitado</span>
+                          {doc.last_received_at && (
+                            <span className="text-slate-500 text-[10px]">{new Date(doc.last_received_at).toLocaleDateString('pt-BR')}</span>
+                          )}
                         </span>
                       )}
                     </td>

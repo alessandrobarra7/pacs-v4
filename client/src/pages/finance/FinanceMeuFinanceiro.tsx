@@ -33,6 +33,8 @@ type EventItem = {
   exam_name_snapshot: string | null;
   doctor_amount_due: string | null;
   doctor_received_at: Date | null;
+  doctor_received_by_user_id: number | null;
+  paid_by_name: string | null;
   pricing_status: string | null;  // FIN-C4: aviso de preço não configurado
   signed_at: Date | null;
 };
@@ -90,8 +92,11 @@ function ExtractModal({ unit, referenceDate, events, onClose }: ExtractModalProp
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       {ev.doctor_received_at ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-400 text-xs">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Pago
+                        <span className="inline-flex flex-col items-center gap-0.5 text-emerald-400 text-xs">
+                          <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Pago</span>
+                          {ev.paid_by_name && (
+                            <span className="text-slate-500 text-[10px]">por {ev.paid_by_name}</span>
+                          )}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-rose-400 text-xs">

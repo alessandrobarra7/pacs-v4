@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE billing_visit_events\n  ADD COLUMN IF NOT EXISTS financial_status ENUM('active','cancelled','reversed','adjusted')\n    NOT NULL DEFAULT 'active'\n    AFTER pricing_status;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute ALTER TABLE billing_visit_events\n  ADD COLUMN IF NOT EXISTS financial_status ENUM('active','cancelled','reversed','adjusted')\n    NOT NULL DEFAULT 'active'\n    AFTER pricing_status;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 502
+}
