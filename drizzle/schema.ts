@@ -8,6 +8,8 @@ export const units = mysqlTable("units", {
   name: varchar("name", { length: 255 }).notNull(),
   slug: varchar("slug", { length: 100 }).notNull().unique(),
   isActive: boolean("isActive").default(true).notNull(),
+  /** P5: financeiro habilitado — separa unidade ativa de financeiro ativo */
+  financial_enabled: boolean("financial_enabled").default(false).notNull(),
   orthanc_base_url: varchar("orthanc_base_url", { length: 500 }),
   // URL pública via Mikrotik NAT (ex: http://45.189.160.17:8042) — usada pelo frontend para viewers
   orthanc_public_url: varchar("orthanc_public_url", { length: 500 }),
@@ -593,7 +595,11 @@ export const billing_visit_events = mysqlTable("billing_visit_events", {
   exam_name_snapshot: varchar("exam_name_snapshot", { length: 200 }),
   pricing_status: mysqlEnum("pricing_status", ["ok", "pending_system_price", "pending_doctor_price", "pending_both"]).notNull().default("pending_both"),
   doctor_received_at: timestamp("doctor_received_at"),
+  /** P4: auditoria — quem marcou o pagamento ao médico */
+  doctor_received_by_user_id: int("doctor_received_by_user_id"),
   system_paid_at: timestamp("system_paid_at"),
+  /** P4: auditoria — quem marcou o pagamento ao sistema */
+  system_paid_by_user_id: int("system_paid_by_user_id"),
   // SCH-01: snapshot do status do laudo no momento do evento financeiro (signed ou revised)
   report_status_snapshot: mysqlEnum("report_status_snapshot", ["signed", "revised"]).default("signed"),
   /** Data real da assinatura do laudo — base para filtros de ciclo financeiro.

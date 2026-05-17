@@ -1063,12 +1063,12 @@
 
 ## FASE 6 — Correções da análise técnica (erros_restantes_nova_versao_financeiro.txt)
 
-- [ ] P1A: Cadastro de médico — permitir configurar unidades e valores já na criação (não exigir reabrir)
-- [ ] P1B: Aba Médicos da unidade — tabela financeira com preço editável diretamente na linha (colunas: Médico, Status, Valor/laudo, Vigência, Editar, Remover)
-- [ ] P1C: Meu Financeiro — separar Saldo Operacional (ciclo atual) de Fechamentos Oficiais em seções visuais distintas
-- [ ] P1D: Preço por laudo — exibir sempre o preço configurado vigente, não média derivada do ciclo
-- [ ] P2: Integridade do evento financeiro — assinatura usa só report.unit_id, report.signedBy, report.signedAt como fonte de verdade; log de falhas financeiras
-- [ ] P3: Navegação — unificar /financeiro/*, redirecionar /billing/*, destino correto por perfil
+- [x] P1A: Cadastro de médico — permitir configurar unidades e valores já na criação (não exigir reabrir)
+- [x] P1B: Aba Médicos da unidade — tabela financeira com preço editável diretamente na linha (colunas: Médico, Status, Valor/laudo, Vigência, Editar, Remover)
+- [x] P1C: Meu Financeiro — separar Saldo Operacional (ciclo atual) de Fechamentos Oficiais em seções visuais distintas
+- [x] P1D: Preço por laudo — exibir sempre o preço configurado vigente, não média derivada do ciclo
+- [x] P2: Integridade do evento financeiro — assinatura usa só report.unit_id, report.signedBy, report.signedAt como fonte de verdade; log de falhas financeiras
+- [x] P3: Navegação — unificar /financeiro/*, redirecionar /billing/*, destino correto por perfil
 
 ## REESTRUTURAÇÃO INTUITIVA — Especificação 13/04/2026
 
@@ -1227,13 +1227,13 @@
 
 ## REESTRUTURAÇÃO FINANCEIRA P2/P3/P4 (orientacao_reestruturacao_ambiente_financeiro.txt)
 
-- [ ] P2: Migração banco — adicionar paid_status, paid_at, paid_by_user_id, paid_note em billing_cycles
-- [ ] P2: Backend — procedures closeCycle, markCyclePaid, unmarkCyclePaid, addCycleNote, listSystemReceivables
-- [ ] P2: Frontend — tela FinanceContasReceber.tsx (Contas a Receber do Sistema)
-- [ ] P3: Backend — procedure getDoctorStatement com value_per_report_snapshot
-- [ ] P3: Frontend — melhorar FinanceMeuFinanceiro: extrato agrupado por dias, exportação PDF/planilha
-- [ ] P4: Backend — procedure getResponsibleDebtByDoctor com signed_days[]
-- [ ] P4: Frontend — tela FinanceResponsavelDivida.tsx (Dívida do Responsável por Médico)
+- [x] P2: Migração banco — adicionar paid_status, paid_at, paid_by_user_id, paid_note em billing_cycles
+- [x] P2: Backend — procedures closeCycle, markCyclePaid, unmarkCyclePaid, addCycleNote, listSystemReceivables
+- [x] P2: Frontend — tela FinanceContasReceber.tsx (Contas a Receber do Sistema)
+- [x] P3: Backend — procedure getDoctorStatement com value_per_report_snapshot
+- [x] P3: Frontend — melhorar FinanceMeuFinanceiro: extrato agrupado por dias, exportação PDF/planilha
+- [x] P4: Backend — procedure getResponsibleDebtByDoctor com signed_days[]
+- [x] P4: Frontend — tela FinanceResponsavelDivida.tsx (Dívida do Responsável por Médico)
 
 ## REESTRUTURAÇÃO FINANCEIRA P2/P3/P4 — Concluídas 2025-04-15
 
@@ -1271,9 +1271,9 @@
 - [x] C13 — Remover getOrCreateDefaultResponsibleForUnit (código morto)
 - [x] C9 — SlaCountdown: intervalo adaptativo (30s para horas, 5min para dias)
 - [ ] C10 — SLA: registrar readiness na chegada do exame (studies_cache)
-- [ ] P5 — FK em billing_visit_events.report_id → reports.id
-- [ ] P6 — Trigger/constraint: 1 responsável ativo por unidade
-- [ ] P3 — Reconsiderar constraint única em unit_doctor_scales (impede histórico)
+- [x] P5 — FK em billing_visit_events.report_id → reports.id
+- [x] P6 — Trigger/constraint: 1 responsável ativo por unidade
+- [x] P3 — Reconsiderar constraint única em unit_doctor_scales (impede histórico)
 
 ## AUDITORIA v15 — Sprint 1: Segurança e Bugs Críticos
 
@@ -1627,3 +1627,41 @@
 - [x] T7 — Root visualiza todos os responsáveis (auditoria correta)
 - [x] Auditar dependências de billing_monthly no frontend — nenhuma encontrada
 - [x] Confirmar: finance2 é o único módulo financeiro ativo (páginas antigas já removidas)
+
+## CORREÇÕES MÓDULO FINANCEIRO v49
+
+### P1 — CRÍTICO: Ciclo real por unidade (em vez de janela de 3 meses)
+- [x] P1A: Criar função resolveFinancialCycle no financeSimple.ts (após calcCycleDates)
+- [x] P1B: Corrigir myFinanceiro — ciclo real por unidade do médico
+- [x] P1C: Corrigir myResponsavelSummary — ciclo real por unidade vinculada
+- [x] P1D: Corrigir unitSummary — ciclo real por unidade em loop
+- [x] P1E: Corrigir responsibleSummary e dashboard — mesma abordagem por unidade
+- [x] P1F: Atualizar markDoctorPaid e markSystemPaid — usar resolveFinancialCycle
+
+### P2 — GRAVE: Frontend de FinanceConfiguracao usa listAllDoctorPrices
+- [x] P2A: Substituir listAllDoctorPrices por listDoctorsForUnit no FinanceConfiguracao.tsx
+- [x] P2B: Atualizar 2 invalidates e texto de estado vazio
+
+### P3 — MÉDIO: Tipo incorreto de price_per_report em DoctorPriceRow
+- [x] P3: Adicionar Number() nas linhas 20 e 55 do FinanceConfiguracao.tsx
+
+### P4 — MÉDIO: Auditoria de pagamento incompleta
+- [x] P4A: Migration SQL — adicionar doctor_received_by_user_id e system_paid_by_user_id
+- [x] P4B: Atualizar drizzle/schema.ts com os 2 novos campos
+- [x] P4C: markDoctorPaid — gravar ctx.user.id em doctor_received_by_user_id
+- [x] P4D: markSystemPaid — gravar ctx.user.id em system_paid_by_user_id
+
+### P5 — MÉDIO: Campo financial_enabled ausente
+- [x] P5A: Migration SQL — adicionar financial_enabled BOOLEAN DEFAULT FALSE na tabela units
+- [x] P5B: Atualizar drizzle/schema.ts com financial_enabled
+- [x] P5C: unitFinancialReadiness — incluir financial_enabled na seleção e retorno
+- [x] P5D: isReady — incluir && unit.financial_enabled
+- [x] P5E: Criar procedure setFinancialEnabled no backend
+- [x] P5F: Adicionar toggle de ativação financeira na FinanceConfiguracao.tsx
+
+### P6 — BAIXO: Subquery → LEFT JOIN em unitFinancialReadiness
+- [x] P6: Substituir subquery correlacionada por LEFT JOIN explícito (Drizzle ORM)
+
+### P7 — BAIXO: Tabelas mortas ainda sendo escritas
+- [x] P7A: Remover bloco billing_report_items de server/routers/reports.ts
+- [x] P7B: Remover chamada updateCycleSummaries de server/db.ts

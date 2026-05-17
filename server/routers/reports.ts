@@ -338,16 +338,7 @@ export const reportsRouter = router({
           signedAt: revisedAt,
           signedBy: ctx.user.id,
         });
-        // E7: atualizar report_status_snapshot no billing_report_items para 'revised'
-        try {
-          // PRG-05: billing_report_items importado estaticamente no topo
-          await db.update(billing_report_items)
-            .set({ report_status_snapshot: 'revised' })
-            .where(eq(billing_report_items.report_id, input.id));
-        } catch (e) {
-          // Não bloqueia a retificação se billing_report_items não existir para este laudo
-          console.warn('[revise] Não foi possível atualizar report_status_snapshot em billing_report_items:', e);
-        }
+        // P7: billing_report_items é tabela morta (sem leitura ativa) — escrita removida
         // SCH-01: atualizar report_status_snapshot em billing_visit_events para 'revised'
         try {
           // PRG-05: billing_visit_events_table importado estaticamente no topo

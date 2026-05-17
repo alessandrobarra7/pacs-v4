@@ -1842,10 +1842,7 @@ export async function createBillingVisitEvent(data: {
     return { event: existing[0], created: false, doctor_amount_due: existing[0].doctor_amount_due };
   }
 
-  // Atualiza summaries de ciclo apenas quando os ciclos existem
-  if (doctorCycleId !== null || systemCycleId !== null) {
-    await updateCycleSummaries(doctorCycleId ?? 0, systemCycleId ?? 0, data.unit_id, data.doctor_user_id, responsibleId, doctorAmt, systemAmt);
-  }
+  // P7: updateCycleSummaries removida — billing_cycle_*_summary são tabelas mortas (sem leitura ativa)
 
   const newEvent = await db.select().from(billing_visit_events)
     .where(eq(billing_visit_events.id, insertId)).limit(1);

@@ -1,0 +1,9 @@
+{
+  "query": "\nALTER TABLE billing_visit_events\n  ADD COLUMN doctor_received_by_user_id INT NULL AFTER doctor_received_at,\n  ADD COLUMN system_paid_by_user_id INT NULL AFTER system_paid_at;\n\nALTER TABLE units\n  ADD COLUMN financial_enabled BOOLEAN NOT NULL DEFAULT FALSE AFTER isActive;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nALTER TABLE billing_visit_events\n  ADD COLUMN doctor_received_by_user_id INT NULL AFTER doctor_received_at,\n  ADD COLUMN system_paid_by_user_id INT NULL AFTER system_paid_at;\n\nALTER TABLE units\n  ADD COLUMN financial_enabled BOOLEAN NOT NULL DEFAULT FALSE AFTER isActive;\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 827
+}

@@ -1,0 +1,692 @@
+================================================================================
+DOCUMENTO UNIFICADO DE CORREÇÕES — MÓDULO FINANCEIRO
+pacs-v4-main v49
+Consolidação: análise direta do código + documento de orientação funcional
+================================================================================
+
+REGRA INVIOLÁVEL DO MÓDULO FINANCEIRO
+--------------------------------------
+O QUE APARECE NA TELA = O QUE SERÁ PAGO NO CICLO.
+
+Não pode existir em nenhuma hipótese:
+  - total exibido diferente do total pago;
+  - extrato com laudos diferentes do card;
+  - pagamento cobrindo período diferente do exibido;
+  - dashboard com dados de fora do ciclo.
+
+================================================================================
+DIAGNÓSTICO GERAL DO v49
+================================================================================
+
+O que foi corrigido e está funcionando:
+  ✅ Query de laudos sem evento (LEFT JOIN via subquery)
+  ✅ isReady inclui hasResponsibleUser e missingEventsCount
+  ✅ cycle_label calculado pelo backend
+  ✅ Toast do reprocessamento exibe result.created (correto)
+  ✅ Botão de reprecificação restaurado com textos corretos
+  ✅ Rotas /billing/* removidas do App.tsx
+  ✅ missing_events_count exibido no ReadinessChecklist
+  ✅ referenceDate corrigido de dia 1 para dia 15 em todos os arquivos
+
+O que ainda está incorreto e precisa ser corrigido:
+  4 problemas do código + pontos do documento de orientação funcional.
+
+================================================================================
+PROBLEMA 1 — CRÍTICO
+Somas financeiras usam janela de 3 meses em vez do ciclo real da unidade
+================================================================================
+
+CONFIRMADO PELO CÓDIGO E PELO DOCUMENTO DE ORIENTAÇÃO.
+
+SITUAÇÃO ATUAL:
+
+  PROCEDURES COM JANELA FIXA DE 3 MESES (o que aparece na tela):
+    dashboard          linha ~178 — refDate-1 mês a refDate+2 meses
+    unitSummary        linha ~237 — mesma janela
+    myFinanceiro       linha ~542 — mesma janela
+    myResponsavelSummary linha ~819 — mesma janela
+    responsibleSummary linha ~884 — mesma janela
+
+  PROCEDURES COM CICLO REAL VIA calcCycleDates (o que é efetivamente pago):
+    doctorSummaryByUnit  linha ~334
+    eventsByDoctorUnit   linha ~417
+    markDoctorPaid       linha ~468
+    markSystemPaid       linha ~508
+
+IMPACTO CONCRETO (unidade com ciclo 01→31, referenceDate=15/05):
+
+  myFinanceiro (3 meses):
+    startDate = 01/Abr, endDate = 01/Ago
+    Inclui eventos de abril, maio, junho e julho = 4 meses de laudos
+
+  markDoctorPaid (calcCycleDates com dia 15):
+    cycleStart = 01/Mai, cycleEnd = 01/Jun = apenas maio
+
+  Resultado: médico vê R$ 1.500 (4 meses), pagamento processa R$ 375 (1 mês).
+  Divergência de até 4x o valor real do ciclo.
+
+SOLUÇÃO — CRIAR FUNÇÃO CENTRAL resolveFinancialCycle
+
+  Arquivo: server/routers/financeSimple.ts
+  Adicionar após a função calcCycleDates (linha ~142):
+
+  /**
+   * resolveFinancialCycle — única fonte de verdade para calcular o ciclo de uma unidade.
+   * Todas as procedures financeiras devem usar esta função.
+   * Retorna o mesmo intervalo que calcCycleDates, mas centralizado com lookup automático.
+   */
+  async function resolveFinancialCycle(
+    db: Awaited<ReturnType<typeof getDb>>,
+    unitId: number,
+    refDate: Date
+  ): Promise<{ startDate: Date; endDate: Date; label: string; cycle_configured: boolean }> {
+    if (!db) {
+      const fallback = calcCycleDates(1, 31, refDate);
+      return { ...{ startDate: fallback.cycleStart, endDate: fallback.cycleEnd, label: fallback.label }, cycle_configured: false };
+    }
+    const unitRow = await db
+      .select({
+        s: units.billing_cycle_start_day,
+        e: units.billing_cycle_end_day,
+      })
+      .from(units)
+      .where(eq(units.id, unitId))
+      .limit(1);
+
+    const configured = !!(unitRow[0]?.s && unitRow[0]?.e);
+    const { cycleStart, cycleEnd, label } = calcCycleDates(
+      unitRow[0]?.s,
+      unitRow[0]?.e,
+      refDate,
+    );
+    return {
+      startDate: cycleStart,
+      endDate: cycleEnd,
+      label,
+      cycle_configured: configured,
+    };
+  }
+
+SOLUÇÃO — ATUALIZAR AS 5 PROCEDURES DE RESUMO
+
+  Para cada procedure abaixo, substituir a janela de 3 meses pelo ciclo real.
+  O desafio: essas procedures agregam MÚLTIPLAS unidades, cada uma com seu ciclo.
+  A abordagem correta é calcular o ciclo por unidade individualmente.
+
+  ESTRATÉGIA PARA PROCEDURES MULTI-UNIDADE (unitSummary, responsibleSummary, dashboard):
+
+  Em vez de uma única janela de tempo para todas as unidades, buscar
+  os eventos de cada unidade dentro do seu ciclo específico.
+  O backend deve:
+
+  1. Buscar todas as unidades relevantes com seus billing_cycle_start_day/end_day.
+  2. Para cada unidade, calcular startDate e endDate via calcCycleDates.
+  3. Construir a consulta com um OR composto por unidade:
+       WHERE (unit_id = 1 AND signed_at >= '01/Mai' AND signed_at < '01/Jun')
+          OR (unit_id = 2 AND signed_at >= '15/Mai' AND signed_at < '15/Jun')
+          OR ...
+  4. Retornar os totais agrupados por unit_id.
+
+  Implementação em SQL puro (mais eficiente):
+
+    // Buscar ciclos por unidade
+    const cycleByUnit = new Map<number, { start: Date; end: Date; label: string }>();
+    for (const u of unitsRows) {
+      const { cycleStart, cycleEnd, label } = calcCycleDates(u.s, u.e, refDate);
+      cycleByUnit.set(u.id, { start: cycleStart, end: cycleEnd, label });
+    }
+
+    // Para cada unit_id, filtrar eventos no ciclo da unidade
+    const results = await Promise.all(
+      [...cycleByUnit.entries()].map(async ([unitId, cycle]) => {
+        const rows = await db
+          .select({ ... })
+          .from(billing_visit_events)
+          .where(and(
+            eq(billing_visit_events.unit_id, unitId),
+            sql`${billing_visit_events.signed_at} >= ${cycle.start}`,
+            sql`${billing_visit_events.signed_at} < ${cycle.end}`,
+            /* filtros adicionais */
+          ));
+        return { unit_id: unitId, cycle_label: cycle.label, ... };
+      })
+    );
+
+  ESTRATÉGIA PARA PROCEDURES DE UNIDADE ÚNICA (myFinanceiro, myResponsavelSummary):
+
+  myFinanceiro — cada unidade do médico tem ciclo diferente.
+  Usar resolveFinancialCycle por unidade:
+
+  // Para cada unidade do médico:
+  const cycleByUnit = await Promise.all(
+    unitIds.map(async (unitId) => ({
+      unitId,
+      cycle: await resolveFinancialCycle(db, unitId, refDate),
+    }))
+  );
+
+  // Buscar eventos de cada unidade dentro do seu ciclo:
+  const summaryRows = await Promise.all(
+    cycleByUnit.map(async ({ unitId, cycle }) => {
+      const rows = await db
+        .select({ total_laudos: sql`COUNT(*)`, ... })
+        .from(billing_visit_events)
+        .where(and(
+          eq(billing_visit_events.unit_id, unitId),
+          eq(billing_visit_events.doctor_user_id, ctx.user.id),
+          sql`${billing_visit_events.signed_at} >= ${cycle.startDate}`,
+          sql`${billing_visit_events.signed_at} < ${cycle.endDate}`,
+        ));
+      return { unit_id: unitId, cycle_label: cycle.label, ...rows[0] };
+    })
+  );
+
+SOLUÇÃO — ATUALIZAR PROCEDURES DE PAGAMENTO (markDoctorPaid e markSystemPaid)
+
+  As duas procedures JÁ usam calcCycleDates, que agora está alinhado com a solução
+  (referenceDate = dia 15). Porém, para garantir 100% de consistência, o ideal é
+  que o frontend passe explicitamente o início e fim do ciclo ao marcar pago:
+
+  OPÇÃO A — Passar cycle_start e cycle_end explicitamente (mais seguro):
+
+    No frontend, ao clicar "Marcar pago", enviar as datas exatas do ciclo exibido:
+      markPaid.mutate({
+        unit_id: unitId,
+        doctor_user_id: doctor.doctor_user_id,
+        cycle_start: unit.cycle_start_date,  // data real retornada pelo backend
+        cycle_end: unit.cycle_end_date,
+      })
+
+    No backend, markDoctorPaid recebe cycle_start e cycle_end diretamente:
+      .input(z.object({
+        unit_id: z.number().int(),
+        doctor_user_id: z.number().int(),
+        cycle_start: z.string().datetime(),
+        cycle_end: z.string().datetime(),
+      }))
+      // Usa as datas recebidas sem calcular ciclo novamente
+
+  OPÇÃO B — Manter referenceDate e resolveFinancialCycle (menos mudança):
+    Substituir calcCycleDates em markDoctorPaid e markSystemPaid por:
+      const { startDate, endDate } = await resolveFinancialCycle(db, input.unit_id, refDate);
+
+  RECOMENDAÇÃO: Opção B é suficiente e minimiza mudanças.
+
+REGRA PARA UNIDADE SEM CICLO CONFIGURADO:
+  Se billing_cycle_start_day ou billing_cycle_end_day for NULL:
+  - Usar mês calendário como fallback (01 a 31 do mês atual).
+  - Retornar cycle_configured: false na response.
+  - Interface deve exibir: "Ciclo não configurado — exibindo mês calendário."
+  - O checklist de aptidão deve marcar esse item como ❌.
+
+VALIDAÇÃO OBRIGATÓRIA:
+  Cenário de teste (do documento de orientação):
+  Unidade Hospital A, ciclo 01/05 a 31/05, Dr. João, R$ 25/laudo.
+  Laudos: 2 em abril, 3 em maio, 4 em junho.
+
+  Resultado correto ao selecionar maio:
+    [ ] Tela do médico: 3 laudos, R$ 75 total
+    [ ] Extrato: 3 linhas (somente maio)
+    [ ] Tela do responsável: Dr. João = 3 laudos, R$ 75
+    [ ] Clicar "Marcar pago": marca exatamente os 3 eventos de maio
+    [ ] Após marcar: pendente = R$ 0, pago = R$ 75
+    [ ] Navegar para abril: 2 laudos, não afetados pelo pagamento de maio
+    [ ] Navegar para junho: 4 laudos pendentes
+
+================================================================================
+PROBLEMA 2 — GRAVE
+Frontend de FinanceConfiguracao ainda usa listAllDoctorPrices
+================================================================================
+
+SITUAÇÃO ATUAL:
+  Backend: listDoctorsForUnit foi criado (linha 2754) — correto.
+  Frontend: ainda chama listAllDoctorPrices (linha 434) — incorreto.
+
+  listAllDoctorPrices retorna somente médicos com preço já configurado.
+  Médico vinculado sem preço é invisível na tabela.
+  A tela não pode configurar o que não consegue ver.
+
+CORREÇÃO EM FinanceConfiguracao.tsx:
+
+  Linhas 434-438 — substituir:
+    ANTES:
+      const { data: allDoctors, isLoading: doctorsLoading } =
+        trpc.financeSimple.listAllDoctorPrices.useQuery(
+          undefined, { enabled: selectedUnitId !== null }
+        );
+      const doctors = allDoctors?.filter(d => d.unit_id === selectedUnitId);
+
+    DEPOIS:
+      const { data: doctors, isLoading: doctorsLoading } =
+        trpc.financeSimple.listDoctorsForUnit.useQuery(
+          { unit_id: selectedUnitId! },
+          { enabled: selectedUnitId !== null }
+        );
+
+  Linhas 33 e 578 — substituir invalidate:
+    ANTES:  utils.financeSimple.listAllDoctorPrices.invalidate()
+    DEPOIS: utils.financeSimple.listDoctorsForUnit.invalidate({ unit_id: selectedUnitId! })
+
+  Linha 569 — corrigir texto de estado vazio:
+    ANTES:  "Nenhum médico com laudos nesta unidade no período."
+    DEPOIS: "Nenhum médico vinculado a esta unidade com laudos assinados."
+
+OBSERVAÇÃO SOBRE listDoctorsForUnit NO BACKEND:
+  A implementação atual busca médicos que assinaram laudos (reports onde status='signed').
+  Isso é melhor que listAllDoctorPrices, mas ainda não exibe médicos recém-vinculados
+  que ainda não assinaram nenhum laudo. Para cobertura total, a query deveria
+  usar user_unit_permissions. Por ora, a implementação atual resolve o problema principal.
+
+================================================================================
+PROBLEMA 3 — MÉDIO
+Tipo incorreto de price_per_report em DoctorPriceRow
+================================================================================
+
+SITUAÇÃO ATUAL:
+  DoctorPriceRow declara: price_per_report: number | null
+  listAllDoctorPrices retorna price_per_report como string ("25.00") do MySQL DECIMAL
+  fmtBRL(doctor.price_per_report!) recebe string em vez de number
+  Resultado em tela: "25.00/laudo" (sem formatação) ou "NaN/laudo"
+
+  O cast (d: any) suprime o erro de TypeScript mas não resolve o runtime.
+
+CORREÇÃO em FinanceConfiguracao.tsx:
+
+  Linha 20:
+    ANTES:
+      const hasPrice = doctor.price_per_report !== null && doctor.price_per_report > 0;
+    DEPOIS:
+      const hasPrice = doctor.price_per_report !== null && Number(doctor.price_per_report) > 0;
+
+  Linha 55:
+    ANTES:
+      {hasPrice ? fmtBRL(doctor.price_per_report!) + "/laudo" : "Sem preço configurado"}
+    DEPOIS:
+      {hasPrice ? fmtBRL(Number(doctor.price_per_report)) + "/laudo" : "Sem preço configurado"}
+
+  NOTA: quando o PROBLEMA 2 for implementado (listDoctorsForUnit), o campo
+  price_per_report retornará como number (já convertido no backend com Number()).
+  As conversões acima cobrem o estado atual e também são seguras para o estado futuro.
+
+================================================================================
+PROBLEMA 4 — MÉDIO
+Auditoria de pagamento incompleta — falta registrar quem marcou
+================================================================================
+
+CONFIRMADO PELO DOCUMENTO DE ORIENTAÇÃO E PELA ANÁLISE DO SCHEMA.
+
+SITUAÇÃO ATUAL:
+  billing_visit_events tem:
+    doctor_received_at  — quando o médico foi marcado como pago ✅
+    system_paid_at      — quando o sistema foi marcado como pago ✅
+  
+  NÃO TEM:
+    doctor_received_by_user_id — AUSENTE no schema
+    system_paid_by_user_id     — AUSENTE no schema
+
+  O sistema sabe QUANDO o pagamento foi marcado mas não sabe QUEM marcou.
+  Isso impede auditoria e conferência.
+
+CORREÇÃO — PARTE A: migration de banco
+
+  Criar: drizzle/XXXX_add_payment_audit_fields.sql
+
+    ALTER TABLE billing_visit_events
+      ADD COLUMN doctor_received_by_user_id INT NULL
+        AFTER doctor_received_at,
+      ADD COLUMN system_paid_by_user_id INT NULL
+        AFTER system_paid_at;
+
+CORREÇÃO — PARTE B: atualizar schema Drizzle
+
+  Arquivo: drizzle/schema.ts
+  Na definição de billing_visit_events, adicionar:
+
+    Após doctor_received_at:
+      doctor_received_by_user_id: int("doctor_received_by_user_id"),
+
+    Após system_paid_at:
+      system_paid_by_user_id: int("system_paid_by_user_id"),
+
+CORREÇÃO — PARTE C: atualizar markDoctorPaid
+
+  Arquivo: server/routers/financeSimple.ts — linha ~468
+
+    No .set() do update:
+      ANTES:  .set({ doctor_received_at: now })
+      DEPOIS: .set({ doctor_received_at: now, doctor_received_by_user_id: ctx.user.id })
+
+CORREÇÃO — PARTE D: atualizar markSystemPaid
+
+  Arquivo: server/routers/financeSimple.ts — linha ~508
+
+    No .set() do update:
+      ANTES:  .set({ system_paid_at: now })
+      DEPOIS: .set({ system_paid_at: now, system_paid_by_user_id: ctx.user.id })
+
+================================================================================
+PROBLEMA 5 — MÉDIO
+Campo financial_enabled ausente — separar unidade ativa de financeiro ativo
+================================================================================
+
+CONFIRMADO PELO DOCUMENTO DE ORIENTAÇÃO.
+
+SITUAÇÃO ATUAL:
+  A tabela units tem isActive mas não tem financial_enabled.
+  Não há distinção entre "unidade ativa no sistema" e "financeiro habilitado".
+  Uma unidade pode estar operando sem configuração financeira completa
+  sem nenhuma indicação clara disso para o admin.
+
+CORREÇÃO — PARTE A: migration de banco
+
+  Criar: drizzle/XXXX_add_financial_enabled_to_units.sql
+
+    ALTER TABLE units
+      ADD COLUMN financial_enabled BOOLEAN NOT NULL DEFAULT FALSE
+        AFTER isActive;
+
+CORREÇÃO — PARTE B: atualizar schema Drizzle
+
+  Arquivo: drizzle/schema.ts
+  Na definição de units, adicionar após isActive:
+    financial_enabled: boolean("financial_enabled").default(false).notNull(),
+
+CORREÇÃO — PARTE C: atualizar unitFinancialReadiness
+
+  Arquivo: server/routers/financeSimple.ts
+  Na seleção da unidade (linha ~2604), incluir o campo:
+    financial_enabled: units.financial_enabled,
+
+  Adicionar ao retorno:
+    financial_enabled: unit.financial_enabled,
+
+CORREÇÃO — PARTE D: adicionar ao isReady
+
+  A condição isReady deve incluir:
+    && unit.financial_enabled
+
+  Isso significa que o admin precisa ativar manualmente o financeiro da unidade
+  após completar o checklist. A ativação é o "aval final" do admin.
+
+CORREÇÃO — PARTE E: adicionar toggle na FinanceConfiguracao
+
+  Criar mutation setFinancialEnabled no backend:
+
+    setFinancialEnabled: protectedProcedure
+      .input(z.object({
+        unit_id: z.number().int(),
+        enabled: z.boolean(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master')
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        await db
+          .update(units)
+          .set({ financial_enabled: input.enabled })
+          .where(eq(units.id, input.unit_id));
+        return { ok: true };
+      }),
+
+  No frontend FinanceConfiguracao.tsx, adicionar abaixo do checklist:
+
+    const setEnabled = trpc.financeSimple.setFinancialEnabled.useMutation({
+      onSuccess: () => {
+        utils.financeSimple.unitFinancialReadiness.invalidate({ unit_id: selectedUnitId! });
+      }
+    });
+
+    {/* Toggle de ativação financeira */}
+    <div className="flex items-center justify-between p-4 bg-slate-800/40 rounded-lg border border-slate-700/50">
+      <div>
+        <p className="text-sm font-medium text-white">Financeiro da unidade</p>
+        <p className="text-xs text-slate-400 mt-0.5">
+          {readiness?.financial_enabled
+            ? "Ativo — eventos financeiros serão gerados normalmente"
+            : "Inativo — configure todos os itens do checklist antes de ativar"}
+        </p>
+      </div>
+      <button
+        disabled={!readiness?.is_ready && !readiness?.financial_enabled}
+        onClick={() => setEnabled.mutate({
+          unit_id: selectedUnitId!,
+          enabled: !readiness?.financial_enabled
+        })}
+        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+          readiness?.financial_enabled
+            ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+            : "bg-slate-700 hover:bg-slate-600 text-slate-300"
+        }`}
+      >
+        {readiness?.financial_enabled ? "Ativo ✓" : "Inativar"}
+      </button>
+    </div>
+
+  REGRA: o botão "Ativar" só deve aparecer quando is_ready for true
+  (todos os pré-requisitos atendidos). O botão "Inativar" sempre disponível.
+
+================================================================================
+PROBLEMA 6 — BAIXO
+Subquery em unitFinancialReadiness menos robusta que LEFT JOIN
+================================================================================
+
+SITUAÇÃO ATUAL:
+  A query de laudos sem evento usa subquery dentro de isNull():
+    isNull(
+      db.select({ id: billing_visit_events.id })
+        .from(billing_visit_events)
+        .where(eq(billing_visit_events.report_id, reportsTable.id))
+        .limit(1)
+    )
+
+  O documento de orientação recomenda LEFT JOIN.
+  Subqueries correlacionadas podem ter performance inferior em tabelas grandes.
+
+CORREÇÃO (LEFT JOIN explícito via SQL raw):
+
+  const missingRows = await db.execute(sql`
+    SELECT COUNT(*) as count
+    FROM reports r
+    LEFT JOIN billing_visit_events bve ON bve.report_id = r.id
+    WHERE r.unit_id = ${input.unit_id}
+      AND r.status IN ('signed', 'revised')
+      AND bve.id IS NULL
+  `);
+  const missingEventsCount = Number((missingRows as any)[0]?.[0]?.count ?? 0);
+
+  Alternativa mantendo Drizzle ORM:
+    const missingRows = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(reportsTable)
+      .leftJoin(
+        billing_visit_events,
+        eq(billing_visit_events.report_id, reportsTable.id)
+      )
+      .where(
+        and(
+          eq(reportsTable.unit_id, input.unit_id),
+          sql`${reportsTable.status} IN ('signed', 'revised')`,
+          isNull(billing_visit_events.id),
+        )
+      );
+
+================================================================================
+PROBLEMA 7 — BAIXO
+Tabelas mortas ainda sendo escritas a cada laudo
+================================================================================
+
+SITUAÇÃO ATUAL:
+  billing_report_items: escrita em reports.ts (linha ~344) ao retificar laudo
+  billing_monthly_*:    escrita em db.ts (linha ~1847) via updateCycleSummaries
+  Nenhuma dessas tabelas é lida por qualquer tela ativa.
+
+CORREÇÃO:
+
+  Em server/routers/reports.ts — remover o bloco (linhas ~341-349):
+    try {
+      await db.update(billing_report_items)...
+    } catch (e) {
+      console.warn(...)
+    }
+
+  Em server/db.ts — remover a linha (linha ~1847):
+    await updateCycleSummaries(...);
+
+  Verificar antes com:
+    grep -rn "updateCycleSummaries" server/
+  Confirmar que apenas essa chamada existe antes de remover a função.
+
+================================================================================
+SEQUÊNCIA COMPLETA DE IMPLEMENTAÇÃO
+================================================================================
+
+As implementações devem seguir esta ordem exata para evitar dependências quebradas:
+
+FASE 1 — Fundação (sem isso o financeiro não é confiável)
+
+  PASSO 1A — Criar resolveFinancialCycle no backend
+    Arquivo: server/routers/financeSimple.ts (após calcCycleDates, linha ~142)
+    Dependência: calcCycleDates (já existe) ✅
+
+  PASSO 1B — Corrigir myFinanceiro para usar ciclo real por unidade
+    Arquivo: server/routers/financeSimple.ts — procedure myFinanceiro (~linha 529)
+    Usar: resolveFinancialCycle por unit_id do médico
+
+  PASSO 1C — Corrigir myResponsavelSummary para usar ciclo real
+    Arquivo: server/routers/financeSimple.ts — procedure myResponsavelSummary (~linha 778)
+    Usar: resolveFinancialCycle por unit_id de cada unidade vinculada
+
+  PASSO 1D — Corrigir unitSummary para usar ciclo real
+    Arquivo: server/routers/financeSimple.ts — procedure unitSummary (~linha 224)
+    Usar: calcCycleDates por unidade em loop ou SQL por unidade
+
+  PASSO 1E — Corrigir responsibleSummary e dashboard
+    Arquivo: server/routers/financeSimple.ts — linhas ~166 e ~871
+    Usar: mesma abordagem por unidade
+
+  PASSO 1F — Atualizar markDoctorPaid e markSystemPaid
+    Arquivo: server/routers/financeSimple.ts — linhas ~468 e ~508
+    Trocar calcCycleDates por resolveFinancialCycle
+
+  VALIDAR FASE 1 com o cenário de teste (seção anterior) antes de continuar.
+
+FASE 2 — Correções independentes (podem ser feitas em paralelo com Fase 1)
+
+  PASSO 2A — Corrigir tipo de price_per_report em DoctorPriceRow
+    Arquivo: client/src/pages/finance/FinanceConfiguracao.tsx — linhas 20 e 55
+    Number() em dois lugares (5 minutos)
+
+  PASSO 2B — Atualizar frontend para usar listDoctorsForUnit
+    Arquivo: client/src/pages/finance/FinanceConfiguracao.tsx — linhas 434-438
+    + atualizar 2 invalidates e 1 texto de estado vazio
+
+  PASSO 2C — Subquery → LEFT JOIN em unitFinancialReadiness
+    Arquivo: server/routers/financeSimple.ts — linha ~2698
+    Substituir subquery por LEFT JOIN explícito
+
+  PASSO 2D — Remover gravação em tabelas mortas
+    server/routers/reports.ts: remover bloco billing_report_items
+    server/db.ts: remover chamada a updateCycleSummaries
+
+FASE 3 — Auditoria e ativação financeira (após Fases 1 e 2 estabilizadas)
+
+  PASSO 3A — Migration: adicionar doctor_received_by_user_id e system_paid_by_user_id
+    Criar arquivo SQL de migration
+    Atualizar drizzle/schema.ts
+
+  PASSO 3B — Atualizar markDoctorPaid e markSystemPaid para gravar quem marcou
+    server/routers/financeSimple.ts — adicionar ctx.user.id ao .set()
+
+  PASSO 3C — Migration: adicionar financial_enabled na tabela units
+    Criar arquivo SQL de migration
+    Atualizar drizzle/schema.ts
+
+  PASSO 3D — Criar procedure setFinancialEnabled
+    server/routers/financeSimple.ts — nova procedure
+
+  PASSO 3E — Adicionar toggle de financial_enabled na FinanceConfiguracao
+    client/src/pages/finance/FinanceConfiguracao.tsx
+    + incluir financial_enabled no isReady de unitFinancialReadiness
+
+================================================================================
+CHECKLIST FINAL DE APTIDÃO DA UNIDADE (após todas as correções)
+================================================================================
+
+A tela /financeiro/configuracao deve mostrar para cada unidade:
+
+  [ ] Unidade ativa (isActive = true)
+  [ ] Responsável financeiro vinculado
+  [ ] Usuário do responsável vinculado
+  [ ] Ciclo de pagamento configurado
+  [ ] Preço do sistema configurado (específico ou padrão)
+  [ ] Preço de cada médico configurado
+  [ ] Nenhum evento com precificação pendente
+  [ ] Nenhum laudo sem evento financeiro
+  [ ] Financeiro habilitado (financial_enabled = true)
+
+STATUS FINAL:
+  Todos os itens ✅ → "Pronto para operar"
+  Algum item ❌ crítico → "Crítico — corrija antes de operar"
+  Algum item ⚠️ aviso → "Atenção — verifique configurações"
+
+================================================================================
+VALIDAÇÃO COMPLETA APÓS IMPLEMENTAÇÃO
+================================================================================
+
+TESTE 1 — Coerência de valores (valida PROBLEMA 1):
+  [ ] Usar o cenário: ciclo 01→31, médico com laudos em abril, maio e junho.
+  [ ] Selecionar maio no frontend.
+  [ ] Card do médico: exibe exatamente 3 laudos (maio) e R$ 75.
+  [ ] Extrato: lista exatamente 3 laudos de maio.
+  [ ] Tela do responsável: Dr. João = 3 laudos, R$ 75.
+  [ ] Clicar "Marcar pago": tela atualiza, pendente vai a R$ 0.
+  [ ] Selecionar abril: laudos de abril intactos e pendentes.
+  [ ] Selecionar junho: laudos de junho intactos e pendentes.
+  [ ] Repetir o teste com ciclo 15→14.
+
+TESTE 2 — Médicos sem preço (valida PROBLEMA 2):
+  [ ] Vincular médico novo à unidade sem configurar preço.
+  [ ] Assinar ao menos um laudo como esse médico.
+  [ ] Abrir /financeiro/configuracao e selecionar a unidade.
+  [ ] Médico aparece na tabela com badge "Sem preço configurado".
+  [ ] Configurar preço: R$ X,XX exibido corretamente formatado como moeda.
+
+TESTE 3 — Auditoria (valida PROBLEMA 4):
+  [ ] Marcar médico como pago como responsavel_financeiro.
+  [ ] Consultar billing_visit_events no banco.
+  [ ] doctor_received_at: timestamp preenchido.
+  [ ] doctor_received_by_user_id: id do usuário que marcou.
+
+TESTE 4 — Ativação financeira (valida PROBLEMA 5):
+  [ ] Unidade sem ciclo configurado: is_ready = false, toggle desabilitado.
+  [ ] Completar todos os itens do checklist.
+  [ ] is_ready = true, toggle habilitado.
+  [ ] Clicar "Ativar": financial_enabled = true.
+  [ ] Clicar "Inativar": financial_enabled = false.
+
+TESTE 5 — Integridade geral:
+  [ ] grep -rn "financeiro2\|finance2\|FinanceShell2" client/src/ → vazio
+  [ ] npm run build → zero erros de compilação
+  [ ] Todas as telas carregam sem erros de console
+
+================================================================================
+RESUMO EXECUTIVO DE TODOS OS PROBLEMAS
+================================================================================
+
+  #  | TIPO     | NÍVEL    | DESCRIÇÃO
+  ---|----------|----------|--------------------------------------------------
+  P1 | Código   | CRÍTICO  | Resumos usam 3 meses, pagamento usa ciclo real → divergência de valores
+  P2 | Código   | GRAVE    | Frontend usa listAllDoctorPrices, médicos sem preço invisíveis
+  P3 | Código   | MÉDIO    | price_per_report como string onde se espera number → formatação errada
+  P4 | Código   | MÉDIO    | Ausência de quem marcou pagamento (doctor_received_by / system_paid_by)
+  P5 | Funcional| MÉDIO    | financial_enabled ausente — sem distinção entre unidade ativa e financeiro ativo
+  P6 | Código   | BAIXO    | Subquery em unitFinancialReadiness menos robusta que LEFT JOIN
+  P7 | Código   | BAIXO    | billing_report_items e updateCycleSummaries ainda escritos sem leitura
+
+================================================================================
+FIM DO DOCUMENTO
+Código analisado: pacs-v4-main v49
+Documentos base: análise direta do repositório + correcoes_modo_correto_financeiro_v49.txt
+Maio 2026
+================================================================================

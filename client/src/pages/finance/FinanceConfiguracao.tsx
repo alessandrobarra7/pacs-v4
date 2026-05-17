@@ -30,7 +30,7 @@ function DoctorPriceRow({ doctor, unitId, onSaved }: {
   const save = trpc.financeSimple.setDoctorPriceDirect.useMutation({
     onSuccess: () => {
       toast.success(`Preço de ${doctor.doctor_name} atualizado`);
-      utils.financeSimple.listAllDoctorPrices.invalidate();
+      utils.financeSimple.listDoctorsForUnit.invalidate({ unit_id: unitId });
       utils.financeSimple.unitFinancialReadiness.invalidate();
       setEditing(false);
       onSaved();
@@ -38,7 +38,8 @@ function DoctorPriceRow({ doctor, unitId, onSaved }: {
     onError: (e) => toast.error(e.message),
   });
 
-  const hasPrice = doctor.price_per_report !== null && doctor.price_per_report > 0;
+  // P3: price_per_report pode vir como string do MySQL DECIMAL — forçar Number()
+  const hasPrice = doctor.price_per_report !== null && Number(doctor.price_per_report) > 0;
 
   return (
     <div className="flex items-center justify-between px-4 py-3 hover:bg-slate-800/30 transition-colors">
@@ -52,7 +53,7 @@ function DoctorPriceRow({ doctor, unitId, onSaved }: {
           <p className="text-sm text-white truncate">{doctor.doctor_name}</p>
           {!editing && (
             <p className="text-xs text-slate-400">
-              {hasPrice ? fmtBRL(doctor.price_per_report!) + "/laudo" : "Sem preço configurado"}
+              {hasPrice ? fmtBRL(Number(doctor.price_per_report)) + "/laudo" : "Sem preço configurado"}
             </p>
           )}
         </div>
@@ -431,11 +432,11 @@ export function FinanceConfiguracao() {
 
   const selectedUnit = units?.find(u => u.unit_id === selectedUnitId);
 
-  const { data: allDoctors, isLoading: doctorsLoading } = trpc.financeSimple.listAllDoctorPrices.useQuery(
-    undefined,
+  // P2: usar listDoctorsForUnit (inclui médicos vinculados sem preço)
+  const { data: doctors, isLoading: doctorsLoading } = trpc.financeSimple.listDoctorsForUnit.useQuery(
+    { unit_id: selectedUnitId! },
     { enabled: selectedUnitId !== null }
   );
-  const doctors = allDoctors?.filter(d => d.unit_id === selectedUnitId);
 
   const { data: readiness } = trpc.financeSimple.unitFinancialReadiness.useQuery(
     { unit_id: selectedUnitId! },
@@ -449,6 +450,14 @@ export function FinanceConfiguracao() {
         (result?.failed ? `, ${result.failed} falha(s)` : '')
       );
       utils.financeSimple.unitFinancialReadiness.invalidate();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const setEnabled = trpc.financeSimple.setFinancialEnabled.useMutation({
+    onSuccess: () => {
+      utils.financeSimple.unitFinancialReadiness.invalidate({ unit_id: selectedUnitId! });
+      toast.success("Status financeiro atualizado");
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -566,7 +575,7 @@ export function FinanceConfiguracao() {
                 </div>
               ) : !doctors?.length ? (
                 <div className="p-6 text-center text-slate-500 text-sm">
-                  Nenhum médico com laudos nesta unidade no período.
+                  Nenhum médico vinculado a esta unidade com laudos assinados.
                 </div>
               ) : (
                 <div className="divide-y divide-slate-800/60">
@@ -575,7 +584,7 @@ export function FinanceConfiguracao() {
                       key={d.doctor_user_id}
                       doctor={d}
                       unitId={selectedUnitId}
-                      onSaved={() => utils.financeSimple.listAllDoctorPrices.invalidate()}
+                      onSaved={() => utils.financeSimple.listDoctorsForUnit.invalidate({ unit_id: selectedUnitId! })}
                     />
                   ))}
                 </div>
@@ -590,6 +599,38 @@ export function FinanceConfiguracao() {
               </div>
               <div className="py-2">
                 <ReadinessChecklist unitId={selectedUnitId} />
+              </div>
+            </div>
+
+            {/* ── Bloco F: Toggle de ativação financeira ── */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-800">
+                <CheckCircle2 className="h-4 w-4 text-cyan-400" />
+                <h2 className="text-sm font-semibold text-white">Ativação Financeira</h2>
+              </div>
+              <div className="flex items-center justify-between px-5 py-4">
+                <div>
+                  <p className="text-sm font-medium text-white">Financeiro da unidade</p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {readiness?.financial_enabled
+                      ? "Ativo — eventos financeiros serão gerados normalmente"
+                      : "Inativo — configure todos os itens do checklist antes de ativar"}
+                  </p>
+                </div>
+                <button
+                  disabled={(!readiness?.is_ready && !readiness?.financial_enabled) || setEnabled.isPending}
+                  onClick={() => setEnabled.mutate({
+                    unit_id: selectedUnitId!,
+                    enabled: !readiness?.financial_enabled
+                  })}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                    readiness?.financial_enabled
+                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                      : "bg-slate-700 hover:bg-slate-600 text-slate-300"
+                  }`}
+                >
+                  {setEnabled.isPending ? "..." : readiness?.financial_enabled ? "Ativo ✓" : "Ativar"}
+                </button>
               </div>
             </div>
 

@@ -138,6 +138,29 @@ function calcCycleDates(
   }
 }
 
+// ─── resolveFinancialCycle ───────────────────────────────────────────────────────
+/**
+ * P1A — resolveFinancialCycle: única fonte de verdade para o ciclo de uma unidade.
+ * Todas as procedures financeiras devem usar esta função para garantir que
+ * o que aparece na tela = o que será pago no ciclo.
+ * Retorna cycle_configured: false quando a unidade não tem ciclo configurado
+ * (fallback para mês calendário 1→31).
+ */
+async function resolveFinancialCycle(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  unitId: number,
+  refDate: Date
+): Promise<{ startDate: Date; endDate: Date; label: string; cycle_configured: boolean }> {
+  const unitRow = await db
+    .select({ s: units.billing_cycle_start_day, e: units.billing_cycle_end_day })
+    .from(units)
+    .where(eq(units.id, unitId))
+    .limit(1);
+  const configured = !!(unitRow[0]?.s && unitRow[0]?.e);
+  const { cycleStart, cycleEnd, label } = calcCycleDates(unitRow[0]?.s, unitRow[0]?.e, refDate);
+  return { startDate: cycleStart, endDate: cycleEnd, label, cycle_configured: configured };
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 type AllowedAdminRole = "admin_master" | "unit_admin" | "responsavel_financeiro";
@@ -173,35 +196,62 @@ export const financeSimpleRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      // dashboard agrega todas as unidades (cada uma com ciclo diferente).
-      // Usa janela de 3 meses centrada no refDate para cobrir qualquer ciclo por unidade.
-      const startDate = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
-      const endDate = new Date(refDate.getFullYear(), refDate.getMonth() + 2, 1);
+      // P1E: dashboard usa ciclo real por unidade.
+      // Busca todas as unidades relevantes e calcula o ciclo de cada uma.
 
-      // Filtro por unidade para unit_admin / responsavel_financeiro
-      const unitFilter =
-        ctx.user.role === "unit_admin" && ctx.user.unit_id
-          ? eq(billing_visit_events.unit_id, ctx.user.unit_id)
-          : undefined;
+      // Determinar quais unidades incluir
+      let unitScope: number[] | null = null; // null = todas
+      if (ctx.user.role === "unit_admin" && ctx.user.unit_id) {
+        unitScope = [ctx.user.unit_id];
+      }
 
-      const rows = await db
-        .select({
-          total_laudos: sql<number>`COUNT(*)`,
-          system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
-          doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
-          system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
-          doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
-          system_pending_count: sql<number>`SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NULL THEN 1 ELSE 0 END)`,
-          doctor_pending_count: sql<number>`SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NULL THEN 1 ELSE 0 END)`,
+      const allUnitsRows = await db
+        .select({ id: units.id, s: units.billing_cycle_start_day, e: units.billing_cycle_end_day })
+        .from(units)
+        .where(unitScope ? inArray(units.id, unitScope) : undefined);
+
+      if (allUnitsRows.length === 0) {
+        return {
+          total_laudos: 0, system_total: 0, doctor_total: 0,
+          system_paid: 0, doctor_paid: 0, system_pending: 0, doctor_pending: 0,
+          system_pending_count: 0, doctor_pending_count: 0,
+        };
+      }
+
+      // Calcular ciclo de cada unidade e agregar resultados
+      const perUnitResults = await Promise.all(
+        allUnitsRows.map(async (u) => {
+          const { cycleStart, cycleEnd } = calcCycleDates(u.s, u.e, refDate);
+          const r = await db
+            .select({
+              total_laudos: sql<number>`COUNT(*)`,
+              system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
+              doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
+              system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
+              doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
+              system_pending_count: sql<number>`SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NULL THEN 1 ELSE 0 END)`,
+              doctor_pending_count: sql<number>`SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NULL THEN 1 ELSE 0 END)`,
+            })
+            .from(billing_visit_events)
+            .where(and(
+              eq(billing_visit_events.unit_id, u.id),
+              sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
+              sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+            ));
+          return r[0];
         })
-        .from(billing_visit_events)
-        .where(
-          and(
-            sql`${billing_visit_events.signed_at} >= ${startDate}`,
-            sql`${billing_visit_events.signed_at} < ${endDate}`,
-            unitFilter,
-          )
-        );
+      );
+
+      // Agregar todos os resultados
+      const rows = [{
+        total_laudos: perUnitResults.reduce((s, r) => s + Number(r?.total_laudos ?? 0), 0),
+        system_total: perUnitResults.reduce((s, r) => s + Number(r?.system_total ?? 0), 0),
+        doctor_total: perUnitResults.reduce((s, r) => s + Number(r?.doctor_total ?? 0), 0),
+        system_paid: perUnitResults.reduce((s, r) => s + Number(r?.system_paid ?? 0), 0),
+        doctor_paid: perUnitResults.reduce((s, r) => s + Number(r?.doctor_paid ?? 0), 0),
+        system_pending_count: perUnitResults.reduce((s, r) => s + Number(r?.system_pending_count ?? 0), 0),
+        doctor_pending_count: perUnitResults.reduce((s, r) => s + Number(r?.doctor_pending_count ?? 0), 0),
+      }];
 
       const r = rows[0];
       return {
@@ -232,10 +282,7 @@ export const financeSimpleRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      // unitSummary: cada unidade tem ciclo diferente.
-      // Usa janela de 3 meses centrada no refDate; drill-down por unidade usa ciclo específico.
-      const startDate = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
-      const endDate = new Date(refDate.getFullYear(), refDate.getMonth() + 2, 1);
+      // P1D: unitSummary usa ciclo real por unidade (resolveFinancialCycle via calcCycleDates).
 
       // Filtro de unidades: unit_admin vê apenas suas unidades (unit_id fixo OU via permissões)
       let unitIdFilter: ReturnType<typeof eq> | ReturnType<typeof inArray> | undefined = undefined;
@@ -271,41 +318,59 @@ export const financeSimpleRouter = router({
           ? and(unitIdFilter, inArray(units.id, respUnitIds)) as ReturnType<typeof eq>
           : inArray(units.id, respUnitIds) as ReturnType<typeof eq>;
       }
-      const rows = await db
-        .select({
-          unit_id: units.id,
-          unit_name: units.name,
-          total_laudos: sql<number>`COALESCE(COUNT(${billing_visit_events.id}), 0)`,
-          system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
-          doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
-          system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
-          doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
-          system_pending_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NULL AND ${billing_visit_events.id} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
-          doctor_pending_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NULL AND ${billing_visit_events.id} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
-        })
+      // P1D: Buscar todas as unidades no escopo com seus ciclos
+      const unitsInScope = await db
+        .select({ id: units.id, name: units.name, s: units.billing_cycle_start_day, e: units.billing_cycle_end_day })
         .from(units)
-        .leftJoin(
-          billing_visit_events,
-          and(
-            eq(billing_visit_events.unit_id, units.id),
-            sql`${billing_visit_events.signed_at} >= ${startDate}`,
-            sql`${billing_visit_events.signed_at} < ${endDate}`,
-          )
-        )
         .where(unitIdFilter)
-        .groupBy(units.id, units.name)
         .orderBy(units.name);
 
-      return rows.map((r) => ({
+      if (unitsInScope.length === 0) return [];
+
+      // Para cada unidade, buscar eventos dentro do seu ciclo real
+      const perUnitRows = await Promise.all(
+        unitsInScope.map(async (u) => {
+          const { cycleStart, cycleEnd, label: cycle_label } = calcCycleDates(u.s, u.e, refDate);
+          const r = await db
+            .select({
+              total_laudos: sql<number>`COALESCE(COUNT(${billing_visit_events.id}), 0)`,
+              system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
+              doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
+              system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
+              doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
+              system_pending_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NULL AND ${billing_visit_events.id} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
+              doctor_pending_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NULL AND ${billing_visit_events.id} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
+            })
+            .from(billing_visit_events)
+            .where(and(
+              eq(billing_visit_events.unit_id, u.id),
+              sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
+              sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+            ));
+          return {
+            unit_id: u.id,
+            unit_name: u.name ?? "Unidade",
+            cycle_label,
+            cycle_start_date: cycleStart.toISOString(),
+            cycle_end_date: cycleEnd.toISOString(),
+            ...r[0],
+          };
+        })
+      );
+
+      return perUnitRows.map((r) => ({
         unit_id: r.unit_id,
-        unit_name: r.unit_name ?? "Unidade",
+        unit_name: r.unit_name,
+        cycle_label: r.cycle_label,
+        cycle_start_date: r.cycle_start_date,
+        cycle_end_date: r.cycle_end_date,
         total_laudos: Number(r.total_laudos),
         system_total: toMoney(r.system_total),
         doctor_total: toMoney(r.doctor_total),
         system_paid: toMoney(r.system_paid),
         doctor_paid: toMoney(r.doctor_paid),
-        system_pending: subMoney(r.system_total, r.system_paid),   // FIX float
-        doctor_pending: subMoney(r.doctor_total, r.doctor_paid),   // FIX float
+        system_pending: subMoney(r.system_total, r.system_paid),
+        doctor_pending: subMoney(r.doctor_total, r.doctor_paid),
         system_pending_count: Number(r.system_pending_count),
         doctor_pending_count: Number(r.doctor_pending_count),
       }));
@@ -460,17 +525,12 @@ export const financeSimpleRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      const unitRow = await db.select({
-        s: units.billing_cycle_start_day,
-        e: units.billing_cycle_end_day,
-      }).from(units).where(eq(units.id, input.unit_id)).limit(1);
-      const { cycleStart: startDate, cycleEnd: endDate } =
-        calcCycleDates(unitRow[0]?.s, unitRow[0]?.e, refDate);
+      // P1F: usar resolveFinancialCycle para garantir ciclo real
+      const { startDate, endDate } = await resolveFinancialCycle(db, input.unit_id, refDate);
       const now = new Date();
-
       await db
         .update(billing_visit_events)
-        .set({ doctor_received_at: now })
+        .set({ doctor_received_at: now, doctor_received_by_user_id: ctx.user.id })
         .where(
           and(
             eq(billing_visit_events.unit_id, input.unit_id),
@@ -500,17 +560,12 @@ export const financeSimpleRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      const unitRow = await db.select({
-        s: units.billing_cycle_start_day,
-        e: units.billing_cycle_end_day,
-      }).from(units).where(eq(units.id, input.unit_id)).limit(1);
-      const { cycleStart: startDate, cycleEnd: endDate } =
-        calcCycleDates(unitRow[0]?.s, unitRow[0]?.e, refDate);
+      // P1F: usar resolveFinancialCycle para garantir ciclo real
+      const { startDate, endDate } = await resolveFinancialCycle(db, input.unit_id, refDate);
       const now = new Date();
-
       await db
         .update(billing_visit_events)
-        .set({ system_paid_at: now })
+        .set({ system_paid_at: now, system_paid_by_user_id: ctx.user.id })
         .where(
           and(
             eq(billing_visit_events.unit_id, input.unit_id),
@@ -535,62 +590,84 @@ export const financeSimpleRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // myFinanceiro: janela de 3 meses centrada no refDate (mês anterior + atual + seguinte).
-      // Garante cobertura de qualquer ciclo por unidade (ex: 15/04→14/05).
-      // O ciclo específico por unidade é exibido no frontend via cycle_label.
+      // P1B: myFinanceiro usa ciclo real por unidade (resolveFinancialCycle).
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      const startDate = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
-      const endDate = new Date(refDate.getFullYear(), refDate.getMonth() + 2, 1);
 
-      // Resumo por unidade
-      const summary = await db
-        .select({
-          unit_id: billing_visit_events.unit_id,
-          unit_name: units.name,
-          cycle_start_day: units.billing_cycle_start_day,
-          cycle_end_day: units.billing_cycle_end_day,
-          total_laudos: sql<number>`COUNT(*)`,
-          doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
-          doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
-          last_received_at: sql<Date | null>`MAX(${billing_visit_events.doctor_received_at})`,
-        })
-        .from(billing_visit_events)
-        .leftJoin(units, eq(units.id, billing_visit_events.unit_id))
-        .where(
-          and(
-            eq(billing_visit_events.doctor_user_id, ctx.user.id),
-            sql`${billing_visit_events.signed_at} >= ${startDate}`,
-            sql`${billing_visit_events.signed_at} < ${endDate}`,
-          )
-        )
-        .groupBy(billing_visit_events.unit_id, units.name)
+      // Buscar unidades onde o médico tem eventos, com seus ciclos
+      const unitRows = await db
+        .select({ id: units.id, name: units.name, s: units.billing_cycle_start_day, e: units.billing_cycle_end_day })
+        .from(units)
+        .innerJoin(billing_visit_events, and(
+          eq(billing_visit_events.unit_id, units.id),
+          eq(billing_visit_events.doctor_user_id, ctx.user.id),
+        ))
+        .groupBy(units.id, units.name, units.billing_cycle_start_day, units.billing_cycle_end_day)
         .orderBy(units.name);
 
-      // Laudos individuais
-      const events = await db
-        .select({
-          id: billing_visit_events.id,
-          unit_id: billing_visit_events.unit_id,
-          unit_name: units.name,
-          patient_name: billing_visit_events.patient_name,
-          study_date: billing_visit_events.study_date,
-          modality_snapshot: billing_visit_events.modality_snapshot,
-          exam_name_snapshot: billing_visit_events.exam_name_snapshot,
-          doctor_amount_due: billing_visit_events.doctor_amount_due,
-          doctor_received_at: billing_visit_events.doctor_received_at,
-          pricing_status: billing_visit_events.pricing_status,  // FIN-C4: aviso de preço não configurado
-          signed_at: billing_visit_events.signed_at,
+      // Para cada unidade, buscar resumo dentro do ciclo real
+      const summaryRaw = await Promise.all(
+        unitRows.map(async (u) => {
+          const { cycleStart, cycleEnd, label: cycle_label } = calcCycleDates(u.s, u.e, refDate);
+          const r = await db
+            .select({
+              total_laudos: sql<number>`COUNT(*)`,
+              doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
+              doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
+              last_received_at: sql<Date | null>`MAX(${billing_visit_events.doctor_received_at})`,
+            })
+            .from(billing_visit_events)
+            .where(and(
+              eq(billing_visit_events.doctor_user_id, ctx.user.id),
+              eq(billing_visit_events.unit_id, u.id),
+              sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
+              sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+            ));
+          return {
+            unit_id: u.id,
+            unit_name: u.name ?? "Unidade",
+            cycle_start_day: u.s ?? 1,
+            cycle_end_day: u.e ?? 31,
+            cycle_label,
+            cycle_start_date: cycleStart.toISOString(),
+            cycle_end_date: cycleEnd.toISOString(),
+            ...r[0],
+          };
         })
-        .from(billing_visit_events)
-        .leftJoin(units, eq(units.id, billing_visit_events.unit_id))
-        .where(
-          and(
-            eq(billing_visit_events.doctor_user_id, ctx.user.id),
-            sql`${billing_visit_events.signed_at} >= ${startDate}`,
-            sql`${billing_visit_events.signed_at} < ${endDate}`,
-          )
-        )
-        .orderBy(desc(billing_visit_events.signed_at));
+      );
+      const summary = summaryRaw;
+
+      // Laudos individuais: buscar por unidade dentro do ciclo real
+      const eventsPerUnit = await Promise.all(
+        unitRows.map(async (u) => {
+          const { cycleStart, cycleEnd } = calcCycleDates(u.s, u.e, refDate);
+          return db
+            .select({
+              id: billing_visit_events.id,
+              unit_id: billing_visit_events.unit_id,
+              unit_name: units.name,
+              patient_name: billing_visit_events.patient_name,
+              study_date: billing_visit_events.study_date,
+              modality_snapshot: billing_visit_events.modality_snapshot,
+              exam_name_snapshot: billing_visit_events.exam_name_snapshot,
+              doctor_amount_due: billing_visit_events.doctor_amount_due,
+              doctor_received_at: billing_visit_events.doctor_received_at,
+              pricing_status: billing_visit_events.pricing_status,
+              signed_at: billing_visit_events.signed_at,
+            })
+            .from(billing_visit_events)
+            .leftJoin(units, eq(units.id, billing_visit_events.unit_id))
+            .where(and(
+              eq(billing_visit_events.doctor_user_id, ctx.user.id),
+              eq(billing_visit_events.unit_id, u.id),
+              sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
+              sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+            ))
+            .orderBy(desc(billing_visit_events.signed_at));
+        })
+      );
+      const events = eventsPerUnit.flat().sort((a, b) =>
+        new Date(b.signed_at ?? 0).getTime() - new Date(a.signed_at ?? 0).getTime()
+      );
 
       // Buscar preço vigente do médico por unidade (ends_at IS NULL = ativo)
       const doctorPriceRows = await db
@@ -609,23 +686,21 @@ export const financeSimpleRouter = router({
         doctorPriceRows.map(p => [p.unit_id, Number(p.price_per_report ?? 0)])
       );
       return {
-        summary: summary.map((r) => {
-          // E5: cycle_label calculado pelo backend usando calcCycleDates (mesmo algoritmo do dashboard)
-          const { label: cycle_label } = calcCycleDates(r.cycle_start_day, r.cycle_end_day, refDate);
-          return {
-            unit_id: r.unit_id,
-            unit_name: r.unit_name ?? "Unidade",
-            cycle_start_day: r.cycle_start_day ?? 1,
-            cycle_end_day: r.cycle_end_day ?? 31,
-            cycle_label,
-            total_laudos: Number(r.total_laudos),
-            doctor_total: toMoney(r.doctor_total),
-            doctor_paid: toMoney(r.doctor_paid ?? 0),
-            doctor_pending: subMoney(r.doctor_total, r.doctor_paid ?? 0),
-            last_received_at: r.last_received_at,
-            price_per_report: priceByUnit.get(r.unit_id) ?? null,
-          };
-        }),
+        summary: summary.map((r) => ({
+          unit_id: r.unit_id,
+          unit_name: r.unit_name,
+          cycle_start_day: r.cycle_start_day,
+          cycle_end_day: r.cycle_end_day,
+          cycle_label: r.cycle_label,
+          cycle_start_date: r.cycle_start_date,
+          cycle_end_date: r.cycle_end_date,
+          total_laudos: Number(r.total_laudos),
+          doctor_total: toMoney(r.doctor_total),
+          doctor_paid: toMoney(r.doctor_paid ?? 0),
+          doctor_pending: subMoney(r.doctor_total, r.doctor_paid ?? 0),
+          last_received_at: r.last_received_at,
+          price_per_report: priceByUnit.get(r.unit_id) ?? null,
+        })),
         events,
       };
     }),
@@ -815,34 +890,30 @@ export const financeSimpleRouter = router({
 
       const unitIds = linkedUnits.map((u) => u.unit_id);
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      // myResponsavel: janela de 3 meses centrada no refDate para cobrir qualquer ciclo por unidade.
-      const startDate = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
-      const endDate = new Date(refDate.getFullYear(), refDate.getMonth() + 2, 1);
-
-      // Resumo por unidade
-      const summary = await db
-        .select({
-          unit_id: billing_visit_events.unit_id,
-          unit_name: units.name,
-          total_laudos: sql<number>`COUNT(*)`,
-          system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
-          system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
-          doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
-          doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
+      // P1C: myResponsavelSummary usa ciclo real por unidade
+      const summaryPerUnit = await Promise.all(
+        linkedUnits.map(async (lu) => {
+          const { cycleStart, cycleEnd, label: cycle_label } = calcCycleDates(lu.cycle_start_day, lu.cycle_end_day, refDate);
+          const r = await db
+            .select({
+              total_laudos: sql<number>`COUNT(*)`,
+              system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
+              system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
+              doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
+              doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
+            })
+            .from(billing_visit_events)
+            .where(and(
+              eq(billing_visit_events.unit_id, lu.unit_id),
+              sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
+              sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+            ));
+          return { unit_id: lu.unit_id, cycle_label, cycle_start_date: cycleStart.toISOString(), cycle_end_date: cycleEnd.toISOString(), ...r[0] };
         })
-        .from(billing_visit_events)
-        .leftJoin(units, eq(units.id, billing_visit_events.unit_id))
-        .where(
-          and(
-            inArray(billing_visit_events.unit_id, unitIds),
-            sql`${billing_visit_events.signed_at} >= ${startDate}`,
-            sql`${billing_visit_events.signed_at} < ${endDate}`,
-          )
-        )
-        .groupBy(billing_visit_events.unit_id, units.name)
-        .orderBy(units.name);
+      );
+      const summary = summaryPerUnit;
 
-      // Montar mapa de unidades vinculadas (inclui unidades sem laudos no mês)
+      // Montar resultado com ciclo real por unidade
       const summaryMap = new Map(summary.map((s) => [s.unit_id, s]));
       const result = linkedUnits.map((lu) => {
         const s = summaryMap.get(lu.unit_id);
@@ -851,16 +922,18 @@ export const financeSimpleRouter = router({
           unit_name: lu.unit_name ?? "Unidade",
           cycle_start_day: lu.cycle_start_day ?? 1,
           cycle_end_day: lu.cycle_end_day ?? 31,
+          cycle_label: s?.cycle_label ?? "",
+          cycle_start_date: s?.cycle_start_date ?? "",
+          cycle_end_date: s?.cycle_end_date ?? "",
           total_laudos: s ? Number(s.total_laudos) : 0,
           system_total: s ? toMoney(s.system_total) : 0,
           system_paid: s ? toMoney(s.system_paid) : 0,
-          system_pending: s ? subMoney(s.system_total, s.system_paid) : 0,   // FIX float
+          system_pending: s ? subMoney(s.system_total, s.system_paid) : 0,
           doctor_total: s ? toMoney(s.doctor_total) : 0,
           doctor_paid: s ? toMoney(s.doctor_paid) : 0,
-          doctor_pending: s ? subMoney(s.doctor_total, s.doctor_paid) : 0,   // FIX float
+          doctor_pending: s ? subMoney(s.doctor_total, s.doctor_paid) : 0,
         };
       });
-
       return { units: result, responsavelId };
     }),
 
@@ -879,43 +952,82 @@ export const financeSimpleRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      // responsibleSummary: agrega por responsável (múltiplas unidades com ciclos diferentes).
-      // Usa janela de 3 meses centrada no refDate.
-      const startDate = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
-      const endDate = new Date(refDate.getFullYear(), refDate.getMonth() + 2, 1);
-      const rows = await db
-        .select({
-          responsible_id: billing_visit_events.financial_responsible_id,
-          responsible_name: financial_responsibles.legal_name,
-          unit_count: sql<number>`COUNT(DISTINCT ${billing_visit_events.unit_id})`,
-          total_laudos: sql<number>`COUNT(*)`,
-          system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
-          system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
-          doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
-          doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
+      // P1E: responsibleSummary usa ciclo real por unidade.
+      // Busca todas as unidades com seus ciclos e agrega por responsável.
+      const allUnitsWithCycles = await db
+        .select({ id: units.id, s: units.billing_cycle_start_day, e: units.billing_cycle_end_day })
+        .from(units);
+
+      // Para cada unidade, buscar eventos no ciclo real agrupados por responsável
+      const perUnitPerResp = await Promise.all(
+        allUnitsWithCycles.map(async (u) => {
+          const { cycleStart, cycleEnd } = calcCycleDates(u.s, u.e, refDate);
+          return db
+            .select({
+              responsible_id: billing_visit_events.financial_responsible_id,
+              responsible_name: financial_responsibles.legal_name,
+              unit_id: billing_visit_events.unit_id,
+              total_laudos: sql<number>`COUNT(*)`,
+              system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
+              system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
+              doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
+              doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
+            })
+            .from(billing_visit_events)
+            .leftJoin(financial_responsibles, eq(financial_responsibles.id, billing_visit_events.financial_responsible_id))
+            .where(and(
+              eq(billing_visit_events.unit_id, u.id),
+              sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
+              sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+            ))
+            .groupBy(billing_visit_events.financial_responsible_id, financial_responsibles.legal_name, billing_visit_events.unit_id);
         })
-        .from(billing_visit_events)
-        .leftJoin(financial_responsibles, eq(financial_responsibles.id, billing_visit_events.financial_responsible_id))
-        .where(
-          and(
-            sql`${billing_visit_events.signed_at} >= ${startDate}`,
-            sql`${billing_visit_events.signed_at} < ${endDate}`,
-          )
-        )
-        .groupBy(billing_visit_events.financial_responsible_id, financial_responsibles.legal_name)
-        .orderBy(financial_responsibles.legal_name);
-      return rows.map(r => ({
-        responsible_id: r.responsible_id,
-        responsible_name: r.responsible_name ?? "Sem responsável",
-        unit_count: Number(r.unit_count),
-        total_laudos: Number(r.total_laudos),
-        system_total: toMoney(r.system_total),
-        system_paid: toMoney(r.system_paid),
-        system_pending: subMoney(r.system_total, r.system_paid),
-        doctor_total: toMoney(r.doctor_total),
-        doctor_paid: toMoney(r.doctor_paid),
-        doctor_pending: subMoney(r.doctor_total, r.doctor_paid),
-      }));
+      );
+
+      // Agregar por responsável
+      const respMap = new Map<number | null, {
+        responsible_id: number | null; responsible_name: string;
+        unit_ids: Set<number>; total_laudos: number;
+        system_total: number; system_paid: number;
+        doctor_total: number; doctor_paid: number;
+      }>();
+
+      for (const unitRows of perUnitPerResp) {
+        for (const r of unitRows) {
+          const key = r.responsible_id;
+          if (!respMap.has(key)) {
+            respMap.set(key, {
+              responsible_id: key,
+              responsible_name: r.responsible_name ?? "Sem responsável",
+              unit_ids: new Set(),
+              total_laudos: 0, system_total: 0, system_paid: 0,
+              doctor_total: 0, doctor_paid: 0,
+            });
+          }
+          const agg = respMap.get(key)!;
+          if (r.unit_id) agg.unit_ids.add(r.unit_id);
+          agg.total_laudos += Number(r.total_laudos);
+          agg.system_total += Number(r.system_total);
+          agg.system_paid += Number(r.system_paid);
+          agg.doctor_total += Number(r.doctor_total);
+          agg.doctor_paid += Number(r.doctor_paid);
+        }
+      }
+
+      return Array.from(respMap.values())
+        .sort((a, b) => a.responsible_name.localeCompare(b.responsible_name))
+        .map(r => ({
+          responsible_id: r.responsible_id,
+          responsible_name: r.responsible_name,
+          unit_count: r.unit_ids.size,
+          total_laudos: r.total_laudos,
+          system_total: toMoney(r.system_total),
+          system_paid: toMoney(r.system_paid),
+          system_pending: subMoney(r.system_total, r.system_paid),
+          doctor_total: toMoney(r.doctor_total),
+          doctor_paid: toMoney(r.doctor_paid),
+          doctor_pending: subMoney(r.doctor_total, r.doctor_paid),
+        }));
     }),
 
   /**
@@ -2608,11 +2720,11 @@ export const financeSimpleRouter = router({
           default_system_price: units.default_system_price,
           billing_cycle_start_day: units.billing_cycle_start_day,
           billing_cycle_end_day: units.billing_cycle_end_day,
+          financial_enabled: units.financial_enabled,
         })
         .from(units)
         .where(eq(units.id, input.unit_id))
         .limit(1);
-
       if (!unitRow[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Unidade não encontrada" });
       const unit = unitRow[0];
 
@@ -2695,21 +2807,20 @@ export const financeSimpleRouter = router({
         );
       const pendingPricingCount = Number(pendingRows[0]?.count ?? 0);
 
-      // 8. Laudos signed sem evento billing (missing events) — corrigido E2
+      // 8. Laudos signed sem evento billing (missing events) — P6: LEFT JOIN (mais robusto)
       const { reports: reportsTable } = await import('../../drizzle/schema');
       const missingRows = await db
         .select({ count: sql<number>`COUNT(*)` })
         .from(reportsTable)
+        .leftJoin(
+          billing_visit_events,
+          eq(billing_visit_events.report_id, reportsTable.id)
+        )
         .where(
           and(
             eq(reportsTable.unit_id, input.unit_id),
-            eq(reportsTable.status, 'signed'),
-            isNull(
-              db.select({ id: billing_visit_events.id })
-                .from(billing_visit_events)
-                .where(eq(billing_visit_events.report_id, reportsTable.id))
-                .limit(1)
-            ),
+            sql`${reportsTable.status} IN ('signed', 'revised')`,
+            isNull(billing_visit_events.id),
           )
         );
       const missingEventsCount = Number(missingRows[0]?.count ?? 0);
@@ -2742,11 +2853,30 @@ export const financeSimpleRouter = router({
         has_default_doctor_price: hasDefaultDoctorPrice,
         doctors_with_price: doctorsWithPrice,
         pending_pricing_count: pendingPricingCount,
-        missing_events_count: missingEventsCount,
+         missing_events_count: missingEventsCount,
         is_ready: isReady,
+        financial_enabled: unit.financial_enabled,
       };
     }),
-
+  /**
+   * P5: Ativar/desativar financeiro de uma unidade
+   */
+  setFinancialEnabled: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().int(),
+      enabled: z.boolean(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== 'admin_master')
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas admin_master pode alterar financial_enabled' });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      await db
+        .update(units)
+        .set({ financial_enabled: input.enabled })
+        .where(eq(units.id, input.unit_id));
+      return { ok: true };
+    }),
   /**
    * E3 — Lista todos os médicos que assinaram laudos na unidade (com ou sem preço configurado)
    * Usado na tela de Configuração para exibir médicos sem preço (que ficavam invisíveis antes)
