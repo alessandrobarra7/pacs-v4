@@ -1403,4 +1403,96 @@ export const billingRouter = router({
           .orderBy(financial_responsible_units.starts_at);
         return rows;
       }),
+
+    // ── Equipe da Unidade (migrado de finance.ts) ──────────────────────────────────────
+    listTeamMembers: protectedProcedure
+      .input(z.object({ unitId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const perms = await db
+          .select({ user_id: user_unit_permissions.user_id })
+          .from(user_unit_permissions)
+          .where(eq(user_unit_permissions.unit_id, input.unitId));
+        if (perms.length === 0) return [];
+        const userIds = perms.map(p => p.user_id);
+        return await db
+          .select({ id: users.id, name: users.name, username: users.username, role: users.role, isActive: users.isActive })
+          .from(users)
+          .where(and(inArray(users.id, userIds), ne(users.role, 'medico')));
+      }),
+
+    addTeamMember: protectedProcedure
+      .input(z.object({ unitId: z.number(), userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const existing = await db
+          .select({ id: user_unit_permissions.id })
+          .from(user_unit_permissions)
+          .where(and(eq(user_unit_permissions.user_id, input.userId), eq(user_unit_permissions.unit_id, input.unitId)));
+        if (existing.length > 0) return { success: true, alreadyLinked: true };
+        await db.insert(user_unit_permissions).values({
+          user_id: input.userId,
+          unit_id: input.unitId,
+          view_studies: true,
+          edit_reports: false,
+          view_anamnesis: false,
+          print_reports: true,
+          manage_templates: false,
+        });
+        return { success: true, alreadyLinked: false };
+      }),
+
+    removeTeamMember: protectedProcedure
+      .input(z.object({ unitId: z.number(), userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        await db
+          .delete(user_unit_permissions)
+          .where(and(eq(user_unit_permissions.user_id, input.userId), eq(user_unit_permissions.unit_id, input.unitId)));
+        return { success: true };
+      }),
+
+    // ── Conexão PACS/Orthanc da Unidade (migrado de finance.ts) ─────────────────────
+    testOrthancConnection: protectedProcedure
+      .input(z.object({ unitId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') throw new TRPCError({ code: 'FORBIDDEN' });
+        if (ctx.user.role === 'unit_admin') {
+          const { getUserUnitPermission } = await import('../db');
+          const perm = await getUserUnitPermission(ctx.user.id, input.unitId);
+          if (!perm && ctx.user.unit_id !== input.unitId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para testar esta unidade.' });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const [unit] = await db.select().from(units).where(eq(units.id, input.unitId));
+        if (!unit?.pacs_ip || !unit?.pacs_port) return { ok: false, message: 'IP ou Porta do PACS não configurados' };
+        const net = await import('net');
+        return new Promise<{ ok: boolean; message: string }>((resolve) => {
+          const socket = new net.Socket();
+          const timeout = 5000;
+          let resolved = false;
+          const done = (ok: boolean, message: string) => {
+            if (resolved) return;
+            resolved = true;
+            socket.destroy();
+            resolve({ ok, message });
+          };
+          socket.setTimeout(timeout);
+          socket.on('connect', () => done(true, `Porta ${unit.pacs_port} acessível em ${unit.pacs_ip} — AE Title: ${unit.pacs_ae_title ?? '??'}`));
+          socket.on('timeout', () => done(false, `Timeout após ${timeout / 1000}s — verifique IP e Porta`));
+          socket.on('error', (err: NodeJS.ErrnoException) => {
+            const msg = err.code === 'ECONNREFUSED'
+              ? `Conexão recusada em ${unit.pacs_ip}:${unit.pacs_port} — PACS offline ou porta errada`
+              : err.message;
+            done(false, msg);
+          });
+          socket.connect(unit.pacs_port!, unit.pacs_ip!);
+        });
+      }),
 });

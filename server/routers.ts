@@ -32,7 +32,6 @@ import { phrasesRouter } from "./routers/phrases";
 import { medicalDataRouter } from "./routers/medicalData";
 import { billingRouter } from "./routers/billing";
 import { adminRouter } from "./routers/admin";
-import { financeRouter } from "./routers/finance";
 import { slaRouter } from "./routers/sla";
 import { layoutsRouter } from "./routers/layouts";
 import { storageRouter } from "./routers/storage";
@@ -142,7 +141,6 @@ export const appRouter = router({
   medicalData: medicalDataRouter,
   billing: billingRouter,
   admin: adminRouter,
-  finance: financeRouter,
   sla: slaRouter,
   layouts: layoutsRouter,
   storage: storageRouter,

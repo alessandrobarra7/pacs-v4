@@ -123,7 +123,7 @@ export default function UnitFormDialog({
     enabled: isEditing && open,
   });
 
-  const { data: teamMembers, refetch: refetchTeam } = trpc.finance.listTeamMembers.useQuery(
+  const { data: teamMembers, refetch: refetchTeam } = trpc.billing.listTeamMembers.useQuery(
     { unitId: unit?.id ?? 0 },
     { enabled: isEditing && !!unit?.id && open && activeTab === "equipe" }
   );
@@ -153,17 +153,17 @@ export default function UnitFormDialog({
     onError: (e) => toast.error(e.message || "Erro ao criar responsável"),
   });
 
-  const testOrthancConnection = trpc.finance.testOrthancConnection.useMutation({
+  const testOrthancConnection = trpc.billing.testOrthancConnection.useMutation({
     onSuccess: (data) => { setDicomTestResult(data); setTestingDicom(false); },
     onError: (e) => { setDicomTestResult({ ok: false, message: e.message }); setTestingDicom(false); },
   });
 
-  const addTeamMember = trpc.finance.addTeamMember.useMutation({
+  const addTeamMember = trpc.billing.addTeamMember.useMutation({
     onSuccess: () => { toast.success("Membro adicionado"); setAddingTeamUserId(null); refetchTeam(); },
     onError: (e) => toast.error(e.message || "Erro ao adicionar membro"),
   });
 
-  const removeTeamMember = trpc.finance.removeTeamMember.useMutation({
+  const removeTeamMember = trpc.billing.removeTeamMember.useMutation({
     onSuccess: () => { toast.success("Membro removido"); refetchTeam(); },
     onError: (e) => toast.error(e.message || "Erro ao remover membro"),
   });
