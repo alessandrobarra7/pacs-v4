@@ -15,10 +15,10 @@ import ReportEditorPage from "./pages/ReportEditorPage";
 import { DicomViewerPage } from "./pages/DicomViewerPage";
 import AdminPage from "./pages/AdminPage";
 import LayoutEditorPage from "./pages/LayoutEditorPage";
-import FinanceDashboard2 from "./pages/finance2/FinanceDashboard2";
-import FinancePagamentos from "./pages/finance2/FinancePagamentos";
-import FinanceMeuFinanceiro2 from "./pages/finance2/FinanceMeuFinanceiro2";
-import FinanceMeuResponsavel from "./pages/finance2/FinanceMeuResponsavel";
+import FinanceDashboard from "./pages/finance/FinanceDashboard";
+import FinancePagamentos from "./pages/finance/FinancePagamentos";
+import FinanceMeuFinanceiro from "./pages/finance/FinanceMeuFinanceiro";
+import FinanceMeuResponsavel from "./pages/finance/FinanceMeuResponsavel";
 import { useEffect } from "react";
 
 // Roles definidos no schema do banco de dados
@@ -81,11 +81,12 @@ function FinanceRedirect() {
   useEffect(() => {
     if (!user) return;
     if (user.role === 'medico') {
-      navigate('/financeiro2/meu-financeiro', { replace: true });
+      navigate('/financeiro/meu-financeiro', { replace: true });
     } else if (user.role === 'responsavel_financeiro') {
-      navigate('/financeiro2/responsavel', { replace: true });
+      navigate('/financeiro/responsavel', { replace: true });
     } else {
-      navigate('/financeiro2', { replace: true });
+      // admin_master e unit_admin vão para pagamentos
+      navigate('/financeiro/pagamentos', { replace: true });
     }
   }, [user, navigate]);
 
@@ -115,28 +116,18 @@ function Router() {
       <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} allowedRoles={['admin_master', 'unit_admin']} />} />
       <Route path="/admin/layouts/:unitId" component={() => <ProtectedRoute component={LayoutEditorPage} allowedRoles={['admin_master', 'unit_admin']} />} />
 
-      {/* Financeiro — módulo finance2 é o ativo */}
-      {/* Redirect inteligente por role: médico→meu-financeiro, responsavel→responsavel, demais→/financeiro2 */}
+      {/* Financeiro — módulo unificado sob /financeiro */}
+      {/* Redirect inteligente por role ao entrar em /financeiro */}
       <Route path="/financeiro" component={() => <FinanceRedirect />} />
-      <Route path="/financeiro/admin"><Redirect to="/financeiro2" /></Route>
-      <Route path="/financeiro/meu-financeiro"><Redirect to="/financeiro2/meu-financeiro" /></Route>
-      <Route path="/financeiro/responsaveis"><Redirect to="/financeiro2/responsavel" /></Route>
-      <Route path="/financeiro/responsavel"><Redirect to="/financeiro2/responsavel" /></Route>
-      <Route path="/financeiro/medicos"><Redirect to="/financeiro2" /></Route>
-      <Route path="/financeiro/unidades"><Redirect to="/financeiro2" /></Route>
-      <Route path="/financeiro/overview"><Redirect to="/financeiro2" /></Route>
-      <Route path="/financeiro/contas-receber"><Redirect to="/financeiro2" /></Route>
-
-      {/* Financeiro v2 — rotas ativas */}
-      <Route path="/financeiro2" component={() => <ProtectedRoute component={FinanceDashboard2} allowedRoles={['admin_master', 'unit_admin']} />} />
-      <Route path="/financeiro2/pagamentos" component={() => <ProtectedRoute component={FinancePagamentos} allowedRoles={['admin_master', 'unit_admin']} />} />
-      <Route path="/financeiro2/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro2} allowedRoles={['medico', 'admin_master']} />} />
-      <Route path="/financeiro2/responsavel" component={() => <ProtectedRoute component={FinanceMeuResponsavel} allowedRoles={['responsavel_financeiro', 'admin_master']} />} />
+      <Route path="/financeiro/pagamentos" component={() => <ProtectedRoute component={FinancePagamentos} allowedRoles={['admin_master', 'unit_admin']} />} />
+      <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro} allowedRoles={['medico', 'admin_master']} />} />
+      <Route path="/financeiro/responsavel" component={() => <ProtectedRoute component={FinanceMeuResponsavel} allowedRoles={['responsavel_financeiro', 'admin_master']} />} />
+      <Route path="/financeiro/dashboard" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin']} />} />
 
       {/* Redirects de URLs legadas /billing/* */}
-      <Route path="/billing/admin"><Redirect to="/financeiro2" /></Route>
-      <Route path="/billing/unit"><Redirect to="/financeiro2/responsavel" /></Route>
-      <Route path="/billing/doctor"><Redirect to="/financeiro2/meu-financeiro" /></Route>
+      <Route path="/billing/admin"><Redirect to="/financeiro/pagamentos" /></Route>
+      <Route path="/billing/unit"><Redirect to="/financeiro/responsavel" /></Route>
+      <Route path="/billing/doctor"><Redirect to="/financeiro/meu-financeiro" /></Route>
 
       {/* 404 */}
       <Route path="/404" component={NotFound} />

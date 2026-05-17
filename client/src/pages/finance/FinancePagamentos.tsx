@@ -10,7 +10,7 @@ import {
   Building2, Users, ChevronRight, ChevronDown, CheckCircle2,
   Clock, DollarSign, FileText, X
 } from "lucide-react";
-import { FinanceShell2 } from "./FinanceShell2";
+import { FinanceShell } from "./FinanceShell";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
@@ -344,7 +344,7 @@ export default function FinancePagamentos() {
   }
 
   return (
-    <FinanceShell2>
+    <FinanceShell>
       <div className="p-6 space-y-5 max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -379,6 +379,6 @@ export default function FinancePagamentos() {
           </div>
         )}
       </div>
-    </FinanceShell2>
+    </FinanceShell>
   );
 }

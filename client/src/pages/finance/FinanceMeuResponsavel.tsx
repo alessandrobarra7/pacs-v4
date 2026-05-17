@@ -9,7 +9,7 @@ import {
   Building2, ChevronLeft, ChevronRight, DollarSign, FileText,
   CheckCircle2, Clock, AlertCircle, X, Users,
 } from "lucide-react";
-import { FinanceShell2 } from "./FinanceShell2";
+import { FinanceShell } from "./FinanceShell";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
@@ -139,7 +139,7 @@ export default function FinanceMeuResponsavel() {
   const totalSystemPending = totalSystem - totalSystemPaid;
 
   return (
-    <FinanceShell2>
+    <FinanceShell>
       <div className="p-6 max-w-5xl mx-auto">
         {/* Cabeçalho + navegação de mês */}
         <div className="flex items-center justify-between mb-6">
@@ -293,6 +293,6 @@ export default function FinanceMeuResponsavel() {
           onClose={() => setSelectedUnit(null)}
         />
       )}
-    </FinanceShell2>
+    </FinanceShell>
   );
 }

@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { FinanceShell2 } from "./FinanceShell2";
+import { FinanceShell } from "./FinanceShell";
 import { DoctorRow, fmtBRL, MONTHS } from "./FinanceModals";
 
 // ─── Modal de configuração de preços padrão da unidade ─────────────────────────────────
@@ -271,7 +271,7 @@ export default function FinanceDashboard2() {
   }
 
   return (
-    <FinanceShell2>
+    <FinanceShell>
       <div className="flex flex-col h-full overflow-hidden">
         {/* Barra de mês */}
         <div className="shrink-0 border-b border-slate-800 bg-slate-900/50 px-5 py-3 flex items-center justify-between">
@@ -394,6 +394,6 @@ export default function FinanceDashboard2() {
           </div>
         )}
       </div>
-    </FinanceShell2>
+    </FinanceShell>
   );
 }

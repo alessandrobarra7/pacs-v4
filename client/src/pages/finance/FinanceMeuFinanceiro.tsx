@@ -7,7 +7,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { CheckCircle2, Clock, FileText, Printer } from "lucide-react";
-import { FinanceShell2 } from "./FinanceShell2";
+import { FinanceShell } from "./FinanceShell";
 
 type SummaryItem = {
   unit_id: number;
@@ -160,7 +160,7 @@ export default function FinanceMeuFinanceiro2() {
   }
 
   return (
-    <FinanceShell2>
+    <FinanceShell>
       <div className="p-6 space-y-6 max-w-4xl mx-auto">
         <div className="flex items-center justify-between">
           <div>
@@ -258,6 +258,6 @@ export default function FinanceMeuFinanceiro2() {
           onClose={() => setSelectedUnit(null)}
         />
       )}
-    </FinanceShell2>
+    </FinanceShell>
   );
 }

@@ -1,5 +1,5 @@
 /**
- * FinanceShell2 — Layout wrapper do módulo financeiro simplificado
+ * FinanceShell — Layout wrapper do módulo financeiro simplificado
  * Sidebar com navegação por role
  * Desenvolvimento StudioBarra7
  */
@@ -24,30 +24,30 @@ const NAV_ITEMS: NavItem[] = [
   {
     icon: LayoutDashboard,
     label: "Dashboard",
-    path: "/financeiro2",
+    path: "/financeiro",
     roles: ["admin_master", "unit_admin"],
   },
   {
     icon: Building2,
     label: "Pagamentos",
-    path: "/financeiro2/pagamentos",
+    path: "/financeiro/pagamentos",
     roles: ["admin_master", "unit_admin"],
   },
   {
     icon: DollarSign,
     label: "Meu Financeiro",
-    path: "/financeiro2/meu-financeiro",
+    path: "/financeiro/meu-financeiro",
     roles: ["medico"],
   },
   {
     icon: Building2,
     label: "Minhas Unidades",
-    path: "/financeiro2/responsavel",
+    path: "/financeiro/responsavel",
     roles: ["responsavel_financeiro"],
   },
 ];
 
-export function FinanceShell2({ children }: { children: React.ReactNode }) {
+export function FinanceShell({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -79,7 +79,7 @@ export function FinanceShell2({ children }: { children: React.ReactNode }) {
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-1">
         {visibleItems.map((item) => {
-          const active = location === item.path || location.startsWith(item.path + "?") || (item.path !== "/financeiro2" && location.startsWith(item.path));
+          const active = location === item.path || location.startsWith(item.path + "?") || (item.path !== "/financeiro" && location.startsWith(item.path));
           return (
             <Link key={item.path} href={item.path}>
               <a
