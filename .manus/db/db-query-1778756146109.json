@@ -1,0 +1,73 @@
+{
+  "query": "\n-- 1. Inserir preço de sistema R$ 5,00 para o novo responsável PACSML Ltda (id=90001) na unidade PACSML\nINSERT INTO billing_system_unit_prices (financial_responsible_id, unit_id, price_per_report, starts_at, created_by)\nVALUES (90001, 210001, 5.00, '2026-05-14 10:52:25', 1);\n\n-- 2. Atualizar os eventos pending_system_price para ok\nUPDATE billing_visit_events\nSET \n  system_amount_due = 5.00,\n  system_price_applied = 5.00,\n  pricing_status = 'ok'\nWHERE \n  unit_id = 210001 \n  AND pricing_status = 'pending_system_price';\n\n-- 3. Verificar resultado final\nSELECT \n  bve.id,\n  usr.name as doctor_name,\n  fr.legal_name as responsible_name,\n  bve.system_amount_due,\n  bve.doctor_amount_due,\n  bve.pricing_status,\n  bve.signed_at\nFROM billing_visit_events bve\nJOIN users usr ON usr.id = bve.doctor_user_id\nLEFT JOIN financial_responsibles fr ON fr.id = bve.financial_responsible_id\nWHERE bve.unit_id = 210001 AND bve.doctor_user_id = 1\nORDER BY bve.signed_at DESC\nLIMIT 8;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- 1. Inserir preço de sistema R$ 5,00 para o novo responsável PACSML Ltda (id=90001) na unidade PACSML\nINSERT INTO billing_system_unit_prices (financial_responsible_id, unit_id, price_per_report, starts_at, created_by)\nVALUES (90001, 210001, 5.00, '2026-05-14 10:52:25', 1);\n\n-- 2. Atualizar os eventos pending_system_price para ok\nUPDATE billing_visit_events\nSET \n  system_amount_due = 5.00,\n  system_price_applied = 5.00,\n  pricing_status = 'ok'\nWHERE \n  unit_id = 210001 \n  AND pricing_status = 'pending_system_price';\n\n-- 3. Verificar resultado final\nSELECT \n  bve.id,\n  usr.name as doctor_name,\n  fr.legal_name as responsible_name,\n  bve.system_amount_due,\n  bve.doctor_amount_due,\n  bve.pricing_status,\n  bve.signed_at\nFROM billing_visit_events bve\nJOIN users usr ON usr.id = bve.doctor_user_id\nLEFT JOIN financial_responsibles fr ON fr.id = bve.financial_responsible_id\nWHERE bve.unit_id = 210001 AND bve.doctor_user_id = 1\nORDER BY bve.signed_at DESC\nLIMIT 8;\n",
+  "rows": [
+    {
+      "id": "300002",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "25.00",
+      "pricing_status": "ok",
+      "signed_at": "2026-05-14 10:55:04"
+    },
+    {
+      "id": "300001",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "25.00",
+      "pricing_status": "ok",
+      "signed_at": "2026-05-14 10:53:55"
+    },
+    {
+      "id": "270001",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "25.00",
+      "pricing_status": "ok",
+      "signed_at": "2026-05-14 10:20:10"
+    },
+    {
+      "id": "240001",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "25.00",
+      "pricing_status": "ok",
+      "signed_at": "2026-05-10 09:30:08"
+    },
+    {
+      "id": "210002",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "25.00",
+      "pricing_status": "ok",
+      "signed_at": "2026-05-10 08:59:28"
+    },
+    {
+      "id": "210001",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "25.00",
+      "pricing_status": "ok",
+      "signed_at": "2026-05-10 08:53:57"
+    },
+    {
+      "id": "180001",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "25.00",
+      "pricing_status": "ok",
+      "signed_at": "2026-05-07 23:17:28"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tdoctor_name\tresponsible_name\tsystem_amount_due\tdoctor_amount_due\tpricing_status\tsigned_at\n300002\tStudio Barra7\tPACSML Ltda\t5.00\t25.00\tok\t2026-05-14 10:55:04\n300001\tStudio Barra7\tPACSML Ltda\t5.00\t25.00\tok\t2026-05-14 10:53:55\n270001\tStudio Barra7\tPACSML Ltda\t5.00\t25.00\tok\t2026-05-14 10:20:10\n240001\tStudio Barra7\tPACSML Ltda\t5.00\t25.00\tok\t2026-05-10 09:30:08\n210002\tStudio Barra7\tPACSML Ltda\t5.00\t25.00\tok\t2026-05-10 08:59:28\n210001\tStudio Barra7\tPACSML Ltda\t5.00\t25.00\tok\t2026-05-10 08:53:57\n180001\tStudio Barra7\tPACSML Ltda\t5.00\t25.00\tok\t2026-05-07 23:17:28\n",
+  "stderr": "",
+  "execution_time_ms": 292
+}

@@ -1,0 +1,130 @@
+{
+  "query": "\nSELECT \n  bve.id,\n  bve.report_id,\n  u.name as unit_name,\n  usr.name as doctor_name,\n  fr.legal_name as responsible_name,\n  bve.system_amount_due,\n  bve.doctor_amount_due,\n  bve.doctor_price_applied,\n  bve.pricing_status,\n  bve.signed_at\nFROM billing_visit_events bve\nJOIN units u ON u.id = bve.unit_id\nJOIN users usr ON usr.id = bve.doctor_user_id\nLEFT JOIN financial_responsibles fr ON fr.id = bve.financial_responsible_id\nWHERE bve.unit_id = 210001\nORDER BY bve.signed_at DESC\nLIMIT 10;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT \n  bve.id,\n  bve.report_id,\n  u.name as unit_name,\n  usr.name as doctor_name,\n  fr.legal_name as responsible_name,\n  bve.system_amount_due,\n  bve.doctor_amount_due,\n  bve.doctor_price_applied,\n  bve.pricing_status,\n  bve.signed_at\nFROM billing_visit_events bve\nJOIN units u ON u.id = bve.unit_id\nJOIN users usr ON usr.id = bve.doctor_user_id\nLEFT JOIN financial_responsibles fr ON fr.id = bve.financial_responsible_id\nWHERE bve.unit_id = 210001\nORDER BY bve.signed_at DESC\nLIMIT 10;\n",
+  "rows": [
+    {
+      "id": "300002",
+      "report_id": "1110002",
+      "unit_name": "PACSML",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "NULL",
+      "doctor_amount_due": "25.00",
+      "doctor_price_applied": "25.00",
+      "pricing_status": "pending_system_price",
+      "signed_at": "2026-05-14 10:55:04"
+    },
+    {
+      "id": "300001",
+      "report_id": "1110001",
+      "unit_name": "PACSML",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "NULL",
+      "doctor_amount_due": "25.00",
+      "doctor_price_applied": "25.00",
+      "pricing_status": "pending_system_price",
+      "signed_at": "2026-05-14 10:53:55"
+    },
+    {
+      "id": "270001",
+      "report_id": "1080001",
+      "unit_name": "PACSML",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "25.00",
+      "doctor_price_applied": "25.00",
+      "pricing_status": "ok",
+      "signed_at": "2026-05-14 10:20:10"
+    },
+    {
+      "id": "240001",
+      "report_id": "1050001",
+      "unit_name": "PACSML",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "25.00",
+      "doctor_price_applied": "25.00",
+      "pricing_status": "ok",
+      "signed_at": "2026-05-10 09:30:08"
+    },
+    {
+      "id": "210002",
+      "report_id": "1020002",
+      "unit_name": "PACSML",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "25.00",
+      "doctor_price_applied": "25.00",
+      "pricing_status": "ok",
+      "signed_at": "2026-05-10 08:59:28"
+    },
+    {
+      "id": "210001",
+      "report_id": "1020001",
+      "unit_name": "PACSML",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "25.00",
+      "doctor_price_applied": "25.00",
+      "pricing_status": "ok",
+      "signed_at": "2026-05-10 08:53:57"
+    },
+    {
+      "id": "180001",
+      "report_id": "990001",
+      "unit_name": "PACSML",
+      "doctor_name": "Studio Barra7",
+      "responsible_name": "PACSML Ltda",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "25.00",
+      "doctor_price_applied": "25.00",
+      "pricing_status": "ok",
+      "signed_at": "2026-05-07 23:17:28"
+    },
+    {
+      "id": "120019",
+      "report_id": "600020",
+      "unit_name": "PACSML",
+      "doctor_name": "gian",
+      "responsible_name": "Sem Responsável",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "6.50",
+      "doctor_price_applied": "6.50",
+      "pricing_status": "ok",
+      "signed_at": "2026-04-15 10:50:27"
+    },
+    {
+      "id": "120018",
+      "report_id": "600019",
+      "unit_name": "PACSML",
+      "doctor_name": "gian",
+      "responsible_name": "Sem Responsável",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "6.50",
+      "doctor_price_applied": "6.50",
+      "pricing_status": "ok",
+      "signed_at": "2026-04-15 10:50:27"
+    },
+    {
+      "id": "120017",
+      "report_id": "600018",
+      "unit_name": "PACSML",
+      "doctor_name": "gian",
+      "responsible_name": "Sem Responsável",
+      "system_amount_due": "5.00",
+      "doctor_amount_due": "6.50",
+      "doctor_price_applied": "6.50",
+      "pricing_status": "ok",
+      "signed_at": "2026-04-15 10:50:27"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\treport_id\tunit_name\tdoctor_name\tresponsible_name\tsystem_amount_due\tdoctor_amount_due\tdoctor_price_applied\tpricing_status\tsigned_at\n300002\t1110002\tPACSML\tStudio Barra7\tPACSML Ltda\tNULL\t25.00\t25.00\tpending_system_price\t2026-05-14 10:55:04\n300001\t1110001\tPACSML\tStudio Barra7\tPACSML Ltda\tNULL\t25.00\t25.00\tpending_system_price\t2026-05-14 10:53:55\n270001\t1080001\tPACSML\tStudio Barra7\tPACSML Ltda\t5.00\t25.00\t25.00\tok\t2026-05-14 10:20:10\n240001\t1050001\tPACSML\tStudio Barra7\tPACSML Ltda\t5.00\t25.00\t25.00\tok\t2026-05-10 09:30:08\n210002\t1020002\tPACSML\tStudio Barra7\tPACSML Ltda\t5.00\t25.00\t25.00\tok\t2026-05-10 08:59:28\n210001\t1020001\tPACSML\tStudio Barra7\tPACSML Ltda\t5.00\t25.00\t25.00\tok\t2026-05-10 08:53:57\n180001\t990001\tPACSML\tStudio Barra7\tPACSML Ltda\t5.00\t25.00\t25.00\tok\t2026-05-07 23:17:28\n120019\t600020\tPACSML\tgian\tSem Responsável\t5.00\t6.50\t6.50\tok\t2026-04-15 10:50:27\n120018\t600019\tPACSML\tgian\tSem Responsável\t5.00\t6.50\t6.50\tok\t2026-04-15 10:50:27\n120017\t600018\tPACSML\tgian\tSem Responsável\t5.00\t6.50\t6.50\tok\t2026-04-15 10:50:27\n",
+  "stderr": "",
+  "execution_time_ms": 281
+}

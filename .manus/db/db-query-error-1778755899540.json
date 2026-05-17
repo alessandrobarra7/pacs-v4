@@ -1,0 +1,8 @@
+{
+  "query": "\n-- Ver vínculos médico-unidade\nSELECT uup.user_id, u2.name as user_name, u2.role, uup.unit_id, u.name as unit_name, uup.role as perm_role\nFROM user_unit_permissions uup\nJOIN users u2 ON u2.id = uup.user_id\nJOIN units u ON u.id = uup.unit_id\nORDER BY uup.unit_id, uup.user_id;\n\n-- Ver preços de médico já configurados\nSELECT bdp.id, bdp.unit_id, u.name as unit_name, bdp.doctor_user_id, usr.name as doctor_name, bdp.price_per_report, bdp.starts_at, bdp.ends_at\nFROM billing_doctor_unit_prices bdp\nJOIN units u ON u.id = bdp.unit_id\nJOIN users usr ON usr.id = bdp.doctor_user_id\nORDER BY bdp.unit_id, bdp.starts_at DESC;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- Ver vínculos médico-unidade\nSELECT uup.user_id, u2.name as user_name, u2.role, uup.unit_id, u.name as unit_name, uup.role as perm_role\nFROM user_unit_permissions uup\nJOIN users u2 ON u2.id = uup.user_id\nJOIN units u ON u.id = uup.unit_id\nORDER BY uup.unit_id, uup.user_id;\n\n-- Ver preços de médico já configurados\nSELECT bdp.id, bdp.unit_id, u.name as unit_name, bdp.doctor_user_id, usr.name as doctor_name, bdp.price_per_report, bdp.starts_at, bdp.ends_at\nFROM billing_doctor_unit_prices bdp\nJOIN units u ON u.id = bdp.unit_id\nJOIN users usr ON usr.id = bdp.doctor_user_id\nORDER BY bdp.unit_id, bdp.starts_at DESC;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 3: Unknown column 'uup.role' in 'field list'"
+  ]
+}

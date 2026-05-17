@@ -1,0 +1,18 @@
+{
+  "query": "\n-- Ver todos os responsáveis financeiros da PACSML (unit_id=210001)\nSELECT fru.id, fru.unit_id, fru.financial_responsible_id, fr.legal_name, fru.starts_at, fru.ends_at\nFROM financial_responsible_units fru\nJOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nWHERE fru.unit_id = 210001\nORDER BY fru.starts_at DESC;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- Ver todos os responsáveis financeiros da PACSML (unit_id=210001)\nSELECT fru.id, fru.unit_id, fru.financial_responsible_id, fr.legal_name, fru.starts_at, fru.ends_at\nFROM financial_responsible_units fru\nJOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nWHERE fru.unit_id = 210001\nORDER BY fru.starts_at DESC;\n",
+  "rows": [
+    {
+      "id": "30001",
+      "unit_id": "210001",
+      "financial_responsible_id": "30001",
+      "legal_name": "Sem Responsável",
+      "starts_at": "2026-04-13 00:53:18",
+      "ends_at": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tunit_id\tfinancial_responsible_id\tlegal_name\tstarts_at\tends_at\n30001\t210001\t30001\tSem Responsável\t2026-04-13 00:53:18\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 259
+}

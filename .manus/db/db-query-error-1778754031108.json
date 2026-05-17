@@ -1,0 +1,8 @@
+{
+  "query": "\nSELECT \n  bve.id,\n  bve.report_id,\n  bve.unit_id,\n  u.name AS unit_name,\n  bve.doctor_user_id,\n  usr.name AS doctor_name,\n  bve.financial_responsible_id,\n  fr.name AS responsible_name,\n  bve.system_amount_due,\n  bve.doctor_amount_due,\n  bve.pricing_status,\n  bve.signed_at,\n  bve.created_at\nFROM billing_visit_events bve\nLEFT JOIN units u ON u.id = bve.unit_id\nLEFT JOIN users usr ON usr.id = bve.doctor_user_id\nLEFT JOIN financial_responsibles fr ON fr.id = bve.financial_responsible_id\nORDER BY bve.created_at DESC\nLIMIT 10;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT \n  bve.id,\n  bve.report_id,\n  bve.unit_id,\n  u.name AS unit_name,\n  bve.doctor_user_id,\n  usr.name AS doctor_name,\n  bve.financial_responsible_id,\n  fr.name AS responsible_name,\n  bve.system_amount_due,\n  bve.doctor_amount_due,\n  bve.pricing_status,\n  bve.signed_at,\n  bve.created_at\nFROM billing_visit_events bve\nLEFT JOIN units u ON u.id = bve.unit_id\nLEFT JOIN users usr ON usr.id = bve.doctor_user_id\nLEFT JOIN financial_responsibles fr ON fr.id = bve.financial_responsible_id\nORDER BY bve.created_at DESC\nLIMIT 10;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 2: Unknown column 'bve.created_at' in 'order clause'"
+  ]
+}

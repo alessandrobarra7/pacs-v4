@@ -1,0 +1,43 @@
+{
+  "query": "\nSHOW TABLES LIKE '%unit%';\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSHOW TABLES LIKE '%unit%';\n",
+  "rows": [
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%unit%)": "billing_doctor_unit_prices"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%unit%)": "billing_monthly_doctor_by_unit"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%unit%)": "billing_monthly_system_by_unit"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%unit%)": "billing_system_unit_prices"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%unit%)": "financial_responsible_units"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%unit%)": "unit_doctor_compensation_rules"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%unit%)": "unit_doctor_scales"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%unit%)": "unit_exam_prices"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%unit%)": "unit_report_sla_configs"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%unit%)": "units"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%unit%)": "user_unit_permissions"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_cTdrattvNQ95XCgX9zeyNM (%unit%)\nbilling_doctor_unit_prices\nbilling_monthly_doctor_by_unit\nbilling_monthly_system_by_unit\nbilling_system_unit_prices\nfinancial_responsible_units\nunit_doctor_compensation_rules\nunit_doctor_scales\nunit_exam_prices\nunit_report_sla_configs\nunits\nuser_unit_permissions\n",
+  "stderr": "",
+  "execution_time_ms": 258
+}

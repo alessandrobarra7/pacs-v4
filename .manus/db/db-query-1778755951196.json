@@ -1,0 +1,35 @@
+{
+  "query": "\n-- Verificar novo responsável\nSELECT id, legal_name, trade_name, cpf_cnpj FROM financial_responsibles ORDER BY id DESC LIMIT 3;\n\n-- Verificar vínculo com PACSML\nSELECT fru.id, fru.unit_id, fru.financial_responsible_id, fr.legal_name, fru.starts_at, fru.ends_at\nFROM financial_responsible_units fru\nJOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nWHERE fru.unit_id = 210001\nORDER BY fru.starts_at DESC;\n\n-- Verificar preço de médico inserido\nSELECT bdp.id, bdp.unit_id, bdp.doctor_user_id, usr.name as doctor_name, bdp.financial_responsible_id, bdp.price_per_report, bdp.starts_at\nFROM billing_doctor_unit_prices bdp\nJOIN users usr ON usr.id = bdp.doctor_user_id\nWHERE bdp.unit_id = 210001\nORDER BY bdp.starts_at DESC;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- Verificar novo responsável\nSELECT id, legal_name, trade_name, cpf_cnpj FROM financial_responsibles ORDER BY id DESC LIMIT 3;\n\n-- Verificar vínculo com PACSML\nSELECT fru.id, fru.unit_id, fru.financial_responsible_id, fr.legal_name, fru.starts_at, fru.ends_at\nFROM financial_responsible_units fru\nJOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nWHERE fru.unit_id = 210001\nORDER BY fru.starts_at DESC;\n\n-- Verificar preço de médico inserido\nSELECT bdp.id, bdp.unit_id, bdp.doctor_user_id, usr.name as doctor_name, bdp.financial_responsible_id, bdp.price_per_report, bdp.starts_at\nFROM billing_doctor_unit_prices bdp\nJOIN users usr ON usr.id = bdp.doctor_user_id\nWHERE bdp.unit_id = 210001\nORDER BY bdp.starts_at DESC;\n",
+  "rows": [
+    {
+      "id": "90001",
+      "legal_name": "PACSML Ltda",
+      "trade_name": "PACSML",
+      "cpf_cnpj": "12.345.678/0002-99"
+    },
+    {
+      "id": "60001",
+      "legal_name": "Hospital da Criança LTDA",
+      "trade_name": "NULL",
+      "cpf_cnpj": "12.345.678/0001-99"
+    },
+    {
+      "id": "30001",
+      "legal_name": "Sem Responsável",
+      "trade_name": "Responsável não configurado",
+      "cpf_cnpj": "NULL"
+    }
+  ],
+  "messages": [
+    "id\tunit_id\tfinancial_responsible_id\tlegal_name\tstarts_at\tends_at",
+    "90001\t210001\t90001\tPACSML Ltda\t2026-05-14 10:52:25\tNULL",
+    "30001\t210001\t30001\tSem Responsável\t2026-04-13 00:53:18\t2026-05-14 10:52:25",
+    "id\tunit_id\tdoctor_user_id\tdoctor_name\tfinancial_responsible_id\tprice_per_report\tstarts_at",
+    "30001\t210001\t5520015\tgian\t30001\t6.50\t2026-04-13 00:53:18",
+    "90001\t210001\t1\tStudio Barra7\t90001\t25.00\t2026-04-01 00:00:00"
+  ],
+  "stdout": "id\tlegal_name\ttrade_name\tcpf_cnpj\n90001\tPACSML Ltda\tPACSML\t12.345.678/0002-99\n60001\tHospital da Criança LTDA\tNULL\t12.345.678/0001-99\n30001\tSem Responsável\tResponsável não configurado\tNULL\nid\tunit_id\tfinancial_responsible_id\tlegal_name\tstarts_at\tends_at\n90001\t210001\t90001\tPACSML Ltda\t2026-05-14 10:52:25\tNULL\n30001\t210001\t30001\tSem Responsável\t2026-04-13 00:53:18\t2026-05-14 10:52:25\nid\tunit_id\tdoctor_user_id\tdoctor_name\tfinancial_responsible_id\tprice_per_report\tstarts_at\n30001\t210001\t5520015\tgian\t30001\t6.50\t2026-04-13 00:53:18\n90001\t210001\t1\tStudio Barra7\t90001\t25.00\t2026-04-01 00:00:00\n",
+  "stderr": "",
+  "execution_time_ms": 272
+}

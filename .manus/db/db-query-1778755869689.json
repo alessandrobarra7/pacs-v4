@@ -1,0 +1,59 @@
+{
+  "query": "\nSELECT id, name, email, role, crm FROM users ORDER BY id LIMIT 20;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT id, name, email, role, crm FROM users ORDER BY id LIMIT 20;\n",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Studio Barra7",
+      "email": "studiobarra7@gmail.com",
+      "role": "admin_master",
+      "crm": "NULL"
+    },
+    {
+      "id": "5340188",
+      "name": "eu",
+      "email": "NULL",
+      "role": "responsavel_financeiro",
+      "crm": "6666"
+    },
+    {
+      "id": "5520015",
+      "name": "gian",
+      "email": "NULL",
+      "role": "medico",
+      "crm": "2424"
+    },
+    {
+      "id": "7170563",
+      "name": "Admin Master",
+      "email": "NULL",
+      "role": "admin_master",
+      "crm": "NULL"
+    },
+    {
+      "id": "8400008",
+      "name": "João Silva",
+      "email": "joao@teste.com",
+      "role": "medico",
+      "crm": "123456/SP"
+    },
+    {
+      "id": "8430008",
+      "name": "Operador Teste",
+      "email": "operador@teste.com",
+      "role": "medico",
+      "crm": "NULL"
+    },
+    {
+      "id": "8430061",
+      "name": "Operador Teste",
+      "email": "operador.teste@lauds.com",
+      "role": "medico",
+      "crm": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\temail\trole\tcrm\n1\tStudio Barra7\tstudiobarra7@gmail.com\tadmin_master\tNULL\n5340188\teu\tNULL\tresponsavel_financeiro\t6666\n5520015\tgian\tNULL\tmedico\t2424\n7170563\tAdmin Master\tNULL\tadmin_master\tNULL\n8400008\tJoão Silva\tjoao@teste.com\tmedico\t123456/SP\n8430008\tOperador Teste\toperador@teste.com\tmedico\tNULL\n8430061\tOperador Teste\toperador.teste@lauds.com\tmedico\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 362
+}

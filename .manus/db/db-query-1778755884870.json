@@ -1,0 +1,25 @@
+{
+  "query": "\nSHOW TABLES LIKE '%doctor%';\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSHOW TABLES LIKE '%doctor%';\n",
+  "rows": [
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%doctor%)": "billing_cycle_doctor_summary"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%doctor%)": "billing_doctor_unit_prices"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%doctor%)": "billing_monthly_doctor_by_unit"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%doctor%)": "unit_doctor_compensation_rules"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%doctor%)": "unit_doctor_scales"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_cTdrattvNQ95XCgX9zeyNM (%doctor%)\nbilling_cycle_doctor_summary\nbilling_doctor_unit_prices\nbilling_monthly_doctor_by_unit\nunit_doctor_compensation_rules\nunit_doctor_scales\n",
+  "stderr": "",
+  "execution_time_ms": 261
+}

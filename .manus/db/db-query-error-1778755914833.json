@@ -1,0 +1,12 @@
+{
+  "query": "\n-- Preços de médico configurados\nSELECT bdp.id, bdp.unit_id, u.name as unit_name, bdp.doctor_user_id, usr.name as doctor_name, bdp.financial_responsible_id, bdp.price_per_report, bdp.starts_at\nFROM billing_doctor_unit_prices bdp\nJOIN units u ON u.id = bdp.unit_id\nJOIN users usr ON usr.id = bdp.doctor_user_id\nORDER BY bdp.unit_id, bdp.starts_at DESC;\n\n-- Responsável financeiro da PACSML\nSELECT fru.id, fru.unit_id, fru.financial_responsible_id, fr.name as responsible_name, fru.starts_at\nFROM financial_responsible_units fru\nJOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nWHERE fru.unit_id = 210001\nORDER BY fru.starts_at DESC LIMIT 3;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- Preços de médico configurados\nSELECT bdp.id, bdp.unit_id, u.name as unit_name, bdp.doctor_user_id, usr.name as doctor_name, bdp.financial_responsible_id, bdp.price_per_report, bdp.starts_at\nFROM billing_doctor_unit_prices bdp\nJOIN units u ON u.id = bdp.unit_id\nJOIN users usr ON usr.id = bdp.doctor_user_id\nORDER BY bdp.unit_id, bdp.starts_at DESC;\n\n-- Responsável financeiro da PACSML\nSELECT fru.id, fru.unit_id, fru.financial_responsible_id, fr.name as responsible_name, fru.starts_at\nFROM financial_responsible_units fru\nJOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nWHERE fru.unit_id = 210001\nORDER BY fru.starts_at DESC LIMIT 3;\n",
+  "returncode": 1,
+  "logs": [
+    "id\tunit_id\tunit_name\tdoctor_user_id\tdoctor_name\tfinancial_responsible_id\tprice_per_report\tstarts_at",
+    "60001\t180001\tPACS Principal\t1\tStudio Barra7\t1\t25.00\t2026-04-14 00:00:00",
+    "1\t180001\tPACS Principal\t5520015\tgian\t1\t8.00\t2026-04-12 00:00:00",
+    "30001\t210001\tPACSML\t5520015\tgian\t30001\t6.50\t2026-04-13 00:53:18",
+    "ERROR 1054 (42S22) at line 10: Unknown column 'fr.name' in 'field list'"
+  ]
+}
