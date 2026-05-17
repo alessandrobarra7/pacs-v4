@@ -1,6 +1,6 @@
 /**
  * FinanceModals — Componentes compartilhados do módulo financeiro
- * LaudosModal e DoctorRow usados por FinanceDashboard2 e FinancePagamentos
+ * LaudosModal e DoctorRow usados por FinanceDashboard e FinancePagamentos
  * Desenvolvimento StudioBarra7
  */
 import { useState } from "react";

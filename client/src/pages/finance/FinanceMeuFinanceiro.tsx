@@ -1,5 +1,5 @@
 /**
- * FinanceMeuFinanceiro2 — Extrato financeiro do médico logado
+ * FinanceMeuFinanceiro — Extrato financeiro do médico logado
  * Cards por unidade + modal de extrato + impressão
  * Desenvolvimento StudioBarra7
  */
@@ -122,7 +122,7 @@ function fmtDate(d: Date | string | null | undefined) {
   return new Date(d).toLocaleDateString("pt-BR");
 }
 
-export default function FinanceMeuFinanceiro2() {
+export default function FinanceMeuFinanceiro() {
   const { user } = useAuth();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());

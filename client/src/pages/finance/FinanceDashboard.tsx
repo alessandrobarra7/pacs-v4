@@ -1,5 +1,5 @@
 /**
- * FinanceDashboard2 — Módulo financeiro simplificado
+ * FinanceDashboard — Módulo financeiro simplificado
  * Nível 1: lista de Responsáveis Financeiros com totais
  * Nível 2: ao selecionar um responsável, mostra suas unidades
  * Nível 3: ao selecionar uma unidade, mostra médicos e ações de pagamento
@@ -239,7 +239,7 @@ function toRefDate(year: number, month: number): string {
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
-export default function FinanceDashboard2() {
+export default function FinanceDashboard() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
