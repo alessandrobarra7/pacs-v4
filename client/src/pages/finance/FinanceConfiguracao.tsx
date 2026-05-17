@@ -10,7 +10,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   CheckCircle2, AlertCircle, Settings, CalendarDays,
-  DollarSign, Users, RefreshCw, ChevronDown, Building2,
+  Users, RefreshCw, ChevronDown, Building2, Link2, UserPlus, X, Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,6 +104,220 @@ function DoctorPriceRow({ doctor, unitId, onSaved }: {
   );
 }
 
+// ─── Bloco E: Painel de Responsável Financeiro ──────────────────────────────
+function ResponsavelPanel({ unitId, onChanged }: { unitId: number; onChanged: () => void }) {
+  const utils = trpc.useUtils();
+  const [showLinkForm, setShowLinkForm] = useState(false);
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [showUsersPanel, setShowUsersPanel] = useState(false);
+  const [selectedRespId, setSelectedRespId] = useState<number | null>(null);
+  const [newName, setNewName] = useState("");
+  const [newCnpj, setNewCnpj] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [linkUserId, setLinkUserId] = useState<number | null>(null);
+
+  const { data: readiness, refetch: refetchReadiness } = trpc.financeSimple.unitFinancialReadiness.useQuery({ unit_id: unitId });
+  const { data: allResponsibles } = trpc.financeSimple.listResponsibles.useQuery(undefined, { enabled: showLinkForm || showNewForm });
+  const { data: allUsers } = trpc.admin.listUsers.useQuery(undefined, { enabled: showUsersPanel });
+  const { data: respUsers } = trpc.financeSimple.listUsersForResponsible.useQuery(
+    { financialResponsibleId: readiness?.responsible_id ?? 0 },
+    { enabled: showUsersPanel && !!readiness?.responsible_id }
+  );
+
+  const invalidateAll = () => {
+    utils.financeSimple.unitFinancialReadiness.invalidate({ unit_id: unitId });
+    onChanged();
+  };
+
+  const linkUnit = trpc.financeSimple.linkUnit.useMutation({
+    onSuccess: () => { toast.success("Responsável vinculado!"); setShowLinkForm(false); invalidateAll(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const createAndLink = trpc.financeSimple.createResponsible.useMutation({
+    onSuccess: async (result: any) => {
+      await linkUnit.mutateAsync({
+        financialResponsibleId: result.id,
+        unitId,
+        startsAt: new Date().toISOString(),
+      });
+      toast.success("Responsável criado e vinculado!");
+      setShowNewForm(false);
+      setNewName(""); setNewCnpj(""); setNewEmail("");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const linkUser = trpc.financeSimple.linkUser.useMutation({
+    onSuccess: () => { toast.success("Usuário vinculado!"); utils.financeSimple.listUsersForResponsible.invalidate(); invalidateAll(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const unlinkUser = trpc.financeSimple.unlinkUser.useMutation({
+    onSuccess: () => { toast.success("Usuário desvinculado."); utils.financeSimple.listUsersForResponsible.invalidate(); invalidateAll(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const hasResponsible = readiness?.has_responsible;
+  const responsibleName = readiness?.responsible_name;
+  const responsibleId = readiness?.responsible_id ?? null;
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+        <div className="flex items-center gap-2">
+          <Link2 className="h-4 w-4 text-violet-400" />
+          <h2 className="text-sm font-semibold text-white">Responsável Financeiro</h2>
+        </div>
+        <div className="flex gap-2">
+          {hasResponsible && responsibleId && (
+            <Button size="sm" variant="outline"
+              className="h-7 px-3 text-xs border-slate-600 text-slate-300 hover:text-white"
+              onClick={() => { setShowUsersPanel(!showUsersPanel); setShowLinkForm(false); setShowNewForm(false); }}
+            >
+              <UserPlus className="h-3.5 w-3.5 mr-1.5" />
+              Usuários
+            </Button>
+          )}
+          <Button size="sm" variant="outline"
+            className="h-7 px-3 text-xs border-violet-600/50 text-violet-400 hover:bg-violet-500/10"
+            onClick={() => { setShowLinkForm(!showLinkForm); setShowNewForm(false); setShowUsersPanel(false); }}
+          >
+            <Link2 className="h-3.5 w-3.5 mr-1.5" />
+            {hasResponsible ? "Trocar" : "Vincular"}
+          </Button>
+          <Button size="sm" variant="outline"
+            className="h-7 px-3 text-xs border-emerald-600/50 text-emerald-400 hover:bg-emerald-500/10"
+            onClick={() => { setShowNewForm(!showNewForm); setShowLinkForm(false); setShowUsersPanel(false); }}
+          >
+            <Plus className="h-3.5 w-3.5 mr-1.5" />
+            Novo
+          </Button>
+        </div>
+      </div>
+
+      {/* Status atual */}
+      <div className="px-5 py-3">
+        {hasResponsible ? (
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+            <div>
+              <p className="text-sm text-white font-medium">{responsibleName}</p>
+              <p className="text-xs text-slate-400">
+                {readiness?.has_responsible_user ? "Usuário vinculado" : "Sem usuário vinculado — use o botão Usuários acima"}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
+            <p className="text-sm text-rose-300">Sem responsável financeiro — vincule ou crie um abaixo</p>
+          </div>
+        )}
+      </div>
+
+      {/* Formulário: vincular existente */}
+      {showLinkForm && (
+        <div className="px-5 pb-4 border-t border-slate-800 pt-3 space-y-3">
+          <p className="text-xs text-slate-400 font-medium">Selecionar responsável existente:</p>
+          <select
+            value={selectedRespId ?? ""}
+            onChange={(e) => setSelectedRespId(e.target.value ? Number(e.target.value) : null)}
+            className="w-full bg-slate-800 border border-slate-600 text-white rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="">— Selecione —</option>
+            {allResponsibles?.map((r: any) => (
+              <option key={r.id} value={r.id}>{r.legal_name} {r.cpf_cnpj ? `(${r.cpf_cnpj})` : ""}</option>
+            ))}
+          </select>
+          <div className="flex gap-2">
+            <Button size="sm" disabled={!selectedRespId || linkUnit.isPending}
+              className="bg-violet-600 hover:bg-violet-700 text-white"
+              onClick={() => selectedRespId && linkUnit.mutate({ financialResponsibleId: selectedRespId, unitId, startsAt: new Date().toISOString() })}
+            >
+              {linkUnit.isPending ? "Vinculando..." : "Confirmar vínculo"}
+            </Button>
+            <Button size="sm" variant="outline" className="border-slate-600 text-slate-400" onClick={() => setShowLinkForm(false)}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Formulário: criar novo responsável */}
+      {showNewForm && (
+        <div className="px-5 pb-4 border-t border-slate-800 pt-3 space-y-3">
+          <p className="text-xs text-slate-400 font-medium">Criar e vincular novo responsável:</p>
+          <Input placeholder="Nome / Razão Social *" value={newName} onChange={(e) => setNewName(e.target.value)}
+            className="bg-slate-800 border-slate-600 text-white text-sm" />
+          <Input placeholder="CNPJ / CPF" value={newCnpj} onChange={(e) => setNewCnpj(e.target.value)}
+            className="bg-slate-800 border-slate-600 text-white text-sm" />
+          <Input placeholder="E-mail" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)}
+            className="bg-slate-800 border-slate-600 text-white text-sm" />
+          <div className="flex gap-2">
+            <Button size="sm" disabled={!newName.trim() || createAndLink.isPending || linkUnit.isPending}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={() => createAndLink.mutate({
+                person_type: newCnpj.replace(/\D/g, "").length > 11 ? "PJ" : "PF",
+                legal_name: newName.trim(),
+                cpf_cnpj: newCnpj.trim() || undefined,
+                email: newEmail.trim() || undefined,
+              })}
+            >
+              {createAndLink.isPending || linkUnit.isPending ? "Criando..." : "Criar e vincular"}
+            </Button>
+            <Button size="sm" variant="outline" className="border-slate-600 text-slate-400" onClick={() => setShowNewForm(false)}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Painel: gerenciar usuários vinculados */}
+      {showUsersPanel && responsibleId && (
+        <div className="px-5 pb-4 border-t border-slate-800 pt-3 space-y-3">
+          <p className="text-xs text-slate-400 font-medium">Usuários com acesso ao painel deste responsável:</p>
+          {respUsers?.length === 0 && (
+            <p className="text-xs text-slate-500">Nenhum usuário vinculado ainda.</p>
+          )}
+          {respUsers?.map((u: any) => (
+            <div key={u.user_id} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-3 py-2">
+              <div>
+                <p className="text-sm text-white">{u.name || u.username}</p>
+                <p className="text-xs text-slate-400">{u.email}</p>
+              </div>
+              <Button size="sm" variant="outline"
+                className="h-6 px-2 text-xs border-rose-600/50 text-rose-400 hover:bg-rose-500/10"
+                onClick={() => unlinkUser.mutate({ financialResponsibleId: responsibleId, userId: u.user_id })}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          ))}
+          <div className="flex gap-2 pt-1">
+            <select
+              value={linkUserId ?? ""}
+              onChange={(e) => setLinkUserId(e.target.value ? Number(e.target.value) : null)}
+              className="flex-1 bg-slate-800 border border-slate-600 text-white rounded-lg px-3 py-1.5 text-sm"
+            >
+              <option value="">— Adicionar usuário —</option>
+              {allUsers?.filter((u: any) => !respUsers?.find((ru: any) => ru.user_id === u.id)).map((u: any) => (
+                <option key={u.id} value={u.id}>{u.name || u.username} ({u.email})</option>
+              ))}
+            </select>
+            <Button size="sm" disabled={!linkUserId || linkUser.isPending}
+              className="bg-violet-600 hover:bg-violet-700 text-white shrink-0"
+              onClick={() => linkUserId && linkUser.mutate({ financialResponsibleId: responsibleId, userId: linkUserId })}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Bloco C: Checklist de aptidão ───────────────────────────────────────────
 function ReadinessChecklist({ unitId }: { unitId: number }) {
   const { data, isLoading } = trpc.financeSimple.unitFinancialReadiness.useQuery({ unit_id: unitId });
@@ -131,14 +345,14 @@ function ReadinessChecklist({ unitId }: { unitId: number }) {
       ok: data.has_responsible,
       detail: data.has_responsible
         ? data.responsible_name ?? "Vinculado"
-        : "Sem responsável — vincule em Admin → Unidades → Responsável",
+        : "Sem responsável — use o painel \"Responsável Financeiro\" acima",
     },
     {
       label: "Usuário vinculado ao responsável",
       ok: data.has_responsible_user,
       detail: data.has_responsible_user
         ? "Usuário vinculado"
-        : "Sem usuário — vincule em Admin → Responsáveis → Usuários",
+        : "Sem usuário — use o botão \"Usuários\" no painel acima",
     },
     {
       label: "Ciclo de pagamento configurado",
@@ -306,6 +520,15 @@ export function FinanceConfiguracao() {
                 ))}
               </div>
             </div>
+
+            {/* ── Bloco E: Responsável Financeiro ── */}
+            <ResponsavelPanel
+              unitId={selectedUnitId}
+              onChanged={() => {
+                utils.financeSimple.unitFinancialReadiness.invalidate({ unit_id: selectedUnitId });
+                utils.financeSimple.unitSummary.invalidate();
+              }}
+            />
 
             {/* ── Bloco B: Médicos com preço ── */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">

@@ -2715,6 +2715,7 @@ export const financeSimpleRouter = router({
         unit_name: unit.name,
         is_active: unit.isActive,
         has_responsible: hasResponsible,
+        responsible_id: responsibleRow[0]?.id ?? null,
         responsible_name: responsibleName,
         has_responsible_user: hasResponsibleUser,
         has_cycle: hasCycle,
