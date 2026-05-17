@@ -22,6 +22,7 @@ import {
   user_unit_permissions,
   billing_doctor_unit_prices,
   billing_system_unit_prices,
+  billing_cycle_configs,
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, ne, sql, sql as sqlFn, desc, inArray, gte, lte, or, SQL } from "drizzle-orm";
 import {
@@ -354,6 +355,32 @@ export const financeSimpleRouter = router({
         .groupBy(billing_visit_events.doctor_user_id, users.name)
         .orderBy(users.name);
 
+      // Buscar preços configurados para cada médico nesta unidade
+      const doctorIds = rows.map((r) => r.doctor_user_id).filter((id): id is number => id !== null);
+      let priceMap = new Map<number, number | null>();
+      if (doctorIds.length > 0) {
+        const priceRows = await db
+          .select({
+            doctor_user_id: billing_doctor_unit_prices.doctor_user_id,
+            price_per_report: billing_doctor_unit_prices.price_per_report,
+          })
+          .from(billing_doctor_unit_prices)
+          .where(
+            and(
+              eq(billing_doctor_unit_prices.unit_id, input.unit_id),
+              inArray(billing_doctor_unit_prices.doctor_user_id, doctorIds),
+              isNull(billing_doctor_unit_prices.ends_at),
+            )
+          )
+          .orderBy(desc(billing_doctor_unit_prices.starts_at));
+        // Manter apenas o preço mais recente por médico
+        for (const pr of priceRows) {
+          if (!priceMap.has(pr.doctor_user_id)) {
+            priceMap.set(pr.doctor_user_id, pr.price_per_report ? Number(pr.price_per_report) : null);
+          }
+        }
+      }
+
       return rows.map((r) => ({
         doctor_user_id: r.doctor_user_id,
         doctor_name: r.doctor_name ?? "Médico",
@@ -363,6 +390,7 @@ export const financeSimpleRouter = router({
         doctor_pending: subMoney(r.doctor_total, r.doctor_paid),   // FIX float
         doctor_pending_count: Number(r.doctor_pending_count),
         last_received_at: r.last_received_at,
+        price_per_report: r.doctor_user_id ? (priceMap.get(r.doctor_user_id) ?? null) : null,
       }));
     }),
 
@@ -2550,8 +2578,156 @@ export const financeSimpleRouter = router({
               : err.message;
             done(false, msg);
           });
-          socket.connect(unit.pacs_port!, unit.pacs_ip!);
+           socket.connect(unit.pacs_port!, unit.pacs_ip!);
         });
       }),
 
+  /**
+   * unitFinancialReadiness — Checklist de aptidão financeira de uma unidade
+   * Retorna status de cada pré-requisito para operação financeira correta.
+   */
+  unitFinancialReadiness: protectedProcedure
+    .input(z.object({ unit_id: z.number().int() }))
+    .query(async ({ input, ctx }) => {
+      assertAdmin(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // 1. Dados básicos da unidade
+      const unitRow = await db
+        .select({
+          id: units.id,
+          name: units.name,
+          isActive: units.isActive,
+          default_doctor_price: units.default_doctor_price,
+          default_system_price: units.default_system_price,
+          billing_cycle_start_day: units.billing_cycle_start_day,
+          billing_cycle_end_day: units.billing_cycle_end_day,
+        })
+        .from(units)
+        .where(eq(units.id, input.unit_id))
+        .limit(1);
+
+      if (!unitRow[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Unidade não encontrada" });
+      const unit = unitRow[0];
+
+      // 2. Responsável financeiro ativo
+      const responsibleRow = await db
+        .select({
+          id: financial_responsible_units.financial_responsible_id,
+          name: financial_responsibles.legal_name,
+          starts_at: financial_responsible_units.starts_at,
+        })
+        .from(financial_responsible_units)
+        .leftJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_units.financial_responsible_id))
+        .where(
+          and(
+            eq(financial_responsible_units.unit_id, input.unit_id),
+            isNull(financial_responsible_units.ends_at),
+          )
+        )
+        .limit(1);
+      const hasResponsible = responsibleRow.length > 0;
+      const responsibleName = responsibleRow[0]?.name ?? null;
+
+      // 3. Usuário financeiro vinculado ao responsável
+      let hasResponsibleUser = false;
+      if (hasResponsible && responsibleRow[0]?.id) {
+        const userRow = await db
+          .select({ id: financial_responsible_users.user_id })
+          .from(financial_responsible_users)
+          .where(eq(financial_responsible_users.financial_responsible_id, responsibleRow[0].id))
+          .limit(1);
+        hasResponsibleUser = userRow.length > 0;
+      }
+
+      // 4. Ciclo configurado (diferente dos defaults genéricos ou explicitamente configurado)
+      const hasCycle = !!(unit.billing_cycle_start_day && unit.billing_cycle_end_day);
+      const cycleStartDay = unit.billing_cycle_start_day ?? null;
+      const cycleEndDay = unit.billing_cycle_end_day ?? null;
+
+      // 5. Preço de sistema configurado
+      const systemPriceRow = await db
+        .select({ price: billing_system_unit_prices.price_per_report })
+        .from(billing_system_unit_prices)
+        .where(
+          and(
+            eq(billing_system_unit_prices.unit_id, input.unit_id),
+            isNull(billing_system_unit_prices.ends_at),
+          )
+        )
+        .orderBy(desc(billing_system_unit_prices.starts_at))
+        .limit(1);
+      const hasSpecificSystemPrice = systemPriceRow.length > 0 && Number(systemPriceRow[0].price) > 0;
+      const hasDefaultSystemPrice = !!(unit.default_system_price && Number(unit.default_system_price) > 0);
+      const systemPrice = hasSpecificSystemPrice
+        ? Number(systemPriceRow[0].price)
+        : (hasDefaultSystemPrice ? Number(unit.default_system_price) : null);
+
+      // 6. Médicos com preço configurado
+      const doctorPriceRows = await db
+        .select({ doctor_user_id: billing_doctor_unit_prices.doctor_user_id })
+        .from(billing_doctor_unit_prices)
+        .where(
+          and(
+            eq(billing_doctor_unit_prices.unit_id, input.unit_id),
+            isNull(billing_doctor_unit_prices.ends_at),
+            sql`${billing_doctor_unit_prices.price_per_report} > 0`,
+          )
+        );
+      const doctorsWithPrice = doctorPriceRows.length;
+      const hasDefaultDoctorPrice = !!(unit.default_doctor_price && Number(unit.default_doctor_price) > 0);
+
+      // 7. Eventos com pricing_status pendente
+      const pendingRows = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(billing_visit_events)
+        .where(
+          and(
+            eq(billing_visit_events.unit_id, input.unit_id),
+            ne(billing_visit_events.pricing_status, 'ok'),
+          )
+        );
+      const pendingPricingCount = Number(pendingRows[0]?.count ?? 0);
+
+      // 8. Laudos sem evento billing (missing events)
+      const missingRows = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(billing_visit_events)
+        .where(
+          and(
+            eq(billing_visit_events.unit_id, input.unit_id),
+            isNull(billing_visit_events.financial_responsible_id),
+          )
+        );
+      const missingEventsCount = Number(missingRows[0]?.count ?? 0);
+
+      const isReady =
+        unit.isActive &&
+        hasResponsible &&
+        hasCycle &&
+        (hasSpecificSystemPrice || hasDefaultSystemPrice) &&
+        (hasDefaultDoctorPrice || doctorsWithPrice > 0) &&
+        pendingPricingCount === 0;
+
+      return {
+        unit_id: input.unit_id,
+        unit_name: unit.name,
+        is_active: unit.isActive,
+        has_responsible: hasResponsible,
+        responsible_name: responsibleName,
+        has_responsible_user: hasResponsibleUser,
+        has_cycle: hasCycle,
+        cycle_start_day: cycleStartDay,
+        cycle_end_day: cycleEndDay,
+        has_specific_system_price: hasSpecificSystemPrice,
+        has_default_system_price: hasDefaultSystemPrice,
+        system_price: systemPrice,
+        has_default_doctor_price: hasDefaultDoctorPrice,
+        doctors_with_price: doctorsWithPrice,
+        pending_pricing_count: pendingPricingCount,
+        missing_events_count: missingEventsCount,
+        is_ready: isReady,
+      };
+    }),
 });

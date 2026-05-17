@@ -12,6 +12,7 @@ import {
   Building2,
   Menu,
   X,
+  Settings,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,12 @@ const NAV_ITEMS: NavItem[] = [
     label: "Minhas Unidades",
     path: "/financeiro/responsavel",
     roles: ["responsavel_financeiro"],
+  },
+  {
+    icon: Settings,
+    label: "Configuração",
+    path: "/financeiro/configuracao",
+    roles: ["admin_master"],
   },
 ];
 

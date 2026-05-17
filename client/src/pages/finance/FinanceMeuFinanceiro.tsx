@@ -174,6 +174,30 @@ export default function FinanceMeuFinanceiro() {
           </div>
         </div>
 
+        {/* ── Bloco de totais consolidados do período ── */}
+        {!isLoading && data?.summary && data.summary.length > 0 && (() => {
+          const totalLaudos = data.summary.reduce((s, u) => s + u.total_laudos, 0);
+          const totalBruto = data.summary.reduce((s, u) => s + u.doctor_total, 0);
+          const totalPago = data.summary.reduce((s, u) => s + u.doctor_paid, 0);
+          const totalPend = data.summary.reduce((s, u) => s + u.doctor_pending, 0);
+          return (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: "Total de Laudos", value: String(totalLaudos), sub: "no período", color: "text-white" },
+                { label: "Total do Período", value: totalBruto.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), sub: "bruto", color: "text-amber-400" },
+                { label: "Recebido", value: totalPago.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), sub: "confirmado", color: "text-emerald-400" },
+                { label: "Pendente", value: totalPend.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), sub: "a receber", color: totalPend > 0 ? "text-rose-400" : "text-slate-400" },
+              ].map((item, i) => (
+                <div key={i} className="bg-slate-800/60 border border-slate-700 rounded-xl px-4 py-3">
+                  <p className="text-xs text-slate-500 uppercase tracking-wide">{item.label}</p>
+                  <p className={`text-lg font-bold mt-1 ${item.color}`}>{item.value}</p>
+                  <p className="text-xs text-slate-600 mt-0.5">{item.sub}</p>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
         {isLoading ? (
           <div className="space-y-4">
             {[1,2].map(i => <div key={i} className="h-48 bg-slate-800/40 rounded-xl animate-pulse" />)}

@@ -19,6 +19,7 @@ import FinanceDashboard from "./pages/finance/FinanceDashboard";
 import FinancePagamentos from "./pages/finance/FinancePagamentos";
 import FinanceMeuFinanceiro from "./pages/finance/FinanceMeuFinanceiro";
 import FinanceMeuResponsavel from "./pages/finance/FinanceMeuResponsavel";
+import { FinanceConfiguracao } from "./pages/finance/FinanceConfiguracao";
 import { useEffect } from "react";
 
 // Roles definidos no schema do banco de dados
@@ -123,6 +124,7 @@ function Router() {
       <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro} allowedRoles={['medico', 'admin_master']} />} />
       <Route path="/financeiro/responsavel" component={() => <ProtectedRoute component={FinanceMeuResponsavel} allowedRoles={['responsavel_financeiro', 'admin_master']} />} />
       <Route path="/financeiro/dashboard" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin']} />} />
+      <Route path="/financeiro/configuracao" component={() => <ProtectedRoute component={FinanceConfiguracao} allowedRoles={['admin_master']} />} />
 
       {/* Redirects de URLs legadas /billing/* */}
       <Route path="/billing/admin"><Redirect to="/financeiro/pagamentos" /></Route>

@@ -66,6 +66,7 @@ function DoctorsModal({
                 <tr className="border-b border-slate-700/50">
                   <th className="text-left px-6 py-3 text-slate-400 font-medium text-xs uppercase">Médico</th>
                   <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Laudos</th>
+                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">R$/Laudo</th>
                   <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Total</th>
                   <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Pago</th>
                   <th className="text-right px-6 py-3 text-slate-400 font-medium text-xs uppercase">Pendente</th>
@@ -76,6 +77,9 @@ function DoctorsModal({
                   <tr key={doc.doctor_user_id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="px-6 py-3 text-white">{doc.doctor_name}</td>
                     <td className="px-4 py-3 text-slate-400 text-right">{doc.total_laudos}</td>
+                    <td className="px-4 py-3 text-cyan-400 text-right text-xs">
+                      {(doc as any).price_per_report ? fmtBRL(Number((doc as any).price_per_report)) : <span className="text-slate-600">—</span>}
+                    </td>
                     <td className="px-4 py-3 text-amber-400 text-right font-medium">{fmtBRL(doc.doctor_total)}</td>
                     <td className="px-4 py-3 text-emerald-400 text-right">{fmtBRL(doc.doctor_paid)}</td>
                     <td className="px-6 py-3 text-right">
@@ -264,6 +268,26 @@ export default function FinanceMeuResponsavel() {
                     </p>
                   </div>
                 </div>
+
+                {/* Barra de valores — médicos */}
+                {(u.doctor_total > 0 || u.doctor_pending > 0) && (
+                  <div className="mt-2 grid grid-cols-3 gap-3">
+                    <div className="bg-slate-900/30 rounded-lg p-2.5 border border-slate-700/30">
+                      <p className="text-slate-500 text-xs mb-1">Total Médicos</p>
+                      <p className="text-cyan-400 font-semibold text-sm">{fmtBRL(u.doctor_total)}</p>
+                    </div>
+                    <div className="bg-slate-900/30 rounded-lg p-2.5 border border-slate-700/30">
+                      <p className="text-slate-500 text-xs mb-1">Pago Médicos</p>
+                      <p className="text-emerald-400 font-semibold text-sm">{fmtBRL(u.doctor_paid)}</p>
+                    </div>
+                    <div className="bg-slate-900/30 rounded-lg p-2.5 border border-slate-700/30">
+                      <p className="text-slate-500 text-xs mb-1">Pendente Médicos</p>
+                      <p className={`font-semibold text-sm ${u.doctor_pending > 0 ? "text-rose-400" : "text-slate-500"}`}>
+                        {fmtBRL(u.doctor_pending)}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Status visual */}
                 {u.system_pending === 0 && u.total_laudos > 0 && (
