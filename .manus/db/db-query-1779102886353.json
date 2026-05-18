@@ -1,0 +1,27 @@
+{
+  "query": "\nSELECT id, username, role FROM users WHERE username LIKE '%Studio%' OR username LIKE '%barra%' OR role = 'admin_master';\n\nSELECT DISTINCT doctor_user_id FROM billing_visit_events WHERE unit_id = 180001;\n\nSELECT * FROM billing_doctor_unit_prices WHERE unit_id = 180001 AND ends_at IS NULL;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT id, username, role FROM users WHERE username LIKE '%Studio%' OR username LIKE '%barra%' OR role = 'admin_master';\n\nSELECT DISTINCT doctor_user_id FROM billing_visit_events WHERE unit_id = 180001;\n\nSELECT * FROM billing_doctor_unit_prices WHERE unit_id = 180001 AND ends_at IS NULL;\n",
+  "rows": [
+    {
+      "id": "1",
+      "username": "NULL",
+      "role": "admin_master"
+    },
+    {
+      "id": "7170563",
+      "username": "admin",
+      "role": "admin_master"
+    }
+  ],
+  "messages": [
+    "doctor_user_id",
+    "5520015",
+    "1",
+    "id\tfinancial_responsible_id\tunit_id\tdoctor_user_id\tprice_per_report\tstarts_at\tends_at\tcreated_by\tcreatedAt",
+    "120003\t60001\t180001\t5520015\t8.00\t2026-05-14 10:15:35\tNULL\t1\t2026-05-18 11:07:10",
+    "120004\t60001\t180001\t1\t25.00\t2026-05-14 10:15:35\tNULL\t1\t2026-05-18 11:07:10"
+  ],
+  "stdout": "id\tusername\trole\n1\tNULL\tadmin_master\n7170563\tadmin\tadmin_master\ndoctor_user_id\n5520015\n1\nid\tfinancial_responsible_id\tunit_id\tdoctor_user_id\tprice_per_report\tstarts_at\tends_at\tcreated_by\tcreatedAt\n120003\t60001\t180001\t5520015\t8.00\t2026-05-14 10:15:35\tNULL\t1\t2026-05-18 11:07:10\n120004\t60001\t180001\t1\t25.00\t2026-05-14 10:15:35\tNULL\t1\t2026-05-18 11:07:10\n",
+  "stderr": "",
+  "execution_time_ms": 277
+}

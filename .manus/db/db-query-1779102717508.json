@@ -1,0 +1,32 @@
+{
+  "query": "\nSELECT u.id, u.name, u.financial_enabled,\n       fr.id as resp_id, fr.legal_name as resp_name,\n       fru.starts_at, fru.ends_at,\n       fru2.user_id as linked_user_id,\n       us.username as linked_username\nFROM units u\nLEFT JOIN financial_responsible_units fru ON fru.unit_id = u.id AND fru.ends_at IS NULL\nLEFT JOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nLEFT JOIN financial_responsible_users fru2 ON fru2.financial_responsible_id = fr.id\nLEFT JOIN users us ON us.id = fru2.user_id\nORDER BY u.id;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT u.id, u.name, u.financial_enabled,\n       fr.id as resp_id, fr.legal_name as resp_name,\n       fru.starts_at, fru.ends_at,\n       fru2.user_id as linked_user_id,\n       us.username as linked_username\nFROM units u\nLEFT JOIN financial_responsible_units fru ON fru.unit_id = u.id AND fru.ends_at IS NULL\nLEFT JOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nLEFT JOIN financial_responsible_users fru2 ON fru2.financial_responsible_id = fr.id\nLEFT JOIN users us ON us.id = fru2.user_id\nORDER BY u.id;\n",
+  "rows": [
+    {
+      "id": "180001",
+      "name": "PACS Principal",
+      "financial_enabled": "0",
+      "resp_id": "60001",
+      "resp_name": "Hospital da Criança LTDA",
+      "starts_at": "2026-05-14 10:15:35",
+      "ends_at": "NULL",
+      "linked_user_id": "16470057",
+      "linked_username": "teste6"
+    },
+    {
+      "id": "210001",
+      "name": "PACSML",
+      "financial_enabled": "1",
+      "resp_id": "120001",
+      "resp_name": "erica",
+      "starts_at": "2026-05-18 10:46:46",
+      "ends_at": "NULL",
+      "linked_user_id": "16440031",
+      "linked_username": "teste5"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tfinancial_enabled\tresp_id\tresp_name\tstarts_at\tends_at\tlinked_user_id\tlinked_username\n180001\tPACS Principal\t0\t60001\tHospital da Criança LTDA\t2026-05-14 10:15:35\tNULL\t16470057\tteste6\n210001\tPACSML\t1\t120001\terica\t2026-05-18 10:46:46\tNULL\t16440031\tteste5\n",
+  "stderr": "",
+  "execution_time_ms": 267
+}

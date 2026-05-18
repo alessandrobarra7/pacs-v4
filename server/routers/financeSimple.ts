@@ -1206,10 +1206,21 @@ export const financeSimpleRouter = router({
           .from(units)
           .where(eq(units.id, evt.unit_id))
           .limit(1);
-        // billing_doctor_unit_prices tem apenas price_per_report (valor do médico)
-        // O preço do sistema vem de units.default_system_price
+        // Se default_system_price for NULL, buscar em billing_system_unit_prices
+        let sysPrice = unit[0]?.sys ?? null;
+        if (!sysPrice || Number(sysPrice) === 0) {
+          const sysPriceRow = await db
+            .select({ price: billing_system_unit_prices.price_per_report })
+            .from(billing_system_unit_prices)
+            .where(and(
+              eq(billing_system_unit_prices.unit_id, evt.unit_id),
+              sql`${billing_system_unit_prices.ends_at} IS NULL`,
+            ))
+            .orderBy(sql`${billing_system_unit_prices.starts_at} DESC`)
+            .limit(1);
+          sysPrice = sysPriceRow[0]?.price ?? '0';
+        }
         const docPrice = doctorPrice[0]?.price_per_report ?? unit[0]?.doc ?? '0';
-        const sysPrice = unit[0]?.sys ?? '0';
         if (Number(sysPrice) > 0 || Number(docPrice) > 0) {
           await db
             .update(billing_visit_events)
@@ -2971,11 +2982,9 @@ export const financeSimpleRouter = router({
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Configure o ciclo financeiro antes de ativar.' });
         const now = new Date();
         const responsible = await getActiveResponsibleForUnit(input.unit_id, now);
-        console.log('[setFinancialEnabled] responsible:', JSON.stringify(responsible), 'now:', now.toISOString());
         if (!responsible)
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Vincule um responsável financeiro antes de ativar.' });
         const sysPrice = await getActiveSystemPrice(responsible.financial_responsible_id, input.unit_id, now);
-        console.log('[setFinancialEnabled] sysPrice:', JSON.stringify(sysPrice), 'u.sys:', u.sys);
         const hasPrice = sysPrice || (u.sys && Number(u.sys) > 0);
         if (!hasPrice)
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Configure o preço do sistema antes de ativar.' });

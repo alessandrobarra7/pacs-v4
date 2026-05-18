@@ -1,0 +1,8 @@
+{
+  "query": "\nSELECT bve.id, bve.doctor_id, u.username as doctor_name, bve.pricing_status, bve.doctor_price,\n       bve.system_price, bve.signed_at\nFROM billing_visit_events bve\nJOIN users u ON u.id = bve.doctor_id\nWHERE bve.unit_id = 180001\n  AND bve.pricing_status = 'pending'\nORDER BY bve.signed_at DESC;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT bve.id, bve.doctor_id, u.username as doctor_name, bve.pricing_status, bve.doctor_price,\n       bve.system_price, bve.signed_at\nFROM billing_visit_events bve\nJOIN users u ON u.id = bve.doctor_id\nWHERE bve.unit_id = 180001\n  AND bve.pricing_status = 'pending'\nORDER BY bve.signed_at DESC;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 2: Unknown column 'bve.doctor_id' in 'on clause'"
+  ]
+}

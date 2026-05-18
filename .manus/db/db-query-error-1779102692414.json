@@ -1,0 +1,8 @@
+{
+  "query": "\n-- Verificar unidades e seus responsáveis\nSELECT u.id, u.name, u.financial_enabled,\n       fr.id as resp_id, fr.name as resp_name,\n       fru.starts_at, fru.ends_at,\n       fru2.user_id as linked_user_id,\n       us.username as linked_username\nFROM units u\nLEFT JOIN financial_responsible_units fru ON fru.unit_id = u.id AND fru.ends_at IS NULL\nLEFT JOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nLEFT JOIN financial_responsible_users fru2 ON fru2.financial_responsible_id = fr.id AND fru2.ends_at IS NULL\nLEFT JOIN users us ON us.id = fru2.user_id\nORDER BY u.id;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- Verificar unidades e seus responsáveis\nSELECT u.id, u.name, u.financial_enabled,\n       fr.id as resp_id, fr.name as resp_name,\n       fru.starts_at, fru.ends_at,\n       fru2.user_id as linked_user_id,\n       us.username as linked_username\nFROM units u\nLEFT JOIN financial_responsible_units fru ON fru.unit_id = u.id AND fru.ends_at IS NULL\nLEFT JOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nLEFT JOIN financial_responsible_users fru2 ON fru2.financial_responsible_id = fr.id AND fru2.ends_at IS NULL\nLEFT JOIN users us ON us.id = fru2.user_id\nORDER BY u.id;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 3: Unknown column 'fru2.ends_at' in 'on clause'"
+  ]
+}

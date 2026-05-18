@@ -1,0 +1,23 @@
+{
+  "query": "\nSELECT * FROM billing_system_unit_prices WHERE unit_id = 180001 AND ends_at IS NULL;\nSELECT default_system_price, default_doctor_price FROM units WHERE id = 180001;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT * FROM billing_system_unit_prices WHERE unit_id = 180001 AND ends_at IS NULL;\nSELECT default_system_price, default_doctor_price FROM units WHERE id = 180001;\n",
+  "rows": [
+    {
+      "id": "90002",
+      "financial_responsible_id": "60001",
+      "unit_id": "180001",
+      "price_per_report": "4.00",
+      "starts_at": "2026-05-14 10:15:35",
+      "ends_at": "NULL",
+      "created_by": "1",
+      "createdAt": "2026-05-18 11:07:10"
+    }
+  ],
+  "messages": [
+    "default_system_price\tdefault_doctor_price",
+    "NULL\tNULL"
+  ],
+  "stdout": "id\tfinancial_responsible_id\tunit_id\tprice_per_report\tstarts_at\tends_at\tcreated_by\tcreatedAt\n90002\t60001\t180001\t4.00\t2026-05-14 10:15:35\tNULL\t1\t2026-05-18 11:07:10\ndefault_system_price\tdefault_doctor_price\nNULL\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 271
+}

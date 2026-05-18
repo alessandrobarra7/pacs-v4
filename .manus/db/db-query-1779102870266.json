@@ -1,0 +1,34 @@
+{
+  "query": "\nSELECT bve.id, bve.doctor_user_id, u.username as doctor_name, bve.pricing_status,\n       bve.doctor_price_applied, bve.system_price_applied\nFROM billing_visit_events bve\nJOIN users u ON u.id = bve.doctor_user_id\nWHERE bve.unit_id = 180001\n  AND bve.pricing_status != 'ok'\nORDER BY bve.id DESC;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT bve.id, bve.doctor_user_id, u.username as doctor_name, bve.pricing_status,\n       bve.doctor_price_applied, bve.system_price_applied\nFROM billing_visit_events bve\nJOIN users u ON u.id = bve.doctor_user_id\nWHERE bve.unit_id = 180001\n  AND bve.pricing_status != 'ok'\nORDER BY bve.id DESC;\n",
+  "rows": [
+    {
+      "id": "360003",
+      "doctor_user_id": "1",
+      "doctor_name": "NULL",
+      "pricing_status": "pending_both",
+      "doctor_price_applied": "NULL",
+      "system_price_applied": "NULL"
+    },
+    {
+      "id": "360002",
+      "doctor_user_id": "1",
+      "doctor_name": "NULL",
+      "pricing_status": "pending_both",
+      "doctor_price_applied": "NULL",
+      "system_price_applied": "NULL"
+    },
+    {
+      "id": "360001",
+      "doctor_user_id": "1",
+      "doctor_name": "NULL",
+      "pricing_status": "pending_both",
+      "doctor_price_applied": "NULL",
+      "system_price_applied": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tdoctor_user_id\tdoctor_name\tpricing_status\tdoctor_price_applied\tsystem_price_applied\n360003\t1\tNULL\tpending_both\tNULL\tNULL\n360002\t1\tNULL\tpending_both\tNULL\tNULL\n360001\t1\tNULL\tpending_both\tNULL\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 273
+}
