@@ -1,0 +1,30 @@
+{
+  "query": "\nSELECT * FROM billing_system_unit_prices WHERE unit_id = 210001 ORDER BY starts_at DESC LIMIT 5;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT * FROM billing_system_unit_prices WHERE unit_id = 210001 ORDER BY starts_at DESC LIMIT 5;\n",
+  "rows": [
+    {
+      "id": "60001",
+      "financial_responsible_id": "90001",
+      "unit_id": "210001",
+      "price_per_report": "5.00",
+      "starts_at": "2026-05-14 10:52:25",
+      "ends_at": "NULL",
+      "created_by": "1",
+      "createdAt": "2026-05-14 10:55:46"
+    },
+    {
+      "id": "30001",
+      "financial_responsible_id": "30001",
+      "unit_id": "210001",
+      "price_per_report": "5.00",
+      "starts_at": "2026-01-01 00:00:00",
+      "ends_at": "NULL",
+      "created_by": "1",
+      "createdAt": "2026-04-15 10:49:58"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfinancial_responsible_id\tunit_id\tprice_per_report\tstarts_at\tends_at\tcreated_by\tcreatedAt\n60001\t90001\t210001\t5.00\t2026-05-14 10:52:25\tNULL\t1\t2026-05-14 10:55:46\n30001\t30001\t210001\t5.00\t2026-01-01 00:00:00\tNULL\t1\t2026-04-15 10:49:58\n",
+  "stderr": "",
+  "execution_time_ms": 261
+}

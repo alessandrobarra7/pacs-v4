@@ -1,0 +1,8 @@
+{
+  "query": "\nSELECT bsup.*, fr.name as responsible_name\nFROM billing_system_unit_prices bsup\nJOIN financial_responsibles fr ON fr.id = bsup.financial_responsible_id\nWHERE bsup.unit_id = 210001\nORDER BY bsup.starts_at DESC\nLIMIT 5;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT bsup.*, fr.name as responsible_name\nFROM billing_system_unit_prices bsup\nJOIN financial_responsibles fr ON fr.id = bsup.financial_responsible_id\nWHERE bsup.unit_id = 210001\nORDER BY bsup.starts_at DESC\nLIMIT 5;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 2: Unknown column 'fr.name' in 'field list'"
+  ]
+}

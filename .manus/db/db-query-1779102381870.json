@@ -1,0 +1,27 @@
+{
+  "query": "\n-- Verificar unidade PACS Principal\nSELECT id, name, financial_enabled FROM units WHERE name LIKE '%PACS%' OR name LIKE '%Principal%';\n\n-- Verificar responsável ativo da PACS Principal\nSELECT fru.*, fr.cpf_cnpj FROM financial_responsible_units fru\nJOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nWHERE fru.ends_at IS NULL\nORDER BY fru.unit_id;\n\n-- Verificar usuários vinculados a responsáveis financeiros\nSELECT fru2.*, u.username, u.role FROM financial_responsible_users fru2\nJOIN users u ON u.id = fru2.user_id;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- Verificar unidade PACS Principal\nSELECT id, name, financial_enabled FROM units WHERE name LIKE '%PACS%' OR name LIKE '%Principal%';\n\n-- Verificar responsável ativo da PACS Principal\nSELECT fru.*, fr.cpf_cnpj FROM financial_responsible_units fru\nJOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nWHERE fru.ends_at IS NULL\nORDER BY fru.unit_id;\n\n-- Verificar usuários vinculados a responsáveis financeiros\nSELECT fru2.*, u.username, u.role FROM financial_responsible_users fru2\nJOIN users u ON u.id = fru2.user_id;\n",
+  "rows": [
+    {
+      "id": "180001",
+      "name": "PACS Principal",
+      "financial_enabled": "0"
+    },
+    {
+      "id": "210001",
+      "name": "PACSML",
+      "financial_enabled": "1"
+    }
+  ],
+  "messages": [
+    "id\tfinancial_responsible_id\tunit_id\tstarts_at\tends_at\tcreated_by\tcreatedAt\tcpf_cnpj",
+    "60001\t60001\t180001\t2026-05-14 10:15:35\tNULL\t1\t2026-05-14 10:15:34\t12.345.678/0001-99",
+    "120001\t120001\t210001\t2026-05-18 10:46:46\tNULL\t1\t2026-05-18 10:46:46\tNULL",
+    "id\tfinancial_responsible_id\tuser_id\tcreatedAt\tusername\trole",
+    "2\t1\t5340188\t2026-04-15 10:50:26\tale\tresponsavel_financeiro",
+    "30001\t120001\t16440031\t2026-05-18 10:50:52\tteste5\tresponsavel_financeiro"
+  ],
+  "stdout": "id\tname\tfinancial_enabled\n180001\tPACS Principal\t0\n210001\tPACSML\t1\nid\tfinancial_responsible_id\tunit_id\tstarts_at\tends_at\tcreated_by\tcreatedAt\tcpf_cnpj\n60001\t60001\t180001\t2026-05-14 10:15:35\tNULL\t1\t2026-05-14 10:15:34\t12.345.678/0001-99\n120001\t120001\t210001\t2026-05-18 10:46:46\tNULL\t1\t2026-05-18 10:46:46\tNULL\nid\tfinancial_responsible_id\tuser_id\tcreatedAt\tusername\trole\n2\t1\t5340188\t2026-04-15 10:50:26\tale\tresponsavel_financeiro\n30001\t120001\t16440031\t2026-05-18 10:50:52\tteste5\tresponsavel_financeiro\n",
+  "stderr": "",
+  "execution_time_ms": 287
+}

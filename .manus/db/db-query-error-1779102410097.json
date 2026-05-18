@@ -1,0 +1,8 @@
+{
+  "query": "\n-- 1. Criar usuário teste6 como responsavel_financeiro\nINSERT INTO users (username, password_hash, role, unit_id, is_active, createdAt)\nVALUES ('teste6', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uRIki5bm6', 'responsavel_financeiro', 180001, 1, NOW());\n\n-- 2. Vincular teste6 ao responsável financeiro id=60001\nINSERT INTO financial_responsible_users (financial_responsible_id, user_id, createdAt)\nVALUES (60001, LAST_INSERT_ID(), NOW());\n\n-- 3. Criar permissão de unidade para teste6\nINSERT INTO user_unit_permissions (user_id, unit_id, role, created_at)\nVALUES (LAST_INSERT_ID(), 180001, 'responsavel_financeiro', NOW());\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- 1. Criar usuário teste6 como responsavel_financeiro\nINSERT INTO users (username, password_hash, role, unit_id, is_active, createdAt)\nVALUES ('teste6', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uRIki5bm6', 'responsavel_financeiro', 180001, 1, NOW());\n\n-- 2. Vincular teste6 ao responsável financeiro id=60001\nINSERT INTO financial_responsible_users (financial_responsible_id, user_id, createdAt)\nVALUES (60001, LAST_INSERT_ID(), NOW());\n\n-- 3. Criar permissão de unidade para teste6\nINSERT INTO user_unit_permissions (user_id, unit_id, role, created_at)\nVALUES (LAST_INSERT_ID(), 180001, 'responsavel_financeiro', NOW());\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 3: Unknown column 'is_active' in 'field list'"
+  ]
+}

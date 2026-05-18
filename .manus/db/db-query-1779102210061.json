@@ -1,0 +1,34 @@
+{
+  "query": "\n-- Encerrar preços de médicos do responsável antigo (90001) na PACSML\nUPDATE billing_doctor_unit_prices \nSET ends_at = '2026-05-18 00:00:00'\nWHERE financial_responsible_id = 90001 AND unit_id = 210001 AND ends_at IS NULL;\n\n-- Migrar cada preço de médico para o novo responsável (120001)\n-- Médico Studio Barra7 (doctor_user_id=1) com R$ 25,00\nINSERT INTO billing_doctor_unit_prices (financial_responsible_id, unit_id, doctor_user_id, price_per_report, starts_at, ends_at, created_by, createdAt)\nVALUES (120001, 210001, 1, '25.00', '2026-05-18 00:00:00', NULL, 1, NOW());\n\n-- Verificar se há outros médicos com preço no responsável antigo (30001) também\nSELECT bdp.*, u.username as doctor_name\nFROM billing_doctor_unit_prices bdp\nLEFT JOIN users u ON u.id = bdp.doctor_user_id\nWHERE bdp.unit_id = 210001 AND bdp.ends_at IS NULL\nORDER BY bdp.financial_responsible_id;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- Encerrar preços de médicos do responsável antigo (90001) na PACSML\nUPDATE billing_doctor_unit_prices \nSET ends_at = '2026-05-18 00:00:00'\nWHERE financial_responsible_id = 90001 AND unit_id = 210001 AND ends_at IS NULL;\n\n-- Migrar cada preço de médico para o novo responsável (120001)\n-- Médico Studio Barra7 (doctor_user_id=1) com R$ 25,00\nINSERT INTO billing_doctor_unit_prices (financial_responsible_id, unit_id, doctor_user_id, price_per_report, starts_at, ends_at, created_by, createdAt)\nVALUES (120001, 210001, 1, '25.00', '2026-05-18 00:00:00', NULL, 1, NOW());\n\n-- Verificar se há outros médicos com preço no responsável antigo (30001) também\nSELECT bdp.*, u.username as doctor_name\nFROM billing_doctor_unit_prices bdp\nLEFT JOIN users u ON u.id = bdp.doctor_user_id\nWHERE bdp.unit_id = 210001 AND bdp.ends_at IS NULL\nORDER BY bdp.financial_responsible_id;\n",
+  "rows": [
+    {
+      "id": "30001",
+      "financial_responsible_id": "30001",
+      "unit_id": "210001",
+      "doctor_user_id": "5520015",
+      "price_per_report": "6.50",
+      "starts_at": "2026-04-13 00:53:18",
+      "ends_at": "NULL",
+      "created_by": "1",
+      "createdAt": "2026-04-13 00:53:18",
+      "doctor_name": "gian"
+    },
+    {
+      "id": "120001",
+      "financial_responsible_id": "120001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "price_per_report": "25.00",
+      "starts_at": "2026-05-18 00:00:00",
+      "ends_at": "NULL",
+      "created_by": "1",
+      "createdAt": "2026-05-18 11:03:30",
+      "doctor_name": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfinancial_responsible_id\tunit_id\tdoctor_user_id\tprice_per_report\tstarts_at\tends_at\tcreated_by\tcreatedAt\tdoctor_name\n30001\t30001\t210001\t5520015\t6.50\t2026-04-13 00:53:18\tNULL\t1\t2026-04-13 00:53:18\tgian\n120001\t120001\t210001\t1\t25.00\t2026-05-18 00:00:00\tNULL\t1\t2026-05-18 11:03:30\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 289
+}

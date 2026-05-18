@@ -1,0 +1,18 @@
+{
+  "query": "\nSELECT id, financial_responsible_id, unit_id, price_per_report, starts_at, ends_at\nFROM billing_system_unit_prices\nWHERE financial_responsible_id = 120001\n  AND unit_id = 210001\n  AND starts_at <= NOW()\n  AND (ends_at IS NULL OR ends_at >= NOW())\nORDER BY starts_at DESC\nLIMIT 1;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT id, financial_responsible_id, unit_id, price_per_report, starts_at, ends_at\nFROM billing_system_unit_prices\nWHERE financial_responsible_id = 120001\n  AND unit_id = 210001\n  AND starts_at <= NOW()\n  AND (ends_at IS NULL OR ends_at >= NOW())\nORDER BY starts_at DESC\nLIMIT 1;\n",
+  "rows": [
+    {
+      "id": "90001",
+      "financial_responsible_id": "120001",
+      "unit_id": "210001",
+      "price_per_report": "5.00",
+      "starts_at": "2026-05-18 00:00:00",
+      "ends_at": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfinancial_responsible_id\tunit_id\tprice_per_report\tstarts_at\tends_at\n90001\t120001\t210001\t5.00\t2026-05-18 00:00:00\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 261
+}

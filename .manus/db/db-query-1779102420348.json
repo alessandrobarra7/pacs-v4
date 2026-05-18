@@ -1,0 +1,16 @@
+{
+  "query": "\n-- 1. Criar usuário teste6 (senha: teste6, bcrypt hash padrão)\nINSERT INTO users (openId, username, password_hash, role, unit_id, isActive, createdAt)\nVALUES (UUID(), 'teste6', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uRIki5bm6', 'responsavel_financeiro', 180001, 1, NOW());\n\n-- 2. Vincular teste6 ao responsável financeiro id=60001 (PACS Principal)\nINSERT INTO financial_responsible_users (financial_responsible_id, user_id, createdAt)\nVALUES (60001, LAST_INSERT_ID(), NOW());\n\n-- Verificar o que foi criado\nSELECT id, username, role, unit_id FROM users WHERE username = 'teste6';\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- 1. Criar usuário teste6 (senha: teste6, bcrypt hash padrão)\nINSERT INTO users (openId, username, password_hash, role, unit_id, isActive, createdAt)\nVALUES (UUID(), 'teste6', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uRIki5bm6', 'responsavel_financeiro', 180001, 1, NOW());\n\n-- 2. Vincular teste6 ao responsável financeiro id=60001 (PACS Principal)\nINSERT INTO financial_responsible_users (financial_responsible_id, user_id, createdAt)\nVALUES (60001, LAST_INSERT_ID(), NOW());\n\n-- Verificar o que foi criado\nSELECT id, username, role, unit_id FROM users WHERE username = 'teste6';\n",
+  "rows": [
+    {
+      "id": "16470057",
+      "username": "teste6",
+      "role": "responsavel_financeiro",
+      "unit_id": "180001"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tusername\trole\tunit_id\n16470057\tteste6\tresponsavel_financeiro\t180001\n",
+  "stderr": "",
+  "execution_time_ms": 290
+}

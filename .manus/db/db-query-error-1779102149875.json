@@ -1,0 +1,8 @@
+{
+  "query": "\nSELECT sp.*, u.name as unit_name \nFROM system_prices sp\nJOIN units u ON u.id = sp.unit_id\nWHERE sp.unit_id = 210001\nORDER BY sp.created_at DESC\nLIMIT 5;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT sp.*, u.name as unit_name \nFROM system_prices sp\nJOIN units u ON u.id = sp.unit_id\nWHERE sp.unit_id = 210001\nORDER BY sp.created_at DESC\nLIMIT 5;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 2: Table 'ctdrattvnq95xcgx9zeynm.system_prices' doesn't exist"
+  ]
+}

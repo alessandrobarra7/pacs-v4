@@ -2969,10 +2969,13 @@ export const financeSimpleRouter = router({
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'A unidade precisa estar ativa para habilitar o financeiro.' });
         if (!u.s || !u.e)
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Configure o ciclo financeiro antes de ativar.' });
-        const responsible = await getActiveResponsibleForUnit(input.unit_id, new Date());
+        const now = new Date();
+        const responsible = await getActiveResponsibleForUnit(input.unit_id, now);
+        console.log('[setFinancialEnabled] responsible:', JSON.stringify(responsible), 'now:', now.toISOString());
         if (!responsible)
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Vincule um responsável financeiro antes de ativar.' });
-        const sysPrice = await getActiveSystemPrice(responsible.financial_responsible_id, input.unit_id, new Date());
+        const sysPrice = await getActiveSystemPrice(responsible.financial_responsible_id, input.unit_id, now);
+        console.log('[setFinancialEnabled] sysPrice:', JSON.stringify(sysPrice), 'u.sys:', u.sys);
         const hasPrice = sysPrice || (u.sys && Number(u.sys) > 0);
         if (!hasPrice)
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Configure o preço do sistema antes de ativar.' });

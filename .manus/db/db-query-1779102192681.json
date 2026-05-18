@@ -1,0 +1,9 @@
+{
+  "query": "\n-- Encerrar o preço antigo vinculado ao responsável 90001\nUPDATE billing_system_unit_prices \nSET ends_at = '2026-05-18 00:00:00'\nWHERE financial_responsible_id = 90001 AND unit_id = 210001 AND ends_at IS NULL;\n\n-- Criar novo preço para o responsável erica (120001) com o mesmo valor R$ 5,00\nINSERT INTO billing_system_unit_prices (financial_responsible_id, unit_id, price_per_report, starts_at, ends_at, created_by, createdAt)\nVALUES (120001, 210001, '5.00', '2026-05-18 00:00:00', NULL, 1, NOW());\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- Encerrar o preço antigo vinculado ao responsável 90001\nUPDATE billing_system_unit_prices \nSET ends_at = '2026-05-18 00:00:00'\nWHERE financial_responsible_id = 90001 AND unit_id = 210001 AND ends_at IS NULL;\n\n-- Criar novo preço para o responsável erica (120001) com o mesmo valor R$ 5,00\nINSERT INTO billing_system_unit_prices (financial_responsible_id, unit_id, price_per_report, starts_at, ends_at, created_by, createdAt)\nVALUES (120001, 210001, '5.00', '2026-05-18 00:00:00', NULL, 1, NOW());\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 287
+}

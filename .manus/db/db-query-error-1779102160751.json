@@ -1,0 +1,8 @@
+{
+  "query": "\nSELECT id, unit_id, price_per_report, valid_from, valid_until, is_active \nFROM system_prices \nWHERE unit_id = 210001\nORDER BY valid_from DESC;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT id, unit_id, price_per_report, valid_from, valid_until, is_active \nFROM system_prices \nWHERE unit_id = 210001\nORDER BY valid_from DESC;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 2: Table 'ctdrattvnq95xcgx9zeynm.system_prices' doesn't exist"
+  ]
+}

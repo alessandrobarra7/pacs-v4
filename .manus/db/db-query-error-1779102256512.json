@@ -1,0 +1,8 @@
+{
+  "query": "\n-- Responsável ativo para PACSML\nSELECT fru.id, fru.financial_responsible_id, fru.unit_id, fru.starts_at, fru.ends_at, fr.name\nFROM financial_responsible_units fru\nJOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nWHERE fru.unit_id = 210001\nORDER BY fru.starts_at DESC;\n\n-- Verificar o registro antigo de billing_system_unit_prices com financial_responsible_id=30001\nSELECT id, financial_responsible_id, unit_id, price_per_report, starts_at, ends_at\nFROM billing_system_unit_prices\nWHERE financial_responsible_id = 30001 AND unit_id = 210001;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- Responsável ativo para PACSML\nSELECT fru.id, fru.financial_responsible_id, fru.unit_id, fru.starts_at, fru.ends_at, fr.name\nFROM financial_responsible_units fru\nJOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nWHERE fru.unit_id = 210001\nORDER BY fru.starts_at DESC;\n\n-- Verificar o registro antigo de billing_system_unit_prices com financial_responsible_id=30001\nSELECT id, financial_responsible_id, unit_id, price_per_report, starts_at, ends_at\nFROM billing_system_unit_prices\nWHERE financial_responsible_id = 30001 AND unit_id = 210001;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 3: Unknown column 'fr.name' in 'field list'"
+  ]
+}

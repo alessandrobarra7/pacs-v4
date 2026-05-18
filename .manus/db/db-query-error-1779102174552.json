@@ -1,0 +1,11 @@
+{
+  "query": "\nSELECT * FROM billing_system_unit_prices WHERE unit_id = 210001 ORDER BY starts_at DESC LIMIT 5;\nSELECT id, full_name FROM financial_responsibles WHERE id IN (SELECT financial_responsible_id FROM billing_system_unit_prices WHERE unit_id = 210001);\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT * FROM billing_system_unit_prices WHERE unit_id = 210001 ORDER BY starts_at DESC LIMIT 5;\nSELECT id, full_name FROM financial_responsibles WHERE id IN (SELECT financial_responsible_id FROM billing_system_unit_prices WHERE unit_id = 210001);\n",
+  "returncode": 1,
+  "logs": [
+    "id\tfinancial_responsible_id\tunit_id\tprice_per_report\tstarts_at\tends_at\tcreated_by\tcreatedAt",
+    "60001\t90001\t210001\t5.00\t2026-05-14 10:52:25\tNULL\t1\t2026-05-14 10:55:46",
+    "30001\t30001\t210001\t5.00\t2026-01-01 00:00:00\tNULL\t1\t2026-04-15 10:49:58",
+    "ERROR 1054 (42S22) at line 3: Unknown column 'full_name' in 'field list'"
+  ]
+}

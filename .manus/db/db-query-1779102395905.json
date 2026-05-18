@@ -1,0 +1,20 @@
+{
+  "query": "\n-- Nome do responsável da PACS Principal\nSELECT id, cpf_cnpj FROM financial_responsibles WHERE id = 60001;\n\n-- Preços de sistema para a PACS Principal\nSELECT * FROM billing_system_unit_prices WHERE unit_id = 180001 AND ends_at IS NULL;\n\n-- Preços de médicos para a PACS Principal\nSELECT bdp.*, u.username FROM billing_doctor_unit_prices bdp\nLEFT JOIN users u ON u.id = bdp.doctor_user_id\nWHERE bdp.unit_id = 180001 AND bdp.ends_at IS NULL;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- Nome do responsável da PACS Principal\nSELECT id, cpf_cnpj FROM financial_responsibles WHERE id = 60001;\n\n-- Preços de sistema para a PACS Principal\nSELECT * FROM billing_system_unit_prices WHERE unit_id = 180001 AND ends_at IS NULL;\n\n-- Preços de médicos para a PACS Principal\nSELECT bdp.*, u.username FROM billing_doctor_unit_prices bdp\nLEFT JOIN users u ON u.id = bdp.doctor_user_id\nWHERE bdp.unit_id = 180001 AND bdp.ends_at IS NULL;\n",
+  "rows": [
+    {
+      "id": "60001",
+      "cpf_cnpj": "12.345.678/0001-99"
+    }
+  ],
+  "messages": [
+    "id\tfinancial_responsible_id\tunit_id\tprice_per_report\tstarts_at\tends_at\tcreated_by\tcreatedAt",
+    "1\t1\t180001\t4.00\t2026-04-08 00:00:00\tNULL\t1\t2026-04-08 22:49:47",
+    "id\tfinancial_responsible_id\tunit_id\tdoctor_user_id\tprice_per_report\tstarts_at\tends_at\tcreated_by\tcreatedAt\tusername",
+    "1\t1\t180001\t5520015\t8.00\t2026-04-12 00:00:00\tNULL\t1\t2026-04-12 11:56:45\tgian",
+    "60001\t1\t180001\t1\t25.00\t2026-04-14 00:00:00\tNULL\t1\t2026-04-14 22:58:53\tNULL"
+  ],
+  "stdout": "id\tcpf_cnpj\n60001\t12.345.678/0001-99\nid\tfinancial_responsible_id\tunit_id\tprice_per_report\tstarts_at\tends_at\tcreated_by\tcreatedAt\n1\t1\t180001\t4.00\t2026-04-08 00:00:00\tNULL\t1\t2026-04-08 22:49:47\nid\tfinancial_responsible_id\tunit_id\tdoctor_user_id\tprice_per_report\tstarts_at\tends_at\tcreated_by\tcreatedAt\tusername\n1\t1\t180001\t5520015\t8.00\t2026-04-12 00:00:00\tNULL\t1\t2026-04-12 11:56:45\tgian\n60001\t1\t180001\t1\t25.00\t2026-04-14 00:00:00\tNULL\t1\t2026-04-14 22:58:53\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 274
+}

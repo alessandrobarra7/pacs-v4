@@ -1,0 +1,34 @@
+{
+  "query": "\nSELECT fru.id, fru.financial_responsible_id, fru.unit_id, fru.starts_at, fru.ends_at, fr.legal_name\nFROM financial_responsible_units fru\nJOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nWHERE fru.unit_id = 210001\nORDER BY fru.starts_at DESC;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT fru.id, fru.financial_responsible_id, fru.unit_id, fru.starts_at, fru.ends_at, fr.legal_name\nFROM financial_responsible_units fru\nJOIN financial_responsibles fr ON fr.id = fru.financial_responsible_id\nWHERE fru.unit_id = 210001\nORDER BY fru.starts_at DESC;\n",
+  "rows": [
+    {
+      "id": "120001",
+      "financial_responsible_id": "120001",
+      "unit_id": "210001",
+      "starts_at": "2026-05-18 10:46:46",
+      "ends_at": "NULL",
+      "legal_name": "erica"
+    },
+    {
+      "id": "90001",
+      "financial_responsible_id": "90001",
+      "unit_id": "210001",
+      "starts_at": "2026-05-14 10:52:25",
+      "ends_at": "2026-05-18 10:46:45",
+      "legal_name": "PACSML Ltda"
+    },
+    {
+      "id": "30001",
+      "financial_responsible_id": "30001",
+      "unit_id": "210001",
+      "starts_at": "2026-04-13 00:53:18",
+      "ends_at": "2026-05-14 10:52:25",
+      "legal_name": "Sem Responsável"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfinancial_responsible_id\tunit_id\tstarts_at\tends_at\tlegal_name\n120001\t120001\t210001\t2026-05-18 10:46:46\tNULL\terica\n90001\t90001\t210001\t2026-05-14 10:52:25\t2026-05-18 10:46:45\tPACSML Ltda\n30001\t30001\t210001\t2026-04-13 00:53:18\t2026-05-14 10:52:25\tSem Responsável\n",
+  "stderr": "",
+  "execution_time_ms": 294
+}
