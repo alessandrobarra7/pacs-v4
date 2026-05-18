@@ -95,7 +95,7 @@ export const studies_cache = mysqlTable("studies_cache", {
   id: int("id").autoincrement().primaryKey(),
   unit_id: int("unit_id").notNull(),
   orthanc_study_id: varchar("orthanc_study_id", { length: 64 }),
-  study_instance_uid: varchar("study_instance_uid", { length: 128 }),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).unique(),
   patient_name: varchar("patient_name", { length: 255 }),
   patient_id: varchar("patient_id", { length: 64 }),
   accession_number: varchar("accession_number", { length: 64 }),

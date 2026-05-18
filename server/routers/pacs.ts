@@ -1,7 +1,7 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getDb, getStudyMetadata, getStudyMetadataBatch, createAuditLog, assertUnitPermission, getUserUnitPermission } from "../db";
+import { getDb, getStudyMetadata, getStudyMetadataBatch, createAuditLog, assertUnitPermission, getUserUnitPermission, upsertStudyCache } from "../db";
 import { cFind } from "../dicom.service";
 import type { CFindResult } from "../dicom.service";
 import { MAX_UPLOAD_BYTES } from "../../shared/const";
@@ -182,6 +182,34 @@ export const pacsRouter = router({
             source: 'dicom_direct',
           }));
           
+          // Persiste estudos no cache local para que modality_snapshot fique disponível na assinatura
+          if (studies.length > 0) {
+            const upsertPromises = studies.map((s: any) => {
+              if (!s.studyInstanceUid) return Promise.resolve();
+              let studyDate: Date | null = null;
+              if (s.studyDate && /^\d{8}$/.test(s.studyDate)) {
+                const y = s.studyDate.slice(0, 4);
+                const m = s.studyDate.slice(4, 6);
+                const d = s.studyDate.slice(6, 8);
+                studyDate = new Date(`${y}-${m}-${d}T00:00:00.000Z`);
+              }
+              return upsertStudyCache({
+                unit_id: unit.id,
+                study_instance_uid: s.studyInstanceUid,
+                patient_name: s.patientName || null,
+                patient_id: s.patientID || null,
+                accession_number: s.accessionNumber || null,
+                study_date: studyDate,
+                modality: s.modality || null,
+                description: s.studyDescription || null,
+              });
+            });
+            // Fire-and-forget: não bloqueia resposta ao frontend
+            Promise.all(upsertPromises).catch(err =>
+              console.warn('[PACS Query] upsertStudyCache batch falhou:', err)
+            );
+          }
+
           // Log audit
           await createAuditLog({
             user_id: ctx.user.id,

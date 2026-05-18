@@ -288,6 +288,54 @@ export async function createStudyCache(study: InsertStudyCache) {
   return Number(result[0].insertId);
 }
 
+/**
+ * Insere ou atualiza estudos no cache local após C-FIND.
+ * Usa ON DUPLICATE KEY UPDATE para não falhar em re-consultas do mesmo estudo.
+ * A chave de upsert é study_instance_uid (UNIQUE INDEX uq_study_instance_uid).
+ * modality usa COALESCE: mantém valor anterior se novo C-FIND retornar vazio.
+ */
+export async function upsertStudyCache(study: {
+  unit_id: number;
+  study_instance_uid: string;
+  patient_name?: string | null;
+  patient_id?: string | null;
+  accession_number?: string | null;
+  study_date?: Date | null;
+  modality?: string | null;
+  description?: string | null;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.execute(drizzleSql2`
+      INSERT INTO studies_cache
+        (unit_id, study_instance_uid, patient_name, patient_id,
+         accession_number, study_date, modality, description,
+         createdAt, updatedAt)
+      VALUES
+        (${study.unit_id},
+         ${study.study_instance_uid},
+         ${study.patient_name ?? null},
+         ${study.patient_id ?? null},
+         ${study.accession_number ?? null},
+         ${study.study_date ?? null},
+         ${study.modality ?? null},
+         ${study.description ?? null},
+         NOW(), NOW())
+      ON DUPLICATE KEY UPDATE
+        patient_name     = VALUES(patient_name),
+        patient_id       = VALUES(patient_id),
+        accession_number = VALUES(accession_number),
+        study_date       = VALUES(study_date),
+        modality         = COALESCE(VALUES(modality), modality),
+        description      = VALUES(description),
+        updatedAt        = NOW()
+    `);
+  } catch (err) {
+    console.warn('[upsertStudyCache] Falha ao atualizar cache:', err);
+  }
+}
+
 // Busca estudo por study_instance_uid validando unit_id (previne IDOR)
 export async function getStudyByInstanceUid(studyInstanceUid: string, unitId?: number, unitIds?: number[]) {
   const db = await getDb();
