@@ -23,6 +23,7 @@ import {
   billing_doctor_unit_prices,
   billing_system_unit_prices,
   billing_cycle_configs,
+  billing_doctor_modality_prices,
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, ne, sql, sql as sqlFn, desc, inArray, gte, lte, or, SQL } from "drizzle-orm";
 import {
@@ -1267,6 +1268,7 @@ export const financeSimpleRouter = router({
           signedAt: reports.signedAt,
           patient_name: studies_cache.patient_name,
           study_date: studies_cache.study_date,
+          modality: studies_cache.modality,
         })
         .from(reports)
         .leftJoin(billing_visit_events, eq(billing_visit_events.report_id, reports.id))
@@ -1318,6 +1320,7 @@ export const financeSimpleRouter = router({
             patient_name: r.patient_name ?? undefined,
             study_date: r.study_date instanceof Date ? r.study_date.toISOString().slice(0, 10) : (r.study_date ?? undefined),
             signed_at: r.signedAt ? new Date(r.signedAt) : new Date(),
+            modality_snapshot: r.modality ?? null,
           });
           created++;
         } catch (err) {
@@ -1516,6 +1519,71 @@ export const financeSimpleRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         
         return await listDoctorPricesForUnit(input.financialResponsibleId, input.unitId);
+      }),
+
+    // ── Preços por Modalidade (M4A / M4B / M4C) ───────────────────────────────
+    /** M4A: Listar preços por modalidade de um médico em uma unidade */
+    listDoctorModalityPrices: protectedProcedure
+      .input(z.object({
+        financialResponsibleId: z.number(),
+        unitId: z.number(),
+        doctorUserId: z.number(),
+      }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        return db
+          .select()
+          .from(billing_doctor_modality_prices)
+          .where(and(
+            eq(billing_doctor_modality_prices.financial_responsible_id, input.financialResponsibleId),
+            eq(billing_doctor_modality_prices.unit_id, input.unitId),
+            eq(billing_doctor_modality_prices.doctor_user_id, input.doctorUserId),
+          ))
+          .orderBy(desc(billing_doctor_modality_prices.starts_at));
+      }),
+
+    /** M4B: Criar/atualizar preço por modalidade */
+    setDoctorModalityPrice: protectedProcedure
+      .input(z.object({
+        financialResponsibleId: z.number(),
+        unitId: z.number(),
+        doctorUserId: z.number(),
+        modality: z.string().min(1).max(10),
+        pricePerReport: z.string(),
+        startsAt: z.string(),
+        endsAt: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const result = await db.insert(billing_doctor_modality_prices).values({
+          financial_responsible_id: input.financialResponsibleId,
+          unit_id: input.unitId,
+          doctor_user_id: input.doctorUserId,
+          modality: input.modality.trim().toUpperCase(),
+          price_per_report: input.pricePerReport,
+          starts_at: new Date(input.startsAt),
+          ends_at: input.endsAt ? new Date(input.endsAt) : null,
+          created_by: ctx.user.id,
+        });
+        return { id: Number(result[0].insertId) };
+      }),
+
+    /** M4C: Encerrar vigência de um preço por modalidade (soft-delete via ends_at) */
+    endDoctorModalityPrice: protectedProcedure
+      .input(z.object({ id: z.number(), endsAt: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        await db
+          .update(billing_doctor_modality_prices)
+          .set({ ends_at: new Date(input.endsAt) })
+          .where(eq(billing_doctor_modality_prices.id, input.id));
+        return { success: true };
       }),
 
     // ── Apuração de Competência ────────────────────────────────────────────────

@@ -8,6 +8,10 @@
  *  1. Selecionar unidade
  *  2. Ver médicos vinculados à unidade
  *  3. Para cada médico: ver preço vigente + histórico + botão para definir novo preço
+ *  4. (M5A) Seção de preços por modalidade: tabela de preços específicos por modalidade
+ *
+ * Hierarquia de preços (M2B):
+ *   billing_doctor_modality_prices (modalidade) → billing_doctor_unit_prices (padrão) → null
  */
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -40,7 +44,24 @@ import {
   ChevronUp,
   Plus,
   History,
+  Layers,
+  X,
 } from "lucide-react";
+
+// ─── Constantes ───────────────────────────────────────────────────────────────
+const MODALITIES = [
+  { value: "CR", label: "CR — Radiografia Computadorizada" },
+  { value: "CT", label: "CT — Tomografia Computadorizada" },
+  { value: "MR", label: "MR — Ressonância Magnética" },
+  { value: "US", label: "US — Ultrassom" },
+  { value: "DX", label: "DX — Radiografia Digital" },
+  { value: "MG", label: "MG — Mamografia" },
+  { value: "NM", label: "NM — Medicina Nuclear" },
+  { value: "PT", label: "PT — PET" },
+  { value: "XA", label: "XA — Angiografia" },
+  { value: "RF", label: "RF — Fluoroscopia" },
+  { value: "OTHER", label: "OTHER — Outro / Geral" },
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtDate(d: Date | string | null | undefined): string {
@@ -72,6 +93,206 @@ interface PriceRecord {
   price_per_report: string;
   starts_at: Date | string;
   ends_at: Date | string | null;
+}
+
+interface ModalityPriceRecord {
+  id: number;
+  modality: string;
+  price_per_report: string;
+  starts_at: Date | string;
+  ends_at: Date | string | null;
+}
+
+// ─── Sub-componente: Seção de Preços por Modalidade ───────────────────────────
+function ModalityPricesSection({
+  doctor,
+  financialResponsibleId,
+  unitId,
+}: {
+  doctor: Doctor;
+  financialResponsibleId: number;
+  unitId: number;
+}) {
+  const [showSection, setShowSection] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [modalityForm, setModalityForm] = useState({
+    modality: "",
+    pricePerReport: "",
+    startsAt: new Date().toISOString().slice(0, 10),
+  });
+
+  const { data: modalityPrices, refetch: refetchModalityPrices } =
+    trpc.financeSimple.listDoctorModalityPrices.useQuery(
+      { financialResponsibleId, unitId, doctorUserId: doctor.id },
+      { enabled: showSection }
+    );
+
+  const setModalityPrice = trpc.financeSimple.setDoctorModalityPrice.useMutation({
+    onSuccess: () => {
+      toast.success("Preço por modalidade salvo!");
+      setShowAddModal(false);
+      setModalityForm({ modality: "", pricePerReport: "", startsAt: new Date().toISOString().slice(0, 10) });
+      refetchModalityPrices();
+    },
+    onError: (err) => toast.error(`Erro: ${err.message}`),
+  });
+
+  const endModalityPrice = trpc.financeSimple.endDoctorModalityPrice.useMutation({
+    onSuccess: () => {
+      toast.success("Vigência encerrada.");
+      refetchModalityPrices();
+    },
+    onError: (err) => toast.error(`Erro: ${err.message}`),
+  });
+
+  const now = new Date();
+  const active = (modalityPrices ?? []).filter((p) => {
+    const starts = new Date(p.starts_at);
+    const ends = p.ends_at ? new Date(p.ends_at) : null;
+    return starts <= now && (!ends || ends >= now);
+  });
+
+  return (
+    <div className="mt-2 border-t pt-2">
+      <button
+        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        onClick={() => setShowSection(!showSection)}
+      >
+        <Layers className="h-3 w-3" />
+        Preços por Modalidade {active.length > 0 && <Badge variant="outline" className="text-xs h-4 px-1">{active.length} ativa{active.length !== 1 ? "s" : ""}</Badge>}
+        {showSection ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+      </button>
+
+      {showSection && (
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Preços específicos por modalidade sobrepõem o preço padrão do médico.
+          </p>
+
+          {/* Tabela de preços por modalidade */}
+          {(modalityPrices ?? []).length === 0 ? (
+            <p className="text-xs text-muted-foreground italic">Nenhum preço por modalidade cadastrado.</p>
+          ) : (
+            <div className="space-y-1">
+              {(modalityPrices as ModalityPriceRecord[] ?? [])
+                .slice()
+                .sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime())
+                .map((p) => {
+                  const isActive = new Date(p.starts_at) <= now && (!p.ends_at || new Date(p.ends_at) >= now);
+                  return (
+                    <div
+                      key={p.id}
+                      className={`flex items-center justify-between text-xs rounded px-3 py-1.5 ${isActive ? "bg-emerald-50 border border-emerald-200" : "bg-muted/30"}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs h-4 px-1 font-mono">{p.modality}</Badge>
+                        <span className="font-medium">{fmtCurrency(p.price_per_report)}</span>
+                        {isActive && <Badge className="text-xs h-4 px-1 bg-emerald-600 hover:bg-emerald-700">ativa</Badge>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">
+                          {fmtDate(p.starts_at)} → {p.ends_at ? fmtDate(p.ends_at) : "atual"}
+                        </span>
+                        {isActive && (
+                          <button
+                            title="Encerrar vigência hoje"
+                            className="text-destructive hover:text-destructive/80 transition-colors"
+                            onClick={() =>
+                              endModalityPrice.mutate({
+                                id: p.id,
+                                endsAt: new Date().toISOString(),
+                              })
+                            }
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => setShowAddModal(true)}
+          >
+            <Plus className="h-3 w-3 mr-1" />
+            Adicionar Preço por Modalidade
+          </Button>
+        </div>
+      )}
+
+      {/* Modal: Adicionar Preço por Modalidade */}
+      <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Preço por Modalidade — {doctor.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
+              Este preço será aplicado apenas para laudos desta modalidade específica, sobrepondo o preço padrão do médico.
+            </div>
+            <div>
+              <Label className="text-xs">Modalidade</Label>
+              <Select value={modalityForm.modality} onValueChange={(v) => setModalityForm({ ...modalityForm, modality: v })}>
+                <SelectTrigger className="h-9 mt-1">
+                  <SelectValue placeholder="Selecione a modalidade..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {MODALITIES.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Preço por laudo (R$)</Label>
+              <Input
+                className="h-9 mt-1"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Ex: 80.00"
+                value={modalityForm.pricePerReport}
+                onChange={(e) => setModalityForm({ ...modalityForm, pricePerReport: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Vigência a partir de</Label>
+              <Input
+                className="h-9 mt-1"
+                type="date"
+                value={modalityForm.startsAt}
+                onChange={(e) => setModalityForm({ ...modalityForm, startsAt: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddModal(false)}>Cancelar</Button>
+            <Button
+              disabled={!modalityForm.modality || !modalityForm.pricePerReport || !modalityForm.startsAt || setModalityPrice.isPending}
+              onClick={() =>
+                setModalityPrice.mutate({
+                  financialResponsibleId,
+                  unitId,
+                  doctorUserId: doctor.id,
+                  modality: modalityForm.modality,
+                  pricePerReport: modalityForm.pricePerReport,
+                  startsAt: modalityForm.startsAt,
+                })
+              }
+            >
+              {setModalityPrice.isPending ? "Salvando..." : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }
 
 // ─── Sub-componente: Card de médico com preço ─────────────────────────────────
@@ -191,6 +412,13 @@ function DoctorPriceCard({
             )}
           </div>
         )}
+
+        {/* M5A: Seção de preços por modalidade */}
+        <ModalityPricesSection
+          doctor={doctor}
+          financialResponsibleId={financialResponsibleId}
+          unitId={unitId}
+        />
       </div>
 
       {/* Modal: Definir/Alterar Preço */}
@@ -300,7 +528,7 @@ export function DoctorPriceManager({
           Preços por Médico
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Configure o valor pago por laudo para cada médico em cada unidade.
+          Configure o valor pago por laudo para cada médico em cada unidade. Preços por modalidade sobrepõem o preço padrão.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -327,14 +555,12 @@ export function DoctorPriceManager({
             Selecione uma unidade para ver e configurar os preços dos médicos.
           </div>
         )}
-
         {unitId && isLoading && (
           <div className="space-y-3">
             <Skeleton className="h-20 w-full" />
             <Skeleton className="h-20 w-full" />
           </div>
         )}
-
         {unitId && !isLoading && doctors && prices && (
           <>
             {doctors.length === 0 ? (

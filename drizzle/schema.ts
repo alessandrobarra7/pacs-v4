@@ -440,6 +440,29 @@ export type BillingDoctorUnitPrice = typeof billing_doctor_unit_prices.$inferSel
 export type InsertBillingDoctorUnitPrice = typeof billing_doctor_unit_prices.$inferInsert;
 
 /**
+ * billing_doctor_modality_prices — Preço por modalidade por médico por unidade com vigência
+ * Nível mais específico da hierarquia de preços:
+ *   billing_doctor_modality_prices (modality) → billing_doctor_unit_prices (padrão) → null
+ */
+export const billing_doctor_modality_prices = mysqlTable(
+  "billing_doctor_modality_prices",
+  {
+    id:                       int("id").autoincrement().primaryKey(),
+    financial_responsible_id: int("financial_responsible_id").notNull(),
+    unit_id:                  int("unit_id").notNull(),
+    doctor_user_id:           int("doctor_user_id").notNull(),
+    modality:                 varchar("modality", { length: 10 }).notNull(),
+    price_per_report:         decimal("price_per_report", { precision: 10, scale: 2 }).notNull(),
+    starts_at:                timestamp("starts_at").notNull(),
+    ends_at:                  timestamp("ends_at"),
+    created_by:               int("created_by").notNull(),
+    createdAt:                timestamp("createdAt").defaultNow().notNull(),
+  }
+);
+export type BillingDoctorModalityPrice = typeof billing_doctor_modality_prices.$inferSelect;
+export type InsertBillingDoctorModalityPrice = typeof billing_doctor_modality_prices.$inferInsert;
+
+/**
  * billing_report_items — Itemização auditável: um registro por laudo faturável
  * Fato gerador: reports com status signed ou revised.
  * Médico financeiro: signedBy ?? author_user_id.

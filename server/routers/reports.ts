@@ -231,10 +231,29 @@ export const reportsRouter = router({
         let doctor_amount_due: string | null = null;
         if (effectiveUnitId && (ctx.user.role === 'medico' || ctx.user.role === 'admin_master')) {
           try {
+            // M3A: Buscar modalidade do estudo para precificação por modalidade
+            let studyModality: string | null = null;
+            const studyUid = input.study_instance_uid ?? report.study_instance_uid;
+            if (studyUid) {
+              try {
+                const db = await getDb();
+                if (db) {
+                  const { studies_cache: sc } = await import('../../drizzle/schema');
+                  const studyRow = await db
+                    .select({ modality: sc.modality })
+                    .from(sc)
+                    .where(eq(sc.study_instance_uid, studyUid))
+                    .limit(1);
+                  studyModality = studyRow[0]?.modality ?? null;
+                }
+              } catch (_modErr) {
+                // Não bloqueia — fallback para preço padrão do médico
+              }
+            }
             // PRG-05: createBillingVisitEvent importado estaticamente no topo
             const billingResult = await createBillingVisitEvent({
               report_id: input.id,
-              study_instance_uid: input.study_instance_uid ?? report.study_instance_uid ?? undefined,
+              study_instance_uid: studyUid ?? undefined,
               unit_id: effectiveUnitId,
               // FIX-C2: usar o médico AUTOR do laudo, não quem está assinando
               // admin_master pode assinar laudos de médicos — o crédito é do médico
@@ -242,6 +261,7 @@ export const reportsRouter = router({
               patient_name: input.patient_name ?? undefined,
               study_date: input.study_date ?? undefined,
               signed_at: signedAt,
+              modality_snapshot: studyModality,
             });
             doctor_amount_due = billingResult.doctor_amount_due;
           } catch (billingErr) {

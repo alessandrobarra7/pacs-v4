@@ -26,6 +26,10 @@ describe("financeSimple router", () => {
     expect(procs).toContain("markSystemPaid");
     expect(procs).toContain("myFinanceiro");
     expect(procs).toContain("getPriceConfig");
+    // M4A / M4B / M4C — Preços por Modalidade
+    expect(procs).toContain("listDoctorModalityPrices");
+    expect(procs).toContain("setDoctorModalityPrice");
+    expect(procs).toContain("endDoctorModalityPrice");
   });
 
   it("deve calcular pending corretamente", () => {

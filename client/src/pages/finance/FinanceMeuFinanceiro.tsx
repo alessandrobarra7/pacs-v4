@@ -66,6 +66,7 @@ function ExtractModal({ unit, referenceDate, events, onClose }: ExtractModalProp
               <thead className="sticky top-0 bg-slate-900">
                 <tr className="text-slate-400 text-xs uppercase tracking-wide border-b border-slate-700">
                   <th className="px-4 py-2 text-left">Paciente</th>
+                  <th className="px-4 py-2 text-left hidden lg:table-cell">Modalidade</th>
                   <th className="px-4 py-2 text-left hidden md:table-cell">Data</th>
                   <th className="px-4 py-2 text-right">Valor</th>
                   <th className="px-4 py-2 text-center">Status</th>
@@ -78,6 +79,13 @@ function ExtractModal({ unit, referenceDate, events, onClose }: ExtractModalProp
                       <span className="truncate block max-w-[180px]">{ev.patient_name ?? "—"}</span>
                       {ev.exam_name_snapshot && (
                         <span className="text-xs text-slate-500">{ev.exam_name_snapshot}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 hidden lg:table-cell">
+                      {ev.modality_snapshot ? (
+                        <span className="inline-block font-mono text-xs bg-slate-700 text-slate-200 rounded px-1.5 py-0.5">{ev.modality_snapshot}</span>
+                      ) : (
+                        <span className="text-slate-600 text-xs">—</span>
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-slate-400 hidden md:table-cell text-xs">

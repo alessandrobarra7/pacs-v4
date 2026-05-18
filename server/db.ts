@@ -34,6 +34,8 @@ import {
   financial_responsible_users,
   billing_system_unit_prices,
   billing_doctor_unit_prices,
+  billing_doctor_modality_prices,
+  BillingDoctorModalityPrice,
   billing_report_items,
   billing_monthly_doctor_by_unit,
   billing_monthly_system_by_unit,
@@ -1057,10 +1059,61 @@ export async function upsertSystemUnitPrice(data: {
 
 // ─── Preços do Médico por Unidade ─────────────────────────────────────────────
 
-export async function getActiveDoctorPrice(financialResponsibleId: number, unitId: number, doctorUserId: number, atDate?: Date): Promise<BillingDoctorUnitPrice | undefined> {
+/**
+ * Busca o preço ativo de um médico em uma unidade com hierarquia de fallback:
+ *   1. billing_doctor_modality_prices (modality específica) — se modality fornecida
+ *   2. billing_doctor_unit_prices (preço padrão do médico na unidade)
+ *   3. undefined → pricing_status será pending_doctor_price ou pending_both
+ *
+ * Retorna { price_per_report, source } onde source indica de onde veio o preço.
+ */
+export async function getActiveDoctorPrice(
+  financialResponsibleId: number,
+  unitId: number,
+  doctorUserId: number,
+  atDate?: Date,
+  modality?: string | null
+): Promise<(BillingDoctorUnitPrice & { _source?: 'modality' | 'unit_default' }) | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const at = atDate ?? new Date();
+
+  // 1. Buscar preço específico por modalidade (se modality fornecida e não vazia)
+  if (modality && modality.trim() !== '') {
+    const modalityRows = await db
+      .select()
+      .from(billing_doctor_modality_prices)
+      .where(and(
+        eq(billing_doctor_modality_prices.unit_id, unitId),
+        eq(billing_doctor_modality_prices.doctor_user_id, doctorUserId),
+        eq(billing_doctor_modality_prices.modality, modality.trim().toUpperCase()),
+        lte(billing_doctor_modality_prices.starts_at, at),
+        or(
+          isNull(billing_doctor_modality_prices.ends_at),
+          gte(billing_doctor_modality_prices.ends_at, at)
+        )
+      ))
+      .orderBy(desc(billing_doctor_modality_prices.starts_at))
+      .limit(1);
+    if (modalityRows.length > 0) {
+      // Retorna compatível com BillingDoctorUnitPrice (mesmo campo price_per_report)
+      const row = modalityRows[0];
+      return {
+        id: row.id,
+        financial_responsible_id: row.financial_responsible_id,
+        unit_id: row.unit_id,
+        doctor_user_id: row.doctor_user_id,
+        price_per_report: row.price_per_report,
+        starts_at: row.starts_at,
+        ends_at: row.ends_at ?? null,
+        created_by: row.created_by,
+        createdAt: row.createdAt,
+        _source: 'modality',
+      } as BillingDoctorUnitPrice & { _source: 'modality' };
+    }
+  }
+
+  // 2. Fallback: preço padrão do médico na unidade
   // Regra correta: starts_at <= data E (ends_at IS NULL OU ends_at >= data)
   // Ordenar starts_at DESC para pegar a vigência mais recente
   const rows = await db.select().from(billing_doctor_unit_prices)
@@ -1073,7 +1126,10 @@ export async function getActiveDoctorPrice(financialResponsibleId: number, unitI
     ))
     .orderBy(desc(billing_doctor_unit_prices.starts_at))
     .limit(1);
-  return rows[0];
+  if (rows.length > 0) {
+    return { ...rows[0], _source: 'unit_default' } as BillingDoctorUnitPrice & { _source: 'unit_default' };
+  }
+  return undefined;
 }
 
 export async function listDoctorPricesForUnit(financialResponsibleId: number, unitId: number): Promise<BillingDoctorUnitPrice[]> {
@@ -1747,6 +1803,8 @@ export async function createBillingVisitEvent(data: {
   patient_name?: string | null;
   study_date?: string | null;
   signed_at: Date;
+  /** M2B: modalidade do exame para precificação por modalidade */
+  modality_snapshot?: string | null;
 }): Promise<{ event: typeof billing_visit_events.$inferSelect; created: boolean; doctor_amount_due: string | null }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1789,7 +1847,7 @@ export async function createBillingVisitEvent(data: {
     ? await getActiveSystemPrice(responsibleId, data.unit_id, data.signed_at)
     : null;
   const doctorPrice = responsibleId
-    ? await getActiveDoctorPrice(responsibleId, data.unit_id, data.doctor_user_id, data.signed_at)
+    ? await getActiveDoctorPrice(responsibleId, data.unit_id, data.doctor_user_id, data.signed_at, data.modality_snapshot)
     : null;
 
   let systemAmt = systemPrice ? Math.round(Number(systemPrice.price_per_report ?? 0) * 100) / 100 : null;
@@ -1854,6 +1912,7 @@ export async function createBillingVisitEvent(data: {
     doctor_amount_due: doctorAmt !== null ? String(doctorAmt) : null,
     pricing_status: pricingStatus,
     signed_at: data.signed_at,
+    modality_snapshot: data.modality_snapshot ?? null,
   }).onDuplicateKeyUpdate({ set: { report_key: reportKey } });
 
   const insertId = Number(insertResult[0].insertId);
