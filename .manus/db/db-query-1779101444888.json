@@ -1,0 +1,16 @@
+{
+  "query": "\n-- 1. Criar usuário teste5 com role responsavel_financeiro\nINSERT INTO users (openId, name, email, role, username, password_hash, isActive, unit_id, loginMethod)\nVALUES (\n  'teste5-local-openid',\n  'teste5',\n  'teste5@pacsml.com.br',\n  'responsavel_financeiro',\n  'teste5',\n  '$2b$12$dFvYWbHXOSAzoTu.L1qccuR.7.Lv6pqb2yK0kqx/d3v9yhpQNsqZq',\n  1,\n  210001,\n  'local'\n);\n\n-- 2. Verificar o ID gerado\nSELECT id, name, role, username FROM users WHERE username = 'teste5';\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- 1. Criar usuário teste5 com role responsavel_financeiro\nINSERT INTO users (openId, name, email, role, username, password_hash, isActive, unit_id, loginMethod)\nVALUES (\n  'teste5-local-openid',\n  'teste5',\n  'teste5@pacsml.com.br',\n  'responsavel_financeiro',\n  'teste5',\n  '$2b$12$dFvYWbHXOSAzoTu.L1qccuR.7.Lv6pqb2yK0kqx/d3v9yhpQNsqZq',\n  1,\n  210001,\n  'local'\n);\n\n-- 2. Verificar o ID gerado\nSELECT id, name, role, username FROM users WHERE username = 'teste5';\n",
+  "rows": [
+    {
+      "id": "16440031",
+      "name": "teste5",
+      "role": "responsavel_financeiro",
+      "username": "teste5"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\trole\tusername\n16440031\tteste5\tresponsavel_financeiro\tteste5\n",
+  "stderr": "",
+  "execution_time_ms": 272
+}

@@ -1,0 +1,64 @@
+{
+  "query": "SHOW TABLES LIKE '%financial%';\nSHOW TABLES LIKE '%responsible%';\nSHOW TABLES LIKE '%billing%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SHOW TABLES LIKE '%financial%';\nSHOW TABLES LIKE '%responsible%';\nSHOW TABLES LIKE '%billing%';",
+  "rows": [
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "financial_responsible_units"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "financial_responsible_users"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "financial_responsibles"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "Tables_in_cTdrattvNQ95XCgX9zeyNM (%responsible%)"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "financial_responsible_units"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "financial_responsible_users"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "financial_responsibles"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "Tables_in_cTdrattvNQ95XCgX9zeyNM (%billing%)"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "billing_cycle_configs"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "billing_cycle_doctor_summary"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "billing_cycle_system_summary"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "billing_cycles"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "billing_doctor_unit_prices"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "billing_monthly_doctor_by_unit"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "billing_monthly_system_by_unit"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "billing_report_items"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "billing_system_unit_prices"
+    },
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)": "billing_visit_events"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_cTdrattvNQ95XCgX9zeyNM (%financial%)\nfinancial_responsible_units\nfinancial_responsible_users\nfinancial_responsibles\nTables_in_cTdrattvNQ95XCgX9zeyNM (%responsible%)\nfinancial_responsible_units\nfinancial_responsible_users\nfinancial_responsibles\nTables_in_cTdrattvNQ95XCgX9zeyNM (%billing%)\nbilling_cycle_configs\nbilling_cycle_doctor_summary\nbilling_cycle_system_summary\nbilling_cycles\nbilling_doctor_unit_prices\nbilling_monthly_doctor_by_unit\nbilling_monthly_system_by_unit\nbilling_report_items\nbilling_system_unit_prices\nbilling_visit_events\n",
+  "stderr": "",
+  "execution_time_ms": 276
+}

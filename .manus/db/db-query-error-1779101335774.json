@@ -1,0 +1,8 @@
+{
+  "query": "\n-- Verificar unidade PACSML\nSELECT id, name, is_active, financial_enabled FROM units WHERE name LIKE '%PACS%' OR name LIKE '%pacsml%' OR name LIKE '%PACSML%';\n\n-- Verificar estrutura da tabela billing_financial_responsible\nDESCRIBE billing_financial_responsible;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- Verificar unidade PACSML\nSELECT id, name, is_active, financial_enabled FROM units WHERE name LIKE '%PACS%' OR name LIKE '%pacsml%' OR name LIKE '%PACSML%';\n\n-- Verificar estrutura da tabela billing_financial_responsible\nDESCRIBE billing_financial_responsible;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 3: Unknown column 'is_active' in 'field list'"
+  ]
+}

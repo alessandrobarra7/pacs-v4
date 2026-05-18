@@ -1,0 +1,11 @@
+{
+  "query": "\nSELECT id, name, slug, isActive, financial_enabled FROM units WHERE name LIKE '%PACS%' OR slug LIKE '%pacs%';\n\nSELECT * FROM billing_financial_responsible LIMIT 5;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT id, name, slug, isActive, financial_enabled FROM units WHERE name LIKE '%PACS%' OR slug LIKE '%pacs%';\n\nSELECT * FROM billing_financial_responsible LIMIT 5;\n",
+  "returncode": 1,
+  "logs": [
+    "id\tname\tslug\tisActive\tfinancial_enabled",
+    "180001\tPACS Principal\trxhtl\t1\t0",
+    "210001\tPACSML\tpacsml\t1\t0",
+    "ERROR 1146 (42S02) at line 4: Table 'ctdrattvnq95xcgx9zeynm.billing_financial_responsible' doesn't exist"
+  ]
+}

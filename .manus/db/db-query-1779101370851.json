@@ -1,0 +1,47 @@
+{
+  "query": "DESCRIBE financial_responsible_users;\nSELECT * FROM financial_responsible_users LIMIT 10;\nSELECT u.id, u.name, u.role, u.email FROM users u\nJOIN user_unit_permissions uup ON uup.user_id = u.id\nWHERE uup.unit_id = 210001 AND u.role = 'responsavel_financeiro'\nLIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute DESCRIBE financial_responsible_users;\nSELECT * FROM financial_responsible_users LIMIT 10;\nSELECT u.id, u.name, u.role, u.email FROM users u\nJOIN user_unit_permissions uup ON uup.user_id = u.id\nWHERE uup.unit_id = 210001 AND u.role = 'responsavel_financeiro'\nLIMIT 10;",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "financial_responsible_id",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "MUL",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "user_id",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "createdAt",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    }
+  ],
+  "messages": [
+    "id\tfinancial_responsible_id\tuser_id\tcreatedAt",
+    "2\t1\t5340188\t2026-04-15 10:50:26",
+    "id\tname\trole\temail",
+    "5340188\teu\tresponsavel_financeiro\tNULL"
+  ],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tint\tNO\tPRI\tNULL\tauto_increment\nfinancial_responsible_id\tint\tNO\tMUL\tNULL\t\nuser_id\tint\tNO\t\tNULL\t\ncreatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nid\tfinancial_responsible_id\tuser_id\tcreatedAt\n2\t1\t5340188\t2026-04-15 10:50:26\nid\tname\trole\temail\n5340188\teu\tresponsavel_financeiro\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 283
+}

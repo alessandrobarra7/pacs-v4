@@ -1,0 +1,24 @@
+{
+  "query": "SELECT id, name, slug, isActive, financial_enabled FROM units WHERE name LIKE '%PACS%' OR slug LIKE '%pacs%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, name, slug, isActive, financial_enabled FROM units WHERE name LIKE '%PACS%' OR slug LIKE '%pacs%';",
+  "rows": [
+    {
+      "id": "180001",
+      "name": "PACS Principal",
+      "slug": "rxhtl",
+      "isActive": "1",
+      "financial_enabled": "0"
+    },
+    {
+      "id": "210001",
+      "name": "PACSML",
+      "slug": "pacsml",
+      "isActive": "1",
+      "financial_enabled": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tslug\tisActive\tfinancial_enabled\n180001\tPACS Principal\trxhtl\t1\t0\n210001\tPACSML\tpacsml\t1\t0\n",
+  "stderr": "",
+  "execution_time_ms": 269
+}

@@ -1,0 +1,19 @@
+{
+  "query": "\n-- 3. Vincular usuário teste5 (id=16440031) ao financial_responsible erica (id=120001)\nINSERT INTO financial_responsible_users (financial_responsible_id, user_id)\nVALUES (120001, 16440031);\n\n-- 4. Criar permissão de unidade para teste5 na PACSML (unit_id=210001)\nINSERT INTO user_unit_permissions (user_id, unit_id)\nVALUES (16440031, 210001);\n\n-- 5. Verificar o resultado completo\nSELECT \n  u.id as user_id,\n  u.name as user_name,\n  u.role,\n  fr.id as responsible_id,\n  fr.legal_name as responsible_name,\n  fru.unit_id,\n  un.name as unit_name\nFROM users u\nJOIN financial_responsible_users fru_link ON fru_link.user_id = u.id\nJOIN financial_responsibles fr ON fr.id = fru_link.financial_responsible_id\nJOIN financial_responsible_units fru ON fru.financial_responsible_id = fr.id AND fru.ends_at IS NULL\nJOIN units un ON un.id = fru.unit_id\nWHERE u.username = 'teste5';\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \n-- 3. Vincular usuário teste5 (id=16440031) ao financial_responsible erica (id=120001)\nINSERT INTO financial_responsible_users (financial_responsible_id, user_id)\nVALUES (120001, 16440031);\n\n-- 4. Criar permissão de unidade para teste5 na PACSML (unit_id=210001)\nINSERT INTO user_unit_permissions (user_id, unit_id)\nVALUES (16440031, 210001);\n\n-- 5. Verificar o resultado completo\nSELECT \n  u.id as user_id,\n  u.name as user_name,\n  u.role,\n  fr.id as responsible_id,\n  fr.legal_name as responsible_name,\n  fru.unit_id,\n  un.name as unit_name\nFROM users u\nJOIN financial_responsible_users fru_link ON fru_link.user_id = u.id\nJOIN financial_responsibles fr ON fr.id = fru_link.financial_responsible_id\nJOIN financial_responsible_units fru ON fru.financial_responsible_id = fr.id AND fru.ends_at IS NULL\nJOIN units un ON un.id = fru.unit_id\nWHERE u.username = 'teste5';\n",
+  "rows": [
+    {
+      "user_id": "16440031",
+      "user_name": "teste5",
+      "role": "responsavel_financeiro",
+      "responsible_id": "120001",
+      "responsible_name": "erica",
+      "unit_id": "210001",
+      "unit_name": "PACSML"
+    }
+  ],
+  "messages": [],
+  "stdout": "user_id\tuser_name\trole\tresponsible_id\tresponsible_name\tunit_id\tunit_name\n16440031\tteste5\tresponsavel_financeiro\t120001\terica\t210001\tPACSML\n",
+  "stderr": "",
+  "execution_time_ms": 300
+}
