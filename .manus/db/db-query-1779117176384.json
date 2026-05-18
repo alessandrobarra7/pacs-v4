@@ -1,0 +1,80 @@
+{
+  "query": "\nSELECT \n  r.id AS report_id,\n  sc.modality,\n  r.status,\n  r.unit_id,\n  r.author_user_id,\n  u.name AS doctor_name,\n  un.name AS unit_name,\n  bve.id AS billing_event_id,\n  bve.doctor_price_applied,\n  bve.doctor_amount_due,\n  bve.modality_snapshot,\n  bve.pricing_status\nFROM reports r\nLEFT JOIN users u ON u.id = r.author_user_id\nLEFT JOIN units un ON un.id = r.unit_id\nLEFT JOIN studies_cache sc ON sc.id = r.study_id\nLEFT JOIN billing_visit_events bve ON bve.report_id = r.id\nWHERE r.unit_id = 210001\n  AND r.author_user_id = 1\n  AND r.status IN ('signed', 'revised')\nORDER BY r.id DESC\nLIMIT 5;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT \n  r.id AS report_id,\n  sc.modality,\n  r.status,\n  r.unit_id,\n  r.author_user_id,\n  u.name AS doctor_name,\n  un.name AS unit_name,\n  bve.id AS billing_event_id,\n  bve.doctor_price_applied,\n  bve.doctor_amount_due,\n  bve.modality_snapshot,\n  bve.pricing_status\nFROM reports r\nLEFT JOIN users u ON u.id = r.author_user_id\nLEFT JOIN units un ON un.id = r.unit_id\nLEFT JOIN studies_cache sc ON sc.id = r.study_id\nLEFT JOIN billing_visit_events bve ON bve.report_id = r.id\nWHERE r.unit_id = 210001\n  AND r.author_user_id = 1\n  AND r.status IN ('signed', 'revised')\nORDER BY r.id DESC\nLIMIT 5;\n",
+  "rows": [
+    {
+      "report_id": "1110002",
+      "modality": "NULL",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "doctor_name": "Studio Barra7",
+      "unit_name": "PACSML",
+      "billing_event_id": "300002",
+      "doctor_price_applied": "25.00",
+      "doctor_amount_due": "25.00",
+      "modality_snapshot": "NULL",
+      "pricing_status": "ok"
+    },
+    {
+      "report_id": "1110001",
+      "modality": "NULL",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "doctor_name": "Studio Barra7",
+      "unit_name": "PACSML",
+      "billing_event_id": "300001",
+      "doctor_price_applied": "25.00",
+      "doctor_amount_due": "25.00",
+      "modality_snapshot": "NULL",
+      "pricing_status": "ok"
+    },
+    {
+      "report_id": "1080001",
+      "modality": "NULL",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "doctor_name": "Studio Barra7",
+      "unit_name": "PACSML",
+      "billing_event_id": "270001",
+      "doctor_price_applied": "25.00",
+      "doctor_amount_due": "25.00",
+      "modality_snapshot": "NULL",
+      "pricing_status": "ok"
+    },
+    {
+      "report_id": "1050001",
+      "modality": "NULL",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "doctor_name": "Studio Barra7",
+      "unit_name": "PACSML",
+      "billing_event_id": "240001",
+      "doctor_price_applied": "25.00",
+      "doctor_amount_due": "25.00",
+      "modality_snapshot": "NULL",
+      "pricing_status": "ok"
+    },
+    {
+      "report_id": "1020002",
+      "modality": "NULL",
+      "status": "signed",
+      "unit_id": "210001",
+      "author_user_id": "1",
+      "doctor_name": "Studio Barra7",
+      "unit_name": "PACSML",
+      "billing_event_id": "210002",
+      "doctor_price_applied": "25.00",
+      "doctor_amount_due": "25.00",
+      "modality_snapshot": "NULL",
+      "pricing_status": "ok"
+    }
+  ],
+  "messages": [],
+  "stdout": "report_id\tmodality\tstatus\tunit_id\tauthor_user_id\tdoctor_name\tunit_name\tbilling_event_id\tdoctor_price_applied\tdoctor_amount_due\tmodality_snapshot\tpricing_status\n1110002\tNULL\tsigned\t210001\t1\tStudio Barra7\tPACSML\t300002\t25.00\t25.00\tNULL\tok\n1110001\tNULL\tsigned\t210001\t1\tStudio Barra7\tPACSML\t300001\t25.00\t25.00\tNULL\tok\n1080001\tNULL\tsigned\t210001\t1\tStudio Barra7\tPACSML\t270001\t25.00\t25.00\tNULL\tok\n1050001\tNULL\tsigned\t210001\t1\tStudio Barra7\tPACSML\t240001\t25.00\t25.00\tNULL\tok\n1020002\tNULL\tsigned\t210001\t1\tStudio Barra7\tPACSML\t210002\t25.00\t25.00\tNULL\tok\n",
+  "stderr": "",
+  "execution_time_ms": 266
+}

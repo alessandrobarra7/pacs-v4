@@ -1,0 +1,9 @@
+{
+  "query": "\nSELECT sc.id, sc.modality, sc.patient_name, sc.study_date\nFROM studies_cache sc\nWHERE sc.unit_id = 210001 AND sc.modality IS NOT NULL AND sc.modality != ''\nLIMIT 10;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT sc.id, sc.modality, sc.patient_name, sc.study_date\nFROM studies_cache sc\nWHERE sc.unit_id = 210001 AND sc.modality IS NOT NULL AND sc.modality != ''\nLIMIT 10;\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 270
+}

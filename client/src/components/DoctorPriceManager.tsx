@@ -104,7 +104,7 @@ interface ModalityPriceRecord {
 }
 
 // ─── Sub-componente: Seção de Preços por Modalidade ───────────────────────────
-function ModalityPricesSection({
+export function ModalityPricesSection({
   doctor,
   financialResponsibleId,
   unitId,

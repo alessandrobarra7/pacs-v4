@@ -1,0 +1,8 @@
+{
+  "query": "\nSELECT \n  p.id,\n  p.financial_responsible_id,\n  p.unit_id,\n  p.doctor_user_id,\n  p.modality,\n  p.price_per_report,\n  p.starts_at,\n  p.ends_at,\n  u.name AS doctor_name\nFROM billing_doctor_modality_prices p\nLEFT JOIN users u ON u.id = p.doctor_user_id\nORDER BY p.created_at DESC\nLIMIT 10;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT \n  p.id,\n  p.financial_responsible_id,\n  p.unit_id,\n  p.doctor_user_id,\n  p.modality,\n  p.price_per_report,\n  p.starts_at,\n  p.ends_at,\n  u.name AS doctor_name\nFROM billing_doctor_modality_prices p\nLEFT JOIN users u ON u.id = p.doctor_user_id\nORDER BY p.created_at DESC\nLIMIT 10;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 2: Unknown column 'p.created_at' in 'order clause'"
+  ]
+}

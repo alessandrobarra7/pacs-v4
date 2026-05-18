@@ -1,0 +1,8 @@
+{
+  "query": "\nSELECT \n  r.id AS report_id,\n  r.modality,\n  r.status,\n  r.unit_id,\n  r.author_user_id,\n  u.name AS doctor_name,\n  un.name AS unit_name,\n  bve.id AS billing_event_id,\n  bve.doctor_amount,\n  bve.modality_snapshot,\n  bve.pricing_status\nFROM reports r\nLEFT JOIN users u ON u.id = r.author_user_id\nLEFT JOIN units un ON un.id = r.unit_id\nLEFT JOIN billing_visit_events bve ON bve.report_id = r.id\nWHERE r.unit_id = 210001\n  AND r.author_user_id = 1\n  AND r.status IN ('signed', 'revised')\nORDER BY r.id DESC\nLIMIT 5;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT \n  r.id AS report_id,\n  r.modality,\n  r.status,\n  r.unit_id,\n  r.author_user_id,\n  u.name AS doctor_name,\n  un.name AS unit_name,\n  bve.id AS billing_event_id,\n  bve.doctor_amount,\n  bve.modality_snapshot,\n  bve.pricing_status\nFROM reports r\nLEFT JOIN users u ON u.id = r.author_user_id\nLEFT JOIN units un ON un.id = r.unit_id\nLEFT JOIN billing_visit_events bve ON bve.report_id = r.id\nWHERE r.unit_id = 210001\n  AND r.author_user_id = 1\n  AND r.status IN ('signed', 'revised')\nORDER BY r.id DESC\nLIMIT 5;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 2: Unknown column 'r.modality' in 'field list'"
+  ]
+}

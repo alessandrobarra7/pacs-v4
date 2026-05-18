@@ -17,11 +17,13 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { FinanceShell } from "./FinanceShell";
 import { fmtBRL, PriceConfigModal, CycleConfigModal } from "./FinanceModals";
+import { ModalityPricesSection } from "@/components/DoctorPriceManager";
 
-// ─── Bloco B: Linha de médico com preço configurável inline ──────────────────
-function DoctorPriceRow({ doctor, unitId, onSaved }: {
+/// ─── Bloco B: Linha de médico com preço configurável inline ──────────────
+function DoctorPriceRow({ doctor, unitId, financialResponsibleId, onSaved }: {
   doctor: { doctor_user_id: number; doctor_name: string; price_per_report: number | null };
   unitId: number;
+  financialResponsibleId: number | null;
   onSaved: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -101,6 +103,16 @@ function DoctorPriceRow({ doctor, unitId, onSaved }: {
           </Button>
         )}
       </div>
+      {/* M5A: Preços por Modalidade — integrado na linha do médico */}
+      {financialResponsibleId && (
+        <div className="px-4 pb-3">
+          <ModalityPricesSection
+            doctor={{ id: doctor.doctor_user_id, name: doctor.doctor_name, crm: null }}
+            financialResponsibleId={financialResponsibleId}
+            unitId={unitId}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -586,6 +598,7 @@ export function FinanceConfiguracao() {
                       key={d.doctor_user_id}
                       doctor={d}
                       unitId={selectedUnitId}
+                      financialResponsibleId={readiness?.responsible_id ?? null}
                       onSaved={() => utils.financeSimple.listDoctorsForUnit.invalidate({ unit_id: selectedUnitId! })}
                     />
                   ))}

@@ -1,0 +1,21 @@
+{
+  "query": "\nSELECT \n  p.id,\n  p.financial_responsible_id,\n  p.unit_id,\n  p.doctor_user_id,\n  p.modality,\n  p.price_per_report,\n  p.starts_at,\n  p.ends_at,\n  u.name AS doctor_name\nFROM billing_doctor_modality_prices p\nLEFT JOIN users u ON u.id = p.doctor_user_id\nORDER BY p.id DESC\nLIMIT 10;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT \n  p.id,\n  p.financial_responsible_id,\n  p.unit_id,\n  p.doctor_user_id,\n  p.modality,\n  p.price_per_report,\n  p.starts_at,\n  p.ends_at,\n  u.name AS doctor_name\nFROM billing_doctor_modality_prices p\nLEFT JOIN users u ON u.id = p.doctor_user_id\nORDER BY p.id DESC\nLIMIT 10;\n",
+  "rows": [
+    {
+      "id": "1",
+      "financial_responsible_id": "120001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "modality": "CT",
+      "price_per_report": "80.00",
+      "starts_at": "2026-05-18 00:00:00",
+      "ends_at": "NULL",
+      "doctor_name": "Studio Barra7"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfinancial_responsible_id\tunit_id\tdoctor_user_id\tmodality\tprice_per_report\tstarts_at\tends_at\tdoctor_name\n1\t120001\t210001\t1\tCT\t80.00\t2026-05-18 00:00:00\tNULL\tStudio Barra7\n",
+  "stderr": "",
+  "execution_time_ms": 275
+}
