@@ -1,0 +1,13 @@
+{
+  "query": "SHOW TABLES LIKE 'billing_doctor_modality_prices';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SHOW TABLES LIKE 'billing_doctor_modality_prices';",
+  "rows": [
+    {
+      "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_doctor_modality_prices)": "billing_doctor_modality_prices"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_cTdrattvNQ95XCgX9zeyNM (billing_doctor_modality_prices)\nbilling_doctor_modality_prices\n",
+  "stderr": "",
+  "execution_time_ms": 274
+}
