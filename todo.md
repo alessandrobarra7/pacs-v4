@@ -1708,27 +1708,27 @@
 
 ## v51 — Precificação por Modalidade (Opção B — nova tabela)
 ### M1 — Migration SQL + Schema Drizzle
-- [ ] M1A: Criar tabela billing_doctor_modality_prices via webdev_execute_sql
-- [ ] M1B: Adicionar billing_doctor_modality_prices ao drizzle/schema.ts
+- [x] M1A: Criar tabela billing_doctor_modality_prices via webdev_execute_sql
+- [x] M1B: Adicionar billing_doctor_modality_prices ao drizzle/schema.ts
 ### M2 — Backend db.ts
-- [ ] M2A: Estender getActiveDoctorPrice com parâmetro modality? (fallback: modality → unit_price → null)
-- [ ] M2B: Adicionar modality_snapshot? ao tipo de entrada de createBillingVisitEvent
-- [ ] M2C: Gravar modality_snapshot no INSERT de billing_visit_events
-- [ ] M2D: Passar modality_snapshot para getActiveDoctorPrice dentro de createBillingVisitEvent
+- [x] M2A: Estender getActiveDoctorPrice com parâmetro modality? (fallback: modality → unit_price → null)
+- [x] M2B: Adicionar modality_snapshot? ao tipo de entrada de createBillingVisitEvent
+- [x] M2C: Gravar modality_snapshot no INSERT de billing_visit_events
+- [x] M2D: Passar modality_snapshot para getActiveDoctorPrice dentro de createBillingVisitEvent
 ### M3 — Backend reports.ts
-- [ ] M3A: Buscar studies_cache.modality pelo study_instance_uid ao assinar laudo
-- [ ] M3B: Passar modality_snapshot para createBillingVisitEvent
+- [x] M3A: Buscar studies_cache.modality pelo study_instance_uid ao assinar laudo
+- [x] M3B: Passar modality_snapshot para createBillingVisitEvent
 ### M4 — Backend financeSimple.ts
-- [ ] M4A: Procedure getDoctorModalityPrices (lista preços por modalidade de um médico)
-- [ ] M4B: Procedure setDoctorModalityPrice (cria/atualiza preço por modalidade com vigência)
-- [ ] M4C: Procedure deleteDoctorModalityPrice (encerra vigência — soft delete)
-- [ ] M4D: Corrigir repriceMissingEvents para usar modality_snapshot ao represar
+- [x] M4A: Procedure getDoctorModalityPrices (lista preços por modalidade de um médico)
+- [x] M4B: Procedure setDoctorModalityPrice (cria/atualiza preço por modalidade com vigência)
+- [x] M4C: Procedure deleteDoctorModalityPrice (encerra vigência — soft delete)
+- [x] M4D: Corrigir repriceMissingEvents para usar modality_snapshot ao represar
 ### M5 — Frontend DoctorPriceManager.tsx
-- [ ] M5A: Adicionar seção "Preços por Modalidade" por médico (lista + formulário de adição)
-- [ ] M5B: Usar constante MODALITIES para dropdown de modalidade
+- [x] M5A: Adicionar seção "Preços por Modalidade" por médico (lista + formulário de adição)
+- [x] M5B: Usar constante MODALITIES para dropdown de modalidade
 ### M6 — Frontend FinanceMeuFinanceiro.tsx
-- [ ] M6A: Adicionar coluna "Modalidade" na tabela de eventos do extrato
+- [x] M6A: Adicionar coluna "Modalidade" na tabela de eventos do extrato
 ### M7 — Qualidade
-- [ ] M7A: TypeScript 0 erros
-- [ ] M7B: Todos os testes passando
-- [ ] M7C: Commit GitHub + checkpoint Manus
+- [x] M7A: TypeScript 0 erros
+- [x] M7B: Todos os testes passando
+- [x] M7C: Commit GitHub + checkpoint Manus
