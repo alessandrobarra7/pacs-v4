@@ -1,0 +1,18 @@
+{
+  "query": "\nSELECT \n  COUNT(*) as total_eventos,\n  SUM(CAST(doctor_amount_due AS DECIMAL(10,2))) as total_real,\n  SUM(CASE WHEN doctor_received_at IS NOT NULL THEN CAST(doctor_amount_due AS DECIMAL(10,2)) ELSE 0 END) as total_pago\nFROM billing_visit_events\nWHERE doctor_cycle_id = 150001 AND financial_status != 'cancelled';\n\nSELECT reports_count, amount_due FROM billing_cycle_doctor_summary WHERE doctor_cycle_id = 150001;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT \n  COUNT(*) as total_eventos,\n  SUM(CAST(doctor_amount_due AS DECIMAL(10,2))) as total_real,\n  SUM(CASE WHEN doctor_received_at IS NOT NULL THEN CAST(doctor_amount_due AS DECIMAL(10,2)) ELSE 0 END) as total_pago\nFROM billing_visit_events\nWHERE doctor_cycle_id = 150001 AND financial_status != 'cancelled';\n\nSELECT reports_count, amount_due FROM billing_cycle_doctor_summary WHERE doctor_cycle_id = 150001;\n",
+  "rows": [
+    {
+      "total_eventos": "14",
+      "total_real": "405.00",
+      "total_pago": "0.00"
+    }
+  ],
+  "messages": [
+    "reports_count\tamount_due",
+    "6\t25.00"
+  ],
+  "stdout": "total_eventos\ttotal_real\ttotal_pago\n14\t405.00\t0.00\nreports_count\tamount_due\n6\t25.00\n",
+  "stderr": "",
+  "execution_time_ms": 280
+}

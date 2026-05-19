@@ -1,0 +1,164 @@
+{
+  "query": "\nSELECT id, doctor_cycle_id, unit_id, doctor_user_id, patient_name, doctor_amount_due, doctor_received_at, signed_at, financial_status\nFROM billing_visit_events\nWHERE doctor_cycle_id = 150001\nORDER BY signed_at DESC;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT id, doctor_cycle_id, unit_id, doctor_user_id, patient_name, doctor_amount_due, doctor_received_at, signed_at, financial_status\nFROM billing_visit_events\nWHERE doctor_cycle_id = 150001\nORDER BY signed_at DESC;\n",
+  "rows": [
+    {
+      "id": "540002",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "ASSUNCAO MACEDO DA HORA 702804669876264",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-19 23:14:02",
+      "financial_status": "active"
+    },
+    {
+      "id": "540001",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "RAFAELA CRISTINA SILVA LEAL 702609703146045",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-19 23:02:15",
+      "financial_status": "active"
+    },
+    {
+      "id": "510001",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "MARIA FERNANDA SILVA DE SA 700001046950805",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-19 20:00:12",
+      "financial_status": "active"
+    },
+    {
+      "id": "480001",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "EDNA SANTOS 709604617238576",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-19 19:55:41",
+      "financial_status": "active"
+    },
+    {
+      "id": "450001",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "IRISNEIDE MORAIS DE MOURA 700602916046061",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-19 19:26:03",
+      "financial_status": "active"
+    },
+    {
+      "id": "420002",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "MARIA ANTONIA ALVES LINHARES 700508532287050",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-18 20:55:04",
+      "financial_status": "active"
+    },
+    {
+      "id": "420001",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "MARIA DO CARMO RODRIGUES NERES 704.602.670.154.923",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-18 20:54:23",
+      "financial_status": "active"
+    },
+    {
+      "id": "300002",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "SHEILA CRISTINA MONTEIRO NINA 898005147164741",
+      "doctor_amount_due": "80.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-14 10:55:04",
+      "financial_status": "active"
+    },
+    {
+      "id": "300001",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "WILLIAM DA SILVA TEIXEIRA 700505765479553",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-14 10:53:55",
+      "financial_status": "active"
+    },
+    {
+      "id": "270001",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "ANA PAULA DA SILVA PAIVA 709000846271115",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-14 10:20:10",
+      "financial_status": "active"
+    },
+    {
+      "id": "240001",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "DALVA CELESTE COSTA BARBOSA 700509955740752",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-10 09:30:08",
+      "financial_status": "active"
+    },
+    {
+      "id": "210002",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "TAYLON ARRUDA DIAS 706.204597.739.566",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-10 08:59:28",
+      "financial_status": "active"
+    },
+    {
+      "id": "210001",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "SUZELINE DE JESUS SA CORDEIRO 702.905.558.103.372",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-10 08:53:57",
+      "financial_status": "active"
+    },
+    {
+      "id": "180001",
+      "doctor_cycle_id": "150001",
+      "unit_id": "210001",
+      "doctor_user_id": "1",
+      "patient_name": "MAURY CAMILO SIQUEIRA-709803077945496",
+      "doctor_amount_due": "25.00",
+      "doctor_received_at": "NULL",
+      "signed_at": "2026-05-07 23:17:28",
+      "financial_status": "active"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tdoctor_cycle_id\tunit_id\tdoctor_user_id\tpatient_name\tdoctor_amount_due\tdoctor_received_at\tsigned_at\tfinancial_status\n540002\t150001\t210001\t1\tASSUNCAO MACEDO DA HORA 702804669876264\t25.00\tNULL\t2026-05-19 23:14:02\tactive\n540001\t150001\t210001\t1\tRAFAELA CRISTINA SILVA LEAL 702609703146045\t25.00\tNULL\t2026-05-19 23:02:15\tactive\n510001\t150001\t210001\t1\tMARIA FERNANDA SILVA DE SA 700001046950805\t25.00\tNULL\t2026-05-19 20:00:12\tactive\n480001\t150001\t210001\t1\tEDNA SANTOS 709604617238576\t25.00\tNULL\t2026-05-19 19:55:41\tactive\n450001\t150001\t210001\t1\tIRISNEIDE MORAIS DE MOURA 700602916046061\t25.00\tNULL\t2026-05-19 19:26:03\tactive\n420002\t150001\t210001\t1\tMARIA ANTONIA ALVES LINHARES 700508532287050\t25.00\tNULL\t2026-05-18 20:55:04\tactive\n420001\t150001\t210001\t1\tMARIA DO CARMO RODRIGUES NERES 704.602.670.154.923\t25.00\tNULL\t2026-05-18 20:54:23\tactive\n300002\t150001\t210001\t1\tSHEILA CRISTINA MONTEIRO NINA 898005147164741\t80.00\tNULL\t2026-05-14 10:55:04\tactive\n300001\t150001\t210001\t1\tWILLIAM DA SILVA TEIXEIRA 700505765479553\t25.00\tNULL\t2026-05-14 10:53:55\tactive\n270001\t150001\t210001\t1\tANA PAULA DA SILVA PAIVA 709000846271115\t25.00\tNULL\t2026-05-14 10:20:10\tactive\n240001\t150001\t210001\t1\tDALVA CELESTE COSTA BARBOSA 700509955740752\t25.00\tNULL\t2026-05-10 09:30:08\tactive\n210002\t150001\t210001\t1\tTAYLON ARRUDA DIAS 706.204597.739.566\t25.00\tNULL\t2026-05-10 08:59:28\tactive\n210001\t150001\t210001\t1\tSUZELINE DE JESUS SA CORDEIRO 702.905.558.103.372\t25.00\tNULL\t2026-05-10 08:53:57\tactive\n180001\t150001\t210001\t1\tMAURY CAMILO SIQUEIRA-709803077945496\t25.00\tNULL\t2026-05-07 23:17:28\tactive\n",
+  "stderr": "",
+  "execution_time_ms": 409
+}

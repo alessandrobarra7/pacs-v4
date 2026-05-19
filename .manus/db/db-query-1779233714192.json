@@ -1,0 +1,16 @@
+{
+  "query": "\nSELECT id, name, billing_cycle_start_day, billing_cycle_end_day FROM units WHERE id = 210001;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT id, name, billing_cycle_start_day, billing_cycle_end_day FROM units WHERE id = 210001;\n",
+  "rows": [
+    {
+      "id": "210001",
+      "name": "PACSML",
+      "billing_cycle_start_day": "1",
+      "billing_cycle_end_day": "31"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tbilling_cycle_start_day\tbilling_cycle_end_day\n210001\tPACSML\t1\t31\n",
+  "stderr": "",
+  "execution_time_ms": 271
+}

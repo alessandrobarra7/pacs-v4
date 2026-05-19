@@ -1,0 +1,57 @@
+{
+  "query": "\nSELECT id, unit_id, cycle_type, status, starts_at, ends_at FROM billing_cycles WHERE status='open' LIMIT 5;\nSELECT * FROM billing_cycle_doctor_summary LIMIT 5;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT id, unit_id, cycle_type, status, starts_at, ends_at FROM billing_cycles WHERE status='open' LIMIT 5;\nSELECT * FROM billing_cycle_doctor_summary LIMIT 5;\n",
+  "rows": [
+    {
+      "id": "1",
+      "unit_id": "210001",
+      "cycle_type": "doctor",
+      "status": "open",
+      "starts_at": "2026-03-31",
+      "ends_at": "2026-04-29"
+    },
+    {
+      "id": "30001",
+      "unit_id": "180001",
+      "cycle_type": "doctor",
+      "status": "open",
+      "starts_at": "2026-03-19",
+      "ends_at": "2026-04-18"
+    },
+    {
+      "id": "60001",
+      "unit_id": "180001",
+      "cycle_type": "system",
+      "status": "open",
+      "starts_at": "2027-04-12",
+      "ends_at": "2026-04-14"
+    },
+    {
+      "id": "90001",
+      "unit_id": "210001",
+      "cycle_type": "system",
+      "status": "open",
+      "starts_at": "2026-04-01",
+      "ends_at": "2026-04-30"
+    },
+    {
+      "id": "150001",
+      "unit_id": "210001",
+      "cycle_type": "doctor",
+      "status": "open",
+      "starts_at": "2026-04-30",
+      "ends_at": "2026-05-30"
+    }
+  ],
+  "messages": [
+    "id\tdoctor_cycle_id\tunit_id\tdoctor_user_id\tfinancial_responsible_id\treports_count\tamount_due\tpending_pricing_count\treceived_at\treceived_by\tcreatedAt\tupdatedAt",
+    "1\t1\t210001\t1\tNULL\t2\t0.00\t2\tNULL\tNULL\t2026-04-11 18:34:49\t2026-04-12 23:15:42",
+    "60001\t30001\t180001\t1\t1\t5\t125.00\t0\tNULL\tNULL\t2026-04-14 22:38:39\t2026-04-15 10:53:40",
+    "90001\t30001\t180001\t5520015\t1\t10\t80.00\t0\tNULL\tNULL\t2026-04-14 23:08:59\t2026-04-15 10:53:40",
+    "120001\t1\t210001\t5520015\t30001\t8\t52.00\t0\tNULL\tNULL\t2026-04-15 10:53:40\t2026-04-15 10:53:40",
+    "150001\t150001\t210001\t1\t30001\t6\t25.00\t5\tNULL\tNULL\t2026-05-07 23:04:45\t2026-05-18 18:36:44"
+  ],
+  "stdout": "id\tunit_id\tcycle_type\tstatus\tstarts_at\tends_at\n1\t210001\tdoctor\topen\t2026-03-31\t2026-04-29\n30001\t180001\tdoctor\topen\t2026-03-19\t2026-04-18\n60001\t180001\tsystem\topen\t2027-04-12\t2026-04-14\n90001\t210001\tsystem\topen\t2026-04-01\t2026-04-30\n150001\t210001\tdoctor\topen\t2026-04-30\t2026-05-30\nid\tdoctor_cycle_id\tunit_id\tdoctor_user_id\tfinancial_responsible_id\treports_count\tamount_due\tpending_pricing_count\treceived_at\treceived_by\tcreatedAt\tupdatedAt\n1\t1\t210001\t1\tNULL\t2\t0.00\t2\tNULL\tNULL\t2026-04-11 18:34:49\t2026-04-12 23:15:42\n60001\t30001\t180001\t1\t1\t5\t125.00\t0\tNULL\tNULL\t2026-04-14 22:38:39\t2026-04-15 10:53:40\n90001\t30001\t180001\t5520015\t1\t10\t80.00\t0\tNULL\tNULL\t2026-04-14 23:08:59\t2026-04-15 10:53:40\n120001\t1\t210001\t5520015\t30001\t8\t52.00\t0\tNULL\tNULL\t2026-04-15 10:53:40\t2026-04-15 10:53:40\n150001\t150001\t210001\t1\t30001\t6\t25.00\t5\tNULL\tNULL\t2026-05-07 23:04:45\t2026-05-18 18:36:44\n",
+  "stderr": "",
+  "execution_time_ms": 1244
+}

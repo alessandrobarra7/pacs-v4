@@ -1,0 +1,9 @@
+{
+  "query": "\nSELECT id, patient_name, doctor_amount_due, signed_at, doctor_cycle_id, financial_status\nFROM billing_visit_events\nWHERE doctor_amount_due = '300.00' OR doctor_amount_due = '300'\nORDER BY signed_at DESC\nLIMIT 5;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute \nSELECT id, patient_name, doctor_amount_due, signed_at, doctor_cycle_id, financial_status\nFROM billing_visit_events\nWHERE doctor_amount_due = '300.00' OR doctor_amount_due = '300'\nORDER BY signed_at DESC\nLIMIT 5;\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 261
+}
