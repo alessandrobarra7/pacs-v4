@@ -1,0 +1,24 @@
+{
+  "query": "SELECT id, name, body FROM report_masks WHERE id = 90001;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, name, body FROM report_masks WHERE id = 90001;",
+  "rows": [
+    {
+      "id": "90001",
+      "name": "CRANIO AVE - ISQUÊMICO",
+      "body": "=== ACHADOS ==="
+    }
+  ],
+  "messages": [
+    "Área hipoatenuante com perda da diferenciação corticossubcortical compromete parcialmente a região parietotemporal direita, bem como a ínsula e núcleo lentiforme ipsilaterais, determinando discreto apagamento dos sulcos e fissuras encefálicas adjacentes e compressão extrínseca do corpo do ventrículo lateral esquerdo. Não há desvios das estruturas da linha mediana.",
+    "Discreta hipoatenuação do aspecto superior do núcleo lentiforme e do núcleo caudado direitos, associada à hipoatenuação da artéria carótida interna supraclinoide e do segmento inicial (M1) da artéria cerebral média deste lado, compatível com isquemia aguda e trombo recente nestes vasos.",
+    "Área de hipoatenuação acomete parte do hemisfério cerebelar direito, causando efeito tumefativo local e compressão do quarto ventrículo, aspecto inespecífico, possivelmente área de insulto isquêmico recente.",
+    "Houve progressão da área de hipoatenuação envolvendo quase a totalidade do hemisfério cerebral esquerdo, comprometendo predominantemente o território da artéria cerebral média direita, associado a apagamento dos sulcos entre giros corticais e compressão do ventrículo lateral ipsilateral, sem desvio significativo da linha média.",
+    "=== HIPERDENSIDADE ===",
+    "Hiperdensidade da artéria cerebral média direita, característica que sugere evento isquêmico hiperagudo.",
+    "=== CONCLUSÃO ===",
+    "Exame compatível com isquemia aguda em território da artéria cerebral média direita, com sinais de trombo recente. Observa-se efeito tumefativo local no hemisfério cerebelar direito. Sem evidências de desvio da linha média ou transformação hemorrágica."
+  ],
+  "stdout": "id\tname\tbody\n90001\tCRANIO AVE - ISQUÊMICO\t=== ACHADOS ===\nÁrea hipoatenuante com perda da diferenciação corticossubcortical compromete parcialmente a região parietotemporal direita, bem como a ínsula e núcleo lentiforme ipsilaterais, determinando discreto apagamento dos sulcos e fissuras encefálicas adjacentes e compressão extrínseca do corpo do ventrículo lateral esquerdo. Não há desvios das estruturas da linha mediana.\n\nDiscreta hipoatenuação do aspecto superior do núcleo lentiforme e do núcleo caudado direitos, associada à hipoatenuação da artéria carótida interna supraclinoide e do segmento inicial (M1) da artéria cerebral média deste lado, compatível com isquemia aguda e trombo recente nestes vasos.\n\nÁrea de hipoatenuação acomete parte do hemisfério cerebelar direito, causando efeito tumefativo local e compressão do quarto ventrículo, aspecto inespecífico, possivelmente área de insulto isquêmico recente.\n\nHouve progressão da área de hipoatenuação envolvendo quase a totalidade do hemisfério cerebral esquerdo, comprometendo predominantemente o território da artéria cerebral média direita, associado a apagamento dos sulcos entre giros corticais e compressão do ventrículo lateral ipsilateral, sem desvio significativo da linha média.\n\n=== HIPERDENSIDADE ===\nHiperdensidade da artéria cerebral média direita, característica que sugere evento isquêmico hiperagudo.\n\n=== CONCLUSÃO ===\nExame compatível com isquemia aguda em território da artéria cerebral média direita, com sinais de trombo recente. Observa-se efeito tumefativo local no hemisfério cerebelar direito. Sem evidências de desvio da linha média ou transformação hemorrágica.\n",
+  "stderr": "",
+  "execution_time_ms": 265
+}

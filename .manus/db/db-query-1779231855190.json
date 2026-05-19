@@ -1,0 +1,34 @@
+{
+  "query": "SELECT id, name, modality, LEFT(body, 300) as body_preview FROM report_masks ORDER BY id DESC LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, name, modality, LEFT(body, 300) as body_preview FROM report_masks ORDER BY id DESC LIMIT 5;",
+  "rows": [
+    {
+      "id": "90001",
+      "name": "CRANIO AVE - ISQUÊMICO",
+      "modality": "CT",
+      "body_preview": "=== ACHADOS ==="
+    },
+    {
+      "id": "30001",
+      "name": "RX TÓRAX NORMAL",
+      "modality": "CR",
+      "body_preview": "Achados: Estruturas ósseas preservadas, sem fraturas, desalinhamentos ou lesões líticas/blásticas. Partes moles sem alterações significativas. Espaços articulares mantidos. Densidade óssea dentro da normalidade. Ausência de corpos estranhos. Sem evidências de processos inflamatórios ou infecciosos. "
+    },
+    {
+      "id": "1",
+      "name": "ABDOMEN TOTAL NORMAL",
+      "modality": "CT",
+      "body_preview": "Técnica: imagens obtidas sem a administração intravenosa de meio de contraste iodado."
+    }
+  ],
+  "messages": [
+    "Área hipoatenuante com perda da diferenciação corticossubcortical compromete parcialmente a região parietotemporal direita, bem como a ínsula e núcleo lentiforme ipsilaterais, determinando discreto apagamento dos sulcos e fissuras encefálicas adjacentes e compressão extrínseca do cor",
+    "Análise:",
+    "Fígado com dimensões normais, contornos regulares e atenuação preservada.",
+    "Ausência de dilatação das vias biliares.",
+    "Pâncreas com dimensões normais e atenuação habitual. Não há dilatação do ducto pancreátic"
+  ],
+  "stdout": "id\tname\tmodality\tbody_preview\n90001\tCRANIO AVE - ISQUÊMICO\tCT\t=== ACHADOS ===\nÁrea hipoatenuante com perda da diferenciação corticossubcortical compromete parcialmente a região parietotemporal direita, bem como a ínsula e núcleo lentiforme ipsilaterais, determinando discreto apagamento dos sulcos e fissuras encefálicas adjacentes e compressão extrínseca do cor\n30001\tRX TÓRAX NORMAL\tCR\tAchados: Estruturas ósseas preservadas, sem fraturas, desalinhamentos ou lesões líticas/blásticas. Partes moles sem alterações significativas. Espaços articulares mantidos. Densidade óssea dentro da normalidade. Ausência de corpos estranhos. Sem evidências de processos inflamatórios ou infecciosos. \n1\tABDOMEN TOTAL NORMAL\tCT\tTécnica: imagens obtidas sem a administração intravenosa de meio de contraste iodado.\n\nAnálise:\nFígado com dimensões normais, contornos regulares e atenuação preservada.\nAusência de dilatação das vias biliares.\nPâncreas com dimensões normais e atenuação habitual. Não há dilatação do ducto pancreátic\n",
+  "stderr": "",
+  "execution_time_ms": 303
+}

@@ -1,0 +1,25 @@
+{
+  "query": "SELECT id, name, LEFT(body, 500) as body_preview FROM report_masks ORDER BY id DESC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3Me9dVE4fH3ZyTq.ed3df32c863d --database cTdrattvNQ95XCgX9zeyNM --execute SELECT id, name, LEFT(body, 500) as body_preview FROM report_masks ORDER BY id DESC;",
+  "rows": [
+    {
+      "id": "90001",
+      "name": "CRANIO AVE - ISQUÊMICO",
+      "body_preview": "<p>=== ACHADOS ===<br>Área hipoatenuante com perda da diferenciação corticossubcortical compromete parcialmente a região parietotemporal direita, bem como a ínsula e núcleo lentiforme ipsilaterais, determinando discreto apagamento dos sulcos e fissuras encefálicas adjacentes e compressão extrínseca do corpo do ventrículo lateral esquerdo. Não há desvios das estruturas da linha mediana.</p><p>Discreta hipoatenuação do aspecto superior do núcleo lentiforme e do núcleo caudado direitos, associada à"
+    },
+    {
+      "id": "30001",
+      "name": "RX TÓRAX NORMAL",
+      "body_preview": "<p>Achados: Estruturas ósseas preservadas, sem fraturas, desalinhamentos ou lesões líticas/blásticas. Partes moles sem alterações significativas. Espaços articulares mantidos. Densidade óssea dentro da normalidade. Ausência de corpos estranhos. Sem evidências de processos inflamatórios ou infecciosos. Conclusão: Exame sem alterações radiográficas detectáveis. Achado dentro dos padrões de normalidade para a faixa etária e segmento avaliado.</p><p>Observações:<br>Correlacionar achados com quadro c"
+    },
+    {
+      "id": "1",
+      "name": "ABDOMEN TOTAL NORMAL",
+      "body_preview": "<p>Técnica: imagens obtidas sem a administração intravenosa de meio de contraste iodado.</p><p>Análise:<br>Fígado com dimensões normais, contornos regulares e atenuação preservada.<br>Ausência de dilatação das vias biliares.<br>Pâncreas com dimensões normais e atenuação habitual. Não há dilatação do ducto pancreático principal.<br>Baço e adrenais sem particularidades.<br>Rins tópicos, com forma e dimensões normais, sem cálculos ou hidronefrose.<br>Aorta e veia cava inferior com trajeto e calibre"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tbody_preview\n90001\tCRANIO AVE - ISQUÊMICO\t<p>=== ACHADOS ===<br>Área hipoatenuante com perda da diferenciação corticossubcortical compromete parcialmente a região parietotemporal direita, bem como a ínsula e núcleo lentiforme ipsilaterais, determinando discreto apagamento dos sulcos e fissuras encefálicas adjacentes e compressão extrínseca do corpo do ventrículo lateral esquerdo. Não há desvios das estruturas da linha mediana.</p><p>Discreta hipoatenuação do aspecto superior do núcleo lentiforme e do núcleo caudado direitos, associada à\n30001\tRX TÓRAX NORMAL\t<p>Achados: Estruturas ósseas preservadas, sem fraturas, desalinhamentos ou lesões líticas/blásticas. Partes moles sem alterações significativas. Espaços articulares mantidos. Densidade óssea dentro da normalidade. Ausência de corpos estranhos. Sem evidências de processos inflamatórios ou infecciosos. Conclusão: Exame sem alterações radiográficas detectáveis. Achado dentro dos padrões de normalidade para a faixa etária e segmento avaliado.</p><p>Observações:<br>Correlacionar achados com quadro c\n1\tABDOMEN TOTAL NORMAL\t<p>Técnica: imagens obtidas sem a administração intravenosa de meio de contraste iodado.</p><p>Análise:<br>Fígado com dimensões normais, contornos regulares e atenuação preservada.<br>Ausência de dilatação das vias biliares.<br>Pâncreas com dimensões normais e atenuação habitual. Não há dilatação do ducto pancreático principal.<br>Baço e adrenais sem particularidades.<br>Rins tópicos, com forma e dimensões normais, sem cálculos ou hidronefrose.<br>Aorta e veia cava inferior com trajeto e calibre\n",
+  "stderr": "",
+  "execution_time_ms": 260
+}
