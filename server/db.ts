@@ -2249,16 +2249,23 @@ export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: n
         const cycle = activeCycle[0];
         cycle_period = { starts_at: cycle.starts_at, ends_at: cycle.ends_at };
 
-        const summary = await db.select().from(billing_cycle_doctor_summary).where(
+        // BUG FIX: billing_cycle_doctor_summary é uma tabela desnormalizada que não é
+        // atualizada automaticamente após novos laudos. Calculamos diretamente dos
+        // billing_visit_events dentro do intervalo do ciclo aberto.
+        const liveRows = await db.select({
+          total_laudos: drizzleSql2<number>`COUNT(*)`,
+          total_amount: drizzleSql2<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
+        }).from(billing_visit_events).where(
           and(
-            eq(billing_cycle_doctor_summary.doctor_cycle_id, cycle.id),
-            eq(billing_cycle_doctor_summary.unit_id, unitId),
-            eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
+            eq(billing_visit_events.doctor_cycle_id, cycle.id),
+            eq(billing_visit_events.unit_id, unitId),
+            eq(billing_visit_events.doctor_user_id, doctorUserId),
+            ne(billing_visit_events.financial_status, 'cancelled'),
           )
-        ).limit(1);
+        );
 
-        cycle_visits = summary[0]?.reports_count ?? 0;
-        cycle_amount = summary[0]?.amount_due ?? "0.00";
+        cycle_visits = Number(liveRows[0]?.total_laudos ?? 0);
+        cycle_amount = Number(liveRows[0]?.total_amount ?? 0).toFixed(2);
       }
     } catch (cycleErr) {
       console.error('[getDoctorUnitFinancialInfo] Erro ao buscar ciclo:', cycleErr);
