@@ -2,6 +2,7 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { listReportMasks, createReportMasks, deleteReportMask } from "../db";
+import { canAccessUnit } from "../authorization";
 
 const ADMIN_ROLES = ["admin_master", "unit_admin"] as const;
 
@@ -61,10 +62,19 @@ export const masksRouter = router({
   /**
    * Lista máscaras visíveis para o usuário autenticado na unidade informada.
    * Retorna: pessoais do próprio usuário + scope='unit' da unidade.
+   * FIX: verifica que o usuário pertence à unidade antes de listar.
    */
   list: protectedProcedure
     .input(z.object({ unitId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
+      // FIX: verificar que o usuário pertence à unidade antes de listar
+      const canAccess = await canAccessUnit(ctx.user, input.unitId, "view_studies");
+      if (!canAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Você não tem acesso às máscaras desta unidade.",
+        });
+      }
       return listReportMasks(input.unitId, ctx.user.id);
     }),
 
@@ -72,6 +82,7 @@ export const masksRouter = router({
    * Importa um array de máscaras a partir de JSON.
    * scope: 'personal' → visível só para o usuário que importou.
    * scope: 'unit'     → visível para todos da unidade (apenas admin pode publicar).
+   * FIX: verifica que o usuário pertence à unidade antes de importar.
    */
   import: protectedProcedure
     .input(z.object({
@@ -85,6 +96,15 @@ export const masksRouter = router({
       })).min(1).max(200),
     }))
     .mutation(async ({ ctx, input }) => {
+      // FIX: verificar que o usuário pertence à unidade antes de importar
+      const canAccess = await canAccessUnit(ctx.user, input.unitId, "view_studies");
+      if (!canAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Você não tem acesso a esta unidade.",
+        });
+      }
+
       // Apenas admin pode publicar para a unidade
       if (input.scope === "unit" && !isAdmin(ctx.user.role)) {
         throw new TRPCError({
@@ -109,13 +129,27 @@ export const masksRouter = router({
   /**
    * Remove uma máscara pelo id.
    * Usuário comum só pode remover as próprias máscaras.
-   * Admin pode remover qualquer máscara da unidade.
+   * Admin pode remover qualquer máscara da PRÓPRIA unidade.
+   * FIX: exige unitId para restringir admin à unidade correta.
    */
   delete: protectedProcedure
-    .input(z.object({ id: z.number().int().positive() }))
+    .input(z.object({
+      id:     z.number().int().positive(),
+      unitId: z.number().int().positive(), // FIX: necessário para restringir admin
+    }))
     .mutation(async ({ ctx, input }) => {
+      // FIX: verificar que o usuário pertence à unidade antes de deletar
+      const canAccess = await canAccessUnit(ctx.user, input.unitId, "view_studies");
+      if (!canAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Você não tem acesso a esta unidade.",
+        });
+      }
+
       const admin = isAdmin(ctx.user.role);
-      const deleted = await deleteReportMask(input.id, ctx.user.id, admin);
+      // FIX: passa unitId para restringir admin à unidade correta
+      const deleted = await deleteReportMask(input.id, ctx.user.id, admin, input.unitId);
       if (!deleted) {
         throw new TRPCError({
           code: "NOT_FOUND",

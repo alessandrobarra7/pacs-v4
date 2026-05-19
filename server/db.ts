@@ -3092,12 +3092,27 @@ export async function createReportMasks(masks: InsertReportMask[]): Promise<void
 }
 
 /** Remove uma máscara pelo id, verificando que pertence ao usuário (ou admin). */
-export async function deleteReportMask(id: number, userId: number, isAdmin: boolean): Promise<boolean> {
+export async function deleteReportMask(
+  id: number,
+  userId: number,
+  isAdmin: boolean,
+  unitId: number  // FIX: obrigatório — restringe admin à própria unidade
+): Promise<boolean> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+
+  // Admin pode deletar qualquer máscara da PRÓPRIA unidade
+  // Usuário comum só pode deletar suas próprias máscaras
   const condition = isAdmin
-    ? eq(report_masks.id, id)
-    : and(eq(report_masks.id, id), eq(report_masks.owner_user_id, userId));
+    ? and(
+        eq(report_masks.id, id),
+        eq(report_masks.unit_id, unitId)  // FIX: restrito à unidade do admin
+      )
+    : and(
+        eq(report_masks.id, id),
+        eq(report_masks.owner_user_id, userId)
+      );
+
   const result = await db.delete(report_masks).where(condition);
   return (result[0] as { affectedRows: number }).affectedRows > 0;
 }

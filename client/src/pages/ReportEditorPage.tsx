@@ -1626,7 +1626,7 @@ export default function ReportEditorPage() {
                       )}
                     </div>
                     <button
-                      onClick={e => { e.stopPropagation(); deleteMask.mutate({ id: m.id }); }}
+                      onClick={e => { e.stopPropagation(); deleteMask.mutate({ id: m.id, unitId }); }}
                       className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-100 text-red-500 transition-opacity shrink-0"
                       title="Remover máscara"
                     >
