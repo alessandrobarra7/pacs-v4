@@ -1241,66 +1241,89 @@ export default function ReportEditorPage() {
                             <span>Laudo <strong>{existingReport?.status === "revised" ? "retificado" : "assinado"}</strong> — clique em <strong>Retificar</strong> para editar.</span>
                           </div>
                         )}
-                        <div
-                          ref={el => { sectionRefs.current[i] = el; }}
-                          contentEditable={isEditable}
-                          suppressContentEditableWarning
-                          onFocus={() => { activeSectionRef.current = i; }}
-                          onMouseUp={isEditable ? saveSelection : undefined}
-                          onKeyUp={isEditable ? saveSelection : undefined}
-                          data-placeholder={`Digite o laudo de ${name}...`}
-                          // FIX DnD: drop nas seções do modo multi-exame
-                          onDragOver={isEditable ? (e) => {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = 'copy';
-                            activeSectionRef.current = i;
-                            setIsDragOver(true);
-                          } : undefined}
-                          onDragLeave={isEditable ? () => setIsDragOver(false) : undefined}
-                          onDrop={isEditable ? (e) => {
-                            e.preventDefault();
-                            setIsDragOver(false);
-                            activeSectionRef.current = i;
-                            // Payload JSON unificado (ModelosTab, FrasesTab, CarimboTab)
-                            const jsonRaw = e.dataTransfer.getData('application/json');
-                            if (jsonRaw) {
-                              try {
-                                const payload = JSON.parse(jsonRaw);
-                                if (payload.type === 'template') {
+                        {isPreview ? (
+                          /* ── MODO PRÉ-VISUALIZAÇÃO (seção i) ──────────────────── */
+                          <div
+                            style={{
+                              flex: 1,
+                              minHeight: "60mm",
+                              lineHeight: 1.6,
+                              fontSize: "11pt",
+                              color: "#111",
+                              textAlign: "left",
+                              whiteSpace: "pre-wrap",
+                              fontFamily: "'Times New Roman', Times, serif",
+                              pointerEvents: "none",
+                              userSelect: "none",
+                            }}
+                            dangerouslySetInnerHTML={{
+                              __html: previewHtml.split("<hr/>")[i]
+                                || "<p style='color:#9ca3af;font-style:italic;font-size:10pt'>Sem conteúdo para visualizar.</p>",
+                            }}
+                          />
+                        ) : (
+                          /* ── MODO EDIÇÃO (código original sem alteração) ─────────── */
+                          <div
+                            ref={el => { sectionRefs.current[i] = el; }}
+                            contentEditable={isEditable}
+                            suppressContentEditableWarning
+                            onFocus={() => { activeSectionRef.current = i; }}
+                            onMouseUp={isEditable ? saveSelection : undefined}
+                            onKeyUp={isEditable ? saveSelection : undefined}
+                            data-placeholder={`Digite o laudo de ${name}...`}
+                            // FIX DnD: drop nas seções do modo multi-exame
+                            onDragOver={isEditable ? (e) => {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = 'copy';
+                              activeSectionRef.current = i;
+                              setIsDragOver(true);
+                            } : undefined}
+                            onDragLeave={isEditable ? () => setIsDragOver(false) : undefined}
+                            onDrop={isEditable ? (e) => {
+                              e.preventDefault();
+                              setIsDragOver(false);
+                              activeSectionRef.current = i;
+                              // Payload JSON unificado (ModelosTab, FrasesTab, CarimboTab)
+                              const jsonRaw = e.dataTransfer.getData('application/json');
+                              if (jsonRaw) {
+                                try {
+                                  const payload = JSON.parse(jsonRaw);
+                                  if (payload.type === 'template') {
+                                    const el = sectionRefs.current[i];
+                                    if (el) el.innerHTML = sanitizeHtmlForEditor(payload.data);
+                                  } else if (payload.type === 'phrase') {
+                                    insertAtCursor(payload.data);
+                                  } else if (payload.type === 'signature' || payload.type === 'stamp') {
+                                    insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
+                                  }
+                                } catch (_) {}
+                                return;
+                              }
+                              // Legado: text/x-report-template
+                              const templateRaw = e.dataTransfer.getData('text/x-report-template');
+                              if (templateRaw) {
+                                try {
+                                  const { body } = JSON.parse(templateRaw);
                                   const el = sectionRefs.current[i];
-                                  if (el) el.innerHTML = sanitizeHtmlForEditor(payload.data);
-                                } else if (payload.type === 'phrase') {
-                                  insertAtCursor(payload.data);
-                                } else if (payload.type === 'signature' || payload.type === 'stamp') {
-                                  insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
-                                }
-                              } catch (_) {}
-                              return;
-                            }
-                            // Legado: text/x-report-template
-                            const templateRaw = e.dataTransfer.getData('text/x-report-template');
-                            if (templateRaw) {
-                              try {
-                                const { body } = JSON.parse(templateRaw);
-                                const el = sectionRefs.current[i];
-                                if (el) el.innerHTML = sanitizeHtmlForEditor(body);
-                              } catch (_) {}
-                              return;
-                            }
-                            const plainText = e.dataTransfer.getData('text/plain');
-                            if (plainText) insertAtCursor(plainText);
-                          } : undefined}
-                          style={{
-                            flex: 1, minHeight: "60mm",
-                            outline: isDragOver && activeSectionRef.current === i ? "2px dashed #3b82f6" : "none",
-                            borderRadius: "4px",
-                            lineHeight: 1.6, fontSize: "11pt", color: "#111",
-                            textAlign: "left", whiteSpace: "pre-wrap",
-                            cursor: isEditable ? "text" : "default",
-                            fontFamily: "'Times New Roman', Times, serif",
-                            transition: "outline 0.1s ease",
-                          }}
-                        />
+                                  if (el) el.innerHTML = sanitizeHtmlForEditor(body);
+                                } catch (_) {}
+                                return;
+                              }
+                              const plainText = e.dataTransfer.getData('text/plain');
+                              if (plainText) insertAtCursor(plainText);
+                            } : undefined}
+                            style={{
+                              flex: 1, minHeight: "60mm",
+                              outline: isDragOver && activeSectionRef.current === i ? "2px dashed #3b82f6" : "none",
+                              borderRadius: "4px",
+                              lineHeight: 1.6, fontSize: "11pt", color: "#111",
+                              textAlign: "left", whiteSpace: "pre-wrap",
+                              cursor: isEditable ? "text" : "default",
+                              fontFamily: "'Times New Roman', Times, serif",
+                              transition: "outline 0.1s ease",
+                            }}
+                          />
+                        )}
                       </div>
 
                       {/* Assinatura/carimbo apenas na última página */}
@@ -1402,64 +1425,86 @@ export default function ReportEditorPage() {
                       <span>Laudo <strong>{existingReport?.status === "revised" ? "retificado" : "assinado"}</strong> — clique em <strong>Retificar</strong> para editar.</span>
                     </div>
                   )}
-                  <div
-                    ref={docRef}
-                    contentEditable={isEditable}
-                    suppressContentEditableWarning
-                    onMouseUp={isEditable ? saveSelection : undefined}
-                    onKeyUp={isEditable ? saveSelection : undefined}
-                    data-placeholder="Digite o laudo aqui..."
-                    // FIX DnD: receber drop de templates e frases da sidebar
-                    onDragOver={isEditable ? (e) => {
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = 'copy';
-                      setIsDragOver(true);
-                    } : undefined}
-                    onDragLeave={isEditable ? () => setIsDragOver(false) : undefined}
-                    onDrop={isEditable ? (e) => {
-                      e.preventDefault();
-                      setIsDragOver(false);
-                      // Payload JSON unificado (ModelosTab, FrasesTab, CarimboTab)
-                      const jsonRaw = e.dataTransfer.getData('application/json');
-                      if (jsonRaw) {
-                        try {
-                          const payload = JSON.parse(jsonRaw);
-                          if (payload.type === 'template') {
-                            if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(payload.data);
-                            if (payload.examTitle) setExamTitle(payload.examTitle);
-                          } else if (payload.type === 'phrase') {
-                            insertAtCursor(payload.data);
-                          } else if (payload.type === 'signature' || payload.type === 'stamp') {
-                            insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
-                          }
-                        } catch (_) {}
-                        return;
-                      }
-                      // Legado: text/x-report-template
-                      const templateRaw = e.dataTransfer.getData('text/x-report-template');
-                      if (templateRaw) {
-                        try {
-                          const { body, examTitle } = JSON.parse(templateRaw);
-                          if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
-                          if (examTitle) setExamTitle(examTitle);
-                        } catch (_) {}
-                        return;
-                      }
-                      const plainText = e.dataTransfer.getData('text/plain');
-                      if (plainText) insertAtCursor(plainText);
-                    } : undefined}
-                    style={{
-                      flex: 1, minHeight: "60mm",
-                      outline: isDragOver ? "2px dashed #3b82f6" : "none",
-                      borderRadius: isDragOver ? "4px" : undefined,
-                      backgroundColor: isDragOver ? "rgba(59,130,246,0.04)" : undefined,
-                      lineHeight: 1.6, fontSize: "11pt", color: "#111",
-                      textAlign: "left", whiteSpace: "pre-wrap",
-                      cursor: isEditable ? "text" : "default",
-                      fontFamily: "'Times New Roman', Times, serif",
-                      transition: "outline 0.1s ease, background-color 0.1s ease",
-                    }}
-                  />
+                  {isPreview ? (
+                    /* ── MODO PRÉ-VISUALIZAÇÃO ───────────────────────────────────── */
+                    <div
+                      style={{
+                        flex: 1,
+                        minHeight: "60mm",
+                        lineHeight: 1.6,
+                        fontSize: "11pt",
+                        color: "#111",
+                        textAlign: "left",
+                        whiteSpace: "pre-wrap",
+                        fontFamily: "'Times New Roman', Times, serif",
+                        pointerEvents: "none",
+                        userSelect: "none",
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: previewHtml || "<p style='color:#9ca3af;font-style:italic;font-size:10pt'>Sem conteúdo para visualizar.</p>",
+                      }}
+                    />
+                  ) : (
+                    /* ── MODO EDIÇÃO (código original sem alteração) ─────────────── */
+                    <div
+                      ref={docRef}
+                      contentEditable={isEditable}
+                      suppressContentEditableWarning
+                      onMouseUp={isEditable ? saveSelection : undefined}
+                      onKeyUp={isEditable ? saveSelection : undefined}
+                      data-placeholder="Digite o laudo aqui..."
+                      // FIX DnD: receber drop de templates e frases da sidebar
+                      onDragOver={isEditable ? (e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'copy';
+                        setIsDragOver(true);
+                      } : undefined}
+                      onDragLeave={isEditable ? () => setIsDragOver(false) : undefined}
+                      onDrop={isEditable ? (e) => {
+                        e.preventDefault();
+                        setIsDragOver(false);
+                        // Payload JSON unificado (ModelosTab, FrasesTab, CarimboTab)
+                        const jsonRaw = e.dataTransfer.getData('application/json');
+                        if (jsonRaw) {
+                          try {
+                            const payload = JSON.parse(jsonRaw);
+                            if (payload.type === 'template') {
+                              if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(payload.data);
+                              if (payload.examTitle) setExamTitle(payload.examTitle);
+                            } else if (payload.type === 'phrase') {
+                              insertAtCursor(payload.data);
+                            } else if (payload.type === 'signature' || payload.type === 'stamp') {
+                              insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
+                            }
+                          } catch (_) {}
+                          return;
+                        }
+                        // Legado: text/x-report-template
+                        const templateRaw = e.dataTransfer.getData('text/x-report-template');
+                        if (templateRaw) {
+                          try {
+                            const { body, examTitle } = JSON.parse(templateRaw);
+                            if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
+                            if (examTitle) setExamTitle(examTitle);
+                          } catch (_) {}
+                          return;
+                        }
+                        const plainText = e.dataTransfer.getData('text/plain');
+                        if (plainText) insertAtCursor(plainText);
+                      } : undefined}
+                      style={{
+                        flex: 1, minHeight: "60mm",
+                        outline: isDragOver ? "2px dashed #3b82f6" : "none",
+                        borderRadius: isDragOver ? "4px" : undefined,
+                        backgroundColor: isDragOver ? "rgba(59,130,246,0.04)" : undefined,
+                        lineHeight: 1.6, fontSize: "11pt", color: "#111",
+                        textAlign: "left", whiteSpace: "pre-wrap",
+                        cursor: isEditable ? "text" : "default",
+                        fontFamily: "'Times New Roman', Times, serif",
+                        transition: "outline 0.1s ease, background-color 0.1s ease",
+                      }}
+                    />
+                  )}
                 </div>
 
                 {/* ══ ASSINATURA / CARIMBO ══ */}
