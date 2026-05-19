@@ -5,6 +5,39 @@ import { listReportMasks, createReportMasks, deleteReportMask } from "../db";
 
 const ADMIN_ROLES = ["admin_master", "unit_admin"] as const;
 
+/**
+ * Converte texto puro para HTML compatível com o editor contentEditable.
+ * - Se o body já contiver tags HTML, retorna sem alteração.
+ * - Caso contrário:
+ *   1. Converte marcadores `=== TÍTULO ===` em <h3>TÍTULO</h3>
+ *   2. Converte blocos separados por linha em branco em <p>…</p>
+ *   3. Converte quebras de linha simples (\n) dentro de blocos em <br>
+ */
+function normalizeBodyToHtml(body: string): string {
+  // Detecta se já é HTML: presença de qualquer tag de abertura
+  if (/<[a-zA-Z][^>]*>/.test(body)) return body;
+
+  // Divide em blocos separados por linha(s) em branco
+  const blocks = body.split(/\n{2,}/);
+
+  const htmlBlocks = blocks.map(block => {
+    const trimmed = block.trim();
+    if (!trimmed) return '';
+
+    // Marcador de seção: === TÍTULO ===
+    const sectionMatch = trimmed.match(/^===\s*(.+?)\s*===$/);
+    if (sectionMatch) {
+      return `<h3>${sectionMatch[1]}</h3>`;
+    }
+
+    // Bloco normal: quebras simples viram <br>, envolve em <p>
+    const inner = trimmed.replace(/\n/g, '<br>');
+    return `<p>${inner}</p>`;
+  });
+
+  return htmlBlocks.filter(Boolean).join('');
+}
+
 function isAdmin(role: string) {
   return ADMIN_ROLES.includes(role as (typeof ADMIN_ROLES)[number]);
 }
@@ -51,7 +84,7 @@ export const masksRouter = router({
         name: m.name,
         modality: m.modality ?? null,
         exam_title: m.exam_title ?? null,
-        body: m.body,
+        body: normalizeBodyToHtml(m.body),
         created_by: ctx.user.id,
       }));
       await createReportMasks(rows);
