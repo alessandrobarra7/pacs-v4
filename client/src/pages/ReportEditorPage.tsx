@@ -11,6 +11,8 @@ import {
   ArrowLeft, Printer, CheckCircle, Search, ChevronDown, ChevronRight,
   Plus, Trash2, Star, StarOff, GripVertical, Image as ImageIcon, FileText,
   MessageSquare, Layers, X, Edit2, Check, Copy,
+  Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight,
+  Undo2, Redo2, Eye, EyeOff, BookOpen, Upload, Highlighter,
 } from "lucide-react";
 
 // F1-4: Sanitiza HTML antes de atribuir ao innerHTML (previne XSS no editor de laudos)
@@ -253,6 +255,73 @@ export default function ReportEditorPage() {
 
   const isSigned = existingReport?.status === 'signed' || existingReport?.status === 'revised';
   const isEditable = !isSigned || isRevising;
+  // ── Toolbar de formatação ────────────────────────────────────────────────
+  const [fontSize, setFontSize] = useState("11");
+  // ── Pré-visualização ─────────────────────────────────────────────────────
+  const [isPreview, setIsPreview] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState("");
+  // ── Painel flutuante de Máscaras ─────────────────────────────────────────
+  const [showMasksPanel, setShowMasksPanel] = useState(false);
+  const [maskSearch, setMaskSearch] = useState("");
+  const maskFileRef = useRef<HTMLInputElement>(null);
+  // Query de máscaras (pessoais + unidade)
+  const { data: masks, refetch: refetchMasks } = trpc.masks.list.useQuery(
+    { unitId },
+    { enabled: unitId > 0 && showMasksPanel }
+  );
+  const importMasks = trpc.masks.import.useMutation({
+    onSuccess: (r) => { toast.success(`${r.imported} máscara(s) importada(s)`); refetchMasks(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteMask = trpc.masks.delete.useMutation({
+    onSuccess: () => { toast.success("Máscara removida"); refetchMasks(); },
+    onError: (e) => toast.error(e.message),
+  });
+  // Aplica tamanho de fonte na seção ativa
+  const applyFontSize = useCallback((size: string) => {
+    setFontSize(size);
+    const el = isMultiSection
+      ? sectionRefs.current[activeSectionRef.current]
+      : docRef.current;
+    if (el) el.style.fontSize = `${size}pt`;
+  }, [isMultiSection]);
+  // Importa máscaras de arquivo JSON
+  const handleMaskFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        const arr = Array.isArray(data) ? data : [data];
+        importMasks.mutate({ unitId, scope: isAdminMaster ? "unit" : "personal", masks: arr });
+      } catch { toast.error("Arquivo JSON inválido"); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }, [unitId, isAdminMaster, importMasks]);
+  // Aplica máscara no editor
+  const applyMask = useCallback((body: string, examTitle?: string | null) => {
+    const clean = sanitizeHtmlForEditor(body);
+    if (isMultiSection) {
+      const el = sectionRefs.current[activeSectionRef.current];
+      if (el) { el.innerHTML = clean; el.focus(); }
+    } else {
+      if (docRef.current) docRef.current.innerHTML = clean;
+    }
+    if (examTitle) setExamTitle(examTitle);
+    setShowMasksPanel(false);
+  }, [isMultiSection]);
+  // Captura HTML atual para pré-visualização
+  const handleTogglePreview = useCallback(() => {
+    if (!isPreview) {
+      const html = isMultiSection
+        ? sectionRefs.current.map(el => el?.innerHTML ?? "").join("<hr/>")
+        : docRef.current?.innerHTML ?? "";
+      setPreviewHtml(html);
+    }
+    setIsPreview(p => !p);
+  }, [isPreview, isMultiSection]);
 
   // ── Carregar info do estudo ──────────────────────────────────────────────
   useEffect(() => {
@@ -1051,6 +1120,55 @@ export default function ReportEditorPage() {
             </button>
           )}
         </div>
+        {/* ── TOOLBAR DE FORMATAÇÃO ─────────────────────────────────────────── */}
+        {isEditable && (
+          <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-100 bg-white print:hidden flex-wrap">
+            {/* Desfazer / Refazer */}
+            <button onMouseDown={e => { e.preventDefault(); document.execCommand('undo'); }} title="Desfazer" className="p-1.5 rounded hover:bg-gray-100 text-gray-600"><Undo2 className="h-3.5 w-3.5" /></button>
+            <button onMouseDown={e => { e.preventDefault(); document.execCommand('redo'); }} title="Refazer" className="p-1.5 rounded hover:bg-gray-100 text-gray-600"><Redo2 className="h-3.5 w-3.5" /></button>
+            <div className="w-px h-4 bg-gray-200 mx-0.5" />
+            {/* Tamanho de fonte */}
+            <select
+              value={fontSize}
+              onChange={e => applyFontSize(e.target.value)}
+              className="text-xs border border-gray-200 rounded px-1 py-0.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              title="Tamanho da fonte"
+            >
+              {[8,9,10,11,12,14,16,18,20,24].map(s => (
+                <option key={s} value={String(s)}>{s}pt</option>
+              ))}
+            </select>
+            <div className="w-px h-4 bg-gray-200 mx-0.5" />
+            {/* Negrito / Itálico / Sublinhado */}
+            <button onMouseDown={e => { e.preventDefault(); document.execCommand('bold'); }} title="Negrito" className="p-1.5 rounded hover:bg-gray-100 text-gray-600 font-bold"><Bold className="h-3.5 w-3.5" /></button>
+            <button onMouseDown={e => { e.preventDefault(); document.execCommand('italic'); }} title="Itálico" className="p-1.5 rounded hover:bg-gray-100 text-gray-600 italic"><Italic className="h-3.5 w-3.5" /></button>
+            <button onMouseDown={e => { e.preventDefault(); document.execCommand('underline'); }} title="Sublinhado" className="p-1.5 rounded hover:bg-gray-100 text-gray-600 underline"><Underline className="h-3.5 w-3.5" /></button>
+            <div className="w-px h-4 bg-gray-200 mx-0.5" />
+            {/* Cor vermelha */}
+            <button onMouseDown={e => { e.preventDefault(); document.execCommand('foreColor', false, '#dc2626'); }} title="Texto vermelho" className="p-1.5 rounded hover:bg-gray-100">
+              <span className="text-[11px] font-bold text-red-600">A</span>
+            </button>
+            {/* Realce amarelo */}
+            <button onMouseDown={e => { e.preventDefault(); document.execCommand('hiliteColor', false, '#fef08a'); }} title="Realce amarelo" className="p-1.5 rounded hover:bg-gray-100 text-yellow-500"><Highlighter className="h-3.5 w-3.5" /></button>
+            <div className="w-px h-4 bg-gray-200 mx-0.5" />
+            {/* Alinhamentos */}
+            <button onMouseDown={e => { e.preventDefault(); document.execCommand('justifyLeft'); }} title="Alinhar à esquerda" className="p-1.5 rounded hover:bg-gray-100 text-gray-600"><AlignLeft className="h-3.5 w-3.5" /></button>
+            <button onMouseDown={e => { e.preventDefault(); document.execCommand('justifyCenter'); }} title="Centralizar" className="p-1.5 rounded hover:bg-gray-100 text-gray-600"><AlignCenter className="h-3.5 w-3.5" /></button>
+            <button onMouseDown={e => { e.preventDefault(); document.execCommand('justifyRight'); }} title="Alinhar à direita" className="p-1.5 rounded hover:bg-gray-100 text-gray-600"><AlignRight className="h-3.5 w-3.5" /></button>
+            <div className="w-px h-4 bg-gray-200 mx-0.5" />
+            {/* Pré-visualização */}
+            <button
+              onClick={handleTogglePreview}
+              title={isPreview ? "Voltar ao editor" : "Pré-visualizar"}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                isPreview ? "bg-blue-600 text-white" : "hover:bg-gray-100 text-gray-600"
+              }`}
+            >
+              {isPreview ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              {isPreview ? "Editar" : "Pré-visualizar"}
+            </button>
+          </div>
+        )}
         <main className="flex-1 overflow-y-auto bg-gray-100 flex justify-center py-8 print:bg-white print:p-0 print:block">
           <div
             className={isMultiSection ? "relative" : "relative bg-white shadow-md print:shadow-none"}
@@ -1374,6 +1492,113 @@ export default function ReportEditorPage() {
         </main>
         </div>{/* fim div wrapper MOD 8 */}
       </div>
+      {/* ── BOTÃO FLUTUANTE DE MÁSCARAS / LAUDOS PRONTOS ──────────────────────────── */}
+      {isEditable && (
+        <>
+          {/* Botão flutuante */}
+          <button
+            onClick={() => setShowMasksPanel(p => !p)}
+            className="fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-2.5 rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 transition-all text-sm font-medium print:hidden"
+            title="Laudos Prontos / Máscaras"
+          >
+            <BookOpen className="h-4 w-4" />
+            Laudos Prontos
+          </button>
+
+          {/* Painel lateral de máscaras */}
+          {showMasksPanel && (
+            <div className="fixed inset-y-0 right-0 z-50 w-[380px] bg-white shadow-2xl flex flex-col print:hidden" style={{ borderLeft: '1px solid #e5e7eb' }}>
+              {/* Header do painel */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-semibold text-gray-800">Laudos Prontos</span>
+                  {masks && <span className="text-xs text-gray-400">({masks.length})</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Importar JSON */}
+                  <button
+                    onClick={() => maskFileRef.current?.click()}
+                    disabled={importMasks.isPending}
+                    title="Importar máscaras (.json)"
+                    className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 font-medium"
+                  >
+                    <Upload className="h-3 w-3" />
+                    Importar .json
+                  </button>
+                  <input ref={maskFileRef} type="file" accept=".json" className="hidden" onChange={handleMaskFileImport} />
+                  <button onClick={() => setShowMasksPanel(false)} className="p-1 rounded hover:bg-gray-200 text-gray-500">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Busca */}
+              <div className="px-3 py-2 border-b border-gray-100">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
+                  <input
+                    value={maskSearch}
+                    onChange={e => setMaskSearch(e.target.value)}
+                    placeholder="Buscar máscara..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  />
+                </div>
+              </div>
+
+              {/* Dica de formato JSON */}
+              {(!masks || masks.length === 0) && (
+                <div className="mx-3 mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
+                  <p className="font-semibold mb-1">Formato do arquivo .json:</p>
+                  <pre className="text-[10px] bg-white p-2 rounded border border-blue-100 overflow-x-auto">{`[{\n  "name": "RX Tórax Normal",\n  "modality": "CR",\n  "exam_title": "RADIOGRAFIA DE TÓRAX",\n  "body": "<p>Laudo normal...</p>"\n}]`}</pre>
+                  <p className="mt-2 text-[10px] text-blue-600">{isAdminMaster ? "Como admin, suas máscaras ficam visíveis para todos da unidade." : "Suas máscaras são pessoais."}</p>
+                </div>
+              )}
+
+              {/* Lista de máscaras */}
+              <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
+                {(masks ?? []).filter(m =>
+                  !maskSearch || m.name.toLowerCase().includes(maskSearch.toLowerCase()) ||
+                  (m.modality ?? "").toLowerCase().includes(maskSearch.toLowerCase())
+                ).map(m => (
+                  <div
+                    key={m.id}
+                    className="group flex items-start gap-2 p-2.5 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-colors"
+                    onClick={() => applyMask(m.body, m.exam_title)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        {m.modality && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 uppercase">{m.modality}</span>
+                        )}
+                        <span className="text-xs font-medium text-gray-800 truncate">{m.name}</span>
+                        {m.scope === 'unit' && (
+                          <span className="text-[9px] px-1 py-0.5 rounded bg-green-100 text-green-700 font-medium">unidade</span>
+                        )}
+                      </div>
+                      {m.exam_title && (
+                        <p className="text-[10px] text-gray-500 truncate">{m.exam_title}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); deleteMask.mutate({ id: m.id }); }}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-100 text-red-500 transition-opacity shrink-0"
+                      title="Remover máscara"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Overlay para fechar o painel */}
+          {showMasksPanel && (
+            <div className="fixed inset-0 z-40 print:hidden" onClick={() => setShowMasksPanel(false)} />
+          )}
+        </>
+      )}
+
       {/* Modal de motivo de retificação */}
       {showReviseModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

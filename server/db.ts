@@ -49,6 +49,9 @@ import {
   BillingMonthlySystemByUnit,
   BillingMonthlyDoctorByUnit,
   unit_exam_prices,
+  report_masks,
+  ReportMask,
+  InsertReportMask,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -3051,3 +3054,43 @@ export async function listAllOpenCycles() {
   }));
 }
 
+
+// ─── Máscaras / Laudos Prontos ────────────────────────────────────────────────
+
+/**
+ * Lista máscaras visíveis para um usuário em uma unidade:
+ * - scope='personal' do próprio usuário
+ * - scope='unit' de qualquer owner da mesma unidade
+ */
+export async function listReportMasks(unitId: number, userId: number): Promise<ReportMask[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(report_masks).where(
+    and(
+      eq(report_masks.unit_id, unitId),
+      or(
+        and(eq(report_masks.scope, "personal"), eq(report_masks.owner_user_id, userId)),
+        eq(report_masks.scope, "unit")
+      )
+    )
+  ).orderBy(report_masks.scope, report_masks.name);
+}
+
+/** Insere uma ou mais máscaras em lote (importação JSON). */
+export async function createReportMasks(masks: InsertReportMask[]): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (masks.length === 0) return;
+  await db.insert(report_masks).values(masks);
+}
+
+/** Remove uma máscara pelo id, verificando que pertence ao usuário (ou admin). */
+export async function deleteReportMask(id: number, userId: number, isAdmin: boolean): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const condition = isAdmin
+    ? eq(report_masks.id, id)
+    : and(eq(report_masks.id, id), eq(report_masks.owner_user_id, userId));
+  const result = await db.delete(report_masks).where(condition);
+  return (result[0] as { affectedRows: number }).affectedRows > 0;
+}

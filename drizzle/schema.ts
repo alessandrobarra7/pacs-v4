@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, date, json, decimal, uniqueIndex } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, longtext, timestamp, varchar, boolean, date, json, decimal, uniqueIndex } from "drizzle-orm/mysql-core";
 
 /**
  * Units (Medical facilities) - Each unit has its own Orthanc instance
@@ -920,3 +920,25 @@ export const model_layouts = mysqlTable("model_layouts", {
 
 export type ModelLayout = typeof model_layouts.$inferSelect;
 export type InsertModelLayout = typeof model_layouts.$inferInsert;
+
+// ─── Máscaras / Laudos Prontos ────────────────────────────────────────────────
+/**
+ * Máscaras de laudos prontos por usuário/unidade.
+ * scope='personal' → visível apenas para o owner_user_id.
+ * scope='unit'     → visível para todos os médicos da unit_id (publicado por admin).
+ */
+export const report_masks = mysqlTable("report_masks", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  owner_user_id: int("owner_user_id").notNull(),
+  scope: mysqlEnum("scope", ["personal", "unit"]).notNull().default("personal"),
+  name: varchar("name", { length: 255 }).notNull(),
+  modality: varchar("modality", { length: 10 }),
+  exam_title: varchar("exam_title", { length: 255 }),
+  body: longtext("body").notNull(),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ReportMask = typeof report_masks.$inferSelect;
+export type InsertReportMask = typeof report_masks.$inferInsert;

@@ -1732,3 +1732,16 @@
 - [x] M7A: TypeScript 0 erros
 - [x] M7B: Todos os testes passando
 - [x] M7C: Commit GitHub + checkpoint Manus
+
+## v52 — Editor de Laudos: Toolbar + Máscaras com Backend
+
+- [ ] v52 — Tabela report_masks (id, unit_id, owner_user_id, scope: personal|unit, name, modality, exam_title, body, created_by, createdAt, updatedAt)
+- [ ] v52 — Migration 0043 criada e aplicada no banco sandbox
+- [ ] v52 — db.ts: listReportMasks, createReportMask, deleteReportMask
+- [ ] v52 — tRPC procedures: masks.list, masks.import (bulk JSON), masks.delete
+- [ ] v52 — ReportEditorPage: toolbar de formatação (bold/italic/underline/cor/realce/alinhamento/fonte/undo/redo/linha)
+- [ ] v52 — ReportEditorPage: botão Pré-visualizar no header
+- [ ] v52 — ReportEditorPage: botão flutuante separado de Laudos Prontos (máscaras)
+- [ ] v52 — Botão flutuante: importar JSON (pessoal) + admin pode publicar para unidade
+- [ ] v52 — Botão flutuante: busca, agrupamento Pessoais / Unidade, aplicar máscara no editor
+- [ ] v52 — Testes + commit + checkpoint
