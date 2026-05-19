@@ -8,34 +8,49 @@ const ADMIN_ROLES = ["admin_master", "unit_admin"] as const;
 /**
  * Converte texto puro para HTML compatível com o editor contentEditable.
  * - Se o body já contiver tags HTML, retorna sem alteração.
- * - Caso contrário:
- *   1. Converte marcadores `=== TÍTULO ===` em <h3>TÍTULO</h3>
- *   2. Converte blocos separados por linha em branco em <p>…</p>
- *   3. Converte quebras de linha simples (\n) dentro de blocos em <br>
+ * - Caso contrário, processa linha a linha:
+ *   1. Linhas `=== TÍTULO ===` → <h3>TÍTULO</h3> (em qualquer posição)
+ *   2. Linhas em branco → fecham o parágrafo atual e abrem um novo
+ *   3. Demais linhas → acumuladas dentro de <p>…</p> com <br> entre elas
  */
 function normalizeBodyToHtml(body: string): string {
   // Detecta se já é HTML: presença de qualquer tag de abertura
   if (/<[a-zA-Z][^>]*>/.test(body)) return body;
 
-  // Divide em blocos separados por linha(s) em branco
-  const blocks = body.split(/\n{2,}/);
+  const lines = body.split('\n');
+  const output: string[] = [];
+  let paragraphLines: string[] = [];
 
-  const htmlBlocks = blocks.map(block => {
-    const trimmed = block.trim();
-    if (!trimmed) return '';
+  const flushParagraph = () => {
+    if (paragraphLines.length > 0) {
+      output.push(`<p>${paragraphLines.join('<br>')}</p>`);
+      paragraphLines = [];
+    }
+  };
 
-    // Marcador de seção: === TÍTULO ===
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Linha de seção: === TÍTULO ===
     const sectionMatch = trimmed.match(/^===\s*(.+?)\s*===$/);
     if (sectionMatch) {
-      return `<h3>${sectionMatch[1]}</h3>`;
+      flushParagraph();
+      output.push(`<h3>${sectionMatch[1]}</h3>`);
+      continue;
     }
 
-    // Bloco normal: quebras simples viram <br>, envolve em <p>
-    const inner = trimmed.replace(/\n/g, '<br>');
-    return `<p>${inner}</p>`;
-  });
+    // Linha em branco: fecha parágrafo atual
+    if (!trimmed) {
+      flushParagraph();
+      continue;
+    }
 
-  return htmlBlocks.filter(Boolean).join('');
+    // Linha normal: acumula no parágrafo
+    paragraphLines.push(trimmed);
+  }
+
+  flushParagraph();
+  return output.join('');
 }
 
 function isAdmin(role: string) {
