@@ -14,6 +14,7 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { unit_report_sla_configs, report_readiness, exam_legends } from "../../drizzle/schema";
 import { eq, inArray, and, asc } from "drizzle-orm";
+import { canAccessUnit } from "../authorization";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -229,9 +230,10 @@ export const slaRouter = router({
       if (ctx.user.role !== "admin_master" && ctx.user.role !== "unit_admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem configurar o SLA." });
       }
-      // unit_admin só pode configurar sua própria unidade
-      if (ctx.user.role === "unit_admin" && ctx.user.unit_id !== input.unitId) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Você só pode configurar o SLA da sua unidade." });
+      // unit_admin só pode configurar unidades às quais tem acesso (multi-unidade via user_unit_permissions)
+      if (ctx.user.role === "unit_admin") {
+        const canAccess = await canAccessUnit(ctx.user, input.unitId, "view_studies");
+        if (!canAccess) throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem acesso a esta unidade." });
       }
       if (input.enabled && (!input.slaValue || !input.slaUnit)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o valor e a unidade do prazo." });
@@ -293,7 +295,7 @@ export const slaRouter = router({
   /** Retorna readiness de múltiplos estudos (batch) */
   getBatchStatus: protectedProcedure
     .input(z.object({
-      studyInstanceUids: z.array(z.string()),
+      studyInstanceUids: z.array(z.string()).max(500),
       unitId: z.number(),
     }))
     .query(async ({ input }) => {

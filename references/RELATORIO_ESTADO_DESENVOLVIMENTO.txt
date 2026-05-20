@@ -1,0 +1,422 @@
+================================================================================
+  PACS PORTAL v4 — RELATÓRIO DE ESTADO E ORIENTAÇÕES DE DESENVOLVIMENTO
+  Versão de referência: v59
+  Data: 20/05/2026
+================================================================================
+
+
+====================================================================
+1. O QUE É O SISTEMA
+====================================================================
+
+O PACS Portal v4 é um sistema médico para gestão de laudos
+radiológicos. Permite que médicos laudem exames DICOM, assinem
+digitalmente os laudos e tenham seu repasse financeiro calculado
+automaticamente por cada laudo produzido.
+
+STACK TÉCNICA:
+  Frontend:  React 19, TypeScript, Tailwind CSS, tRPC, Wouter
+  Backend:   Node.js, Express, tRPC, Drizzle ORM
+  Banco:     MySQL 8 (MariaDB compatível)
+  DICOM:     Orthanc (servidor local por unidade)
+  Armazenamento: MinIO (logos, assinaturas, imagens)
+  Processo:  PM2 (produção, VM2)
+
+PERFIS DE USUÁRIO:
+  admin_master       → controle total do sistema
+  unit_admin         → administra unidades específicas
+  medico             → laudar, assinar, ver financeiro próprio
+  responsavel_financeiro → gerir pagamentos das unidades
+  operador           → registrar estudos, visualizar
+  visualizador       → apenas leitura
+
+
+====================================================================
+2. SETORES DO SISTEMA — ESTADO ATUAL (v59)
+====================================================================
+
+────────────────────────────────────────────────────────────────────
+✅ AUTENTICAÇÃO (RESOLVIDO em v59)
+────────────────────────────────────────────────────────────────────
+ESTADO: funcional em múltiplos dispositivos
+
+O que foi corrigido:
+  — context.ts substituído: verificação JWT direta com jose, sem SDK
+  — Fallback para usuários locais: 'local:<username>'
+  — Expiração do JWT alinhada com o cookie (SESSION_DURATION_HOURS)
+  — Timezone de Fortaleza na verificação de expiration_date
+  — AuthService.verifySession (dead code) removido
+
+Como funciona:
+  1. Login valida senha no banco (bcrypt)
+  2. JWT criado com openId e assinado com JWT_SECRET
+  3. Cookie HttpOnly gravado (24h por padrão)
+  4. Cada requisição: cookie lido → JWT verificado → usuário buscado no banco
+  5. Múltiplos dispositivos: cada um tem seu próprio cookie válido
+
+Ação recomendada no banco (não urgente):
+  UPDATE users SET openId = CONCAT('local:', username)
+  WHERE openId IS NULL AND username IS NOT NULL;
+
+────────────────────────────────────────────────────────────────────
+✅ FINANCEIRO (COMPLETO desde v53)
+────────────────────────────────────────────────────────────────────
+ESTADO: funcional e correto
+
+Regra central: cada laudo assinado = 1 evento financeiro.
+
+O que está implementado:
+  — Ciclo financeiro por unidade (start_day / end_day configurável)
+  — Precificação por modalidade de exame (CT=80, RX=20, MR=120...)
+  — Hierarquia de preços: modality > unit_default > fallback
+  — signed_at como base de filtro (não createdAt)
+  — financial_status com suporte a cancelamento
+  — Auditoria de quem marcou pagamento (doctor_received_by_user_id)
+  — financial_enabled por unidade
+  — FinanceConfiguracao.tsx para setup completo
+  — Extrato imprimível para médico
+  — Responsável financeiro com dívidas separadas (médico vs sistema)
+  — financialDiagnostic e repriceMissingEvents para admin
+  — Todos os parseFloat() substituídos por toMoney()
+
+────────────────────────────────────────────────────────────────────
+✅ EDITOR DE LAUDOS (COMPLETO desde v56)
+────────────────────────────────────────────────────────────────────
+ESTADO: funcional com novas ferramentas
+
+O que está implementado:
+  — Toolbar de formatação: negrito, itálico, sublinhado, fonte,
+    alinhamento, cor, realce, undo/redo
+  — Pré-visualização toggle (modo leitura do laudo)
+  — Máscaras de laudos: importar JSON, aplicar, excluir, buscar
+  — Controle de scope (personal/unit) com restrição por role
+  — Drag-and-drop de templates, frases e carimbo
+  — Modo multi-página para múltiplos exames
+  — Impressão A4 com layout customizável por unidade
+  — sanitizeHtmlForEditor em toda inserção de conteúdo externo
+
+────────────────────────────────────────────────────────────────────
+✅ PACS / DICOM (CORRETO desde v53)
+────────────────────────────────────────────────────────────────────
+ESTADO: funcional
+
+  — C-FIND popula studies_cache após cada consulta (upsertStudyCache)
+  — modality_snapshot preenchido automaticamente nos eventos financeiros
+  — UNIQUE INDEX em studies_cache.study_instance_uid
+  — WebGL context loss tratado no viewer
+  — ToolGroup destroy no cleanup
+
+────────────────────────────────────────────────────────────────────
+✅ ADMIN & USUÁRIOS (CORRETO desde v56)
+────────────────────────────────────────────────────────────────────
+ESTADO: correto
+
+  — deleteUser com audit log DELETE_USER
+  — toggleUserActive com ACTIVATE_USER / DEACTIVATE_USER
+  — GROUP_PERMISSIONS em constante única de módulo
+  — Permissões granulares por unidade (user_unit_permissions)
+
+────────────────────────────────────────────────────────────────────
+✅ MÁSCARAS (CORRETO desde v56)
+────────────────────────────────────────────────────────────────────
+ESTADO: seguro
+
+  — canAccessUnit em list, import e delete
+  — Admin restrito à própria unidade no delete
+  — Frontend passa unitId no delete
+
+────────────────────────────────────────────────────────────────────
+✅ BANCO DE DADOS (ALINHADO — VM2)
+────────────────────────────────────────────────────────────────────
+ESTADO: alinhado com v59, sem migrations pendentes
+
+  billing_visit_events:  28 colunas (signed_at, financial_status,
+                          doctor_received_by_user_id, system_paid_by_user_id)
+  units:                 financial_enabled, billing_cycle_start/end_day
+  billing_doctor_modality_prices: tabela criada
+  audit_log:             enum completo com novos valores
+  report_masks:          tabela criada
+  studies_cache:         UNIQUE INDEX adicionado
+  Última migration:      0043_report_masks.sql
+
+
+====================================================================
+3. PENDÊNCIAS ATIVAS
+====================================================================
+
+────────────────────────────────────────────────────────────────────
+🟠 SLA — setUnitSla usa ctx.user.unit_id legado
+────────────────────────────────────────────────────────────────────
+ARQUIVO: server/routers/sla.ts linha 233
+
+PROBLEMA:
+  Unit_admin com múltiplas unidades via user_unit_permissions é
+  bloqueado de configurar SLA mesmo tendo permissão. O check usa
+  o campo legacy unit_id do usuário em vez de verificar as
+  permissões granulares.
+
+CORREÇÃO:
+  LOCALIZAR (linha 233):
+    if (ctx.user.role === "unit_admin" && ctx.user.unit_id !== input.unitId) {
+      throw new TRPCError({ code: "FORBIDDEN", ... });
+    }
+
+  SUBSTITUIR POR:
+    if (ctx.user.role === "unit_admin") {
+      const canAccess = await canAccessUnit(ctx.user, input.unitId, "view_studies");
+      if (!canAccess) throw new TRPCError({ code: "FORBIDDEN", ... });
+    }
+
+  ADICIONAR import no topo de sla.ts:
+    import { canAccessUnit } from "../authorization";
+
+────────────────────────────────────────────────────────────────────
+🟡 SLA — getBatchStatus sem limite no array
+────────────────────────────────────────────────────────────────────
+ARQUIVO: server/routers/sla.ts linha 296
+
+CORREÇÃO:
+  LOCALIZAR: studyInstanceUids: z.array(z.string()),
+  SUBSTITUIR: studyInstanceUids: z.array(z.string()).max(500),
+
+────────────────────────────────────────────────────────────────────
+🟠 ReportEditorPage — 4 funções mortas (~480 linhas)
+────────────────────────────────────────────────────────────────────
+ARQUIVO: client/src/pages/ReportEditorPage.tsx
+
+  ExamesTab   (linha 2014) — ~188 linhas — nunca chamada
+  TemplatesTab (linha 2252) — ~328 linhas — nunca chamada
+  ConteudoTab  (linha 3021) — ~43 linhas  — nunca chamada
+  ImagensTab   (linha 3065) — ~43 linhas  — nunca chamada
+
+  Remoção reduz o arquivo de 3175 → ~2700 linhas.
+  Verificar antes de remover:
+    grep -n "ExamesTab\|TemplatesTab\|ConteudoTab\|ImagensTab" \
+      client/src/pages/ReportEditorPage.tsx
+    → deve aparecer apenas nas definições, nunca em JSX
+
+────────────────────────────────────────────────────────────────────
+🟡 Banco — users.openId null para usuários locais
+────────────────────────────────────────────────────────────────────
+  Com o fallback de context.ts (v59), o login funciona mesmo com
+  openId = null. Mas para limpeza definitiva:
+
+  mysql -u root -p pacs_portal -e "
+    UPDATE users
+    SET openId = CONCAT('local:', username)
+    WHERE openId IS NULL AND username IS NOT NULL;
+  "
+
+
+====================================================================
+4. REGRAS DE DESENVOLVIMENTO — PADRÕES DO SISTEMA
+====================================================================
+
+────────────────────────────────────────────────────────────────────
+SEGURANÇA — Verificação de acesso a unidades
+────────────────────────────────────────────────────────────────────
+Toda procedure que recebe um unitId como input DEVE verificar
+se o usuário tem acesso àquela unidade:
+
+  import { canAccessUnit } from "../authorization";
+
+  const canAccess = await canAccessUnit(ctx.user, input.unitId, "view_studies");
+  if (!canAccess) throw new TRPCError({ code: "FORBIDDEN" });
+
+NÃO usar: ctx.user.unit_id !== input.unitId (legado, não suporta
+multi-unidade via user_unit_permissions)
+
+────────────────────────────────────────────────────────────────────
+FINANCEIRO — Aritmética de valores monetários
+────────────────────────────────────────────────────────────────────
+SEMPRE usar toMoney() e subMoney() definidas em financeSimple.ts.
+NUNCA usar parseFloat(), Number() direto ou soma direta de decimais.
+
+  ✅ toMoney(valor)           → converte string/number para decimal seguro
+  ✅ subMoney(total, pago)    → subtração sem erro de centavos
+  ❌ parseFloat(String(v))   → imprecisão IEEE 754
+  ❌ a + b (decimais)        → 0.1 + 0.2 = 0.30000000000000004
+
+────────────────────────────────────────────────────────────────────
+FINANCEIRO — Regra central imutável
+────────────────────────────────────────────────────────────────────
+  CADA LAUDO ASSINADO = 1 EVENTO FINANCEIRO
+
+  O evento nasce em reports.sign → createBillingVisitEvent.
+  O ciclo financeiro é apenas um FILTRO de datas.
+  Hierarquia de preços:
+    billing_doctor_modality_prices (mais específico)
+    → billing_doctor_unit_prices
+    → units.default_doctor_price
+    → null (pricing_status = 'pending_both')
+
+────────────────────────────────────────────────────────────────────
+AUDIT LOG — Operações que exigem registro
+────────────────────────────────────────────────────────────────────
+Toda operação irreversível ou sensível deve registrar no audit_log:
+
+  await createAuditLog({
+    user_id:     ctx.user.id,
+    unit_id:     ctx.user.unit_id ?? undefined,
+    action:      'ACTION_NAME',  // enum definido em schema.ts
+    target_type: 'USER' | 'UNIT' | 'REPORT' | ...,
+    target_id:   String(id),
+    ip_address:  ctx.req.ip,
+    user_agent:  ctx.req.headers['user-agent'],
+  });
+
+Ações obrigatórias: DELETE_USER, ACTIVATE_USER, DEACTIVATE_USER,
+  SIGN_REPORT, DELETE_REPORT, REVISE_REPORT, BILLING_EVENT_FAILED
+
+────────────────────────────────────────────────────────────────────
+CONTEÚDO HTML — Sanitização obrigatória
+────────────────────────────────────────────────────────────────────
+Todo HTML vindo de input externo (templates, máscaras, drag-and-drop)
+deve passar por sanitizeHtmlForEditor() antes de ser inserido no
+contentEditable:
+
+  import { sanitizeHtmlForEditor } from '...';
+  docRef.current.innerHTML = sanitizeHtmlForEditor(htmlInput);
+
+NUNCA: docRef.current.innerHTML = htmlInput (XSS)
+
+────────────────────────────────────────────────────────────────────
+MIGRATIONS — Padrão obrigatório
+────────────────────────────────────────────────────────────────────
+Toda mudança de schema EXIGE:
+  1. Atualizar drizzle/schema.ts
+  2. Criar arquivo drizzle/00XX_descricao.sql com ADD COLUMN IF NOT EXISTS
+  3. Executar no banco da VM2
+  4. Confirmar com SHOW COLUMNS ou DESCRIBE
+
+Usar ADD COLUMN IF NOT EXISTS (safe para re-execução):
+  ALTER TABLE `tabela`
+  ADD COLUMN IF NOT EXISTS `coluna` TIPO NULL AFTER `coluna_anterior`;
+
+────────────────────────────────────────────────────────────────────
+SESSÃO — Não usar sdk.authenticateRequest
+────────────────────────────────────────────────────────────────────
+O SDK foi projetado para o ambiente Manus/OAuth externo.
+Para autenticação de usuários locais:
+
+  ✅ Usar o context.ts atual (v59) — jwtVerify direto + getUserByOpenId
+  ✅ sdk.signSession() → pode continuar sendo usado para criar o JWT
+  ✅ sdk.verifySession() → pode continuar sendo usado se necessário
+  ❌ sdk.authenticateRequest() → não usar (chama OAuth externo)
+
+
+====================================================================
+5. ESTRUTURA DE ARQUIVOS — REFERÊNCIA RÁPIDA
+====================================================================
+
+BACKEND:
+  server/routers/          → procedures tRPC por domínio
+    auth.ts                → login, logout, me
+    admin.ts               → gestão de usuários e permissões
+    reports.ts             → CRUD e assinatura de laudos
+    financeSimple.ts       → módulo financeiro completo
+    masks.ts               → máscaras de laudos
+    pacs.ts                → C-FIND, C-MOVE, DICOM
+    templates.ts           → modelos de laudo
+    phrases.ts             → frases rápidas
+    sla.ts                 → configuração de SLA
+    units.ts               → gestão de unidades
+    layouts.ts             → layouts de laudo por unidade
+  server/_core/
+    context.ts             → criação do contexto tRPC (auth)
+    trpc.ts                → procedimentos protectedProcedure/adminProcedure
+    sdk.ts                 → JWT/OAuth utilities (MANUS SDK)
+    cookies.ts             → configuração do cookie de sessão
+    env.ts                 → variáveis de ambiente tipadas
+  server/db.ts             → funções de acesso ao banco
+  server/auth.service.ts   → validação de credenciais locais
+  server/authorization.ts  → canAccessUnit, assertRole
+
+FRONTEND:
+  client/src/pages/
+    ReportEditorPage.tsx   → editor de laudos (2 modos)
+    PacsQueryPage.tsx      → lista e busca de estudos
+    AdminPage.tsx          → painel administrativo
+    finance/               → módulo financeiro (7 páginas)
+    DicomViewerPage.tsx    → visualizador DICOM (Cornerstone3D)
+  client/src/components/
+    DoctorPriceManager.tsx → gestão de preços por médico/modalidade
+
+BANCO:
+  drizzle/schema.ts        → definição completa das tabelas
+  drizzle/00XX_*.sql       → migrations históricas
+
+
+====================================================================
+6. VARIÁVEIS DE AMBIENTE OBRIGATÓRIAS (.env)
+====================================================================
+
+  JWT_SECRET=<64-chars-hex>          # openssl rand -hex 64
+  NODE_ENV=production
+  SESSION_DURATION_HOURS=24
+  VITE_APP_ID=pacs-local
+  DATABASE_URL=mysql://user:pass@localhost:3306/pacs_portal
+  # OAUTH_SERVER_URL não precisa ser configurado para auth local
+
+
+====================================================================
+7. CHECKLIST DE DEPLOY
+====================================================================
+
+Antes de qualquer deploy em produção (VM2):
+
+  CÓDIGO:
+  [ ] pnpm tsc --noEmit → zero erros TypeScript
+  [ ] Testes passando (pnpm test)
+  [ ] Nenhum console.log de debug esquecido
+
+  BANCO:
+  [ ] Migrations novas executadas no banco da VM2
+  [ ] SHOW COLUMNS confirma novas colunas
+  [ ] Verificar: SELECT COUNT(*) FROM billing_visit_events WHERE signed_at IS NULL
+
+  AMBIENTE:
+  [ ] JWT_SECRET definido no .env
+  [ ] NODE_ENV=production no .env
+  [ ] pm2 restart pacs-portal após deploy
+
+  TESTE PÓS-DEPLOY:
+  [ ] Login funciona e persiste após refresh
+  [ ] Mesmo usuário em 2 browsers → ambos logados
+  [ ] Assinar laudo → evento financeiro criado
+  [ ] modality_snapshot preenchido nos novos eventos
+  [ ] Financeiro mostra valores corretos no ciclo atual
+
+
+====================================================================
+8. HISTÓRICO DE VERSÕES RELEVANTES
+====================================================================
+
+  v24-v27  Estrutura base, rotas, Auth RBAC inicial
+  v28      FinanceDashboard2, FinanceShell
+  v31      Redesign financeiro (3 níveis), FinanceMeuResponsavel
+  v32      BILLING_EVENT_FAILED, author_user_id, financialDiagnostic
+  v33      calcCycleDates(), reference_date, ciclo per-unidade (drill-down)
+  v35      signed_at adicionado, filtros migrados de createdAt
+  v41      getOrCreateActiveCycle não-bloqueante, testes integração
+  v51      billing_doctor_modality_prices, financial_status, financial_enabled
+  v53      upsertStudyCache após C-FIND, modality_snapshot automático
+  v55      Toolbar, pré-visualização, masks router, migration 0043
+  v56      Admin audit log, GROUP_PERMISSIONS unificado, masks segurança
+  v57      parseFloat → toMoney (8 ocorrências), auth expiration Fortaleza
+  v59      context.ts substituído: JWT direto, multi-device funcional
+
+
+====================================================================
+9. CONTATO TÉCNICO E REPOSITÓRIO
+====================================================================
+
+  Repositório: github.com/alessandrobarra7/pacs-v4
+  Commit mais recente: v59
+  Servidor de produção: VM2 (lauds.com.br)
+  Processo: pm2 / pacs-portal
+
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================
