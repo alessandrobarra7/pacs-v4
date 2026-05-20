@@ -824,8 +824,10 @@ export const financeSimpleRouter = router({
       return {
         unit_id: u.id,
         unit_name: u.name,
-        default_system_price: u.default_system_price ? parseFloat(String(u.default_system_price)) : null,
-        default_doctor_price: u.default_doctor_price ? parseFloat(String(u.default_doctor_price)) : null,
+        // FIX: usar toMoney() em vez de parseFloat() — mesmo padrão do módulo financeiro
+        // != null (em vez de ?) garante que 0 seja retornado como 0, não como null
+        default_system_price: u.default_system_price != null ? toMoney(u.default_system_price) : null,
+        default_doctor_price: u.default_doctor_price != null ? toMoney(u.default_doctor_price) : null,
       };
     }),
 
@@ -1672,13 +1674,13 @@ export const financeSimpleRouter = router({
           const uid = row.summary.unit_id;
           const existing = byUnitMap.get(uid) ?? { unit_id: uid, unit_name: row.unit_name ?? '', reports_count: 0, system_amount_due: 0, doctor_amount_due: 0, cycle: row.cycle };
           existing.reports_count += row.summary.reports_count ?? 0;
-          existing.system_amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
+          existing.system_amount_due += toMoney(row.summary.amount_due ?? 0);
           byUnitMap.set(uid, existing);
         }
         for (const row of doctorCycles) {
           const uid = row.summary.unit_id;
           const existing = byUnitMap.get(uid) ?? { unit_id: uid, unit_name: row.unit_name ?? '', reports_count: 0, system_amount_due: 0, doctor_amount_due: 0 };
-          existing.doctor_amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
+          existing.doctor_amount_due += toMoney(row.summary.amount_due ?? 0);
           byUnitMap.set(uid, existing);
         }
         const byUnit = Array.from(byUnitMap.values()).map(r => ({
@@ -1693,7 +1695,7 @@ export const financeSimpleRouter = router({
           const key = `${row.summary.unit_id}-${row.summary.doctor_user_id}`;
           const existing = byDoctorMap.get(key) ?? { unit_id: row.summary.unit_id, unit_name: row.unit_name ?? '', doctor_user_id: row.summary.doctor_user_id, doctor_name: row.doctor_name ?? '', reports_count: 0, amount_due: 0 };
           existing.reports_count += row.summary.reports_count ?? 0;
-          existing.amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
+          existing.amount_due += toMoney(row.summary.amount_due ?? 0);
           byDoctorMap.set(key, existing);
         }
         const byDoctor = Array.from(byDoctorMap.values()).map(r => ({ ...r, amount_due: r.amount_due.toFixed(2) }));
@@ -2063,8 +2065,8 @@ export const financeSimpleRouter = router({
             eq(billing_cycles.status, 'open'),
           ));
         const totalReports = openDoctorSummaries.reduce((s, r) => s + (r.summary.reports_count ?? 0), 0);
-        const totalDoctorAmount = openDoctorSummaries.reduce((s, r) => s + parseFloat(r.summary.amount_due ?? '0'), 0);
-        const totalSystemAmount = openSystemSummaries.reduce((s, r) => s + parseFloat(r.summary.amount_due ?? '0'), 0);
+        const totalDoctorAmount = openDoctorSummaries.reduce((s, r) => s + toMoney(r.summary.amount_due ?? 0), 0);
+        const totalSystemAmount = openSystemSummaries.reduce((s, r) => s + toMoney(r.summary.amount_due ?? 0), 0);
         return {
           unit,
           doctorPrices,
@@ -2137,13 +2139,13 @@ export const financeSimpleRouter = router({
           const uid = row.summary.unit_id;
           const existing = byUnitMap.get(uid) ?? { unit_id: uid, unit_name: row.unit_name ?? '', reports_count: 0, system_amount_due: 0, doctor_amount_due: 0 };
           existing.reports_count += row.summary.reports_count ?? 0;
-          existing.system_amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
+          existing.system_amount_due += toMoney(row.summary.amount_due ?? 0);
           byUnitMap.set(uid, existing);
         }
         for (const row of summary.doctorCycles) {
           const uid = row.summary.unit_id;
           const existing = byUnitMap.get(uid) ?? { unit_id: uid, unit_name: row.unit_name ?? '', reports_count: 0, system_amount_due: 0, doctor_amount_due: 0 };
-          existing.doctor_amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
+          existing.doctor_amount_due += toMoney(row.summary.amount_due ?? 0);
           byUnitMap.set(uid, existing);
         }
         const byUnit = Array.from(byUnitMap.values()).map(r => ({
@@ -2158,7 +2160,7 @@ export const financeSimpleRouter = router({
           const key = `${row.summary.unit_id}-${row.summary.doctor_user_id}`;
           const existing = byDoctorMap.get(key) ?? { unit_id: row.summary.unit_id, unit_name: row.unit_name ?? '', doctor_user_id: row.summary.doctor_user_id, doctor_name: row.doctor_name ?? '', reports_count: 0, amount_due: 0 };
           existing.reports_count += row.summary.reports_count ?? 0;
-          existing.amount_due += parseFloat(String(row.summary.amount_due ?? '0'));
+          existing.amount_due += toMoney(row.summary.amount_due ?? 0);
           byDoctorMap.set(key, existing);
         }
         const byDoctor = Array.from(byDoctorMap.values()).map(r => ({ ...r, amount_due: r.amount_due.toFixed(2) }));
@@ -2483,7 +2485,7 @@ export const financeSimpleRouter = router({
           const d = rawDate ? (rawDate instanceof Date ? rawDate.toISOString().split('T')[0] : String(rawDate).split('T')[0]) : 'sem-data';
           let dg = ug.days.find(x => x.date === d);
           if (!dg) { dg = { date: d, reports: 0, amount: 0 }; ug.days.push(dg); }
-          const amt = parseFloat(row.event.doctor_price_applied ?? '0');
+          const amt = toMoney(row.event.doctor_price_applied ?? 0);
           dg.reports += 1; dg.amount += amt;
           ug.reports += 1; ug.amount += amt;
           doc.total_reports += 1; doc.total_amount += amt;
@@ -2559,7 +2561,7 @@ export const financeSimpleRouter = router({
           const d = rawDate2 ? (rawDate2 instanceof Date ? rawDate2.toISOString().split('T')[0] : String(rawDate2).split('T')[0]) : 'sem-data';
           let de = ue.days.find(x => x.date === d);
           if (!de) { de = { date: d, reports: 0, amount: 0 }; ue.days.push(de); }
-          const amt = parseFloat(row.event.doctor_price_applied ?? '0');
+          const amt = toMoney(row.event.doctor_price_applied ?? 0);
           de.reports += 1; de.amount += amt;
           ue.reports += 1; ue.amount += amt;
           doc.total_reports += 1; doc.total_amount += amt;
