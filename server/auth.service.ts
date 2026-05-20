@@ -1,5 +1,4 @@
 import { compare, hash } from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
 import { getDb, getUserByUsernameOrEmail, getUserById } from './db';
 import { users } from '../drizzle/schema';
@@ -56,8 +55,11 @@ export class AuthService {
     // F2-2: Verificar se a conta expirou
     // O campo expiration_date é string 'YYYY-MM-DD' (tipo DATE do MySQL via Drizzle)
     if (user.expiration_date) {
-      // Compara apenas a data (sem hora) para evitar problemas de timezone
-      const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+      // FIX: usar timezone de Brasília para comparar expiração
+      // toISOString() usa UTC e rejeita contas 3h antes do prazo em Fortaleza (UTC-3)
+      const today = new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'America/Fortaleza',
+      }).format(new Date()); // formato: 'YYYY-MM-DD'
       const rawExp = user.expiration_date as unknown;
       const expDate = typeof rawExp === 'string'
         ? (rawExp as string).slice(0, 10)
@@ -81,16 +83,8 @@ export class AuthService {
 
   // PRG-01: createSession removido — código morto (não chamado em nenhum lugar)
   // PRG-01: buildSessionCookie removido — código morto (não chamado em nenhum lugar)
-  // A criação de sessão e cookie é feita diretamente em server/routers.ts (procedure auth.login)
-
-  static async verifySession(token: string): Promise<SessionPayload> {
-    try {
-      const payload = jwt.verify(token, JWT_SECRET) as SessionPayload;
-      return payload;
-    } catch (error) {
-      throw new Error('INVALID_SESSION');
-    }
-  }
+  // PRG-01: verifySession removido — código morto (usa jsonwebtoken, incompatível com sdk.verifySession que usa jose)
+  // A criação/verificação de sessão é feita via sdk em server/_core/context.ts
 
   static sanitizeUser(user: any): AuthResponse {
     return {

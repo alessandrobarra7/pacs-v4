@@ -26,8 +26,11 @@ export const authRouter = router({
     .mutation(async ({ input, ctx }) => {
       try {
         const user = await AuthService.validateCredentials(input.login, input.password);
+        // FIX: usuários locais têm openId populado após migration.
+        // Fallback defensivo caso openId ainda seja null por algum motivo.
+        const userOpenId = user.openId ?? `local:${user.username}`;
         const token = await sdk.signSession({
-          openId: user.openId,
+          openId: userOpenId,
           appId: process.env.VITE_APP_ID ?? 'pacs-local',
           name: user.name ?? user.username ?? 'Usuário',
         });
