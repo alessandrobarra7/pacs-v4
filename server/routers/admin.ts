@@ -7,6 +7,76 @@ import {
   createAuditLog, getDb, resolveEffectiveUnitId,
 } from "../db";
 
+// ─── Permissões por grupo ────────────────────────────────────────────────────────────────────────────
+// Fonte única de verdade. Alterar APENAS AQUI ao mudar permissões de grupos.
+// Usada em createUser e setUserPermissions.
+const GROUP_PERMISSIONS = {
+  medicos: {
+    view_studies:     true,
+    edit_reports:     true,
+    view_anamnesis:   true,
+    edit_anamnesis:   true,
+    edit_exam_legend: true,
+    print_reports:    true,
+    manage_templates: true,
+  },
+  operadores: {
+    view_studies:     true,
+    edit_reports:     false,
+    view_anamnesis:   true,
+    edit_anamnesis:   true,
+    edit_exam_legend: true,
+    print_reports:    false,
+    manage_templates: false,
+  },
+  visualizadores: {
+    view_studies:     true,
+    edit_reports:     false,
+    view_anamnesis:   false,
+    edit_anamnesis:   false,
+    edit_exam_legend: false,
+    print_reports:    true,
+    manage_templates: false,
+  },
+  responsaveisFinanceiros: {
+    view_studies:     false,
+    edit_reports:     false,
+    view_anamnesis:   false,
+    edit_anamnesis:   false,
+    edit_exam_legend: false,
+    print_reports:    false,
+    manage_templates: false,
+  },
+  administradoresUnidade: {
+    view_studies:     true,
+    edit_reports:     false,
+    view_anamnesis:   false,
+    edit_anamnesis:   false,
+    edit_exam_legend: false,
+    print_reports:    true,
+    manage_templates: false,
+  },
+  adminsMaster: {
+    view_studies:     true,
+    edit_reports:     true,
+    view_anamnesis:   true,
+    edit_anamnesis:   true,
+    edit_exam_legend: true,
+    print_reports:    true,
+    manage_templates: true,
+  },
+} as const satisfies Record<string, {
+  view_studies:     boolean;
+  edit_reports:     boolean;
+  view_anamnesis:   boolean;
+  edit_anamnesis:   boolean;
+  edit_exam_legend: boolean;
+  print_reports:    boolean;
+  manage_templates: boolean;
+}>;
+
+type GroupKey = keyof typeof GROUP_PERMISSIONS;
+
 export const adminRouter = router({
     listUsers: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
@@ -173,6 +243,18 @@ export const adminRouter = router({
         const { users } = await import("../../drizzle/schema");
         const { eq: eqOp } = await import("drizzle-orm");
         await db.delete(users).where(eqOp(users.id, input.id));
+
+        // FIX: registrar exclusão no audit_log — operação irreversível
+        await createAuditLog({
+          user_id:     ctx.user.id,
+          unit_id:     ctx.user.unit_id ?? undefined,
+          action:      'DELETE_USER',
+          target_type: 'USER',
+          target_id:   String(input.id),
+          ip_address:  ctx.req.ip,
+          user_agent:  ctx.req.headers['user-agent'] as string | undefined,
+        });
+
         return { success: true };
       }),
 
@@ -277,6 +359,19 @@ export const adminRouter = router({
           }
         }
         await db.update(users).set({ isActive: input.isActive }).where(eqOp(users.id, input.id));
+
+        // FIX: registrar ativação/desativação no audit_log
+        await createAuditLog({
+          user_id:     ctx.user.id,
+          unit_id:     ctx.user.unit_id ?? undefined,
+          action:      input.isActive ? 'ACTIVATE_USER' : 'DEACTIVATE_USER',
+          target_type: 'USER',
+          target_id:   String(input.id),
+          ip_address:  ctx.req.ip,
+          user_agent:  ctx.req.headers['user-agent'] as string | undefined,
+          metadata:    { isActive: input.isActive },
+        });
+
         return { success: true };
       }),
 
@@ -658,14 +753,7 @@ export const adminRouter = router({
         
         // Vincular à unidade com permissões
         const { users: usersTable, user_unit_permissions: uup } = await import('../../drizzle/schema');
-        const GROUP_PERMISSIONS: Record<string, { view_studies: boolean; edit_reports: boolean; view_anamnesis: boolean; edit_anamnesis: boolean; edit_exam_legend: boolean; print_reports: boolean; manage_templates: boolean }> = {
-          medicos:                 { view_studies: true,  edit_reports: true,  view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: true,  manage_templates: true },
-          operadores:              { view_studies: true,  edit_reports: false, view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: false, manage_templates: false },
-          visualizadores:          { view_studies: true,  edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true,  manage_templates: false },
-          responsaveisFinanceiros: { view_studies: false, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: false, manage_templates: false },
-          administradoresUnidade:  { view_studies: true,  edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true,  manage_templates: false },
-        };
-        const perms = GROUP_PERMISSIONS[input.groupKey];
+        const perms = GROUP_PERMISSIONS[input.groupKey as GroupKey];
         await db.insert(uup).values({
           user_id: userId,
           unit_id: input.unitId,
@@ -710,15 +798,7 @@ export const adminRouter = router({
         if (!targetUser) throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
         const [existing] = await db.select().from(uup)
           .where(andOp(eqOp(uup.user_id, input.userId), eqOp(uup.unit_id, input.unitId)));
-        const GROUP_PERMISSIONS: Record<string, { view_studies: boolean; edit_reports: boolean; view_anamnesis: boolean; edit_anamnesis: boolean; edit_exam_legend: boolean; print_reports: boolean; manage_templates: boolean }> = {
-          medicos:                 { view_studies: true,  edit_reports: true,  view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: true,  manage_templates: true },
-          operadores:              { view_studies: true,  edit_reports: false, view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: false, manage_templates: false },
-          visualizadores:          { view_studies: true,  edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true,  manage_templates: false },
-          responsaveisFinanceiros: { view_studies: false, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: false, manage_templates: false },
-          administradoresUnidade:  { view_studies: true,  edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true,  manage_templates: false },
-          adminsMaster:            { view_studies: true,  edit_reports: true,  view_anamnesis: true,  edit_anamnesis: true,  edit_exam_legend: true,  print_reports: true,  manage_templates: true },
-        };
-        const perms = GROUP_PERMISSIONS[input.groupKey];
+        const perms = GROUP_PERMISSIONS[input.groupKey as GroupKey];
         if (existing) {
           await db.update(uup).set({ ...perms, group_key: input.groupKey }).where(andOp(eqOp(uup.user_id, input.userId), eqOp(uup.unit_id, input.unitId)));
         } else {
