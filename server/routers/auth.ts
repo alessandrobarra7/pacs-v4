@@ -8,6 +8,7 @@ import { getSessionCookieOptions } from "../_core/cookies";
 import { COOKIE_NAME } from "@shared/const";
 import { createAuditLog, createLocalUser, updateUserPassword } from "../db";
 import { adminProcedure } from "../_core/trpc";
+import { ENV } from "../_core/env";
 
 export const authRouter = router({
   me: publicProcedure.query(opts => opts.ctx.user),
@@ -33,6 +34,9 @@ export const authRouter = router({
           openId: userOpenId,
           appId: process.env.VITE_APP_ID ?? 'pacs-local',
           name: user.name ?? user.username ?? 'Usuário',
+        }, {
+          // FIX: alinhar expiração do JWT com o maxAge do cookie
+          expiresInMs: ENV.sessionDurationHours * 60 * 60 * 1000,
         });
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, token, cookieOptions);
