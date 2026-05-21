@@ -41,6 +41,7 @@ export const unitsRouter = router({
             edit_exam_legend: true,
             print_reports: true,
             manage_templates: true,
+            view_financial: true,
           };
         }
         const { getUserUnitPermission } = await import('../db');
@@ -57,6 +58,7 @@ export const unitsRouter = router({
               edit_exam_legend: false,
               print_reports: true,
               manage_templates: false,
+              view_financial: false,
             };
           }
           return null;
@@ -69,6 +71,7 @@ export const unitsRouter = router({
           edit_exam_legend: perm.edit_exam_legend,
           print_reports: perm.print_reports,
           manage_templates: perm.manage_templates,
+          view_financial: perm.view_financial ?? false,
         };
       }),
     

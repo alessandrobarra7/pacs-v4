@@ -487,6 +487,8 @@ export function PacsQueryPage() {
   const canPrint = isAdminMaster ? true : (myPerms?.print_reports ?? false);
   // canCID: alias de compatibilidade — editar anamnese requer edit_anamnesis
   const canCID = canEditAnamnesis;
+  // view_financial: controla visibilidade do botão Financeiro no header
+  const canViewFinancial = isAdminMaster ? true : (myPerms?.view_financial ?? false);
 
   const { data: unitData } = trpc.units.getById.useQuery(
     { id: effectiveUnitId || 0 },
@@ -1421,36 +1423,13 @@ export function PacsQueryPage() {
                 Administração
               </button>
             )}
-            {isAdminMaster && (
+            {canViewFinancial && (
               <button
-                onClick={() => navigate('/financeiro/pagamentos')}
-                className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
-              >
-                <DollarSign className="h-3.5 w-3.5" />
-                Financeiro
-              </button>
-            )}
-            {userRole === 'unit_admin' && (
-              <button
-                onClick={() => navigate('/financeiro/pagamentos')}
-                className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
-              >
-                <DollarSign className="h-3.5 w-3.5" />
-                Financeiro
-              </button>
-            )}
-            {userRole === 'responsavel_financeiro' && (
-              <button
-                onClick={() => navigate('/financeiro/responsavel')}
-                className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
-              >
-                <DollarSign className="h-3.5 w-3.5" />
-                Financeiro
-              </button>
-            )}
-            {userRole === 'medico' && (
-              <button
-                onClick={() => navigate('/financeiro/meu-financeiro')}
+                onClick={() => {
+                  if (isAdminMaster || userRole === 'unit_admin') navigate('/financeiro/pagamentos');
+                  else if (userRole === 'responsavel_financeiro') navigate('/financeiro/responsavel');
+                  else navigate('/financeiro/meu-financeiro');
+                }}
                 className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-1.5 transition-colors"
               >
                 <DollarSign className="h-3.5 w-3.5" />
