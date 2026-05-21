@@ -1081,6 +1081,9 @@ export function PacsQueryPage() {
     const paperH = pageSizeQ === 'Letter' ? '279mm' : '297mm';
     // FUNDO: base64 + background-image no body com dimensões físicas da folha
     const bgBase64Q = lBgUrl ? await fetchToBase64(lBgUrl) : null;
+    // FIX: converter assinatura e carimbo para base64 (mesma razão do ReportEditorPage)
+    const sigBase64Q   = doctorSignatureUrl ? await fetchToBase64(doctorSignatureUrl) : null;
+    const stampBase64Q = doctorStampUrl     ? await fetchToBase64(doctorStampUrl)     : null;
     // FIX: overlay de opacidade via div position:fixed com dimensões em mm
     const overlayAlphaQ = Math.round((1 - lBgOpacity) * 100) / 100;
     const bgLayerQ = (bgBase64Q && overlayAlphaQ > 0) ? `
@@ -1170,8 +1173,8 @@ export function PacsQueryPage() {
     // Rodapé do médico (bloco reutilizado em todas as páginas do multi-seção)
     const doctorFooterHtml = isSignedOrRevised && doctorName ? `
       <div class="doctor-footer">
-        ${doctorStampUrl ? `<img src="${doctorStampUrl}" alt="Carimbo" class="stamp-img" />` : ''}
-        ${doctorSignatureUrl ? `<img src="${doctorSignatureUrl}" alt="Assinatura" class="sig-img" />` : ''}
+        ${stampBase64Q ? `<img src="${stampBase64Q}" alt="Carimbo"    class="stamp-img" />` : ''}
+        ${sigBase64Q   ? `<img src="${sigBase64Q}"   alt="Assinatura" class="sig-img" />` : ''}
         <div class="sig-line"></div>
         <div class="sig-name">${doctorName}${reportStatus === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
         ${doctorCrm ? `<div class="sig-crm">CRM: ${doctorCrm}</div>` : ''}

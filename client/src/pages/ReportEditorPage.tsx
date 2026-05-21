@@ -654,10 +654,15 @@ export default function ReportEditorPage() {
       </div>
     `;
 
+    // FIX: converter assinatura e carimbo para base64
+    // URLs do MinIO não carregam na janela de impressão (sem autenticação)
+    const sigBase64   = medCtx?.signatureUrl ? await fetchToBase64(medCtx.signatureUrl) : null;
+    const stampBase64 = medCtx?.stampUrl     ? await fetchToBase64(medCtx.stampUrl)     : null;
+
     const doctorFooterHtml = isSignedOrRevised && medCtx?.doctorName ? `
       <div class="doctor-footer">
-        ${medCtx.signatureUrl ? `<img src="${medCtx.signatureUrl}" alt="Assinatura" class="sig-img" />` : ''}
-        ${medCtx.stampUrl ? `<img src="${medCtx.stampUrl}" alt="Carimbo" class="stamp-img" />` : ''}
+        ${sigBase64   ? `<img src="${sigBase64}"   alt="Assinatura" class="sig-img" />` : ''}
+        ${stampBase64 ? `<img src="${stampBase64}" alt="Carimbo"    class="stamp-img" />` : ''}
         <div class="sig-line"></div>
         <div class="sig-name">${medCtx.doctorName}${existingReport?.status === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
         ${(medCtx as any)?.specialty ? `<div class="sig-role">${(medCtx as any).specialty}</div>` : ''}
