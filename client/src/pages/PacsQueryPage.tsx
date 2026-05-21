@@ -1441,7 +1441,7 @@ export function PacsQueryPage() {
       />
 
       {/* ── BLOCO FINANCEIRO DISCRETO ── */}
-      {(userRole === 'medico' || userRole === 'responsavel_financeiro') && (
+      {canViewFinancial && (
         <FinancialBanner unitId={effectiveUnitId} userRole={userRole} />
       )}
 

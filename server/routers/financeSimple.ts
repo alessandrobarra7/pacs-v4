@@ -641,6 +641,13 @@ export const financeSimpleRouter = router({
     }))
     .query(async ({ input, ctx }) => {
       assertMedico(ctx.user.role);
+      // Guard: médico precisa ter view_financial em pelo menos uma unidade
+      if (ctx.user.role !== 'admin_master') {
+        const perm = await getUserUnitPermission(ctx.user.id, ctx.user.unit_id ?? 0);
+        if (!perm?.view_financial) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para visualizar financeiro.' });
+        }
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -1835,6 +1842,13 @@ export const financeSimpleRouter = router({
         const allowedRoles = ['medico', 'admin_master', 'responsavel_financeiro', 'unit_admin'];
         if (!allowedRoles.includes(ctx.user.role)) {
           return { status: 'no_access' as const, cycle_period: null, cycle_amount: null, cycle_visits: null, price_per_report: null };
+        }
+        // Guard: não-admin precisa ter view_financial na unidade
+        if (ctx.user.role !== 'admin_master') {
+          const perm = await getUserUnitPermission(ctx.user.id, input.unit_id);
+          if (!perm?.view_financial) {
+            return { status: 'no_access' as const, cycle_period: null, cycle_amount: null, cycle_visits: null, price_per_report: null };
+          }
         }
         
         const result = await getDoctorUnitFinancialInfo(ctx.user.id, input.unit_id);
