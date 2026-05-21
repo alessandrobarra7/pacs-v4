@@ -14,7 +14,8 @@ type PermissionKey =
   | "edit_anamnesis"
   | "edit_exam_legend"
   | "print_reports"
-  | "manage_templates";
+  | "manage_templates"
+  | "view_financial";   // FIX: campo adicionado em v62 (migration 0046)
 
 type GroupKey =
   | "medicos"
@@ -32,6 +33,7 @@ const PERMISSION_LABELS: Record<PermissionKey, string> = {
   edit_exam_legend: "Editar Legenda de Exames",
   print_reports:    "Imprimir Laudos",
   manage_templates: "Gerenciar Modelos de Laudo",
+  view_financial:   "Ver Financeiro",  // FIX
 };
 
 const GROUP_LABELS: Record<GroupKey, string> = {
@@ -49,31 +51,37 @@ const DEFAULT_GROUP_PERMISSIONS: Record<GroupKey, Record<PermissionKey, boolean>
     view_studies: true, edit_reports: true, view_anamnesis: true,
     edit_anamnesis: true, edit_exam_legend: true, print_reports: true,
     manage_templates: true,
+    view_financial: false,
   },
   operadores: {
     view_studies: true, edit_reports: false, view_anamnesis: true,
     edit_anamnesis: true, edit_exam_legend: true, print_reports: false,
     manage_templates: false,
+    view_financial: false,
   },
   visualizadores: {
     view_studies: true, edit_reports: false, view_anamnesis: false,
     edit_anamnesis: false, edit_exam_legend: false, print_reports: true,
     manage_templates: false,
+    view_financial: false,
   },
   responsaveisFinanceiros: {
     view_studies: false, edit_reports: false, view_anamnesis: false,
     edit_anamnesis: false, edit_exam_legend: false, print_reports: false,
     manage_templates: false,
+    view_financial: true,
   },
   administradoresUnidade: {
     view_studies: true, edit_reports: false, view_anamnesis: false,
     edit_anamnesis: false, edit_exam_legend: false, print_reports: true,
     manage_templates: false,
+    view_financial: false,
   },
   adminsMaster: {
     view_studies: true, edit_reports: true, view_anamnesis: true,
     edit_anamnesis: true, edit_exam_legend: true, print_reports: true,
     manage_templates: true,
+    view_financial: true,
   },
 };
 
@@ -131,6 +139,7 @@ export function PermissionsMatrixTab() {
           edit_exam_legend: row.edit_exam_legend,
           print_reports:    row.print_reports,
           manage_templates: row.manage_templates,
+          view_financial:   (row as any).view_financial ?? false,  // FIX migration 0046
         };
       }
     }
