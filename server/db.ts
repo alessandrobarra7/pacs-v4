@@ -175,6 +175,15 @@ export async function createLocalUser(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  // FIX Bug2: verificar username duplicado antes do INSERT
+  if (data.username) {
+    const existing = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, data.username))
+      .limit(1);
+    if (existing.length > 0) throw new Error('USERNAME_TAKEN');
+  }
   // PRG-02: usar crypto.randomUUID() para evitar colisão em criações simultâneas
   const openId = `local_${data.username}_${crypto.randomUUID()}`;
   const result = await db.insert(users).values({
@@ -3139,6 +3148,7 @@ export async function upsertGroupPermission(
     edit_exam_legend: boolean;
     print_reports: boolean;
     manage_templates: boolean;
+    view_financial: boolean;
   },
   updatedBy: number
 ): Promise<void> {

@@ -956,6 +956,7 @@ export const group_permission_configs = mysqlTable("group_permission_configs", {
   edit_exam_legend: boolean("edit_exam_legend").notNull().default(false),
   print_reports: boolean("print_reports").notNull().default(false),
   manage_templates: boolean("manage_templates").notNull().default(false),
+  view_financial: boolean("view_financial").notNull().default(false),
   updated_at: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
   updated_by: int("updated_by"),
 });

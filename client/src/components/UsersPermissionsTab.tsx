@@ -34,7 +34,7 @@ const PERM_COLS: { key: keyof Permission; label: string }[] = [
   { key: "view_studies",   label: "Ver Exames" },
   { key: "view_financial", label: "Ver Financeiro" },
   { key: "print_reports",  label: "Imprimir" },
-  { key: "manage_templates", label: "Administrador" },
+  { key: "manage_templates", label: "Modelos de Laudo" },
 ];
 
 const ROLE_LABELS: Record<string, string> = {

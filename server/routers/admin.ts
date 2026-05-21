@@ -744,18 +744,44 @@ export const adminRouter = router({
         // Criar usuário
         const password_hash = await bcrypt.hash(input.password, 12);
         const { createLocalUser } = await import('../db');
-        const userId = await createLocalUser({
-          username: input.username,
-          email: input.email,
-          name: input.name,
-          password_hash,
-          role: input.role,
-          unit_id: input.unitId,
-        });
+        let userId: number;
+        try {
+          userId = await createLocalUser({
+            username: input.username,
+            email: input.email,
+            name: input.name,
+            password_hash,
+            role: input.role,
+            unit_id: input.unitId,
+          });
+        } catch (err: any) {
+          // FIX Bug2: tratar username duplicado com mensagem amigável
+          if (err.message === 'USERNAME_TAKEN') {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: `Nome de usuário "${input.username}" já está em uso. Escolha outro.`,
+            });
+          }
+          throw err;
+        }
         
         // Vincular à unidade com permissões
         const { users: usersTable, user_unit_permissions: uup } = await import('../../drizzle/schema');
-        const perms = GROUP_PERMISSIONS[input.groupKey as GroupKey];
+        // FIX Bug1: buscar permissões do banco em vez da constante hardcoded
+        const dbGroupPerms = await getGroupPermissions();
+        const dbPerm = dbGroupPerms.find(p => p.group_key === input.groupKey);
+        const perms = dbPerm
+          ? {
+              view_studies:     dbPerm.view_studies,
+              edit_reports:     dbPerm.edit_reports,
+              view_anamnesis:   dbPerm.view_anamnesis,
+              edit_anamnesis:   dbPerm.edit_anamnesis,
+              edit_exam_legend: dbPerm.edit_exam_legend,
+              print_reports:    dbPerm.print_reports,
+              manage_templates: dbPerm.manage_templates,
+              view_financial:   (dbPerm as any).view_financial ?? false,
+            }
+          : GROUP_PERMISSIONS[input.groupKey as GroupKey]; // fallback se banco vazio
         await db.insert(uup).values({
           user_id: userId,
           unit_id: input.unitId,
@@ -800,7 +826,21 @@ export const adminRouter = router({
         if (!targetUser) throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
         const [existing] = await db.select().from(uup)
           .where(andOp(eqOp(uup.user_id, input.userId), eqOp(uup.unit_id, input.unitId)));
-        const perms = GROUP_PERMISSIONS[input.groupKey as GroupKey];
+        // FIX Bug1: buscar permissões do banco em vez da constante hardcoded
+        const dbGroupPerms2 = await getGroupPermissions();
+        const dbPerm2 = dbGroupPerms2.find(p => p.group_key === input.groupKey);
+        const perms = dbPerm2
+          ? {
+              view_studies:     dbPerm2.view_studies,
+              edit_reports:     dbPerm2.edit_reports,
+              view_anamnesis:   dbPerm2.view_anamnesis,
+              edit_anamnesis:   dbPerm2.edit_anamnesis,
+              edit_exam_legend: dbPerm2.edit_exam_legend,
+              print_reports:    dbPerm2.print_reports,
+              manage_templates: dbPerm2.manage_templates,
+              view_financial:   (dbPerm2 as any).view_financial ?? false,
+            }
+          : GROUP_PERMISSIONS[input.groupKey as GroupKey];
         if (existing) {
           await db.update(uup).set({ ...perms, group_key: input.groupKey }).where(andOp(eqOp(uup.user_id, input.userId), eqOp(uup.unit_id, input.unitId)));
         } else {
@@ -882,6 +922,7 @@ export const adminRouter = router({
           edit_exam_legend: z.boolean(),
           print_reports:    z.boolean(),
           manage_templates: z.boolean(),
+          view_financial:   z.boolean(),
         })
       ),
     }))
@@ -893,7 +934,7 @@ export const adminRouter = router({
         string,
         { view_studies: boolean; edit_reports: boolean; view_anamnesis: boolean;
           edit_anamnesis: boolean; edit_exam_legend: boolean; print_reports: boolean;
-          manage_templates: boolean; }
+          manage_templates: boolean; view_financial: boolean; }
       ][];
       for (const [groupKey, perms] of entries) {
         await upsertGroupPermission(groupKey, perms, ctx.user.id);
