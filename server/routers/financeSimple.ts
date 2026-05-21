@@ -72,6 +72,7 @@ import {
   resetDoctorBilling,
   createAuditLog,
   getUserUnitPermission,
+  getUserUnitPermissions,
 } from "../db";
 
 // ─── helpers monetários ─────────────────────────────────────────────────────
@@ -642,10 +643,16 @@ export const financeSimpleRouter = router({
     .query(async ({ input, ctx }) => {
       assertMedico(ctx.user.role);
       // Guard: médico precisa ter view_financial em pelo menos uma unidade
+      // FIX: usar getUserUnitPermissions (plural) para checar todas as unidades
+      // ctx.user.unit_id é campo legado — pode ser null ou apontar para unidade errada
       if (ctx.user.role !== 'admin_master') {
-        const perm = await getUserUnitPermission(ctx.user.id, ctx.user.unit_id ?? 0);
-        if (!perm?.view_financial) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para visualizar financeiro.' });
+        const allPerms = await getUserUnitPermissions(ctx.user.id);
+        const hasFinancial = allPerms.some(p => p.view_financial);
+        if (!hasFinancial) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Sem permissão para visualizar financeiro.',
+          });
         }
       }
       const db = await getDb();
