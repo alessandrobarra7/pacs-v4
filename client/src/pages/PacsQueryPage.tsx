@@ -1007,7 +1007,13 @@ export function PacsQueryPage() {
     const storedStudy = sessionStorage.getItem(`study_${study.studyInstanceUid}`);
     const studyData = storedStudy ? JSON.parse(storedStudy) : study;
     const patientName = (studyData.patientName || study.patientName || 'Não informado').replace(/\^/g, ' ').trim();
-    const examLabel = localStorage.getItem(`exam_label_${study.studyInstanceUid}`) || study.studyDescription || 'Sem descrição';
+    // FIX: adicionar meta?.description_override como primeira prioridade
+    // Mesma lógica usada em handleReport para exibir o nome na lista
+    const meta = metadataMap?.[study.studyInstanceUid];
+    const examLabel = meta?.description_override
+      || localStorage.getItem(`exam_label_${study.studyInstanceUid}`)
+      || study.studyDescription
+      || 'Sem descrição';
     const studyDate = study.studyDate ? `${study.studyDate.slice(6,8)}/${study.studyDate.slice(4,6)}/${study.studyDate.slice(0,4)}` : '-';
     // Data de nascimento formatada
     const birthDateRaw = studyData.patientBirthDate || study.patientBirthDate || '';

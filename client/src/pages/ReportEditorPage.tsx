@@ -191,6 +191,14 @@ export default function ReportEditorPage() {
   const [editingTitle, setEditingTitle] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
+  // FIX: persistir o título escolhido pelo médico para uso na impressão
+  // handlePrintReport em PacsQueryPage lê de localStorage['exam_label_...']
+  useEffect(() => {
+    if (examTitle && studyUid) {
+      localStorage.setItem(`exam_label_${studyUid}`, examTitle);
+    }
+  }, [examTitle, studyUid]);
+
   // Aba ativa da sidebar
   // Redesign: 3 abas diretas conforme REDESIGN_EDITOR_LAUDOS.txt
   const [activeTab, setActiveTab] = useState<"modelos" | "frases" | "carimbo">("modelos");
