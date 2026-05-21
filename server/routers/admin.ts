@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { AuthService } from "../auth.service";
 import {
   createAuditLog, getDb, resolveEffectiveUnitId,
+  getGroupPermissions, upsertGroupPermission,
 } from "../db";
 
 // ─── Permissões por grupo ────────────────────────────────────────────────────────────────────────────
@@ -850,11 +851,61 @@ export const adminRouter = router({
         }
         const allUnits = await db.select().from(unitsTable);
         const allPerms = await db.select().from(user_unit_permissions);
-        return allUsers.map(u => ({
+         return allUsers.map(u => ({
           ...u,
           unitName: allUnits.find(un => un.id === u.unit_id)?.name ?? null,
           permissions: allPerms.filter(p => p.user_id === u.id),
         }));
       }),
 
+  // ─── Permissões de grupo (matriz) ────────────────────────────────────────────
+
+  getGroupPermissions: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.role !== 'admin_master') {
+        throw new TRPCError({ code: 'FORBIDDEN' });
+      }
+      return getGroupPermissions();
+    }),
+
+  setGroupPermissions: protectedProcedure
+    .input(z.object({
+      permissions: z.record(
+        z.enum(['medicos', 'operadores', 'visualizadores',
+                'responsaveisFinanceiros', 'administradoresUnidade']),
+        z.object({
+          view_studies:     z.boolean(),
+          edit_reports:     z.boolean(),
+          view_anamnesis:   z.boolean(),
+          edit_anamnesis:   z.boolean(),
+          edit_exam_legend: z.boolean(),
+          print_reports:    z.boolean(),
+          manage_templates: z.boolean(),
+        })
+      ),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== 'admin_master') {
+        throw new TRPCError({ code: 'FORBIDDEN' });
+      }
+      const entries = Object.entries(input.permissions) as [
+        string,
+        { view_studies: boolean; edit_reports: boolean; view_anamnesis: boolean;
+          edit_anamnesis: boolean; edit_exam_legend: boolean; print_reports: boolean;
+          manage_templates: boolean; }
+      ][];
+      for (const [groupKey, perms] of entries) {
+        await upsertGroupPermission(groupKey, perms, ctx.user.id);
+      }
+      await createAuditLog({
+        user_id:     ctx.user.id,
+        action:      'UPDATE_USER',
+        target_type: 'GROUP_PERMISSIONS',
+        target_id:   'all',
+        ip_address:  ctx.req.ip,
+        user_agent:  ctx.req.headers['user-agent'] as string | undefined,
+        metadata:    { groups: Object.keys(input.permissions) },
+      });
+      return { success: true };
+    }),
 });

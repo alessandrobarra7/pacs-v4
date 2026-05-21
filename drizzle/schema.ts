@@ -942,3 +942,21 @@ export const report_masks = mysqlTable("report_masks", {
 });
 export type ReportMask = typeof report_masks.$inferSelect;
 export type InsertReportMask = typeof report_masks.$inferInsert;
+
+// ─── Group Permission Configs ─────────────────────────────────────────────────
+// Defaults de permissão por grupo — editáveis pelo admin master via tela de matriz
+export const group_permission_configs = mysqlTable("group_permission_configs", {
+  id: int("id").autoincrement().primaryKey(),
+  group_key: varchar("group_key", { length: 50 }).notNull().unique(),
+  view_studies: boolean("view_studies").notNull().default(true),
+  edit_reports: boolean("edit_reports").notNull().default(false),
+  view_anamnesis: boolean("view_anamnesis").notNull().default(false),
+  edit_anamnesis: boolean("edit_anamnesis").notNull().default(false),
+  edit_exam_legend: boolean("edit_exam_legend").notNull().default(false),
+  print_reports: boolean("print_reports").notNull().default(false),
+  manage_templates: boolean("manage_templates").notNull().default(false),
+  updated_at: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  updated_by: int("updated_by"),
+});
+export type GroupPermissionConfig = typeof group_permission_configs.$inferSelect;
+export type InsertGroupPermissionConfig = typeof group_permission_configs.$inferInsert;

@@ -9,7 +9,7 @@ import {
 import {
   Building2, Users, ClipboardList, Plus, Edit2, Trash2, Server, HardDrive,
   Trash, RefreshCw, Power, PowerOff, LayoutTemplate, Wallet, Link as LinkIcon,
-  UserCheck, X, ChevronDown, ChevronUp,
+  UserCheck, X, ChevronDown, ChevronUp, Shield,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -24,8 +24,9 @@ import { toast } from "sonner";
 import UnitFormDialog, { type UnitFormData } from "@/components/UnitFormDialog";
 import UserFormDialog, { type UserFormData } from "@/components/UserFormDialog";
 import { UserExplorerLayout } from "@/components/UserExplorerLayout";
+import { PermissionsMatrixTab } from "@/components/PermissionsMatrixTab";
 
-type Tab = "units" | "users" | "audit" | "cache" | "responsaveis" | "billing_diagnostic";
+type Tab = "units" | "users" | "audit" | "cache" | "responsaveis" | "billing_diagnostic" | "permissoes";
 
 const ROLE_LABELS: Record<string, string> = {
   admin_master: "Admin Master",
@@ -971,6 +972,7 @@ export default function AdminPage() {
     { key: "cache", label: "Cache DICOM", icon: <HardDrive className="h-4 w-4" /> },
     ...(isAdminMaster ? [{ key: "responsaveis" as Tab, label: "Responsáveis Financeiros", icon: <Wallet className="h-4 w-4" /> }] : []),
     ...(isAdminMaster ? [{ key: "billing_diagnostic" as Tab, label: "Diagnóstico Financeiro", icon: <RefreshCw className="h-4 w-4" /> }] : []),
+    ...(isAdminMaster ? [{ key: "permissoes" as Tab, label: "Permissões de Grupo", icon: <Shield className="h-4 w-4" /> }] : []),
   ];
 
   const effectiveTab = (!isAdminMaster && activeTab === "units") ? "users" : activeTab;
@@ -1181,6 +1183,10 @@ export default function AdminPage() {
         {/* ── ABA DIAGNÓSTICO FINANCEIRO ── */}
         {effectiveTab === "billing_diagnostic" && isAdminMaster && (
           <BillingDiagnosticPanel />
+        )}
+
+        {effectiveTab === "permissoes" && isAdminMaster && (
+          <PermissionsMatrixTab />
         )}
       </div>
 

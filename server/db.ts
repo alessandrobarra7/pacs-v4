@@ -52,6 +52,8 @@ import {
   report_masks,
   ReportMask,
   InsertReportMask,
+  group_permission_configs,
+  GroupPermissionConfig,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -3115,4 +3117,35 @@ export async function deleteReportMask(
 
   const result = await db.delete(report_masks).where(condition);
   return (result[0] as { affectedRows: number }).affectedRows > 0;
+}
+
+// ─── Group Permission Configs ─────────────────────────────────────────────────
+
+export async function getGroupPermissions(): Promise<GroupPermissionConfig[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(group_permission_configs).orderBy(group_permission_configs.group_key);
+}
+
+export async function upsertGroupPermission(
+  groupKey: string,
+  perms: {
+    view_studies: boolean;
+    edit_reports: boolean;
+    view_anamnesis: boolean;
+    edit_anamnesis: boolean;
+    edit_exam_legend: boolean;
+    print_reports: boolean;
+    manage_templates: boolean;
+  },
+  updatedBy: number
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(group_permission_configs)
+    .values({ group_key: groupKey, ...perms, updated_by: updatedBy })
+    .onDuplicateKeyUpdate({
+      set: { ...perms, updated_by: updatedBy },
+    });
 }
