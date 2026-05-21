@@ -414,6 +414,7 @@ export const adminRouter = router({
           edit_exam_legend: z.boolean(),
           print_reports: z.boolean(),
           manage_templates: z.boolean(),
+          view_financial: z.boolean().optional().default(false),
         })),
       }))
       .mutation(async ({ input, ctx }) => {

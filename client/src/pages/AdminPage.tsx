@@ -23,10 +23,9 @@ import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 import UnitFormDialog, { type UnitFormData } from "@/components/UnitFormDialog";
 import UserFormDialog, { type UserFormData } from "@/components/UserFormDialog";
-import { UserExplorerLayout } from "@/components/UserExplorerLayout";
-import { PermissionsMatrixTab } from "@/components/PermissionsMatrixTab";
+import { UsersPermissionsTab } from "@/components/UsersPermissionsTab";
 
-type Tab = "units" | "users" | "audit" | "cache" | "responsaveis" | "billing_diagnostic" | "permissoes";
+type Tab = "units" | "users";
 
 const ROLE_LABELS: Record<string, string> = {
   admin_master: "Admin Master",
@@ -762,12 +761,6 @@ export default function AdminPage() {
     onError: (e) => toast.error(e.message),
   });
 
-  // ── Audit ──
-  const { data: auditLogs = [], isLoading: auditLoading } = trpc.admin.listAuditLog.useQuery(
-    { limit: 200 },
-    { enabled: activeTab === "audit" }
-  );
-
   // Bug fix N3: declarar updateLogo ANTES de handleSaveUnit para evitar dependência de ordem.
   const updateLogo = trpc.medicalData.updateUnitLogo.useMutation({
     onError: (e) => toast.error(`Erro ao salvar logo da unidade: ${e.message}`),
@@ -968,11 +961,6 @@ export default function AdminPage() {
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     ...(isAdminMaster ? [{ key: "units" as Tab, label: "Unidades", icon: <Building2 className="h-4 w-4" /> }] : []),
     ...(canManageUsers ? [{ key: "users" as Tab, label: "Usuários", icon: <Users className="h-4 w-4" /> }] : []),
-    { key: "audit", label: "Auditoria", icon: <ClipboardList className="h-4 w-4" /> },
-    { key: "cache", label: "Cache DICOM", icon: <HardDrive className="h-4 w-4" /> },
-    ...(isAdminMaster ? [{ key: "responsaveis" as Tab, label: "Responsáveis Financeiros", icon: <Wallet className="h-4 w-4" /> }] : []),
-    ...(isAdminMaster ? [{ key: "billing_diagnostic" as Tab, label: "Diagnóstico Financeiro", icon: <RefreshCw className="h-4 w-4" /> }] : []),
-    ...(isAdminMaster ? [{ key: "permissoes" as Tab, label: "Permissões de Grupo", icon: <Shield className="h-4 w-4" /> }] : []),
   ];
 
   const effectiveTab = (!isAdminMaster && activeTab === "units") ? "users" : activeTab;
@@ -1117,76 +1105,12 @@ export default function AdminPage() {
 
         {/* ── ABA USUÁRIOS ── */}
         {effectiveTab === "users" && canManageUsers && (
-          <UserExplorerLayout
+          <UsersPermissionsTab
             onNewUser={(unitId) => unitId ? handleNewUserForUnit(unitId) : handleNewUser()}
             onEditUser={handleOpenEditUserFromTree}
-            onEditUnit={(unitId) => {
-              const u = units.find((x: any) => x.id === unitId);
-              if (u) handleOpenEditUnit(u);
-            }}
+            onDeleteUser={(userId) => deleteUser.mutate({ id: userId })}
+            onToggleActive={(userId, isActive) => toggleUserActive.mutate({ id: userId, isActive })}
           />
-        )}
-
-        {/* ── ABA AUDITORIA ── */}
-        {effectiveTab === "audit" && (
-          <div>
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Auditoria</h2>
-              <p className="text-sm text-gray-500">Registro de ações realizadas no sistema</p>
-            </div>
-            <div className="bg-white rounded border border-gray-200 overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-gray-50 border-b border-gray-200">
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Data/Hora</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Usuário</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Ação</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">Alvo</TableHead>
-                    <TableHead className="py-3 text-xs font-semibold text-gray-600">IP</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {auditLoading ? (
-                    <TableRow><TableCell colSpan={5} className="text-center py-8 text-gray-400 text-sm">Carregando...</TableCell></TableRow>
-                  ) : auditLogs.length === 0 ? (
-                    <TableRow><TableCell colSpan={5} className="text-center py-8 text-gray-400 text-sm">Nenhum registro de auditoria</TableCell></TableRow>
-                  ) : auditLogs.map((log: any) => (
-                    <TableRow key={log.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                      <TableCell className="py-2.5 text-xs text-gray-500">
-                        {new Date(log.timestamp).toLocaleString("pt-BR")}
-                      </TableCell>
-                      <TableCell className="py-2.5 text-sm text-gray-700">
-                        {log.userName || log.userUsername || `#${log.user_id}`}
-                      </TableCell>
-                      <TableCell className="py-2.5">
-                        <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{log.action}</code>
-                      </TableCell>
-                      <TableCell className="py-2.5 text-xs text-gray-500">
-                        {log.target_type ? `${log.target_type} #${log.target_id}` : "—"}
-                      </TableCell>
-                      <TableCell className="py-2.5 text-xs text-gray-400">{log.ip_address || "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        )}
-
-        {/* ── ABA CACHE ── */}
-        {effectiveTab === "cache" && <CachePanel />}
-
-        {/* ── ABA RESPONSÁVEIS FINANCEIROS ── */}
-        {effectiveTab === "responsaveis" && isAdminMaster && (
-          <ResponsaveisPanel allUnits={units.map((u: any) => ({ id: u.id, name: u.name }))} />
-        )}
-        {/* ── ABA DIAGNÓSTICO FINANCEIRO ── */}
-        {effectiveTab === "billing_diagnostic" && isAdminMaster && (
-          <BillingDiagnosticPanel />
-        )}
-
-        {effectiveTab === "permissoes" && isAdminMaster && (
-          <PermissionsMatrixTab />
         )}
       </div>
 

@@ -822,8 +822,9 @@ export async function setUserUnitPermissions(
     edit_exam_legend: boolean;
     print_reports: boolean;
     manage_templates: boolean;
+    view_financial?: boolean;
   }>
-): Promise<void> {
+) : Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -844,6 +845,7 @@ export async function setUserUnitPermissions(
         edit_exam_legend: p.edit_exam_legend,
         print_reports: p.print_reports,
         manage_templates: p.manage_templates,
+        view_financial: p.view_financial ?? false,
       }))
     );
   }
