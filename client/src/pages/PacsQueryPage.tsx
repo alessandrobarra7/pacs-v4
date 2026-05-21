@@ -566,17 +566,13 @@ export function PacsQueryPage() {
     if (!effectiveUnitId) return;
     if (filtersRestoredRef.current) return; // só restaura uma vez por mount
     const key = `pacs_filter_unit_${effectiveUnitId}`;
-    const initKeyUsed = `pacs_filter_unit_${selectedUnitId || (user as any)?.unit_id || 'none'}`;
-    if (key === initKeyUsed) {
-      // A chave usada no useState já era a correta — não precisa restaurar
-      filtersRestoredRef.current = true;
-      return;
-    }
-    // A chave mudou (médico multi-unidade) — restaurar filtro correto
+
     try {
       const saved = sessionStorage.getItem(key);
       if (saved) {
         const parsed = JSON.parse(saved);
+
+        // 1. Restaurar estado visual dos filtros
         setFilters(parsed);
         if (parsed.period === 'custom' && parsed.studyDate?.length === 8) {
           const y = parseInt(parsed.studyDate.slice(0,4));
@@ -584,9 +580,19 @@ export function PacsQueryPage() {
           const d = parseInt(parsed.studyDate.slice(6,8));
           setSelectedDate(new Date(y, m, d));
         }
+
+        filtersRestoredRef.current = true;
+
+        // FIX: executar a query com o filtro restaurado
+        // Sem isso, a UI mostra o filtro correto mas os resultados são de 'hoje'
+        runQuery({ period: parsed.period, studyDate: parsed.studyDate || '' });
+        return;
       }
     } catch { /* ignorar */ }
+
+    // Sem filtro salvo: comportamento padrão (primeira vez na unidade)
     filtersRestoredRef.current = true;
+    handlePeriodChange('today');
   }, [effectiveUnitId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [queryResults, setQueryResults] = useState<any[]>(() => {
@@ -768,17 +774,14 @@ export function PacsQueryPage() {
   useEffect(() => {
     try { setQueryResults(JSON.parse(localStorage.getItem(cacheKey) || '[]')); } catch { setQueryResults([]); }
     setCurrentPage(1);
-    // BUG-4 FIX: troca de unidade dispara nova busca automática
     if (effectiveUnitId) {
-      handlePeriodChange('today');
+      // FIX: verificar se há filtro salvo antes de forçar 'hoje'
+      // Ao voltar do editor de laudos, o filtro anterior deve ser preservado
+      const savedRaw = sessionStorage.getItem(`pacs_filter_unit_${effectiveUnitId}`);
+      if (savedRaw) return; // filtersRestoredRef vai restaurar E re-executar a query
+      handlePeriodChange('today'); // apenas quando não há filtro salvo (primeira vez na unidade)
     }
   }, [cacheKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  // BUG-3 FIX: auto-busca ao montar a tela — evita exibir dados stale do localStorage
-  useEffect(() => {
-    if (effectiveUnitId) {
-      handlePeriodChange('today');
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (queryResults.length > 0) localStorage.setItem(cacheKey, JSON.stringify(queryResults));
