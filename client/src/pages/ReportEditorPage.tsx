@@ -812,6 +812,16 @@ export default function ReportEditorPage() {
   .report-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .report-body > p,
   .report-body > div:not(.exam-section) { margin-bottom: 3pt; }
+  .report-body h1,
+  .report-body h2,
+  .report-body h3,
+  .report-body h4 {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: ${lSize}pt;
+    margin: 6pt 0 2pt 0;
+  }
   .report-body strong, .report-body b { font-weight: 700; }
   /* P1: seções multi-exame */
   .exam-section { break-inside: avoid-page; margin-bottom: 18px; }
@@ -927,14 +937,54 @@ export default function ReportEditorPage() {
       savedSelection.current = sel.getRangeAt(0).cloneRange();
     }
   }, [isMultiSection]);
-
-  // ── Render ───────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────────────
   const examDesc = examTitle || studyInfo?.studyDescription || "";
-
   return (
+    <>
+    {/* ── ESTILOS DO EDITOR─────────────────────────────────────────────────────────── */}
+    <style>{`
+      /* Restaura estilos semânticos dentro do editor — neutraliza Tailwind reset */
+      /* Garante que o editor mostre o mesmo visual que será impresso          */
+      [data-editor-content] h1,
+      [data-editor-content] h2,
+      [data-editor-content] h3,
+      [data-editor-content] h4 {
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-size: 11pt;
+        margin: 6pt 0 2pt 0;
+        font-family: 'Times New Roman', Times, serif;
+      }
+      [data-editor-content] p {
+        margin-bottom: 3pt;
+        line-height: 1.6;
+      }
+      [data-editor-content] strong,
+      [data-editor-content] b {
+        font-weight: 700;
+      }
+      [data-editor-content] em,
+      [data-editor-content] i {
+        font-style: italic;
+      }
+      [data-editor-content] u {
+        text-decoration: underline;
+      }
+      [data-editor-content] ul,
+      [data-editor-content] ol {
+        padding-left: 1.5em;
+        margin-bottom: 3pt;
+      }
+      [data-editor-content]:empty::before {
+        content: attr(data-placeholder);
+        color: #9ca3af;
+        font-style: italic;
+        pointer-events: none;
+      }
+    `}</style>
     <div className="flex flex-col h-screen bg-white overflow-hidden print:block">
-      {/* ── HEADER ─────────────────────────────────────────────────────── */}
-      <header className="flex items-center gap-3 px-4 py-2 border-b border-gray-200 bg-white shrink-0 print:hidden">
+      {/* ── HEADER ──────────────────────────────────────────────────────────────────── */}    <header className="flex items-center gap-3 px-4 py-2 border-b border-gray-200 bg-white shrink-0 print:hidden">
         <button
           onClick={() => navigate("/")}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors"
@@ -1257,6 +1307,7 @@ export default function ReportEditorPage() {
                         {isPreview ? (
                           /* ── MODO PRÉ-VISUALIZAÇÃO (seção i) ──────────────────── */
                           <div
+                            data-editor-content
                             style={{
                               flex: 1,
                               minHeight: "60mm",
@@ -1280,6 +1331,7 @@ export default function ReportEditorPage() {
                             ref={el => { sectionRefs.current[i] = el; }}
                             contentEditable={isEditable}
                             suppressContentEditableWarning
+                            data-editor-content
                             onFocus={() => { activeSectionRef.current = i; }}
                             onMouseUp={isEditable ? saveSelection : undefined}
                             onKeyUp={isEditable ? saveSelection : undefined}
@@ -1439,8 +1491,9 @@ export default function ReportEditorPage() {
                     </div>
                   )}
                   {isPreview ? (
-                    /* ── MODO PRÉ-VISUALIZAÇÃO ───────────────────────────────────── */
+                    /* ── MODO PRÉ-VISUALIZAÇÃO ────────────────────────────────────────────── */
                     <div
+                      data-editor-content
                       style={{
                         flex: 1,
                         minHeight: "60mm",
@@ -1458,11 +1511,12 @@ export default function ReportEditorPage() {
                       }}
                     />
                   ) : (
-                    /* ── MODO EDIÇÃO (código original sem alteração) ─────────────── */
+                    /* ── MODO EDIÇÃO (código original sem alteração) ───────────────── */
                     <div
                       ref={docRef}
                       contentEditable={isEditable}
                       suppressContentEditableWarning
+                      data-editor-content
                       onMouseUp={isEditable ? saveSelection : undefined}
                       onKeyUp={isEditable ? saveSelection : undefined}
                       data-placeholder="Digite o laudo aqui..."
@@ -1755,12 +1809,11 @@ export default function ReportEditorPage() {
           color: #bbb;
           pointer-events: none;
         }
-      `}</style>
+        `}</style>
     </div>
+    </>
   );
 }
-
-
 // ─── ModelosTab (Redesign) ────────────────────────────────────────────────────
 function ModelosTab({
   onApplyTemplate,
