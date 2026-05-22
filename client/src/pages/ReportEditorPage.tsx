@@ -707,6 +707,11 @@ export default function ReportEditorPage() {
 
     // FUNDO: base64 + background-image no body com dimensões físicas da folha
     const bgBase64 = layoutBgUrl ? await fetchToBase64(layoutBgUrl) : null;
+    // FIX: aplicar block_positions no print — mesma lógica do WYSIWYG
+    const logoWidthPrint   = Math.round((bpLogo.w / 100) * 210); // mm (papel = 210mm)
+    const logoAlignPrint   = bpLogo.x < 30 ? "left" : bpLogo.x > 70 ? "right" : "center";
+    const logoJustifyPrint = logoAlignPrint === "left" ? "flex-start"
+                           : logoAlignPrint === "right" ? "flex-end" : "center";
     // FIX: overlay de opacidade via div position:fixed com dimensões em mm
     // body::after não é confiável em print — div com mm é mais preciso
     const overlayAlpha = Math.round((1 - layoutBgOpacity) * 100) / 100;
@@ -813,7 +818,7 @@ export default function ReportEditorPage() {
     border-bottom: 2px solid ${lBorderColor};
     margin-bottom: 4mm;
   }
-  .header-logo { flex-shrink: 0; }
+  .header-logo { flex-shrink: 0; width: ${logoWidthPrint}mm; display: flex; align-items: center; justify-content: ${logoJustifyPrint}; }
   .header-title { flex: 1; text-align: center; }
   .clinic-name { font-size: 14pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
   .clinic-sub { font-size: 10pt; color: #444; margin-top: 2pt; }
@@ -869,8 +874,8 @@ export default function ReportEditorPage() {
   ${(() => {
     const headerHtml = `
       <div class="header">
-        <div class="header-logo">${logoHtml}</div>
-        <div class="header-title">
+        ${bpLogo.visible ? `<div class="header-logo">${logoHtml}</div>` : ''}
+        <div class="header-title" style="${!bpLogo.visible ? 'border-left:none;padding-left:0;' : ''}">
           <div class="clinic-name">${unitName || ''}</div>
           <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
         </div>
@@ -895,9 +900,9 @@ export default function ReportEditorPage() {
         return secs.map((sec, i) => {
           const isLast = i === secs.length - 1;
           const secContent = `
-            <div class="exam-title">${sec.title}</div>
+            ${bpTitle.visible ? `<div class="exam-title">${sec.title}</div>` : ''}
             <div class="report-body">${sec.body}</div>
-            ${isLast ? doctorFooterHtml : ''}`;
+            ${isLast && bpFooter.visible ? doctorFooterHtml : ''}`;
           return makePage(secContent);
         }).join('');
       }
@@ -908,9 +913,9 @@ export default function ReportEditorPage() {
       <tfoot><tr><td style="padding:0;">${footerHtml}</td></tr></tfoot>
       <tbody><tr><td>
         <div class="patient-data">${patientDataHtml}</div>
-        ${examTitle ? `<div class="exam-title">${examTitle}</div>` : ''}
+        ${bpTitle.visible && examTitle ? `<div class="exam-title">${examTitle}</div>` : ''}
         <div class="report-body">${bodyHtml}</div>
-        ${doctorFooterHtml}
+        ${bpFooter.visible ? doctorFooterHtml : ''}
       </td></tr></tbody>
     </table>`;
   })()}
@@ -1870,13 +1875,33 @@ function ModelosTab({
 
   const allTemplates = [...rawGlobal, ...rawPersonal].filter(Boolean);
 
+  // Palavras genéricas que NÃO identificam a região anatômica do exame
+  const STOP_WORDS = new Set([
+    "radiografia", "tomografia", "ressonancia", "ecografia",
+    "ultrassom", "ultrassonografia", "mamografia", "cintilografia",
+    "rx", "rm", "tc", "mr", "ct", "us", "dx", "cr", "pet", "scan",
+    "exame", "laudo", "de", "da", "do", "dos", "das", "em", "na",
+    "no", "nos", "nas", "ap", "pa", "e", "com", "sem", "por",
+    "para", "um", "uma", "normal", "simples", "bilateral",
+  ]);
+
   const suggested = currentExamTitle
     ? allTemplates.filter(t => {
         const mod   = (t.modality || "").toLowerCase();
-        const title = (t.exam_title || t.name || "").toLowerCase();
+        const title = norm(t.exam_title || t.name || "");
         const dicomToLocal: Record<string, string> = { ct: "tc", mr: "rm", cr: "rx", dx: "rx", us: "us" };
         const localMod = dicomToLocal[currentModality.toLowerCase()] ?? currentModality.toLowerCase();
-        return mod === localMod || title.includes(norm(currentExamTitle).split(" ")[0]);
+        // Extrair apenas palavras significativas do título digitado
+        const examWords = norm(currentExamTitle)
+          .split(/[\s\-\/]+/)
+          .filter(w => w.length > 2 && !STOP_WORDS.has(w));
+        if (examWords.length > 0) {
+          // Palavras significativas encontradas → exigir match no título do template
+          return examWords.some(w => title.includes(w));
+        } else {
+          // Só palavras genéricas (ex: "RX", "TC") → fallback por modalidade
+          return mod === localMod;
+        }
       })
     : [];
 
