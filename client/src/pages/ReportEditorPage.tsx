@@ -811,7 +811,7 @@ export default function ReportEditorPage() {
   .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
   .report-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .report-body > p,
-  .report-body > div:not(.exam-section) { margin-bottom: 3pt; }
+  .report-body > div:not(.exam-section) { margin-bottom: 6pt; line-height: 1.7; }
   .report-body h1,
   .report-body h2,
   .report-body h3,
@@ -820,8 +820,12 @@ export default function ReportEditorPage() {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     font-size: ${lSize}pt;
-    margin: 6pt 0 2pt 0;
+    margin: 14pt 0 4pt 0;
   }
+  .report-body h1:first-child,
+  .report-body h2:first-child,
+  .report-body h3:first-child,
+  .report-body h4:first-child { margin-top: 0; }
   .report-body strong, .report-body b { font-weight: 700; }
   /* P1: seções multi-exame */
   .exam-section { break-inside: avoid-page; margin-bottom: 18px; }
@@ -953,12 +957,19 @@ export default function ReportEditorPage() {
         text-transform: uppercase;
         letter-spacing: 0.05em;
         font-size: 11pt;
-        margin: 6pt 0 2pt 0;
+        margin: 14pt 0 4pt 0;
         font-family: 'Times New Roman', Times, serif;
       }
+      [data-editor-content] h1:first-child,
+      [data-editor-content] h2:first-child,
+      [data-editor-content] h3:first-child,
+      [data-editor-content] h4:first-child {
+        margin-top: 0;
+      }
       [data-editor-content] p {
-        margin-bottom: 3pt;
-        line-height: 1.6;
+        margin-bottom: 6pt;
+        margin-top: 0;
+        line-height: 1.7;
       }
       [data-editor-content] strong,
       [data-editor-content] b {
