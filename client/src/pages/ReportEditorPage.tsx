@@ -247,6 +247,7 @@ export default function ReportEditorPage() {
   const signReport = trpc.reports.sign.useMutation();
   const reviseReport = trpc.reports.revise.useMutation();
   const deleteReport = trpc.reports.delete.useMutation();
+  const saveMetadata = trpc.studyMetadata.save.useMutation();
 
   // Estado de retificação
   const [isRevising, setIsRevising] = useState(false);
@@ -511,6 +512,18 @@ export default function ReportEditorPage() {
         layout_snapshot: layoutSnapshot,  // FIX GAP-1: snapshot do layout
       });
 
+      // FIX P1: persistir examTitle em description_override para que impressões futuras usem o título correto
+      if (examTitle && studyUid) {
+        try {
+          await saveMetadata.mutateAsync({
+            studyInstanceUid: studyUid,
+            unit_id: studyInfo?.unitId ?? undefined,
+            descriptionOverride: examTitle,
+          });
+        } catch {
+          // Não bloquear a assinatura se o save de metadata falhar
+        }
+      }
       // Invalidar queries financeiras para atualizar saldo imediatamente
       void utils.financeSimple.getUnitFinancialInfo.invalidate();
       void utils.financeSimple.getDoctorSummary.invalidate();
@@ -834,7 +847,7 @@ export default function ReportEditorPage() {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    font-size: ${lSize}pt;
+    font-size: ${lSize}pt !important;
     margin: 14pt 0 4pt 0;
   }
   .report-body h1:first-child,
@@ -922,6 +935,12 @@ export default function ReportEditorPage() {
   <!-- P5: rodapé via tfoot (renderiza em todas as páginas, compatível com PDF) -->
 <script>
   window.onload = function() {
+    var pages = document.querySelectorAll('.print-page');
+    var total = pages.length || 1;
+    var counters = document.querySelectorAll('.page-number-fixed');
+    counters.forEach(function(el, i) {
+      el.textContent = 'Página ' + (i + 1) + ' de ' + total;
+    });
     window.print();
     window.onafterprint = function() { window.close(); };
   };
@@ -971,7 +990,7 @@ export default function ReportEditorPage() {
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        font-size: 11pt;
+        font-size: 11pt !important;
         margin: 14pt 0 4pt 0;
         font-family: 'Times New Roman', Times, serif;
       }
