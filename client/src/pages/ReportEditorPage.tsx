@@ -598,6 +598,16 @@ export default function ReportEditorPage() {
   const layoutBgSize: string = (rawLayout?.["background_size"] as string | null) ?? 'cover';
   const layoutBlockPos: Record<string, BlockPos> | null =
     (rawLayout?.["block_positions"] as Record<string, BlockPos> | null) ?? null;
+  // Helpers para ler as posições dos blocos configuradas pelo admin
+  const bpLogo   = layoutBlockPos?.["logo"]   ?? { x:2,  y:1,  w:20, h:10, visible:true };
+  const bpTitle  = layoutBlockPos?.["title"]  ?? { x:2,  y:13, w:96, h:6,  visible:true };
+  const bpFooter = layoutBlockPos?.["footer"] ?? { x:2,  y:88, w:96, h:8,  visible:true };
+  // Largura do bloco logo em px (w% de 595px canvas A4)
+  const logoWidthPx = Math.round((bpLogo.w / 100) * 595);
+  // Alinhamento horizontal do logo: x < 30% = esquerda, 30–70% = centro, > 70% = direita
+  const logoAlign: "left" | "center" | "right" =
+    bpLogo.x < 30 ? "left" : bpLogo.x > 70 ? "right" : "center";
+  const logoJustify = logoAlign === "left" ? "flex-start" : logoAlign === "right" ? "flex-end" : "center";
   const layoutFooterUrl: string | null = toAbsUrl((rawLayout?.["footer_image_url"] as string | null) ?? null);
   const layoutLogos: Array<{ url: string; width: number; height: number; label: string }> =
     Array.isArray(rawLayout?.["logos"]) ? (rawLayout!["logos"] as Array<{ url: string; width: number; height: number; label: string }>) : [];
@@ -1280,7 +1290,8 @@ export default function ReportEditorPage() {
                     >
                       {/* Cabeçalho completo por página */}
                       <div style={{ display: "flex", alignItems: "stretch", borderBottom: "2px solid #1a6b8a", minHeight: 90 }}>
-                        <div style={{ width: 180, minHeight: 90, flexShrink: 0, borderRight: "1.5px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 12px", background: "#fafafa" }}>
+                        {bpLogo.visible && (
+                        <div style={{ width: logoWidthPx, minHeight: 90, flexShrink: 0, borderRight: "1.5px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: logoJustify, padding: "8px 12px", background: "#fafafa" }}>
                           {layoutLogos.length > 0 ? (
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", justifyContent: "center" }}>
                               {layoutLogos.map((l, i) => (
@@ -1295,6 +1306,7 @@ export default function ReportEditorPage() {
                             </div>
                           )}
                         </div>
+                        )}
                         <div style={{ flex: 1, padding: "10px 20px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 5 }}>
                           <div style={{ fontSize: "12pt", fontWeight: 700, color: "#111", textTransform: "uppercase", letterSpacing: "0.02em" }}>{patientName || "—"}</div>
                           <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
@@ -1447,7 +1459,8 @@ export default function ReportEditorPage() {
               }}>
                 {/* ══ CABEÇALHO ══ */}
                 <div style={{ display: "flex", alignItems: "stretch", borderBottom: `2px solid ${layoutPrefs?.headerBorderColor ?? "#1a6b8a"}`, minHeight: 90 }}>
-                  <div style={{ width: 180, minHeight: 90, flexShrink: 0, borderRight: "1.5px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 12px", background: "#fafafa" }}>
+                  {bpLogo.visible && (
+                  <div style={{ width: logoWidthPx, minHeight: 90, flexShrink: 0, borderRight: "1.5px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: logoJustify, padding: "8px 12px", background: "#fafafa" }}>
                     {layoutLogos.length > 0 ? (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", justifyContent: "center" }}>
                         {layoutLogos.map((l, i) => (
@@ -1462,6 +1475,7 @@ export default function ReportEditorPage() {
                       </div>
                     )}
                   </div>
+                  )}
                   <div style={{ flex: 1, padding: "10px 20px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 5 }}>
                     <div style={{ fontSize: "12pt", fontWeight: 700, color: "#111", textTransform: "uppercase", letterSpacing: "0.02em" }}>{patientName || "—"}</div>
                     <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
@@ -1473,7 +1487,7 @@ export default function ReportEditorPage() {
 
                 {/* ══ CORPO ══ */}
                 <div style={{ flex: 1, padding: "16px 24px 12px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
-                  <div>
+                  {bpTitle.visible && <div>
                     {examTitle ? (
                       editingTitle ? (
                         <input
@@ -1494,7 +1508,7 @@ export default function ReportEditorPage() {
                     ) : (
                       <div style={{ textAlign: "center", color: "#aaa", fontSize: "11pt", fontStyle: "italic", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>Selecione o tipo de exame na barra lateral</div>
                     )}
-                  </div>
+                  </div>}
                   {isSigned && !isRevising && (
                     <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8 }}>
                       <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
@@ -1604,9 +1618,9 @@ export default function ReportEditorPage() {
                 )}
 
                 {/* ══ RODAPÉ INSTITUCIONAL removido a pedido do usuário ══ */}
-                {/* ══ RODAPÉ DO LAYOUT DA UNIDADE ══ */}
-                {layoutFooterUrl && (
-                  <img src={layoutFooterUrl} alt="Rodapé" style={{ width: "100%", display: "block", marginTop: "auto" }} />
+                 {/* ══ RODAPÉ DO LAYOUT DA UNIDADE ══ */}
+                {bpFooter.visible && layoutFooterUrl && (
+                  <img src={layoutFooterUrl} alt="Rodé" style={{ width: "100%", display: "block", marginTop: "auto" }} />
                 )}
               </div>
             )}
