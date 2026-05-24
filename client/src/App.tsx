@@ -121,7 +121,10 @@ function Router() {
       {/* Redirect inteligente por role ao entrar em /financeiro */}
       <Route path="/financeiro" component={() => <FinanceRedirect />} />
       <Route path="/financeiro/pagamentos" component={() => <ProtectedRoute component={FinancePagamentos} allowedRoles={['admin_master', 'unit_admin']} />} />
-      <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro} allowedRoles={['medico', 'admin_master']} />} />
+      {/* FIX ANALISE_FINANCEIRO_PERMISSOES BUG2: admin_master removido — não tem laudos assinados,
+           myFinanceiro retornaria summary=[] e events=[], exibindo tela vazia e confusa.
+           Admin usa /financeiro/pagamentos (com filtro por médico) para ver dados de qualquer médico. */}
+      <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro} allowedRoles={['medico']} />} />
       <Route path="/financeiro/responsavel" component={() => <ProtectedRoute component={FinanceMeuResponsavel} allowedRoles={['responsavel_financeiro', 'admin_master']} />} />
       <Route path="/financeiro/dashboard" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin']} />} />
       <Route path="/financeiro/configuracao" component={() => <ProtectedRoute component={FinanceConfiguracao} allowedRoles={['admin_master']} />} />

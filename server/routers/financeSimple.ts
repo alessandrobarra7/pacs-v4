@@ -759,22 +759,58 @@ export const financeSimpleRouter = router({
         new Date(b.signed_at ?? 0).getTime() - new Date(a.signed_at ?? 0).getTime()
       );
 
-      // Buscar preço vigente do médico por unidade (ends_at IS NULL = ativo)
-      const doctorPriceRows = await db
+      // FIX ANALISE_FINANCEIRO_PERMISSOES BUG1: unificar fonte de price_per_report
+      // O billing event usa billing_doctor_modality_prices para calcular doctor_amount_due.
+      // Antes, o resumo buscava de billing_doctor_unit_prices (tabela diferente), causando
+      // divergência: médico via "Sem preço configurado" mas eventos tinham valor real.
+      // Solução: buscar de billing_doctor_modality_prices (mesma fonte do billing event),
+      // priorizando CR (mais comum). Fallback: qualquer modalidade ativa. Fallback final: null.
+      const modPriceRows = await db
         .select({
-          unit_id: billing_doctor_unit_prices.unit_id,
-          price_per_report: billing_doctor_unit_prices.price_per_report,
+          unit_id: billing_doctor_modality_prices.unit_id,
+          modality: billing_doctor_modality_prices.modality,
+          price_per_report: billing_doctor_modality_prices.price_per_report,
         })
-        .from(billing_doctor_unit_prices)
+        .from(billing_doctor_modality_prices)
         .where(
           and(
-            eq(billing_doctor_unit_prices.doctor_user_id, ctx.user.id),
-            isNull(billing_doctor_unit_prices.ends_at),
+            eq(billing_doctor_modality_prices.doctor_user_id, ctx.user.id),
+            isNull(billing_doctor_modality_prices.ends_at),
           )
-        );
-      const priceByUnit = new Map(
-        doctorPriceRows.map(p => [p.unit_id, Number(p.price_per_report ?? 0)])
-      );
+        )
+        .orderBy(desc(billing_doctor_modality_prices.starts_at));
+
+      // Para cada unidade: preferir CR, depois CT, depois qualquer modalidade ativa
+      const PREFERRED_MODALITIES = ['CR', 'CT', 'MR', 'US', 'DX', 'PT'];
+      const priceByUnit = new Map<number, number | null>();
+      for (const row of modPriceRows) {
+        if (!priceByUnit.has(row.unit_id)) {
+          priceByUnit.set(row.unit_id, Number(row.price_per_report ?? 0));
+        } else {
+          // Substituir se a modalidade atual tem prioridade maior
+          const currentIdx = PREFERRED_MODALITIES.indexOf(
+            modPriceRows.find(r => r.unit_id === row.unit_id && priceByUnit.get(r.unit_id) === Number(r.price_per_report ?? 0))?.modality ?? ''
+          );
+          const newIdx = PREFERRED_MODALITIES.indexOf(row.modality ?? '');
+          if (newIdx !== -1 && (currentIdx === -1 || newIdx < currentIdx)) {
+            priceByUnit.set(row.unit_id, Number(row.price_per_report ?? 0));
+          }
+        }
+      }
+
+      // Fallback: se unidade não tem preço de modalidade, buscar default_doctor_price da unidade
+      for (const u of unitRows) {
+        if (!priceByUnit.has(u.id)) {
+          // Buscar default da unidade (já temos u.id — query inline)
+          const unitDefault = await db
+            .select({ default_doctor_price: units.default_doctor_price })
+            .from(units)
+            .where(eq(units.id, u.id))
+            .limit(1);
+          const def = unitDefault[0]?.default_doctor_price;
+          priceByUnit.set(u.id, def != null ? Number(def) : null);
+        }
+      }
       return {
         summary: summary.map((r) => ({
           unit_id: r.unit_id,
