@@ -167,20 +167,20 @@ export default function Login() {
       <div className="relative z-10 flex flex-1 flex-col lg:flex-row items-stretch">
 
         {/* ── LEFT PANEL ──────────────────────────────────────────────── */}
-        <div className="flex flex-1 flex-col justify-center px-10 py-12 lg:px-16 xl:px-20">
+        <div className="flex flex-1 flex-col justify-center px-12 py-14 lg:px-20 xl:px-28">
 
           {/* Logo */}
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
-            className="mb-6"
+            className="mb-8"
           >
             {/* Big wordmark */}
             <div className="relative inline-block">
               <span
                 style={{
-                  fontSize: "clamp(5rem, 12vw, 9rem)",
+                  fontSize: "clamp(6.5rem, 14vw, 11.5rem)",
                   fontWeight: 900,
                   letterSpacing: "-0.02em",
                   color: "#ffffff",
@@ -196,7 +196,7 @@ export default function Login() {
                 viewBox="0 0 450 60"
                 preserveAspectRatio="none"
                 className="absolute w-full"
-                style={{ top: "52%", left: 0, height: "28px", transform: "translateY(-50%)" }}
+                style={{ top: "52%", left: 0, height: "36px", transform: "translateY(-50%)" }}
                 aria-hidden="true"
               >
                 <motion.path
@@ -217,7 +217,7 @@ export default function Login() {
             {/* Subtitle */}
             <p
               className="mt-2 tracking-[0.25em] uppercase"
-              style={{ fontSize: "0.78rem", color: "#38bdf8", letterSpacing: "0.22em" }}
+              style={{ fontSize: "0.95rem", color: "#38bdf8", letterSpacing: "0.22em" }}
             >
               Sistema de Laudos Radiológicos
             </p>
@@ -229,10 +229,10 @@ export default function Login() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.2, duration: 0.6 }}
           >
-            <p className="text-xl font-bold mb-2" style={{ color: "#38bdf8" }}>
+            <p className="text-2xl font-bold mb-3" style={{ color: "#38bdf8" }}>
               Precisão. Agilidade. Confiabilidade.
             </p>
-            <p className="text-sm mb-8" style={{ color: "#94a3b8", maxWidth: "480px" }}>
+            <p className="text-base mb-10" style={{ color: "#94a3b8", maxWidth: "560px" }}>
               Plataforma completa para gestão de exames, laudos e imagens com tecnologia PACS de última geração.
             </p>
           </motion.div>
@@ -242,13 +242,13 @@ export default function Login() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.35, duration: 0.6 }}
-            className="grid grid-cols-2 gap-3 mb-8"
-            style={{ maxWidth: "520px" }}
+            className="grid grid-cols-2 gap-4 mb-10"
+            style={{ maxWidth: "640px" }}
           >
             {STATUS_CARDS.map((card) => (
               <motion.div
                 key={card.label}
-                className="flex items-center gap-3 rounded-xl px-4 py-3 relative cursor-default"
+                className="flex items-center gap-4 rounded-xl px-5 py-4 relative cursor-default"
                 style={{
                   background: "rgba(255,255,255,0.04)",
                   border: "1px solid rgba(255,255,255,0.08)",
@@ -259,17 +259,17 @@ export default function Login() {
                 {/* [M8-FIX] Dot pulsante com motion.span */}
                 <motion.span
                   aria-hidden="true"
-                  className={`absolute top-3 right-3 h-2.5 w-2.5 rounded-full ${card.dotColor}`}
+                  className={`absolute top-4 right-4 h-3 w-3 rounded-full ${card.dotColor}`}
                   animate={shouldReduceMotion ? {} : {
                     scale: [1, 1.35, 1],
                     opacity: [0.6, 1, 0.6],
                   }}
                   transition={{ duration: 2.2, repeat: Infinity }}
                 />
-                <card.icon className={`h-8 w-8 shrink-0 ${card.iconColor}`} aria-hidden="true" />
+                <card.icon className={`h-10 w-10 shrink-0 ${card.iconColor}`} aria-hidden="true" />
                 <div>
-                  <p className="font-bold text-sm text-white">{card.label}</p>
-                  <p className="text-xs" style={{ color: "#38bdf8" }}>{card.sub}</p>
+                  <p className="font-bold text-base text-white">{card.label}</p>
+                  <p className="text-sm" style={{ color: "#38bdf8" }}>{card.sub}</p>
                 </div>
               </motion.div>
             ))}
@@ -283,7 +283,7 @@ export default function Login() {
             className="flex items-center gap-4"
             style={{ maxWidth: "520px" }}
           >
-            <svg viewBox="0 0 450 60" className="flex-1 h-10" preserveAspectRatio="none" aria-hidden="true">
+            <svg viewBox="0 0 450 60" className="flex-1 h-14" preserveAspectRatio="none" aria-hidden="true">
               <motion.path
                 d={ECG_PATH}
                 fill="none"
@@ -297,19 +297,19 @@ export default function Login() {
                 transition={{ duration: 3.8, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
               />
             </svg>
-            <span className="text-sm whitespace-nowrap" style={{ color: "#94a3b8" }}>
+            <span className="text-base whitespace-nowrap" style={{ color: "#94a3b8" }}>
               Uptime 99.9% — Estável
             </span>
           </motion.div>
         </div>
 
         {/* ── RIGHT PANEL — Login card ─────────────────────────────────── */}
-        <div className="flex items-center justify-center px-6 py-12 lg:px-12 lg:w-[520px] xl:w-[560px]">
+        <div className="flex items-center justify-center px-6 py-12 lg:px-14 lg:w-[600px] xl:w-[660px]">
           <motion.div
             initial={{ opacity: 0, x: 30 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.15, duration: 0.7 }}
-            className="w-full rounded-2xl p-8 md:p-10"
+            className="w-full rounded-2xl p-10 md:p-12"
             style={{
               background: "rgba(10, 22, 40, 0.85)",
               border: "1.5px solid rgba(56, 189, 248, 0.25)",
@@ -318,8 +318,8 @@ export default function Login() {
             }}
           >
             {/* ECG icon no card */}
-            <div className="flex justify-center mb-6">
-              <svg viewBox="0 0 120 50" className="w-28 h-12" aria-hidden="true">
+            <div className="flex justify-center mb-8">
+              <svg viewBox="0 0 120 50" className="w-36 h-16" aria-hidden="true">
                 <motion.path
                   d="M0,25 L25,25 L35,25 L45,5 L55,45 L65,2 L75,48 L85,25 L100,25 L110,25 L115,18 L120,25"
                   fill="none"
@@ -335,14 +335,14 @@ export default function Login() {
               </svg>
             </div>
 
-            <h1 className="text-center text-2xl font-bold text-white mb-1">
+            <h1 className="text-center text-3xl font-bold text-white mb-2">
               Acesso ao Sistema
             </h1>
-            <p className="text-center text-sm mb-8" style={{ color: "#94a3b8" }}>
+            <p className="text-center text-base mb-10" style={{ color: "#94a3b8" }}>
               Informe suas credenciais para continuar
             </p>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-5">
               {/* [M2-FIX] Campo Usuário com label visualmente oculto mas acessível */}
               <div>
                 <label
@@ -352,13 +352,13 @@ export default function Login() {
                   Usuário
                 </label>
                 <div
-                  className="flex items-center gap-3 rounded-xl px-4 py-3"
+                  className="flex items-center gap-3 rounded-xl px-5 py-4"
                   style={{
                     background: "rgba(255,255,255,0.05)",
                     border: "1px solid rgba(255,255,255,0.1)",
                   }}
                 >
-                  <svg className="h-5 w-5 shrink-0" style={{ color: "#64748b" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
+                  <svg className="h-6 w-6 shrink-0" style={{ color: "#64748b" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
                   </svg>
                   <input
@@ -368,7 +368,7 @@ export default function Login() {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     autoComplete="username"
-                    className="flex-1 bg-transparent outline-none text-white placeholder-slate-500 text-sm"
+                    className="flex-1 bg-transparent outline-none text-white placeholder-slate-500 text-base"
                   />
                 </div>
               </div>
@@ -382,13 +382,13 @@ export default function Login() {
                   Senha
                 </label>
                 <div
-                  className="flex items-center gap-3 rounded-xl px-4 py-3"
+                  className="flex items-center gap-3 rounded-xl px-5 py-4"
                   style={{
                     background: "rgba(255,255,255,0.05)",
                     border: "1px solid rgba(255,255,255,0.1)",
                   }}
                 >
-                  <svg className="h-5 w-5 shrink-0" style={{ color: "#64748b" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
+                  <svg className="h-6 w-6 shrink-0" style={{ color: "#64748b" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
                   </svg>
                   <input
@@ -398,7 +398,7 @@ export default function Login() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     autoComplete="current-password"
-                    className="flex-1 bg-transparent outline-none text-white placeholder-slate-500 text-sm"
+                    className="flex-1 bg-transparent outline-none text-white placeholder-slate-500 text-base"
                   />
                   {/* [M3-FIX] aria-label no botão de toggle de senha */}
                   <button
@@ -420,7 +420,7 @@ export default function Login() {
                 <button
                   type="submit"
                   disabled={loginMutation.isPending}
-                  className="w-full rounded-xl py-3.5 font-bold text-white text-base transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:opacity-60 relative"
+                  className="w-full rounded-xl py-5 font-bold text-white text-lg transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:opacity-60 relative"
                   style={{
                     background: "linear-gradient(90deg, #be123c 0%, #e11d48 50%, #be123c 100%)",
                     boxShadow: "0 4px 20px rgba(225,29,72,0.35)",
@@ -445,7 +445,7 @@ export default function Login() {
             </form>
 
             {/* Divisor */}
-            <div className="flex items-center gap-3 my-5">
+            <div className="flex items-center gap-3 my-6">
               <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
               <span className="text-xs" style={{ color: "#475569" }}>ou</span>
               <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
@@ -453,8 +453,8 @@ export default function Login() {
 
             {/* Badge de segurança no card */}
             <div className="flex items-center justify-center gap-2">
-              <ShieldCheck className="h-4 w-4" style={{ color: "#475569" }} aria-hidden="true" />
-              <span className="text-xs" style={{ color: "#475569" }}>Ambiente seguro e criptografado</span>
+              <ShieldCheck className="h-5 w-5" style={{ color: "#475569" }} aria-hidden="true" />
+              <span className="text-sm" style={{ color: "#475569" }}>Ambiente seguro e criptografado</span>
             </div>
           </motion.div>
         </div>
