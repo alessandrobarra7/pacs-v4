@@ -1,430 +1,333 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
-import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
-import { motion, useReducedMotion } from "framer-motion";
-import {
-  Activity,
-  CheckCircle2,
-  Cloud,
-  Eye,
-  EyeOff,
-  Headphones,
-  Lock,
-  PhoneCall,
-  RefreshCw,
-  ShieldCheck,
-  User,
-} from "lucide-react";
+import { Eye, EyeOff, Cloud, CheckCircle2, Headphones, RefreshCw, ShieldCheck } from "lucide-react";
+import { motion } from "framer-motion";
 
-// ─── Status cards (purely decorative, no API calls) ───────────────────────────
-const statusCards = [
+/* ── ECG SVG path ─────────────────────────────────────────────────────────── */
+const ECG_PATH =
+  "M0,30 L60,30 L70,30 L80,10 L90,50 L100,5 L110,55 L120,30 L140,30 L150,30 L160,20 L170,40 L180,30 L240,30 L250,30 L260,15 L270,45 L280,5 L290,55 L300,30 L340,30 L350,30 L360,22 L370,38 L380,30 L440,30 L450,30";
+
+/* ── Status cards data ────────────────────────────────────────────────────── */
+const STATUS_CARDS = [
   {
-    title: "PACS Online",
-    status: "Online / Conectado",
     icon: Cloud,
-    iconColor: "text-sky-400",
+    label: "PACS Online",
+    sub: "Online / Conectado",
     dotColor: "bg-emerald-400",
+    iconColor: "text-sky-400",
   },
   {
-    title: "DICOM Ativo",
-    status: "Ativo / Comunicação OK",
     icon: CheckCircle2,
-    iconColor: "text-sky-400",
+    label: "DICOM Ativo",
+    sub: "Ativo / Comunicação OK",
     dotColor: "bg-sky-400",
+    iconColor: "text-sky-400",
   },
   {
-    title: "Suporte Online 24h",
-    status: "24h / Disponível",
     icon: Headphones,
-    iconColor: "text-sky-400",
+    label: "Suporte Online 24h",
+    sub: "24h / Disponível",
     dotColor: "bg-emerald-400",
+    iconColor: "text-sky-400",
   },
   {
-    title: "Sincronização OK",
-    status: "100% / Última: 08:59",
     icon: RefreshCw,
-    iconColor: "text-sky-400",
+    label: "Sincronização OK",
+    sub: "100% / Última: 08:59",
     dotColor: "bg-sky-400",
+    iconColor: "text-sky-400",
   },
 ];
 
-// ─── Animated ECG line ─────────────────────────────────────────────────────────
-function HeartbeatLine() {
-  const shouldReduceMotion = useReducedMotion();
-  return (
-    <div className="mt-8 flex items-center gap-4">
-      <svg
-        viewBox="0 0 600 56"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        className="flex-1 h-10"
-        aria-hidden="true"
-      >
-        <motion.path
-          d="M0 28 H110 L126 28 L138 10 L152 46 L166 22 L184 28 H310
-             L326 28 L338 10 L352 46 L366 22 L384 28 H600"
-          fill="none"
-          stroke="#ff3f5e"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          initial={{ pathLength: 0.8, opacity: 0.7 }}
-          animate={
-            shouldReduceMotion
-              ? {}
-              : {
-                  pathLength: [0.8, 1, 0.8],
-                  opacity: [0.7, 1, 0.7],
-                }
-          }
-          transition={{ duration: 3.8, repeat: Infinity, ease: "easeInOut" }}
-        />
-      </svg>
-      <span className="text-xs text-slate-400 whitespace-nowrap shrink-0">
-        Uptime 99.9% — Estável
-      </span>
-    </div>
-  );
-}
-
 export default function Login() {
-  const { isAuthenticated, loading, refresh } = useAuth();
-  const [, setLocation] = useLocation();
-  const shouldReduceMotion = useReducedMotion();
-
-  const [login, setLogin] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [, navigate] = useLocation();
+  const { refresh } = useAuth();
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async () => {
       await refresh();
-      setLocation("/pacs-query");
+      navigate("/pacs-query");
     },
     onError: (err) => {
-      toast.error(err.message || "Credenciais inválidas");
+      toast.error(err.message || "Usuário ou senha inválidos");
     },
   });
 
-  useEffect(() => {
-    if (isAuthenticated) setLocation("/pacs-query");
-  }, [isAuthenticated, setLocation]);
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!login.trim() || !password) {
+    if (!username.trim() || !password.trim()) {
       toast.error("Preencha usuário e senha");
       return;
     }
-    loginMutation.mutate({ login: login.trim(), password });
+    loginMutation.mutate({ login: username.trim(), password });
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#020817] flex items-center justify-center">
-        <Activity className="h-8 w-8 text-[#ff3f5e] animate-pulse" />
-      </div>
-    );
-  }
 
   return (
     <div
-      className="relative min-h-screen flex flex-col overflow-hidden bg-[#020817]"
+      className="min-h-screen w-full flex flex-col"
+      style={{
+        background: "linear-gradient(135deg, #020b12 0%, #0a1628 50%, #020b12 100%)",
+        fontFamily: "'Inter', sans-serif",
+      }}
     >
-      {/* ── Background image ──────────────────────────────────────────────── */}
-      <img
-        src="/login-medical-bg.jpg"
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-[0.07] select-none"
-      />
-
-      {/* ── Gradient overlay ──────────────────────────────────────────────── */}
+      {/* ── Background image overlay ────────────────────────────────────── */}
       <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
+        className="absolute inset-0 pointer-events-none"
         style={{
-          background:
-            "radial-gradient(ellipse 80% 60% at 20% 40%, rgba(56,189,248,0.06) 0%, transparent 60%)," +
-            "radial-gradient(ellipse 60% 50% at 80% 70%, rgba(255,63,94,0.06) 0%, transparent 55%)",
+          backgroundImage: "url('/login-medical-bg.jpg')",
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          opacity: 0.12,
         }}
       />
 
-      {/* ── Animated glow blobs ───────────────────────────────────────────── */}
-      {!shouldReduceMotion && (
-        <>
-          <motion.div
-            aria-hidden="true"
-            className="pointer-events-none absolute -left-20 top-24 h-72 w-72 rounded-full bg-sky-500/10 blur-3xl"
-            animate={{ x: [0, 28, 0], y: [0, -16, 0] }}
-            transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}
-          />
-          <motion.div
-            aria-hidden="true"
-            className="pointer-events-none absolute -right-16 bottom-32 h-64 w-64 rounded-full blur-3xl"
-            style={{ background: "rgba(255,63,94,0.08)" }}
-            animate={{ x: [0, -20, 0], y: [0, 20, 0] }}
-            transition={{ duration: 11, repeat: Infinity, ease: "easeInOut" }}
-          />
-        </>
-      )}
+      {/* ── Main content ────────────────────────────────────────────────── */}
+      <div className="relative z-10 flex flex-1 flex-col lg:flex-row items-stretch">
 
-      {/* ── Main content ──────────────────────────────────────────────────── */}
-      <main className="relative z-10 flex-1 flex items-center justify-center px-4 py-10">
-        <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-10 lg:gap-16 items-center">
+        {/* ── LEFT PANEL ──────────────────────────────────────────────── */}
+        <div className="flex flex-1 flex-col justify-center px-10 py-12 lg:px-16 xl:px-20">
 
-          {/* ── LEFT PANEL ────────────────────────────────────────────────── */}
+          {/* Logo */}
           <motion.div
-            initial={{ opacity: 0, x: -24 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.7 }}
-            className="flex flex-col"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            className="mb-6"
           >
-            {/* Logo */}
-            <div className="mb-4">
-              <h2
-                className="font-black tracking-tight text-white leading-none select-none"
-                style={{ fontSize: "clamp(3rem, 7vw, 5.5rem)" }}
+            {/* Big wordmark */}
+            <div className="relative inline-block">
+              <span
+                style={{
+                  fontSize: "clamp(5rem, 12vw, 9rem)",
+                  fontWeight: 900,
+                  letterSpacing: "-0.02em",
+                  color: "#ffffff",
+                  lineHeight: 1,
+                  display: "block",
+                  textShadow: "0 0 60px rgba(255,255,255,0.08)",
+                }}
               >
                 Lauds
-                <span
-                  aria-hidden="true"
-                  className="inline-block ml-2 align-middle"
-                  style={{ lineHeight: 0 }}
-                >
-                  <svg
-                    viewBox="0 0 60 20"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    style={{ height: "0.55em", display: "inline-block", verticalAlign: "middle" }}
-                    aria-hidden="true"
-                  >
-                    <motion.path
-                      d="M0 10 H12 L16 10 L20 2 L26 18 L30 6 L34 10 H60"
-                      fill="none"
-                      stroke="#ff3f5e"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      initial={{ pathLength: 0 }}
-                      animate={{ pathLength: 1 }}
-                      transition={{ duration: 1.4, ease: "easeOut" }}
-                    />
-                  </svg>
-                </span>
-              </h2>
-
-              <p className="mt-2 text-xs tracking-[0.25em] text-sky-300/80 uppercase font-medium">
-                Sistema de Laudos Radiológicos
-              </p>
+              </span>
+              {/* ECG line through logo */}
+              <svg
+                viewBox="0 0 450 60"
+                preserveAspectRatio="none"
+                className="absolute w-full"
+                style={{ top: "52%", left: 0, height: "28px", transform: "translateY(-50%)" }}
+              >
+                <path d={ECG_PATH} fill="none" stroke="#e11d48" strokeWidth="2.5" />
+              </svg>
             </div>
 
-            {/* Tagline */}
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.3, duration: 0.6 }}
-              className="text-lg font-semibold text-sky-400 mb-2"
+            {/* Subtitle */}
+            <p
+              className="mt-2 tracking-[0.25em] uppercase"
+              style={{ fontSize: "0.78rem", color: "#38bdf8", letterSpacing: "0.22em" }}
             >
-              Precisão. Agilidade. Confiabilidade.
-            </motion.p>
-
-            {/* Description */}
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.4, duration: 0.6 }}
-              className="text-sm text-slate-400 mb-8 max-w-sm"
-            >
-              Plataforma completa para gestão de exames, laudos e imagens com tecnologia PACS de última geração.
-            </motion.p>
-
-            {/* Status cards */}
-            <div className="grid grid-cols-2 gap-3">
-              {statusCards.map((card, i) => (
-                <motion.div
-                  key={card.title}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 + i * 0.08, duration: 0.5 }}
-                  whileHover={shouldReduceMotion ? {} : { y: -2, scale: 1.01 }}
-                  className="relative rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur-sm"
-                >
-                  <motion.span
-                    aria-hidden="true"
-                    className={`absolute right-3 top-3 h-2 w-2 rounded-full ${card.dotColor}`}
-                    animate={
-                      shouldReduceMotion
-                        ? {}
-                        : { scale: [1, 1.4, 1], opacity: [0.6, 1, 0.6] }
-                    }
-                    transition={{ duration: 2.2, repeat: Infinity }}
-                  />
-                  <card.icon className={`h-5 w-5 ${card.iconColor} mb-2`} aria-hidden="true" />
-                  <p className="text-sm font-semibold text-white">{card.title}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{card.status}</p>
-                </motion.div>
-              ))}
-            </div>
-
-            {/* ECG line */}
-            <HeartbeatLine />
+              Sistema de Laudos Radiológicos
+            </p>
           </motion.div>
 
-          {/* ── RIGHT PANEL — Login card ───────────────────────────────────── */}
+          {/* Tagline */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2, duration: 0.6 }}
+          >
+            <p className="text-xl font-bold mb-2" style={{ color: "#38bdf8" }}>
+              Precisão. Agilidade. Confiabilidade.
+            </p>
+            <p className="text-sm mb-8" style={{ color: "#94a3b8", maxWidth: "480px" }}>
+              Plataforma completa para gestão de exames, laudos e imagens com tecnologia PACS de última geração.
+            </p>
+          </motion.div>
+
+          {/* Status cards */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.15 }}
-            className="relative w-full max-w-md mx-auto overflow-hidden rounded-[28px] border border-sky-300/20 bg-[rgba(7,20,38,0.88)] shadow-[0_0_80px_rgba(255,63,94,0.10)] backdrop-blur-xl"
+            transition={{ delay: 0.35, duration: 0.6 }}
+            className="grid grid-cols-2 gap-3 mb-8"
+            style={{ maxWidth: "520px" }}
           >
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0"
-              style={{
-                background:
-                  "radial-gradient(circle at top left, rgba(56,189,248,0.14) 0%, transparent 35%)," +
-                  "radial-gradient(circle at bottom right, rgba(255,63,94,0.14) 0%, transparent 30%)",
-              }}
-            />
-
-            <div className="relative z-10 p-8 md:p-10">
-              {/* ECG header */}
-              <div className="flex justify-center mb-6">
-                <svg viewBox="0 0 120 40" fill="none" className="h-8 w-28" aria-hidden="true">
-                  <motion.path
-                    d="M0 20 H30 L38 20 L44 6 L52 34 L60 16 L68 20 H120"
-                    fill="none"
-                    stroke="#ff3f5e"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    initial={{ pathLength: 0 }}
-                    animate={{ pathLength: 1 }}
-                    transition={{ duration: 1.2, delay: 0.4, ease: "easeOut" }}
-                  />
-                </svg>
-              </div>
-
-              {/* Titles */}
-              <div className="text-center mb-8">
-                <h1 className="text-2xl md:text-3xl font-bold text-white">
-                  Acesso ao Sistema
-                </h1>
-                <p className="mt-2 text-sm text-slate-400">
-                  Informe suas credenciais para continuar
-                </p>
-              </div>
-
-              {/* Form */}
-              <form onSubmit={handleSubmit} className="space-y-5">
+            {STATUS_CARDS.map((card) => (
+              <div
+                key={card.label}
+                className="flex items-center gap-3 rounded-xl px-4 py-3 relative"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                {/* Dot */}
+                <span
+                  className={`absolute top-3 right-3 h-2.5 w-2.5 rounded-full ${card.dotColor}`}
+                  style={{ boxShadow: `0 0 6px currentColor` }}
+                />
+                <card.icon className={`h-8 w-8 shrink-0 ${card.iconColor}`} />
                 <div>
-                  <label
-                    htmlFor="login"
-                    className="block text-xs font-medium text-slate-300 mb-2 tracking-wide"
-                  >
-                    Usuário
-                  </label>
-                  <div className="relative">
-                    <User
-                      className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 pointer-events-none"
-                      aria-hidden="true"
-                    />
-                    <input
-                      id="login"
-                      type="text"
-                      value={login}
-                      onChange={(e) => setLogin(e.target.value)}
-                      placeholder="seu.usuario@dominio.com"
-                      autoComplete="username"
-                      className="w-full rounded-xl border border-white/10 bg-white/[0.05] pl-10 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-400/50 focus:bg-white/[0.08] transition duration-200"
-                    />
-                  </div>
+                  <p className="font-bold text-sm text-white">{card.label}</p>
+                  <p className="text-xs" style={{ color: "#38bdf8" }}>{card.sub}</p>
                 </div>
-
-                <div>
-                  <label
-                    htmlFor="password"
-                    className="block text-xs font-medium text-slate-300 mb-2 tracking-wide"
-                  >
-                    Senha
-                  </label>
-                  <div className="relative">
-                    <Lock
-                      className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 pointer-events-none"
-                      aria-hidden="true"
-                    />
-                    <input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••••••••"
-                      autoComplete="current-password"
-                      className="w-full rounded-xl border border-white/10 bg-white/[0.05] pl-10 pr-12 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-400/50 focus:bg-white/[0.08] transition duration-200"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="h-4 w-4" aria-hidden="true" />
-                      ) : (
-                        <Eye className="h-4 w-4" aria-hidden="true" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loginMutation.isPending}
-                  className="relative w-full overflow-hidden rounded-xl py-3.5 px-6 bg-[#ff3f5e] hover:bg-[#e8334e] disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold tracking-wide transition duration-200 focus:outline-none focus:ring-2 focus:ring-[#ff3f5e]/50 focus:ring-offset-2 focus:ring-offset-slate-900"
-                >
-                  {!shouldReduceMotion && !loginMutation.isPending && (
-                    <motion.span
-                      aria-hidden="true"
-                      className="absolute inset-y-0 left-[-30%] w-1/3 bg-white/15 blur-lg"
-                      animate={{ x: ["0%", "280%"] }}
-                      transition={{ duration: 2.8, repeat: Infinity, ease: "linear" }}
-                    />
-                  )}
-                  <span className="relative z-10">
-                    {loginMutation.isPending ? "Entrando..." : "Entrar no Sistema"}
-                  </span>
-                </button>
-              </form>
-
-              <div className="mt-6 flex items-center gap-3">
-                <div className="flex-1 h-px bg-white/10" />
-                <span className="text-xs text-slate-500">ou</span>
-                <div className="flex-1 h-px bg-white/10" />
               </div>
-
-              <div className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-500">
-                <ShieldCheck className="h-3.5 w-3.5 text-sky-400/60" aria-hidden="true" />
-                <span>Ambiente seguro e criptografado</span>
-              </div>
-            </div>
+            ))}
           </motion.div>
 
+          {/* ECG bar */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5, duration: 0.8 }}
+            className="flex items-center gap-4"
+            style={{ maxWidth: "520px" }}
+          >
+            <svg viewBox="0 0 450 60" className="flex-1 h-10" preserveAspectRatio="none">
+              <path d={ECG_PATH} fill="none" stroke="#e11d48" strokeWidth="2" opacity="0.85" />
+            </svg>
+            <span className="text-sm whitespace-nowrap" style={{ color: "#94a3b8" }}>
+              Uptime 99.9% — Estável
+            </span>
+          </motion.div>
         </div>
-      </main>
 
-      {/* ── Footer ────────────────────────────────────────────────────────── */}
-      <footer className="relative z-10 mt-auto border-t border-white/10 bg-slate-950/45 px-6 py-4 grid grid-cols-1 gap-3 md:grid-cols-3 items-center text-sm text-sky-200/80">
-        <div className="flex items-center justify-center gap-3 md:justify-start">
-          <PhoneCall className="h-4 w-4 text-emerald-400 shrink-0" aria-hidden="true" />
+        {/* ── RIGHT PANEL — Login card ─────────────────────────────────── */}
+        <div className="flex items-center justify-center px-6 py-12 lg:px-12 lg:w-[520px] xl:w-[560px]">
+          <motion.div
+            initial={{ opacity: 0, x: 30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.15, duration: 0.7 }}
+            className="w-full rounded-2xl p-8 md:p-10"
+            style={{
+              background: "rgba(10, 22, 40, 0.85)",
+              border: "1.5px solid rgba(56, 189, 248, 0.25)",
+              boxShadow: "0 0 60px rgba(56,189,248,0.06), 0 0 0 1px rgba(225,29,72,0.08)",
+              backdropFilter: "blur(20px)",
+            }}
+          >
+            {/* ECG icon */}
+            <div className="flex justify-center mb-6">
+              <svg viewBox="0 0 120 50" className="w-28 h-12">
+                <path
+                  d="M0,25 L25,25 L35,25 L45,5 L55,45 L65,2 L75,48 L85,25 L100,25 L110,25 L115,18 L120,25"
+                  fill="none"
+                  stroke="#e11d48"
+                  strokeWidth="2.5"
+                />
+              </svg>
+            </div>
+
+            <h1 className="text-center text-2xl font-bold text-white mb-1">
+              Acesso ao Sistema
+            </h1>
+            <p className="text-center text-sm mb-8" style={{ color: "#94a3b8" }}>
+              Informe suas credenciais para continuar
+            </p>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Username */}
+              <div
+                className="flex items-center gap-3 rounded-xl px-4 py-3"
+                style={{
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                }}
+              >
+                <svg className="h-5 w-5 shrink-0" style={{ color: "#64748b" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Usuário"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                  className="flex-1 bg-transparent outline-none text-white placeholder-slate-500 text-sm"
+                />
+              </div>
+
+              {/* Password */}
+              <div
+                className="flex items-center gap-3 rounded-xl px-4 py-3"
+                style={{
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                }}
+              >
+                <svg className="h-5 w-5 shrink-0" style={{ color: "#64748b" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Senha"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  className="flex-1 bg-transparent outline-none text-white placeholder-slate-500 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="shrink-0 text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+
+              {/* Submit */}
+              <button
+                type="submit"
+                disabled={loginMutation.isPending}
+                className="w-full rounded-xl py-3.5 font-bold text-white text-base transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:opacity-60"
+                style={{
+                  background: "linear-gradient(90deg, #be123c 0%, #e11d48 50%, #be123c 100%)",
+                  boxShadow: "0 4px 20px rgba(225,29,72,0.35)",
+                }}
+              >
+                {loginMutation.isPending ? "Entrando..." : "Entrar no Sistema"}
+              </button>
+            </form>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 my-5">
+              <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+              <span className="text-xs" style={{ color: "#475569" }}>ou</span>
+              <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+            </div>
+
+            {/* Security badge */}
+            <div className="flex items-center justify-center gap-2">
+              <ShieldCheck className="h-4 w-4" style={{ color: "#475569" }} />
+              <span className="text-xs" style={{ color: "#475569" }}>Ambiente seguro e criptografado</span>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+
+      {/* ── Footer ──────────────────────────────────────────────────────── */}
+      <footer
+        className="relative z-10 flex items-center justify-between px-8 py-4"
+        style={{
+          borderTop: "1px solid rgba(255,255,255,0.07)",
+          background: "rgba(2,11,18,0.7)",
+        }}
+      >
+        <div className="flex items-center gap-2 text-sm" style={{ color: "#94a3b8" }}>
+          {/* WhatsApp icon */}
+          <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" style={{ color: "#22c55e" }} fill="currentColor">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+          </svg>
           <span>Vendas: 98 98484-0224 WhatsApp</span>
         </div>
-        <div className="flex items-center justify-center gap-3">
-          <ShieldCheck className="h-4 w-4 text-sky-400 shrink-0" aria-hidden="true" />
-          <span>Ambiente seguro e criptografado</span>
-        </div>
-        <div className="text-center md:text-right text-sky-200/60">
+        <div className="text-sm" style={{ color: "#475569" }}>
           Desenvolvimento{" "}
-          <span className="font-semibold text-sky-300">StudioBarra7</span>
+          <span className="font-semibold" style={{ color: "#94a3b8" }}>StudioBarra7</span>
         </div>
       </footer>
     </div>
