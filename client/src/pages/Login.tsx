@@ -141,6 +141,19 @@ export default function Login() {
         />
       </div>
 
+      {/* Grid HUD decorativo */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          opacity: 0.05,
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px)," +
+            "linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px)",
+          backgroundSize: "34px 34px",
+        }}
+      />
+
       {/* [M1-FIX] Imagem de fundo com <img aria-hidden> */}
       <img
         src="/login-medical-bg.jpg"
@@ -233,13 +246,15 @@ export default function Login() {
             style={{ maxWidth: "520px" }}
           >
             {STATUS_CARDS.map((card) => (
-              <div
+              <motion.div
                 key={card.label}
-                className="flex items-center gap-3 rounded-xl px-4 py-3 relative"
+                className="flex items-center gap-3 rounded-xl px-4 py-3 relative cursor-default"
                 style={{
                   background: "rgba(255,255,255,0.04)",
                   border: "1px solid rgba(255,255,255,0.08)",
                 }}
+                whileHover={shouldReduceMotion ? {} : { y: -2, scale: 1.01 }}
+                transition={{ type: "spring", stiffness: 300, damping: 20 }}
               >
                 {/* [M8-FIX] Dot pulsante com motion.span */}
                 <motion.span
@@ -256,7 +271,7 @@ export default function Login() {
                   <p className="font-bold text-sm text-white">{card.label}</p>
                   <p className="text-xs" style={{ color: "#38bdf8" }}>{card.sub}</p>
                 </div>
-              </div>
+              </motion.div>
             ))}
           </motion.div>
 
@@ -400,18 +415,33 @@ export default function Login() {
                 </div>
               </div>
 
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={loginMutation.isPending}
-                className="w-full rounded-xl py-3.5 font-bold text-white text-base transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:opacity-60"
-                style={{
-                  background: "linear-gradient(90deg, #be123c 0%, #e11d48 50%, #be123c 100%)",
-                  boxShadow: "0 4px 20px rgba(225,29,72,0.35)",
-                }}
-              >
-                {loginMutation.isPending ? "Entrando..." : "Entrar no Sistema"}
-              </button>
+              {/* Submit com shimmer */}
+              <div className="relative overflow-hidden rounded-xl">
+                <button
+                  type="submit"
+                  disabled={loginMutation.isPending}
+                  className="w-full rounded-xl py-3.5 font-bold text-white text-base transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:opacity-60 relative"
+                  style={{
+                    background: "linear-gradient(90deg, #be123c 0%, #e11d48 50%, #be123c 100%)",
+                    boxShadow: "0 4px 20px rgba(225,29,72,0.35)",
+                  }}
+                >
+                  {loginMutation.isPending ? "Entrando..." : "Entrar no Sistema"}
+                </button>
+                {/* Shimmer overlay */}
+                {!loginMutation.isPending && (
+                  <motion.div
+                    aria-hidden="true"
+                    className="absolute inset-0 pointer-events-none rounded-xl"
+                    style={{
+                      background: "linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.18) 50%, transparent 60%)",
+                    }}
+                    initial={{ x: "-100%" }}
+                    animate={shouldReduceMotion ? {} : { x: "100%" }}
+                    transition={{ duration: 1.8, repeat: Infinity, repeatDelay: 2.5, ease: "easeInOut" }}
+                  />
+                )}
+              </div>
             </form>
 
             {/* Divisor */}
