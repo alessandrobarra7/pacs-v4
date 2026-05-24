@@ -661,8 +661,21 @@ export const financeSimpleRouter = router({
       // P1B: myFinanceiro usa ciclo real por unidade (resolveFinancialCycle).
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
 
+      // FIX ANALISE_GERACAO_DADOS P3: filtrar unitRows por permissão view_financial ativa
+      // Sem esse filtro, um médico que perdeu a permissão ainda vê dados de unidades antigas
+      let allowedUnitIds: number[] | null = null;
+      if (ctx.user.role !== 'admin_master') {
+        const allPerms = await getUserUnitPermissions(ctx.user.id);
+        allowedUnitIds = allPerms
+          .filter(p => p.view_financial)
+          .map(p => p.unit_id);
+        if (allowedUnitIds.length === 0) {
+          return { summary: [], events: [] };
+        }
+      }
+
       // Buscar unidades onde o médico tem eventos, com seus ciclos
-      const unitRows = await db
+      const unitRowsQuery = db
         .select({ id: units.id, name: units.name, s: units.billing_cycle_start_day, e: units.billing_cycle_end_day })
         .from(units)
         .innerJoin(billing_visit_events, and(
@@ -671,6 +684,10 @@ export const financeSimpleRouter = router({
         ))
         .groupBy(units.id, units.name, units.billing_cycle_start_day, units.billing_cycle_end_day)
         .orderBy(units.name);
+
+      const unitRows = allowedUnitIds !== null
+        ? (await unitRowsQuery).filter(u => allowedUnitIds!.includes(u.id))
+        : await unitRowsQuery;
 
       // Para cada unidade, buscar resumo dentro do ciclo real
       const summaryRaw = await Promise.all(

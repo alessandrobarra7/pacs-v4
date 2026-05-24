@@ -798,7 +798,45 @@ export const adminRouter = router({
           ip_address: ctx.req.ip,
           user_agent: ctx.req.headers['user-agent'],
         });
-        
+
+        // FIX ANALISE_GERACAO_DADOS P1: auto-configurar cadeia financeira para responsavel_financeiro
+        // Sem isso, o usuário tem o role mas financial_responsibles/users/units nunca são criados,
+        // e getResponsibleIdForUser retorna 0 resultados → tela vazia no /financeiro/responsavel
+        if (input.groupKey === 'responsaveisFinanceiros') {
+          try {
+            const {
+              getActiveResponsibleForUnit,
+              createFinancialResponsible,
+              linkUserToResponsible,
+              linkUnitToResponsible,
+            } = await import('../db');
+
+            let responsibleId: number;
+            const activeResp = await getActiveResponsibleForUnit(input.unitId);
+
+            if (activeResp) {
+              // Unidade já tem responsável ativo → apenas vincular o novo usuário
+              responsibleId = activeResp.financial_responsible_id;
+            } else {
+              // Unidade sem responsável → criar novo com o nome do usuário
+              responsibleId = await createFinancialResponsible({
+                person_type: 'PF',
+                legal_name: input.name,
+                isActive: true,
+              });
+              // Vincular responsável à unidade
+              await linkUnitToResponsible(responsibleId, input.unitId, new Date(), undefined, ctx.user.id);
+            }
+
+            // Vincular o usuário ao responsável
+            await linkUserToResponsible(responsibleId, userId);
+
+          } catch (err) {
+            // Não bloqueia a criação do usuário — loga para investigação
+            console.error('[createUserScoped] Falha ao configurar cadeia financeira:', err);
+          }
+        }
+
         return { success: true, id: userId };
       }),
 

@@ -1869,6 +1869,8 @@ export async function createBillingVisitEvent(data: {
   signed_at: Date;
   /** M2B: modalidade do exame para precificação por modalidade */
   modality_snapshot?: string | null;
+  /** FIX ANALISE_GERACAO_DADOS P2: nome do exame no momento do laudo (snapshot para auditoria) */
+  exam_name_snapshot?: string | null;
 }): Promise<{ event: typeof billing_visit_events.$inferSelect; created: boolean; doctor_amount_due: string | null }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1977,6 +1979,7 @@ export async function createBillingVisitEvent(data: {
     pricing_status: pricingStatus,
     signed_at: data.signed_at,
     modality_snapshot: data.modality_snapshot ?? null,
+    exam_name_snapshot: data.exam_name_snapshot ?? null,  // FIX ANALISE_GERACAO_DADOS P2
   }).onDuplicateKeyUpdate({ set: { report_key: reportKey } });
 
   const insertId = Number(insertResult[0].insertId);

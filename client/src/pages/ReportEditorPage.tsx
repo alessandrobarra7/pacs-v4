@@ -508,6 +508,7 @@ export default function ReportEditorPage() {
         unit_id: studyInfo?.unitId ?? undefined,
         study_instance_uid: studyUid || undefined,
         patient_name: studyInfo?.patientName || undefined,
+        exam_name: examTitle || studyInfo?.studyDescription || undefined,  // FIX ANALISE_GERACAO_DADOS P2
         study_date: studyInfo?.studyDate || undefined,
         layout_snapshot: layoutSnapshot,  // FIX GAP-1: snapshot do layout
       });

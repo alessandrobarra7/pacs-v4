@@ -187,6 +187,7 @@ export const reportsRouter = router({
         unit_id: z.number().optional(),
         study_instance_uid: z.string().optional(),
         patient_name: z.string().optional(),
+        exam_name: z.string().optional(),  // FIX ANALISE_GERACAO_DADOS P2: snapshot do nome do exame para billing
         study_date: z.string().optional(),
         layout_snapshot: z.any().optional().nullable(),  // FIX GAP-1: snapshot do layout no momento da assinatura
       }))
@@ -259,6 +260,7 @@ export const reportsRouter = router({
               // admin_master pode assinar laudos de médicos — o crédito é do médico
               doctor_user_id: report.author_user_id ?? ctx.user.id,
               patient_name: input.patient_name ?? undefined,
+              exam_name_snapshot: input.exam_name ?? undefined,  // FIX ANALISE_GERACAO_DADOS P2
               study_date: input.study_date ?? undefined,
               signed_at: signedAt,
               modality_snapshot: studyModality,
