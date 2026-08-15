@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import {
-  Search, Eye, FileText, Printer,
+  Search, Eye, FileText, Printer, Paperclip,
   Clipboard, Settings, DollarSign,
   ChevronLeft, ChevronRight, Clock, Pencil, Check, X,
   Download, Loader2, CalendarDays,
@@ -103,7 +103,7 @@ function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefin
   // ESTADO 1: Sem unidade selecionada
   if (!unitId) {
     return (
-      <div className="bg-amber-50 border-b border-amber-200 px-5 py-1.5 flex items-center gap-2 text-xs text-amber-700">
+      <div className="bg-amber-50 border-b border-amber-200 px-5 py-2.5 md:py-1.5 flex items-start md:items-center gap-3 text-sm md:text-xs leading-snug text-amber-700">
         <span>⚠</span>
         <span>Selecione uma unidade para visualizar seu resumo financeiro</span>
       </div>
@@ -113,7 +113,7 @@ function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefin
   // ESTADO 2: Carregando
   if (isLoading) {
     return (
-      <div className="bg-emerald-50 border-b border-emerald-200 px-5 py-1.5 flex items-center gap-4 text-xs text-emerald-600 animate-pulse">
+      <div className="bg-emerald-50 border-b border-emerald-200 px-5 py-2.5 md:py-1.5 flex items-center gap-3 md:gap-4 text-sm md:text-xs text-emerald-600 animate-pulse">
         <span className="font-semibold">Carregando resumo financeiro...</span>
         <span className="bg-emerald-200 rounded h-3 w-16 inline-block" />
         <span className="bg-emerald-200 rounded h-3 w-24 inline-block" />
@@ -125,7 +125,7 @@ function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefin
   // ESTADO 3: Erro ao carregar
   if (isError) {
     return (
-      <div className="bg-red-50 border-b border-red-200 px-5 py-1.5 flex items-center gap-2 text-xs text-red-600">
+      <div className="bg-red-50 border-b border-red-200 px-5 py-2.5 md:py-1.5 flex items-start md:items-center gap-3 text-sm md:text-xs leading-snug text-red-600">
         <span>⚠</span>
         <span>Erro ao carregar dados financeiros. Tente recarregar a página.</span>
       </div>
@@ -136,8 +136,8 @@ function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefin
   // (info existe mas price_per_report é null — não há preço configurado)
   if (!info || info.price_per_report === null) {
     return (
-      <div className="bg-blue-50 border-b border-blue-200 px-5 py-1.5 flex items-center gap-2 text-xs text-blue-600">
-        <span>ℹ</span>
+      <div className="bg-blue-50 border-b border-blue-200 px-5 py-3 md:py-1.5 flex items-start md:items-center gap-3 text-[15px] md:text-xs leading-snug text-blue-700">
+        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center border border-blue-700 text-sm font-bold leading-none text-blue-700">i</span>
         <span>Esta unidade ainda não possui configuração de preço para laudos. Contate o administrador.</span>
       </div>
     );
@@ -152,7 +152,7 @@ function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefin
 
   if (userRole === 'medico') {
     return (
-      <div className="bg-emerald-50 border-b border-emerald-200 px-5 py-1.5 flex items-center gap-4 text-xs text-emerald-800">
+      <div className="bg-emerald-50 border-b border-emerald-200 px-5 py-2.5 md:py-1.5 flex items-center gap-3 md:gap-4 text-sm md:text-xs text-emerald-800">
         <span className="font-semibold text-emerald-700">
           R$ {parseFloat(info.price_per_report).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/laudo
         </span>
@@ -175,7 +175,7 @@ function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefin
   // PASSO 7: Responsável financeiro vê resumo da unidade
   if (userRole === 'responsavel_financeiro') {
     return (
-      <div className="bg-blue-50 border-b border-blue-200 px-5 py-1.5 flex items-center gap-4 text-xs text-blue-800">
+      <div className="bg-blue-50 border-b border-blue-200 px-5 py-2.5 md:py-1.5 flex items-center gap-3 md:gap-4 text-sm md:text-xs text-blue-800">
         <span className="font-semibold text-blue-700">Unidade</span>
         <span className="text-blue-600">•</span>
         {hasOpenCycle ? (
@@ -1421,6 +1421,7 @@ export function PacsQueryPage() {
             <span className="text-white/80 text-sm font-medium">{unitName}</span>
           )
         }
+        mobileUnitLabel={unitName}
         nav={
           <>
             <button className="px-4 py-1.5 rounded text-sm font-semibold bg-amber-700 text-white">
@@ -1458,7 +1459,7 @@ export function PacsQueryPage() {
       )}
 
       {/* ── FILTROS ── */}
-      <div className="bg-white border-b border-gray-200 px-5 py-2.5 flex items-center gap-3 shrink-0">
+      <div className="hidden md:flex bg-white border-b border-gray-200 px-5 py-2.5 items-center gap-3 shrink-0">
         {/* Busca por nome */}
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -1549,6 +1550,34 @@ export function PacsQueryPage() {
         </div>
       </div>
 
+      {/* ── CONTROLE DE DATA MOBILE ── */}
+      <div className="md:hidden bg-white border-b border-gray-200 p-5 shrink-0">
+        <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={`h-14 w-full rounded-xl border text-base font-semibold transition-colors inline-flex items-center justify-center gap-3 ${
+                activePeriod === 'custom' && selectedDate
+                  ? 'bg-amber-700 text-white border-amber-700'
+                  : 'bg-white border-gray-300 text-gray-800 hover:bg-gray-50'
+              }`}
+            >
+              <CalendarDays className="h-6 w-6" />
+              <span>{selectedDate ? format(selectedDate, 'dd/MM/yyyy', { locale: ptBR }) : 'Escolher data'}</span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="center">
+            <Calendar
+              mode="single"
+              selected={selectedDate}
+              onSelect={handleCalendarSelect}
+              locale={ptBR}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+
       {/* ── TABELA ── */}
       <div className="flex-1 overflow-auto">
         {queryResults.length === 0 ? (
@@ -1565,6 +1594,8 @@ export function PacsQueryPage() {
             )}
           </div>
         ) : (
+          <>
+          <div className="hidden md:block">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr
@@ -1784,6 +1815,120 @@ export function PacsQueryPage() {
               })}
             </tbody>
           </table>
+          </div>
+
+          {/* Lista mobile: os mesmos resultados, permissões e ações da tabela, em cards tocáveis. */}
+          <div className="md:hidden p-3 space-y-2 bg-gray-50/70">
+            {pagedResults.length === 0 ? (
+              <div className="flex flex-col items-center justify-center min-h-48 text-gray-400 bg-white rounded-lg border border-gray-200">
+                <Search className="h-8 w-8 mb-2 opacity-30" />
+                <p className="text-xs">Nenhum exame nesta página</p>
+              </div>
+            ) : (
+              pagedResults.map((study, idx) => {
+                const meta = metadataMap[study.studyInstanceUid] || null;
+                const patientNameRaw = study.patientName
+                  ? study.patientName.replace(/\^+/g, ' ').replace(/\s{2,}/g, ' ').trim()
+                  : 'Sem nome';
+                const patientName = (meta?.patient_name_override || patientNameRaw).toUpperCase();
+                const patientNameEdited = !!meta?.patient_name_override;
+                const examLabel = meta?.description_override || study.studyDescription || 'Sem descrição';
+                const dateFormatted = formatDate(study.studyDate || '');
+                const relative = relativeTime(parseDicomDateTime(study.studyDate, study.studyTime));
+                const status = getReportStatus(study);
+                const mobileStatusCls = status === 'Assinado' || status === 'Concluído' || status === 'Revisado'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                  : 'bg-gray-50 text-gray-500 border-gray-200';
+                const hasAnamnesis = !!anamnesisStatusMap[study.studyInstanceUid];
+
+                return (
+                  <article
+                    key={`${study.studyInstanceUid || 'study'}-mobile-${idx}`}
+                    role={canViewer ? 'button' : undefined}
+                    tabIndex={canViewer ? 0 : undefined}
+                    onClick={() => { if (canViewer) handleVisualize(study); }}
+                    onKeyDown={(event) => {
+                      if (canViewer && (event.key === 'Enter' || event.key === ' ')) {
+                        event.preventDefault();
+                        handleVisualize(study);
+                      }
+                    }}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-[0_2px_8px_rgba(15,23,42,0.08)] transition-colors active:bg-blue-50"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 text-[11px] font-medium leading-none text-gray-500">
+                          <span>{dateFormatted}</span>
+                          <span className="text-gray-300">/</span>
+                          <span>{relative}</span>
+                        </div>
+                        <div className="mt-2 truncate pr-1 text-[15px] font-bold uppercase leading-tight text-amber-800">
+                          {examLabel}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {(canViewAnamnesis || canEditAnamnesis) && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (canEditAnamnesis) { setSelectedStudy(study); setIsAnamnesisModalOpen(true); }
+                            }}
+                            title={canEditAnamnesis ? 'Abrir anamnese' : 'Visualizar anamnese'}
+                            aria-label={canEditAnamnesis ? 'Abrir anamnese' : 'Visualizar anamnese'}
+                            className={`inline-flex h-8 w-8 items-center justify-center rounded-full border ${hasAnamnesis ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-200'}`}
+                          >
+                            <Paperclip className="h-4 w-4" />
+                          </button>
+                        )}
+                        {canViewer && (
+                          <button
+                            type="button"
+                            onClick={(event) => { event.stopPropagation(); handleVisualize(study); }}
+                            title="Visualizar DICOM"
+                            aria-label="Visualizar DICOM"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-blue-100 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                        )}
+                        {canLaudo && (
+                          <button
+                            type="button"
+                            onClick={(event) => { event.stopPropagation(); handleReport(study); }}
+                            title="Laudar"
+                            aria-label="Laudar exame"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-blue-100 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
+                          >
+                            <FileText className="h-4 w-4" />
+                          </button>
+                        )}
+                        {canPrint && (
+                          <button
+                            type="button"
+                            onClick={(event) => { event.stopPropagation(); handlePrintReport(study); }}
+                            title="Imprimir laudo"
+                            aria-label="Imprimir laudo"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                          >
+                            <Printer className="h-4 w-4" />
+                          </button>
+                        )}
+                        <span className={`inline-flex max-w-[92px] items-center rounded-full border px-2 py-1 text-[10px] font-medium leading-none ${mobileStatusCls}`}>
+                          {status}
+                        </span>
+                      </div>
+                    </div>
+                    <div className={`mt-1.5 break-words pr-1 text-[15px] font-bold uppercase leading-tight ${patientNameEdited ? 'text-amber-700' : 'text-amber-800'}`}>
+                      {patientName}
+                      {patientNameEdited && <Pencil className="ml-1 inline h-3 w-3 align-[1px] text-amber-500" aria-label="Nome editado" />}
+                    </div>
+                  </article>
+                );
+              })
+            )}
+          </div>
+          </>
         )}
       </div>
 

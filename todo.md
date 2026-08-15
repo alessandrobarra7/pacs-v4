@@ -3,6 +3,7 @@
 ## INTEGRAÇÃO SELETIVA DO CÓDIGO MODIFICADO
 - [x] Item 1 — Integrar melhorias visuais e mobile da página de login preservando a autenticação original
 - [x] Correção do breakpoint responsivo do login para tablets e janelas estreitas
+- [x] Item 2 — Integrar listagem PACS mobile organizada e responsiva preservando a lógica de backend
 
 ## FASE 0 - Estruturação do banco de dados e modelos
 - [x] Criar schema completo do banco de dados (units, users, studies_cache, reports, templates, audit_log)
@@ -1749,3 +1750,5 @@
 - [ ] v52 — Botão flutuante: importar JSON (pessoal) + admin pode publicar para unidade
 - [ ] v52 — Botão flutuante: busca, agrupamento Pessoais / Unidade, aplicar máscara no editor
 - [ ] v52 — Testes + commit + checkpoint
+- [x] Refinar a listagem mobile conforme referência: cabeçalho compacto, aviso financeiro, seletor de data amplo e cards minimalistas com ações circulares
+- [x] Reorganizar card mobile: priorizar legenda do exame na linha principal e exibir nome completo da paciente na faixa inferior
