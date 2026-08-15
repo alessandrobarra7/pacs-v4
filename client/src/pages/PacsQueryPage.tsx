@@ -1278,9 +1278,7 @@ export function PacsQueryPage() {
         ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
       </div>` : '';
 
-    const printWindow = window.open('', '_blank', 'width=850,height=1100');
-    if (!printWindow) { toast.error('Bloqueador de pop-up ativo. Permita pop-ups para imprimir.'); return; }
-printWindow.document.write(`<!DOCTYPE html>
+        const fullHtml = `<!DOCTYPE html>
 	<html lang="pt-BR"><head><meta charset="UTF-8"><title>Laudo_${patientName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf</title>
 <style>
   /* SYNC ReportEditorPage: full-bleed — @page margin:0 → body = folha inteira */
@@ -1450,14 +1448,21 @@ printWindow.document.write(`<!DOCTYPE html>
       </div>`;
   })()
   }
-<script>
-  window.onload = function() {
-    window.print();
-    window.onafterprint = function() { window.close(); };
-  };
-<\/script>
-</body></html>`);
-    printWindow.document.close();
+  <script>
+    window.onload = function() {
+      setTimeout(() => { window.print(); }, 400);
+    };
+  <\/script>
+  </body></html>`;
+
+    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+    const blobUrl = URL.createObjectURL(blob);
+    const win = window.open(blobUrl, '_blank');
+    if (!win) {
+      toast.error('Bloqueador de pop-up ativo. Permita pop-ups para visualizar o laudo.');
+      return;
+    }
+    toast.success('Laudo aberto com sucesso em nova aba!');
   };
 
   const getReportStatus = (study: any) => {
