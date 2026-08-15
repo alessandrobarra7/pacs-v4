@@ -36,6 +36,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PatientAttachmentsModal } from "@/components/PatientAttachmentsModal";
+import { Paperclip } from "lucide-react";
 import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 
 interface StudyInfo {
@@ -124,6 +126,43 @@ export function DicomViewerPage() {
     { studyInstanceUid: studyUid ?? "" },
     { enabled: !!studyUid }
   );
+
+  // ─── Anexos do Paciente no Viewer ──────────────────────────────────────────
+  const [showAttachmentsModal, setShowAttachmentsModal] = useState(false);
+  const { data: viewerAttachments = [] } = trpc.annotations.list.useQuery(
+    { study_instance_uid: studyUid ?? "" },
+    { enabled: !!studyUid }
+  );
+
+  function PatientViewerAttachmentsButton({ studyInstanceUid }: { studyInstanceUid: string }) {
+    return (
+      <>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowAttachmentsModal(true)}
+          className={`text-xs h-7 px-2 ${
+            viewerAttachments.length > 0
+              ? 'border-blue-700 text-blue-400 hover:bg-blue-900/40'
+              : 'border-gray-600 text-gray-400 hover:bg-gray-800'
+          }`}
+          title="Ver anexos e fotos do paciente"
+        >
+          <Paperclip className="h-3 w-3 mr-1" />
+          Anexos ({viewerAttachments.length})
+        </Button>
+
+        {showAttachmentsModal && (
+          <PatientAttachmentsModal
+            open={showAttachmentsModal}
+            onClose={() => setShowAttachmentsModal(false)}
+            studyInstanceUid={studyInstanceUid}
+            patientName={studyMeta?.patient_name_override || studyMeta?.patient_name}
+          />
+        )}
+      </>
+    );
+  }
 
   // ─── SLA Readiness ─────────────────────────────────────────────────────────
   const { data: slaReadiness, refetch: refetchSlaReadiness } = trpc.sla.getByStudy.useQuery(
@@ -1116,6 +1155,9 @@ export function DicomViewerPage() {
               <span className="ml-1 w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
             )}
           </Button>
+
+          {/* Botão Anexos do Paciente no Viewer */}
+          <PatientViewerAttachmentsButton studyInstanceUid={studyUid ?? ""} />
         </div>
       </div>
       {/* ── Painel de Anamnese (colapsável abaixo do header) ──────────────────── */}

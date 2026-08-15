@@ -963,3 +963,20 @@ export const group_permission_configs = mysqlTable("group_permission_configs", {
 export type GroupPermissionConfig = typeof group_permission_configs.$inferSelect;
 export type InsertGroupPermissionConfig = typeof group_permission_configs.$inferInsert;
 
+
+/**
+ * study_attachments — Anexos, fotos e documentos vinculados a um estudo/paciente
+ * Permite capturar pela câmera ou enviar arquivos, exibidos no portal e no visualizador DICOM.
+ */
+export const study_attachments = mysqlTable("study_attachments", {
+  id: int("id").autoincrement().primaryKey(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
+  unit_id: int("unit_id"),
+  user_id: int("user_id").notNull(),
+  file_url: text("file_url").notNull(),
+  file_name: varchar("file_name", { length: 255 }).notNull(),
+  file_type: varchar("file_type", { length: 100 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type StudyAttachment = typeof study_attachments.$inferSelect;
+export type InsertStudyAttachment = typeof study_attachments.$inferInsert;

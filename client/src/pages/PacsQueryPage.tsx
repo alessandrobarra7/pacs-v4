@@ -10,6 +10,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
+import { PatientAttachmentsModal } from "@/components/PatientAttachmentsModal";
 import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 import { ExamPickerModal, ALL_CATALOG_EXAMS } from "@/components/ExamPickerModal";
 import { canAccessAdmin, type UserRole } from "../../../shared/permissions";
@@ -610,6 +611,7 @@ export function PacsQueryPage() {
   });
   const [isQuerying, setIsQuerying] = useState(false);
   const [isAnamnesisModalOpen, setIsAnamnesisModalOpen] = useState(false);
+  const [isAttachmentsModalOpen, setIsAttachmentsModalOpen] = useState(false);
   const [selectedStudy, setSelectedStudy] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, string>>({});
@@ -1949,20 +1951,20 @@ export function PacsQueryPage() {
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
-                        {(canViewAnamnesis || canEditAnamnesis) && (
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              if (canEditAnamnesis) { setSelectedStudy(study); setIsAnamnesisModalOpen(true); }
-                            }}
-                            title={canEditAnamnesis ? 'Abrir anamnese' : 'Visualizar anamnese'}
-                            aria-label={canEditAnamnesis ? 'Abrir anamnese' : 'Visualizar anamnese'}
-                            className={`inline-flex h-8 w-8 items-center justify-center rounded-full border ${hasAnamnesis ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-200'}`}
-                          >
-                            <Paperclip className="h-4 w-4" />
-                          </button>
-                        )}
+                        {/* Botão de Anexos do Paciente (Câmera / Fotos / Arquivos) */}
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedStudy(study);
+                            setIsAttachmentsModalOpen(true);
+                          }}
+                          title="Anexos e Fotos do Paciente (Câmera / Arquivos)"
+                          aria-label="Anexos e Fotos do Paciente"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                        >
+                          <Paperclip className="h-4 w-4" />
+                        </button>
                         {canViewer && (
                           <button
                             type="button"
@@ -2079,9 +2081,18 @@ export function PacsQueryPage() {
         <AnamnesisModal
           open={isAnamnesisModalOpen}
           onClose={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); }}
-          studyInstanceUid={selectedStudy?.studyInstanceUid || ''}
-          patientName={selectedStudy?.patientName || ''}
+          studyInstanceUid={selectedStudy.studyInstanceUid}
           onSave={() => { setIsAnamnesisModalOpen(false); setSelectedStudy(null); refetchMetadata(); refetchAnamnesisStatus(); refetchSlaReadiness(); }}
+        />
+      )}
+
+      {isAttachmentsModalOpen && selectedStudy && (
+        <PatientAttachmentsModal
+          open={isAttachmentsModalOpen}
+          onClose={() => { setIsAttachmentsModalOpen(false); setSelectedStudy(null); }}
+          studyInstanceUid={selectedStudy.studyInstanceUid}
+          unitId={effectiveUnitId ?? undefined}
+          patientName={selectedStudy.patientName}
         />
       )}
     </div>
