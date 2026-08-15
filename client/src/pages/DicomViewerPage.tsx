@@ -1775,6 +1775,29 @@ export function DicomViewerPage() {
           </span>
         )}
       </div>
+
+      {showAttachmentsModal && (
+        <PatientAttachmentsModal
+          open={showAttachmentsModal}
+          onClose={() => setShowAttachmentsModal(false)}
+          studyInstanceUid={studyUid ?? ""}
+          patientName={studyMeta?.patient_name_override || studyMeta?.patient_name || studyInfo?.patientName}
+        />
+      )}
+
+      {showAudioModal && (
+        <AudioReportsModal
+          open={showAudioModal}
+          onClose={() => setShowAudioModal(false)}
+          studyInstanceUid={studyUid ?? ""}
+          unitId={viewerUnitId ?? undefined}
+          patientName={studyMeta?.patient_name_override || studyMeta?.patient_name || studyInfo?.patientName}
+          allowRecording={canOpenReport}
+          onUploadSuccess={() => {
+            refetchViewerAudios();
+          }}
+        />
+      )}
     </div>
   );
 }
