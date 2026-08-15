@@ -242,7 +242,7 @@ export default function Login() {
       </div>
 
       <div
-        className="hidden min-h-screen w-full flex-col md:flex"
+        className="login-desktop-shell hidden min-h-screen w-full flex-col md:flex"
       style={{
         background: "linear-gradient(135deg, #020b12 0%, #0a1628 50%, #020b12 100%)",
         fontFamily: "'Inter', sans-serif",
@@ -307,10 +307,10 @@ export default function Login() {
       />
 
       {/* ── Main content ────────────────────────────────────────────────── */}
-      <div className="relative z-10 flex flex-1 flex-col lg:flex-row items-stretch">
+      <div className="login-desktop-main relative z-10 flex flex-1 flex-col lg:flex-row items-stretch">
 
         {/* ── LEFT PANEL ──────────────────────────────────────────────── */}
-        <div className="flex flex-1 flex-col justify-center px-12 py-14 lg:px-20 xl:px-28">
+        <div className="login-desktop-left flex flex-1 flex-col justify-center px-12 py-14 lg:px-20 xl:px-28">
 
           {/* Logo */}
           <motion.div
@@ -322,6 +322,7 @@ export default function Login() {
             {/* Big wordmark */}
             <div className="relative inline-block">
               <span
+                className="login-desktop-wordmark"
                 style={{
                   fontSize: "clamp(6.5rem, 14vw, 11.5rem)",
                   fontWeight: 900,
@@ -385,7 +386,7 @@ export default function Login() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.35, duration: 0.6 }}
-            className="grid grid-cols-2 gap-4 mb-10"
+            className="login-desktop-status grid grid-cols-2 gap-4 mb-10"
             style={{ maxWidth: "640px" }}
           >
             {STATUS_CARDS.map((card) => (
@@ -447,12 +448,12 @@ export default function Login() {
         </div>
 
         {/* ── RIGHT PANEL — Login card ─────────────────────────────────── */}
-        <div className="flex items-center justify-center px-6 py-12 lg:px-14 lg:w-[600px] xl:w-[660px]">
+        <div className="login-desktop-right flex items-center justify-center px-6 py-12 lg:px-14 lg:w-[600px] xl:w-[660px]">
           <motion.div
             initial={{ opacity: 0, x: 30 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.15, duration: 0.7 }}
-            className="w-full rounded-2xl p-10 md:p-12"
+            className="login-desktop-card w-full rounded-2xl p-10 md:p-12"
             style={{
               background: "rgba(10, 22, 40, 0.85)",
               border: "1.5px solid rgba(56, 189, 248, 0.25)",
@@ -650,6 +651,67 @@ export default function Login() {
       </footer>
 
       </div>
+
+      <style>{`
+        @media (min-width: 768px) and (max-width: 1199px) {
+          .login-desktop-shell {
+            min-height: 100dvh;
+          }
+
+          .login-desktop-main {
+            min-height: 100dvh;
+          }
+
+          .login-desktop-left {
+            min-width: 0;
+            padding: 2.5rem 2rem;
+          }
+
+          .login-desktop-wordmark {
+            font-size: clamp(4.5rem, 10vw, 7rem) !important;
+          }
+
+          .login-desktop-status {
+            gap: 0.75rem;
+            margin-bottom: 2rem;
+          }
+
+          .login-desktop-status > div {
+            gap: 0.65rem;
+            padding: 0.75rem;
+          }
+
+          .login-desktop-status svg {
+            height: 2rem;
+            width: 2rem;
+          }
+
+          .login-desktop-right {
+            width: min(480px, 44vw) !important;
+            flex-shrink: 0;
+            padding: 2rem 1.25rem;
+          }
+
+          .login-desktop-card {
+            padding: 2rem !important;
+          }
+        }
+
+        @media (min-width: 768px) and (max-width: 899px) {
+          .login-desktop-left {
+            padding-left: 1.25rem;
+            padding-right: 1.25rem;
+          }
+
+          .login-desktop-right {
+            width: min(430px, 43vw) !important;
+          }
+
+          .login-desktop-wordmark {
+            font-size: clamp(4rem, 9vw, 5.5rem) !important;
+          }
+        }
+      `}</style>
     </>
   );
 }
