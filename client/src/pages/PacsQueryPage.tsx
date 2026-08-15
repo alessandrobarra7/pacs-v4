@@ -1750,6 +1750,7 @@ export function PacsQueryPage() {
                 const modalityCls = modalityColor[modality] || 'bg-gray-100 text-gray-700';
                 const status = getReportStatus(study);
                 const { cls: statusCls } = statusConfig[status] || { cls: 'bg-gray-100 text-gray-600 border-gray-300' };
+                const hasAnamnesis = !!anamnesisStatusMap[study.studyInstanceUid];
 
                 return (
                   <tr
@@ -1937,12 +1938,19 @@ export function PacsQueryPage() {
                         <span className="text-gray-300">—</span>
                       )}
                     </td>
-                    {/* Status */}
+                    {/* Status & SLA */}
                     <td className="px-4 py-3 text-center">
-                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full border whitespace-nowrap inline-flex items-center gap-1 ${statusCls}`}>
-                        {status === 'Revisado' && <span title="Laudo retificado">&#9888;</span>}
-                        {status}
-                      </span>
+                      <div className="flex flex-col items-center gap-1">
+                        <span className={`text-xs font-medium px-2.5 py-1 rounded-full border whitespace-nowrap inline-flex items-center gap-1 ${statusCls}`}>
+                          {status === 'Revisado' && <span title="Laudo retificado">&#9888;</span>}
+                          {status}
+                        </span>
+                        <SlaCountdown
+                          readiness={slaReadinessMap[study.studyInstanceUid]}
+                          hasAnamnesis={hasAnamnesis}
+                          compact={true}
+                        />
+                      </div>
                     </td>
                   </tr>
                 );
@@ -2103,9 +2111,16 @@ export function PacsQueryPage() {
                           </button>
                         )}
                       </div>
-                      <span className={`inline-flex max-w-[92px] shrink-0 items-center rounded-full border px-2 py-1 text-[10px] font-medium leading-none ${mobileStatusCls}`}>
-                        {status}
-                      </span>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span className={`inline-flex max-w-[92px] shrink-0 items-center rounded-full border px-2 py-1 text-[10px] font-medium leading-none ${mobileStatusCls}`}>
+                          {status}
+                        </span>
+                        <SlaCountdown
+                          readiness={slaReadinessMap[study.studyInstanceUid]}
+                          hasAnamnesis={hasAnamnesis}
+                          compact={true}
+                        />
+                      </div>
                     </div>
                   </article>
                 );
