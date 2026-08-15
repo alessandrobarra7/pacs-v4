@@ -28,7 +28,7 @@ describe("ReportEditorPage — experiência mobile", () => {
   it("usa documento fluido no mobile e preserva a largura A4 no desktop", () => {
     expect(editorSource).toContain('className="report-page w-full md:w-[794px]"');
     expect(editorSource).toContain('className="w-full md:w-[794px]"');
-    expect(editorSource).toContain("min-h-[420px]");
+    expect(editorSource).toContain("min-h-[350px]");
     expect(editorSource).toContain("bottom-20 right-4");
   });
 });

@@ -1758,66 +1758,125 @@ export default function ReportEditorPage() {
         )}
 
         <main className="min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-24">
-          <div className="mx-auto w-full max-w-[794px] rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-200">
-            <div className="mb-4 border-b border-gray-200 pb-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Exame</p>
-              <input
-                value={examTitle}
-                onChange={e => setExamTitle(e.target.value)}
-                placeholder="Digite o tipo de exame"
-                disabled={!isEditable}
-                className="mt-1 w-full border-0 bg-transparent p-0 text-base font-bold uppercase text-gray-900 outline-none placeholder:font-normal placeholder:normal-case placeholder:text-gray-400 disabled:cursor-default"
-                aria-label="Tipo de exame"
-              />
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500">
-                {studyInfo?.birthDate && <span>Nascimento: <strong className="text-gray-700">{studyInfo.birthDate}</strong></span>}
-                {studyInfo?.studyDate && <span>Realizado: <strong className="text-gray-700">{formatDicomDate(studyInfo.studyDate)}</strong></span>}
+          <div className="mx-auto w-full max-w-[794px] rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-200 flex flex-col font-serif text-xs text-gray-900 relative">
+            {layoutBgUrl && (
+              <img src={layoutBgUrl} alt="Fundo" className="absolute inset-0 w-full h-full object-cover pointer-events-none opacity-20 rounded-xl" style={{ zIndex: 0 }} />
+            )}
+
+            {/* Cabeçalho Institucional Mobile */}
+            {bpLogo.visible && (
+              <div className="flex items-center justify-between border-b-2 border-blue-600 pb-3 mb-3 relative z-10">
+                <div className="flex items-center gap-2">
+                  {layoutLogos.length > 0 ? (
+                    layoutLogos.map((l, i) => (
+                      <img key={i} src={l.url} alt={`Logo ${i + 1}`} className="h-8 object-contain" />
+                    ))
+                  ) : medCtx?.unitLogoUrl ? (
+                    <img src={medCtx.unitLogoUrl} alt={medCtx.unitName || "Logo"} className="h-8 object-contain" />
+                  ) : (
+                    <div className="h-8 w-8 rounded-full bg-blue-600 text-white font-sans font-bold flex items-center justify-center text-xs">
+                      {(medCtx?.unitName || "U").charAt(0)}
+                    </div>
+                  )}
+                </div>
+                <div className="text-right">
+                  <p className="font-sans font-bold uppercase tracking-wide text-xs text-blue-900">{medCtx?.unitName || "PACS Principal"}</p>
+                  <p className="font-sans text-[8px] text-gray-500">Laudo Radiológico Oficial</p>
+                </div>
+              </div>
+            )}
+
+            {/* Dados do Paciente e Exame */}
+            <div className="rounded border border-gray-200 bg-gray-50/90 p-2.5 mb-3 relative z-10 font-sans">
+              <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                <div>
+                  <span className="text-gray-400 text-[9px] uppercase">Paciente:</span>
+                  <p className="font-bold text-gray-900 truncate">{patientName || "ANTONIA DE SOUZA BATISTA"}</p>
+                </div>
+                <div>
+                  <span className="text-gray-400 text-[9px] uppercase">Nascimento:</span>
+                  <p className="font-medium text-gray-800">{studyInfo?.birthDate || "15/05/1970"}</p>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-gray-400 text-[9px] uppercase">Exame Realizado:</span>
+                  <input
+                    value={examTitle}
+                    onChange={e => setExamTitle(e.target.value)}
+                    placeholder="Digite o tipo de exame..."
+                    disabled={!isEditable}
+                    className="w-full font-bold uppercase text-gray-900 bg-transparent border-0 p-0 text-xs focus:outline-none disabled:cursor-default"
+                  />
+                </div>
               </div>
             </div>
 
+            {/* Título do Exame / Laudo */}
+            {bpTitle.visible && (
+              <div className="text-center font-bold uppercase text-xs tracking-wider text-gray-900 mb-3 relative z-10 border-b border-gray-200 pb-2">
+                {examTitle || "LAUDO RADIOLÓGICO"}
+              </div>
+            )}
+
             {isSigned && !isRevising && (
-              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 relative z-10">
                 <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>Laudo {existingReport?.status === "revised" ? "retificado" : "assinado"}.</span>
               </div>
             )}
 
-            {isMultiSection ? (
-              <div className="space-y-4">
-                {examNames.map((name, i) => (
-                  <section key={name + i} className="rounded-lg border border-gray-200 p-3">
-                    <h2 className="mb-2 border-b border-gray-100 pb-2 text-center text-sm font-bold uppercase text-gray-800">{name}</h2>
-                    {isPreview ? (
-                      <div data-editor-content className="min-h-[220px] text-sm leading-relaxed text-gray-900" dangerouslySetInnerHTML={{ __html: previewHtml.split("<hr/>")[i] || "<p style='color:#9ca3af;font-style:italic'>Sem conteúdo.</p>" }} />
-                    ) : (
-                      <div
-                        ref={el => { sectionRefs.current[i] = el; }}
-                        contentEditable={isEditable}
-                        suppressContentEditableWarning
-                        data-editor-content
-                        onFocus={() => { activeSectionRef.current = i; }}
-                        onMouseUp={isEditable ? saveSelection : undefined}
-                        onKeyUp={isEditable ? saveSelection : undefined}
-                        data-placeholder={`Digite o laudo de ${name}...`}
-                        className="min-h-[220px] text-sm leading-relaxed text-gray-900 outline-none"
-                      />
-                    )}
-                  </section>
-                ))}
+            {/* Corpo do Editor Mobile */}
+            <div className="flex-1 relative z-10 my-2">
+              {isMultiSection ? (
+                <div className="space-y-4">
+                  {examNames.map((name, i) => (
+                    <section key={name + i} className="rounded-lg border border-gray-200 p-3 bg-white/90">
+                      <h2 className="mb-2 border-b border-gray-100 pb-2 text-center text-xs font-bold uppercase text-gray-800">{name}</h2>
+                      {isPreview ? (
+                        <div data-editor-content className="min-h-[180px] text-xs leading-relaxed text-gray-900" dangerouslySetInnerHTML={{ __html: previewHtml.split("<hr/>")[i] || "<p style='color:#9ca3af;font-style:italic'>Sem conteúdo.</p>" }} />
+                      ) : (
+                        <div
+                          ref={el => { sectionRefs.current[i] = el; }}
+                          contentEditable={isEditable}
+                          suppressContentEditableWarning
+                          data-editor-content
+                          onFocus={() => { activeSectionRef.current = i; }}
+                          onMouseUp={isEditable ? saveSelection : undefined}
+                          onKeyUp={isEditable ? saveSelection : undefined}
+                          data-placeholder={`Digite o laudo de ${name}...`}
+                          className="min-h-[180px] text-xs leading-relaxed text-gray-900 outline-none"
+                        />
+                      )}
+                    </section>
+                  ))}
+                </div>
+              ) : isPreview ? (
+                <div data-editor-content className="min-h-[350px] text-xs leading-relaxed text-gray-900" dangerouslySetInnerHTML={{ __html: previewHtml || "<p style='color:#9ca3af;font-style:italic'>Sem conteúdo para visualizar.</p>" }} />
+              ) : (
+                <div
+                  ref={mobileDocRef}
+                  contentEditable={isEditable}
+                  suppressContentEditableWarning
+                  data-editor-content
+                  onMouseUp={isEditable ? saveSelection : undefined}
+                  onKeyUp={isEditable ? saveSelection : undefined}
+                  data-placeholder="Digite o laudo aqui (Técnica, Achados, Impressão)..."
+                  className={`min-h-[350px] text-xs leading-relaxed text-gray-900 outline-none bg-white/90 p-2 rounded ${isDragOver ? "ring-2 ring-blue-400 bg-blue-50/50" : ""}`}
+                />
+              )}
+            </div>
+
+            {/* Rodapé e Assinatura Mobile */}
+            {isSigned && medCtx?.doctorName && (
+              <div className="mt-4 pt-3 border-t border-gray-200 text-center relative z-10 font-sans">
+                {medCtx.signatureUrl && <img src={medCtx.signatureUrl} alt="Assinatura" className="h-10 mx-auto object-contain mb-1" />}
+                {medCtx.stampUrl && <img src={medCtx.stampUrl} alt="Carimbo" className="h-16 mx-auto object-contain mb-1" />}
+                <p className="font-bold uppercase text-[10px] text-gray-900">{medCtx.doctorName}</p>
+                <p className="text-[9px] text-gray-600">CRM: {medCtx.crm || "12345"} | Médico Radiologista</p>
               </div>
-            ) : isPreview ? (
-              <div data-editor-content className="min-h-[420px] text-sm leading-relaxed text-gray-900" dangerouslySetInnerHTML={{ __html: previewHtml || "<p style='color:#9ca3af;font-style:italic'>Sem conteúdo para visualizar.</p>" }} />
-            ) : (
-              <div
-                ref={mobileDocRef}
-                contentEditable={isEditable}
-                suppressContentEditableWarning
-                data-editor-content
-                onMouseUp={isEditable ? saveSelection : undefined}
-                onKeyUp={isEditable ? saveSelection : undefined}
-                data-placeholder="Digite o laudo aqui..."
-                className={`min-h-[420px] text-sm leading-relaxed text-gray-900 outline-none ${isDragOver ? "rounded-lg bg-blue-50 ring-2 ring-blue-400" : ""}`}
-              />
+            )}
+
+            {bpFooter.visible && layoutFooterUrl && (
+              <img src={layoutFooterUrl} alt="Rodapé" className="w-full object-cover mt-4 relative z-10 rounded-b-xl" style={{ maxHeight: 60 }} />
             )}
           </div>
         </main>
