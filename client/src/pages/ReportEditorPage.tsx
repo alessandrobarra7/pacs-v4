@@ -202,6 +202,8 @@ export default function ReportEditorPage() {
   // Aba ativa da sidebar
   // Redesign: 3 abas diretas conforme REDESIGN_EDITOR_LAUDOS.txt
   const [activeTab, setActiveTab] = useState<"modelos" | "frases" | "carimbo">("modelos");
+  // Mobile: ferramentas auxiliares em uma gaveta inferior, sem dividir a tela do editor
+  const [showMobileTools, setShowMobileTools] = useState(false);
   // DnD: controla o highlight do editor quando um item está sendo arrastado sobre ele
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -1030,7 +1032,8 @@ export default function ReportEditorPage() {
       }
     `}</style>
     <div className="flex flex-col h-screen bg-white overflow-hidden print:block">
-      {/* ── HEADER ──────────────────────────────────────────────────────────────────── */}    <header className="flex items-center gap-3 px-4 py-2 border-b border-gray-200 bg-white shrink-0 print:hidden">
+      {/* ── HEADER DESKTOP ─────────────────────────────────────────────────────────── */}
+      <header className="hidden md:flex items-center gap-3 px-4 py-2 border-b border-gray-200 bg-white shrink-0 print:hidden">
         <button
           onClick={() => navigate("/")}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors"
@@ -1131,10 +1134,64 @@ export default function ReportEditorPage() {
         </div>
       </header>
 
-      {/* ── CORPO ──────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden print:block">
+      {/* ── HEADER MOBILE ─────────────────────────────────────────────────────────── */}
+      <header className="flex md:hidden items-center gap-2 px-3 py-2 border-b border-gray-200 bg-white shrink-0 print:hidden">
+        <button
+          onClick={() => navigate("/")}
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-600 hover:bg-gray-100"
+          aria-label="Voltar para os estudos"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold uppercase text-gray-900">{patientName || "Carregando..."}</p>
+          <p className="truncate text-[11px] uppercase text-gray-500">{examDesc || "Laudo radiológico"}</p>
+        </div>
+        <button
+          onClick={handlePrint}
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
+          aria-label="Imprimir laudo"
+        >
+          <Printer className="h-4 w-4" />
+        </button>
+        {isSigned ? (
+          isRevising ? (
+            <button
+              onClick={() => {
+                setPendingReviseBody(collectBody());
+                setShowReviseModal(true);
+              }}
+              disabled={reviseReport.isPending}
+              className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-orange-600 px-2.5 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              <CheckCircle className="h-4 w-4" />
+              Salvar
+            </button>
+          ) : (
+            <button
+              onClick={() => setIsRevising(true)}
+              className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-orange-600 px-2.5 text-xs font-semibold text-white"
+            >
+              <Edit2 className="h-4 w-4" />
+              Retificar
+            </button>
+          )
+        ) : (
+          <button
+            onClick={handleSign}
+            disabled={signReport.isPending || createReport.isPending || updateReport.isPending}
+            className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-green-600 px-2.5 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            <CheckCircle className="h-4 w-4" />
+            Assinar
+          </button>
+        )}
+      </header>
+
+      {/* ── CORPO DESKTOP ─────────────────────────────────────────────────────────── */}
+      <div className="hidden md:flex flex-1 overflow-hidden print:block">
         {/* ── SIDEBAR ──────────────────────────────────────────────────── */}
-        <aside className="w-[340px] shrink-0 border-r border-gray-200 bg-gray-50 flex flex-col overflow-hidden print:hidden">
+        <aside className="hidden md:flex w-[340px] shrink-0 border-r border-gray-200 bg-gray-50 flex-col overflow-hidden print:hidden">
           {/* Abas */}
           <div className="flex border-b border-gray-200 bg-white">
             {([
@@ -1280,8 +1337,8 @@ export default function ReportEditorPage() {
         )}
         <main className="flex-1 overflow-y-auto bg-gray-100 flex justify-center py-8 print:bg-white print:p-0 print:block">
           <div
-            className={isMultiSection ? "relative" : "relative bg-white shadow-md print:shadow-none"}
-            style={isMultiSection ? { width: "794px" } : { width: "210mm", minHeight: "297mm" }}
+            className={`${isMultiSection ? "relative w-full md:w-[794px]" : "relative w-full md:w-[210mm] bg-white shadow-md print:shadow-none"}`}
+            style={isMultiSection ? undefined : { minHeight: "297mm" }}
           >
             {/* FIX BUG-2: imagens agora são inline no contentEditable — overlay removido */}
 
@@ -1298,9 +1355,8 @@ export default function ReportEditorPage() {
                   return (
                     <div
                       key={i}
-                      className="report-page"
+                      className="report-page w-full md:w-[794px]"
                       style={{
-                        width: "794px",
                         minHeight: "1123px",
                         background: "#fff",
                         fontFamily: "'Times New Roman', Times, serif",
@@ -1464,8 +1520,7 @@ export default function ReportEditorPage() {
               </div>
             ) : (
               /* MODO PÁGINA Única: layout original preservado */
-              <div style={{
-                width: "794px",
+              <div className="w-full md:w-[794px]" style={{
                 minHeight: "1123px",
                 background: layoutBgUrl ? `url('${layoutBgUrl}') center/cover no-repeat #fff` : "#fff",
                 // FIX GAP-2: aplicar tipografia e margens do layout da unidade
@@ -1654,13 +1709,183 @@ export default function ReportEditorPage() {
         </main>
         </div>{/* fim div wrapper MOD 8 */}
       </div>
+      {/* ── EDITOR MOBILE ─────────────────────────────────────────────────────────── */}
+      <div className="relative flex md:hidden min-h-0 flex-1 flex-col bg-slate-50 print:hidden">
+        <div className="flex shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 py-2">
+          <button
+            type="button"
+            onClick={() => setShowMobileTools(true)}
+            className="inline-flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left text-xs font-semibold text-gray-700"
+            aria-label="Abrir ferramentas do laudo"
+          >
+            <BookOpen className="h-4 w-4 shrink-0 text-blue-600" />
+            <span className="truncate">{activeTab === "modelos" ? "Laudos normais" : activeTab === "frases" ? "Trechos" : "Carimbo"}</span>
+            <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-gray-400" />
+          </button>
+          <button
+            type="button"
+            onClick={handleTogglePreview}
+            className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold ${isPreview ? "border-blue-600 bg-blue-600 text-white" : "border-gray-200 bg-white text-gray-700"}`}
+            aria-label={isPreview ? "Voltar para edição" : "Pré-visualizar laudo"}
+          >
+            {isPreview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            <span className="hidden min-[420px]:inline">{isPreview ? "Editar" : "Preview"}</span>
+          </button>
+        </div>
+
+        {isEditable && !isPreview && (
+          <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-gray-200 bg-white px-2 py-1.5">
+            <button type="button" onMouseDown={e => { e.preventDefault(); document.execCommand('undo'); }} title="Desfazer" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-600 hover:bg-gray-100"><Undo2 className="h-4 w-4" /></button>
+            <button type="button" onMouseDown={e => { e.preventDefault(); document.execCommand('redo'); }} title="Refazer" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-600 hover:bg-gray-100"><Redo2 className="h-4 w-4" /></button>
+            <span className="mx-1 h-5 w-px shrink-0 bg-gray-200" />
+            <select value={fontSize} onChange={e => applyFontSize(e.target.value)} className="h-8 shrink-0 rounded-md border border-gray-200 bg-white px-1 text-xs text-gray-700" aria-label="Tamanho da fonte">
+              {[8, 9, 10, 11, 12, 14, 16, 18, 20, 24].map(s => <option key={s} value={String(s)}>{s}pt</option>)}
+            </select>
+            <button type="button" onMouseDown={e => { e.preventDefault(); document.execCommand('bold'); }} title="Negrito" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md font-bold text-gray-700 hover:bg-gray-100"><Bold className="h-4 w-4" /></button>
+            <button type="button" onMouseDown={e => { e.preventDefault(); document.execCommand('italic'); }} title="Itálico" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-700 hover:bg-gray-100"><Italic className="h-4 w-4" /></button>
+            <button type="button" onMouseDown={e => { e.preventDefault(); document.execCommand('underline'); }} title="Sublinhado" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-700 hover:bg-gray-100"><Underline className="h-4 w-4" /></button>
+            <button type="button" onMouseDown={e => { e.preventDefault(); document.execCommand('foreColor', false, '#dc2626'); }} title="Texto vermelho" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md font-bold text-red-600 hover:bg-gray-100">A</button>
+            <button type="button" onMouseDown={e => { e.preventDefault(); document.execCommand('hiliteColor', false, '#fef08a'); }} title="Realce amarelo" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-yellow-500 hover:bg-gray-100"><Highlighter className="h-4 w-4" /></button>
+          </div>
+        )}
+
+        <main className="min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-24">
+          <div className="mx-auto w-full max-w-[794px] rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-200">
+            <div className="mb-4 border-b border-gray-200 pb-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Exame</p>
+              <input
+                value={examTitle}
+                onChange={e => setExamTitle(e.target.value)}
+                placeholder="Digite o tipo de exame"
+                disabled={!isEditable}
+                className="mt-1 w-full border-0 bg-transparent p-0 text-base font-bold uppercase text-gray-900 outline-none placeholder:font-normal placeholder:normal-case placeholder:text-gray-400 disabled:cursor-default"
+                aria-label="Tipo de exame"
+              />
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500">
+                {studyInfo?.birthDate && <span>Nascimento: <strong className="text-gray-700">{studyInfo.birthDate}</strong></span>}
+                {studyInfo?.studyDate && <span>Realizado: <strong className="text-gray-700">{formatDicomDate(studyInfo.studyDate)}</strong></span>}
+              </div>
+            </div>
+
+            {isSigned && !isRevising && (
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Laudo {existingReport?.status === "revised" ? "retificado" : "assinado"}.</span>
+              </div>
+            )}
+
+            {isMultiSection ? (
+              <div className="space-y-4">
+                {examNames.map((name, i) => (
+                  <section key={name + i} className="rounded-lg border border-gray-200 p-3">
+                    <h2 className="mb-2 border-b border-gray-100 pb-2 text-center text-sm font-bold uppercase text-gray-800">{name}</h2>
+                    {isPreview ? (
+                      <div data-editor-content className="min-h-[220px] text-sm leading-relaxed text-gray-900" dangerouslySetInnerHTML={{ __html: previewHtml.split("<hr/>")[i] || "<p style='color:#9ca3af;font-style:italic'>Sem conteúdo.</p>" }} />
+                    ) : (
+                      <div
+                        ref={el => { sectionRefs.current[i] = el; }}
+                        contentEditable={isEditable}
+                        suppressContentEditableWarning
+                        data-editor-content
+                        onFocus={() => { activeSectionRef.current = i; }}
+                        onMouseUp={isEditable ? saveSelection : undefined}
+                        onKeyUp={isEditable ? saveSelection : undefined}
+                        data-placeholder={`Digite o laudo de ${name}...`}
+                        className="min-h-[220px] text-sm leading-relaxed text-gray-900 outline-none"
+                      />
+                    )}
+                  </section>
+                ))}
+              </div>
+            ) : isPreview ? (
+              <div data-editor-content className="min-h-[420px] text-sm leading-relaxed text-gray-900" dangerouslySetInnerHTML={{ __html: previewHtml || "<p style='color:#9ca3af;font-style:italic'>Sem conteúdo para visualizar.</p>" }} />
+            ) : (
+              <div
+                ref={docRef}
+                contentEditable={isEditable}
+                suppressContentEditableWarning
+                data-editor-content
+                onMouseUp={isEditable ? saveSelection : undefined}
+                onKeyUp={isEditable ? saveSelection : undefined}
+                data-placeholder="Digite o laudo aqui..."
+                className={`min-h-[420px] text-sm leading-relaxed text-gray-900 outline-none ${isDragOver ? "rounded-lg bg-blue-50 ring-2 ring-blue-400" : ""}`}
+              />
+            )}
+          </div>
+        </main>
+
+        <div className="absolute inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t border-gray-200 bg-white/95 px-3 py-2 shadow-[0_-4px_14px_rgba(15,23,42,0.08)] backdrop-blur print:hidden">
+          {isEditable && (
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={createReport.isPending || updateReport.isPending}
+              className="inline-flex h-10 flex-1 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-700 disabled:opacity-50"
+            >
+              {(createReport.isPending || updateReport.isPending) ? "Salvando..." : "Salvar rascunho"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowMobileTools(true)}
+            className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white shadow-sm hover:bg-blue-700"
+          >
+            <BookOpen className="h-4 w-4" />
+            Ferramentas
+          </button>
+        </div>
+
+        {showMobileTools && (
+          <div className="absolute inset-x-0 bottom-0 z-50 flex max-h-[78dvh] flex-col rounded-t-2xl border-t border-gray-200 bg-white shadow-[0_-10px_30px_rgba(15,23,42,0.2)]">
+            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+              <div>
+                <p className="text-sm font-bold text-gray-900">Ferramentas do laudo</p>
+                <p className="text-[11px] text-gray-500">Escolha um item sem sair do editor</p>
+              </div>
+              <button type="button" onClick={() => setShowMobileTools(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100" aria-label="Fechar ferramentas"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="grid grid-cols-3 border-b border-gray-200">
+              {([
+                { id: "modelos" as const, label: "Modelos", icon: <GripVertical className="h-4 w-4" /> },
+                { id: "frases" as const, label: "Trechos", icon: <MessageSquare className="h-4 w-4" /> },
+                { id: "carimbo" as const, label: "Carimbo", icon: <Layers className="h-4 w-4" /> },
+              ]).map(tab => (
+                <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 px-2 py-2.5 text-[11px] font-semibold ${activeTab === tab.id ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-500"}`}>
+                  {tab.icon}{tab.label}
+                </button>
+              ))}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {activeTab === "modelos" && (
+                <ModelosTab
+                  onApplyTemplate={(body, nextExamTitle) => {
+                    if (isMultiSection) {
+                      const activeEl = sectionRefs.current[activeSectionRef.current];
+                      if (activeEl) activeEl.innerHTML = sanitizeHtmlForEditor(body);
+                    } else if (docRef.current) {
+                      docRef.current.innerHTML = sanitizeHtmlForEditor(body);
+                    }
+                    if (nextExamTitle) setExamTitle(nextExamTitle);
+                    setShowMobileTools(false);
+                  }}
+                  currentExamTitle={examTitle}
+                  currentModality={studyInfo?.modality || ""}
+                />
+              )}
+              {activeTab === "frases" && <FrasesTab onInsert={(text) => { insertAtCursor(text); setShowMobileTools(false); }} onFocus={saveSelection} />}
+              {activeTab === "carimbo" && <CarimboTab signatureUrl={medCtx?.signatureUrl ?? null} stampUrl={medCtx?.stampUrl ?? null} doctorName={medCtx?.doctorName ?? ""} crm={medCtx?.crm ?? ""} />}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ── BOTÃO FLUTUANTE DE MÁSCARAS / LAUDOS PRONTOS ──────────────────────────── */}
       {isEditable && (
         <>
           {/* Botão flutuante */}
           <button
             onClick={() => setShowMasksPanel(p => !p)}
-            className="fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-2.5 rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 transition-all text-sm font-medium print:hidden"
+            className="fixed bottom-20 right-4 z-40 flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg transition-all hover:bg-blue-700 md:bottom-6 md:right-6 print:hidden"
             title="Laudos Prontos / Máscaras"
           >
             <BookOpen className="h-4 w-4" />
@@ -1669,7 +1894,7 @@ export default function ReportEditorPage() {
 
           {/* Painel lateral de máscaras */}
           {showMasksPanel && (
-            <div className="fixed inset-y-0 right-0 z-50 w-[380px] bg-white shadow-2xl flex flex-col print:hidden" style={{ borderLeft: '1px solid #e5e7eb' }}>
+            <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[380px] flex-col bg-white shadow-2xl print:hidden" style={{ borderLeft: '1px solid #e5e7eb' }}>
               {/* Header do painel */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
                 <div className="flex items-center gap-2">
