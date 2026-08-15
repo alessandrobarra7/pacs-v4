@@ -1778,3 +1778,4 @@
 - [x] Reformular a prévia A4 do editor de layout para reproduzir uma folha institucional real de PDF/Android (cabeçalho, logotipos proporcionais, dados do paciente, título do exame, corpo estruturado, assinatura digital, rodapé gráfico e paginação)
 - [x] Corrigir TypeError durante o arraste mobile da prévia A4 quando o estado de ponteiro fica nulo
 - [x] Restaurar o botão Laudar na tabela desktop da listagem PACS preservando o RBAC e o fluxo mobile
+- [x] Adaptar o editor de layout de laudos para incorporar a referência visual do ZIP (painel de logos, controles X/Y/largura/altura, prévia interativa e alternância de modos)
