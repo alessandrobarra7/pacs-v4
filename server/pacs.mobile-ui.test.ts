@@ -106,5 +106,6 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(viewerSource).toContain('hidden md:flex flex-col gap-0.5');
     expect(viewerSource).toContain("mobileViewerError");
     expect(viewerSource).toContain("hidden max-w-md rounded-lg bg-gray-900");
+    expect(viewerSource).toContain("sessionStorage.getItem(`study_${studyUid}`)");
   });
 });

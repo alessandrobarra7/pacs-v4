@@ -599,7 +599,24 @@ export function DicomViewerPage() {
 
   // ─── Inicia ao montar ────────────────────────────────────────────────────
   useEffect(() => {
-    if (studyUid) startStreamingViewer();
+    if (studyUid) {
+      try {
+        const stored = sessionStorage.getItem(`study_${studyUid}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.patientName) {
+            setStudyInfo({
+              patientName: parsed.patientName,
+              studyDate: parsed.studyDate || "",
+              studyDescription: parsed.studyDescription || parsed.examDescription || "Estudo DICOM",
+              modality: parsed.modality || "-",
+              studyInstanceUid: studyUid,
+            });
+          }
+        }
+      } catch (_) {}
+      startStreamingViewer();
+    }
     return () => {
       if (sseRef.current) {
         sseRef.current.close();

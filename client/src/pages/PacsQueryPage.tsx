@@ -1002,6 +1002,29 @@ export function PacsQueryPage() {
     if (!study.studyInstanceUid) { toast.error('UID do estudo não disponível'); return; }
     const unitParam = effectiveUnitId ? `?unitId=${effectiveUnitId}` : '';
     const uid = study.studyInstanceUid;
+
+    const meta = metadataMap?.[uid];
+    const examLabel = meta?.description_override
+      || localStorage.getItem(`exam_label_${uid}`)
+      || study.studyDescription
+      || 'Sem descrição';
+
+    try {
+      sessionStorage.setItem(`study_${uid}`, JSON.stringify({
+        patientName: meta?.patient_name_override || study.patientName || '',
+        patientID: study.patientID || '',
+        patientBirthDate: study.patientBirthDate || '',
+        patientSex: study.patientSex || '',
+        studyDate: study.studyDate || '',
+        studyTime: study.studyTime || '',
+        modality: study.modality || '',
+        studyDescription: examLabel,
+        accessionNumber: study.accessionNumber || '',
+        numberOfInstances: study.numberOfInstances || 0,
+        unitId: effectiveUnitId ? Number(effectiveUnitId) : null,
+      }));
+    } catch (_) {}
+
     // Se já está em cache (botão verde), abre instantaneamente
     const pd = preDownloadMap[uid];
     if (pd && pd.phase === 'done') {
