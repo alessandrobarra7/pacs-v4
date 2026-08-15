@@ -39,7 +39,7 @@ O projeto consolida uma arquitetura corporativa distribuída para ambientes PACS
     │  VM2 (Banco de Dados Central)                │
     │  - MySQL / MariaDB / TiDB                    │
     │  - Banco: pacs_portal                        │
-    │  - Senha root: 137946                        │
+   │  - Credenciais: configuradas somente no ambiente seguro │
     └──────────────────────────────────────────────┘
 ```
 
@@ -50,7 +50,7 @@ O projeto consolida uma arquitetura corporativa distribuída para ambientes PACS
 Para adotar as melhorias visuais e operacionais (como design mobile, requisições por fotos e laudo falado) sem comprometer a estabilidade do ambiente de produção:
 
 1. **Autoridade do Banco de Dados (VM2)**:
-   - Nenhum armazenamento em SQLite ou banco embutido no portal. O banco oficial é exclusivamente o MySQL na VM2 (`pacs_portal`).
+   - Nenhum armazenamento em SQLite ou banco embutido no portal. O banco oficial é exclusivamente o MySQL na VM2 (`pacs_portal`). As credenciais não são documentadas no repositório.
    - Novas colunas ou tabelas (como as migrations `0047` e `0048` para fotos de requisição e áudios) devem ser aplicadas diretamente via Drizzle/SQL na VM2.
 2. **Isolamento de Credenciais e Configurações**:
    - O arquivo `.env` de produção na VM1 continuará gerenciando a string de conexão (`DATABASE_URL`), segredos JWT e chaves de S3/MinIO.
@@ -74,9 +74,9 @@ Para atualizar o ambiente real utilizando o código integrado do GitHub:
    pnpm install
    pnpm build
    ```
-3. **Aplicar Migrations Pendentes na VM2**:
+   3. **Aplicar Migrations Pendentes na VM2**:
    ```bash
-   # Executar no banco MySQL da VM2 (senha: 137946)
+   # Executar no banco MySQL da VM2 usando credenciais do ambiente seguro
    # Incluindo as novas migrations de fotos e áudios se aprovadas
    ```
 4. **Reiniciar o serviço PM2**:
