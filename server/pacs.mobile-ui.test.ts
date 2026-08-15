@@ -59,14 +59,11 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(pageSource).toContain("studyDate = studyDate.replace(/-/g, '')");
   });
 
-  it("uses the existing permission gates and handlers for mobile actions", () => {
-    expect(pageSource).toContain("{canViewer && (");
-    expect(pageSource).toContain("{canLaudo && (");
-    expect(pageSource).toContain("{canPrint && (");
-    expect(pageSource).toContain("handleVisualize(study)");
-    expect(pageSource).toContain("handleReport(study)");
+  it("uses the updated action sequence and handlers for mobile actions", () => {
+    expect(pageSource).toContain("setIsAttachmentsModalOpen(true)");
+    expect(pageSource).toContain("setIsAnamnesisModalOpen(true)");
+    expect(pageSource).toContain("handleListenAudio(study)");
     expect(pageSource).toContain("handlePrintReport(study)");
-    expect(pageSource).toContain("handlePreDownload(study)");
   });
 
   it("normalizes DICOM patient names before displaying them", () => {

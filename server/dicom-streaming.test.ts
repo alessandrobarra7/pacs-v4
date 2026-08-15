@@ -183,17 +183,12 @@ describe('PacsQueryPage pre-download button', () => {
     expect(content).toContain('/api/dicom-stream/');
   });
 
-  it('deve mostrar progresso durante o pré-download', async () => {
+  it('deve incluir os botões da nova faixa de ações: Anexos, Anamnese, Áudio e Imprimir', async () => {
     const queryPath = path.resolve(__dirname, '..', 'client', 'src', 'pages', 'PacsQueryPage.tsx');
     const content = await fs.readFile(queryPath, 'utf-8');
-    expect(content).toContain("phase === 'downloading'");
-    expect(content).toContain('animate-spin');
-  });
-
-  it('deve mostrar botão verde quando download concluído', async () => {
-    const queryPath = path.resolve(__dirname, '..', 'client', 'src', 'pages', 'PacsQueryPage.tsx');
-    const content = await fs.readFile(queryPath, 'utf-8');
-    expect(content).toContain("phase === 'done'");
-    expect(content).toContain('bg-green-500');
+    expect(content).toContain("setIsAttachmentsModalOpen(true)");
+    expect(content).toContain("setIsAnamnesisModalOpen(true)");
+    expect(content).toContain("handleListenAudio");
+    expect(content).toContain("handlePrintReport");
   });
 });

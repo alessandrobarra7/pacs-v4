@@ -4,7 +4,7 @@ import {
   Search, Eye, FileText, Printer, Paperclip,
   Clipboard, Settings, DollarSign,
   ChevronLeft, ChevronRight, Clock, Pencil, Check, X,
-  Download, Loader2, CalendarDays,
+  Download, Loader2, CalendarDays, Mic, Volume2,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { toast } from "sonner";
@@ -1078,6 +1078,12 @@ export function PacsQueryPage() {
     navigate(`/reports/create/${study.studyInstanceUid}`);
   };
 
+  const handleListenAudio = (study: any) => {
+    toast.info("Áudio vinculado", {
+      description: "Nenhum arquivo de áudio vinculado a este estudo.",
+    });
+  };
+
   const handlePrintReport = async (study: any) => {
     if (!study.studyInstanceUid) { toast.error('UID do estudo não disponível'); return; }
     const storedStudy = sessionStorage.getItem(`study_${study.studyInstanceUid}`);
@@ -1701,10 +1707,10 @@ export function PacsQueryPage() {
                 <th className="px-4 py-2.5 text-left font-semibold">Paciente</th>
                 <th className="px-4 py-2.5 text-left font-semibold w-16">Idade</th>
                 <th className="px-4 py-2.5 text-left font-semibold">Exame</th>
-                <th className="px-4 py-2.5 text-center font-semibold w-10">Anam.</th>
-                <th className="px-4 py-2.5 text-center font-semibold w-10">Ver</th>
-                <th className="px-4 py-2.5 text-center font-semibold w-10">Laudar</th>
-                <th className="px-4 py-2.5 text-center font-semibold w-10">Imp.</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-10" title="Anexo de imagens">Anexos</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-10" title="Anamnese">Anam.</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-10" title="Ouvir áudio vinculado">Áudio</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-10" title="Imprimir">Imp.</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-32">Status</th>
               </tr>
             </thead>
@@ -1787,116 +1793,62 @@ export function PacsQueryPage() {
                       </div>
                     </td>
 
-                    {/* Anamnese + SLA */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-center gap-1.5">
-                        {/* V13-P3 FIX: canViewAnamnesis=ver, canEditAnamnesis=editar */}
-                        {canViewAnamnesis || canEditAnamnesis ? (
-                          <button
-                            onClick={() => { if (canEditAnamnesis) { setSelectedStudy(study); setIsAnamnesisModalOpen(true); } }}
-                            title={
-                              canEditAnamnesis
-                                ? (anamnesisStatusMap[study.studyInstanceUid] ? 'Anamnese preenchida — clique para editar' : 'Sem anamnese — clique para preencher')
-                                : (anamnesisStatusMap[study.studyInstanceUid] ? 'Anamnese preenchida (somente leitura)' : 'Sem anamnese')
-                            }
-                            className={`relative w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
-                              anamnesisStatusMap[study.studyInstanceUid]
-                                ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                : canEditAnamnesis
-                                  ? 'border-gray-200 bg-white text-gray-500 hover:bg-amber-50 hover:text-amber-700'
-                                  : 'border-gray-200 bg-white text-gray-400 cursor-default'
-                            }`}
-                          >
-                            <Clipboard className="h-3.5 w-3.5" />
-                            {anamnesisStatusMap[study.studyInstanceUid] && (
-                              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
-                            )}
-                          </button>
-                        ) : (
-                          <span className="text-gray-300">—</span>
-                        )}
-                        {/* Badge de prazo SLA */}
-                        <SlaCountdown
-                          readiness={slaReadinessMap[study.studyInstanceUid]}
-                          hasAnamnesis={!!anamnesisStatusMap[study.studyInstanceUid]}
-                          compact={true}
-                        />
-                      </div>
+                    {/* Anexo de imagens */}
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedStudy(study);
+                          setIsAttachmentsModalOpen(true);
+                        }}
+                        title="Anexo de imagens e fotos do paciente"
+                        className="w-8 h-8 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 inline-flex items-center justify-center transition-colors"
+                      >
+                        <Paperclip className="h-3.5 w-3.5" />
+                      </button>
                     </td>
 
-                    {/* Visualizar + Pré-download */}
+                    {/* Anamnese */}
                     <td className="px-4 py-3 text-center">
-                      {canViewer ? (
-                        <div className="flex items-center justify-center gap-1">
-                          {/* Botão Visualizar */}
-                          <button
-                            onClick={() => handleVisualize(study)}
-                            title="Visualizar DICOM"
-                            className="w-8 h-8 rounded-lg bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center justify-center transition-colors"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </button>
-
-                          {/* Botão Pré-download */}
-                          {(() => {
-                            const pd = preDownloadMap[study.studyInstanceUid];
-                            if (!pd || pd.phase === 'idle' || pd.phase === 'error') {
-                              return (
-                                <button
-                                  onClick={() => handlePreDownload(study)}
-                                  title="Baixar imagens em background (abre o viewer instantaneamente depois)"
-                                  className="w-8 h-8 rounded-lg border border-gray-300 bg-white hover:bg-blue-50 text-gray-500 hover:text-blue-600 inline-flex items-center justify-center transition-colors"
-                                >
-                                  <Download className="h-3.5 w-3.5" />
-                                </button>
-                              );
-                            }
-                            if (pd.phase === 'connecting' || pd.phase === 'downloading') {
-                              const pct = pd.total > 0 ? Math.round((pd.received / pd.total) * 100) : 0;
-                              return (
-                                <div className="flex flex-col items-center gap-0.5" title={`${pd.received}/${pd.total} imagens`}>
-                                  <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />
-                                  {pd.total > 0 && (
-                                    <span className="text-[9px] text-blue-500 tabular-nums leading-none">{pct}%</span>
-                                  )}
-                                </div>
-                              );
-                            }
-                            if (pd.phase === 'done') {
-                              return (
-                                <button
-                                  onClick={() => handleVisualize(study)}
-                                  title={`${pd.total} imagens prontas — clique para abrir instantaneamente`}
-                                  className="w-8 h-8 rounded-lg bg-green-500 hover:bg-green-600 text-white inline-flex items-center justify-center transition-colors"
-                                >
-                                  <Eye className="h-3.5 w-3.5" />
-                                </button>
-                              );
-                            }
-                            return null;
-                          })()}
-                        </div>
-                      ) : (
-                        <span className="text-gray-300">—</span>
-                      )}
-                    </td>
-
-                    {/* Laudar */}
-                    <td className="px-4 py-3 text-center">
-                      {canLaudo ? (
+                      {canViewAnamnesis || canEditAnamnesis ? (
                         <button
-                          onClick={() => handleReport(study)}
-                          title="Laudar"
-                          className="w-8 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center justify-center transition-colors"
+                          onClick={() => { if (canEditAnamnesis) { setSelectedStudy(study); setIsAnamnesisModalOpen(true); } }}
+                          title={
+                            canEditAnamnesis
+                              ? (anamnesisStatusMap[study.studyInstanceUid] ? 'Anamnese preenchida — clique para editar' : 'Sem anamnese — clique para preencher')
+                              : (anamnesisStatusMap[study.studyInstanceUid] ? 'Anamnese preenchida (somente leitura)' : 'Sem anamnese')
+                          }
+                          className={`relative w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
+                            anamnesisStatusMap[study.studyInstanceUid]
+                              ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              : canEditAnamnesis
+                                ? 'border-gray-200 bg-white text-gray-500 hover:bg-amber-50 hover:text-amber-700'
+                                : 'border-gray-200 bg-white text-gray-400 cursor-default'
+                          }`}
                         >
-                          <FileText className="h-3.5 w-3.5" />
+                          <Clipboard className="h-3.5 w-3.5" />
+                          {anamnesisStatusMap[study.studyInstanceUid] && (
+                            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
+                          )}
                         </button>
                       ) : (
                         <span className="text-gray-300">—</span>
                       )}
                     </td>
 
-                     {/* Imprimir — V12-7 FIX: condicional a print_reports da unidade selecionada */}
+                    {/* Ouvir áudio vinculado */}
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleListenAudio(study)}
+                        title="Ouvir áudio vinculado"
+                        className="w-8 h-8 rounded-lg border border-purple-200 bg-purple-50 text-purple-600 hover:bg-purple-100 inline-flex items-center justify-center transition-colors"
+                      >
+                        <Mic className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+
+                    {/* Imprimir */}
                     <td className="px-4 py-3 text-center">
                       {canPrint ? (
                         <button
@@ -1974,7 +1926,7 @@ export function PacsQueryPage() {
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
-                        {/* Botão de Anexos do Paciente (Câmera / Fotos / Arquivos) */}
+                        {/* 1. Anexo de imagens */}
                         <button
                           type="button"
                           onClick={(event) => {
@@ -1982,34 +1934,42 @@ export function PacsQueryPage() {
                             setSelectedStudy(study);
                             setIsAttachmentsModalOpen(true);
                           }}
-                          title="Anexos e Fotos do Paciente (Câmera / Arquivos)"
-                          aria-label="Anexos e Fotos do Paciente"
+                          title="Anexo de imagens e fotos do paciente"
+                          aria-label="Anexo de imagens"
                           className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
                         >
                           <Paperclip className="h-4 w-4" />
                         </button>
-                        {canViewer && (
-                          <button
-                            type="button"
-                            onClick={(event) => { event.stopPropagation(); handleVisualize(study); }}
-                            title="Visualizar DICOM"
-                            aria-label="Visualizar DICOM"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-blue-100 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </button>
-                        )}
-                        {canLaudo && (
-                          <button
-                            type="button"
-                            onClick={(event) => { event.stopPropagation(); handleReport(study); }}
-                            title="Laudar"
-                            aria-label="Laudar exame"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-blue-100 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
-                          >
-                            <FileText className="h-4 w-4" />
-                          </button>
-                        )}
+                        {/* 2. Anamnese */}
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (canEditAnamnesis) {
+                              setSelectedStudy(study);
+                              setIsAnamnesisModalOpen(true);
+                            }
+                          }}
+                          title="Anamnese do paciente"
+                          aria-label="Anamnese"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors"
+                        >
+                          <Clipboard className="h-4 w-4" />
+                        </button>
+                        {/* 3. Ouvir áudio vinculado */}
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleListenAudio(study);
+                          }}
+                          title="Ouvir áudio vinculado"
+                          aria-label="Ouvir áudio vinculado"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-purple-200 bg-purple-50 text-purple-600 hover:bg-purple-100 transition-colors"
+                        >
+                          <Mic className="h-4 w-4" />
+                        </button>
+                        {/* 4. Imprimir */}
                         {canPrint && (
                           <button
                             type="button"
