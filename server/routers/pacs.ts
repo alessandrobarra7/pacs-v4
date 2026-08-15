@@ -162,25 +162,44 @@ export const pacsRouter = router({
           truncated = cFindResult.truncated;
           timedOut = cFindResult.timedOut;
           console.log(`[PACS Query] C-FIND retornou ${studies.length} estudos${truncated ? ' (TRUNCADO)' : ''}${timedOut ? ' (TIMEOUT)' : ''}`);
-          // Normaliza campos para o frontend
-          studies = studies.map((s: any) => ({
-            studyInstanceUid: s.studyInstanceUID || s.studyInstanceUid || '',
-            patientName: (s.patientName || '').replace(/\^+/g, ' ').trim(),
-            patientID: s.patientID || s.patientId || '',
-            patientBirthDate: s.patientBirthDate || '',
-            patientSex: s.patientSex || '',
-            studyDate: s.studyDate || '',
-            studyTime: s.studyTime || '',
-            modality: s.modality || '',
-            studyDescription: s.studyDescription || '',
-            accessionNumber: s.accessionNumber || '',
-            numberOfSeries: s.numberOfSeries || 0,
-            numberOfInstances: s.numberOfInstances || 0,
-            retrieveAeTitle: s.retrieveAeTitle || unit.pacs_ae_title || '',
-            unitId: unit.id,
-            unitName: unit.name,
-            source: 'dicom_direct',
-          }));
+          // Buscar overrides salvos localmente (study_metadata) para esta unidade e estes UIDs
+          const studyUids = studies.map((s: any) => s.studyInstanceUID || s.studyInstanceUid).filter(Boolean);
+          const { getStudyMetadataBatch } = await import('../db');
+          const metadataBatch = await getStudyMetadataBatch(studyUids, unit.id);
+          const metadataMap = new Map(metadataBatch.map(m => [m.study_instance_uid, m]));
+
+          // Normaliza campos para o frontend e aplica overrides locais (Opção 1)
+          studies = studies.map((s: any) => {
+            const uid = s.studyInstanceUID || s.studyInstanceUid || '';
+            const meta = metadataMap.get(uid);
+            const rawName = (s.patientName || '').replace(/\^+/g, ' ').trim();
+            const patientName = meta?.patient_name_override && meta.patient_name_override.trim() !== ''
+              ? meta.patient_name_override.trim()
+              : rawName;
+            const rawDesc = s.studyDescription || '';
+            const studyDescription = meta?.description_override && meta.description_override.trim() !== ''
+              ? meta.description_override.trim()
+              : rawDesc;
+
+            return {
+              studyInstanceUid: uid,
+              patientName,
+              patientID: s.patientID || s.patientId || '',
+              patientBirthDate: s.patientBirthDate || '',
+              patientSex: s.patientSex || '',
+              studyDate: s.studyDate || '',
+              studyTime: s.studyTime || '',
+              modality: s.modality || '',
+              studyDescription,
+              accessionNumber: s.accessionNumber || '',
+              numberOfSeries: s.numberOfSeries || 0,
+              numberOfInstances: s.numberOfInstances || 0,
+              retrieveAeTitle: s.retrieveAeTitle || unit.pacs_ae_title || '',
+              unitId: unit.id,
+              unitName: unit.name,
+              source: 'dicom_direct',
+            };
+          });
           
           // Persiste estudos no cache local para que modality_snapshot fique disponível na assinatura
           if (studies.length > 0) {

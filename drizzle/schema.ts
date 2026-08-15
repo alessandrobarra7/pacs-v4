@@ -962,3 +962,4 @@ export const group_permission_configs = mysqlTable("group_permission_configs", {
 });
 export type GroupPermissionConfig = typeof group_permission_configs.$inferSelect;
 export type InsertGroupPermissionConfig = typeof group_permission_configs.$inferInsert;
+

@@ -953,6 +953,28 @@ export function PacsQueryPage() {
     handleCalendarSelect(new Date());
   };
 
+  const saveMetadataMutation = trpc.studyMetadata.save.useMutation();
+  const handleEditPatientName = async (studyUid: string, currentName: string) => {
+    const newName = window.prompt("Editar nome do paciente (correção local no portal — a fonte PACS não é alterada):", currentName);
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      toast.error("O nome do paciente não pode ficar vazio");
+      return;
+    }
+    try {
+      await saveMetadataMutation.mutateAsync({
+        studyInstanceUid: studyUid,
+        unit_id: effectiveUnitId || undefined,
+        patientNameOverride: trimmed,
+      });
+      toast.success("Nome do paciente atualizado com sucesso no portal!");
+      runQuery();
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao atualizar nome do paciente");
+    }
+  };
+
   const handleLast7Days = () => {
     // Bug fix A1: enviar 'LAST_7_DAYS' diretamente ao servidor (que já resolve o período correto).
     // Antes: enviava 'LAST_30_DAYS' e filtrava localmente, causando divergência entre toast e tela.
@@ -1692,11 +1714,23 @@ export function PacsQueryPage() {
                       <div className="text-xs text-gray-400 mt-0.5">{relative}</div>
                     </td>
 
-                    {/* Paciente */}
+                    {/* Paciente — editável (Opção 1) */}
                     <td className="px-4 py-3">
-                      <div className={`font-semibold text-sm leading-tight uppercase ${patientNameEdited ? 'text-amber-700' : 'text-gray-900'}`}>
-                        {patientName}
-                        {patientNameEdited && <span className="ml-1 text-xs text-amber-500" title="Nome editado pelo técnico">✏️</span>}
+                      <div className="flex items-center gap-1.5 group">
+                        <div className={`font-semibold text-sm leading-tight uppercase ${patientNameEdited ? 'text-amber-700' : 'text-gray-900'}`}>
+                          {patientName}
+                          {patientNameEdited && <span className="ml-1 text-xs text-amber-500" title="Nome editado no portal">✏️</span>}
+                        </div>
+                        {canEditExamLegend && (
+                          <button
+                            type="button"
+                            onClick={() => handleEditPatientName(study.studyInstanceUid, patientName)}
+                            title="Editar nome do paciente"
+                            className="opacity-0 group-hover:opacity-100 text-xs text-gray-400 hover:text-amber-600 p-1 transition-opacity"
+                          >
+                            ✏️
+                          </button>
+                        )}
                       </div>
                       {sex && <div className="text-xs text-gray-400 mt-0.5">{sex}</div>}
                       {meta?.notes && (
@@ -1968,6 +2002,19 @@ export function PacsQueryPage() {
                       <div className={`min-w-0 flex-1 break-words pr-1 text-[15px] font-bold uppercase leading-tight ${patientNameEdited ? 'text-amber-700' : 'text-amber-800'}`}>
                         {patientName}
                         {patientNameEdited && <Pencil className="ml-1 inline h-3 w-3 align-[1px] text-amber-500" aria-label="Nome editado" />}
+                        {canEditExamLegend && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditPatientName(study.studyInstanceUid, patientName);
+                            }}
+                            title="Editar nome do paciente"
+                            className="ml-2 text-xs text-gray-400 hover:text-amber-600 inline-flex items-center align-middle"
+                          >
+                            ✏️
+                          </button>
+                        )}
                       </div>
                       <span className={`inline-flex max-w-[92px] shrink-0 items-center rounded-full border px-2 py-1 text-[10px] font-medium leading-none ${mobileStatusCls}`}>
                         {status}
