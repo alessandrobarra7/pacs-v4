@@ -207,8 +207,15 @@ export default function ReportEditorPage() {
   // DnD: controla o highlight do editor quando um item está sendo arrastado sobre ele
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // Referência ao documento editável (seção única)
+  // Referências aos documentos editáveis; o mobile usa uma instância própria para não conflitar com o DOM desktop oculto.
   const docRef = useRef<HTMLDivElement>(null);
+  const mobileDocRef = useRef<HTMLDivElement>(null);
+  const getVisibleDoc = useCallback(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+      return mobileDocRef.current ?? docRef.current;
+    }
+    return docRef.current ?? mobileDocRef.current;
+  }, []);
   const savedSelection = useRef<Range | null>(null);
 
   // Suporte a múltiplos exames (multi-seção)
@@ -293,9 +300,9 @@ export default function ReportEditorPage() {
     setFontSize(size);
     const el = isMultiSection
       ? sectionRefs.current[activeSectionRef.current]
-      : docRef.current;
+      : getVisibleDoc();
     if (el) el.style.fontSize = `${size}pt`;
-  }, [isMultiSection]);
+  }, [isMultiSection, getVisibleDoc]);
   // Importa máscaras de arquivo JSON
   const handleMaskFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -318,21 +325,22 @@ export default function ReportEditorPage() {
       const el = sectionRefs.current[activeSectionRef.current];
       if (el) { el.innerHTML = clean; el.focus(); }
     } else {
-      if (docRef.current) docRef.current.innerHTML = clean;
+      const visibleDoc = getVisibleDoc();
+      if (visibleDoc) visibleDoc.innerHTML = clean;
     }
     if (examTitle) setExamTitle(examTitle);
     setShowMasksPanel(false);
-  }, [isMultiSection]);
+  }, [isMultiSection, getVisibleDoc]);
   // Captura HTML atual para pré-visualização
   const handleTogglePreview = useCallback(() => {
     if (!isPreview) {
       const html = isMultiSection
         ? sectionRefs.current.map(el => el?.innerHTML ?? "").join("<hr/>")
-        : docRef.current?.innerHTML ?? "";
+        : getVisibleDoc()?.innerHTML ?? "";
       setPreviewHtml(html);
     }
     setIsPreview(p => !p);
-  }, [isPreview, isMultiSection]);
+  }, [isPreview, isMultiSection, getVisibleDoc]);
 
   // ── Carregar info do estudo ──────────────────────────────────────────────
   useEffect(() => {
@@ -449,8 +457,8 @@ export default function ReportEditorPage() {
       }));
       return JSON.stringify(pages);
     }
-    return docRef.current?.innerHTML || "";
-  }, [isMultiSection, examNames]);
+    return getVisibleDoc()?.innerHTML || "";
+  }, [isMultiSection, examNames, getVisibleDoc]);
 
   const handleSave = useCallback(async () => {
     const body = collectBody();
@@ -1801,7 +1809,7 @@ export default function ReportEditorPage() {
               <div data-editor-content className="min-h-[420px] text-sm leading-relaxed text-gray-900" dangerouslySetInnerHTML={{ __html: previewHtml || "<p style='color:#9ca3af;font-style:italic'>Sem conteúdo para visualizar.</p>" }} />
             ) : (
               <div
-                ref={docRef}
+                ref={mobileDocRef}
                 contentEditable={isEditable}
                 suppressContentEditableWarning
                 data-editor-content
