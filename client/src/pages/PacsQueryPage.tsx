@@ -846,6 +846,13 @@ export function PacsQueryPage() {
   );
   const anamnesisStatusMap = useMemo(() => anamnesisStatusData ?? {} as Record<string, boolean>, [anamnesisStatusData]);
 
+  // Mapa de has_attachments para colorir condicionalmente o botão de anexos
+  const { data: attachmentsStatusData, refetch: refetchAttachmentsStatus } = trpc.annotations.getAttachmentsStatusBatch.useQuery(
+    { studyInstanceUids: studyUids },
+    { enabled: studyUids.length > 0 }
+  );
+  const attachmentsStatusMap = useMemo(() => attachmentsStatusData ?? {} as Record<string, boolean>, [attachmentsStatusData]);
+
   // Batch SLA readiness para todos os estudos da página atual
   const { data: slaReadinessData, refetch: refetchSlaReadiness } = trpc.sla.getBatchStatus.useQuery(
     { studyInstanceUids: studyUids, unitId: effectiveUnitId ?? 0 },
@@ -1793,22 +1800,31 @@ export function PacsQueryPage() {
                       </div>
                     </td>
 
-                    {/* Anexo de imagens */}
+                    {/* Anexo de imagens (Colorido se houver arquivos, transparente/neutro se vazio) */}
                     <td className="px-4 py-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedStudy(study);
-                          setIsAttachmentsModalOpen(true);
-                        }}
-                        title="Anexo de imagens e fotos do paciente"
-                        className="w-8 h-8 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 inline-flex items-center justify-center transition-colors"
-                      >
-                        <Paperclip className="h-3.5 w-3.5" />
-                      </button>
+                      {(() => {
+                        const hasAttachments = !!attachmentsStatusMap[study.studyInstanceUid];
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedStudy(study);
+                              setIsAttachmentsModalOpen(true);
+                            }}
+                            title={hasAttachments ? "Anexos disponíveis — clique para ver" : "Nenhum anexo — clique para adicionar"}
+                            className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
+                              hasAttachments
+                                ? "border-blue-400 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                : "border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+                            }`}
+                          >
+                            <Paperclip className="h-3.5 w-3.5" />
+                          </button>
+                        );
+                      })()}
                     </td>
 
-                    {/* Anamnese */}
+                    {/* Anamnese (Colorido se houver anamnese, transparente/neutro se vazio) */}
                     <td className="px-4 py-3 text-center">
                       {canViewAnamnesis || canEditAnamnesis ? (
                         <button
@@ -1822,8 +1838,8 @@ export function PacsQueryPage() {
                             anamnesisStatusMap[study.studyInstanceUid]
                               ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                               : canEditAnamnesis
-                                ? 'border-gray-200 bg-white text-gray-500 hover:bg-amber-50 hover:text-amber-700'
-                                : 'border-gray-200 bg-white text-gray-400 cursor-default'
+                                ? 'border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600'
+                                : 'border-gray-200 bg-white text-gray-300 cursor-default'
                           }`}
                         >
                           <Clipboard className="h-3.5 w-3.5" />
@@ -1836,13 +1852,13 @@ export function PacsQueryPage() {
                       )}
                     </td>
 
-                    {/* Ouvir áudio vinculado */}
+                    {/* Ouvir áudio vinculado (Neutro por padrão, colorido apenas se houver áudio) */}
                     <td className="px-4 py-3 text-center">
                       <button
                         type="button"
                         onClick={() => handleListenAudio(study)}
-                        title="Ouvir áudio vinculado"
-                        className="w-8 h-8 rounded-lg border border-purple-200 bg-purple-50 text-purple-600 hover:bg-purple-100 inline-flex items-center justify-center transition-colors"
+                        title="Nenhum áudio vinculado"
+                        className="w-8 h-8 rounded-lg border border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600 inline-flex items-center justify-center transition-colors"
                       >
                         <Mic className="h-3.5 w-3.5" />
                       </button>
@@ -1926,46 +1942,64 @@ export function PacsQueryPage() {
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
-                        {/* 1. Anexo de imagens */}
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setSelectedStudy(study);
-                            setIsAttachmentsModalOpen(true);
-                          }}
-                          title="Anexo de imagens e fotos do paciente"
-                          aria-label="Anexo de imagens"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
-                        >
-                          <Paperclip className="h-4 w-4" />
-                        </button>
-                        {/* 2. Anamnese */}
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (canEditAnamnesis) {
-                              setSelectedStudy(study);
-                              setIsAnamnesisModalOpen(true);
-                            }
-                          }}
-                          title="Anamnese do paciente"
-                          aria-label="Anamnese"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors"
-                        >
-                          <Clipboard className="h-4 w-4" />
-                        </button>
-                        {/* 3. Ouvir áudio vinculado */}
+                        {/* 1. Anexo de imagens (condicional) */}
+                        {(() => {
+                          const hasAttachments = !!attachmentsStatusMap[study.studyInstanceUid];
+                          return (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedStudy(study);
+                                setIsAttachmentsModalOpen(true);
+                              }}
+                              title={hasAttachments ? "Anexos disponíveis" : "Sem anexos"}
+                              aria-label="Anexo de imagens"
+                              className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                                hasAttachments
+                                  ? "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
+                                  : "border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+                              }`}
+                            >
+                              <Paperclip className="h-4 w-4" />
+                            </button>
+                          );
+                        })()}
+                        {/* 2. Anamnese (condicional) */}
+                        {(() => {
+                          const hasAnamnesis = !!anamnesisStatusMap[study.studyInstanceUid];
+                          return (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (canEditAnamnesis) {
+                                  setSelectedStudy(study);
+                                  setIsAnamnesisModalOpen(true);
+                                }
+                              }}
+                              title={hasAnamnesis ? "Anamnese preenchida" : "Sem anamnese"}
+                              aria-label="Anamnese"
+                              className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                                hasAnamnesis
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                                  : "border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+                              }`}
+                            >
+                              <Clipboard className="h-4 w-4" />
+                            </button>
+                          );
+                        })()}
+                        {/* 3. Ouvir áudio vinculado (neutro) */}
                         <button
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation();
                             handleListenAudio(study);
                           }}
-                          title="Ouvir áudio vinculado"
+                          title="Sem áudio vinculado"
                           aria-label="Ouvir áudio vinculado"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-purple-200 bg-purple-50 text-purple-600 hover:bg-purple-100 transition-colors"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
                         >
                           <Mic className="h-4 w-4" />
                         </button>

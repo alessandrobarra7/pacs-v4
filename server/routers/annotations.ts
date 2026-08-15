@@ -3,7 +3,7 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
 import { getDb, getAnnotationsByStudy, upsertAnnotation, deleteAnnotation } from "../db";
 import { study_attachments } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { storagePut, storageDelete } from "../storage";
 
 export const annotationsRouter = router({
@@ -57,6 +57,25 @@ export const annotationsRouter = router({
         .select()
         .from(study_attachments)
         .where(eq(study_attachments.study_instance_uid, input.study_instance_uid));
+    }),
+
+  /** Retorna quais UIDs possuem anexos cadastrados */
+  getAttachmentsStatusBatch: protectedProcedure
+    .input(z.object({ studyInstanceUids: z.array(z.string()) }))
+    .query(async ({ input }) => {
+      if (!input.studyInstanceUids.length) return {} as Record<string, boolean>;
+      const db = await getDb();
+      if (!db) return {} as Record<string, boolean>;
+      const rows = await db
+        .select({ study_instance_uid: study_attachments.study_instance_uid })
+        .from(study_attachments)
+        .where(inArray(study_attachments.study_instance_uid, input.studyInstanceUids));
+      const result: Record<string, boolean> = {};
+      for (const uid of input.studyInstanceUids) result[uid] = false;
+      for (const row of rows) {
+        if (row.study_instance_uid) result[row.study_instance_uid] = true;
+      }
+      return result;
     }),
 
   /** Faz upload de um anexo (foto da câmera ou arquivo) */
