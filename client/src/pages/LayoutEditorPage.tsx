@@ -53,14 +53,14 @@ const BLOCK_IDS: BlockId[] = [...LOGO_BLOCK_IDS, ...STATIC_BLOCK_IDS];
 const logoBlockIndex = (block: BlockId): number => LOGO_BLOCK_IDS.indexOf(block as LogoBlockId);
 
 const DEFAULT_POSITIONS: BlockPositions = {
-  logo1:       { x: 2,  y: 1,  w: 20, h: 10, visible: true },
-  logo2:       { x: 40, y: 1,  w: 20, h: 10, visible: true },
-  logo3:       { x: 78, y: 1,  w: 20, h: 10, visible: true },
-  patientName: { x: 2,  y: 20, w: 96, h: 5,  visible: true },
-  patientInfo: { x: 4,  y: 14, w: 58, h: 9,  visible: true },
-  title:       { x: 2,  y: 28, w: 96, h: 6,  visible: true },
-  body:        { x: 2,  y: 35, w: 96, h: 46, visible: true },
-  footer:      { x: 2,  y: 88, w: 96, h: 8,  visible: true },
+  logo1:       { x: 2,  y: 2,  w: 26, h: 11, visible: true },
+  logo2:       { x: 37, y: 2,  w: 26, h: 11, visible: true },
+  logo3:       { x: 72, y: 2,  w: 26, h: 11, visible: true },
+  patientInfo: { x: 2,  y: 15, w: 96, h: 9,  visible: true },
+  patientName: { x: 2,  y: 25, w: 96, h: 5,  visible: true },
+  title:       { x: 2,  y: 31, w: 96, h: 6,  visible: true },
+  body:        { x: 2,  y: 38, w: 96, h: 48, visible: true },
+  footer:      { x: 2,  y: 88, w: 96, h: 9,  visible: true },
 };
 
 const BLOCK_LABELS: Record<BlockId, { label: string; color: string; preview: string }> = {
