@@ -450,6 +450,9 @@ export default function ReportEditorPage() {
   // estrutura de páginas independentes. Registro único no banco (1 body por studyInstanceUid).
   // PÁGINA ÚNICA: retorna HTML puro (compatibilidade com laudos existentes).
   const collectBody = useCallback(() => {
+    if (existingReport?.body && (isSigned && !isRevising)) {
+      return existingReport.body;
+    }
     if (isMultiSection && sectionRefs.current.length > 0) {
       const pages = examNames.map((name, i) => ({
         title: name,
@@ -457,8 +460,8 @@ export default function ReportEditorPage() {
       }));
       return JSON.stringify(pages);
     }
-    return getVisibleDoc()?.innerHTML || "";
-  }, [isMultiSection, examNames, getVisibleDoc]);
+    return getVisibleDoc()?.innerHTML || existingReport?.body || "";
+  }, [isMultiSection, examNames, getVisibleDoc, existingReport, isSigned, isRevising]);
 
   const handleSave = useCallback(async () => {
     const body = collectBody();
@@ -958,7 +961,12 @@ export default function ReportEditorPage() {
 <\/script>
 </body></html>`;
     const win = window.open('', '_blank', 'width=850,height=1100');
-    if (win) { win.document.write(html); win.document.close(); }
+    if (!win) {
+      toast.error('Bloqueador de pop-up impediu a abertura da janela de impressão. Por favor, permita pop-ups para este site.');
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
   }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, sectionRefs, examNames, isMultiSection]);
 
   // FIX BUG-2: inserir imagem inline no contentEditable
