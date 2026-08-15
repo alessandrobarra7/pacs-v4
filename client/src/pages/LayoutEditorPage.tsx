@@ -779,31 +779,86 @@ export default function LayoutEditorPage() {
                       return (
                         <div
                           key={block}
-                          onMouseDown={(e) => handleMouseDown(e, block)}
+                          onMouseDown={(e) => {
+                            setActiveBlock(block);
+                            handleMouseDown(e, block);
+                          }}
                           style={{
                             position: "absolute",
                             left: `${pos.x}%`, top: `${pos.y}%`,
                             width: `${pos.w}%`, height: `${pos.h}%`,
-                            border: `2px dashed ${info.color}`,
-                            background: isActive ? `${info.color}30` : `${info.color}12`,
+                            border: `2px ${isActive ? 'solid' : 'dashed'} ${info.color}`,
+                            background: isActive ? `${info.color}25` : `${info.color}10`,
                             cursor: "grab",
-                            zIndex: isActive ? 10 : 2,
-                            borderRadius: 3,
+                            zIndex: isActive ? 20 : 2,
+                            borderRadius: 4,
                             display: "flex", alignItems: "center", justifyContent: "center",
                             overflow: "hidden",
-                            transition: "background 0.1s",
+                            boxShadow: isActive ? '0 4px 12px rgba(0,0,0,0.15)' : 'none',
+                            transition: "box-shadow 0.1s, border 0.1s",
                           }}
                         >
-                          <div style={{ position: "absolute", top: 2, left: 4, fontSize: 7, fontWeight: 700, color: info.color, background: "rgba(255,255,255,0.9)", padding: "0 3px", borderRadius: 2, lineHeight: 1.5, pointerEvents: "none" }}>
-                            {info.label}
+                          <div style={{ position: "absolute", top: 2, left: 4, fontSize: 8, fontWeight: 700, color: info.color, background: "rgba(255,255,255,0.95)", padding: "1px 5px", borderRadius: 3, lineHeight: 1.4, zIndex: 5, pointerEvents: "none", boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
+                            {info.label} ({Math.round(pos.w)}% × {Math.round(pos.h)}%)
                           </div>
-                          <div style={{ fontSize: block === "title" ? 8 : 7, width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#555", textAlign: "center", padding: block === "footer" && footerPreview ? "14px 6px 6px" : "14px 6px 4px", whiteSpace: "pre-wrap", lineHeight: 1.4, pointerEvents: "none", maxWidth: "100%", overflow: "hidden" }}>
+
+                          {/* Alças de redimensionamento rápido visíveis quando ativo */}
+                          {isActive && (
+                            <>
+                              <div
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  const startX = e.clientX;
+                                  const startW = pos.w;
+                                  const onMove = (me: MouseEvent) => {
+                                    const dw = ((me.clientX - startX) / 450) * 100;
+                                    setPositions(prev => ({
+                                      ...prev,
+                                      [block]: { ...prev[block], w: Math.max(10, Math.min(100 - prev[block].x, startW + dw)) }
+                                    }));
+                                  };
+                                  const onUp = () => {
+                                    window.removeEventListener('mousemove', onMove);
+                                    window.removeEventListener('mouseup', onUp);
+                                  };
+                                  window.addEventListener('mousemove', onMove);
+                                  window.addEventListener('mouseup', onUp);
+                                }}
+                                style={{ position: 'absolute', right: 0, top: '25%', bottom: '25%', width: 8, background: info.color, cursor: 'ew-resize', zIndex: 30, borderRadius: '4px 0 0 4px' }}
+                                title="Arraste para redimensionar largura"
+                              />
+                              <div
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  const startY = e.clientY;
+                                  const startH = pos.h;
+                                  const onMove = (me: MouseEvent) => {
+                                    const dh = ((me.clientY - startY) / 600) * 100;
+                                    setPositions(prev => ({
+                                      ...prev,
+                                      [block]: { ...prev[block], h: Math.max(5, Math.min(100 - prev[block].y, startH + dh)) }
+                                    }));
+                                  };
+                                  const onUp = () => {
+                                    window.removeEventListener('mousemove', onMove);
+                                    window.removeEventListener('mouseup', onUp);
+                                  };
+                                  window.addEventListener('mousemove', onMove);
+                                  window.addEventListener('mouseup', onUp);
+                                }}
+                                style={{ position: 'absolute', bottom: 0, left: '25%', right: '25%', height: 8, background: info.color, cursor: 'ns-resize', zIndex: 30, borderRadius: '0 0 4px 4px' }}
+                                title="Arraste para redimensionar altura"
+                              />
+                            </>
+                          )}
+
+                          <div style={{ fontSize: block === "title" ? 8 : 7, width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#555", textAlign: "center", padding: block === "footer" && footerPreview ? "16px 6px 6px" : "18px 6px 4px", whiteSpace: "pre-wrap", lineHeight: 1.4, pointerEvents: "none", maxWidth: "100%", overflow: "hidden" }}>
                             {logoIndex >= 0 ? (
                               logoSlot?.preview ? (
                                 <img
                                   src={logoSlot.preview}
                                   alt={logoSlot.label || `Logo ${logoIndex + 1}`}
-                                  style={{ width: logoSlot.width, height: logoSlot.height, maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }}
+                                  style={{ width: '100%', height: '100%', maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }}
                                 />
                               ) : (
                                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
