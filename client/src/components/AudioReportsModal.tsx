@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Mic, Square, Play, Trash2, X, Loader2, Volume2, Radio } from "lucide-react";
+import { Mic, Square, Trash2, X, Loader2, Volume2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -73,7 +73,7 @@ export function AudioReportsModal({
       toast.info("Gravando áudio...");
     } catch (err) {
       console.error(err);
-      toast.error("Não foi possível acessar o microfone. Verifique as permissões do navegador.");
+      toast.error("Não foi possível acessar o microfone. Verifique as permissões.");
     }
   };
 
@@ -104,7 +104,7 @@ export function AudioReportsModal({
         duration_seconds: duration,
       });
 
-      toast.success("Áudio gravado e vinculado com sucesso!");
+      toast.success("Áudio gravado e vinculado");
       await refetch();
       onUploadSuccess?.();
     } catch (error) {
@@ -115,7 +115,7 @@ export function AudioReportsModal({
   };
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm("Deseja realmente excluir este áudio?")) return;
+    if (!window.confirm("Remover este áudio?")) return;
     try {
       await deleteMutation.mutateAsync({ id });
       await refetch();
@@ -134,107 +134,112 @@ export function AudioReportsModal({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-md rounded-2xl p-5 sm:p-6 bg-slate-900 text-white border-slate-800">
-        <DialogHeader className="flex flex-row items-center justify-between border-b border-slate-800 pb-3">
-          <DialogTitle className="text-base font-semibold text-slate-100 flex items-center gap-2">
-            <Radio className="h-4 w-4 text-purple-400" />
-            Laudo Falado (Áudio Vinculado)
+      <DialogContent className="w-[calc(100%-2rem)] max-w-sm rounded-2xl p-5 bg-white text-gray-900 border border-gray-200 shadow-xl">
+        <DialogHeader className="flex flex-row items-center justify-between border-b border-gray-100 pb-3">
+          <DialogTitle className="text-sm font-semibold text-gray-800">
+            {patientName ? patientName.replace(/\^/g, " ").trim() : "Paciente"}
           </DialogTitle>
           <Button
             variant="ghost"
             size="icon"
             onClick={onClose}
-            className="h-8 w-8 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full"
+            className="h-7 w-7 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full"
           >
             <X className="h-4 w-4" />
           </Button>
         </DialogHeader>
 
-        <div className="space-y-5 pt-3">
-          {patientName && (
-            <div className="text-xs text-slate-400 bg-slate-800/60 p-2.5 rounded-lg border border-slate-700/50">
-              <span className="font-medium text-slate-300">Paciente:</span> {patientName.replace(/\^/g, " ").trim()}
-            </div>
-          )}
-
-          {/* Seção de Gravação */}
-          <div className="flex flex-col items-center justify-center p-6 bg-slate-800/40 rounded-xl border border-slate-800 gap-4">
+        <div className="space-y-4 pt-3">
+          {/* Ação de Gravação Central */}
+          <div className="flex flex-col items-center justify-center p-5 bg-gray-50 rounded-xl border border-gray-100 gap-3">
             {recording ? (
-              <div className="flex flex-col items-center gap-3">
-                <div className="flex items-center gap-2 text-red-400 animate-pulse font-semibold">
-                  <span className="w-3 h-3 rounded-full bg-red-500 animate-ping" />
+              <div className="flex flex-col items-center gap-2">
+                <div className="flex items-center gap-2 text-red-600 font-semibold text-xs animate-pulse">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
                   Gravando... {formatTime(recordingTime)}
                 </div>
                 <Button
                   onClick={stopRecording}
                   variant="destructive"
-                  className="rounded-full px-6 gap-2 bg-red-600 hover:bg-red-700"
+                  className="rounded-full px-5 h-9 text-xs gap-1.5 bg-red-600 hover:bg-red-700 text-white"
                 >
-                  <Square className="h-4 w-4 fill-white" />
-                  Parar e Salvar Áudio
+                  <Square className="h-3.5 w-3.5 fill-white" />
+                  Parar e Salvar
                 </Button>
               </div>
             ) : (
-              <div className="flex flex-col items-center gap-3 w-full">
+              <div className="flex flex-col items-center gap-2.5 w-full">
                 <Button
                   onClick={startRecording}
                   disabled={uploading}
-                  className="rounded-full w-16 h-16 bg-purple-600 hover:bg-purple-700 text-white shadow-lg shadow-purple-900/30 flex items-center justify-center p-0"
+                  className="rounded-full w-14 h-14 bg-purple-600 hover:bg-purple-700 text-white shadow-md flex items-center justify-center p-0"
                 >
-                  {uploading ? <Loader2 className="h-6 w-6 animate-spin" /> : <Mic className="h-7 w-7" />}
+                  {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mic className="h-6 w-6" />}
                 </Button>
-                <span className="text-xs text-slate-400 text-center">
-                  {uploading ? "Salvando áudio..." : "Toque no microfone para gravar o laudo falado"}
+                <span className="text-[11px] text-gray-500 text-center">
+                  {uploading ? "Salvando áudio..." : "Toque no microfone para gravar"}
                 </span>
               </div>
             )}
           </div>
 
-          {/* Lista de áudios */}
+          {/* Lista Compacta de Áudios */}
           <div className="space-y-2">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-              Áudios Vinculados ({audios.length})
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">
+                Áudios ({audios.length})
+              </span>
+            </div>
             {audios.length === 0 ? (
-              <div className="text-center py-6 text-xs text-slate-500 bg-slate-800/20 rounded-xl border border-dashed border-slate-800">
-                Nenhum áudio gravado para este estudo.
+              <div className="text-center py-4 text-xs text-gray-400 bg-gray-50/60 rounded-xl border border-dashed border-gray-200">
+                Nenhum áudio gravado.
               </div>
             ) : (
-              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                 {audios.map((audio: any) => (
                   <div
                     key={audio.id}
-                    className="flex items-center justify-between p-3 bg-slate-800/60 rounded-xl border border-slate-700/50 hover:border-purple-500/50 transition-colors"
+                    className="flex items-center justify-between p-2.5 bg-gray-50 rounded-xl border border-gray-200/80 gap-2"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center shrink-0">
-                        <Volume2 className="h-4 w-4" />
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
+                        <Volume2 className="h-3.5 w-3.5" />
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-200 truncate">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-medium text-gray-800 truncate">
                           {audio.file_name}
                         </p>
-                        <p className="text-[10px] text-slate-400">
-                          {new Date(audio.createdAt).toLocaleString("pt-BR")} • {audio.duration_seconds || 0}s
+                        <p className="text-[9px] text-gray-400">
+                          {audio.duration_seconds || 0}s
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <audio controls src={audio.file_url} className="h-8 w-32 sm:w-40" />
+                    <div className="flex items-center gap-1 shrink-0">
+                      <audio controls src={audio.file_url} className="h-7 w-28" />
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => handleDelete(audio.id)}
-                        className="h-8 w-8 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg"
-                        title="Excluir áudio"
+                        className="h-7 w-7 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                        title="Excluir"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="pt-2">
+            <Button
+              onClick={onClose}
+              variant="outline"
+              className="w-full h-9 rounded-xl text-xs font-semibold border-gray-300 text-gray-700 hover:bg-gray-100"
+            >
+              Fechar
+            </Button>
           </div>
         </div>
       </DialogContent>
