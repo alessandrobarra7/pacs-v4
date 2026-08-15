@@ -1761,3 +1761,4 @@
 - [x] Remover a duplicidade dos ícones de edição no card mobile e manter uma única ação discreta para corrigir o nome do paciente
 - [x] Confirmar publicação do controle único de edição no GitHub e deixar a branch pronta para a próxima alteração funcional
 - [x] Corrigir rota do clipe (Paperclip) para abrir anexos e fotos do paciente (câmera, múltiplos arquivos) em vez da anamnese, com visualização no DICOM viewer
+- [x] Simplificar o modal de anexos: nome do paciente, Fotografar, Anexar arquivo, miniaturas/quantidade e Fechar

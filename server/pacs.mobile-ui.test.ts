@@ -10,6 +10,10 @@ const headerSource = readFileSync(
   resolve(process.cwd(), "client/src/components/AppHeader.tsx"),
   "utf8",
 );
+const attachmentsModalSource = readFileSync(
+  resolve(process.cwd(), "client/src/components/PatientAttachmentsModal.tsx"),
+  "utf8",
+);
 
 describe("PacsQueryPage mobile study list contract", () => {
   it("keeps the desktop table and renders a separate mobile card list", () => {
@@ -71,5 +75,17 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(pageSource).toContain('<Pencil className="h-3.5 w-3.5" aria-hidden="true" />');
     expect(pageSource).not.toContain('>✏️</button>');
     expect(pageSource).not.toContain('patientNameEdited && <Pencil className="ml-1 inline h-3 w-3');
+  });
+
+  it("mantém o modal de anexos enxuto e com upload preservado", () => {
+    expect(attachmentsModalSource).toContain("Anexos e Fotos do Paciente");
+    expect(attachmentsModalSource).toContain("Fotografar");
+    expect(attachmentsModalSource).toContain("Anexar arquivo");
+    expect(attachmentsModalSource).toContain("Nenhum anexo · 0 arquivos");
+    expect(attachmentsModalSource).toContain("{attachments.length} {attachments.length === 1 ? \"arquivo\" : \"arquivos\"}");
+    expect(attachmentsModalSource).toContain('capture="environment"');
+    expect(attachmentsModalSource).toContain("multiple");
+    expect(attachmentsModalSource).toContain("Fechar");
+    expect(attachmentsModalSource).not.toContain("Fotografe com a câmera do dispositivo ou envie múltiplos arquivos");
   });
 });

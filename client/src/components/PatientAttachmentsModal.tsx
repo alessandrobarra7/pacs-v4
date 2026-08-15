@@ -1,9 +1,22 @@
-import React, { useState, useRef } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import React, { useRef, useState } from "react";
+import {
+  Camera,
+  FileText,
+  Paperclip,
+  Trash2,
+  Upload,
+  X,
+  Loader2,
+} from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Camera, Upload, Trash2, Eye, FileText, Loader2 } from "lucide-react";
-import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 interface PatientAttachmentsModalProps {
   open: boolean;
@@ -21,176 +34,166 @@ export function PatientAttachmentsModal({
   patientName,
 }: PatientAttachmentsModalProps) {
   const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: attachments = [], refetch } = trpc.annotations.list.useQuery(
     { study_instance_uid: studyInstanceUid },
-    { enabled: !!studyInstanceUid && open }
+    { enabled: open && !!studyInstanceUid }
   );
-
   const uploadMutation = trpc.annotations.upload.useMutation();
   const deleteMutation = trpc.annotations.deleteAttachment.useMutation();
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files?.length) return;
 
     setUploading(true);
     try {
       for (const file of Array.from(files)) {
-        const reader = new FileReader();
-        const base64Promise = new Promise<string>((resolve, reject) => {
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error("Não foi possível ler o arquivo"));
           reader.readAsDataURL(file);
         });
-        const dataUrl = await base64Promise;
 
         await uploadMutation.mutateAsync({
           study_instance_uid: studyInstanceUid,
           unit_id: unitId || 1,
           file_data: dataUrl,
           file_name: file.name,
-          file_type: file.type || "image/jpeg",
+          file_type: file.type || "application/octet-stream",
         });
       }
 
-      toast.success("Anexo(s) enviado(s) com sucesso!");
-      refetch();
-    } catch (err: any) {
-      toast.error(err.message || "Erro ao enviar anexos");
+      toast.success(files.length === 1 ? "Anexo adicionado" : `${files.length} anexos adicionados`);
+      await refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao adicionar anexo");
     } finally {
       setUploading(false);
-      if (e.target) e.target.value = "";
+      event.target.value = "";
     }
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Deseja realmente remover este anexo?")) return;
+    if (!window.confirm("Remover este anexo?")) return;
     try {
       await deleteMutation.mutateAsync({ id });
-      toast.success("Anexo removido com sucesso");
-      refetch();
+      await refetch();
+      toast.success("Anexo removido");
     } catch {
-      toast.error("Erro ao remover anexo");
+      toast.error("Não foi possível remover o anexo");
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
-      <DialogContent className="sm:max-w-xl max-h-[90vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <span>📎 Anexos e Fotos do Paciente</span>
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <DialogContent className="w-[calc(100%-2rem)] max-w-md rounded-2xl p-5 sm:p-6">
+        <DialogHeader className="space-y-1 text-left">
+          <DialogTitle className="flex items-center gap-2 text-xl font-bold text-gray-900">
+            <Paperclip className="h-5 w-5 text-gray-700" aria-hidden="true" />
+            Anexos e Fotos do Paciente
           </DialogTitle>
-          <DialogDescription>
-            Paciente: <span className="font-semibold text-gray-800 uppercase">{patientName || "Estudo DICOM"}</span>
-            <br />
-            Fotografe com a câmera do dispositivo ou envie múltiplos arquivos. Os anexos ficam vinculados ao estudo.
-          </DialogDescription>
+          <p className="truncate text-base font-semibold uppercase text-gray-800" title={patientName || "Paciente"}>
+            {patientName || "Paciente não identificado"}
+          </p>
         </DialogHeader>
 
-        <div className="flex gap-3 my-3">
+        <div className="grid grid-cols-2 gap-3 pt-3">
           <Button
             type="button"
-            onClick={() => cameraInputRef.current?.click()}
             disabled={uploading}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2"
+            onClick={() => cameraInputRef.current?.click()}
+            className="h-12 gap-2 rounded-xl bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700"
           >
-            <Camera className="h-4 w-4" />
-            <span>Tirar Foto (Câmera)</span>
+            {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
+            Fotografar
           </Button>
-
           <Button
             type="button"
             variant="outline"
-            onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="flex-1 flex items-center justify-center gap-2"
+            onClick={() => fileInputRef.current?.click()}
+            className="h-12 gap-2 rounded-xl border-gray-300 text-sm font-semibold text-gray-900"
           >
-            <Upload className="h-4 w-4" />
-            <span>Enviar Arquivos</span>
+            <Upload className="h-5 w-5" />
+            Anexar arquivo
           </Button>
-
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleFileUpload}
-          />
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,application/pdf"
-            multiple
-            className="hidden"
-            onChange={handleFileUpload}
-          />
         </div>
 
-        {uploading && (
-          <div className="flex items-center justify-center py-4 gap-2 text-blue-600">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <span className="text-sm font-medium">Enviando arquivos...</span>
-          </div>
-        )}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={handleFileUpload}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,application/pdf"
+          multiple
+          className="hidden"
+          onChange={handleFileUpload}
+        />
 
-        <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg p-3 bg-gray-50/50 min-h-[200px] max-h-[350px]">
+        <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
           {attachments.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400 py-10">
-              <FileText className="h-10 w-10 mb-2 opacity-30" />
-              <p className="text-sm">Nenhum anexo vinculado a este paciente/estudo</p>
+            <div className="flex h-20 items-center justify-center gap-2 text-sm text-gray-500">
+              <FileText className="h-5 w-5 text-gray-300" aria-hidden="true" />
+              Nenhum anexo · 0 arquivos
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {attachments.map((att: any) => {
-                const isImg = att.file_type?.startsWith("image/") || /\.(jpg|jpeg|png|webp|gif)$/i.test(att.file_url || "");
+            <div className="flex items-center gap-2">
+              {attachments.slice(0, 4).map((attachment: any) => {
+                const isImage = attachment.file_type?.startsWith("image/");
                 return (
-                  <div key={att.id} className="relative group bg-white border border-gray-200 rounded-lg p-2 flex flex-col gap-2 shadow-xs">
-                    <div className="aspect-square bg-gray-100 rounded overflow-hidden flex items-center justify-center relative">
-                      {isImg ? (
-                        <img src={att.file_url} alt={att.file_name} className="w-full h-full object-cover" />
-                      ) : (
-                        <FileText className="h-10 w-10 text-gray-400" />
-                      )}
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <a
-                          href={att.file_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="p-1.5 bg-white rounded-full text-gray-700 hover:text-blue-600"
-                          title="Visualizar"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(att.id)}
-                          className="p-1.5 bg-white rounded-full text-red-600 hover:bg-red-50"
-                          title="Remover"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                  <div key={attachment.id} className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                    {isImage ? (
+                      <img
+                        src={attachment.file_url}
+                        alt={attachment.file_name}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-gray-400">
+                        <FileText className="h-7 w-7" aria-hidden="true" />
                       </div>
-                    </div>
-                    <span className="text-xs text-gray-700 truncate text-center" title={att.file_name}>
-                      {att.file_name || "Anexo"}
-                    </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(attachment.id)}
+                      aria-label={`Remover ${attachment.file_name}`}
+                      className="absolute right-1 top-1 hidden rounded-full bg-white/95 p-1 text-red-600 shadow group-hover:block"
+                    >
+                      <X className="h-3 w-3" aria-hidden="true" />
+                    </button>
                   </div>
                 );
               })}
+              {attachments.length > 4 && (
+                <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-gray-200 text-sm font-bold text-gray-700">
+                  +{attachments.length - 4}
+                </span>
+              )}
+              <span className="ml-auto text-right text-xs font-medium text-gray-600">
+                {attachments.length} {attachments.length === 1 ? "arquivo" : "arquivos"}
+              </span>
             </div>
           )}
         </div>
 
-        <DialogFooter className="mt-4">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Fechar
-          </Button>
-        </DialogFooter>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={onClose}
+          className="h-11 w-full rounded-xl text-base font-semibold"
+        >
+          Fechar
+        </Button>
       </DialogContent>
     </Dialog>
   );
