@@ -90,4 +90,11 @@ describe("Administração — experiência mobile", () => {
     expect(layoutEditorSource).toContain("onPointerMove={handleMouseMove}");
     expect(layoutEditorSource).toContain("touchAction: \"none\"");
   });
+
+  it("captura o estado do arraste antes do callback de atualização", () => {
+    expect(layoutEditorSource).toContain("const drag = dragging.current;");
+    expect(layoutEditorSource).toContain("const { block, origX, origY } = drag;");
+    expect(layoutEditorSource).not.toContain("dragging.current!.origX");
+    expect(layoutEditorSource).not.toContain("dragging.current!.origY");
+  });
 });

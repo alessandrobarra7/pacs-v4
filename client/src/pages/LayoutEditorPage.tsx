@@ -291,20 +291,28 @@ export default function LayoutEditorPage() {
   }, [positions]);
 
   const handleMouseMove = useCallback((e: React.PointerEvent) => {
-    if (!dragging.current || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const dx = ((e.clientX - dragging.current.startX) / rect.width) * 100;
-    const dy = ((e.clientY - dragging.current.startY) / rect.height) * 100;
-    const block = dragging.current.block;
+    const drag = dragging.current;
+    const canvas = canvasRef.current;
+    if (!drag || !canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const dx = ((e.clientX - drag.startX) / rect.width) * 100;
+    const dy = ((e.clientY - drag.startY) / rect.height) * 100;
+    const { block, origX, origY } = drag;
     setPositions(prev => {
-      const newX = Math.max(0, Math.min(100 - prev[block].w, dragging.current!.origX + dx));
-      const newY = Math.max(0, Math.min(100 - prev[block].h, dragging.current!.origY + dy));
+      const newX = Math.max(0, Math.min(100 - prev[block].w, origX + dx));
+      const newY = Math.max(0, Math.min(100 - prev[block].h, origY + dy));
       return { ...prev, [block]: { ...prev[block], x: newX, y: newY } };
     });
     markLayoutChange();
-  }, []);
+  }, [markLayoutChange]);
 
-  const handleMouseUp = useCallback(() => { dragging.current = null; }, []);
+  const handleMouseUp = useCallback((e?: React.PointerEvent) => {
+    if (e && canvasRef.current?.hasPointerCapture(e.pointerId)) {
+      canvasRef.current.releasePointerCapture(e.pointerId);
+    }
+    dragging.current = null;
+  }, []);
 
   const toggleVisible = useCallback((block: BlockId) => {
     setPositions(prev => ({ ...prev, [block]: { ...prev[block], visible: !prev[block].visible } }));
