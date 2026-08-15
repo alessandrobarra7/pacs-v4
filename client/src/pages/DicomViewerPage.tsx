@@ -33,6 +33,8 @@ import {
   SkipBack,
   SkipForward,
   ClipboardList,
+  FileText,
+  Mic,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -78,6 +80,15 @@ export function DicomViewerPage() {
     const uid = params.get("unitId") || params.get("unit_id");
     return uid ? parseInt(uid, 10) : undefined;
   }, [location]);
+
+  // Permissões granulares também são aplicadas aos atalhos do viewer mobile.
+  const { data: currentUser } = trpc.auth.me.useQuery();
+  const viewerUnitId = urlUnitId ?? currentUser?.unit_id ?? undefined;
+  const { data: viewerPermissions } = trpc.units.myPermissions.useQuery(
+    { unitId: viewerUnitId ?? 0 },
+    { enabled: !!viewerUnitId && !!currentUser }
+  );
+  const canOpenReport = currentUser?.role === "admin_master" || viewerPermissions?.edit_reports === true;
 
   // ─── Estado de fase ───────────────────────────────────────────────────────
   const [phase, setPhase] = useState<"idle" | "connecting" | "streaming" | "rendering" | "ready" | "error">("idle");
@@ -988,6 +999,42 @@ export function DicomViewerPage() {
   const showViewer = phase === "ready";
   const isBackgroundDownloading = showViewer && totalCount > 0 && imageCount < totalCount;
 
+  const handleOpenReportFromMobile = () => {
+    if (!studyUid || !studyInfo) return;
+    if (!canOpenReport) {
+      toast.error("Seu perfil não possui permissão para editar laudos nesta unidade.");
+      return;
+    }
+
+    const storedRaw = sessionStorage.getItem(`study_${studyUid}`);
+    const storedStudy = storedRaw ? JSON.parse(storedRaw) : {};
+    const examLabel = studyMeta?.description_override || studyInfo.studyDescription || "Sem descrição";
+    const examNames = examLabel.split(" + ").map((item: string) => item.trim()).filter(Boolean);
+
+    sessionStorage.setItem(`study_${studyUid}`, JSON.stringify({
+      ...storedStudy,
+      patientName: studyInfo.patientName || "",
+      studyDate: studyInfo.studyDate || "",
+      modality: studyInfo.modality || "",
+      studyDescription: examLabel,
+      studyInstanceUid: studyUid,
+      unitId: viewerUnitId ?? storedStudy.unitId ?? null,
+      examCount: storedStudy.examCount ?? (examNames.length || 1),
+      examNames,
+    }));
+    navigate(`/reports/create/${studyUid}`);
+  };
+
+  const handleMobileVoiceReport = () => {
+    toast.info("Laudo falado", {
+      description: "A captura e a transcrição de áudio serão integradas nesta etapa do projeto.",
+    });
+  };
+
+  const mobileViewerError = error?.includes("spawn") || error?.includes("ENOENT")
+    ? "PACS não configurado ou indisponível para esta unidade"
+    : (error || "PACS não configurado para esta unidade");
+
   const toolCursor: Record<ActiveTool, string> = {
     WindowLevel: "crosshair",
     Zoom: "zoom-in",
@@ -1005,9 +1052,9 @@ export function DicomViewerPage() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950 text-white select-none">
+    <div className="flex flex-col h-[100dvh] bg-gray-950 text-white select-none">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900 border-b border-gray-800 flex-shrink-0">
+      <div className="hidden md:flex items-center justify-between px-3 py-1.5 bg-gray-900 border-b border-gray-800 flex-shrink-0">
         <div className="flex items-center gap-2">
           <button
             onClick={() => navigate("/pacs-query")}
@@ -1160,9 +1207,62 @@ export function DicomViewerPage() {
           <PatientViewerAttachmentsButton studyInstanceUid={studyUid ?? ""} />
         </div>
       </div>
+
+      {/* ── Cabeçalho mobile: paciente/exame + ações principais ──────────────── */}
+      <div className="flex md:hidden flex-col bg-slate-900 border-b border-slate-700 flex-shrink-0">
+        <div className="flex items-center gap-2 px-3 py-3 min-h-[58px]">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate("/pacs-query")}
+            className="h-9 shrink-0 gap-1 px-2 text-gray-200 hover:bg-slate-800 hover:text-white"
+            aria-label="Voltar para a listagem de exames"
+          >
+            <ArrowLeft className="h-5 w-5" />
+            <span>Voltar</span>
+          </Button>
+          <div className="min-w-0 flex-1 text-center leading-tight">
+            <p className="truncate text-[14px] font-semibold uppercase text-white">
+              {studyInfo ? cleanPatientName(studyInfo.patientName) : "Paciente"}
+            </p>
+            <p className="truncate text-[12px] font-semibold uppercase text-blue-300">
+              {studyInfo?.studyDescription || "Estudo DICOM"}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 border-t border-slate-700/80 px-3 py-3">
+          <Button
+            onClick={handleOpenReportFromMobile}
+            disabled={!studyInfo || !canOpenReport}
+            className="h-12 min-w-0 gap-1.5 rounded-xl bg-blue-600 px-2 text-[12px] font-semibold text-white hover:bg-blue-500 disabled:opacity-40"
+            title={canOpenReport ? "Abrir editor de laudo" : "Sem permissão para editar laudos"}
+          >
+            <FileText className="h-5 w-5 shrink-0" />
+            <span className="truncate">Laudar</span>
+          </Button>
+          <Button
+            onClick={handleMobileVoiceReport}
+            className="h-12 min-w-0 gap-1.5 rounded-xl bg-emerald-600 px-2 text-[12px] font-semibold text-white hover:bg-emerald-500"
+            title="Laudo falado"
+          >
+            <Mic className="h-5 w-5 shrink-0" />
+            <span className="truncate">Laudo falado</span>
+          </Button>
+          <Button
+            onClick={() => setShowAttachmentsModal(true)}
+            className="h-12 min-w-0 gap-1.5 rounded-xl border border-slate-600 bg-slate-800 px-2 text-[12px] font-semibold text-slate-100 hover:bg-slate-700"
+            title="Abrir requisição e anexos do paciente"
+          >
+            <Paperclip className="h-5 w-5 shrink-0" />
+            <span className="truncate">Requisição</span>
+          </Button>
+        </div>
+      </div>
+
       {/* ── Painel de Anamnese (colapsável abaixo do header) ──────────────────── */}
       {showAnamnesisPanel && (
-        <div className="flex-shrink-0 bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-start gap-4">
+        <div className="hidden md:flex flex-shrink-0 bg-gray-900 border-b border-gray-700 px-4 py-3 items-start gap-4">
           <ClipboardList className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
           <div className="flex-1 min-w-0 space-y-3">
             {/* Metadados editados pelo técnico */}
@@ -1222,9 +1322,9 @@ export function DicomViewerPage() {
         </div>
       )}
       {/* ── Corpo principal ───────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* ── Toolbar lateral esquerda ──────────────────────────────────── */}
-        <div className="flex flex-col gap-0.5 p-1.5 bg-gray-900 border-r border-gray-800 w-10 flex-shrink-0">
+        <div className="hidden md:flex flex-col gap-0.5 p-1.5 bg-gray-900 border-r border-gray-800 w-10 flex-shrink-0">
 
           {/* Ferramentas de interação */}
           <div className="text-[9px] text-gray-600 text-center mb-0.5 uppercase tracking-wide">Ferr.</div>
@@ -1358,23 +1458,24 @@ export function DicomViewerPage() {
 
           {/* Error overlay */}
           {phase === "error" && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-950 z-20 p-6">
-              <AlertCircle className="h-10 w-10 text-red-400 mb-3" />
-              <p className="text-red-300 text-sm font-semibold mb-1">Erro ao carregar imagens DICOM</p>
-              <p className="text-gray-500 text-xs text-center max-w-md mb-4">{error}</p>
-              <div className="flex gap-2 mb-4 flex-wrap justify-center">
-                <Button variant="outline" size="sm" onClick={() => navigate("/pacs-query")} className="border-gray-600 text-gray-300 hover:bg-gray-800">
-                  <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center overflow-y-auto bg-gray-950 px-4 py-6 md:p-6">
+              <AlertCircle className="mb-4 h-12 w-12 text-red-400 md:h-10 md:w-10" />
+              <p className="mb-2 text-center text-base font-semibold text-red-300 md:text-sm">Erro ao carregar imagens DICOM</p>
+              <p className="mb-5 max-w-md text-center text-sm text-gray-500 md:hidden">{mobileViewerError}</p>
+              <p className="mb-4 hidden max-w-md text-center text-xs text-gray-500 md:block">{error}</p>
+              <div className="mb-4 flex w-full max-w-[420px] flex-col justify-center gap-3 md:w-auto md:flex-row md:flex-wrap">
+                <Button variant="outline" size="sm" onClick={() => navigate("/pacs-query")} className="h-12 w-full border-gray-600 text-base text-gray-300 hover:bg-gray-800 md:h-9 md:w-auto md:text-sm">
+                  <ArrowLeft className="mr-2 h-5 w-5 md:mr-1 md:h-4 md:w-4" />Voltar
                 </Button>
-                <Button variant="outline" size="sm" onClick={startStreamingViewer} className="border-blue-600 text-blue-400 hover:bg-blue-900/40">
-                  <RefreshCw className="h-4 w-4 mr-1" />Tentar Novamente
+                <Button variant="outline" size="sm" onClick={startStreamingViewer} className="h-12 w-full border-blue-600 text-base text-blue-400 hover:bg-blue-900/40 md:h-9 md:w-auto md:text-sm">
+                  <RefreshCw className="mr-2 h-5 w-5 md:mr-1 md:h-4 md:w-4" />Tentar Novamente
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleOpenRadiant} className="border-green-700 text-green-400 hover:bg-green-900/40">
-                  <ExternalLink className="h-4 w-4 mr-1" />Abrir no RadiAnt
+                <Button variant="outline" size="sm" onClick={handleOpenRadiant} className="hidden border-green-700 text-green-400 hover:bg-green-900/40 md:inline-flex">
+                  <ExternalLink className="mr-1 h-4 w-4" />Abrir no RadiAnt
                 </Button>
               </div>
-              <div className="p-3 bg-gray-900 rounded-lg text-xs text-gray-400 max-w-md">
-                <p className="font-medium text-gray-300 mb-1">Dicas:</p>
+              <div className="hidden max-w-md rounded-lg bg-gray-900 p-3 text-xs text-gray-400 md:block">
+                <p className="mb-1 font-medium text-gray-300">Dicas:</p>
                 <p>• Verifique se o PACS está acessível (IP + Porta + AE Title)</p>
                 <p>• O PACS deve suportar C-GET (protocolo pull-based)</p>
                 <p>• Use "Abrir no RadiAnt" como alternativa</p>
@@ -1451,7 +1552,7 @@ export function DicomViewerPage() {
 
         {/* ── Slider vertical de slices (lateral direita) ──────────────────── */}
         {cornerstoneReady && imageCount > 1 && (
-          <div className="flex flex-col items-center justify-between py-2 px-1 bg-gray-900 border-l border-gray-800 w-10 flex-shrink-0 gap-1">
+          <div className="hidden md:flex flex-col items-center justify-between py-2 px-1 bg-gray-900 border-l border-gray-800 w-10 flex-shrink-0 gap-1">
             {/* Botão topo */}
             <button
               onClick={handleFirstImage}
@@ -1517,9 +1618,64 @@ export function DicomViewerPage() {
         )}
       </div>
 
+      {/* ── Anamnese compacta no rodapé mobile ───────────────────────────────── */}
+      <div className="flex md:hidden flex-shrink-0 flex-col gap-1 border-t border-slate-700 bg-slate-900 px-3 py-2">
+        <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-emerald-400">
+          <ClipboardList className="h-4 w-4" />
+          <span>Anamnese</span>
+          {hasAnamnesis && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+        </div>
+        <p className="line-clamp-2 text-[12px] leading-snug text-slate-200">
+          {anamnesisQuery.isLoading
+            ? "Carregando anamnese..."
+            : anamnesisQuery.data?.manual_text || "Nenhuma anamnese registrada para este estudo."}
+        </p>
+      </div>
+
+      {/* ── Navegação mobile entre imagens ───────────────────────────────────── */}
+      <div className="flex md:hidden items-center gap-2 bg-slate-900 px-3 py-2 border-t border-slate-800 flex-shrink-0">
+        <button
+          onClick={handleFirstImage}
+          disabled={!cornerstoneReady || imageCount <= 1}
+          className="p-1 text-slate-500 disabled:opacity-30"
+          aria-label="Primeira imagem"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={Math.max(imageCount - 1, 0)}
+          value={imageCount > 0 ? currentIndex : 0}
+          onChange={(event) => goToSlice(parseInt(event.target.value, 10))}
+          disabled={!cornerstoneReady || imageCount <= 1}
+          className="h-1.5 flex-1 accent-blue-500 disabled:opacity-30"
+          aria-label="Navegar entre imagens"
+        />
+        <span className="min-w-[48px] rounded-md bg-slate-800 px-2 py-1 text-center text-[12px] tabular-nums text-slate-200">
+          {imageCount > 0 ? `${currentIndex + 1}/${imageCount}` : "0/0"}
+        </span>
+        <button
+          onClick={handleLastImage}
+          disabled={!cornerstoneReady || imageCount <= 1}
+          className="p-1 text-slate-500 disabled:opacity-30"
+          aria-label="Última imagem"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
+        <button
+          onClick={toggleCine}
+          disabled={!cornerstoneReady || imageCount <= 1}
+          className={`p-1 ${isCinePlaying ? "text-yellow-400" : "text-emerald-400"} disabled:opacity-30`}
+          aria-label={isCinePlaying ? "Pausar cine" : "Iniciar cine"}
+        >
+          {isCinePlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+        </button>
+      </div>
+
       {/* ── Faixa de miniaturas de séries ──────────────────────────────────────────────────────── */}
       {series.length > 1 && (
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-900 border-t border-gray-800 overflow-x-auto flex-shrink-0" style={{ minHeight: 72 }}>
+        <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-gray-900 border-t border-gray-800 overflow-x-auto flex-shrink-0" style={{ minHeight: 72 }}>
           <span className="text-[10px] text-gray-500 uppercase tracking-wide shrink-0">Séries</span>
           {series.map((s) => (
             <button
@@ -1568,7 +1724,7 @@ export function DicomViewerPage() {
       )}
 
       {/* ── Barra de status inferior ────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-3 py-1 bg-gray-900 border-t border-gray-800 text-xs text-gray-500 flex-shrink-0">
+      <div className="hidden md:flex items-center justify-between px-3 py-1 bg-gray-900 border-t border-gray-800 text-xs text-gray-500 flex-shrink-0">
         <div className="flex items-center gap-3">
           <span>🖱 Esq: {toolLabel[activeTool]}</span>
           <span>🖱 Dir: Zoom</span>

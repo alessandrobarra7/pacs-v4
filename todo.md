@@ -1764,3 +1764,4 @@
 - [x] Simplificar o modal de anexos: nome do paciente, Fotografar, Anexar arquivo, miniaturas/quantidade e Fechar
 - [x] Manter o modal aberto após fotografar, abrir miniaturas em preview ampliado e remover o título textual do cabeçalho do modal
 - [x] Nota arquitetural registrada: futura VM3 (MinIO/S3) para armazenamento isolado de anexos de exames e laudos em PDF, evitando sobrecarga em VM1 e VM2
+- [x] Reorganizar a experiência mobile do visualizador DICOM: cabeçalho paciente/exame, ações Laudar/Laudo falado/Requisição e área de erro/anamnese conforme referência fornecida

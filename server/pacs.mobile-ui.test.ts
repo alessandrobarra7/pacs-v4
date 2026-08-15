@@ -14,6 +14,10 @@ const attachmentsModalSource = readFileSync(
   resolve(process.cwd(), "client/src/components/PatientAttachmentsModal.tsx"),
   "utf8",
 );
+const viewerSource = readFileSync(
+  resolve(process.cwd(), "client/src/pages/DicomViewerPage.tsx"),
+  "utf8",
+);
 
 describe("PacsQueryPage mobile study list contract", () => {
   it("keeps the desktop table and renders a separate mobile card list", () => {
@@ -88,5 +92,19 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(attachmentsModalSource).toContain("multiple");
     expect(attachmentsModalSource).toContain("Fechar");
     expect(attachmentsModalSource).not.toContain("Fotografe com a câmera do dispositivo ou envie múltiplos arquivos");
+  });
+
+  it("organiza o viewer mobile com cabeçalho, ações principais e rodapé de anamnese", () => {
+    expect(viewerSource).toContain("Cabeçalho mobile: paciente/exame + ações principais");
+    expect(viewerSource).toContain("Laudo falado");
+    expect(viewerSource).toContain("Requisição");
+    expect(viewerSource).toContain("handleOpenReportFromMobile");
+    expect(viewerSource).toContain("handleMobileVoiceReport");
+    expect(viewerSource).toContain("Anamnese compacta no rodapé mobile");
+    expect(viewerSource).toContain("Navegação mobile entre imagens");
+    expect(viewerSource).toContain('hidden md:flex items-center justify-between px-3 py-1.5');
+    expect(viewerSource).toContain('hidden md:flex flex-col gap-0.5');
+    expect(viewerSource).toContain("mobileViewerError");
+    expect(viewerSource).toContain("hidden max-w-md rounded-lg bg-gray-900");
   });
 });
