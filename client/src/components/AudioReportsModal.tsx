@@ -40,6 +40,7 @@ export function AudioReportsModal({
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const recordingTimeRef = useRef(0);
 
   const { data: audios = [], refetch } = trpc.audioReports.list.useQuery(
     { study_instance_uid: studyInstanceUid },
@@ -65,15 +66,17 @@ export function AudioReportsModal({
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         stream.getTracks().forEach((track) => track.stop());
-        await handleUploadAudio(audioBlob, recordingTime);
+        await handleUploadAudio(audioBlob, recordingTimeRef.current || 1);
       };
 
       mediaRecorder.start();
       setRecording(true);
       setRecordingTime(0);
+      recordingTimeRef.current = 0;
 
       timerRef.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
+        recordingTimeRef.current += 1;
+        setRecordingTime(recordingTimeRef.current);
       }, 1000);
 
       toast.info("Gravando áudio...");
@@ -274,8 +277,8 @@ export function AudioReportsModal({
                             <p className="text-xs font-medium text-gray-800 truncate">
                               {audio.file_name}
                             </p>
-                            <p className="text-[10px] text-gray-400">
-                              {formatTime(isPlaying ? currentTime : (audio.duration_seconds || 0))} / {formatTime(audio.duration_seconds || 0)}
+                            <p className="text-[10px] text-gray-500 font-medium">
+                              Duração: {audio.duration_seconds ? `${audio.duration_seconds} segundos` : '0 segundos'} ({formatTime(audio.duration_seconds || 0)})
                             </p>
                           </div>
                         </div>
