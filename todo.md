@@ -1754,3 +1754,4 @@
 - [x] Reorganizar card mobile: priorizar legenda do exame na linha principal e exibir nome completo da paciente na faixa inferior
 - [x] Reduzir legenda do exame ao tamanho discreto original e mover status para a faixa do nome no card mobile
 - [x] Enviar o checkpoint da correção do card PACS mobile para o repositório GitHub conectado
+- [x] Validar e ativar o botão "Escolher data" (filtro de data personalizado) na listagem PACS

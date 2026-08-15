@@ -33,6 +33,16 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(headerSource).toContain("md:hidden absolute bottom-6");
   });
 
+  it("keeps the date picker wired to both responsive triggers and the PACS query", () => {
+    expect(pageSource).toContain("const [calendarOpen, setCalendarOpen] = useState(false)");
+    expect(pageSource).toContain("<Popover open={calendarOpen} onOpenChange={setCalendarOpen}>");
+    expect(pageSource).toContain("const handleCalendarSelect = (date: Date | undefined)");
+    expect(pageSource).toContain("onSelect={handleCalendarSelect}");
+    expect(pageSource).toContain("runQuery({ period: 'custom', studyDate });");
+    expect(pageSource).toContain("sessionStorage.setItem(filterSessionKey, JSON.stringify(newFilters))");
+    expect(pageSource).toContain("studyDate = studyDate.replace(/-/g, '')");
+  });
+
   it("uses the existing permission gates and handlers for mobile actions", () => {
     expect(pageSource).toContain("{canViewer && (");
     expect(pageSource).toContain("{canLaudo && (");
