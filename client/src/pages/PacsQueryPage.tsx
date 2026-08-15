@@ -1722,6 +1722,8 @@ export function PacsQueryPage() {
                 <th className="px-4 py-2.5 text-left font-semibold">Paciente</th>
                 <th className="px-4 py-2.5 text-left font-semibold w-16">Idade</th>
                 <th className="px-4 py-2.5 text-left font-semibold">Exame</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-10" title="Visualizar DICOM">Visualizar</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-10" title="Baixar exame">Baixar</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Anexo de imagens">Anexos</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Anamnese">Anam.</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Ouvir áudio vinculado">Áudio</th>
@@ -1806,6 +1808,46 @@ export function PacsQueryPage() {
                           unitId={effectiveUnitId ?? undefined}  // V14-P2 FIX
                         />
                       </div>
+                    </td>
+
+                    {/* Visualizar DICOM (Somente Desktop) */}
+                    <td className="px-4 py-3 text-center">
+                      {canViewer ? (
+                        <button
+                          onClick={() => handleVisualize(study)}
+                          title="Visualizar imagens DICOM"
+                          className="w-8 h-8 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 inline-flex items-center justify-center transition-colors"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+
+                    {/* Baixar exame / cache (Somente Desktop) */}
+                    <td className="px-4 py-3 text-center">
+                      {(() => {
+                        const preState = preDownloadMap[study.studyInstanceUid];
+                        const isCached = preState?.phase === 'done';
+                        const isDownloading = preState?.phase === 'downloading' || preState?.phase === 'connecting';
+                        return (
+                          <button
+                            onClick={() => handlePreDownload(study)}
+                            disabled={isDownloading}
+                            title={isCached ? 'Exame baixado em cache' : isDownloading ? 'Baixando exame...' : 'Baixar exame do PACS'}
+                            className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
+                              isCached
+                                ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                : isDownloading
+                                ? 'border-amber-400 bg-amber-50 text-amber-700 animate-pulse'
+                                : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700'
+                            }`}
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </button>
+                        );
+                      })()}
                     </td>
 
                     {/* Anexo de imagens (Colorido se houver arquivos, transparente/neutro se vazio) */}
