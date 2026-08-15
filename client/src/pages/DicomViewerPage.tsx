@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { PatientAttachmentsModal } from "@/components/PatientAttachmentsModal";
+import { AudioReportsModal } from "@/components/AudioReportsModal";
 import { Paperclip } from "lucide-react";
 import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 
@@ -138,9 +139,14 @@ export function DicomViewerPage() {
     { enabled: !!studyUid }
   );
 
-  // ─── Anexos do Paciente no Viewer ──────────────────────────────────────────
+  // ─── Anexos e Áudios do Paciente no Viewer ─────────────────────────────────
   const [showAttachmentsModal, setShowAttachmentsModal] = useState(false);
+  const [showAudioModal, setShowAudioModal] = useState(false);
   const { data: viewerAttachments = [] } = trpc.annotations.list.useQuery(
+    { study_instance_uid: studyUid ?? "" },
+    { enabled: !!studyUid }
+  );
+  const { data: viewerAudios = [], refetch: refetchViewerAudios } = trpc.audioReports.list.useQuery(
     { study_instance_uid: studyUid ?? "" },
     { enabled: !!studyUid }
   );
@@ -163,12 +169,59 @@ export function DicomViewerPage() {
           Anexos ({viewerAttachments.length})
         </Button>
 
-        {showAttachmentsModal && (
-          <PatientAttachmentsModal
-            open={showAttachmentsModal}
-            onClose={() => setShowAttachmentsModal(false)}
+       {showAttachmentsModal && (
+         <PatientAttachmentsModal
+           open={showAttachmentsModal}
+           onClose={() => setShowAttachmentsModal(false)}
+           studyInstanceUid={studyUid ?? ""}
+           patientName={studyMeta?.patient_name_override || studyMeta?.patient_name || studyInfo?.patientName}
+         />
+       )}
+
+       {showAudioModal && (
+         <AudioReportsModal
+           open={showAudioModal}
+           onClose={() => setShowAudioModal(false)}
+           studyInstanceUid={studyUid ?? ""}
+           unitId={viewerUnitId ?? undefined}
+           patientName={studyMeta?.patient_name_override || studyMeta?.patient_name || studyInfo?.patientName}
+           onUploadSuccess={() => {
+             refetchViewerAudios();
+           }}
+         />
+       )}
+      </>
+    );
+  }
+
+  function PatientViewerAudioButton({ studyInstanceUid }: { studyInstanceUid: string }) {
+    return (
+      <>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowAudioModal(true)}
+          className={`text-xs h-7 px-2 ${
+            viewerAudios.length > 0
+              ? 'border-purple-700 text-purple-400 hover:bg-purple-900/40'
+              : 'border-gray-600 text-gray-400 hover:bg-gray-800'
+          }`}
+          title="Ouvir ou gravar áudios de laudo falado"
+        >
+          <Mic className="h-3 w-3 mr-1" />
+          Áudios ({viewerAudios.length})
+        </Button>
+
+        {showAudioModal && (
+          <AudioReportsModal
+            open={showAudioModal}
+            onClose={() => setShowAudioModal(false)}
             studyInstanceUid={studyInstanceUid}
-            patientName={studyMeta?.patient_name_override || studyMeta?.patient_name}
+            unitId={viewerUnitId ?? undefined}
+            patientName={studyMeta?.patient_name_override || studyMeta?.patient_name || studyInfo?.patientName}
+            onUploadSuccess={() => {
+              refetchViewerAudios();
+            }}
           />
         )}
       </>
@@ -1043,9 +1096,7 @@ export function DicomViewerPage() {
   };
 
   const handleMobileVoiceReport = () => {
-    toast.info("Laudo falado", {
-      description: "A captura e a transcrição de áudio serão integradas nesta etapa do projeto.",
-    });
+    setShowAudioModal(true);
   };
 
   const mobileViewerError = error?.includes("spawn") || error?.includes("ENOENT")
@@ -1222,6 +1273,8 @@ export function DicomViewerPage() {
 
           {/* Botão Anexos do Paciente no Viewer */}
           <PatientViewerAttachmentsButton studyInstanceUid={studyUid ?? ""} />
+          {/* Botão Áudio do Paciente no Viewer */}
+          <PatientViewerAudioButton studyInstanceUid={studyUid ?? ""} />
         </div>
       </div>
 
