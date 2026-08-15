@@ -2149,6 +2149,7 @@ export function PacsQueryPage() {
            studyInstanceUid={selectedStudy.studyInstanceUid}
            unitId={effectiveUnitId ?? undefined}
            patientName={selectedStudy.patientName}
+           allowRecording={false}
            onUploadSuccess={() => {
              refetchAudioStatus();
            }}

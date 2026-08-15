@@ -185,6 +185,7 @@ export function DicomViewerPage() {
            studyInstanceUid={studyUid ?? ""}
            unitId={viewerUnitId ?? undefined}
            patientName={studyMeta?.patient_name_override || studyMeta?.patient_name || studyInfo?.patientName}
+           allowRecording={canOpenReport}
            onUploadSuccess={() => {
              refetchViewerAudios();
            }}
