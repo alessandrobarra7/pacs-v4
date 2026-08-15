@@ -41,7 +41,25 @@ describe("Administração — experiência mobile", () => {
   it("oferece abas e controles organizados para edição de layout no mobile", () => {
     expect(layoutEditorSource).toContain('setMobileTab("preview")');
     expect(layoutEditorSource).toContain('setMobileTab("logos")');
+    expect(layoutEditorSource).toContain('setMobileTab("bg")');
+    expect(layoutEditorSource).toContain('setMobileTab("blocks")');
     expect(layoutEditorSource).toContain("Prévia A4");
     expect(layoutEditorSource).toContain("Logos");
+    expect(layoutEditorSource).toContain("Fundo / Rodapé");
+    expect(layoutEditorSource).toContain("whitespace-nowrap text-center transition-colors");
+  });
+
+  it("separa o cabeçalho mobile e impede overflow do editor e do canvas A4", () => {
+    expect(layoutEditorSource).toContain('className="lg:hidden bg-white border-b border-gray-200 shadow-sm"');
+    expect(layoutEditorSource).toContain('className="flex min-h-0 flex-1 overflow-hidden"');
+    expect(layoutEditorSource).toContain('w-full min-w-0 lg:w-80');
+    expect(layoutEditorSource).toContain("previewScale");
+    expect(layoutEditorSource).toContain("transformOrigin: \"top left\"");
+  });
+
+  it("exibe apenas a seção selecionada no painel mobile e mantém todas no desktop", () => {
+    expect(layoutEditorSource).toContain('mobileTab === "logos" ? "block" : "hidden lg:block"');
+    expect(layoutEditorSource).toContain('mobileTab === "bg" ? "block" : "hidden lg:block"');
+    expect(layoutEditorSource).toContain('mobileTab === "blocks" ? "block" : "hidden lg:block"');
   });
 });

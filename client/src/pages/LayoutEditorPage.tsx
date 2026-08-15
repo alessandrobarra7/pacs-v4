@@ -98,6 +98,7 @@ export default function LayoutEditorPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [mobileTab, setMobileTab] = useState<"preview" | "logos" | "bg" | "blocks">("preview");
+  const [previewScale, setPreviewScale] = useState(1);
 
   const dragging = useRef<{
     block: BlockId;
@@ -372,74 +373,113 @@ export default function LayoutEditorPage() {
 
   const unitName = unitData?.name ?? `Unidade #${unitId}`;
 
+  // A prévia mantém o canvas A4 em 595 × 842 px, mas reduz sua escala
+  // somente quando a largura disponível no viewport mobile for menor.
+  useEffect(() => {
+    const updatePreviewScale = () => {
+      const availableWidth = Math.max(280, window.innerWidth - 32);
+      setPreviewScale(Math.min(1, availableWidth / 595));
+    };
+    updatePreviewScale();
+    window.addEventListener("resize", updatePreviewScale);
+    return () => window.removeEventListener("resize", updatePreviewScale);
+  }, []);
+
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 shadow-sm">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/admin")}>
+      {/* Header desktop */}
+      <div className="hidden lg:flex bg-white border-b border-gray-200 px-4 py-3 items-center gap-3 shadow-sm">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/admin")} className="shrink-0">
           <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
         </Button>
         <div className="flex-1 min-w-0">
           <h1 className="text-sm font-semibold text-gray-800 truncate">Editor de Layout — {unitName}</h1>
-          <p className="text-xs text-gray-500">Logos, fundo, rodapé e posicionamento dos blocos</p>
+          <p className="text-xs text-gray-500 truncate">Logos, fundo, rodapé e posicionamento dos blocos</p>
         </div>
         {isDirty && (
-          <span className="text-xs text-amber-600 font-medium bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+          <span className="shrink-0 text-xs text-amber-600 font-medium bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
             Alterações não salvas
           </span>
         )}
-        <Button variant="outline" size="sm" onClick={() => setShowPreview(v => !v)}>
+        <Button variant="outline" size="sm" onClick={() => setShowPreview(v => !v)} className="shrink-0">
           {showPreview ? <EyeOff className="h-4 w-4 mr-1" /> : <Eye className="h-4 w-4 mr-1" />}
           {showPreview ? "Modo Blocos" : "Laudo Pronto (A4 Real)"}
         </Button>
-        <Button variant="outline" size="sm" onClick={handleReset}>
+        <Button variant="outline" size="sm" onClick={handleReset} className="shrink-0">
           <RotateCcw className="h-4 w-4 mr-1" /> Resetar
         </Button>
-        <Button size="sm" onClick={handleSave} disabled={isSaving || isUploading} className="bg-blue-600 hover:bg-blue-700 text-white">
+        <Button size="sm" onClick={handleSave} disabled={isSaving || isUploading} className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white">
           {(isSaving || isUploading) ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
           {isUploading ? "Enviando..." : isSaving ? "Salvando..." : "Salvar Layout"}
         </Button>
+      </div>
+
+      {/* Header mobile: título em uma linha e ações em uma segunda linha */}
+      <div className="lg:hidden bg-white border-b border-gray-200 shadow-sm">
+        <div className="flex items-center gap-2 px-3 py-3 min-w-0">
+          <Button variant="ghost" size="sm" onClick={() => navigate("/admin")} className="h-9 shrink-0 px-2">
+            <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
+          </Button>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-sm font-semibold text-gray-800">Editor de Layout</h1>
+            <p className="truncate text-[11px] text-gray-500">{unitName}</p>
+          </div>
+          {isDirty && <span className="shrink-0 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">Não salvo</span>}
+        </div>
+        <div className="grid grid-cols-3 gap-2 border-t border-gray-100 px-3 pb-3 pt-2">
+          <Button variant="outline" size="sm" onClick={() => setShowPreview(v => !v)} className="h-9 min-w-0 px-1 text-xs">
+            {showPreview ? <EyeOff className="mr-1 h-3.5 w-3.5 shrink-0" /> : <Eye className="mr-1 h-3.5 w-3.5 shrink-0" />}
+            <span className="truncate">{showPreview ? "Blocos" : "Prévia A4"}</span>
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleReset} className="h-9 min-w-0 px-1 text-xs">
+            <RotateCcw className="mr-1 h-3.5 w-3.5 shrink-0" /> <span>Resetar</span>
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={isSaving || isUploading} className="h-9 min-w-0 bg-blue-600 px-1 text-xs text-white hover:bg-blue-700">
+            {(isSaving || isUploading) ? <Loader2 className="mr-1 h-3.5 w-3.5 shrink-0 animate-spin" /> : <Save className="mr-1 h-3.5 w-3.5 shrink-0" />}
+            <span className="truncate">{isUploading ? "Enviando" : isSaving ? "Salvando" : "Salvar"}</span>
+          </Button>
+        </div>
       </div>
 
       {/* ── Abas de navegação mobile para edição de layout ── */}
       <div className="lg:hidden bg-white border-b border-gray-200 px-3 py-2 flex items-center justify-between gap-1 overflow-x-auto shrink-0">
         <button
           onClick={() => setMobileTab("preview")}
-          className={`flex-1 min-w-[75px] py-2 px-3 text-xs font-medium rounded-lg text-center transition-colors ${mobileTab === "preview" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+          className={`flex-1 min-w-[75px] py-2 px-3 text-xs font-medium rounded-lg whitespace-nowrap text-center transition-colors ${mobileTab === "preview" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
         >
           Prévia A4
         </button>
         <button
           onClick={() => setMobileTab("logos")}
-          className={`flex-1 min-w-[75px] py-2 px-3 text-xs font-medium rounded-lg text-center transition-colors ${mobileTab === "logos" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+          className={`flex-1 min-w-[75px] py-2 px-3 text-xs font-medium rounded-lg whitespace-nowrap text-center transition-colors ${mobileTab === "logos" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
         >
           Logos
         </button>
         <button
           onClick={() => setMobileTab("bg")}
-          className={`flex-1 min-w-[75px] py-2 px-3 text-xs font-medium rounded-lg text-center transition-colors ${mobileTab === "bg" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+          className={`flex-1 min-w-[75px] py-2 px-3 text-xs font-medium rounded-lg whitespace-nowrap text-center transition-colors ${mobileTab === "bg" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
         >
           Fundo / Rodapé
         </button>
         <button
           onClick={() => setMobileTab("blocks")}
-          className={`flex-1 min-w-[75px] py-2 px-3 text-xs font-medium rounded-lg text-center transition-colors ${mobileTab === "blocks" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+          className={`flex-1 min-w-[75px] py-2 px-3 text-xs font-medium rounded-lg whitespace-nowrap text-center transition-colors ${mobileTab === "blocks" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
         >
           Blocos
         </button>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Painel esquerdo */}
-        <div className={`w-full lg:w-80 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0 p-4 space-y-5 ${mobileTab === "preview" ? "hidden lg:block" : "block"}`}>
+        <div className={`w-full min-w-0 lg:w-80 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0 p-4 space-y-5 ${mobileTab === "preview" ? "hidden lg:block" : "block"}`}>
           <div className="lg:hidden flex items-center justify-between bg-blue-50 border border-blue-100 p-3 rounded-xl mb-3">
             <span className="text-xs font-semibold text-blue-800">Editando Configurações Mobile</span>
             <Button variant="default" size="sm" onClick={() => setMobileTab("preview")} className="h-8 text-xs bg-blue-600 text-white">Ver Prévia A4</Button>
           </div>
 
           {/* ── Logos ─────────────────────────────────────────────────────── */}
-          <section>
+          <section className={mobileTab === "logos" ? "block" : "hidden lg:block"}>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
                 <ImageIcon className="h-3.5 w-3.5" /> Logos da Unidade
@@ -519,7 +559,7 @@ export default function LayoutEditorPage() {
           <hr className="border-gray-100" />
 
           {/* ── Fundo da Página ───────────────────────────────────────────── */}
-          <section>
+          <section className={mobileTab === "bg" ? "block" : "hidden lg:block"}>
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
               <ImageIcon className="h-3.5 w-3.5" /> Fundo da Página
             </h2>
@@ -579,7 +619,7 @@ export default function LayoutEditorPage() {
           <hr className="border-gray-100" />
 
           {/* ── Imagem de Rodapé ──────────────────────────────────────────── */}
-          <section>
+          <section className={mobileTab === "bg" ? "block" : "hidden lg:block"}>
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
               <ImageIcon className="h-3.5 w-3.5" /> Imagem de Rodapé
             </h2>
@@ -603,7 +643,7 @@ export default function LayoutEditorPage() {
           <hr className="border-gray-100" />
 
           {/* ── Blocos ────────────────────────────────────────────────────── */}
-          <section>
+          <section className={mobileTab === "blocks" ? "block" : "hidden lg:block"}>
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
               <Move className="h-3.5 w-3.5" /> Blocos do Laudo
             </h2>
@@ -628,7 +668,7 @@ export default function LayoutEditorPage() {
 
           <hr className="border-gray-100" />
 
-          <section className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-1.5">
+          <section className={`${mobileTab === "blocks" ? "block" : "hidden lg:block"} bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-1.5`}>
             <p className="font-semibold">Como usar:</p>
             <p>1. Faça upload dos logos (até 3) e ajuste as dimensões.</p>
             <p>2. Importe a imagem de fundo (timbre) e o rodapé (onda/assinatura).</p>
@@ -640,12 +680,12 @@ export default function LayoutEditorPage() {
 
         {/* Canvas A4 */}
         {showPreview && (
-          <div className={`flex-1 overflow-auto bg-gray-300 flex-col items-center justify-start p-4 lg:p-8 ${mobileTab === "preview" ? "flex" : "hidden lg:flex"}`}>
+          <div className={`flex-1 min-w-0 overflow-auto bg-gray-300 flex-col items-center justify-start p-4 lg:p-8 ${mobileTab === "preview" ? "flex" : "hidden lg:flex"}`}>
             <div className="lg:hidden w-full max-w-xl mb-3 flex items-center justify-between bg-white border border-gray-200 p-3 rounded-xl shadow-sm">
               <span className="text-xs font-medium text-gray-700">Deseja alterar logos ou rodapé?</span>
               <Button variant="outline" size="sm" onClick={() => setMobileTab("logos")} className="h-8 text-xs border-blue-200 text-blue-700 bg-blue-50">Abrir Painel</Button>
             </div>
-            <div>
+            <div className="w-full flex flex-col items-center">
               <div className="flex items-center justify-center gap-4 mb-2 flex-wrap">
                 {BLOCK_IDS.map(b => (
                   <div key={b} className="flex items-center gap-1">
@@ -654,10 +694,11 @@ export default function LayoutEditorPage() {
                   </div>
                 ))}
               </div>
-              <div
+              <div className="relative mx-auto" style={{ width: 595 * previewScale, height: 842 * previewScale }}>
+                <div
                 ref={canvasRef}
                 className="bg-white shadow-2xl relative overflow-hidden"
-                style={{ width: 595, height: 842, userSelect: "none" }}
+                style={{ width: 595, height: 842, userSelect: "none", transform: `scale(${previewScale})`, transformOrigin: "top left" }}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
@@ -763,6 +804,7 @@ export default function LayoutEditorPage() {
                   )}
                 </div>
                 <div style={{ position: "absolute", inset: 0, border: "1px solid #e5e7eb", pointerEvents: "none", zIndex: 0 }} />
+                </div>
               </div>
               <p className="text-xs text-gray-500 text-center mt-2">Canvas A4 (595 × 842 px) — arraste os blocos para reposicionar</p>
             </div>

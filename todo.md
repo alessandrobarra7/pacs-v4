@@ -1773,3 +1773,4 @@
 - [x] Validar a administração mobile com TypeScript, Vitest e verificação visual
 - [x] Sincronizar a melhoria da administração mobile no GitHub
 - [x] Simplificar a edição administrativa de layout de laudos no mobile com abas por seção e prévia A4 limpa
+- [x] Corrigir a composição mobile do editor de layout: impedir texto verticalizado, overflow horizontal e invasão da prévia A4 pelo painel de controles
