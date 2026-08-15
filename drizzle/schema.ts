@@ -276,6 +276,26 @@ export type InsertAnamnesisSimple = typeof anamnesis_simple.$inferInsert;
  * Allows technicians to edit patient name, study description, etc.
  * All users of the same unit see the same overrides (shared data layer)
  */
+/**
+ * Study Audio Reports — Recorded voice reports linked to examinations
+ * Stores audio file metadata and S3/local object reference per study
+ */
+export const study_audio_reports = mysqlTable("study_audio_reports", {
+  id: int("id").autoincrement().primaryKey(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
+  unit_id: int("unit_id"),
+  user_id: int("user_id").notNull(),
+  file_url: text("file_url").notNull(),
+  file_key: text("file_key").notNull(),
+  file_name: varchar("file_name", { length: 255 }).notNull(),
+  file_size: int("file_size"),
+  duration_seconds: int("duration_seconds"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type StudyAudioReport = typeof study_audio_reports.$inferSelect;
+export type InsertStudyAudioReport = typeof study_audio_reports.$inferInsert;
+
 export const study_metadata = mysqlTable("study_metadata", {
   id: int("id").autoincrement().primaryKey(),
   study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),

@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
 import { PatientAttachmentsModal } from "@/components/PatientAttachmentsModal";
+import { AudioReportsModal } from "@/components/AudioReportsModal";
 import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 import { ExamPickerModal, ALL_CATALOG_EXAMS } from "@/components/ExamPickerModal";
 import { canAccessAdmin, type UserRole } from "../../../shared/permissions";
@@ -612,6 +613,7 @@ export function PacsQueryPage() {
   const [isQuerying, setIsQuerying] = useState(false);
   const [isAnamnesisModalOpen, setIsAnamnesisModalOpen] = useState(false);
   const [isAttachmentsModalOpen, setIsAttachmentsModalOpen] = useState(false);
+  const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
   const [selectedStudy, setSelectedStudy] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, string>>({});
@@ -853,6 +855,13 @@ export function PacsQueryPage() {
   );
   const attachmentsStatusMap = useMemo(() => attachmentsStatusData ?? {} as Record<string, boolean>, [attachmentsStatusData]);
 
+  // Mapa de has_audio para colorir condicionalmente o botão de áudio
+  const { data: audioStatusData, refetch: refetchAudioStatus } = trpc.audioReports.getStatusBatch.useQuery(
+    { studyInstanceUids: studyUids },
+    { enabled: studyUids.length > 0 }
+  );
+  const audioStatusMap = useMemo(() => audioStatusData ?? {} as Record<string, boolean>, [audioStatusData]);
+
   // Batch SLA readiness para todos os estudos da página atual
   const { data: slaReadinessData, refetch: refetchSlaReadiness } = trpc.sla.getBatchStatus.useQuery(
     { studyInstanceUids: studyUids, unitId: effectiveUnitId ?? 0 },
@@ -1086,9 +1095,8 @@ export function PacsQueryPage() {
   };
 
   const handleListenAudio = (study: any) => {
-    toast.info("Áudio vinculado", {
-      description: "Nenhum arquivo de áudio vinculado a este estudo.",
-    });
+    setSelectedStudy(study);
+    setIsAudioModalOpen(true);
   };
 
   const handlePrintReport = async (study: any) => {
@@ -1852,16 +1860,25 @@ export function PacsQueryPage() {
                       )}
                     </td>
 
-                    {/* Ouvir áudio vinculado (Neutro por padrão, colorido apenas se houver áudio) */}
+                    {/* Ouvir áudio vinculado (Colorido se houver áudios, neutro se vazio) */}
                     <td className="px-4 py-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleListenAudio(study)}
-                        title="Nenhum áudio vinculado"
-                        className="w-8 h-8 rounded-lg border border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600 inline-flex items-center justify-center transition-colors"
-                      >
-                        <Mic className="h-3.5 w-3.5" />
-                      </button>
+                      {(() => {
+                        const hasAudio = !!audioStatusMap[study.studyInstanceUid];
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => handleListenAudio(study)}
+                            title={hasAudio ? "Áudio vinculado — clique para ouvir" : "Nenhum áudio — clique para gravar"}
+                            className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
+                              hasAudio
+                                ? "border-purple-400 bg-purple-50 text-purple-700 hover:bg-purple-100"
+                                : "border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+                            }`}
+                          >
+                            <Mic className="h-3.5 w-3.5" />
+                          </button>
+                        );
+                      })()}
                     </td>
 
                     {/* Imprimir */}
@@ -1990,19 +2007,28 @@ export function PacsQueryPage() {
                             </button>
                           );
                         })()}
-                        {/* 3. Ouvir áudio vinculado (neutro) */}
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleListenAudio(study);
-                          }}
-                          title="Sem áudio vinculado"
-                          aria-label="Ouvir áudio vinculado"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
-                        >
-                          <Mic className="h-4 w-4" />
-                        </button>
+                        {/* 3. Ouvir áudio vinculado (condicional) */}
+                        {(() => {
+                          const hasAudio = !!audioStatusMap[study.studyInstanceUid];
+                          return (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleListenAudio(study);
+                              }}
+                              title={hasAudio ? "Áudio vinculado" : "Sem áudio"}
+                              aria-label="Ouvir áudio vinculado"
+                              className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                                hasAudio
+                                  ? "border-purple-200 bg-purple-50 text-purple-600 hover:bg-purple-100"
+                                  : "border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+                              }`}
+                            >
+                              <Mic className="h-4 w-4" />
+                            </button>
+                          );
+                        })()}
                         {/* 4. Imprimir */}
                         {canPrint && (
                           <button
@@ -2112,6 +2138,19 @@ export function PacsQueryPage() {
            patientName={selectedStudy.patientName}
            onUploadSuccess={() => {
              refetchAttachmentsStatus();
+           }}
+         />
+       )}
+
+       {isAudioModalOpen && selectedStudy && (
+         <AudioReportsModal
+           open={isAudioModalOpen}
+           onClose={() => { setIsAudioModalOpen(false); setSelectedStudy(null); }}
+           studyInstanceUid={selectedStudy.studyInstanceUid}
+           unitId={effectiveUnitId ?? undefined}
+           patientName={selectedStudy.patientName}
+           onUploadSuccess={() => {
+             refetchAudioStatus();
            }}
          />
        )}
