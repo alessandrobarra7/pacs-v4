@@ -1731,6 +1731,7 @@ export function PacsQueryPage() {
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Baixar exame">Baixar</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Anexo de imagens">Anexos</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Anamnese">Anam.</th>
+                <th className="px-4 py-2.5 text-center font-semibold w-10" title="Laudar exame">Laudar</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Ouvir áudio vinculado">Áudio</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Imprimir">Imp.</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-32">Status</th>
@@ -1902,6 +1903,23 @@ export function PacsQueryPage() {
                           {anamnesisStatusMap[study.studyInstanceUid] && (
                             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
                           )}
+                        </button>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+
+                    {/* Laudar (visível apenas para perfis com edit_reports) */}
+                    <td className="px-4 py-3 text-center">
+                      {canLaudo ? (
+                        <button
+                          type="button"
+                          onClick={() => handleReport(study)}
+                          title="Laudar exame"
+                          aria-label="Laudar exame"
+                          className="w-8 h-8 rounded-lg border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 inline-flex items-center justify-center transition-colors"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
                         </button>
                       ) : (
                         <span className="text-gray-300">—</span>
@@ -2093,7 +2111,19 @@ export function PacsQueryPage() {
                             </button>
                           );
                         })()}
-                        {/* 4. Imprimir */}
+                        {/* 4. Laudar */}
+                        {canLaudo && (
+                          <button
+                            type="button"
+                            onClick={(event) => { event.stopPropagation(); handleReport(study); }}
+                            title="Laudar exame"
+                            aria-label="Laudar exame"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-violet-600 transition-colors hover:bg-violet-100"
+                          >
+                            <FileText className="h-4 w-4" />
+                          </button>
+                        )}
+                        {/* 5. Imprimir */}
                         {canPrint && (() => {
                           const isSigned = status === 'Assinado' || status === 'Concluído' || status === 'Revisado';
                           return (

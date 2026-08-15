@@ -63,7 +63,15 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(pageSource).toContain("setIsAttachmentsModalOpen(true)");
     expect(pageSource).toContain("setIsAnamnesisModalOpen(true)");
     expect(pageSource).toContain("handleListenAudio(study)");
+    expect(pageSource).toContain("handleReport(study)");
     expect(pageSource).toContain("handlePrintReport(study)");
+  });
+
+  it("restores Laudar as a desktop table action without bypassing RBAC", () => {
+    expect(pageSource).toContain('title="Laudar exame">Laudar</th>');
+    expect(pageSource).toContain("{canLaudo ? (");
+    expect(pageSource).toContain('aria-label="Laudar exame"');
+    expect(pageSource).toContain("edit_reports");
   });
 
   it("normalizes DICOM patient names before displaying them", () => {
