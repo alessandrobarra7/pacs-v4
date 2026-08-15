@@ -62,4 +62,32 @@ describe("Administração — experiência mobile", () => {
     expect(layoutEditorSource).toContain('mobileTab === "bg" ? "block" : "hidden lg:block"');
     expect(layoutEditorSource).toContain('mobileTab === "blocks" ? "block" : "hidden lg:block"');
   });
+
+  it("monta uma folha institucional A4 próxima ao resultado real de PDF", () => {
+    expect(layoutEditorSource).toContain("Folha institucional A4");
+    expect(layoutEditorSource).toContain("Nome do paciente:");
+    expect(layoutEditorSource).toContain("Data de realização do exame:");
+    expect(layoutEditorSource).toContain("RADIOGRAFIA DE TÓRAX PA E PERFIL");
+    expect(layoutEditorSource).toContain("Assinado em:");
+    expect(layoutEditorSource).toContain("Página 0 de 0");
+    expect(layoutEditorSource).toContain("logo:   { x: 2, y: 2,  w: 96, h: 11");
+    expect(layoutEditorSource).toContain("title:  { x: 2, y: 17, w: 96, h: 12");
+    expect(layoutEditorSource).toContain("body:   { x: 2, y: 32, w: 96, h: 40");
+    expect(layoutEditorSource).toContain("footer: { x: 2, y: 72, w: 96, h: 23");
+    expect(layoutEditorSource).toContain("LEGACY_DEFAULT_POSITIONS");
+  });
+
+  it("mantém o indicador visual durante a atualização da prévia mobile", () => {
+    expect(layoutEditorSource).toContain("isPreviewUpdating");
+    expect(layoutEditorSource).toContain("Atualizando prévia");
+    expect(layoutEditorSource).toContain('role="status" aria-live="polite"');
+    expect(layoutEditorSource).toContain("animate-spin");
+  });
+
+  it("permite arrastar blocos na prévia com mouse ou toque", () => {
+    expect(layoutEditorSource).toContain("React.PointerEvent");
+    expect(layoutEditorSource).toContain("setPointerCapture");
+    expect(layoutEditorSource).toContain("onPointerMove={handleMouseMove}");
+    expect(layoutEditorSource).toContain("touchAction: \"none\"");
+  });
 });

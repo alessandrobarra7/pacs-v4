@@ -1774,3 +1774,5 @@
 - [x] Sincronizar a melhoria da administração mobile no GitHub
 - [x] Simplificar a edição administrativa de layout de laudos no mobile com abas por seção e prévia A4 limpa
 - [x] Corrigir a composição mobile do editor de layout: impedir texto verticalizado, overflow horizontal e invasão da prévia A4 pelo painel de controles
+- [x] Implementar indicador visual de carregamento durante a atualização da prévia A4 após mudanças no layout mobile
+- [x] Reformular a prévia A4 do editor de layout para reproduzir uma folha institucional real de PDF/Android (cabeçalho, logotipos proporcionais, dados do paciente, título do exame, corpo estruturado, assinatura digital, rodapé gráfico e paginação)

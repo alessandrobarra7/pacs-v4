@@ -45,10 +45,17 @@ interface LogoSlot {
 // ─── Defaults ────────────────────────────────────────────────────────────────
 
 const DEFAULT_POSITIONS: BlockPositions = {
-  logo:   { x: 2,  y: 1,  w: 20, h: 10, visible: true },
-  title:  { x: 2,  y: 13, w: 96, h: 6,  visible: true },
-  body:   { x: 2,  y: 21, w: 96, h: 55, visible: true },
-  footer: { x: 2,  y: 88, w: 96, h: 8,  visible: true },
+  logo:   { x: 2, y: 2,  w: 96, h: 11, visible: true },
+  title:  { x: 2, y: 17, w: 96, h: 12, visible: true },
+  body:   { x: 2, y: 32, w: 96, h: 40, visible: true },
+  footer: { x: 2, y: 72, w: 96, h: 23, visible: true },
+};
+
+const LEGACY_DEFAULT_POSITIONS: BlockPositions = {
+  logo:   { x: 2, y: 1,  w: 20, h: 10, visible: true },
+  title:  { x: 2, y: 13, w: 96, h: 6,  visible: true },
+  body:   { x: 2, y: 21, w: 96, h: 55, visible: true },
+  footer: { x: 2, y: 88, w: 96, h: 8,  visible: true },
 };
 
 const BLOCK_LABELS: Record<BlockId, { label: string; color: string; preview: string }> = {
@@ -99,6 +106,18 @@ export default function LayoutEditorPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [mobileTab, setMobileTab] = useState<"preview" | "logos" | "bg" | "blocks">("preview");
   const [previewScale, setPreviewScale] = useState(1);
+  const [isPreviewUpdating, setIsPreviewUpdating] = useState(false);
+  const previewUpdateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const markLayoutChange = useCallback(() => {
+    setIsDirty(true);
+    setIsPreviewUpdating(true);
+    if (previewUpdateTimer.current) clearTimeout(previewUpdateTimer.current);
+    previewUpdateTimer.current = setTimeout(() => {
+      setIsPreviewUpdating(false);
+      previewUpdateTimer.current = null;
+    }, 260);
+  }, []);
 
   const dragging = useRef<{
     block: BlockId;
@@ -150,7 +169,13 @@ export default function LayoutEditorPage() {
     }
     if (layoutData.block_positions && typeof layoutData.block_positions === "object") {
       const saved = layoutData.block_positions as Partial<BlockPositions>;
+      const isLegacyDefault = BLOCK_IDS.every(k => {
+        const savedBlock = saved[k];
+        const legacyBlock = LEGACY_DEFAULT_POSITIONS[k];
+        return Boolean(savedBlock) && savedBlock!.x === legacyBlock.x && savedBlock!.y === legacyBlock.y && savedBlock!.w === legacyBlock.w && savedBlock!.h === legacyBlock.h;
+      });
       setPositions(prev => {
+        if (isLegacyDefault) return DEFAULT_POSITIONS;
         const merged = { ...prev };
         for (const k of BLOCK_IDS) {
           if (saved[k]) merged[k] = { ...prev[k], ...(saved[k] as BlockPosition) };
@@ -176,11 +201,11 @@ export default function LayoutEditorPage() {
     if (file.size > 5 * 1024 * 1024) { toast.error("Imagem muito grande. Máximo 5 MB."); return; }
     setBgFile(file);
     setBgPreview(URL.createObjectURL(file));
-    setIsDirty(true);
+    markLayoutChange();
   }, []);
 
   const handleRemoveBg = useCallback(() => {
-    setBgFile(null); setBgPreview(null); setBgUrl(null); setIsDirty(true);
+    setBgFile(null); setBgPreview(null); setBgUrl(null); markLayoutChange();
   }, []);
 
   // ── Handlers: imagem de rodapé ─────────────────────────────────────────────
@@ -191,11 +216,11 @@ export default function LayoutEditorPage() {
     if (file.size > 5 * 1024 * 1024) { toast.error("Imagem muito grande. Máximo 5 MB."); return; }
     setFooterFile(file);
     setFooterPreview(URL.createObjectURL(file));
-    setIsDirty(true);
+    markLayoutChange();
   }, []);
 
   const handleRemoveFooter = useCallback(() => {
-    setFooterFile(null); setFooterPreview(null); setFooterUrl(null); setIsDirty(true);
+    setFooterFile(null); setFooterPreview(null); setFooterUrl(null); markLayoutChange();
   }, []);
 
   // ── Handlers: logos ────────────────────────────────────────────────────────
@@ -209,7 +234,7 @@ export default function LayoutEditorPage() {
       next[index] = { ...next[index], file, preview: URL.createObjectURL(file) };
       return next;
     });
-    setIsDirty(true);
+    markLayoutChange();
   }, []);
 
   const handleLogoRemove = useCallback((index: number) => {
@@ -218,7 +243,7 @@ export default function LayoutEditorPage() {
       next[index] = { ...next[index], url: "", preview: "", file: null };
       return next;
     });
-    setIsDirty(true);
+    markLayoutChange();
   }, []);
 
   const handleLogoResize = useCallback((index: number, field: "width" | "height", value: number) => {
@@ -227,7 +252,7 @@ export default function LayoutEditorPage() {
       next[index] = { ...next[index], [field]: value };
       return next;
     });
-    setIsDirty(true);
+    markLayoutChange();
   }, []);
 
   const handleLogoLabel = useCallback((index: number, label: string) => {
@@ -236,25 +261,26 @@ export default function LayoutEditorPage() {
       next[index] = { ...next[index], label };
       return next;
     });
-    setIsDirty(true);
+    markLayoutChange();
   }, []);
 
   const addLogoSlot = useCallback(() => {
     if (logos.length >= 3) { toast.info("Máximo de 3 logos permitido."); return; }
     setLogos(prev => [...prev, EMPTY_LOGO()]);
-    setIsDirty(true);
+    markLayoutChange();
   }, [logos.length]);
 
   const removeLogoSlot = useCallback((index: number) => {
     setLogos(prev => prev.filter((_, i) => i !== index));
-    setIsDirty(true);
+    markLayoutChange();
   }, []);
 
   // ── Handlers: drag-and-drop ────────────────────────────────────────────────
-  const handleMouseDown = useCallback((e: React.MouseEvent, block: BlockId) => {
+  const handleMouseDown = useCallback((e: React.PointerEvent, block: BlockId) => {
     e.preventDefault();
     setActiveBlock(block);
     if (!canvasRef.current) return;
+    canvasRef.current.setPointerCapture?.(e.pointerId);
     dragging.current = {
       block,
       startX: e.clientX,
@@ -264,7 +290,7 @@ export default function LayoutEditorPage() {
     };
   }, [positions]);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  const handleMouseMove = useCallback((e: React.PointerEvent) => {
     if (!dragging.current || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const dx = ((e.clientX - dragging.current.startX) / rect.width) * 100;
@@ -275,19 +301,19 @@ export default function LayoutEditorPage() {
       const newY = Math.max(0, Math.min(100 - prev[block].h, dragging.current!.origY + dy));
       return { ...prev, [block]: { ...prev[block], x: newX, y: newY } };
     });
-    setIsDirty(true);
+    markLayoutChange();
   }, []);
 
   const handleMouseUp = useCallback(() => { dragging.current = null; }, []);
 
   const toggleVisible = useCallback((block: BlockId) => {
     setPositions(prev => ({ ...prev, [block]: { ...prev[block], visible: !prev[block].visible } }));
-    setIsDirty(true);
+    markLayoutChange();
   }, []);
 
   const handleReset = useCallback(() => {
     setPositions(DEFAULT_POSITIONS);
-    setIsDirty(true);
+    markLayoutChange();
     toast.info("Posições resetadas para o padrão.");
   }, []);
 
@@ -372,6 +398,12 @@ export default function LayoutEditorPage() {
   }, [bgFile, bgUrl, footerFile, footerUrl, logos, positions, unitId, uploadImage, upsertLayout, refetchLayout]);
 
   const unitName = unitData?.name ?? `Unidade #${unitId}`;
+
+  useEffect(() => {
+    return () => {
+      if (previewUpdateTimer.current) clearTimeout(previewUpdateTimer.current);
+    };
+  }, []);
 
   // A prévia mantém o canvas A4 em 595 × 842 px, mas reduz sua escala
   // somente quando a largura disponível no viewport mobile for menor.
@@ -590,7 +622,7 @@ export default function LayoutEditorPage() {
                 max={1.0}
                 step={0.05}
                 value={bgOpacity}
-                onChange={e => { setBgOpacity(parseFloat(e.target.value)); setIsDirty(true); }}
+                onChange={e => { setBgOpacity(parseFloat(e.target.value)); markLayoutChange(); }}
                 className="w-full h-1.5 accent-blue-600"
               />
               <div className="flex justify-between text-[10px] text-gray-400">
@@ -605,7 +637,7 @@ export default function LayoutEditorPage() {
               <label className="text-xs font-medium text-gray-600">Modo de escala</label>
               <select
                 value={bgSizeOption}
-                onChange={e => { setBgSizeOption(e.target.value); setIsDirty(true); }}
+                onChange={e => { setBgSizeOption(e.target.value); markLayoutChange(); }}
                 className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
               >
                 <option value="cover">Preencher página (cover) — recomendado para A4</option>
@@ -686,123 +718,107 @@ export default function LayoutEditorPage() {
               <Button variant="outline" size="sm" onClick={() => setMobileTab("logos")} className="h-8 text-xs border-blue-200 text-blue-700 bg-blue-50">Abrir Painel</Button>
             </div>
             <div className="w-full flex flex-col items-center">
-              <div className="flex items-center justify-center gap-4 mb-2 flex-wrap">
-                {BLOCK_IDS.map(b => (
-                  <div key={b} className="flex items-center gap-1">
-                    <div className="w-2.5 h-2.5 rounded-sm" style={{ background: BLOCK_LABELS[b].color }} />
-                    <span className="text-xs text-gray-600">{BLOCK_LABELS[b].label}</span>
-                  </div>
-                ))}
-              </div>
+              {!showPreview && (
+                <div className="flex items-center justify-center gap-4 mb-2 flex-wrap">
+                  {BLOCK_IDS.map(b => (
+                    <div key={b} className="flex items-center gap-1">
+                      <div className="w-2.5 h-2.5 rounded-sm" style={{ background: BLOCK_LABELS[b].color }} />
+                      <span className="text-xs text-gray-600">{BLOCK_LABELS[b].label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="relative mx-auto" style={{ width: 595 * previewScale, height: 842 * previewScale }}>
                 <div
                 ref={canvasRef}
                 className="bg-white shadow-2xl relative overflow-hidden"
-                style={{ width: 595, height: 842, userSelect: "none", transform: `scale(${previewScale})`, transformOrigin: "top left" }}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
+                style={{ width: 595, height: 842, userSelect: "none", touchAction: "none", transform: `scale(${previewScale})`, transformOrigin: "top left" }}
+                onPointerMove={handleMouseMove}
+                onPointerUp={handleMouseUp}
+                onPointerCancel={handleMouseUp}
               >
-                {/* Fundo */}
+                {/* Folha institucional A4 — composição próxima ao PDF/Android */}
                 {bgPreview && (
-                  <img src={bgPreview} alt="Fundo" className="absolute inset-0 w-full h-full object-cover pointer-events-none" style={{ zIndex: 0 }} />
+                  <img src={bgPreview} alt="Fundo institucional" className="absolute inset-0 h-full w-full object-cover pointer-events-none opacity-20" style={{ zIndex: 0 }} />
                 )}
 
-                {/* Rodapé (imagem) */}
-                {footerPreview && (
-                  <img
-                    src={footerPreview}
-                    alt="Rodapé"
-                    className="absolute bottom-0 left-0 w-full pointer-events-none"
-                    style={{ zIndex: 1, objectFit: "cover", maxHeight: "20%" }}
-                  />
-                )}
-
-                {/* Preview Real de Laudo Pronto A4 */}
-                <div className="absolute inset-0 bg-white flex flex-col p-6 font-serif text-xs text-gray-900 pointer-events-none">
-                  {bgPreview && (
-                    <img src={bgPreview} alt="Fundo" className="absolute inset-0 w-full h-full object-cover pointer-events-none opacity-30" style={{ zIndex: 0 }} />
-                  )}
-
-                  {/* Topo: Logos e Nome da Unidade */}
-                  <div className="flex items-center justify-between border-b-2 border-blue-600 pb-3 mb-4 relative z-10">
-                    <div className="flex items-center gap-3">
+                <div
+                  onPointerDown={e => handleMouseDown(e, "logo")}
+                  className={`absolute z-10 rounded-sm px-1 py-1 transition-shadow ${!showPreview ? "cursor-move border border-dashed border-blue-400 bg-blue-50/20" : "cursor-grab"} ${activeBlock === "logo" ? "ring-2 ring-blue-500 ring-offset-1" : ""}`}
+                  style={{ left: `${positions.logo.x}%`, top: `${positions.logo.y}%`, width: `${positions.logo.w}%`, minHeight: `${positions.logo.h}%` }}
+                >
+                  <div className="flex items-start gap-3 border-b border-gray-300 pb-2">
+                    <div className="flex min-h-8 w-24 shrink-0 items-start gap-1 overflow-hidden">
                       {logos.filter(l => l.preview).length > 0 ? (
                         logos.filter(l => l.preview).map((slot, i) => (
-                          <img key={i} src={slot.preview} alt={`Logo ${i + 1}`} className="h-10 object-contain" />
+                          <img key={i} src={slot.preview} alt={slot.label || `Logo ${i + 1}`} className="max-h-10 max-w-20 object-contain" />
                         ))
                       ) : (
-                        <div className="h-10 w-10 rounded-full bg-blue-600 text-white font-sans font-bold flex items-center justify-center text-sm">
-                          {unitName.charAt(0)}
-                        </div>
+                        <span className="pt-2 text-[8px] text-gray-400">Logo da unidade</span>
                       )}
                     </div>
-                    <div className="text-right">
-                      <p className="font-sans font-bold uppercase tracking-wide text-sm text-blue-900">{unitName}</p>
-                      <p className="font-sans text-[9px] text-gray-500">Laudo Radiológico Oficial</p>
+                    <div className="min-w-0 flex-1 text-center">
+                      <p className="truncate text-[13px] font-bold uppercase tracking-wide text-gray-900">{unitName}</p>
+                      <p className="text-[8px] text-gray-500">Laudo de Interpretação Radiológica</p>
                     </div>
                   </div>
-
-                  {/* Dados do Paciente (Nome, Data de Nascimento, Exame, Data) */}
-                  <div className="rounded border border-gray-200 bg-gray-50/80 p-3 mb-4 relative z-10 font-sans">
-                    <div className="grid grid-cols-2 gap-2 text-[11px]">
-                      <div>
-                        <span className="text-gray-400 text-[10px] uppercase">Paciente:</span>
-                        <p className="font-bold text-gray-900">ANTONIA DE SOUZA BATISTA</p>
-                      </div>
-                      <div>
-                        <span className="text-gray-400 text-[10px] uppercase">Data de Nascimento:</span>
-                        <p className="font-medium text-gray-800">15/05/1970 (54 anos)</p>
-                      </div>
-                      <div>
-                        <span className="text-gray-400 text-[10px] uppercase">Exame:</span>
-                        <p className="font-medium text-gray-800 uppercase">RADIOGRAFIA DE TÓRAX PA E PERFIL</p>
-                      </div>
-                      <div>
-                        <span className="text-gray-400 text-[10px] uppercase">Realizado em:</span>
-                        <p className="font-medium text-gray-800">15/08/2026 09:15</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Título do Exame */}
-                  <div className="text-center font-bold uppercase text-sm tracking-wider text-gray-900 mb-3 relative z-10 border-b border-gray-200 pb-2">
-                    RADIOGRAFIA DE TÓRAX PA E PERFIL
-                  </div>
-
-                  {/* Corpo do Laudo (Exemplo) */}
-                  <div className="flex-1 space-y-3 relative z-10 text-[11px] leading-relaxed text-gray-800">
-                    <div>
-                      <p className="font-bold uppercase text-gray-700 mb-1">Técnica:</p>
-                      <p>Exame radiográfico realizado em incidências póstero-anterior e perfil, com técnica de boa qualidade.</p>
-                    </div>
-                    <div>
-                      <p className="font-bold uppercase text-gray-700 mb-1">Relatório / Achados:</p>
-                      <p>Transparência pulmonar preservada, sem infiltrados parenquimatosos focais. Seios costo-fênicos livres e nítidos. Área cardíaca dentro dos limites normais.</p>
-                    </div>
-                    <div>
-                      <p className="font-bold uppercase text-gray-700 mb-1">Impressão Diagnóstica:</p>
-                      <p className="font-semibold text-gray-900">Estudo radiográfico do tórax sem alterações significativas.</p>
-                    </div>
-                  </div>
-
-                  {/* Rodapé e Assinatura */}
-                  <div className="mt-auto pt-4 border-t border-gray-200 flex items-end justify-between relative z-10">
-                    <div className="text-[10px] text-gray-500 font-sans">
-                      <p>Documento assinado digitalmente</p>
-                      <p className="text-[9px]">Unidade: {unitName}</p>
-                    </div>
-                    <div className="text-center">
-                      <div className="border-t border-gray-400 w-48 mb-1" />
-                      <p className="font-bold text-[11px] uppercase text-gray-900">Dr. Médico Radiologista</p>
-                      <p className="text-[10px] text-gray-600">CRM 12345 / RQE 9876</p>
-                    </div>
-                  </div>
-
-                  {footerPreview && (
-                    <img src={footerPreview} alt="Rodapé" className="absolute bottom-0 left-0 w-full object-cover pointer-events-none opacity-80" style={{ zIndex: 20, maxHeight: "12%" }} />
-                  )}
+                  {!showPreview && <span className="absolute -top-2 left-1 rounded bg-blue-600 px-1.5 py-0.5 text-[7px] font-semibold text-white">Cabeçalho</span>}
                 </div>
+
+                <div
+                  onPointerDown={e => handleMouseDown(e, "title")}
+                  className={`absolute z-10 rounded-sm px-1 py-1 transition-shadow ${!showPreview ? "cursor-move border border-dashed border-violet-400 bg-violet-50/20" : "cursor-grab"} ${activeBlock === "title" ? "ring-2 ring-violet-500 ring-offset-1" : ""}`}
+                  style={{ left: `${positions.title.x}%`, top: `${positions.title.y}%`, width: `${positions.title.w}%`, minHeight: `${positions.title.h}%` }}
+                >
+                  <div className="space-y-0.5 text-[9px] leading-4 text-gray-800">
+                    <p>Nome do paciente: <strong>ANTONIA DE SOUZA BATISTA</strong></p>
+                    <p>Data de nascimento: 15/05/1970</p>
+                    <p>Sexo: Feminino</p>
+                    <p>Data de realização do exame: 15/08/2026</p>
+                  </div>
+                  <div className="mt-4 text-center text-[12px] font-bold uppercase tracking-wide text-gray-900">RADIOGRAFIA DE TÓRAX PA E PERFIL</div>
+                  {!showPreview && <span className="absolute -top-2 left-1 rounded bg-violet-600 px-1.5 py-0.5 text-[7px] font-semibold text-white">Identificação e exame</span>}
+                </div>
+
+                <div
+                  onPointerDown={e => handleMouseDown(e, "body")}
+                  className={`absolute z-10 rounded-sm px-1 py-1 transition-shadow ${!showPreview ? "cursor-move border border-dashed border-emerald-400 bg-emerald-50/20" : "cursor-grab"} ${activeBlock === "body" ? "ring-2 ring-emerald-500 ring-offset-1" : ""}`}
+                  style={{ left: `${positions.body.x}%`, top: `${positions.body.y}%`, width: `${positions.body.w}%`, minHeight: `${positions.body.h}%` }}
+                >
+                  <div className="space-y-2 text-[10px] leading-4 text-gray-900">
+                    <p className="font-bold uppercase">RADIOGRAFIA DE TÓRAX</p>
+                    <p><strong>Incidência:</strong><br />P.A e perfil</p>
+                    <p className="font-bold">Análise:</p>
+                    <p>Presença de volumoso pneumotórax à esquerda.</p>
+                    <p>Dispositivo de cateter de infusão projetado na região superior do hemitórax direito.</p>
+                    <p>Dreno de tórax à esquerda.</p>
+                  </div>
+                  {!showPreview && <span className="absolute -top-2 left-1 rounded bg-emerald-600 px-1.5 py-0.5 text-[7px] font-semibold text-white">Corpo do laudo</span>}
+                </div>
+
+                <div
+                  onPointerDown={e => handleMouseDown(e, "footer")}
+                  className={`absolute z-20 overflow-hidden rounded-sm px-1 py-1 transition-shadow ${!showPreview ? "cursor-move border border-dashed border-amber-400 bg-amber-50/20" : "cursor-grab"} ${activeBlock === "footer" ? "ring-2 ring-amber-500 ring-offset-1" : ""}`}
+                  style={{ left: `${positions.footer.x}%`, top: `${positions.footer.y}%`, width: `${positions.footer.w}%`, minHeight: `${positions.footer.h}%` }}
+                >
+                  {footerPreview && <img src={footerPreview} alt="Rodapé institucional" className="pointer-events-none absolute inset-x-[-8%] bottom-[-6%] h-24 w-[116%] max-w-none object-cover opacity-90" />}
+                  <div className="relative z-10 flex flex-col items-center justify-end pt-4 text-center text-[9px] text-gray-700">
+                    <div className="mb-1 w-32 border-t border-gray-500" />
+                    <p className="font-bold text-gray-900">Admin Master</p>
+                    <p className="text-[8px]">CRM 12345 / RQE 9876</p>
+                    <p className="mt-1 text-[7px] text-gray-500">Assinado em: 15/08/2026, 17:43</p>
+                    <span className="absolute bottom-0 right-0 text-[7px] text-gray-400">Página 0 de 0</span>
+                  </div>
+                  {!showPreview && <span className="absolute -top-2 left-1 rounded bg-amber-600 px-1.5 py-0.5 text-[7px] font-semibold text-white">Assinatura e rodapé</span>}
+                </div>
+
+                {isPreviewUpdating && (
+                  <div className="lg:hidden absolute inset-0 z-[60] flex items-center justify-center bg-white/60 backdrop-blur-[1px]" role="status" aria-live="polite">
+                    <div className="flex items-center gap-2 rounded-full bg-slate-900/85 px-3 py-2 text-[10px] font-semibold text-white shadow-lg">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Atualizando prévia
+                    </div>
+                  </div>
+                )}
                 <div style={{ position: "absolute", inset: 0, border: "1px solid #e5e7eb", pointerEvents: "none", zIndex: 0 }} />
                 </div>
               </div>
