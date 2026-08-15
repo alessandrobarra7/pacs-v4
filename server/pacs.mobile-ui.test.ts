@@ -35,9 +35,17 @@ describe("PacsQueryPage mobile study list contract", () => {
 
   it("keeps the date picker wired to both responsive triggers and the PACS query", () => {
     expect(pageSource).toContain("const [calendarOpen, setCalendarOpen] = useState(false)");
-    expect(pageSource).toContain("<Popover open={calendarOpen} onOpenChange={setCalendarOpen}>");
+    expect(pageSource).toContain("<Dialog open={calendarOpen} onOpenChange={handleCalendarDialogChange}>");
+    expect(pageSource).toContain("<DialogContent");
     expect(pageSource).toContain("const handleCalendarSelect = (date: Date | undefined)");
-    expect(pageSource).toContain("onSelect={handleCalendarSelect}");
+    expect(pageSource).toContain("onSelect={setCalendarDraftDate}");
+    expect(pageSource).toContain("openCalendarDialog");
+    expect(pageSource).toContain("handleCalendarDialogChange");
+    expect(pageSource).toContain("const applyCalendarDraft = () =>");
+    expect(pageSource).toContain("const applyCalendarToday = () =>");
+    expect(pageSource).toContain("<DialogClose asChild>");
+    expect(pageSource).toContain("Fechar");
+    expect(pageSource).toContain("Hoje");
     expect(pageSource).toContain("runQuery({ period: 'custom', studyDate });");
     expect(pageSource).toContain("sessionStorage.setItem(filterSessionKey, JSON.stringify(newFilters))");
     expect(pageSource).toContain("studyDate = studyDate.replace(/-/g, '')");

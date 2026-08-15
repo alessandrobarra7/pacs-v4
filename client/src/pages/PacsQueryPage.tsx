@@ -15,7 +15,16 @@ import { ExamPickerModal, ALL_CATALOG_EXAMS } from "@/components/ExamPickerModal
 import { canAccessAdmin, type UserRole } from "../../../shared/permissions";
 
 import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -595,6 +604,7 @@ export function PacsQueryPage() {
     handlePeriodChange('today');
   }, [effectiveUnitId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarDraftDate, setCalendarDraftDate] = useState<Date | undefined>(undefined);
   const [queryResults, setQueryResults] = useState<any[]>(() => {
     try { return JSON.parse(localStorage.getItem(cacheKey) || '[]'); } catch { return []; }
   });
@@ -911,6 +921,7 @@ export function PacsQueryPage() {
   const handleCalendarSelect = (date: Date | undefined) => {
     setSelectedDate(date);
     setCalendarOpen(false);
+    setCalendarDraftDate(undefined);
     if (!date) {
       // Limpar: volta para Hoje
       handlePeriodChange('today');
@@ -922,6 +933,24 @@ export function PacsQueryPage() {
     // PERSIST-FILTER: salvar filtro customizado na sessão
     try { sessionStorage.setItem(filterSessionKey, JSON.stringify(newFilters)); } catch { /* ignorar */ }
     runQuery({ period: 'custom', studyDate });
+  };
+
+  const openCalendarDialog = () => {
+    setCalendarDraftDate(selectedDate ?? new Date());
+    setCalendarOpen(true);
+  };
+
+  const handleCalendarDialogChange = (open: boolean) => {
+    setCalendarOpen(open);
+    if (!open) setCalendarDraftDate(undefined);
+  };
+
+  const applyCalendarDraft = () => {
+    handleCalendarSelect(calendarDraftDate ?? new Date());
+  };
+
+  const applyCalendarToday = () => {
+    handleCalendarSelect(new Date());
   };
 
   const handleLast7Days = () => {
@@ -1459,6 +1488,7 @@ export function PacsQueryPage() {
       )}
 
       {/* ── FILTROS ── */}
+      <Dialog open={calendarOpen} onOpenChange={handleCalendarDialogChange}>
       <div className="hidden md:flex bg-white border-b border-gray-200 px-5 py-2.5 items-center gap-3 shrink-0">
         {/* Busca por nome */}
         <div className="relative">
@@ -1489,32 +1519,23 @@ export function PacsQueryPage() {
           >
             Últimos 7 dias
           </button>
-          {/* Calendário — Popover com seleção de data única */}
-          <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-            <PopoverTrigger asChild>
-              <button
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border flex items-center gap-1.5 ${
-                  activePeriod === 'custom' && selectedDate
-                    ? 'bg-amber-700 text-white border-amber-700'
-                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                <CalendarDays className="h-3 w-3" />
-                {selectedDate
-                  ? format(selectedDate, 'dd/MM/yyyy', { locale: ptBR })
-                  : 'Data'}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={selectedDate}
-                onSelect={handleCalendarSelect}
-                locale={ptBR}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>
+          {/* Calendário — abre o modal dedicado de seleção de data */}
+          <DialogTrigger asChild>
+            <button
+              type="button"
+              onClick={openCalendarDialog}
+              className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border flex items-center gap-1.5 ${
+                activePeriod === 'custom' && selectedDate
+                  ? 'bg-amber-700 text-white border-amber-700'
+                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <CalendarDays className="h-3 w-3" />
+              {selectedDate
+                ? format(selectedDate, 'dd/MM/yyyy', { locale: ptBR })
+                : 'Data'}
+            </button>
+          </DialogTrigger>
           {selectedDate && (
             <button
               onClick={() => handleCalendarSelect(undefined)}
@@ -1552,31 +1573,58 @@ export function PacsQueryPage() {
 
       {/* ── CONTROLE DE DATA MOBILE ── */}
       <div className="md:hidden bg-white border-b border-gray-200 p-5 shrink-0">
-        <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-          <PopoverTrigger asChild>
+        <DialogTrigger asChild>
+          <button
+            type="button"
+            onClick={openCalendarDialog}
+            className={`h-14 w-full rounded-xl border text-base font-semibold transition-colors inline-flex items-center justify-center gap-3 ${
+              activePeriod === 'custom' && selectedDate
+                ? 'bg-amber-700 text-white border-amber-700'
+                : 'bg-white border-gray-300 text-gray-800 hover:bg-gray-50'
+            }`}
+          >
+            <CalendarDays className="h-6 w-6" />
+            <span>{selectedDate ? format(selectedDate, 'dd/MM/yyyy', { locale: ptBR }) : 'Escolher data'}</span>
+          </button>
+        </DialogTrigger>
+      </div>
+
+      <DialogContent
+        className="w-[calc(100%-2rem)] max-w-md rounded-2xl bg-white p-6 text-gray-900 sm:max-w-md"
+      >
+        <DialogHeader className="text-left">
+          <DialogTitle className="text-2xl font-bold text-gray-900">Escolher data</DialogTitle>
+          <DialogDescription className="text-base text-gray-500">Selecione o dia dos exames.</DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-center rounded-xl bg-white py-1">
+          <Calendar
+            mode="single"
+            selected={calendarDraftDate}
+            onSelect={setCalendarDraftDate}
+            locale={ptBR}
+            initialFocus
+          />
+        </div>
+        <DialogFooter className="flex-col gap-3 sm:flex-col">
+          <button
+            type="button"
+            onClick={applyCalendarDraft}
+            className="h-14 w-full rounded-xl bg-blue-600 text-base font-bold text-white transition-colors hover:bg-blue-700"
+          >
+            Fechar
+          </button>
+          <DialogClose asChild>
             <button
               type="button"
-              className={`h-14 w-full rounded-xl border text-base font-semibold transition-colors inline-flex items-center justify-center gap-3 ${
-                activePeriod === 'custom' && selectedDate
-                  ? 'bg-amber-700 text-white border-amber-700'
-                  : 'bg-white border-gray-300 text-gray-800 hover:bg-gray-50'
-              }`}
+              onClick={applyCalendarToday}
+              className="h-14 w-full rounded-xl border border-gray-300 bg-white text-base font-semibold text-gray-700 transition-colors hover:bg-gray-50"
             >
-              <CalendarDays className="h-6 w-6" />
-              <span>{selectedDate ? format(selectedDate, 'dd/MM/yyyy', { locale: ptBR }) : 'Escolher data'}</span>
+              Hoje
             </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="center">
-            <Calendar
-              mode="single"
-              selected={selectedDate}
-              onSelect={handleCalendarSelect}
-              locale={ptBR}
-              initialFocus
-            />
-          </PopoverContent>
-        </Popover>
-      </div>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+      </Dialog>
 
       {/* ── TABELA ── */}
       <div className="flex-1 overflow-auto">

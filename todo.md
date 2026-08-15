@@ -1755,3 +1755,4 @@
 - [x] Reduzir legenda do exame ao tamanho discreto original e mover status para a faixa do nome no card mobile
 - [x] Enviar o checkpoint da correção do card PACS mobile para o repositório GitHub conectado
 - [x] Validar e ativar o botão "Escolher data" (filtro de data personalizado) na listagem PACS
+- [x] Substituir popover de data por modal explícito com fundo escurecido, título, calendário, botão Fechar e botão Hoje (referência visual QA)
