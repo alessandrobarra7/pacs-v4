@@ -65,4 +65,11 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(pageSource).toContain("replace(/\\^+/g, ' ').replace(/\\s{2,}/g, ' ').trim()");
     expect(pageSource).toContain(".toUpperCase()");
   });
+
+  it("mantém um único controle de edição no card mobile", () => {
+    expect(pageSource).toContain('aria-label="Editar nome do paciente"');
+    expect(pageSource).toContain('<Pencil className="h-3.5 w-3.5" aria-hidden="true" />');
+    expect(pageSource).not.toContain('>✏️</button>');
+    expect(pageSource).not.toContain('patientNameEdited && <Pencil className="ml-1 inline h-3 w-3');
+  });
 });

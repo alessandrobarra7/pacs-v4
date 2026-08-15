@@ -1758,3 +1758,4 @@
 - [x] Substituir popover de data por modal explícito com fundo escurecido, título, calendário, botão Fechar e botão Hoje (referência visual QA)
 - [x] Validar no celular o modal “Escolher data” e confirmar a busca real após selecionar uma data
 - [x] Reutilizar study_metadata para correções locais de nome e legenda, integrando edição e aplicação sem alterar a fonte PACS
+- [x] Remover a duplicidade dos ícones de edição no card mobile e manter uma única ação discreta para corrigir o nome do paciente

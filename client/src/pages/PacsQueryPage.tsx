@@ -2001,7 +2001,6 @@ export function PacsQueryPage() {
                     <div className="mt-1.5 flex items-start gap-2">
                       <div className={`min-w-0 flex-1 break-words pr-1 text-[15px] font-bold uppercase leading-tight ${patientNameEdited ? 'text-amber-700' : 'text-amber-800'}`}>
                         {patientName}
-                        {patientNameEdited && <Pencil className="ml-1 inline h-3 w-3 align-[1px] text-amber-500" aria-label="Nome editado" />}
                         {canEditExamLegend && (
                           <button
                             type="button"
@@ -2010,9 +2009,10 @@ export function PacsQueryPage() {
                               handleEditPatientName(study.studyInstanceUid, patientName);
                             }}
                             title="Editar nome do paciente"
-                            className="ml-2 text-xs text-gray-400 hover:text-amber-600 inline-flex items-center align-middle"
+                            aria-label="Editar nome do paciente"
+                            className="ml-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100 align-middle"
                           >
-                            ✏️
+                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
                         )}
                       </div>
