@@ -1862,7 +1862,7 @@ export function PacsQueryPage() {
                           <span className="text-gray-300">/</span>
                           <span>{relative}</span>
                         </div>
-                        <div className="mt-2 truncate pr-1 text-[15px] font-bold uppercase leading-tight text-amber-800">
+                        <div className="mt-1 truncate pr-1 text-xs uppercase leading-tight text-gray-500">
                           {examLabel}
                         </div>
                       </div>
@@ -1914,14 +1914,16 @@ export function PacsQueryPage() {
                             <Printer className="h-4 w-4" />
                           </button>
                         )}
-                        <span className={`inline-flex max-w-[92px] items-center rounded-full border px-2 py-1 text-[10px] font-medium leading-none ${mobileStatusCls}`}>
-                          {status}
-                        </span>
                       </div>
                     </div>
-                    <div className={`mt-1.5 break-words pr-1 text-[15px] font-bold uppercase leading-tight ${patientNameEdited ? 'text-amber-700' : 'text-amber-800'}`}>
-                      {patientName}
-                      {patientNameEdited && <Pencil className="ml-1 inline h-3 w-3 align-[1px] text-amber-500" aria-label="Nome editado" />}
+                    <div className="mt-1.5 flex items-start gap-2">
+                      <div className={`min-w-0 flex-1 break-words pr-1 text-[15px] font-bold uppercase leading-tight ${patientNameEdited ? 'text-amber-700' : 'text-amber-800'}`}>
+                        {patientName}
+                        {patientNameEdited && <Pencil className="ml-1 inline h-3 w-3 align-[1px] text-amber-500" aria-label="Nome editado" />}
+                      </div>
+                      <span className={`inline-flex max-w-[92px] shrink-0 items-center rounded-full border px-2 py-1 text-[10px] font-medium leading-none ${mobileStatusCls}`}>
+                        {status}
+                      </span>
                     </div>
                   </article>
                 );

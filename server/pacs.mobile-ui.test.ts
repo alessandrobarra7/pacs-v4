@@ -25,6 +25,9 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(pageSource).toContain("mobileStatusCls");
     expect(pageSource).toContain("break-words pr-1 text-[15px] font-bold uppercase leading-tight");
     expect(pageSource).not.toContain("truncate pr-1 text-[15px] font-bold uppercase leading-tight ${patientNameEdited");
+    expect(pageSource).toContain("mt-1 truncate pr-1 text-xs uppercase leading-tight text-gray-500");
+    expect(pageSource).toContain("mt-1.5 flex items-start gap-2");
+    expect(pageSource).toContain("max-w-[92px] shrink-0 items-center rounded-full");
     expect(headerSource).toContain("mobileUnitLabel");
     expect(headerSource).toContain("Abrir menu");
     expect(headerSource).toContain("md:hidden absolute bottom-6");
