@@ -151,81 +151,41 @@ export function DicomViewerPage() {
     { enabled: !!studyUid }
   );
 
-  function PatientViewerAttachmentsButton({ studyInstanceUid }: { studyInstanceUid: string }) {
+  function PatientViewerAttachmentsButton() {
     return (
-      <>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowAttachmentsModal(true)}
-          className={`text-xs h-7 px-2 ${
-            viewerAttachments.length > 0
-              ? 'border-blue-700 text-blue-400 hover:bg-blue-900/40'
-              : 'border-gray-600 text-gray-400 hover:bg-gray-800'
-          }`}
-          title="Ver anexos e fotos do paciente"
-        >
-          <Paperclip className="h-3 w-3 mr-1" />
-          Anexos ({viewerAttachments.length})
-        </Button>
-
-       {showAttachmentsModal && (
-         <PatientAttachmentsModal
-           open={showAttachmentsModal}
-           onClose={() => setShowAttachmentsModal(false)}
-           studyInstanceUid={studyUid ?? ""}
-           patientName={studyMeta?.patient_name_override || studyMeta?.patient_name || studyInfo?.patientName}
-         />
-       )}
-
-       {showAudioModal && (
-         <AudioReportsModal
-           open={showAudioModal}
-           onClose={() => setShowAudioModal(false)}
-           studyInstanceUid={studyUid ?? ""}
-           unitId={viewerUnitId ?? undefined}
-           patientName={studyMeta?.patient_name_override || studyMeta?.patient_name || studyInfo?.patientName}
-           allowRecording={canOpenReport}
-           onUploadSuccess={() => {
-             refetchViewerAudios();
-           }}
-         />
-       )}
-      </>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setShowAttachmentsModal(true)}
+        className={`text-xs h-7 px-2 ${
+          viewerAttachments.length > 0
+            ? 'border-blue-700 text-blue-400 hover:bg-blue-900/40'
+            : 'border-gray-600 text-gray-400 hover:bg-gray-800'
+        }`}
+        title="Ver anexos e fotos do paciente"
+      >
+        <Paperclip className="h-3 w-3 mr-1" />
+        Anexos ({viewerAttachments.length})
+      </Button>
     );
   }
 
-  function PatientViewerAudioButton({ studyInstanceUid }: { studyInstanceUid: string }) {
+  function PatientViewerAudioButton() {
     return (
-      <>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowAudioModal(true)}
-          className={`text-xs h-7 px-2 ${
-            viewerAudios.length > 0
-              ? 'border-purple-700 text-purple-400 hover:bg-purple-900/40'
-              : 'border-gray-600 text-gray-400 hover:bg-gray-800'
-          }`}
-          title="Ouvir ou gravar áudios de laudo falado"
-        >
-          <Mic className="h-3 w-3 mr-1" />
-          Áudios ({viewerAudios.length})
-        </Button>
-
-        {showAudioModal && (
-          <AudioReportsModal
-            open={showAudioModal}
-            onClose={() => setShowAudioModal(false)}
-            studyInstanceUid={studyInstanceUid}
-            unitId={viewerUnitId ?? undefined}
-            patientName={studyMeta?.patient_name_override || studyMeta?.patient_name || studyInfo?.patientName}
-            onUploadSuccess={() => {
-              refetchViewerAudios();
-            }}
-          />
-        )}
-      </>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setShowAudioModal(true)}
+        className={`text-xs h-7 px-2 ${
+          viewerAudios.length > 0
+            ? 'border-purple-700 text-purple-400 hover:bg-purple-900/40'
+            : 'border-gray-600 text-gray-400 hover:bg-gray-800'
+        }`}
+        title="Ouvir ou gravar áudios de laudo falado"
+      >
+        <Mic className="h-3 w-3 mr-1" />
+        Áudios ({viewerAudios.length})
+      </Button>
     );
   }
 
@@ -1273,9 +1233,9 @@ export function DicomViewerPage() {
           </Button>
 
           {/* Botão Anexos do Paciente no Viewer */}
-          <PatientViewerAttachmentsButton studyInstanceUid={studyUid ?? ""} />
+          <PatientViewerAttachmentsButton />
           {/* Botão Áudio do Paciente no Viewer */}
-          <PatientViewerAudioButton studyInstanceUid={studyUid ?? ""} />
+          <PatientViewerAudioButton />
         </div>
       </div>
 
