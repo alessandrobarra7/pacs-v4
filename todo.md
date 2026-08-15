@@ -1763,3 +1763,4 @@
 - [x] Corrigir rota do clipe (Paperclip) para abrir anexos e fotos do paciente (câmera, múltiplos arquivos) em vez da anamnese, com visualização no DICOM viewer
 - [x] Simplificar o modal de anexos: nome do paciente, Fotografar, Anexar arquivo, miniaturas/quantidade e Fechar
 - [x] Manter o modal aberto após fotografar, abrir miniaturas em preview ampliado e remover o título textual do cabeçalho do modal
+- [x] Nota arquitetural registrada: futura VM3 (MinIO/S3) para armazenamento isolado de anexos de exames e laudos em PDF, evitando sobrecarga em VM1 e VM2
