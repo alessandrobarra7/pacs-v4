@@ -1,5 +1,8 @@
 # PACS Portal - TODO List
 
+## INTEGRAÇÃO SELETIVA DO CÓDIGO MODIFICADO
+- [x] Item 1 — Integrar melhorias visuais e mobile da página de login preservando a autenticação original
+
 ## FASE 0 - Estruturação do banco de dados e modelos
 - [x] Criar schema completo do banco de dados (units, users, studies_cache, reports, templates, audit_log)
 - [x] Gerar e aplicar migrações do banco de dados

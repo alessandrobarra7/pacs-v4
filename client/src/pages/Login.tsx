@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
-import { Eye, EyeOff, Cloud, CheckCircle2, Headphones, RefreshCw, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Cloud, CheckCircle2, Headphones, RefreshCw, ShieldCheck, User, Lock } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 
 /* ── ECG SVG path ─────────────────────────────────────────────────────────── */
@@ -98,8 +98,151 @@ export default function Login() {
   }
 
   return (
-    <div
-      className="min-h-screen w-full flex flex-col"
+    <>
+      <div
+        className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-[#020b12] px-8 py-5 text-white md:hidden"
+        style={{ fontFamily: "'Inter', sans-serif" }}
+      >
+        <img
+          src="/login-medical-bg.jpg"
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-cover opacity-20"
+        />
+        <div className="absolute inset-0 bg-[#061321]/75" aria-hidden="true" />
+
+        <header className="relative z-10 shrink-0 pt-5">
+          <div className="relative inline-block max-w-full">
+            <span
+              className="block text-[4.9rem] font-black leading-none text-white"
+              style={{ textShadow: "0 0 42px rgba(255,255,255,0.08)" }}
+            >
+              Lauds
+            </span>
+            <svg
+              viewBox="0 0 450 60"
+              preserveAspectRatio="none"
+              className="absolute left-0 top-[52%] h-7 w-full -translate-y-1/2"
+              aria-hidden="true"
+            >
+              <motion.path
+                d={ECG_PATH}
+                fill="none"
+                stroke="#e11d48"
+                strokeWidth="2.4"
+                initial={{ pathLength: 0.8, opacity: 0.8 }}
+                animate={shouldReduceMotion ? {} : { pathLength: [0.8, 1, 0.8], opacity: [0.8, 1, 0.8] }}
+                transition={{ duration: 3.8, repeat: Infinity, ease: "easeInOut" }}
+              />
+            </svg>
+          </div>
+          <p className="mt-2 text-[0.78rem] font-medium uppercase tracking-[0.34em] text-sky-400">
+            Sistema de Laudos
+            <br />
+            Radiológicos
+          </p>
+        </header>
+
+        <main className="relative z-10 flex min-h-0 flex-1 items-center py-4">
+          <section className="w-full rounded-xl border border-sky-500/25 bg-[#071426]/88 px-8 py-5 shadow-[0_0_42px_rgba(56,189,248,0.08)] backdrop-blur">
+            <h1 className="text-center text-2xl font-extrabold leading-tight text-white">
+              Acesso ao
+              <br />
+              Sistema
+            </h1>
+            <p className="mx-auto mt-3 max-w-[210px] text-center text-xs leading-5 text-slate-300">
+              Informe suas credenciais para continuar
+            </p>
+
+            <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+              <div>
+                <label htmlFor="mobile-login-input" className="sr-only">
+                  Usuário
+                </label>
+                <div className="flex h-12 items-center gap-3 rounded-xl border border-white/10 bg-white/[0.06] px-4">
+                  <User className="h-5 w-5 shrink-0 text-slate-500" aria-hidden="true" />
+                  <input
+                    id="mobile-login-input"
+                    type="text"
+                    placeholder="Usuário"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    autoComplete="username"
+                    className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="mobile-password-input" className="sr-only">
+                  Senha
+                </label>
+                <div className="flex h-12 items-center gap-3 rounded-xl border border-white/10 bg-white/[0.06] px-4">
+                  <Lock className="h-5 w-5 shrink-0 text-slate-500" aria-hidden="true" />
+                  <input
+                    id="mobile-password-input"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Senha"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                    className="shrink-0 text-slate-500 transition-colors hover:text-slate-300"
+                  >
+                    {showPassword
+                      ? <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      : <Eye className="h-4 w-4" aria-hidden="true" />
+                    }
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loginMutation.isPending}
+                className="h-14 w-full rounded-xl bg-gradient-to-r from-rose-700 via-rose-600 to-rose-500 text-sm font-extrabold text-white shadow-[0_12px_28px_rgba(225,29,72,0.28)] transition active:scale-[0.99] disabled:opacity-60"
+              >
+                {loginMutation.isPending ? "Entrando..." : "Entrar no Sistema"}
+              </button>
+            </form>
+
+            <div className="my-5 flex items-center gap-3">
+              <div className="h-px flex-1 bg-white/10" />
+              <span className="text-[10px] text-slate-600">ou</span>
+              <div className="h-px flex-1 bg-white/10" />
+            </div>
+
+            <div className="flex items-center justify-center gap-2 text-[10px] text-slate-600">
+              <ShieldCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>Ambiente seguro e criptografado</span>
+            </div>
+          </section>
+        </main>
+
+        <footer className="relative z-10 shrink-0 space-y-3 pb-1 text-[10px] leading-none text-slate-400">
+          <div className="flex items-center justify-center gap-2">
+            <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-emerald-400" fill="currentColor" aria-hidden="true">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+            </svg>
+            <span>Vendas: 98 98484-0224 WhatsApp</span>
+          </div>
+          <div className="flex items-center justify-center gap-2 text-slate-500">
+            <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-sky-500/70" aria-hidden="true" />
+            <span>Ambiente seguro e criptografado</span>
+          </div>
+          <div className="text-center text-slate-500">
+            Desenvolvimento <span className="font-semibold text-slate-300">StudioBarra7</span>
+          </div>
+        </footer>
+      </div>
+
+      <div
+        className="hidden min-h-screen w-full flex-col md:flex"
       style={{
         background: "linear-gradient(135deg, #020b12 0%, #0a1628 50%, #020b12 100%)",
         fontFamily: "'Inter', sans-serif",
@@ -505,6 +648,8 @@ export default function Login() {
           </span>
         </div>
       </footer>
-    </div>
+
+      </div>
+    </>
   );
 }
