@@ -1762,3 +1762,4 @@
 - [x] Confirmar publicação do controle único de edição no GitHub e deixar a branch pronta para a próxima alteração funcional
 - [x] Corrigir rota do clipe (Paperclip) para abrir anexos e fotos do paciente (câmera, múltiplos arquivos) em vez da anamnese, com visualização no DICOM viewer
 - [x] Simplificar o modal de anexos: nome do paciente, Fotografar, Anexar arquivo, miniaturas/quantidade e Fechar
+- [x] Manter o modal aberto após fotografar, abrir miniaturas em preview ampliado e remover o título textual do cabeçalho do modal

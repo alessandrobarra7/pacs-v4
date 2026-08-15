@@ -34,8 +34,10 @@ export function PatientAttachmentsModal({
   patientName,
 }: PatientAttachmentsModalProps) {
   const [uploading, setUploading] = useState(false);
+  const [previewAttachment, setPreviewAttachment] = useState<any | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraActiveRef = useRef(false);
 
   const { data: attachments = [], refetch } = trpc.annotations.list.useQuery(
     { study_instance_uid: studyInstanceUid },
@@ -44,7 +46,13 @@ export function PatientAttachmentsModal({
   const uploadMutation = trpc.annotations.upload.useMutation();
   const deleteMutation = trpc.annotations.deleteAttachment.useMutation();
 
+  const openCamera = () => {
+    cameraActiveRef.current = true;
+    cameraInputRef.current?.click();
+  };
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    cameraActiveRef.current = false;
     const files = event.target.files;
     if (!files?.length) return;
 
@@ -89,14 +97,21 @@ export function PatientAttachmentsModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-md rounded-2xl p-5 sm:p-6">
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !cameraActiveRef.current) onClose();
+      }}
+    >
+      <DialogContent
+        className="w-[calc(100%-2rem)] max-w-md rounded-2xl p-5 sm:p-6"
+        onInteractOutside={(event) => {
+          if (cameraActiveRef.current) event.preventDefault();
+        }}
+      >
         <DialogHeader className="space-y-1 text-left">
-          <DialogTitle className="flex items-center gap-2 text-xl font-bold text-gray-900">
-            <Paperclip className="h-5 w-5 text-gray-700" aria-hidden="true" />
-            Anexos e Fotos do Paciente
-          </DialogTitle>
-          <p className="truncate text-base font-semibold uppercase text-gray-800" title={patientName || "Paciente"}>
+          <DialogTitle className="sr-only">Anexos do paciente</DialogTitle>
+          <p className="truncate pr-8 text-base font-semibold uppercase text-gray-800" title={patientName || "Paciente"}>
             {patientName || "Paciente não identificado"}
           </p>
         </DialogHeader>
@@ -105,7 +120,7 @@ export function PatientAttachmentsModal({
           <Button
             type="button"
             disabled={uploading}
-            onClick={() => cameraInputRef.current?.click()}
+            onClick={openCamera}
             className="h-12 gap-2 rounded-xl bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700"
           >
             {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
@@ -152,17 +167,24 @@ export function PatientAttachmentsModal({
                 const isImage = attachment.file_type?.startsWith("image/");
                 return (
                   <div key={attachment.id} className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white">
-                    {isImage ? (
-                      <img
-                        src={attachment.file_url}
-                        alt={attachment.file_name}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-gray-400">
-                        <FileText className="h-7 w-7" aria-hidden="true" />
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setPreviewAttachment(attachment)}
+                      aria-label={`Visualizar ${attachment.file_name}`}
+                      className="h-full w-full"
+                    >
+                      {isImage ? (
+                        <img
+                          src={attachment.file_url}
+                          alt={attachment.file_name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center text-gray-400">
+                          <FileText className="h-7 w-7" aria-hidden="true" />
+                        </span>
+                      )}
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleDelete(attachment.id)}
@@ -195,6 +217,34 @@ export function PatientAttachmentsModal({
           Fechar
         </Button>
       </DialogContent>
+
+      <Dialog open={!!previewAttachment} onOpenChange={(nextOpen) => !nextOpen && setPreviewAttachment(null)}>
+        <DialogContent className="w-[calc(100%-2rem)] max-w-2xl rounded-2xl p-3 sm:p-5">
+          <DialogHeader>
+            <DialogTitle className="sr-only">Visualização do anexo</DialogTitle>
+          </DialogHeader>
+          {previewAttachment && previewAttachment.file_type?.startsWith("image/") ? (
+            <img
+              src={previewAttachment.file_url}
+              alt={previewAttachment.file_name}
+              className="max-h-[75vh] w-full rounded-lg object-contain"
+            />
+          ) : previewAttachment ? (
+            <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-lg bg-gray-50 p-6 text-center">
+              <FileText className="h-12 w-12 text-gray-400" aria-hidden="true" />
+              <p className="text-sm font-medium text-gray-700">{previewAttachment.file_name}</p>
+              <a
+                href={previewAttachment.file_url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm font-semibold text-blue-600 underline"
+              >
+                Abrir arquivo
+              </a>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

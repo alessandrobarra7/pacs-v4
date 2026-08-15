@@ -78,7 +78,8 @@ describe("PacsQueryPage mobile study list contract", () => {
   });
 
   it("mantém o modal de anexos enxuto e com upload preservado", () => {
-    expect(attachmentsModalSource).toContain("Anexos e Fotos do Paciente");
+    expect(attachmentsModalSource).not.toContain("Anexos e Fotos do Paciente");
+    expect(attachmentsModalSource).toContain("Anexos do paciente");
     expect(attachmentsModalSource).toContain("Fotografar");
     expect(attachmentsModalSource).toContain("Anexar arquivo");
     expect(attachmentsModalSource).toContain("Nenhum anexo · 0 arquivos");
