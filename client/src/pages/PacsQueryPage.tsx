@@ -1280,8 +1280,8 @@ export function PacsQueryPage() {
 
     const printWindow = window.open('', '_blank', 'width=850,height=1100');
     if (!printWindow) { toast.error('Bloqueador de pop-up ativo. Permita pop-ups para imprimir.'); return; }
-    printWindow.document.write(`<!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="UTF-8"><title>Laudo - ${patientName}</title>
+printWindow.document.write(`<!DOCTYPE html>
+	<html lang="pt-BR"><head><meta charset="UTF-8"><title>Laudo_${patientName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf</title>
 <style>
   /* SYNC ReportEditorPage: full-bleed — @page margin:0 → body = folha inteira */
   @page {
@@ -1932,7 +1932,7 @@ export function PacsQueryPage() {
                           return (
                             <button
                               onClick={() => handlePrintReport(study)}
-                              title={isSigned ? "Laudo assinado — clique para imprimir" : "Imprimir rascunho"}
+                              title={isSigned ? "Baixar laudo assinado em PDF" : "Baixar rascunho em PDF"}
                               className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
                                 isSigned
                                   ? "border-blue-400 bg-blue-50 text-blue-700 hover:bg-blue-100"
@@ -2095,8 +2095,8 @@ export function PacsQueryPage() {
                             <button
                               type="button"
                               onClick={(event) => { event.stopPropagation(); handlePrintReport(study); }}
-                              title={isSigned ? "Laudo assinado" : "Imprimir rascunho"}
-                              aria-label="Imprimir laudo"
+                              title={isSigned ? "Baixar laudo assinado" : "Baixar rascunho"}
+                              aria-label="Baixar laudo em PDF"
                               className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
                                 isSigned
                                   ? "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
