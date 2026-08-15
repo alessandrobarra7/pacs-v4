@@ -1771,4 +1771,5 @@
 - [x] Organizar a criação e edição de unidades em modal mobile com seções compactas
 - [x] Adaptar a aba mobile de usuários para cartões e permissões empilhadas sem quebrar o desktop
 - [x] Validar a administração mobile com TypeScript, Vitest e verificação visual
-- [ ] Sincronizar a melhoria da administração mobile no GitHub
+- [x] Sincronizar a melhoria da administração mobile no GitHub
+- [x] Simplificar a edição administrativa de layout de laudos no mobile com abas por seção e prévia A4 limpa

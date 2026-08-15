@@ -97,6 +97,7 @@ export default function LayoutEditorPage() {
   const [showPreview, setShowPreview] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"preview" | "logos" | "bg" | "blocks">("preview");
 
   const dragging = useRef<{
     block: BlockId;
@@ -401,9 +402,41 @@ export default function LayoutEditorPage() {
         </Button>
       </div>
 
+      {/* ── Abas de navegação mobile para edição de layout ── */}
+      <div className="lg:hidden bg-white border-b border-gray-200 px-3 py-2 flex items-center justify-between gap-1 overflow-x-auto shrink-0">
+        <button
+          onClick={() => setMobileTab("preview")}
+          className={`flex-1 min-w-[75px] py-2 px-3 text-xs font-medium rounded-lg text-center transition-colors ${mobileTab === "preview" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+        >
+          Prévia A4
+        </button>
+        <button
+          onClick={() => setMobileTab("logos")}
+          className={`flex-1 min-w-[75px] py-2 px-3 text-xs font-medium rounded-lg text-center transition-colors ${mobileTab === "logos" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+        >
+          Logos
+        </button>
+        <button
+          onClick={() => setMobileTab("bg")}
+          className={`flex-1 min-w-[75px] py-2 px-3 text-xs font-medium rounded-lg text-center transition-colors ${mobileTab === "bg" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+        >
+          Fundo / Rodapé
+        </button>
+        <button
+          onClick={() => setMobileTab("blocks")}
+          className={`flex-1 min-w-[75px] py-2 px-3 text-xs font-medium rounded-lg text-center transition-colors ${mobileTab === "blocks" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+        >
+          Blocos
+        </button>
+      </div>
+
       <div className="flex flex-1 overflow-hidden">
         {/* Painel esquerdo */}
-        <div className="w-80 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0 p-4 space-y-5">
+        <div className={`w-full lg:w-80 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0 p-4 space-y-5 ${mobileTab === "preview" ? "hidden lg:block" : "block"}`}>
+          <div className="lg:hidden flex items-center justify-between bg-blue-50 border border-blue-100 p-3 rounded-xl mb-3">
+            <span className="text-xs font-semibold text-blue-800">Editando Configurações Mobile</span>
+            <Button variant="default" size="sm" onClick={() => setMobileTab("preview")} className="h-8 text-xs bg-blue-600 text-white">Ver Prévia A4</Button>
+          </div>
 
           {/* ── Logos ─────────────────────────────────────────────────────── */}
           <section>
@@ -607,7 +640,11 @@ export default function LayoutEditorPage() {
 
         {/* Canvas A4 */}
         {showPreview && (
-          <div className="flex-1 overflow-auto bg-gray-300 flex items-start justify-center p-8">
+          <div className={`flex-1 overflow-auto bg-gray-300 flex-col items-center justify-start p-4 lg:p-8 ${mobileTab === "preview" ? "flex" : "hidden lg:flex"}`}>
+            <div className="lg:hidden w-full max-w-xl mb-3 flex items-center justify-between bg-white border border-gray-200 p-3 rounded-xl shadow-sm">
+              <span className="text-xs font-medium text-gray-700">Deseja alterar logos ou rodapé?</span>
+              <Button variant="outline" size="sm" onClick={() => setMobileTab("logos")} className="h-8 text-xs border-blue-200 text-blue-700 bg-blue-50">Abrir Painel</Button>
+            </div>
             <div>
               <div className="flex items-center justify-center gap-4 mb-2 flex-wrap">
                 {BLOCK_IDS.map(b => (

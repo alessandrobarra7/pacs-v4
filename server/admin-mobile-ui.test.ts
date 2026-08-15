@@ -10,6 +10,10 @@ const usersSource = readFileSync(
   resolve(process.cwd(), "client/src/components/UsersPermissionsTab.tsx"),
   "utf8",
 );
+const layoutEditorSource = readFileSync(
+  resolve(process.cwd(), "client/src/pages/LayoutEditorPage.tsx"),
+  "utf8",
+);
 
 describe("Administração — experiência mobile", () => {
   it("mantém a tabela de unidades no desktop e usa cartões no mobile", () => {
@@ -32,5 +36,12 @@ describe("Administração — experiência mobile", () => {
     expect(usersSource).toContain('className="md:hidden space-y-3 p-3"');
     expect(usersSource).toContain("mobile-unit-filter");
     expect(usersSource).toContain("onEditUser(user)");
+  });
+
+  it("oferece abas e controles organizados para edição de layout no mobile", () => {
+    expect(layoutEditorSource).toContain('setMobileTab("preview")');
+    expect(layoutEditorSource).toContain('setMobileTab("logos")');
+    expect(layoutEditorSource).toContain("Prévia A4");
+    expect(layoutEditorSource).toContain("Logos");
   });
 });
