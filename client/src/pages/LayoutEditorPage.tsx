@@ -300,32 +300,43 @@ export default function LayoutEditorPage() {
   // ── Handlers: drag-and-drop ────────────────────────────────────────────────
   const handleMouseDown = useCallback((e: React.MouseEvent, block: BlockId) => {
     e.preventDefault();
+    const canvas = canvasRef.current;
+    const current = positions[block];
+    if (!canvas || !current) return;
+
     setActiveBlock(block);
-    if (!canvasRef.current) return;
     dragging.current = {
       block,
       startX: e.clientX,
       startY: e.clientY,
-      origX: positions[block].x,
-      origY: positions[block].y,
+      origX: current.x,
+      origY: current.y,
     };
   }, [positions]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!dragging.current || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const dx = ((e.clientX - dragging.current.startX) / rect.width) * 100;
-    const dy = ((e.clientY - dragging.current.startY) / rect.height) * 100;
-    const block = dragging.current.block;
+    const drag = dragging.current;
+    const canvas = canvasRef.current;
+    if (!drag || !canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const dx = ((e.clientX - drag.startX) / rect.width) * 100;
+    const dy = ((e.clientY - drag.startY) / rect.height) * 100;
+    const { block, origX, origY } = drag;
+
     setPositions(prev => {
-      const newX = Math.max(0, Math.min(100 - prev[block].w, dragging.current!.origX + dx));
-      const newY = Math.max(0, Math.min(100 - prev[block].h, dragging.current!.origY + dy));
-      return { ...prev, [block]: { ...prev[block], x: newX, y: newY } };
+      const current = prev[block];
+      if (!current) return prev;
+      const newX = Math.max(0, Math.min(100 - current.w, origX + dx));
+      const newY = Math.max(0, Math.min(100 - current.h, origY + dy));
+      return { ...prev, [block]: { ...current, x: newX, y: newY } };
     });
     setIsDirty(true);
   }, []);
 
-  const handleMouseUp = useCallback(() => { dragging.current = null; }, []);
+  const handleMouseUp = useCallback(() => {
+    dragging.current = null;
+  }, []);
 
   const toggleVisible = useCallback((block: BlockId) => {
     setPositions(prev => ({ ...prev, [block]: { ...prev[block], visible: !prev[block].visible } }));

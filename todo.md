@@ -1780,3 +1780,4 @@
 - [x] Restaurar o botão Laudar na tabela desktop da listagem PACS preservando o RBAC e o fluxo mobile
 - [x] Adaptar o editor de layout de laudos para incorporar a referência visual do ZIP (painel de logos, controles X/Y/largura/altura, prévia interativa e alternância de modos)
 - [x] Transformar a edição de logotipos no LayoutEditorPage em elementos diretamente selecionáveis, arrastáveis e redimensionáveis na folha A4 com barras de ferramentas flutuantes compactas
+- [x] Corrigir definitivamente o TypeError de `origX`/`originX` durante arraste ou redimensionamento no LayoutEditorPage

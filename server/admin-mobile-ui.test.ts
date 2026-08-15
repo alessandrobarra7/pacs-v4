@@ -36,4 +36,12 @@ describe("Admin Mobile UI & Advanced Layout Editor Contract", () => {
     expect(layoutEditorSource).toContain("previewMode");
     expect(layoutEditorSource).toContain("Modo de posicionamento");
   });
+
+  it("protects dragging from null refs and missing blocks", () => {
+    expect(layoutEditorSource).toContain("const drag = dragging.current;");
+    expect(layoutEditorSource).toContain("const { block, origX, origY } = drag;");
+    expect(layoutEditorSource).toContain("if (!current) return prev;");
+    expect(layoutEditorSource).not.toContain("dragging.current!.origX");
+    expect(layoutEditorSource).not.toContain("dragging.current!.origY");
+  });
 });
