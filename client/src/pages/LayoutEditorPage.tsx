@@ -390,7 +390,7 @@ export default function LayoutEditorPage() {
         )}
         <Button variant="outline" size="sm" onClick={() => setShowPreview(v => !v)}>
           {showPreview ? <EyeOff className="h-4 w-4 mr-1" /> : <Eye className="h-4 w-4 mr-1" />}
-          {showPreview ? "Ocultar preview" : "Mostrar preview"}
+          {showPreview ? "Modo Blocos" : "Laudo Pronto (A4 Real)"}
         </Button>
         <Button variant="outline" size="sm" onClick={handleReset}>
           <RotateCcw className="h-4 w-4 mr-1" /> Resetar
@@ -640,54 +640,91 @@ export default function LayoutEditorPage() {
                   />
                 )}
 
-                {/* Blocos drag-and-drop */}
-                {BLOCK_IDS.map(block => {
-                  const pos = positions[block];
-                  const info = BLOCK_LABELS[block];
-                  if (!pos.visible) return null;
-                  const isActive = activeBlock === block;
-                  return (
-                    <div
-                      key={block}
-                      onMouseDown={(e) => handleMouseDown(e, block)}
-                      style={{
-                        position: "absolute",
-                        left: `${pos.x}%`, top: `${pos.y}%`,
-                        width: `${pos.w}%`, height: `${pos.h}%`,
-                        border: `2px dashed ${info.color}`,
-                        background: isActive ? `${info.color}30` : `${info.color}12`,
-                        cursor: "grab",
-                        zIndex: isActive ? 10 : 2,
-                        borderRadius: 3,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        overflow: "hidden",
-                        transition: "background 0.1s",
-                      }}
-                    >
-                      <div style={{ position: "absolute", top: 2, left: 4, fontSize: 7, fontWeight: 700, color: info.color, background: "rgba(255,255,255,0.9)", padding: "0 3px", borderRadius: 2, lineHeight: 1.5, pointerEvents: "none" }}>
-                        {info.label}
+                {/* Preview Real de Laudo Pronto A4 */}
+                <div className="absolute inset-0 bg-white flex flex-col p-6 font-serif text-xs text-gray-900 pointer-events-none">
+                  {bgPreview && (
+                    <img src={bgPreview} alt="Fundo" className="absolute inset-0 w-full h-full object-cover pointer-events-none opacity-30" style={{ zIndex: 0 }} />
+                  )}
+
+                  {/* Topo: Logos e Nome da Unidade */}
+                  <div className="flex items-center justify-between border-b-2 border-blue-600 pb-3 mb-4 relative z-10">
+                    <div className="flex items-center gap-3">
+                      {logos.filter(l => l.preview).length > 0 ? (
+                        logos.filter(l => l.preview).map((slot, i) => (
+                          <img key={i} src={slot.preview} alt={`Logo ${i + 1}`} className="h-10 object-contain" />
+                        ))
+                      ) : (
+                        <div className="h-10 w-10 rounded-full bg-blue-600 text-white font-sans font-bold flex items-center justify-center text-sm">
+                          {unitName.charAt(0)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <p className="font-sans font-bold uppercase tracking-wide text-sm text-blue-900">{unitName}</p>
+                      <p className="font-sans text-[9px] text-gray-500">Laudo Radiológico Oficial</p>
+                    </div>
+                  </div>
+
+                  {/* Dados do Paciente (Nome, Data de Nascimento, Exame, Data) */}
+                  <div className="rounded border border-gray-200 bg-gray-50/80 p-3 mb-4 relative z-10 font-sans">
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div>
+                        <span className="text-gray-400 text-[10px] uppercase">Paciente:</span>
+                        <p className="font-bold text-gray-900">ANTONIA DE SOUZA BATISTA</p>
                       </div>
-                      <div style={{ fontSize: block === "title" ? 8 : 7, color: "#555", textAlign: "center", padding: "14px 6px 4px", whiteSpace: "pre-wrap", lineHeight: 1.4, pointerEvents: "none", maxWidth: "100%", overflow: "hidden" }}>
-                        {block === "logo" ? (
-                          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
-                            {logos.filter(l => l.preview).length > 0
-                              ? logos.filter(l => l.preview).map((slot, i) => (
-                                  <img key={i} src={slot.preview} alt={slot.label || `Logo ${i + 1}`}
-                                    style={{ width: Math.min(slot.width, 80), height: Math.min(slot.height, 40), objectFit: "contain" }} />
-                                ))
-                              : (
-                                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                                  <div style={{ width: 28, height: 28, background: info.color + "33", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>🏥</div>
-                                  <span style={{ fontSize: 6, color: "#888" }}>Logo da Unidade</span>
-                                </div>
-                              )
-                            }
-                          </div>
-                        ) : info.preview}
+                      <div>
+                        <span className="text-gray-400 text-[10px] uppercase">Data de Nascimento:</span>
+                        <p className="font-medium text-gray-800">15/05/1970 (54 anos)</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 text-[10px] uppercase">Exame:</span>
+                        <p className="font-medium text-gray-800 uppercase">RADIOGRAFIA DE TÓRAX PA E PERFIL</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 text-[10px] uppercase">Realizado em:</span>
+                        <p className="font-medium text-gray-800">15/08/2026 09:15</p>
                       </div>
                     </div>
-                  );
-                })}
+                  </div>
+
+                  {/* Título do Exame */}
+                  <div className="text-center font-bold uppercase text-sm tracking-wider text-gray-900 mb-3 relative z-10 border-b border-gray-200 pb-2">
+                    RADIOGRAFIA DE TÓRAX PA E PERFIL
+                  </div>
+
+                  {/* Corpo do Laudo (Exemplo) */}
+                  <div className="flex-1 space-y-3 relative z-10 text-[11px] leading-relaxed text-gray-800">
+                    <div>
+                      <p className="font-bold uppercase text-gray-700 mb-1">Técnica:</p>
+                      <p>Exame radiográfico realizado em incidências póstero-anterior e perfil, com técnica de boa qualidade.</p>
+                    </div>
+                    <div>
+                      <p className="font-bold uppercase text-gray-700 mb-1">Relatório / Achados:</p>
+                      <p>Transparência pulmonar preservada, sem infiltrados parenquimatosos focais. Seios costo-fênicos livres e nítidos. Área cardíaca dentro dos limites normais.</p>
+                    </div>
+                    <div>
+                      <p className="font-bold uppercase text-gray-700 mb-1">Impressão Diagnóstica:</p>
+                      <p className="font-semibold text-gray-900">Estudo radiográfico do tórax sem alterações significativas.</p>
+                    </div>
+                  </div>
+
+                  {/* Rodapé e Assinatura */}
+                  <div className="mt-auto pt-4 border-t border-gray-200 flex items-end justify-between relative z-10">
+                    <div className="text-[10px] text-gray-500 font-sans">
+                      <p>Documento assinado digitalmente</p>
+                      <p className="text-[9px]">Unidade: {unitName}</p>
+                    </div>
+                    <div className="text-center">
+                      <div className="border-t border-gray-400 w-48 mb-1" />
+                      <p className="font-bold text-[11px] uppercase text-gray-900">Dr. Médico Radiologista</p>
+                      <p className="text-[10px] text-gray-600">CRM 12345 / RQE 9876</p>
+                    </div>
+                  </div>
+
+                  {footerPreview && (
+                    <img src={footerPreview} alt="Rodapé" className="absolute bottom-0 left-0 w-full object-cover pointer-events-none opacity-80" style={{ zIndex: 20, maxHeight: "12%" }} />
+                  )}
+                </div>
                 <div style={{ position: "absolute", inset: 0, border: "1px solid #e5e7eb", pointerEvents: "none", zIndex: 0 }} />
               </div>
               <p className="text-xs text-gray-500 text-center mt-2">Canvas A4 (595 × 842 px) — arraste os blocos para reposicionar</p>
