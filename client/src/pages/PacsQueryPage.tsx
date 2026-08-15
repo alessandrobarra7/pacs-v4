@@ -2103,15 +2103,18 @@ export function PacsQueryPage() {
         />
       )}
 
-      {isAttachmentsModalOpen && selectedStudy && (
-        <PatientAttachmentsModal
-          open={isAttachmentsModalOpen}
-          onClose={() => { setIsAttachmentsModalOpen(false); setSelectedStudy(null); }}
-          studyInstanceUid={selectedStudy.studyInstanceUid}
-          unitId={effectiveUnitId ?? undefined}
-          patientName={selectedStudy.patientName}
-        />
-      )}
+       {isAttachmentsModalOpen && selectedStudy && (
+         <PatientAttachmentsModal
+           open={isAttachmentsModalOpen}
+           onClose={() => { setIsAttachmentsModalOpen(false); setSelectedStudy(null); }}
+           studyInstanceUid={selectedStudy.studyInstanceUid}
+           unitId={effectiveUnitId ?? undefined}
+           patientName={selectedStudy.patientName}
+           onUploadSuccess={() => {
+             refetchAttachmentsStatus();
+           }}
+         />
+       )}
     </div>
   );
 }

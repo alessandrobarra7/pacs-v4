@@ -24,6 +24,7 @@ interface PatientAttachmentsModalProps {
   studyInstanceUid: string;
   unitId?: number;
   patientName?: string;
+  onUploadSuccess?: () => void;
 }
 
 export function PatientAttachmentsModal({
@@ -32,6 +33,7 @@ export function PatientAttachmentsModal({
   studyInstanceUid,
   unitId,
   patientName,
+  onUploadSuccess,
 }: PatientAttachmentsModalProps) {
   const [uploading, setUploading] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState<any | null>(null);
@@ -77,6 +79,7 @@ export function PatientAttachmentsModal({
 
       toast.success(files.length === 1 ? "Anexo adicionado" : `${files.length} anexos adicionados`);
       await refetch();
+      onUploadSuccess?.();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Erro ao adicionar anexo");
     } finally {
@@ -90,6 +93,7 @@ export function PatientAttachmentsModal({
     try {
       await deleteMutation.mutateAsync({ id });
       await refetch();
+      onUploadSuccess?.();
       toast.success("Anexo removido");
     } catch {
       toast.error("Não foi possível remover o anexo");
