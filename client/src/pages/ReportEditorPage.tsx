@@ -1553,32 +1553,53 @@ export default function ReportEditorPage() {
                 display: "flex",
                 flexDirection: "column",
               }}>
-                {/* ══ CABEÇALHO ══ */}
-                <div style={{ display: "flex", alignItems: "stretch", borderBottom: `2px solid ${layoutPrefs?.headerBorderColor ?? "#1a6b8a"}`, minHeight: 90 }}>
-                  {bpLogo.visible && (
-                  <div style={{ width: logoWidthPx, minHeight: 90, flexShrink: 0, borderRight: "1.5px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: logoJustify, padding: "8px 12px", background: "#fafafa" }}>
-                    {layoutLogos.length > 0 ? (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", justifyContent: "center" }}>
-                        {layoutLogos.map((l, i) => (
-                          <img key={i} src={l.url} alt={l.label || "Logo"} style={{ maxHeight: l.height, maxWidth: l.width, objectFit: "contain", display: "inline-block" }} />
-                        ))}
+                {/* ══ CABEÇALHO INSTITUCIONAL SINCRONIZADO ══ */}
+                <div style={{ position: "relative", width: "100%", height: 115, borderBottom: `2px solid ${layoutPrefs?.headerBorderColor ?? "#1a6b8a"}`, background: "#fafafa" }}>
+                  {/* Logos (Até 3 slots configurados no layout) */}
+                  {layoutLogos.map((l, i) => {
+                    const slotPos = (layoutBlockPos as any)?.[`logo${i + 1}`] ?? { x: 2 + i * 35, y: 2, w: 26, h: 11, visible: true };
+                    if (!slotPos.visible) return null;
+                    return (
+                      <div key={i} style={{ position: "absolute", left: `${slotPos.x}%`, top: `${slotPos.y}%`, width: `${slotPos.w}%`, height: `${slotPos.h}%`, display: "flex", alignItems: "center", justifyContent: "center", padding: 2 }}>
+                        <img src={l.url} alt={l.label || `Logo ${i + 1}`} style={{ width: "100%", height: "100%", maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }} />
                       </div>
-                    ) : medCtx?.unitLogoUrl ? (
-                      <img src={medCtx.unitLogoUrl} alt={medCtx.unitName || "Logo"} style={{ maxHeight: 70, maxWidth: 155, objectFit: "contain", display: "block" }} />
-                    ) : (
-                      <div style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg, #1a6b8a 0%, #6fb7c5 100%)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "20pt", fontWeight: 700, fontFamily: "Arial, sans-serif" }}>
-                        {(medCtx?.unitName || "U").charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                  </div>
-                  )}
-                  <div style={{ flex: 1, padding: "10px 20px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 5 }}>
-                    <div style={{ fontSize: "12pt", fontWeight: 700, color: "#111", textTransform: "uppercase", letterSpacing: "0.02em" }}>{patientName || "—"}</div>
-                    <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
-                      {studyInfo?.birthDate && <div style={{ fontSize: "9.5pt", color: "#444" }}>Nascimento: <strong style={{ color: "#111" }}>{studyInfo.birthDate}</strong></div>}
-                      {studyInfo?.studyDate && <div style={{ fontSize: "9.5pt", color: "#444" }}>Realizado em: <strong style={{ color: "#111" }}>{formatDicomDate(studyInfo.studyDate)}</strong></div>}
+                    );
+                  })}
+                  {layoutLogos.length === 0 && (
+                    <div style={{ position: "absolute", left: "2%", top: "15%", width: "26%", height: "70%", display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f0f0", borderRadius: 4 }}>
+                      <span style={{ fontSize: "8pt", color: "#666", fontWeight: "bold" }}>{medCtx?.unitName || "Unidade"}</span>
                     </div>
-                  </div>
+                  )}
+
+                  {/* Dados do Paciente (Bloco Sincronizado) */}
+                  {((layoutBlockPos as any)?.patientInfo?.visible ?? true) && (
+                    <div style={{
+                      position: "absolute",
+                      left: `${(layoutBlockPos as any)?.patientInfo?.x ?? 32}%`,
+                      top: `${(layoutBlockPos as any)?.patientInfo?.y ?? 15}%`,
+                      width: `${(layoutBlockPos as any)?.patientInfo?.w ?? 66}%`,
+                      height: `${(layoutBlockPos as any)?.patientInfo?.h ?? 38}%`,
+                      display: "flex", flexDirection: "column", justifyContent: "center", padding: "4px 8px", background: "rgba(255,255,255,0.85)", borderRadius: 4, border: "1px dashed #d1d5db"
+                    }}>
+                      <div style={{ fontSize: "9.5pt", color: "#333", lineHeight: 1.3 }}>
+                        Realizado em: <strong>{studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : "—"}</strong> | Nasc.: <strong>{studyInfo?.birthDate || "—"}</strong> | Sexo: <strong>{studyInfo?.sex || "—"}</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Nome do Paciente (Bloco Sincronizado) */}
+                  {((layoutBlockPos as any)?.patientName?.visible ?? true) && (
+                    <div style={{
+                      position: "absolute",
+                      left: `${(layoutBlockPos as any)?.patientName?.x ?? 32}%`,
+                      top: `${(layoutBlockPos as any)?.patientName?.y ?? 55}%`,
+                      width: `${(layoutBlockPos as any)?.patientName?.w ?? 66}%`,
+                      height: `${(layoutBlockPos as any)?.patientName?.h ?? 38}%`,
+                      display: "flex", alignItems: "center", padding: "0 8px"
+                    }}>
+                      <span style={{ fontSize: "11.5pt", fontWeight: 700, color: "#111", textTransform: "uppercase", letterSpacing: "0.02em" }}>{patientName || "—"}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* ══ CORPO ══ */}
