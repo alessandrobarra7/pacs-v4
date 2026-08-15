@@ -9,7 +9,7 @@ import {
 import {
   Building2, Users, ClipboardList, Plus, Edit2, Trash2, Server, HardDrive,
   Trash, RefreshCw, Power, PowerOff, LayoutTemplate, Wallet, Link as LinkIcon,
-  UserCheck, X, ChevronDown, ChevronUp, Shield,
+  UserCheck, X, ChevronDown, ChevronUp, Shield, MapPin, Eye, Settings2,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -707,6 +707,7 @@ export default function AdminPage() {
   // Diálogos de unidade
   const [unitDialogOpen, setUnitDialogOpen] = useState(false);
   const [editingUnit, setEditingUnit] = useState<UnitFormData | null>(null);
+  const [selectedUnitDetails, setSelectedUnitDetails] = useState<any>(null);
 
   // Diálogos de usuário
   const [userDialogOpen, setUserDialogOpen] = useState(false);
@@ -985,13 +986,14 @@ export default function AdminPage() {
       />
 
       {/* Abas */}
-      <div className="bg-white border-b border-gray-200 px-6">
+      <div className="bg-white border-b border-gray-200 px-3 sm:px-6">
         <div className="flex items-center gap-0">
           {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+                              className={`flex-1 sm:flex-none justify-center flex items-center gap-2 px-3 sm:px-5 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors ${
+
                 activeTab === tab.key
                   ? "border-blue-600 text-blue-600"
                   : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
@@ -1004,26 +1006,26 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <div className="px-6 py-5">
+      <div className="px-3 sm:px-6 py-4 sm:py-5">
 
         {/* ── ABA UNIDADES ── */}
         {effectiveTab === "units" && isAdminMaster && (
           <div>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Unidades</h2>
                 <p className="text-sm text-gray-500">Clínicas e hospitais cadastrados no sistema</p>
               </div>
               <button
                 onClick={handleNewUnit}
-                className="px-4 py-2 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1.5"
+                className="w-full sm:w-auto px-4 py-2.5 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center gap-1.5"
               >
                 <Plus className="h-4 w-4" />
                 Nova Unidade
               </button>
             </div>
 
-            <div className="bg-white rounded border border-gray-200 overflow-hidden">
+            <div className="hidden md:block bg-white rounded border border-gray-200 overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-gray-50 border-b border-gray-200">
@@ -1100,6 +1102,55 @@ export default function AdminPage() {
                 </TableBody>
               </Table>
             </div>
+
+            <div className="md:hidden space-y-3">
+              {unitsLoading ? (
+                <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-400">Carregando unidades...</div>
+              ) : units.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-400">Nenhuma unidade cadastrada</div>
+              ) : units.map((unit: any) => (
+                <div key={unit.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                        <Building2 className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="truncate text-base font-semibold text-gray-900">{unit.name}</h3>
+                        <p className="mt-0.5 truncate text-xs text-gray-500">{unit.slug || "Sem identificador"}</p>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className={`shrink-0 text-[11px] ${unit.isActive ? "border-green-200 bg-green-50 text-green-700" : "border-gray-200 text-gray-500"}`}>
+                      {unit.isActive ? "Ativo" : "Inativo"}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg bg-gray-50 p-3 text-xs">
+                    <div className="min-w-0"><span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400">IP PACS</span><span className="mt-0.5 block truncate font-medium text-gray-700">{unit.pacs_ip || "—"}</span></div>
+                    <div><span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400">Porta</span><span className="mt-0.5 block font-medium text-gray-700">{unit.pacs_port || "—"}</span></div>
+                    <div className="min-w-0"><span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400">AE Title</span><span className="mt-0.5 block truncate font-mono text-gray-700">{unit.pacs_ae_title || "—"}</span></div>
+                    <div className="min-w-0"><span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400">Local AE</span><span className="mt-0.5 block truncate font-mono text-blue-700">{unit.pacs_local_ae_title || "LAUDS"}</span></div>
+                  </div>
+
+                  {unit.address && <div className="mt-3 flex items-start gap-2 text-xs text-gray-500"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" /><span className="line-clamp-2">{unit.address}</span></div>}
+
+                  <div className="mt-4 grid grid-cols-4 gap-2 border-t border-gray-100 pt-3">
+                    <button onClick={() => setSelectedUnitDetails(unit)} className="flex min-h-10 flex-col items-center justify-center gap-1 rounded-lg border border-gray-200 text-[10px] font-medium text-gray-600 hover:bg-gray-50" aria-label={`Ver detalhes de ${unit.name}`}>
+                      <Eye className="h-4 w-4" />Detalhes
+                    </button>
+                    <button onClick={() => handleOpenEditUnit(unit)} className="flex min-h-10 flex-col items-center justify-center gap-1 rounded-lg border border-gray-200 text-[10px] font-medium text-gray-600 hover:bg-gray-50" aria-label={`Editar ${unit.name}`}>
+                      <Edit2 className="h-4 w-4" />Editar
+                    </button>
+                    <button onClick={() => navigate(`/admin/layouts/${unit.id}`)} className="flex min-h-10 flex-col items-center justify-center gap-1 rounded-lg border border-blue-100 bg-blue-50 text-[10px] font-medium text-blue-700 hover:bg-blue-100" aria-label={`Configurar layout de ${unit.name}`}>
+                      <LayoutTemplate className="h-4 w-4" />Layout
+                    </button>
+                    <button onClick={() => updateUnit.mutate({ id: unit.id, isActive: !unit.isActive })} className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-lg border text-[10px] font-medium ${unit.isActive ? "border-green-100 bg-green-50 text-green-700" : "border-gray-200 text-gray-500"}`} aria-label={unit.isActive ? `Desativar ${unit.name}` : `Ativar ${unit.name}`}>
+                      {unit.isActive ? <Power className="h-4 w-4" /> : <PowerOff className="h-4 w-4" />}{unit.isActive ? "Ativo" : "Ativar"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -1122,6 +1173,46 @@ export default function AdminPage() {
         onSave={handleSaveUnit}
         loading={createUnit.isPending || updateUnit.isPending}
       />
+
+      <Dialog open={!!selectedUnitDetails} onOpenChange={(open) => { if (!open) setSelectedUnitDetails(null); }}>
+        <DialogContent className="max-h-[85vh] w-[calc(100%-1.5rem)] max-w-lg overflow-y-auto rounded-2xl p-5 sm:w-full">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg"><Settings2 className="h-5 w-5 text-blue-600" />Configuração da unidade</DialogTitle>
+          </DialogHeader>
+          {selectedUnitDetails && (
+            <div className="space-y-4">
+              <div className="rounded-xl bg-blue-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-base font-semibold text-gray-900">{selectedUnitDetails.name}</p>
+                    <p className="mt-0.5 text-xs text-gray-500">{selectedUnitDetails.slug || "Sem identificador"}</p>
+                  </div>
+                  <Badge variant="outline" className={selectedUnitDetails.isActive ? "border-green-200 bg-green-50 text-green-700" : "border-gray-200 text-gray-500"}>{selectedUnitDetails.isActive ? "Ativo" : "Inativo"}</Badge>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  ["IP do PACS", selectedUnitDetails.pacs_ip],
+                  ["Porta", selectedUnitDetails.pacs_port],
+                  ["AE Title", selectedUnitDetails.pacs_ae_title],
+                  ["AE Title local", selectedUnitDetails.pacs_local_ae_title || "LAUDS"],
+                  ["Endereço", selectedUnitDetails.address],
+                  ["Equipamentos", selectedUnitDetails.equipment_info],
+                ].map(([label, value]) => (
+                  <div key={label} className="min-w-0 rounded-lg border border-gray-200 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
+                    <p className="mt-1 break-words text-sm text-gray-700">{value || "Não informado"}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-2 border-t border-gray-100 pt-4">
+                <Button variant="outline" onClick={() => { handleOpenEditUnit(selectedUnitDetails); setSelectedUnitDetails(null); }}><Edit2 className="mr-2 h-4 w-4" />Editar unidade</Button>
+                <Button onClick={() => { navigate(`/admin/layouts/${selectedUnitDetails.id}`); setSelectedUnitDetails(null); }}><LayoutTemplate className="mr-2 h-4 w-4" />Configurar layout</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <UserFormDialog
         open={userDialogOpen}

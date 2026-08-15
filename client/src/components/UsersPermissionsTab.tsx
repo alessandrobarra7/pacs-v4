@@ -114,9 +114,9 @@ export function UsersPermissionsTab({ onNewUser, onEditUser, onDeleteUser, onTog
   const activeUnitId = selectedUnitId ?? (units.length > 0 ? (units[0] as any).id : null);
 
   return (
-    <div className="flex gap-0 h-[calc(100vh-160px)] bg-white rounded border border-gray-200 overflow-hidden">
+    <div className="flex flex-col md:flex-row gap-0 min-h-[calc(100vh-220px)] md:h-[calc(100vh-160px)] bg-white rounded border border-gray-200 overflow-hidden">
       {/* ── Coluna lateral de unidades ── */}
-      <div className="w-56 flex-shrink-0 border-r border-gray-200 bg-gray-50 overflow-y-auto">
+      <div className="hidden md:block w-56 flex-shrink-0 border-r border-gray-200 bg-gray-50 overflow-y-auto">
         <div className="p-3 border-b border-gray-200">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Unidades</p>
         </div>
@@ -147,8 +147,21 @@ export function UsersPermissionsTab({ onNewUser, onEditUser, onDeleteUser, onTog
         </div>
       </div>
 
+      <div className="md:hidden border-b border-gray-200 bg-gray-50 p-3">
+        <label htmlFor="mobile-unit-filter" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Unidade para permissões</label>
+        <select
+          id="mobile-unit-filter"
+          value={selectedUnitId === null ? "all" : String(selectedUnitId)}
+          onChange={(event) => setSelectedUnitId(event.target.value === "all" ? null : Number(event.target.value))}
+          className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        >
+          <option value="all">Todas as unidades</option>
+          {(units as any[]).map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+        </select>
+      </div>
+
       {/* ── Área principal ── */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 min-w-0 overflow-auto">
         {/* Cabeçalho */}
         <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between z-10">
           <div>
@@ -169,7 +182,7 @@ export function UsersPermissionsTab({ onNewUser, onEditUser, onDeleteUser, onTog
           </Button>
         </div>
 
-        {/* Tabela */}
+        {/* Conteúdo responsivo */}
         {isLoading ? (
           <div className="flex items-center justify-center h-48 text-sm text-gray-400">Carregando...</div>
         ) : filteredUsers.length === 0 ? (
@@ -181,6 +194,8 @@ export function UsersPermissionsTab({ onNewUser, onEditUser, onDeleteUser, onTog
             </Button>
           </div>
         ) : (
+          <>
+          <div className="hidden md:block">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
@@ -277,6 +292,50 @@ export function UsersPermissionsTab({ onNewUser, onEditUser, onDeleteUser, onTog
               })}
             </tbody>
           </table>
+          </div>
+
+          <div className="md:hidden space-y-3 p-3">
+            {filteredUsers.map((user: UserRow) => {
+              const displayUnitId = activeUnitId ?? user.permissions[0]?.unit_id;
+              const perm = displayUnitId ? getPermForUnit(user, displayUnitId) : undefined;
+              return (
+                <div key={user.id} className={`rounded-xl border border-gray-200 bg-white p-4 shadow-sm ${!user.isActive ? "opacity-60" : ""}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-base font-semibold text-gray-900">{user.name || user.username || `#${user.id}`}</p>
+                      <p className="mt-0.5 truncate text-xs text-gray-500">{user.email || user.username || "Sem e-mail"}</p>
+                    </div>
+                    <Badge variant="outline" className={`shrink-0 text-[10px] ${ROLE_COLORS[user.role] ?? ""}`}>{ROLE_LABELS[user.role] ?? user.role}</Badge>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-xs">
+                    <span className="text-gray-500">{displayUnitId ? (units as any[]).find((unit) => unit.id === displayUnitId)?.name || "Unidade" : "Sem unidade"}</span>
+                    <span className={user.isActive ? "font-medium text-emerald-600" : "font-medium text-gray-500"}>{user.isActive ? "Ativo" : "Inativo"}</span>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {PERM_COLS.map((col) => {
+                      const value = perm ? !!perm[col.key] : false;
+                      const disabled = !displayUnitId || user.role === "admin_master";
+                      return (
+                        <label key={col.key} className={`flex min-h-10 items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-[11px] ${value ? "border-blue-100 bg-blue-50 text-blue-800" : "border-gray-200 bg-white text-gray-500"}`}>
+                          <span className="leading-tight">{col.label}</span>
+                          <Switch checked={value} disabled={disabled} onCheckedChange={() => displayUnitId && handleTogglePerm(user, displayUnitId, col.key, value)} className="scale-75" />
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-gray-100 pt-3">
+                    <Button variant="outline" size="sm" className="h-9 gap-1 text-xs" onClick={() => onEditUser(user)}><Edit2 className="h-3.5 w-3.5" />Editar</Button>
+                    <Button variant="outline" size="sm" className="h-9 gap-1 text-xs" onClick={() => onToggleActive(user.id, !user.isActive)}>{user.isActive ? <PowerOff className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />}{user.isActive ? "Desativar" : "Ativar"}</Button>
+                    <Button variant="outline" size="sm" className="h-9 gap-1 text-xs text-red-600 hover:text-red-700" onClick={() => onDeleteUser(user.id)}><Trash2 className="h-3.5 w-3.5" />Excluir</Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          </>
         )}
       </div>
     </div>
