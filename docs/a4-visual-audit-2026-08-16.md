@@ -37,3 +37,27 @@ A regressão automatizada utiliza um layout deliberadamente alterado — logo em
 ## Referência visual de paciente organizada — validação real
 
 Na rota clínica real, a folha exibiu nome do paciente em linha própria, unidade em destaque, data de nascimento e sexo agrupados, data de realização e modalidade em linha própria, título centralizado e guia de corpo com Técnica, Achados e Conclusão. O estudo multi-seção exibiu folhas separadas para CRANIO e TORAX. A logo Instituto Acqua permaneceu visível no rodapé conforme a posição persistida do layout. Dados confirmados no sandbox: Antonia de Souza Batista, nascimento 16/08/1972, sexo F, realização 15/08/2026 e modalidade CT.
+
+A validação visual posterior confirmou no editor clínico os dados organizados de Antonia e as duas seções CRANIO/TORAX. O botão Imprimir permaneceu disponível no fluxo clínico; o sandbox abriu a rota sem erro de console, embora a visualização do diálogo nativo de impressão dependa do navegador do usuário. A composição usada para a impressão recebe os mesmos componentes `ClinicalPatientName` e `ClinicalPatientDetails` da folha médica.
+
+
+## Última revisão — 16/08/2026
+
+A divergência restante não estava no banco nem nas coordenadas persistidas. O último caminho paralelo era o renderer de impressão do `ReportEditorPage`: ele ainda montava `patientInfo` como uma linha única (`Realizado em · Nasc. · Sexo`), enquanto a folha clínica usa `ClinicalPatientName` e `ClinicalPatientDetails`. Esse caminho foi corrigido tanto para laudo multi-seção quanto para página única. O PDF agora recebe o mesmo nome do paciente em linha própria e o mesmo bloco organizado de unidade, nascimento, sexo e data do exame usado no editor clínico.
+
+A prévia administrativa da unidade #1 foi aberta no sandbox e confirmou as posições persistidas atualmente: logo em 2%,2%; dados do paciente em 2%,15%; nome em 2%,25%; título em 2%,31%; corpo em 2%,38%; rodapé em 2%,88%. O editor clínico mantém a mesma folha A4 compartilhada e consome essas posições. A listagem PACS oscilou durante a validação e o endpoint retornou zero estudos em uma nova consulta, embora o mesmo UID real de Antonia/CRANIO já tenha sido validado em auditorias anteriores; isso é uma indisponibilidade momentânea de dados do sandbox, não uma divergência visual do renderer.
+
+Validação de código concluída: TypeScript sem erros e 186 testes Vitest passando. A validação em aparelho móvel físico continua pendente e não foi simulada como concluída.
+
+## Contrato final
+
+- Admin, editor clínico e PDF usam `SharedReportSheet` e `block_positions` persistidos.
+- Editor clínico e PDF usam `ClinicalPatientName` + `ClinicalPatientDetails`.
+- O admin continua focado na geometria; nenhuma alteração de banco foi necessária.
+- A composição clínica alternativa não é usada nos caminhos corrigidos.
+
+A composição admin → médico → PDF foi encerrada no código. Refinamentos futuros de fonte, rótulos ou branding devem ser tratados como nova solicitação, sem reabrir a fonte única de layout.
+
+Evidência: `pnpm check` concluído sem erros; `pnpm test -- --run`: 18 arquivos, 186 testes aprovados.
+
+Limitação remanescente: a confirmação de arraste/redimensionamento em dispositivo móvel físico ainda depende de um aparelho real conectado ao usuário. A compatibilidade por Pointer Events foi preservada e coberta por teste automatizado no sandbox.

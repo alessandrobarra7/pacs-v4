@@ -70,6 +70,10 @@ describe("ReportEditorPage — experiência mobile", () => {
   });
 
   it("usa o mesmo SharedReportSheet no editor clínico e na exportação", () => {
+    expect(editorSource).toContain("ClinicalPatientDetails");
+    expect(editorSource).toContain("patientNameContent: <ClinicalPatientName patientName={patientName} />");
+    expect(pacsSource).toContain("ClinicalPatientDetails");
+    expect(pacsSource).toContain("patientNameContent: <ClinicalPatientName patientName={patientName} />");
     expect(editorSource).toContain("renderSharedReportSheetHtml");
     expect(editorSource).toContain("positions: layoutBlockPos");
     expect(editorSource).toContain("footerImageUrl: footerBase64 || layoutFooterUrl");

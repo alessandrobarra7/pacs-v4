@@ -1010,14 +1010,14 @@ export default function ReportEditorPage() {
         fontSize: lSize,
         lineHeight: lLine,
         patientName,
+        patientNameContent: <ClinicalPatientName patientName={patientName} />,
         patientInfo: (
-          <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
-            Realizado em: <strong>{studyDateFormatted || "—"}</strong>
-            <span style={{ margin: "0 6px" }}>·</span>
-            Nasc.: <strong>{birthDate || "—"}</strong>
-            <span style={{ margin: "0 6px" }}>·</span>
-            Sexo: <strong>{sexFormatted || "—"}</strong>
-          </div>
+          <ClinicalPatientDetails
+            birthDate={birthDate || "—"}
+            sex={sexFormatted || "—"}
+            studyDate={studyDateFormatted || "—"}
+            unitName={medCtx?.unitName}
+          />
         ),
         title: (
           <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
@@ -1054,14 +1054,14 @@ export default function ReportEditorPage() {
       fontSize: lSize,
       lineHeight: lLine,
       patientName,
+      patientNameContent: <ClinicalPatientName patientName={patientName} />,
       patientInfo: (
-        <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
-          Realizado em: <strong>{studyDateFormatted || "—"}</strong>
-          <span style={{ margin: "0 6px" }}>·</span>
-          Nasc.: <strong>{birthDate || "—"}</strong>
-          <span style={{ margin: "0 6px" }}>·</span>
-          Sexo: <strong>{sexFormatted || "—"}</strong>
-        </div>
+        <ClinicalPatientDetails
+          birthDate={birthDate || "—"}
+          sex={sexFormatted || "—"}
+          studyDate={studyDateFormatted || "—"}
+          unitName={medCtx?.unitName}
+        />
       ),
       title: (
         <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>

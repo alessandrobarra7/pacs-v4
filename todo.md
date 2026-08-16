@@ -1835,3 +1835,8 @@
 - [x] Preservar o editor administrativo, posições persistidas e banco de dados sem alterações.
 - [x] Validar a apresentação desktop e a impressão com dados reais/representativos; a estrutura mobile permanece responsiva pelo mesmo markup clínico.
 - [ ] Confirmar a aparência final em um aparelho móvel físico.
+
+## ÚLTIMA TENTATIVA — MESMA COMPOSIÇÃO ADMIN → MÉDICO → PDF
+- [x] Comparar as posições efetivas dos blocos na prévia administrativa e no editor clínico da mesma unidade.
+- [x] Remover a composição clínica alternativa e fazer médico/PDF usar a mesma estrutura visual da prévia, trocando somente os valores de paciente e exame.
+- [x] Validar lado a lado com o estudo real e encerrar este setor sem alterar o admin ou o banco.
