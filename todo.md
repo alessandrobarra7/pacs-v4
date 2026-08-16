@@ -1794,8 +1794,10 @@
 - [x] Ajustar a impressão/PDF de página única para usar a mesma composição percentual da folha A4 compartilhada.
 - [x] Atualizar testes de contrato do editor e validar TypeScript + Vitest (181 testes passando).
 - [x] Auditar visualmente a prévia administrativa e o editor clínico no navegador, sem erros no console.
-- [ ] Validar arraste e redimensionamento por toque em dispositivo móvel físico.
-- [ ] Revisar refinamentos finais de multi-seção e branding institucional após teste com dados reais.
+- [x] Validar arraste e redimensionamento por Pointer Events com teste automatizado e simulação de toque no sandbox.
+- [ ] Revalidar arraste e redimensionamento em dispositivo móvel físico.
+- [x] Revisar refinamentos finais de multi-seção após teste com dados reais.
+- [ ] Confirmar a referência final de branding institucional (tipografia, textos e hierarquia) para o PDF publicado.
 - [x] Unificar também o renderer de download/impressão da PacsQueryPage com o contrato percentual do `SharedReportSheet`.
 
 ## CORREÇÃO VISUAL REPORTADA — ADMIN x CLÍNICO A4
