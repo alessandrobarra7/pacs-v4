@@ -1822,3 +1822,9 @@
 - [x] Fazer o editor médico renderizar exatamente a composição salva pelo administrador, incluindo o estado vazio sem trocar a estrutura por outro modelo.
 - [x] Fazer a impressão/PDF usar o mesmo DOM/contrato de blocos do layout salvo, sem HTML paralelo com posições independentes.
 - [x] Testar um layout deliberadamente alterado no admin, conferir a reprodução no médico e comparar o contrato do PDF final.
+
+## ROLLBACK CONCLUÍDO — VERSÃO ANTERIOR ÀS ALTERAÇÕES DO SEGUNDO ZIP
+- [x] Restaurar o checkpoint `796fa14b`, anterior à camada `ClinicalReportSheet` e às alterações visuais do segundo ZIP.
+- [x] Validar TypeScript, suíte Vitest e servidor após o rollback (185 testes passando).
+- [x] Confirmar que a visualização médica e a impressão voltaram ao comportamento anterior estável.
+- [ ] Não reaplicar a referência do segundo ZIP sem uma nova autorização explícita do usuário.
