@@ -971,10 +971,10 @@ async function startServer() {
       });
       let launchUrl = '';
       if (viewer === 'radiant') {
-        // RadiAnt manual oficial: -f para abrir arquivos DICOM individuais
-        // Formato URL protocol: radiant://?n=f&v="url1"&v="url2"...
-        const args = fileUrls.map((u: string) => `n=f&v=${encodeURIComponent(`"${u}"`)}`).join('&');
-        launchUrl = `radiant://?${args}`;
+        // RadiAnt suporta o mesmo método DownloadURL via ZIP que o Horos/OsiriX
+        // Isso baixa o ZIP de forma transparente em background e abre o estudo completo sem exigir arquivos locais manuais
+        const zipUrl = `${origin}/api/dicom-export/${studyUid}`;
+        launchUrl = `radiant://?methodName=DownloadURL&URL=${encodeURIComponent(zipUrl)}&Display=YES`;
       } else if (viewer === 'weasis') {
         // weasis://?$dicom:get -r "url1" -r "url2"...
         const args = fileUrls.map((u: string) => `-r "${u}"`).join(' ');
