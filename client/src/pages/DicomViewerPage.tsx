@@ -939,7 +939,7 @@ export function DicomViewerPage() {
   // OsiriX:  osirix://?methodName=DownloadURL&URL=<zip>&Display=YES (macOS)
   // Horos:   horos://?methodName=DownloadURL&URL=<zip>&Display=YES  (macOS, gratuito)
   const viewerLabels: Record<string, string> = { radiant: 'RadiAnt', weasis: 'Weasis', osirix: 'OsiriX', horos: 'Horos' };
-  const handleOpenViewer = async (viewer: 'weasis' | 'osirix' | 'horos') => {
+  const handleOpenViewer = async (viewer: 'radiant' | 'weasis' | 'osirix' | 'horos') => {
     if (!studyUid || launchingViewer) return;
     setLaunchingViewer(viewer);
     try {
@@ -952,24 +952,11 @@ export function DicomViewerPage() {
         });
         return;
       }
-      if (viewer === 'radiant' && data.isZip) {
-        const a = document.createElement('a');
-        a.href = data.launchUrl;
-        a.download = `estudo_dicom_${studyUid.slice(-12)}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        toast.success('ZIP do RadiAnt baixado!', {
-          description: 'Abra o arquivo .zip baixado com o RadiAnt DICOM Viewer.',
-          duration: 10000,
-        });
-      } else {
-        window.location.href = data.launchUrl;
-        toast.info(`Abrindo no ${viewerLabels[viewer]}...`, {
-          description: `${data.fileCount} imagens serão abertas. O viewer deve estar instalado. Arquivos temporários apagados ao fechar.`,
-          duration: 7000,
-        });
-      }
+      window.location.href = data.launchUrl;
+      toast.info(`Abrindo no ${viewerLabels[viewer]}...`, {
+        description: `${data.fileCount} imagens serão abertas. O viewer deve estar instalado. Arquivos temporários apagados ao fechar.`,
+        duration: 7000,
+      });
     } catch (err: any) {
       toast.error(`Erro ao abrir no ${viewerLabels[viewer]}`, { description: err.message });
     } finally {
@@ -1199,10 +1186,10 @@ export function DicomViewerPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleOpenRadiant}
+            onClick={() => handleOpenViewer('radiant')}
             disabled={!!launchingViewer || imageCount === 0}
             className="text-xs border-blue-700 text-blue-400 hover:bg-blue-900/40 h-7 px-2"
-            title="Baixar ZIP e abrir no RadiAnt DICOM Viewer (Windows)"
+            title="Abrir no RadiAnt DICOM Viewer (Windows) via protocolo radiant://"
           >
             {launchingViewer === 'radiant' ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ExternalLink className="h-3 w-3 mr-1" />}
             RadiAnt
