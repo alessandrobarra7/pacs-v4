@@ -1869,3 +1869,4 @@
 - [x] Pesquisar documentação oficial de integração PACS do RadiAnt (command line e URL protocol)
 - [x] Implementar a URL scheme oficial do RadiAnt com StudyInstanceUID e AETitle da unidade
 - [x] Validar via Vitest e testar a abertura automática no Windows
+- [x] Ajustar parâmetro n=f para arquivos locais no RadiAnt (compatível com estações comerciais sem configuração prévia)
