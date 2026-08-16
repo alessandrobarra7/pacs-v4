@@ -1866,3 +1866,6 @@
 - [x] Recompilar e publicar os assets da correção na VM1.
 - [ ] Validar HTTP, HTML público e acesso externo em navegador móvel sem erro removeChild.
 - [x] Corrigir a divergência de publicação que mantém o bundle antigo do RadiAnt na VM1 e validar que o botão baixa o ZIP DICOM em vez de usar radiant://
+- [ ] Pesquisar documentação oficial de integração PACS do RadiAnt (command line e URL protocol)
+- [ ] Implementar a URL scheme oficial do RadiAnt com StudyInstanceUID e AETitle da unidade
+- [ ] Validar via Vitest e testar a abertura automática no Windows
