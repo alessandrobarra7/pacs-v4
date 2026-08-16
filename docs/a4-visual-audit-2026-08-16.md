@@ -61,3 +61,11 @@ A composição admin → médico → PDF foi encerrada no código. Refinamentos 
 Evidência: `pnpm check` concluído sem erros; `pnpm test -- --run`: 18 arquivos, 186 testes aprovados.
 
 Limitação remanescente: a confirmação de arraste/redimensionamento em dispositivo móvel físico ainda depende de um aparelho real conectado ao usuário. A compatibilidade por Pointer Events foi preservada e coberta por teste automatizado no sandbox.
+
+
+## Atualização — Remoção do nome da unidade e reorganização do cabeçalho do paciente
+Conforme solicitado pelo usuário, o nome da unidade (`unitName`) foi removido do cabeçalho do laudo. Os dados do paciente e do exame foram reorganizados em duas linhas limpas e estruturadas:
+1. Linha superior: Data de realização do exame e Modalidade.
+2. Linha inferior: Data de nascimento e Sexo.
+O nome do paciente permanece isolado em linha própria (`ClinicalPatientName`). Esta alteração foi aplicada no `ClinicalPatientDetails.tsx` e refletida em todas as visualizações clínicas e exportações PDF, mantendo a geometria persistida pelo administrador intacta.
+Testes: 186 testes Vitest aprovados com sucesso.

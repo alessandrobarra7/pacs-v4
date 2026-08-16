@@ -46,23 +46,17 @@ export function ClinicalPatientDetails({
   sex,
   studyDate,
   modality,
-  unitName,
   children,
 }: ClinicalPatientDetailsProps) {
   return (
     <div data-clinical-patient-details style={detailsStyle}>
-      {unitName && (
-        <div style={{ textAlign: "center", fontSize: "9pt", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 2 }}>
-          {unitName}
-        </div>
-      )}
-      <div style={rowStyle}>
-        <span><span style={labelStyle}>Data de nascimento:</span>{" "}{birthDate || "—"}</span>
-        <span><span style={labelStyle}>Sexo:</span>{" "}{sex || "—"}</span>
-      </div>
       <div style={rowStyle}>
         <span><span style={labelStyle}>Data de realização do exame:</span>{" "}{studyDate || "—"}</span>
         {modality && <span><span style={labelStyle}>Modalidade:</span>{" "}{modality}</span>}
+      </div>
+      <div style={rowStyle}>
+        <span><span style={labelStyle}>Data de nascimento:</span>{" "}{birthDate || "—"}</span>
+        <span><span style={labelStyle}>Sexo:</span>{" "}{sex || "—"}</span>
       </div>
       {children}
     </div>

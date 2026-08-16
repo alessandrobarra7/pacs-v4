@@ -27,6 +27,6 @@ describe("ClinicalPatientDetails — cabeçalho organizado", () => {
     expect(markup).toContain("Feminino");
     expect(markup).toContain("Data de realização do exame:");
     expect(markup).toContain("08/07/2026");
-    expect(markup).toContain("Hospital da Criança");
+    expect(markup).not.toContain("Hospital da Criança");
   });
 });
