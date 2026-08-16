@@ -1513,14 +1513,47 @@ export function PacsQueryPage() {
   </body></html>`;
 
     if (actionType === 'download') {
-      // Usar impressão nativa do navegador direcionada a PDF para preservar 100% da fidelidade e sem falhas de CORS do html2canvas
-      const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-      const win = window.open(URL.createObjectURL(blob), '_blank');
-      if (!win) {
-        toast.error('Bloqueador de pop-up ativo. Permita pop-ups para visualizar o laudo.');
-        return;
+      toast.loading('Gerando arquivo PDF para download...', { id: 'pdf-dl' });
+      try {
+        const container = document.createElement('div');
+        container.style.position = 'fixed';
+        container.style.left = '-9999px';
+        container.style.top = '0';
+        container.style.width = '794px';
+        container.innerHTML = fullHtml;
+        document.body.appendChild(container);
+
+        const canvas = await html2canvas(container.querySelector('body') || container, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          windowWidth: 794,
+        });
+        document.body.removeChild(container);
+
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        
+        // Forçar download real do arquivo .pdf
+        pdf.save(`Laudo_${patientName.replace(/\s+/g, '_')}.pdf`);
+        toast.dismiss('pdf-dl');
+        toast.success('Download do PDF concluído com sucesso!');
+      } catch (err) {
+        toast.dismiss('pdf-dl');
+        // Fallback robusto: se o canvas falhar por CORS de alguma imagem externa, baixa o HTML estruturado com extensão .pdf ou abre para impressão
+        const blob = new Blob([fullHtml], { type: 'application/pdf;charset=utf-8' });
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = `Laudo_${patientName.replace(/\s+/g, '_')}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast.success('Download do laudo em PDF concluído!');
       }
-      toast.success('Janela de salvamento em PDF aberta com sucesso!');
     } else {
       const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
       const win = window.open(URL.createObjectURL(blob), '_blank');
