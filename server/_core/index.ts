@@ -971,11 +971,9 @@ async function startServer() {
       });
       let launchUrl = '';
       if (viewer === 'radiant') {
-        // RadiAnt suporta dois métodos principais:
-        // 1) Download direto via URLs de arquivos individuais (igual Weasis) quando as imagens estão em cache
-        // 2) Consulta PACS direta (-pstv / -paet)
-        // O método 1 é o mais robusto pois não exige que o RadiAnt esteja configurado com o AE Title exato do PACS.
-        const args = fileUrls.map((u: string) => `n=file&v=${encodeURIComponent(`"${u}"`)}`).join('&');
+        // RadiAnt manual oficial: -f para abrir arquivos DICOM individuais
+        // Formato URL protocol: radiant://?n=f&v="url1"&v="url2"...
+        const args = fileUrls.map((u: string) => `n=f&v=${encodeURIComponent(`"${u}"`)}`).join('&');
         launchUrl = `radiant://?${args}`;
       } else if (viewer === 'weasis') {
         // weasis://?$dicom:get -r "url1" -r "url2"...
