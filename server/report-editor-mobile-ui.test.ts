@@ -47,6 +47,9 @@ describe("ReportEditorPage — experiência mobile", () => {
 
   it("usa SharedReportSheet como canvas único com os mesmos blocos e coordenadas do layout administrativo", () => {
     expect(editorSource).toContain("<SharedReportSheet");
+    expect(editorSource).toContain("SharedReportBodyGuide");
+    expect(editorSource).toContain('data-placeholder={showBodyGuide ? "" : "Digite o laudo aqui..."}');
+    expect(sharedSheetSource).toContain('data-report-body-guide');
     expect(editorSource).toContain("positions={layoutBlockPos}");
     expect(editorSource).toContain("backgroundUrl={layoutBgUrl}");
     expect(editorSource).toContain("footerImageUrl={layoutFooterUrl}");

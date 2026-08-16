@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import DOMPurify from 'dompurify';
 import type { LayoutPreferences, LayoutSnapshot } from '../../../shared/types';
-import { SharedReportSheet } from "@/components/SharedReportSheet";
+import { SharedReportBodyGuide, SharedReportSheet } from "@/components/SharedReportSheet";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -302,6 +302,10 @@ export default function ReportEditorPage() {
   // ── Pré-visualização ─────────────────────────────────────────────────────
   const [isPreview, setIsPreview] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
+  const [editorContentVersion, setEditorContentVersion] = useState(0);
+  const markEditorContentChanged = useCallback(() => {
+    setEditorContentVersion(version => version + 1);
+  }, []);
   // ── Painel flutuante de Máscaras ─────────────────────────────────────────
   const [showMasksPanel, setShowMasksPanel] = useState(false);
   const [maskSearch, setMaskSearch] = useState("");
@@ -422,7 +426,19 @@ export default function ReportEditorPage() {
     } else if (docRef.current) {
       docRef.current.innerHTML = sanitizeHtmlForEditor(existingReport.body);
     }
-  }, [existingReport, isMultiSection]);// ── Salvar seleção antes de interagir com sidebar ────────────────────────
+  }, [existingReport, isMultiSection]);
+
+  // Recalcula a guia visual depois que o conteúdo existente foi aplicado via DOM.
+  useEffect(() => {
+    markEditorContentChanged();
+    const targets = [docRef.current, mobileDocRef.current, ...sectionRefs.current].filter(Boolean) as HTMLDivElement[];
+    if (typeof MutationObserver === "undefined" || targets.length === 0) return;
+    const observer = new MutationObserver(() => markEditorContentChanged());
+    targets.forEach(target => observer.observe(target, { childList: true, subtree: true, characterData: true }));
+    return () => observer.disconnect();
+  }, [existingReport, isMultiSection, markEditorContentChanged]);
+
+  // ── Salvar seleção antes de interagir com sidebar ────────────────────────
   const saveSelection = useCallback(() => {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0 && docRef.current?.contains(sel.anchorNode)) {
@@ -1080,6 +1096,11 @@ export default function ReportEditorPage() {
   }, [isMultiSection]);
   // ── Render ─────────────────────────────────────────────────────────────────────────
   const examDesc = examTitle || studyInfo?.studyDescription || "";
+  void editorContentVersion;
+  const hasEditorContent = isMultiSection
+    ? sectionRefs.current.some(section => Boolean(section?.innerText?.trim()))
+    : Boolean(getVisibleDoc()?.innerText?.trim());
+  const showBodyGuide = !hasEditorContent && !isPreview;
   return (
     <>
     {/* ── ESTILOS DO EDITOR─────────────────────────────────────────────────────────── */}
@@ -1577,7 +1598,7 @@ export default function ReportEditorPage() {
                 backgroundOpacity={layoutBgOpacity}
                 backgroundSize={layoutBgSize}
                 footerImageUrl={layoutFooterUrl}
-                fontFamily={layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "'Times New Roman', Times, serif"}
+                fontFamily={layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "Arial, Helvetica, sans-serif"}
                 fontSize={layoutPrefs?.fontSize ?? 11}
                 lineHeight={layoutPrefs?.lineHeight ?? 1.6}
                 patientName={patientName}
@@ -1600,7 +1621,7 @@ export default function ReportEditorPage() {
                         onBlur={() => setEditingTitle(false)}
                         onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setEditingTitle(false); }}
                         autoFocus
-                        style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Times New Roman', Times, serif", border: "2px solid #1a6b8a", borderRadius: 4, padding: "4px 8px", outline: "none", background: "#f0f8fb", boxSizing: "border-box", color: "#111" }}
+                        style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "Arial, Helvetica, sans-serif", border: "2px solid #1a6b8a", borderRadius: 4, padding: "4px 8px", outline: "none", background: "#f0f8fb", boxSizing: "border-box", color: "#111" }}
                       />
                     ) : (
                       <div onClick={() => setEditingTitle(true)} title="Clique para editar o título" style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", cursor: "pointer", color: "#111", position: "relative", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
@@ -1619,16 +1640,21 @@ export default function ReportEditorPage() {
                       </div>
                     )}
                     {isPreview ? (
-                      <div data-editor-content style={{ flex: 1, minHeight: "60mm", lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", fontFamily: "'Times New Roman', Times, serif", pointerEvents: "none", userSelect: "none" }} dangerouslySetInnerHTML={{ __html: previewHtml || "<p style='color:#9ca3af;font-style:italic;font-size:10pt'>Sem conteúdo para visualizar.</p>" }} />
+                      previewHtml ? (
+                        <div data-editor-content style={{ flex: 1, minHeight: "60mm", lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", fontFamily: "Arial, Helvetica, sans-serif", pointerEvents: "none", userSelect: "none" }} dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                      ) : <SharedReportBodyGuide />
                     ) : (
-                      <div
+                      <div style={{ position: "relative", flex: 1, minHeight: "60mm" }}>
+                        {showBodyGuide && <div style={{ position: "absolute", inset: "0 0 auto", zIndex: 0, pointerEvents: "none" }}><SharedReportBodyGuide /></div>}
+                        <div
                         ref={docRef}
                         contentEditable={isEditable}
                         suppressContentEditableWarning
                         data-editor-content
                         onMouseUp={isEditable ? saveSelection : undefined}
                         onKeyUp={isEditable ? saveSelection : undefined}
-                        data-placeholder="Digite o laudo aqui..."
+                        onInput={isEditable ? markEditorContentChanged : undefined}
+                        data-placeholder={showBodyGuide ? "" : "Digite o laudo aqui..."}
                         onDragOver={isEditable ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setIsDragOver(true); } : undefined}
                         onDragLeave={isEditable ? () => setIsDragOver(false) : undefined}
                         onDrop={isEditable ? (e) => {
@@ -1663,8 +1689,9 @@ export default function ReportEditorPage() {
                           const plainText = e.dataTransfer.getData("text/plain");
                           if (plainText) insertAtCursor(plainText);
                         } : undefined}
-                        style={{ flex: 1, minHeight: "60mm", outline: isDragOver ? "2px dashed #3b82f6" : "none", borderRadius: isDragOver ? 4 : undefined, backgroundColor: isDragOver ? "rgba(59,130,246,0.04)" : undefined, lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", cursor: isEditable ? "text" : "default", fontFamily: "'Times New Roman', Times, serif", transition: "outline 0.1s ease, background-color 0.1s ease" }}
-                      />
+                          style={{ position: "relative", zIndex: 1, width: "100%", minHeight: "60mm", outline: isDragOver ? "2px dashed #3b82f6" : "none", borderRadius: isDragOver ? 4 : undefined, backgroundColor: isDragOver ? "rgba(59,130,246,0.04)" : "transparent", lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", cursor: isEditable ? "text" : "default", fontFamily: "Arial, Helvetica, sans-serif", transition: "outline 0.1s ease, background-color 0.1s ease" }}
+                        />
+                      </div>
                     )}
                   </>
                 }

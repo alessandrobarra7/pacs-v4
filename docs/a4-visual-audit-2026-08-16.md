@@ -7,3 +7,11 @@ Durante a validação no sandbox, a prévia real administrativa exibiu a folha A
 As correções aplicadas nesta sessão padronizaram a identificação e a tipografia do conteúdo demonstrativo no admin, adicionaram limite físico `210mm` e centralização na folha compartilhada, e expandiram layouts legados com a chave única `logo` para `logo1..logo3`. O fluxo multi-seção clínico também passou a instanciar `SharedReportSheet` por exame.
 
 A validação automatizada relevante foi executada com TypeScript sem erros e 184 testes Vitest passando. Ainda é necessário validar com um estudo real carregado no editor clínico e, se necessário, ajustar somente conteúdo/estado do laudo sem duplicar a composição visual.
+
+## Revalidação após a correção
+
+Com o servidor reativado, o editor clínico renderizou a mesma faixa de corpo institucional da prévia: título `LAUDO RADIOLOGICO` e linhas orientativas de `Técnica`, `Achados` e `Conclusão`. As linhas são apenas guia visual, não são inseridas no `contentEditable` nem persistidas como conteúdo médico. O sandbox carregou o editor sem um estudo plenamente resolvido nessa rota, portanto os campos reais de paciente/título permaneceram como placeholders; a estrutura visual foi confirmada.
+
+## Teste representativo com dados da captura
+
+Foi carregado no sandbox um estudo representativo com `ANTONIA DE SOUZA BATISTA`, exame `CRANIO`, data, nascimento e sexo. O editor clínico exibiu o nome completo, o título do exame na faixa própria e a mesma estrutura de corpo institucional (`LAUDO RADIOLOGICO`, `Técnica`, `Achados`, `Conclusão`) dentro da área persistida do bloco `body`. A guia permanece visual e não é conteúdo clínico salvo.

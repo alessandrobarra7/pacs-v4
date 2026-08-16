@@ -1803,3 +1803,8 @@
 - [x] Corrigir a fonte única de composição para que o editor clínico corresponda visualmente ao layout salvo no admin.
 - [x] Validar a composição no sandbox e atualizar os testes de contrato/exportação.
 - [ ] Revalidar a correspondência visual com um estudo real carregado no editor clínico.
+
+## REABERTURA DA AUDITORIA VISUAL — CAPTURA DO USUÁRIO
+- [x] Reproduzir a divergência mostrada: admin institucional completo versus editor clínico com composição diferente.
+- [x] Unificar não apenas o componente, mas também escala, fonte, conteúdo demonstrativo, identificação do paciente, título e estado vazio do corpo.
+- [x] Validar lado a lado com dados representativos e atualizar o teste de contrato visual.

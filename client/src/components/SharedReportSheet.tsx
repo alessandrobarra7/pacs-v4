@@ -60,6 +60,31 @@ function blockStyle(position: SharedBlockPosition | undefined, defaults: SharedB
   };
 }
 
+/**
+ * Estrutura visual para um corpo ainda não preenchido.
+ * Ela orienta o médico sem gravar achados, técnica ou conclusão fictícios.
+ */
+export function SharedReportBodyGuide() {
+  const sectionStyle: CSSProperties = {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 6,
+    minHeight: "1.55em",
+    borderBottom: "1px solid rgba(148, 163, 184, 0.28)",
+    padding: "3px 0",
+  };
+  return (
+    <div data-report-body-guide aria-hidden="true" style={{ color: "#94a3b8", fontSize: "0.9em", lineHeight: 1.65 }}>
+      <div style={{ textAlign: "center", fontSize: "1.05em", fontWeight: 700, letterSpacing: "0.05em", color: "#64748b", marginBottom: 12 }}>
+        LAUDO RADIOLOGICO
+      </div>
+      <div style={sectionStyle}><strong style={{ color: "#64748b" }}>Técnica:</strong><span style={{ flex: 1 }}>Digite a técnica do exame...</span></div>
+      <div style={sectionStyle}><strong style={{ color: "#64748b" }}>Achados:</strong><span style={{ flex: 1 }}>Descreva os achados radiológicos...</span></div>
+      <div style={sectionStyle}><strong style={{ color: "#64748b" }}>Conclusão:</strong><span style={{ flex: 1 }}>Registre a impressão diagnóstica...</span></div>
+    </div>
+  );
+}
+
 export function SharedReportSheet({
   positions,
   logos = [],
