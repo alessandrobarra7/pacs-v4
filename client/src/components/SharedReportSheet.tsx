@@ -29,6 +29,7 @@ export type SharedReportSheetProps = {
   fontSize?: number;
   lineHeight?: number;
   patientName?: string;
+  patientNameContent?: ReactNode;
   patientInfo?: ReactNode;
   title?: ReactNode;
   body?: ReactNode;
@@ -97,6 +98,7 @@ export function SharedReportSheet({
   fontSize = 11,
   lineHeight = 1.6,
   patientName,
+  patientNameContent,
   patientInfo,
   title,
   body,
@@ -171,7 +173,7 @@ export function SharedReportSheet({
 
       {merged.patientName?.visible && (
         <div data-layout-block="patientName" style={{ ...blockStyle(merged.patientName, fallbackPositions.patientName), display: "flex", alignItems: "center", padding: "0 8px", zIndex: 3 }}>
-          <span style={{ fontSize: "11.5pt", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.02em" }}>{patientName || "—"}</span>
+          {patientNameContent ?? <span style={{ fontSize: "11.5pt", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.02em" }}>{patientName || "—"}</span>}
         </div>
       )}
 

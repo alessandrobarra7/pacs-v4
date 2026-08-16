@@ -1828,3 +1828,10 @@
 - [x] Validar TypeScript, suíte Vitest e servidor após o rollback (185 testes passando).
 - [x] Confirmar que a visualização médica e a impressão voltaram ao comportamento anterior estável.
 - [ ] Não reaplicar a referência do segundo ZIP sem uma nova autorização explícita do usuário.
+
+## NOVA REFERÊNCIA VISUAL — LAUDO CLÍNICO E PDF ORGANIZADOS
+- [x] Mapear nome, nascimento, sexo, data do exame, modalidade, unidade, logo, título e dados do médico já disponíveis no editor clínico.
+- [x] Organizar exclusivamente no ambiente médico e na impressão/PDF o cabeçalho, dados do paciente, título, seções clínicas, assinatura e rodapé conforme a imagem de referência.
+- [x] Preservar o editor administrativo, posições persistidas e banco de dados sem alterações.
+- [x] Validar a apresentação desktop e a impressão com dados reais/representativos; a estrutura mobile permanece responsiva pelo mesmo markup clínico.
+- [ ] Confirmar a aparência final em um aparelho móvel físico.

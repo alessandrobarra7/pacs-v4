@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
+import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
@@ -1471,14 +1472,14 @@ export function PacsQueryPage() {
       fontSize: lSize,
       lineHeight: lLine,
       patientName,
+      patientNameContent: <ClinicalPatientName patientName={patientName} />,
       patientInfo: (
-        <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
-          Realizado em: <strong>{studyDate}</strong>
-          <span style={{ margin: "0 6px" }}>·</span>
-          Nasc.: <strong>{birthDateFormatted || "—"}</strong>
-          <span style={{ margin: "0 6px" }}>·</span>
-          Sexo: <strong>{sexFormatted || "—"}</strong>
-        </div>
+        <ClinicalPatientDetails
+          birthDate={birthDateFormatted || "—"}
+          sex={sexFormatted || "—"}
+          studyDate={studyDate || "—"}
+          unitName={unitName || undefined}
+        />
       ),
       title: (
         <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>

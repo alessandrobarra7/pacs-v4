@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import DOMPurify from 'dompurify';
 import type { LayoutPreferences, LayoutSnapshot } from '../../../shared/types';
 import { SharedReportBodyGuide, SharedReportSheet } from "@/components/SharedReportSheet";
+import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -1517,14 +1518,15 @@ export default function ReportEditorPage() {
                       fontSize={layoutPrefs?.fontSize ?? 11}
                       lineHeight={layoutPrefs?.lineHeight ?? 1.6}
                       patientName={patientName}
+                      patientNameContent={<ClinicalPatientName patientName={patientName} />}
                       patientInfo={
-                        <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
-                          Realizado em: <strong>{studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : "—"}</strong>
-                          <span style={{ margin: "0 6px" }}>·</span>
-                          Nasc.: <strong>{studyInfo?.birthDate ? formatDicomDate(studyInfo.birthDate) : "—"}</strong>
-                          <span style={{ margin: "0 6px" }}>·</span>
-                          Sexo: <strong>{studyInfo?.sex || "—"}</strong>
-                        </div>
+                        <ClinicalPatientDetails
+                          birthDate={studyInfo?.birthDate ? formatDicomDate(studyInfo.birthDate) : "—"}
+                          sex={studyInfo?.sex || "—"}
+                          studyDate={studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : "—"}
+                          modality={studyInfo?.modality}
+                          unitName={medCtx?.unitName}
+                        />
                       }
                       title={
                         <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
@@ -1638,14 +1640,15 @@ export default function ReportEditorPage() {
                 fontSize={layoutPrefs?.fontSize ?? 11}
                 lineHeight={layoutPrefs?.lineHeight ?? 1.6}
                 patientName={patientName}
+                patientNameContent={<ClinicalPatientName patientName={patientName} />}
                 patientInfo={
-                  <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
-                    Realizado em: <strong>{studyInfo?.studyDate || new Date().toLocaleDateString("pt-BR")}</strong>
-                    <span style={{ margin: "0 6px" }}>·</span>
-                    Nasc.: <strong>{studyInfo?.birthDate || "—"}</strong>
-                    <span style={{ margin: "0 6px" }}>·</span>
-                    Sexo: <strong>{studyInfo?.sex || "—"}</strong>
-                  </div>
+                  <ClinicalPatientDetails
+                    birthDate={studyInfo?.birthDate ? formatDicomDate(studyInfo.birthDate) : "—"}
+                    sex={studyInfo?.sex || "—"}
+                    studyDate={studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : new Date().toLocaleDateString("pt-BR")}
+                    modality={studyInfo?.modality}
+                    unitName={medCtx?.unitName}
+                  />
                 }
                 title={
                   examTitle ? (
