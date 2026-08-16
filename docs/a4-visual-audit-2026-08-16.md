@@ -69,3 +69,11 @@ Conforme solicitado pelo usuário, o nome da unidade (`unitName`) foi removido d
 2. Linha inferior: Data de nascimento e Sexo.
 O nome do paciente permanece isolado em linha própria (`ClinicalPatientName`). Esta alteração foi aplicada no `ClinicalPatientDetails.tsx` e refletida em todas as visualizações clínicas e exportações PDF, mantendo a geometria persistida pelo administrador intacta.
 Testes: 186 testes Vitest aprovados com sucesso.
+
+
+## Atualização — Unificação total do cabeçalho de demonstração (Admin) e clínico (Médico)
+Para atender à observação detalhada do usuário sobre a divergência visual entre a prévia administrativa e a tela do médico:
+1. O preview administrativo no `LayoutEditorPage.tsx` passou a utilizar exatamente os mesmos componentes `ClinicalPatientName` e `ClinicalPatientDetails`.
+2. O nome do paciente agora aparece em linha própria, seguido pelas linhas estruturadas de data de realização, modalidade, data de nascimento e sexo (sem o nome da unidade).
+3. A geometria persistida (`block_positions`) e o banco de dados permaneceram inalterados; apenas a renderização dos dados do paciente foi uniformizada entre os dois lados.
+Testes: 186 testes Vitest aprovados com sucesso.

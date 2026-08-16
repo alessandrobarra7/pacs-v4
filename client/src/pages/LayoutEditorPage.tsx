@@ -10,6 +10,7 @@
  */
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useLocation, useParams } from "wouter";
+import { ClinicalPatientDetails, ClinicalPatientName } from "../components/ClinicalPatientDetails";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -939,14 +940,14 @@ export default function LayoutEditorPage() {
                     backgroundSize={pageBackgroundFit}
                     footerImageUrl={footerPreview}
                     patientName={REAL_PREVIEW_SAMPLE.patientName}
+                    patientNameContent={<ClinicalPatientName patientName={REAL_PREVIEW_SAMPLE.patientName} />}
                     patientInfo={
-                      <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
-                        Realizado em: <strong>{REAL_PREVIEW_SAMPLE.date}</strong>
-                        <span style={{ margin: "0 6px" }}>·</span>
-                        Nasc.: <strong>{REAL_PREVIEW_SAMPLE.birthDate}</strong>
-                        <span style={{ margin: "0 6px" }}>·</span>
-                        Sexo: <strong>{REAL_PREVIEW_SAMPLE.sex}</strong>
-                      </div>
+                      <ClinicalPatientDetails
+                        birthDate={REAL_PREVIEW_SAMPLE.birthDate}
+                        sex={REAL_PREVIEW_SAMPLE.sex}
+                        studyDate={REAL_PREVIEW_SAMPLE.date}
+                        modality="CT"
+                      />
                     }
                     title={<div style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #e0e0e0", paddingBottom: 6 }}>{REAL_PREVIEW_SAMPLE.examTitle}</div>}
                     body={
