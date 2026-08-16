@@ -10,6 +10,12 @@ import { SharedReportSheet, type SharedReportSheetProps } from "./SharedReportSh
  * título institucional e corpo com rótulo de laudo.
  */
 export function ClinicalReportSheet({
+  logos,
+  positions,
+  backgroundUrl,
+  backgroundOpacity,
+  backgroundSize,
+  footerImageUrl,
   patientInfo,
   title,
   body,
@@ -18,6 +24,12 @@ export function ClinicalReportSheet({
 }: SharedReportSheetProps) {
   return (
     <SharedReportSheet
+      logos={logos}
+      positions={positions}
+      backgroundUrl={backgroundUrl}
+      backgroundOpacity={backgroundOpacity}
+      backgroundSize={backgroundSize}
+      footerImageUrl={footerImageUrl}
       {...sheetProps}
       patientInfo={
         <div
