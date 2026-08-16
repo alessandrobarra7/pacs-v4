@@ -380,7 +380,7 @@ export const pacsRouter = router({
           const scriptPath = existsSync(_scriptPathSameLevel) ? _scriptPathSameLevel : _scriptPathParent;
           // Usar caminho absoluto do Python 3.11 e limpar PYTHONHOME/PYTHONPATH
           // para evitar conflito com o ambiente uv Python 3.13 do servidor
-          const pythonBin = 'python3';
+          const pythonBin = existsSync('/usr/bin/python3.11') ? '/usr/bin/python3.11' : 'python3';
           const cleanEnv = { ...process.env };
           delete cleanEnv.PYTHONHOME;
           delete cleanEnv.PYTHONPATH;
