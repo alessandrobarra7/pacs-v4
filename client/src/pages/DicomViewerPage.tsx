@@ -378,8 +378,9 @@ export function DicomViewerPage() {
     if (batchTimerRef.current) clearTimeout(batchTimerRef.current);
     batchTimerRef.current = setTimeout(async () => {
       if (pendingIdsRef.current.length === 0) return;
-      // Aplica todos os IDs acumulados de uma vez só e ordena uma única vez
-      imageIdsRef.current = [...imageIdsRef.current, ...pendingIdsRef.current].sort();
+      // Mantém a ordem emitida pelo backend. O backend já entrega os arquivos
+      // ordenados por série, InstanceNumber e posição espacial DICOM.
+      imageIdsRef.current = [...imageIdsRef.current, ...pendingIdsRef.current];
       pendingIdsRef.current = [];
       // FIX P3: manter o Set sincronizado com o array (já foram adicionados no has() acima)
       const updatedIds = imageIdsRef.current;
@@ -560,7 +561,9 @@ export function DicomViewerPage() {
             const resp = await fetch(`/api/dicom-files/${studyUid}`);
             if (resp.ok) {
               const listData = await resp.json();
-              const files: string[] = (listData.files || []).sort();
+              // A API devolve os arquivos na ordem clínica DICOM; não reordenar
+              // pelo nome do SOPInstanceUID, pois isso mistura as instâncias.
+              const files: string[] = listData.files || [];
               const finalIds = files.map(
                 (f: string) => `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${f}`
               );

@@ -1841,11 +1841,21 @@
 - [x] Remover a composição clínica alternativa e fazer médico/PDF usar a mesma estrutura visual da prévia, trocando somente os valores de paciente e exame.
 - [x] Validar lado a lado com o estudo real e encerrar este setor sem alterar o admin ou o banco.
 
-- [ ] Unificar os botões Visualizar e Baixar na listagem PACS em um único botão Visualizar.
-- [ ] Exibir o botão Visualizar em estado neutro/transparente quando as imagens ainda não estiverem baixadas.
-- [ ] Iniciar o download completo das imagens ao clicar em Visualizar quando o estudo não estiver em cache.
-- [ ] Exibir estado de carregamento durante o download e impedir a abertura do visualizador antes da conclusão.
-- [ ] Ativar o botão Visualizar após todas as imagens DICOM serem baixadas e permitir acesso ao visualizador/laudo.
-- [ ] Remover o botão Baixar separado sem alterar o fluxo de pré-download existente.
-- [ ] Criar ou atualizar testes Vitest para os estados do botão e a proteção contra abertura prematura.
-- [ ] Validar o fluxo com um estudo real no sandbox e salvar checkpoint.
+- [x] Unificar os botões Visualizar e Baixar na listagem PACS em um único botão Visualizar.
+- [x] Exibir o botão Visualizar em estado neutro/transparente quando as imagens ainda não estiverem baixadas.
+- [x] Iniciar o download completo das imagens ao clicar em Visualizar quando o estudo não estiver em cache.
+- [x] Exibir estado de carregamento durante o download e impedir a abertura do visualizador antes da conclusão.
+- [x] Ativar o botão Visualizar após todas as imagens DICOM serem baixadas e permitir acesso ao visualizador/laudo.
+- [x] Remover o botão Baixar separado sem alterar o fluxo de pré-download existente.
+- [x] Criar ou atualizar testes Vitest para os estados do botão e a proteção contra abertura prematura.
+- [x] Validar o fluxo com um estudo real no sandbox e salvar checkpoint.
+
+## CORREÇÃO DA ORDEM DE SLICES DICOM — 16/08/2026
+- [x] Reproduzir no sandbox a mistura de instâncias ao navegar pelo slider do visualizador.
+- [x] Identificar a ordenação lexicográfica por SOPInstanceUID como causa da sequência incorreta.
+- [x] Criar ordenação determinística por SeriesNumber, SeriesInstanceUID, InstanceNumber e posição espacial DICOM.
+- [x] Aplicar a ordenação aos endpoints de arquivos, séries, cache SSE, ZIP e viewers externos.
+- [x] Remover a reordenação lexicográfica do stack progressivo e final do Cornerstone.
+- [x] Validar o estudo real de ANTONIA DE SOUZA BATISTA com 262 imagens no sandbox.
+- [x] Criar testes Vitest de regressão para impedir o retorno da mistura de slices.
+- [x] Salvar a investigação e o resultado técnico em dicom-order-investigation.md.

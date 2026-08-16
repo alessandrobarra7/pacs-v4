@@ -75,6 +75,127 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+type OrderedDicomFile = {
+  fileName: string;
+  seriesUid: string;
+  seriesNumber: number;
+  instanceNumber: number;
+  seriesDescription: string;
+  modality: string;
+  imagePosition: number[];
+};
+
+const DICOM_ORDER_TAGS: Record<string, string> = {
+  '0008,0060': 'modality',
+  '0008,103e': 'seriesDescription',
+  '0020,000e': 'seriesUid',
+  '0020,0011': 'seriesNumberRaw',
+  '0020,0013': 'instanceNumberRaw',
+  '0020,0032': 'imagePositionRaw',
+};
+
+function readDicomOrderFields(buf: Buffer): Record<string, string> {
+  const fields: Record<string, string> = {};
+  let offset = 132;
+  while (offset < buf.length - 8) {
+    const group = buf.readUInt16LE(offset);
+    const element = buf.readUInt16LE(offset + 2);
+    const vr = buf.slice(offset + 4, offset + 6).toString('ascii');
+    const tagKey = `${group.toString(16).padStart(4, '0')},${element.toString(16).padStart(4, '0')}`;
+    let length: number;
+    let dataOffset: number;
+    if (['OB', 'OW', 'OF', 'SQ', 'UC', 'UN', 'UR', 'UT'].includes(vr)) {
+      if (offset + 12 > buf.length) break;
+      length = buf.readUInt32LE(offset + 8);
+      dataOffset = offset + 12;
+    } else if (vr.charCodeAt(0) >= 65 && vr.charCodeAt(0) <= 90) {
+      if (offset + 8 > buf.length) break;
+      length = buf.readUInt16LE(offset + 6);
+      dataOffset = offset + 8;
+    } else {
+      length = buf.readUInt32LE(offset + 4);
+      dataOffset = offset + 8;
+    }
+    if (length === 0xFFFFFFFF || length < 0) {
+      offset += 8;
+      continue;
+    }
+    if (DICOM_ORDER_TAGS[tagKey] && dataOffset + length <= buf.length) {
+      fields[DICOM_ORDER_TAGS[tagKey]] = buf.slice(dataOffset, dataOffset + length).toString('utf8').replace(/\\x00/g, '').trim();
+    }
+    offset = dataOffset + (length > 0 ? length : 0);
+    if (offset <= 0) break;
+    if (Object.keys(fields).length === Object.keys(DICOM_ORDER_TAGS).length) break;
+  }
+  return fields;
+}
+
+const DICOM_VALUE_SEPARATOR = String.fromCharCode(92);
+
+function parseDicomNumber(value: string | undefined): number {
+  const parsed = Number.parseInt((value || '').split(DICOM_VALUE_SEPARATOR)[0].trim(), 10);
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function parseDicomPosition(value: string | undefined): number[] {
+  return (value || '').split(DICOM_VALUE_SEPARATOR).map(Number).filter(Number.isFinite);
+}
+
+function compareDicomNumbers(a: number, b: number): number {
+  if (a === b) return 0;
+  if (!Number.isFinite(a)) return 1;
+  if (!Number.isFinite(b)) return -1;
+  return a - b;
+}
+
+function compareOrderedDicomFiles(a: OrderedDicomFile, b: OrderedDicomFile): number {
+  const seriesNumberOrder = compareDicomNumbers(a.seriesNumber, b.seriesNumber);
+  if (seriesNumberOrder !== 0) return seriesNumberOrder;
+  if (a.seriesUid !== b.seriesUid) return a.seriesUid.localeCompare(b.seriesUid);
+
+  const instanceNumberOrder = compareDicomNumbers(a.instanceNumber, b.instanceNumber);
+  if (instanceNumberOrder !== 0) return instanceNumberOrder;
+
+  const dimensions = Math.max(a.imagePosition.length, b.imagePosition.length);
+  for (let index = 0; index < dimensions; index += 1) {
+    const positionOrder = compareDicomNumbers(a.imagePosition[index] ?? Number.POSITIVE_INFINITY, b.imagePosition[index] ?? Number.POSITIVE_INFINITY);
+    if (positionOrder !== 0) return positionOrder;
+  }
+  return a.fileName.localeCompare(b.fileName, undefined, { numeric: true });
+}
+
+async function getOrderedDicomFiles(studyDir: string): Promise<OrderedDicomFile[]> {
+  const fileSystem = await import('fs/promises');
+  const fileNames = (await fileSystem.readdir(studyDir)).filter((fileName: string) => fileName.endsWith('.dcm'));
+  const records: OrderedDicomFile[] = [];
+  for (const fileName of fileNames) {
+    try {
+      const buffer = await fileSystem.readFile(`${studyDir}/${fileName}`);
+      const fields = readDicomOrderFields(buffer);
+      records.push({
+        fileName,
+        seriesUid: fields.seriesUid || 'unknown',
+        seriesNumber: parseDicomNumber(fields.seriesNumberRaw),
+        instanceNumber: parseDicomNumber(fields.instanceNumberRaw),
+        seriesDescription: fields.seriesDescription || '',
+        modality: fields.modality || '',
+        imagePosition: parseDicomPosition(fields.imagePositionRaw),
+      });
+    } catch {
+      records.push({
+        fileName,
+        seriesUid: 'unknown',
+        seriesNumber: Number.POSITIVE_INFINITY,
+        instanceNumber: Number.POSITIVE_INFINITY,
+        seriesDescription: '',
+        modality: '',
+        imagePosition: [],
+      });
+    }
+  }
+  return records.sort(compareOrderedDicomFiles);
+}
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
@@ -237,9 +358,9 @@ async function startServer() {
     const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
     try {
       const fs = await import('fs/promises');
-      const files = await fs.readdir(studyDir);
-      const dicomFiles = files.filter(f => f.endsWith('.dcm')).sort();
-      console.log(`[DICOM Cache] Listagem: ${studyUid} → ${dicomFiles.length} arquivos`);
+      const orderedRecords = await getOrderedDicomFiles(studyDir);
+      const dicomFiles = orderedRecords.map(record => record.fileName);
+      console.log(`[DICOM Cache] Listagem ordenada: ${studyUid} → ${dicomFiles.length} arquivos`);
 
       // Extrai metadados DICOM do primeiro arquivo (sem dependência externa)
       let metadata: Record<string, string> = {};
@@ -318,64 +439,41 @@ async function startServer() {
     const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
     try {
       const fs = await import('fs/promises');
-      const allFiles = await fs.readdir(studyDir);
-      const dicomFiles = allFiles.filter(f => f.endsWith('.dcm')).sort();
-      if (dicomFiles.length === 0) {
+      const orderedRecords = await getOrderedDicomFiles(studyDir);
+      if (orderedRecords.length === 0) {
         return res.json({ success: true, series: [] });
       }
 
-      // Agrupa arquivos por SeriesInstanceUID lendo tag DICOM (0020,000E)
-      const readTag = (buf: Buffer, group: number, element: number): string => {
-        let offset = 132;
-        while (offset < buf.length - 8) {
-          const g = buf.readUInt16LE(offset);
-          const e = buf.readUInt16LE(offset + 2);
-          const vr = buf.slice(offset + 4, offset + 6).toString('ascii');
-          let len: number, dataOffset: number;
-          if (['OB','OW','OF','SQ','UC','UN','UR','UT'].includes(vr)) {
-            len = buf.readUInt32LE(offset + 8); dataOffset = offset + 12;
-          } else if (vr.charCodeAt(0) >= 65 && vr.charCodeAt(0) <= 90) {
-            len = buf.readUInt16LE(offset + 6); dataOffset = offset + 8;
-          } else {
-            len = buf.readUInt32LE(offset + 4); dataOffset = offset + 8;
-          }
-          if (len === 0xFFFFFFFF || len < 0) { offset += 8; continue; }
-          if (g === group && e === element && dataOffset + len <= buf.length) {
-            return buf.slice(dataOffset, dataOffset + len).toString('utf8').replace(/\x00/g, '').trim();
-          }
-          offset = dataOffset + (len > 0 ? len : 0);
-          if (offset <= 0) break;
+      // Os registros já estão ordenados por SeriesNumber, InstanceNumber e
+      // posição espacial. Agrupar sem reordenar preserva a sequência clínica.
+      const seriesMap = new Map<string, {
+        files: string[];
+        description: string;
+        modality: string;
+        seriesNumber: number;
+      }>();
+
+      for (const record of orderedRecords) {
+        if (!seriesMap.has(record.seriesUid)) {
+          seriesMap.set(record.seriesUid, {
+            files: [],
+            description: record.seriesDescription,
+            modality: record.modality,
+            seriesNumber: record.seriesNumber,
+          });
         }
-        return '';
-      };
-
-      // Mapeia seriesUid → { files, description, modality, instanceNumber }
-      const seriesMap = new Map<string, { files: string[]; description: string; modality: string; seriesNumber: string }>();
-
-      for (const file of dicomFiles) {
-        try {
-          const buf = await fs.readFile(`${studyDir}/${file}`);
-          const seriesUid = readTag(buf, 0x0020, 0x000E) || 'unknown';
-          const seriesDesc = readTag(buf, 0x0008, 0x103E) || readTag(buf, 0x0008, 0x1030) || '';
-          const modality = readTag(buf, 0x0008, 0x0060) || '';
-          const seriesNumber = readTag(buf, 0x0020, 0x0011) || '0';
-          if (!seriesMap.has(seriesUid)) {
-            seriesMap.set(seriesUid, { files: [], description: seriesDesc, modality, seriesNumber });
-          }
-          seriesMap.get(seriesUid)!.files.push(file);
-        } catch { /* skip unreadable files */ }
+        seriesMap.get(record.seriesUid)!.files.push(record.fileName);
       }
 
       const series = Array.from(seriesMap.entries())
-        .sort((a, b) => parseInt(a[1].seriesNumber) - parseInt(b[1].seriesNumber))
+        .sort((a, b) => compareDicomNumbers(a[1].seriesNumber, b[1].seriesNumber))
         .map(([seriesUid, info]) => ({
           seriesUid,
           description: info.description,
           modality: info.modality,
-          seriesNumber: info.seriesNumber,
+          seriesNumber: Number.isFinite(info.seriesNumber) ? String(info.seriesNumber) : '0',
           fileCount: info.files.length,
           files: info.files,
-          // Primeiro arquivo da série como thumbnail
           thumbnail: info.files[0] ?? null,
         }));
 
@@ -647,8 +745,8 @@ async function startServer() {
       const fs = await import('fs/promises');
       const fsSync = await import('fs');
       try {
-        const existing = await fs.readdir(studyCacheDir);
-        const dcmFiles = existing.filter((f: string) => f.endsWith('.dcm')).sort();
+        const orderedRecords = await getOrderedDicomFiles(studyCacheDir);
+        const dcmFiles = orderedRecords.map(record => record.fileName);
         if (dcmFiles.length > 0) {
           sendEvent('status', { phase: 'cached', message: `Cache encontrado: ${dcmFiles.length} imagens`, total: dcmFiles.length, pacsAeTitle: unit.pacs_ae_title });
           for (const f of dcmFiles) {
@@ -799,8 +897,8 @@ async function startServer() {
       const { createGzip } = await import('zlib');
       const { Readable, PassThrough } = await import('stream');
 
-      const files = await fs.readdir(studyCacheDir);
-      const dicomFiles = files.filter((f: string) => f.endsWith('.dcm')).sort();
+      const orderedRecords = await getOrderedDicomFiles(studyCacheDir);
+      const dicomFiles = orderedRecords.map(record => record.fileName);
 
       if (dicomFiles.length === 0) {
         return res.status(404).json({ error: 'Nenhuma imagem no cache. Abra o visualizador primeiro.' });
@@ -850,11 +948,10 @@ async function startServer() {
     }
     const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
     try {
-      const fsP = await import('fs/promises');
       let files: string[];
       try {
-        const all = await fsP.readdir(studyDir);
-        files = all.filter((f: string) => f.endsWith('.dcm')).sort();
+        const orderedRecords = await getOrderedDicomFiles(studyDir);
+        files = orderedRecords.map(record => record.fileName);
       } catch {
         return res.status(404).json({ error: 'Estudo não encontrado no cache. Abra o visualizador primeiro para baixar as imagens.' });
       }

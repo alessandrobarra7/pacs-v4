@@ -221,3 +221,32 @@ describe('PacsQueryPage unified visualize/download gate', () => {
     expect(reportSection).toContain('navigate(`/reports/create/${uid}`)');
   });
 });
+
+
+describe('DICOM deterministic ordering', () => {
+  it('deve ordenar arquivos por metadados DICOM antes de expor o cache', async () => {
+    const indexPath = path.resolve(__dirname, '_core', 'index.ts');
+    const content = await fs.readFile(indexPath, 'utf-8');
+    expect(content).toContain('getOrderedDicomFiles');
+    expect(content).toContain("'0020,0011': 'seriesNumberRaw'");
+    expect(content).toContain("'0020,0013': 'instanceNumberRaw'");
+    expect(content).toContain("'0020,0032': 'imagePositionRaw'");
+    expect(content).toContain('records.sort(compareOrderedDicomFiles)');
+  });
+
+  it('deve manter a sequência ordenada nas séries e no fast-path do SSE', async () => {
+    const indexPath = path.resolve(__dirname, '_core', 'index.ts');
+    const content = await fs.readFile(indexPath, 'utf-8');
+    expect(content).toContain('const orderedRecords = await getOrderedDicomFiles(studyDir)');
+    expect(content).toContain('const orderedRecords = await getOrderedDicomFiles(studyCacheDir)');
+    expect(content).toContain('seriesMap.get(record.seriesUid)!.files.push(record.fileName)');
+  });
+
+  it('não deve reordenar o stack do Cornerstone pelo nome do SOPInstanceUID', async () => {
+    const viewerPath = path.resolve(__dirname, '..', 'client', 'src', 'pages', 'DicomViewerPage.tsx');
+    const content = await fs.readFile(viewerPath, 'utf-8');
+    expect(content).toContain('A API devolve os arquivos na ordem clínica DICOM');
+    expect(content).not.toContain('imageIdsRef.current = [...imageIdsRef.current, ...pendingIdsRef.current].sort()');
+    expect(content).not.toContain('const files: string[] = (listData.files || []).sort()');
+  });
+});
