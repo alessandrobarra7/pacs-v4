@@ -13,6 +13,7 @@ import { useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { SharedReportSheet } from "@/components/SharedReportSheet";
 import { toast } from "sonner";
 import {
   ArrowLeft, Save, RotateCcw, Upload, Image as ImageIcon,
@@ -903,83 +904,38 @@ export default function LayoutEditorPage() {
                 </>
               ) : (
                 <>
-                  <div
-                    className="bg-white shadow-2xl relative overflow-hidden"
-                    style={{ width: 595, height: 842 }}
-                  >
-                    {bgPreview && (
-                      <img
-                        src={bgPreview}
-                        alt="Fundo"
-                        className="absolute inset-0 h-full w-full pointer-events-none"
-                        style={{ zIndex: 0, opacity: bgOpacity, objectFit: pageBackgroundFit }}
-                      />
-                    )}
-
-                    {activeBlockIds.map(block => {
-                      const pos = positions[block];
-                      const logoIndex = logoBlockIndex(block);
-                      const logoSlot = logoIndex >= 0 ? logos[logoIndex] : null;
-                      const visibleLogoSlot = logoIndex >= 0 && logoSlot?.preview ? logoSlot : null;
-                      if (!pos.visible) return null;
-                      if (logoIndex >= 0 && !visibleLogoSlot) return null;
-
-                      return (
-                        <div
-                          key={block}
-                          className="absolute overflow-hidden"
-                          style={{
-                            left: `${pos.x}%`,
-                            top: `${pos.y}%`,
-                            width: `${pos.w}%`,
-                            height: `${pos.h}%`,
-                            zIndex: logoIndex >= 0 ? 3 : block === "footer" ? 2 : 1,
-                          }}
-                        >
-                          {visibleLogoSlot ? (
-                            <div className="flex h-full w-full items-center justify-center">
-                              <img
-                                src={visibleLogoSlot.preview}
-                                alt={visibleLogoSlot.label || `Logo ${logoIndex + 1}`}
-                                style={{ width: visibleLogoSlot.width, height: visibleLogoSlot.height, maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-                              />
-                            </div>
-                          ) : block === "patientName" ? (
-                            <div className="flex h-full w-full items-center justify-center px-4 text-center font-serif text-[13px] font-bold uppercase tracking-normal text-gray-950">
-                              {REAL_PREVIEW_SAMPLE.patientName}
-                            </div>
-                          ) : block === "patientInfo" ? (
-                            <div className="flex h-full w-full flex-col justify-center overflow-hidden px-4 text-left font-serif text-[8px] leading-snug text-gray-950">
-                              <div>Realizado em: {REAL_PREVIEW_SAMPLE.date}</div>
-                              <div>Data de nascimento: {REAL_PREVIEW_SAMPLE.birthDate}</div>
-                              <div>Sexo: {REAL_PREVIEW_SAMPLE.sex}</div>
-                            </div>
-                          ) : block === "title" ? (
-                            <div className="flex h-full w-full items-center justify-center border-b border-gray-200 px-6 text-center font-serif text-[14px] font-bold uppercase tracking-normal text-gray-950">
-                              {REAL_PREVIEW_SAMPLE.examTitle}
-                            </div>
-                          ) : block === "body" ? (
-                            <div className="h-full w-full px-6 py-5 font-serif text-[11px] leading-relaxed text-gray-950">
-                              <h2 className="mb-3 text-center text-[13px] font-bold uppercase">{REAL_PREVIEW_SAMPLE.bodyTitle}</h2>
-                              <div className="space-y-3">
-                                {REAL_PREVIEW_SAMPLE.body.map(paragraph => (
-                                  <p key={paragraph}>{paragraph}</p>
-                                ))}
-                              </div>
-                            </div>
-                          ) : block === "footer" && footerPreview ? (
-                            <div className="flex h-full w-full items-center justify-center px-6 py-2">
-                              <img src={footerPreview} alt="Rodape" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
-                            </div>
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center px-6 text-center font-serif text-[10px] text-gray-800">
-                              Dr. Nome do Medico - CRM 12345
-                            </div>
-                          )}
+                  <SharedReportSheet
+                    positions={positions}
+                    logos={logos.filter(logo => Boolean(logo.preview)).map(logo => ({
+                      url: logo.preview as string,
+                      width: logo.width,
+                      height: logo.height,
+                      label: logo.label,
+                    }))}
+                    backgroundUrl={bgPreview}
+                    backgroundOpacity={bgOpacity}
+                    backgroundSize={pageBackgroundFit}
+                    footerImageUrl={footerPreview}
+                    patientName={REAL_PREVIEW_SAMPLE.patientName}
+                    patientInfo={
+                      <>
+                        <div>Realizado em: {REAL_PREVIEW_SAMPLE.date}</div>
+                        <div>Data de nascimento: {REAL_PREVIEW_SAMPLE.birthDate}</div>
+                        <div>Sexo: {REAL_PREVIEW_SAMPLE.sex}</div>
+                      </>
+                    }
+                    title={<div style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "14px", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb", paddingBottom: 6 }}>{REAL_PREVIEW_SAMPLE.examTitle}</div>}
+                    body={
+                      <div style={{ width: "100%", fontSize: 11, lineHeight: 1.6 }}>
+                        <h2 style={{ margin: "0 0 12px", textAlign: "center", fontSize: 13, fontWeight: 700, textTransform: "uppercase" }}>{REAL_PREVIEW_SAMPLE.bodyTitle}</h2>
+                        <div style={{ display: "grid", gap: 12 }}>
+                          {REAL_PREVIEW_SAMPLE.body.map(paragraph => <p key={paragraph} style={{ margin: 0 }}>{paragraph}</p>)}
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    }
+                    footer={<div style={{ textAlign: "center", fontSize: 10 }}>Dr. Nome do Medico - CRM 12345</div>}
+                    style={{ width: 595, height: 842, minHeight: 842 }}
+                  />
                   <p className="text-xs text-gray-500 text-center mt-2">Previa real da pagina com os blocos aplicados</p>
                 </>
               )}

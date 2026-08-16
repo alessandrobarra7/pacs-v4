@@ -1321,12 +1321,29 @@ export function PacsQueryPage() {
     background-repeat: no-repeat;
     ` : ''}
   }
+  .print-shared-sheet {
+    width: ${paperW};
+    height: ${paperH};
+    position: relative;
+    overflow: hidden;
+    background: #fff;
+    color: #111;
+    font-family: ${fontStackQ};
+    font-size: ${lSize}pt;
+    line-height: ${lLine};
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
   @media print {
     .print-page {
       page-break-after: always;
       break-after: page;
     }
     .print-page:last-child {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    .print-shared-sheet {
       page-break-after: avoid;
       break-after: avoid;
     }
@@ -1432,20 +1449,33 @@ export function PacsQueryPage() {
         }).join('');
       }
     } catch { /* não é JSON */ }
-    // Fallback: página única com tabela (cabeçalho repetível em laudos longos)
-    return `
-      <div class="print-page" style="height:auto;min-height:${paperH};">
-        <table class="print-layout">
-          <thead><tr><td>${headerHtml}</td></tr></thead>
-          <tfoot><tr><td style="padding:0;">${footerHtml}</td></tr></tfoot>
-          <tbody><tr><td>
-            <div class="patient-data">${patientDataHtml}</div>
-            ${reportTitle ? `<div class="exam-title">${reportTitle}</div>` : ''}
-            <div class="report-body">${bodyHtml}</div>
-            ${doctorFooterHtml}
-          </td></tr></tbody>
-        </table>
-      </div>`;
+    // Página única: mesma composição percentual do SharedReportSheet.
+    const blockPositionsQ = ((unitLayout as any)?.block_positions || {}) as Record<string, { x: number; y: number; w: number; h: number; visible: boolean }>;
+    const printPositionQ = (position: { x: number; y: number; w: number; h: number; visible: boolean } | undefined, fallback: { x: number; y: number; w: number; h: number; visible: boolean }) => {
+      const p = position ?? fallback;
+      return `position:absolute;left:${p.x}%;top:${p.y}%;width:${p.w}%;height:${p.h}%;box-sizing:border-box;`;
+    };
+    const logosPositionedQ = lLogos.slice(0, 3).filter((l: any) => l?.url).map((logo: any, index: number) => {
+      const id = `logo${index + 1}`;
+      const fallback = index === 0 ? (blockPositionsQ.logo || { x: 2, y: 2, w: 26, h: 11, visible: true }) : { x: 2 + index * 30, y: 2, w: 20, h: 10, visible: true };
+      const position = blockPositionsQ[id] || (index === 0 ? blockPositionsQ.logo : undefined);
+      const url = toAbsUrl(logo.url);
+      return position?.visible === false ? '' : `<div data-layout-block="${id}" style="${printPositionQ(position, fallback)}display:flex;align-items:center;justify-content:center;padding:4px;z-index:2;overflow:hidden;"><img src="${url}" alt="${logo.label || `Logo ${index + 1}`}" style="width:100%;height:100%;object-fit:contain;display:block;" /></div>`;
+    }).join('');
+    const patientInfoPositionQ = blockPositionsQ.patientInfo || { x: 2, y: 15, w: 96, h: 9, visible: true };
+    const patientNamePositionQ = blockPositionsQ.patientName || { x: 2, y: 25, w: 96, h: 5, visible: true };
+    const titlePositionQ = blockPositionsQ.title || { x: 2, y: 31, w: 96, h: 6, visible: true };
+    const bodyPositionQ = blockPositionsQ.body || { x: 2, y: 38, w: 96, h: 48, visible: true };
+    const footerPositionQ = blockPositionsQ.footer || { x: 2, y: 88, w: 96, h: 9, visible: true };
+    return `<div class="shared-report-sheet print-shared-sheet" data-shared-report-sheet>
+      ${bgBase64Q ? `<img src="${bgBase64Q}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:${lBgSize === 'contain' ? 'contain' : 'cover'};opacity:${lBgOpacity};z-index:0;" />` : ''}
+      ${logosPositionedQ}
+      ${patientInfoPositionQ.visible ? `<div data-layout-block="patientInfo" style="${printPositionQ(patientInfoPositionQ, { x: 2, y: 15, w: 96, h: 9, visible: true })}display:flex;align-items:center;padding:4px 8px;z-index:3;overflow:hidden;font-size:8pt;line-height:1.35;">Realizado em: <strong>${studyDate}</strong><span style="margin:0 6px;">·</span>Nasc.: <strong>${birthDateFormatted || '—'}</strong><span style="margin:0 6px;">·</span>Sexo: <strong>${sexFormatted || '—'}</strong></div>` : ''}
+      ${patientNamePositionQ.visible ? `<div data-layout-block="patientName" style="${printPositionQ(patientNamePositionQ, { x: 2, y: 25, w: 96, h: 5, visible: true })}display:flex;align-items:center;padding:0 8px;z-index:3;overflow:hidden;font-size:11.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.02em;">${patientName || '—'}</div>` : ''}
+      ${titlePositionQ.visible ? `<div data-layout-block="title" style="${printPositionQ(titlePositionQ, { x: 2, y: 31, w: 96, h: 6, visible: true })}display:flex;align-items:center;justify-content:center;padding:0 8px;z-index:3;overflow:hidden;text-align:center;font-size:13pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e0e0e0;">${reportTitle || '—'}</div>` : ''}
+      ${bodyPositionQ.visible ? `<div data-layout-block="body" style="${printPositionQ(bodyPositionQ, { x: 2, y: 38, w: 96, h: 48, visible: true })}padding:8px 12px;overflow:hidden;z-index:3;font-size:${lSize}pt;line-height:${lLine};">${bodyHtml || '<p style="color:#9ca3af;font-style:italic;">Sem conteúdo para visualizar.</p>'}</div>` : ''}
+      ${footerPositionQ.visible ? `<div data-layout-block="footer" style="${printPositionQ(footerPositionQ, { x: 2, y: 88, w: 96, h: 9, visible: true })}display:flex;align-items:center;justify-content:center;overflow:hidden;z-index:4;">${lFooterUrl ? `<img src="${lFooterUrl}" alt="Rodapé" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" />` : ''}<div style="position:relative;z-index:1;width:100%;">${doctorFooterHtml || '<div style="height:4mm;"></div>'}</div></div>` : ''}
+    </div>`;
   })()
   }
   <script>

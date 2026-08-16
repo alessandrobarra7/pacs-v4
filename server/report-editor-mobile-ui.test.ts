@@ -6,6 +6,14 @@ const editorSource = readFileSync(
   resolve(process.cwd(), "client/src/pages/ReportEditorPage.tsx"),
   "utf8",
 );
+const sharedSheetSource = readFileSync(
+  resolve(process.cwd(), "client/src/components/SharedReportSheet.tsx"),
+  "utf8",
+);
+const pacsSource = readFileSync(
+  resolve(process.cwd(), "client/src/pages/PacsQueryPage.tsx"),
+  "utf8",
+);
 
 describe("ReportEditorPage — experiência mobile", () => {
   it("mantém o editor desktop separado do fluxo mobile", () => {
@@ -25,22 +33,50 @@ describe("ReportEditorPage — experiência mobile", () => {
     expect(editorSource).toContain("CarimboTab");
   });
 
-  it("usa documento fluido no mobile e preserva a largura A4 no desktop", () => {
+  it("usa documento fluido no mobile e preserva a folha compartilhada no desktop", () => {
     expect(editorSource).toContain('className="report-page w-full md:w-[794px]"');
-    expect(editorSource).toContain('className="relative w-full md:w-[794px] overflow-hidden bg-white shadow-md print:shadow-none"');
+    expect(editorSource).toContain("<SharedReportSheet");
+    expect(sharedSheetSource).toContain('height: "297mm"');
+    expect(sharedSheetSource).toContain('minHeight: "1123px"');
     expect(editorSource).toContain("min-h-[350px]");
     expect(editorSource).toContain("bottom-20 right-4");
   });
 
-  it("usa um canvas único com os mesmos blocos e coordenadas do layout administrativo", () => {
-    expect(editorSource).toContain('data-layout-block={`logo${i + 1}`}');
-    expect(editorSource).toContain('data-layout-block="patientName"');
+  it("usa SharedReportSheet como canvas único com os mesmos blocos e coordenadas do layout administrativo", () => {
+    expect(editorSource).toContain("<SharedReportSheet");
+    expect(editorSource).toContain("positions={layoutBlockPos}");
+    expect(editorSource).toContain("backgroundUrl={layoutBgUrl}");
+    expect(editorSource).toContain("footerImageUrl={layoutFooterUrl}");
+    expect(sharedSheetSource).toContain('data-layout-block={id}');
+    expect(sharedSheetSource).toContain('data-layout-block="patientName"');
+    expect(sharedSheetSource).toContain('data-layout-block="patientInfo"');
+    expect(sharedSheetSource).toContain('data-layout-block="title"');
+    expect(sharedSheetSource).toContain('data-layout-block="body"');
+    expect(sharedSheetSource).toContain('data-layout-block="footer"');
+    expect(sharedSheetSource).toContain('left: `${p.x}%`');
+    expect(sharedSheetSource).toContain('top: `${p.y}%`');
+  });
+
+  it("mantém a exportação de página única na mesma composição percentual do SharedReportSheet", () => {
+    expect(editorSource).toContain('class="shared-report-sheet print-shared-sheet"');
+    expect(editorSource).toContain('const printPosition = (position: BlockPos | undefined, fallback: BlockPos)');
     expect(editorSource).toContain('data-layout-block="patientInfo"');
+    expect(editorSource).toContain('data-layout-block="patientName"');
     expect(editorSource).toContain('data-layout-block="title"');
     expect(editorSource).toContain('data-layout-block="body"');
     expect(editorSource).toContain('data-layout-block="footer"');
-    expect(editorSource).toContain('left: `${(layoutBlockPos as any)?.footer?.x ?? 2}%`');
-    expect(editorSource).toContain('top: `${(layoutBlockPos as any)?.footer?.y ?? 88}%`');
+    expect(editorSource).toContain('object-fit:${layoutBgSize === \'contain\' ? \'contain\' : \'cover\'}');
+  });
+
+  it("mantém o download pela lista PACS na mesma folha A4 posicionada", () => {
+    expect(pacsSource).toContain('class="shared-report-sheet print-shared-sheet"');
+    expect(pacsSource).toContain("const blockPositionsQ");
+    expect(pacsSource).toContain("const printPositionQ");
+    expect(pacsSource).toContain('data-layout-block=\"patientInfo\"');
+    expect(pacsSource).toContain('data-layout-block=\"patientName\"');
+    expect(pacsSource).toContain('data-layout-block=\"title\"');
+    expect(pacsSource).toContain('data-layout-block=\"body\"');
+    expect(pacsSource).toContain('data-layout-block=\"footer\"');
   });
 
   it("refaz a consulta quando o administrador salva um layout em outra aba", () => {

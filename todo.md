@@ -1786,3 +1786,14 @@
 - [x] Alinhar rigorosamente a versão desktop do ReportEditorPage para aplicar a posição exata (X, Y, largura, altura) salva pelo administrador para cada bloco (logos, paciente, título, corpo, rodapé)
 - [x] Unificar rigorosamente as coordenadas, escalas e IDs de blocos entre o LayoutEditorPage e o ReportEditorPage para que a posição salva no admin seja aplicada 1:1 no editor desktop
 - [x] Eliminar a montagem fixa redundante no ReportEditorPage desktop e renderizar exclusivamente a folha A4 com base nos blocos persistidos no LayoutEditorPage
+- [x] Criar o componente compartilhado de folha A4 institucional (`SharedReportSheet.tsx`) para unificar a renderização entre o editor administrativo, o editor clínico desktop e a exportação PDF
+
+## AUDITORIA FINAL — FOLHA A4 COMPARTILHADA
+- [x] Unificar a prévia real administrativa com `SharedReportSheet`, preservando o modo de edição e o arraste de blocos.
+- [x] Unificar o canvas desktop clínico com `SharedReportSheet`, incluindo logos, dados, título, corpo e rodapé nas coordenadas persistidas.
+- [x] Ajustar a impressão/PDF de página única para usar a mesma composição percentual da folha A4 compartilhada.
+- [x] Atualizar testes de contrato do editor e validar TypeScript + Vitest (181 testes passando).
+- [x] Auditar visualmente a prévia administrativa e o editor clínico no navegador, sem erros no console.
+- [ ] Validar arraste e redimensionamento por toque em dispositivo móvel físico.
+- [ ] Revisar refinamentos finais de multi-seção e branding institucional após teste com dados reais.
+- [x] Unificar também o renderer de download/impressão da PacsQueryPage com o contrato percentual do `SharedReportSheet`.

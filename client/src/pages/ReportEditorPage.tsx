@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import DOMPurify from 'dompurify';
 import type { LayoutPreferences, LayoutSnapshot } from '../../../shared/types';
+import { SharedReportSheet } from "@/components/SharedReportSheet";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -834,12 +835,42 @@ export default function ReportEditorPage() {
     background-repeat: no-repeat;
     ` : ''}
   }
+  .print-shared-sheet {
+    width: ${paperW};
+    height: ${paperH};
+    padding: 0;
+    box-sizing: border-box;
+    position: relative;
+    overflow: hidden;
+    display: block;
+    background: #fff;
+    color: #111;
+    font-family: ${fontStack};
+    font-size: ${lSize}pt;
+    line-height: ${lLine};
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .draft-watermark {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) rotate(-45deg);
+    font: 900 72pt Arial, sans-serif;
+    color: rgba(200,50,50,.10);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 5;
+  }
   @media print {
     .print-page {
       page-break-after: always;
       break-after: page;
     }
     .print-page:last-child {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    .print-shared-sheet {
       page-break-after: avoid;
       break-after: avoid;
     }
@@ -968,17 +999,36 @@ export default function ReportEditorPage() {
         }).join('');
       }
     } catch {}
-    // Fallback: página única com tabela (cabeçalho repetível em laudos longos)
-    return `<table class="print-layout">
-      <thead><tr><td>${headerHtml}</td></tr></thead>
-      <tfoot><tr><td style="padding:0;">${footerHtml}</td></tr></tfoot>
-      <tbody><tr><td>
-        <div class="patient-data">${patientDataHtml}</div>
-        ${bpTitle.visible && examTitle ? `<div class="exam-title">${examTitle}</div>` : ''}
-        <div class="report-body">${bodyHtml}</div>
-        ${bpFooter.visible ? doctorFooterHtml : ''}
-      </td></tr></tbody>
-    </table>`;
+    // Página única: mesma composição percentual do SharedReportSheet.
+    const printPosition = (position: BlockPos | undefined, fallback: BlockPos) => {
+      const p = position ?? fallback;
+      return `position:absolute;left:${p.x}%;top:${p.y}%;width:${p.w}%;height:${p.h}%;box-sizing:border-box;`;
+    };
+    const printLogoHtml = layoutLogos.slice(0, 3).map((logo, index) => {
+      const id = `logo${index + 1}`;
+      const fallback = index === 0 ? bpLogo : { x: 2 + index * 30, y: 2, w: 20, h: 10, visible: true };
+      const position = layoutBlockPos?.[id] ?? (index === 0 ? layoutBlockPos?.logo : undefined);
+      const logoUrl = toAbsUrl(logo.url) || logo.url;
+      return position?.visible === false ? '' : `
+        <div data-layout-block="${id}" style="${printPosition(position, fallback)}display:flex;align-items:center;justify-content:center;padding:4px;z-index:2;overflow:hidden;">
+          <img src="${logoUrl}" alt="${logo.label || `Logo ${index + 1}`}" style="width:100%;height:100%;object-fit:contain;display:block;" />
+        </div>`;
+    }).join('');
+    const patientInfoPosition = layoutBlockPos?.patientInfo ?? { x: 2, y: 15, w: 96, h: 9, visible: true };
+    const patientNamePosition = layoutBlockPos?.patientName ?? { x: 2, y: 25, w: 96, h: 5, visible: true };
+    const titlePosition = layoutBlockPos?.title ?? { x: 2, y: 31, w: 96, h: 6, visible: true };
+    const bodyPosition = layoutBlockPos?.body ?? { x: 2, y: 38, w: 96, h: 48, visible: true };
+    const footerPosition = layoutBlockPos?.footer ?? { x: 2, y: 88, w: 96, h: 9, visible: true };
+    return `
+      <div class="shared-report-sheet print-shared-sheet" data-shared-report-sheet>
+        ${bgBase64 ? `<img src="${bgBase64}" alt="" class="sheet-background" style="position:absolute;inset:0;width:100%;height:100%;object-fit:${layoutBgSize === 'contain' ? 'contain' : 'cover'};opacity:${layoutBgOpacity};z-index:0;" />` : ''}
+        ${printLogoHtml}
+        ${patientInfoPosition.visible ? `<div data-layout-block="patientInfo" style="${printPosition(patientInfoPosition, { x: 2, y: 15, w: 96, h: 9, visible: true })}display:flex;align-items:center;padding:4px 8px;z-index:3;overflow:hidden;font-size:8pt;line-height:1.35;">Realizado em: <strong>${studyDateFormatted || '—'}</strong><span style="margin:0 6px;">·</span>Nasc.: <strong>${birthDate || '—'}</strong><span style="margin:0 6px;">·</span>Sexo: <strong>${sexFormatted || '—'}</strong></div>` : ''}
+        ${patientNamePosition.visible ? `<div data-layout-block="patientName" style="${printPosition(patientNamePosition, { x: 2, y: 25, w: 96, h: 5, visible: true })}display:flex;align-items:center;padding:0 8px;z-index:3;overflow:hidden;font-size:11.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.02em;">${patientName || '—'}</div>` : ''}
+        ${titlePosition.visible ? `<div data-layout-block="title" style="${printPosition(titlePosition, { x: 2, y: 31, w: 96, h: 6, visible: true })}display:flex;align-items:center;justify-content:center;padding:0 8px;z-index:3;overflow:hidden;text-align:center;font-size:13pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e0e0e0;">${examTitle || '—'}</div>` : ''}
+        ${bodyPosition.visible ? `<div data-layout-block="body" style="${printPosition(bodyPosition, { x: 2, y: 38, w: 96, h: 48, visible: true })}padding:8px 12px;overflow:hidden;z-index:3;font-size:${lSize}pt;line-height:${lLine};">${bodyHtml || '<p style="color:#9ca3af;font-style:italic;">Sem conteúdo para visualizar.</p>'}</div>` : ''}
+        ${footerPosition.visible ? `<div data-layout-block="footer" style="${printPosition(footerPosition, { x: 2, y: 88, w: 96, h: 9, visible: true })}display:flex;align-items:center;justify-content:center;overflow:hidden;z-index:4;">${layoutFooterUrl ? `<img src="${toAbsUrl(layoutFooterUrl) || layoutFooterUrl}" alt="Rodapé" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" />` : ''}<div style="position:relative;z-index:1;width:100%;">${doctorFooterHtml || '<div style="height:4mm;"></div>'}</div></div>` : ''}
+      </div>`;
   })()}
   <!-- P5: rodapé via tfoot (renderiza em todas as páginas, compatível com PDF) -->
 <script>
@@ -1001,7 +1051,7 @@ export default function ReportEditorPage() {
     }
     win.document.write(html);
     win.document.close();
-  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, sectionRefs, examNames, isMultiSection]);
+  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection]);
 
   // FIX BUG-2: inserir imagem inline no contentEditable
   // A imagem faz parte do documento, é salva no laudo e arrastável pelo browser nativamente.
@@ -1569,187 +1619,49 @@ export default function ReportEditorPage() {
                 })}
               </div>
             ) : (
-              /* MODO PÁGINA Única: canvas único com o mesmo sistema de coordenadas do LayoutEditorPage */
-              <div
-                className="relative w-full md:w-[794px] overflow-hidden bg-white shadow-md print:shadow-none"
-                style={{
-                  height: "297mm",
-                  minHeight: "1123px",
-                  fontFamily: layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "'Times New Roman', Times, serif",
-                  fontSize: layoutPrefs?.fontSize ? `${layoutPrefs.fontSize}pt` : "11pt",
-                  lineHeight: layoutPrefs?.lineHeight ?? 1.6,
-                  color: "#111",
-                  boxSizing: "border-box",
-                  position: "relative",
-                }}
-              >
-                {layoutBgUrl && (
-                  <img
-                    src={layoutBgUrl}
-                    alt="Fundo do laudo"
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 h-full w-full"
-                    style={{ zIndex: 0, opacity: layoutBgOpacity, objectFit: layoutBgSize === "contain" ? "contain" : "cover" }}
-                  />
-                )}
-
-                {/* Logos: cada slot usa exatamente o X/Y/Largura/Altura salvo no admin */}
-                {layoutLogos.map((l, i) => {
-                  const slotPos = (layoutBlockPos as any)?.[`logo${i + 1}`] ?? { x: 2 + i * 35, y: 2, w: 26, h: 11, visible: true };
-                  if (!slotPos.visible) return null;
-                  return (
-                    <div
-                      key={`desktop-layout-logo-${i}`}
-                      data-layout-block={`logo${i + 1}`}
-                      style={{
-                        position: "absolute",
-                        left: `${slotPos.x}%`,
-                        top: `${slotPos.y}%`,
-                        width: `${slotPos.w}%`,
-                        height: `${slotPos.h}%`,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: 4,
-                        boxSizing: "border-box",
-                        zIndex: 2,
-                      }}
-                    >
-                      <img src={l.url} alt={l.label || `Logo ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
-                    </div>
-                  );
-                })}
-
-                {layoutLogos.length === 0 && ((layoutBlockPos as any)?.logo1?.visible ?? true) && (
-                  <div
-                    data-layout-block="logo1"
-                    style={{
-                      position: "absolute",
-                      left: `${(layoutBlockPos as any)?.logo1?.x ?? 2}%`,
-                      top: `${(layoutBlockPos as any)?.logo1?.y ?? 2}%`,
-                      width: `${(layoutBlockPos as any)?.logo1?.w ?? 26}%`,
-                      height: `${(layoutBlockPos as any)?.logo1?.h ?? 11}%`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "#64748b",
-                      fontSize: "9pt",
-                      fontWeight: 700,
-                      zIndex: 2,
-                    }}
-                  >
-                    {medCtx?.unitName || "Unidade"}
-                  </div>
-                )}
-
-                {/* Nome do paciente */}
-                {((layoutBlockPos as any)?.patientName?.visible ?? true) && (
-                  <div
-                    data-layout-block="patientName"
-                    style={{
-                      position: "absolute",
-                      left: `${(layoutBlockPos as any)?.patientName?.x ?? 2}%`,
-                      top: `${(layoutBlockPos as any)?.patientName?.y ?? 25}%`,
-                      width: `${(layoutBlockPos as any)?.patientName?.w ?? 96}%`,
-                      height: `${(layoutBlockPos as any)?.patientName?.h ?? 5}%`,
-                      display: "flex",
-                      alignItems: "center",
-                      padding: "0 8px",
-                      boxSizing: "border-box",
-                      zIndex: 3,
-                    }}
-                  >
-                    <span style={{ fontSize: "11.5pt", fontWeight: 700, color: "#111", textTransform: "uppercase", letterSpacing: "0.02em" }}>{patientName || "—"}</span>
-                  </div>
-                )}
-
-                {/* Dados do paciente */}
-                {((layoutBlockPos as any)?.patientInfo?.visible ?? true) && (
-                  <div
-                    data-layout-block="patientInfo"
-                    style={{
-                      position: "absolute",
-                      left: `${(layoutBlockPos as any)?.patientInfo?.x ?? 2}%`,
-                      top: `${(layoutBlockPos as any)?.patientInfo?.y ?? 15}%`,
-                      width: `${(layoutBlockPos as any)?.patientInfo?.w ?? 96}%`,
-                      height: `${(layoutBlockPos as any)?.patientInfo?.h ?? 9}%`,
-                      display: "flex",
-                      alignItems: "center",
-                      padding: "4px 8px",
-                      boxSizing: "border-box",
-                      fontSize: "9.5pt",
-                      color: "#333",
-                      lineHeight: 1.3,
-                      zIndex: 3,
-                    }}
-                  >
-                    Realizado em: <strong style={{ marginLeft: 3 }}>{studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : "—"}</strong>
+              /* MODO PÁGINA Única: mesma folha A4 compartilhada com o LayoutEditorPage */
+              <SharedReportSheet
+                positions={layoutBlockPos}
+                logos={layoutLogos}
+                backgroundUrl={layoutBgUrl}
+                backgroundOpacity={layoutBgOpacity}
+                backgroundSize={layoutBgSize}
+                footerImageUrl={layoutFooterUrl}
+                fontFamily={layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "'Times New Roman', Times, serif"}
+                fontSize={layoutPrefs?.fontSize ?? 11}
+                lineHeight={layoutPrefs?.lineHeight ?? 1.6}
+                patientName={patientName}
+                patientInfo={
+                  <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
+                    Realizado em: <strong>{studyInfo?.studyDate || new Date().toLocaleDateString("pt-BR")}</strong>
                     <span style={{ margin: "0 6px" }}>·</span>
-                    Nasc.: <strong style={{ marginLeft: 3 }}>{studyInfo?.birthDate || "—"}</strong>
+                    Nasc.: <strong>{studyInfo?.birthDate || "—"}</strong>
                     <span style={{ margin: "0 6px" }}>·</span>
-                    Sexo: <strong style={{ marginLeft: 3 }}>{studyInfo?.sex || "—"}</strong>
+                    Sexo: <strong>{studyInfo?.sex || "—"}</strong>
                   </div>
-                )}
-
-                {/* Título do exame */}
-                {((layoutBlockPos as any)?.title?.visible ?? true) && (
-                  <div
-                    data-layout-block="title"
-                    style={{
-                      position: "absolute",
-                      left: `${(layoutBlockPos as any)?.title?.x ?? 2}%`,
-                      top: `${(layoutBlockPos as any)?.title?.y ?? 31}%`,
-                      width: `${(layoutBlockPos as any)?.title?.w ?? 96}%`,
-                      height: `${(layoutBlockPos as any)?.title?.h ?? 6}%`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      padding: "0 8px",
-                      boxSizing: "border-box",
-                      zIndex: 3,
-                    }}
-                  >
-                    {examTitle ? (
-                      editingTitle ? (
-                        <input
-                          ref={titleInputRef}
-                          value={examTitle}
-                          onChange={e => setExamTitle(e.target.value)}
-                          onBlur={() => setEditingTitle(false)}
-                          onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setEditingTitle(false); }}
-                          autoFocus
-                          style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Times New Roman', Times, serif", border: "2px solid #1a6b8a", borderRadius: 4, padding: "4px 8px", outline: "none", background: "#f0f8fb", boxSizing: "border-box", color: "#111" }}
-                        />
-                      ) : (
-                        <div onClick={() => setEditingTitle(true)} title="Clique para editar o título" style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", cursor: "pointer", color: "#111", position: "relative", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
-                          {examTitle}
-                          <span style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", fontSize: "9pt", color: "#1a6b8a", opacity: 0.4 }}>✏</span>
-                        </div>
-                      )
+                }
+                title={
+                  examTitle ? (
+                    editingTitle ? (
+                      <input
+                        ref={titleInputRef}
+                        value={examTitle}
+                        onChange={e => setExamTitle(e.target.value)}
+                        onBlur={() => setEditingTitle(false)}
+                        onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setEditingTitle(false); }}
+                        autoFocus
+                        style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Times New Roman', Times, serif", border: "2px solid #1a6b8a", borderRadius: 4, padding: "4px 8px", outline: "none", background: "#f0f8fb", boxSizing: "border-box", color: "#111" }}
+                      />
                     ) : (
-                      <div style={{ textAlign: "center", color: "#aaa", fontSize: "11pt", fontStyle: "italic", paddingBottom: 6, borderBottom: "1px solid #e0e0e0", width: "100%" }}>Selecione o tipo de exame na barra lateral</div>
-                    )}
-                  </div>
-                )}
-
-                {/* Corpo: o editor inteiro também fica dentro do mesmo canvas */}
-                {((layoutBlockPos as any)?.body?.visible ?? true) && (
-                  <div
-                    data-layout-block="body"
-                    style={{
-                      position: "absolute",
-                      left: `${(layoutBlockPos as any)?.body?.x ?? 2}%`,
-                      top: `${(layoutBlockPos as any)?.body?.y ?? 38}%`,
-                      width: `${(layoutBlockPos as any)?.body?.w ?? 96}%`,
-                      height: `${(layoutBlockPos as any)?.body?.h ?? 48}%`,
-                      display: "flex",
-                      flexDirection: "column",
-                      padding: "8px 12px",
-                      boxSizing: "border-box",
-                      overflow: "auto",
-                      zIndex: 3,
-                    }}
-                  >
+                      <div onClick={() => setEditingTitle(true)} title="Clique para editar o título" style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", cursor: "pointer", color: "#111", position: "relative", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
+                        {examTitle}
+                        <span style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", fontSize: "9pt", color: "#1a6b8a", opacity: 0.4 }}>✏</span>
+                      </div>
+                    )
+                  ) : <div style={{ width: "100%", textAlign: "center", color: "#aaa", fontStyle: "italic" }}>Selecione o tipo de exame na barra lateral</div>
+                }
+                body={
+                  <>
                     {isSigned && !isRevising && (
                       <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexShrink: 0 }}>
                         <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
@@ -1757,11 +1669,7 @@ export default function ReportEditorPage() {
                       </div>
                     )}
                     {isPreview ? (
-                      <div
-                        data-editor-content
-                        style={{ flex: 1, minHeight: "60mm", lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", fontFamily: "'Times New Roman', Times, serif", pointerEvents: "none", userSelect: "none" }}
-                        dangerouslySetInnerHTML={{ __html: previewHtml || "<p style='color:#9ca3af;font-style:italic;font-size:10pt'>Sem conteúdo para visualizar.</p>" }}
-                      />
+                      <div data-editor-content style={{ flex: 1, minHeight: "60mm", lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", fontFamily: "'Times New Roman', Times, serif", pointerEvents: "none", userSelect: "none" }} dangerouslySetInnerHTML={{ __html: previewHtml || "<p style='color:#9ca3af;font-style:italic;font-size:10pt'>Sem conteúdo para visualizar.</p>" }} />
                     ) : (
                       <div
                         ref={docRef}
@@ -1808,41 +1716,20 @@ export default function ReportEditorPage() {
                         style={{ flex: 1, minHeight: "60mm", outline: isDragOver ? "2px dashed #3b82f6" : "none", borderRadius: isDragOver ? 4 : undefined, backgroundColor: isDragOver ? "rgba(59,130,246,0.04)" : undefined, lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", cursor: isEditable ? "text" : "default", fontFamily: "'Times New Roman', Times, serif", transition: "outline 0.1s ease, background-color 0.1s ease" }}
                       />
                     )}
-                  </div>
-                )}
-
-                {/* Rodapé/carimbo: mesma posição do bloco footer no admin */}
-                {((layoutBlockPos as any)?.footer?.visible ?? true) && (
-                  <div
-                    data-layout-block="footer"
-                    style={{
-                      position: "absolute",
-                      left: `${(layoutBlockPos as any)?.footer?.x ?? 2}%`,
-                      top: `${(layoutBlockPos as any)?.footer?.y ?? 88}%`,
-                      width: `${(layoutBlockPos as any)?.footer?.w ?? 96}%`,
-                      height: `${(layoutBlockPos as any)?.footer?.h ?? 9}%`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      boxSizing: "border-box",
-                      overflow: "hidden",
-                      zIndex: 4,
-                    }}
-                  >
-                    {layoutFooterUrl && <img src={layoutFooterUrl} alt="Rodapé" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
-                    {isSigned && medCtx?.doctorName && (
-                      <div style={{ position: "relative", zIndex: 1, textAlign: "center", minWidth: 180, maxWidth: "90%", background: layoutFooterUrl ? "rgba(255,255,255,0.82)" : "transparent", padding: "4px 12px" }}>
-                        {medCtx.signatureUrl && <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 45, maxWidth: 180, objectFit: "contain", display: "block", margin: "0 auto 2px" }} />}
-                        {medCtx.stampUrl && <img src={medCtx.stampUrl} alt="Carimbo" style={{ maxHeight: 70, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2px" }} />}
-                        <div style={{ borderTop: "1.5px solid #333", width: "100%", marginBottom: 3 }} />
-                        <div style={{ fontWeight: 700, fontSize: "9pt", textTransform: "uppercase", color: "#111" }}>{medCtx.doctorName}{existingReport?.status === "revised" && <span style={{ marginLeft: 6, color: "#92400e", fontSize: "7pt" }}>RETIFICADO</span>}</div>
-                        <div style={{ fontSize: "8pt", color: "#444" }}>MÉDICO RADIOLOGISTA{medCtx.crm ? ` · CRM: ${medCtx.crm}` : ""}</div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                  </>
+                }
+                footer={
+                  isSigned && medCtx?.doctorName ? (
+                    <div style={{ textAlign: "center", minWidth: 180, maxWidth: "90%", background: layoutFooterUrl ? "rgba(255,255,255,0.82)" : "transparent", padding: "4px 12px", margin: "0 auto" }}>
+                      {medCtx.signatureUrl && <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 45, maxWidth: 180, objectFit: "contain", display: "block", margin: "0 auto 2px" }} />}
+                      {medCtx.stampUrl && <img src={medCtx.stampUrl} alt="Carimbo" style={{ maxHeight: 70, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2px" }} />}
+                      <div style={{ borderTop: "1.5px solid #333", width: "100%", marginBottom: 3 }} />
+                      <div style={{ fontWeight: 700, fontSize: "9pt", textTransform: "uppercase", color: "#111" }}>{medCtx.doctorName}{existingReport?.status === "revised" && <span style={{ marginLeft: 6, color: "#92400e", fontSize: "7pt" }}>RETIFICADO</span>}</div>
+                      <div style={{ fontSize: "8pt", color: "#444" }}>MÉDICO RADIOLOGISTA{medCtx.crm ? ` · CRM: ${medCtx.crm}` : ""}</div>
+                    </div>
+                  ) : <div />
+                }
+              />            )}
           </div>
         </main>
         </div>{/* fim div wrapper MOD 8 */}
