@@ -178,6 +178,12 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
 
         log("INFO", "Enviando C-GET (Study Root)...")
         responses = assoc.send_c_get(ds, StudyRootQueryRetrieveInformationModelGet)
+        
+        # Se C-GET falhar com status de erro (como 0xC000), tenta fallback para C-MOVE se configurado ou tratado
+        # Nota: C-MOVE exige que o PACS conheça o AE Title local e saiba para onde enviar (C-STORE SCP local)
+        # Vamos verificar se recebemos algum arquivo; se 0 e status != 0, tentamos C-MOVE
+        success_status = [0x0000, 0xFF00, 0xFF01]
+
 
         for (status, identifier) in responses:
             if status:

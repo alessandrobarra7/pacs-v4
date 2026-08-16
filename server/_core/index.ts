@@ -685,7 +685,7 @@ async function startServer() {
         streaming: true,  // modo streaming: emite JSON por linha a cada arquivo
       });
 
-      const child = spawn('/usr/bin/python3.11', [scriptPath, moveParams], {
+      const child = spawn('python3', [scriptPath, moveParams], {
         env: cleanEnv,
         timeout: 600000,
       });
