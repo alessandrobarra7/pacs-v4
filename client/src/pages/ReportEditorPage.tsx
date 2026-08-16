@@ -1021,6 +1021,7 @@ export default function ReportEditorPage() {
             birthDate={birthDate || "—"}
             sex={sexFormatted || "—"}
             studyDate={studyDateFormatted || "—"}
+            modality={studyInfo?.modality}
             unitName={medCtx?.unitName}
           />
         ),
@@ -1060,14 +1061,15 @@ export default function ReportEditorPage() {
       lineHeight: lLine,
       patientName,
       patientNameContent: <ClinicalPatientName patientName={patientName} />,
-      patientInfo: (
-        <ClinicalPatientDetails
-          birthDate={birthDate || "—"}
-          sex={sexFormatted || "—"}
-          studyDate={studyDateFormatted || "—"}
-          unitName={medCtx?.unitName}
-        />
-      ),
+        patientInfo: (
+          <ClinicalPatientDetails
+            birthDate={birthDate || "—"}
+            sex={sexFormatted || "—"}
+            studyDate={studyDateFormatted || "—"}
+            modality={studyInfo?.modality}
+            unitName={medCtx?.unitName}
+          />
+        ),
       title: (
         <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
           {examTitle || "—"}

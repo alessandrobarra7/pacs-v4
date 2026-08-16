@@ -96,3 +96,8 @@ Conforme solicitado:
 1. O carregamento do estudo no editor clínico (`ReportEditorPage.tsx`) foi normalizado para mapear `patientBirthDate` e `patientSex` salvos na sessão para as propriedades canônicas `birthDate` e `sex`, resolvendo o problema de dados em branco ("—").
 2. O rótulo "Data de realização do exame:" foi alterado para "Data:" em `ClinicalPatientDetails.tsx`.
 3. Todos os testes unitários (186 testes) e checagens TypeScript passaram com sucesso, mantendo total paridade entre admin, editor clínico e PDF.
+
+
+## Atualização — Alinhamento da Impressão PDF com Modalidade
+Após a inspeção do PDF de teste fornecido (`testesaaaaa.pdf`), o gerador de impressão estática do editor clínico (`handlePrint` em `ReportEditorPage.tsx`) foi ajustado para repassar a `modality` do estudo para o componente `ClinicalPatientDetails`. Desta forma, a impressão PDF gerada reflete exatamente o mesmo layout estruturado em duas linhas (Data + Modalidade e Nascimento + Sexo) exibido na tela do editor e na prévia administrativa.
+Testes: 186 testes Vitest aprovados com sucesso.
