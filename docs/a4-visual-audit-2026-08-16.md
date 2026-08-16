@@ -15,3 +15,11 @@ Com o servidor reativado, o editor clínico renderizou a mesma faixa de corpo in
 ## Teste representativo com dados da captura
 
 Foi carregado no sandbox um estudo representativo com `ANTONIA DE SOUZA BATISTA`, exame `CRANIO`, data, nascimento e sexo. O editor clínico exibiu o nome completo, o título do exame na faixa própria e a mesma estrutura de corpo institucional (`LAUDO RADIOLOGICO`, `Técnica`, `Achados`, `Conclusão`) dentro da área persistida do bloco `body`. A guia permanece visual e não é conteúdo clínico salvo.
+
+## Fluxo real da listagem
+
+A listagem PACS chegou a exibir um estudo real de Antonia e o botão `Laudar`, mas a consulta foi atualizada logo depois e retornou `Nenhum estudo encontrado`; por isso não foi possível abrir a rota clínica pelo clique normal sem assumir um UID. A validação representativa anterior continua válida, e a limitação de dados intermitentes do sandbox foi registrada em vez de mascarada.
+
+## Validação com UID real do PACS
+
+O UID real recuperado da listagem foi aberto no fluxo clínico. A folha exibiu a logo institucional `INSTITUTO ACQUA`, o paciente `ANTONIA DE SOUZA BATISTA`, o título `CRANIO`, os dados do estudo e a estrutura visual do corpo com `LAUDO RADIOLOGICO`, `Técnica`, `Achados` e `Conclusão`. A composição corresponde à referência administrativa em escala e ordem de blocos; o corpo permanece orientativo até que um modelo ou texto clínico seja inserido.

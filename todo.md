@@ -1802,7 +1802,7 @@
 - [x] Diagnosticar por que a prévia administrativa e o editor clínico exibem logo, dados, título e corpo em posições/composições diferentes na captura enviada.
 - [x] Corrigir a fonte única de composição para que o editor clínico corresponda visualmente ao layout salvo no admin.
 - [x] Validar a composição no sandbox e atualizar os testes de contrato/exportação.
-- [ ] Revalidar a correspondência visual com um estudo real carregado no editor clínico.
+- [x] Revalidar a correspondência visual com um estudo real carregado no editor clínico.
 
 ## REABERTURA DA AUDITORIA VISUAL — CAPTURA DO USUÁRIO
 - [x] Reproduzir a divergência mostrada: admin institucional completo versus editor clínico com composição diferente.
