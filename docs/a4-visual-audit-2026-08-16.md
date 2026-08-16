@@ -108,3 +108,8 @@ Conforme solicitado pelo usuário, o botão único de impressão na listagem PAC
 1. Ao clicar no botão de impressão, abre-se um modal elegante com duas ações claras: **Baixar em PDF** (baixando o HTML/PDF estruturado localmente) e **Imprimir Laudo** (abrindo a visualização formatada para impressão direta).
 2. Ambas as opções utilizam exatamente a mesma folha compartilhada A4 (`SharedReportSheet`), mantendo a consistência geométrica, as logos, a tipografia e o cabeçalho organizado.
 3. Validação concluída com 186 testes Vitest aprovados e TypeScript sem erros.
+
+## Atualização — Geração de PDF Real (Baixar em PDF)
+- A opção **Baixar em PDF** no modal da listagem PACS foi atualizada para gerar e baixar um arquivo `.pdf` real diretamente no navegador, utilizando `html2canvas` e `jsPDF` renderizados sobre a mesma estrutura A4 compartilhada.
+- A opção **Imprimir Laudo** continua abrindo a visualização formatada em nova aba com o diálogo de impressão do navegador.
+- Validação concluída com 186 testes Vitest aprovados e TypeScript sem erros.
