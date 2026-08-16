@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import DOMPurify from 'dompurify';
 import type { LayoutPreferences, LayoutSnapshot } from '../../../shared/types';
-import { SharedReportBodyGuide } from "@/components/SharedReportSheet";
-import { ClinicalReportSheet } from "@/components/ClinicalReportSheet";
+import { SharedReportBodyGuide, SharedReportSheet } from "@/components/SharedReportSheet";
 import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -1505,7 +1504,7 @@ export default function ReportEditorPage() {
                   const showSectionBodyGuide = !sectionHasContent && !isPreview;
                   const previewSectionHtml = previewHtml.split("<hr/>")[i] || "";
                   return (
-                    <ClinicalReportSheet
+                    <SharedReportSheet
                       key={i}
                       className="report-page"
                       positions={layoutBlockPos}
@@ -1628,7 +1627,7 @@ export default function ReportEditorPage() {
               </div>
             ) : (
               /* MODO PÁGINA Única: mesma folha A4 compartilhada com o LayoutEditorPage */
-              <ClinicalReportSheet
+              <SharedReportSheet
                 positions={layoutBlockPos}
                 logos={layoutLogos}
                 backgroundUrl={layoutBgUrl}
