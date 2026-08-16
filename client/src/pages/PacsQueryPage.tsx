@@ -667,7 +667,7 @@ export function PacsQueryPage() {
       const toAutoDownload: string[] = [];
       for (const r of results) {
         if (!r) continue;
-        if (r.cached) {
+        if (r.cached && r.count > 0) {
           updates[r.uid] = { phase: 'done', received: r.count, total: r.count };
         } else {
           toAutoDownload.push(r.uid);
@@ -1046,30 +1046,70 @@ export function PacsQueryPage() {
       }));
     } catch (_) {}
 
-    // Se já está em cache (botão verde), abre instantaneamente
+    // O viewer só abre quando o cache está completo. Antes disso, este mesmo
+    // botão inicia o download e permanece bloqueado até o evento `complete`.
     const pd = preDownloadMap[uid];
-    if (pd && pd.phase === 'done') {
+    const isDownloading = pd?.phase === 'connecting' || pd?.phase === 'downloading';
+    const isDownloaded = pd?.phase === 'done' && pd.total > 0 && pd.received >= pd.total;
+    if (isDownloaded) {
       navigate(`/dicom-viewer/${uid}${unitParam}`);
       return;
     }
-    // Verifica no servidor se já há cache (caso o estado local não saiba)
+    if (isDownloading) {
+      toast.info('Download em andamento', { description: 'Aguarde todas as imagens serem baixadas antes de visualizar.' });
+      return;
+    }
+
+    // Confirma no servidor caso o estudo tenha sido baixado por outra aba,
+    // por pré-download automático ou antes da atualização desta listagem.
     try {
       const res = await fetch(`/api/dicom-cache-status/${uid}`);
       if (res.ok) {
         const data = await res.json();
         if (data.cached && data.count > 0) {
-          // Atualiza estado local e abre instantaneamente
           setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'done', received: data.count, total: data.count } }));
           navigate(`/dicom-viewer/${uid}${unitParam}`);
           return;
         }
       }
     } catch {}
-    // Sem cache: abre o viewer normalmente (fará C-GET interno)
-    navigate(`/dicom-viewer/${uid}${unitParam}`);
+
+    toast.info('Estudo ainda não baixado', {
+      description: 'O download completo das imagens será iniciado agora. O visualizador abrirá somente ao finalizar.',
+    });
+    handlePreDownload(study);
   };
 
-  const handleReport = (study: any) => {
+  const handleReport = async (study: any) => {
+    const uid = study.studyInstanceUid;
+    if (!uid) { toast.error('UID do estudo não disponível'); return; }
+
+    // O editor de laudos também depende do estudo completo no cache.
+    const pd = preDownloadMap[uid];
+    const isDownloading = pd?.phase === 'connecting' || pd?.phase === 'downloading';
+    let isDownloaded = pd?.phase === 'done' && pd.total > 0 && pd.received >= pd.total;
+    if (!isDownloaded && isDownloading) {
+      toast.info('Download em andamento', { description: 'Aguarde o download completo antes de abrir o laudo.' });
+      return;
+    }
+    if (!isDownloaded) {
+      try {
+        const res = await fetch(`/api/dicom-cache-status/${uid}`);
+        if (res.ok) {
+          const data = await res.json();
+          isDownloaded = data.cached && data.count > 0;
+          if (isDownloaded) {
+            setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'done', received: data.count, total: data.count } }));
+          }
+        }
+      } catch {}
+    }
+    if (!isDownloaded) {
+      toast.info('Baixe o estudo antes de laudar', { description: 'O download completo das imagens será iniciado agora.' });
+      handlePreDownload(study);
+      return;
+    }
+
     // Busca o exam_count do metadado em memória para passar ao editor de laudos
     const meta = metadataMap?.[study.studyInstanceUid];
     const examCount = meta?.exam_count ?? 1;
@@ -1080,7 +1120,7 @@ export function PacsQueryPage() {
       || 'Sem descrição';
     // Decompoe em array de exames individuais
     const examNames = examLabel.split(' + ').map((e: string) => e.trim()).filter(Boolean);
-    sessionStorage.setItem(`study_${study.studyInstanceUid}`, JSON.stringify({
+    sessionStorage.setItem(`study_${uid}`, JSON.stringify({
       patientName: study.patientName || '',
       patientID: study.patientID || '',
       patientBirthDate: study.patientBirthDate || '',
@@ -1096,7 +1136,7 @@ export function PacsQueryPage() {
       examCount,
       examNames,
     }));
-    navigate(`/reports/create/${study.studyInstanceUid}`);
+    navigate(`/reports/create/${uid}`);
   };
 
   const handleListenAudio = (study: any) => {
@@ -1861,7 +1901,6 @@ export function PacsQueryPage() {
                 <th className="px-4 py-2.5 text-left font-semibold w-16">Idade</th>
                 <th className="px-4 py-2.5 text-left font-semibold">Exame</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Visualizar DICOM">Visualizar</th>
-                <th className="px-4 py-2.5 text-center font-semibold w-10" title="Baixar exame">Baixar</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Anexo de imagens">Anexos</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Anamnese">Anam.</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Laudar exame">Laudar</th>
@@ -1950,44 +1989,34 @@ export function PacsQueryPage() {
                       </div>
                     </td>
 
-                    {/* Visualizar DICOM (Somente Desktop) */}
+                    {/* Visualizar DICOM — inicia o download quando necessário e só abre após o cache completo */}
                     <td className="px-4 py-3 text-center">
                       {canViewer ? (
-                        <button
-                          onClick={() => handleVisualize(study)}
-                          title="Visualizar imagens DICOM"
-                          className="w-8 h-8 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 inline-flex items-center justify-center transition-colors"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                        </button>
+                        (() => {
+                          const preState = preDownloadMap[study.studyInstanceUid];
+                          const isDownloaded = preState?.phase === 'done' && preState.total > 0 && preState.received >= preState.total;
+                          const isDownloading = preState?.phase === 'downloading' || preState?.phase === 'connecting';
+                          return (
+                            <button
+                              onClick={() => handleVisualize(study)}
+                              disabled={isDownloading}
+                              title={isDownloaded ? 'Visualizar imagens DICOM' : isDownloading ? `Baixando imagens${preState.total ? `: ${preState.received}/${preState.total}` : '...'}` : 'Baixar imagens para visualizar'}
+                              aria-label={isDownloaded ? 'Visualizar imagens DICOM' : isDownloading ? 'Baixando imagens DICOM' : 'Baixar imagens DICOM'}
+                              className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
+                                isDownloaded
+                                  ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                  : isDownloading
+                                  ? 'border-amber-300 bg-amber-50 text-amber-700 animate-pulse'
+                                  : 'border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600'
+                              }`}
+                            >
+                              {isDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+                            </button>
+                          );
+                        })()
                       ) : (
                         <span className="text-gray-300">—</span>
                       )}
-                    </td>
-
-                    {/* Baixar exame / cache (Somente Desktop) */}
-                    <td className="px-4 py-3 text-center">
-                      {(() => {
-                        const preState = preDownloadMap[study.studyInstanceUid];
-                        const isCached = preState?.phase === 'done';
-                        const isDownloading = preState?.phase === 'downloading' || preState?.phase === 'connecting';
-                        return (
-                          <button
-                            onClick={() => handlePreDownload(study)}
-                            disabled={isDownloading}
-                            title={isCached ? 'Exame baixado em cache' : isDownloading ? 'Baixando exame...' : 'Baixar exame do PACS'}
-                            className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
-                              isCached
-                                ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                : isDownloading
-                                ? 'border-amber-400 bg-amber-50 text-amber-700 animate-pulse'
-                                : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700'
-                            }`}
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                          </button>
-                        );
-                      })()}
                     </td>
 
                     {/* Anexo de imagens (Colorido se houver arquivos, transparente/neutro se vazio) */}

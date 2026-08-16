@@ -1840,3 +1840,12 @@
 - [x] Comparar as posições efetivas dos blocos na prévia administrativa e no editor clínico da mesma unidade.
 - [x] Remover a composição clínica alternativa e fazer médico/PDF usar a mesma estrutura visual da prévia, trocando somente os valores de paciente e exame.
 - [x] Validar lado a lado com o estudo real e encerrar este setor sem alterar o admin ou o banco.
+
+- [ ] Unificar os botões Visualizar e Baixar na listagem PACS em um único botão Visualizar.
+- [ ] Exibir o botão Visualizar em estado neutro/transparente quando as imagens ainda não estiverem baixadas.
+- [ ] Iniciar o download completo das imagens ao clicar em Visualizar quando o estudo não estiver em cache.
+- [ ] Exibir estado de carregamento durante o download e impedir a abertura do visualizador antes da conclusão.
+- [ ] Ativar o botão Visualizar após todas as imagens DICOM serem baixadas e permitir acesso ao visualizador/laudo.
+- [ ] Remover o botão Baixar separado sem alterar o fluxo de pré-download existente.
+- [ ] Criar ou atualizar testes Vitest para os estados do botão e a proteção contra abertura prematura.
+- [ ] Validar o fluxo com um estudo real no sandbox e salvar checkpoint.

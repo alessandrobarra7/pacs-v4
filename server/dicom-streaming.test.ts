@@ -192,3 +192,32 @@ describe('PacsQueryPage pre-download button', () => {
     expect(content).toContain("handlePrintReport");
   });
 });
+
+
+describe('PacsQueryPage unified visualize/download gate', () => {
+  it('deve manter apenas a coluna Visualizar na tabela desktop', async () => {
+    const queryPath = path.resolve(__dirname, '..', 'client', 'src', 'pages', 'PacsQueryPage.tsx');
+    const content = await fs.readFile(queryPath, 'utf-8');
+    expect(content).toContain('title="Visualizar DICOM">Visualizar</th>');
+    expect(content).not.toContain('title="Baixar exame">Baixar</th>');
+    expect(content).not.toContain("title={isCached ? 'Exame baixado em cache'");
+  });
+
+  it('deve iniciar o pré-download quando Visualizar for acionado sem cache', async () => {
+    const queryPath = path.resolve(__dirname, '..', 'client', 'src', 'pages', 'PacsQueryPage.tsx');
+    const content = await fs.readFile(queryPath, 'utf-8');
+    const visualizeSection = content.slice(content.indexOf('const handleVisualize'));
+    expect(visualizeSection).toContain('O viewer só abre quando o cache está completo');
+    expect(visualizeSection).toContain('handlePreDownload(study)');
+    expect(visualizeSection).toContain('data.cached && data.count > 0');
+  });
+
+  it('deve bloquear o ambiente de laudo enquanto o estudo não estiver completo', async () => {
+    const queryPath = path.resolve(__dirname, '..', 'client', 'src', 'pages', 'PacsQueryPage.tsx');
+    const content = await fs.readFile(queryPath, 'utf-8');
+    const reportSection = content.slice(content.indexOf('const handleReport'));
+    expect(reportSection).toContain('O editor de laudos também depende do estudo completo no cache');
+    expect(reportSection).toContain('Baixe o estudo antes de laudar');
+    expect(reportSection).toContain('navigate(`/reports/create/${uid}`)');
+  });
+});
