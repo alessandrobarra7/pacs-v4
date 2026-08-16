@@ -1859,3 +1859,9 @@
 - [x] Validar o estudo real de ANTONIA DE SOUZA BATISTA com 262 imagens no sandbox.
 - [x] Criar testes Vitest de regressão para impedir o retorno da mistura de slices.
 - [x] Salvar a investigação e o resultado técnico em dicom-order-investigation.md.
+
+## CORREÇÃO DE ACESSO EXTERNO EM NAVEGADOR MÓVEL — 16/08/2026
+- [x] Impedir que tradutores automáticos alterem o DOM React da aplicação pública.
+- [x] Corrigir o idioma declarado do documento público para pt-BR.
+- [x] Recompilar e publicar os assets da correção na VM1.
+- [ ] Validar HTTP, HTML público e acesso externo em navegador móvel sem erro removeChild.
