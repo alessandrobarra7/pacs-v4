@@ -1797,3 +1797,9 @@
 - [ ] Validar arraste e redimensionamento por toque em dispositivo móvel físico.
 - [ ] Revisar refinamentos finais de multi-seção e branding institucional após teste com dados reais.
 - [x] Unificar também o renderer de download/impressão da PacsQueryPage com o contrato percentual do `SharedReportSheet`.
+
+## CORREÇÃO VISUAL REPORTADA — ADMIN x CLÍNICO A4
+- [x] Diagnosticar por que a prévia administrativa e o editor clínico exibem logo, dados, título e corpo em posições/composições diferentes na captura enviada.
+- [x] Corrigir a fonte única de composição para que o editor clínico corresponda visualmente ao layout salvo no admin.
+- [x] Validar a composição no sandbox e atualizar os testes de contrato/exportação.
+- [ ] Revalidar a correspondência visual com um estudo real carregado no editor clínico.

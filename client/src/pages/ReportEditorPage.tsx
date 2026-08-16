@@ -1448,158 +1448,109 @@ export default function ReportEditorPage() {
                  PÁGINA ÚNICA: layout original preservado
             ═══════════════════════════════════════════════════════════ */}
             {isMultiSection ? (
-              /* MODO MULTI-PÁGINA: N folhas A4 independentes */
-              <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+              /* MODO MULTI-PÁGINA: cada exame usa a mesma folha A4 compartilhada */
+              <div style={{ display: "flex", flexDirection: "column", gap: 32, width: "100%" }}>
                 {examNames.map((name, i) => {
                   const isLastPage = i === examNames.length - 1;
                   return (
-                    <div
+                    <SharedReportSheet
                       key={i}
-                      className="report-page w-full md:w-[794px]"
-                      style={{
-                        minHeight: "1123px",
-                        background: "#fff",
-                        fontFamily: "'Times New Roman', Times, serif",
-                        fontSize: "11pt",
-                        color: "#111",
-                        boxSizing: "border-box",
-                        position: "relative",
-                        display: "flex",
-                        flexDirection: "column",
-                        boxShadow: "0 2px 12px rgba(0,0,0,0.10)",
-                      }}
-                    >
-                      {/* Cabeçalho completo por página */}
-                      <div style={{ display: "flex", alignItems: "stretch", borderBottom: "2px solid #1a6b8a", minHeight: 90 }}>
-                        {bpLogo.visible && (
-                        <div style={{ width: logoWidthPx, minHeight: 90, flexShrink: 0, borderRight: "1.5px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: logoJustify, padding: "8px 12px", background: "#fafafa" }}>
-                          {layoutLogos.length > 0 ? (
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", justifyContent: "center" }}>
-                              {layoutLogos.map((l, i) => (
-                                <img key={i} src={l.url} alt={l.label || "Logo"} style={{ maxHeight: l.height, maxWidth: l.width, objectFit: "contain", display: "inline-block" }} />
-                              ))}
-                            </div>
-                          ) : medCtx?.unitLogoUrl ? (
-                            <img src={medCtx.unitLogoUrl} alt={medCtx.unitName || "Logo"} style={{ maxHeight: 70, maxWidth: 155, objectFit: "contain", display: "block" }} />
-                          ) : (
-                            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg, #1a6b8a 0%, #6fb7c5 100%)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "20pt", fontWeight: 700, fontFamily: "Arial, sans-serif" }}>
-                              {(medCtx?.unitName || "U").charAt(0).toUpperCase()}
-                            </div>
-                          )}
+                      className="report-page"
+                      positions={layoutBlockPos}
+                      logos={layoutLogos}
+                      backgroundUrl={layoutBgUrl}
+                      backgroundOpacity={layoutBgOpacity}
+                      backgroundSize={layoutBgSize}
+                      footerImageUrl={isLastPage ? layoutFooterUrl : null}
+                      fontFamily={layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "'Times New Roman', Times, serif"}
+                      fontSize={layoutPrefs?.fontSize ?? 11}
+                      lineHeight={layoutPrefs?.lineHeight ?? 1.6}
+                      patientName={patientName}
+                      patientInfo={
+                        <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
+                          Realizado em: <strong>{studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : "—"}</strong>
+                          <span style={{ margin: "0 6px" }}>·</span>
+                          Nasc.: <strong>{studyInfo?.birthDate ? formatDicomDate(studyInfo.birthDate) : "—"}</strong>
+                          <span style={{ margin: "0 6px" }}>·</span>
+                          Sexo: <strong>{studyInfo?.sex || "—"}</strong>
                         </div>
-                        )}
-                        <div style={{ flex: 1, padding: "10px 20px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 5 }}>
-                          <div style={{ fontSize: "12pt", fontWeight: 700, color: "#111", textTransform: "uppercase", letterSpacing: "0.02em" }}>{patientName || "—"}</div>
-                          <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
-                            {studyInfo?.birthDate && <div style={{ fontSize: "9.5pt", color: "#444" }}>Nascimento: <strong style={{ color: "#111" }}>{studyInfo.birthDate}</strong></div>}
-                            {studyInfo?.studyDate && <div style={{ fontSize: "9.5pt", color: "#444" }}>Realizado em: <strong style={{ color: "#111" }}>{formatDicomDate(studyInfo.studyDate)}</strong></div>}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Corpo: título específico + editor */}
-                      <div style={{ flex: 1, padding: "16px 24px 12px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
-                        <div style={{ textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", color: "#111", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
+                      }
+                      title={
+                        <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
                           {name}
                         </div>
-                        {i === 0 && isSigned && !isRevising && (
-                          <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8 }}>
-                            <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
-                            <span>Laudo <strong>{existingReport?.status === "revised" ? "retificado" : "assinado"}</strong> — clique em <strong>Retificar</strong> para editar.</span>
-                          </div>
-                        )}
-                        {isPreview ? (
-                          /* ── MODO PRÉ-VISUALIZAÇÃO (seção i) ──────────────────── */
-                          <div
-                            data-editor-content
-                            style={{
-                              flex: 1,
-                              minHeight: "60mm",
-                              lineHeight: 1.6,
-                              fontSize: "11pt",
-                              color: "#111",
-                              textAlign: "left",
-                              whiteSpace: "pre-wrap",
-                              fontFamily: "'Times New Roman', Times, serif",
-                              pointerEvents: "none",
-                              userSelect: "none",
-                            }}
-                            dangerouslySetInnerHTML={{
-                              __html: previewHtml.split("<hr/>")[i]
-                                || "<p style='color:#9ca3af;font-style:italic;font-size:10pt'>Sem conteúdo para visualizar.</p>",
-                            }}
-                          />
-                        ) : (
-                          /* ── MODO EDIÇÃO (código original sem alteração) ─────────── */
-                          <div
-                            ref={el => { sectionRefs.current[i] = el; }}
-                            contentEditable={isEditable}
-                            suppressContentEditableWarning
-                            data-editor-content
-                            onFocus={() => { activeSectionRef.current = i; }}
-                            onMouseUp={isEditable ? saveSelection : undefined}
-                            onKeyUp={isEditable ? saveSelection : undefined}
-                            data-placeholder={`Digite o laudo de ${name}...`}
-                            // FIX DnD: drop nas seções do modo multi-exame
-                            onDragOver={isEditable ? (e) => {
-                              e.preventDefault();
-                              e.dataTransfer.dropEffect = 'copy';
-                              activeSectionRef.current = i;
-                              setIsDragOver(true);
-                            } : undefined}
-                            onDragLeave={isEditable ? () => setIsDragOver(false) : undefined}
-                            onDrop={isEditable ? (e) => {
-                              e.preventDefault();
-                              setIsDragOver(false);
-                              activeSectionRef.current = i;
-                              // Payload JSON unificado (ModelosTab, FrasesTab, CarimboTab)
-                              const jsonRaw = e.dataTransfer.getData('application/json');
-                              if (jsonRaw) {
-                                try {
-                                  const payload = JSON.parse(jsonRaw);
-                                  if (payload.type === 'template') {
+                      }
+                      body={
+                        <>
+                          {i === 0 && isSigned && !isRevising && (
+                            <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                              <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
+                              <span>Laudo <strong>{existingReport?.status === "revised" ? "retificado" : "assinado"}</strong> — clique em <strong>Retificar</strong> para editar.</span>
+                            </div>
+                          )}
+                          {isPreview ? (
+                            <div
+                              data-editor-content
+                              style={{ minHeight: "60mm", lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", fontFamily: "'Times New Roman', Times, serif", pointerEvents: "none", userSelect: "none" }}
+                              dangerouslySetInnerHTML={{ __html: previewHtml.split("<hr/>")[i] || "<p style='color:#9ca3af;font-style:italic;font-size:10pt'>Sem conteúdo para visualizar.</p>" }}
+                            />
+                          ) : (
+                            <div
+                              ref={el => { sectionRefs.current[i] = el; }}
+                              contentEditable={isEditable}
+                              suppressContentEditableWarning
+                              data-editor-content
+                              onFocus={() => { activeSectionRef.current = i; }}
+                              onMouseUp={isEditable ? saveSelection : undefined}
+                              onKeyUp={isEditable ? saveSelection : undefined}
+                              data-placeholder={`Digite o laudo de ${name}...`}
+                              onDragOver={isEditable ? (e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = "copy";
+                                activeSectionRef.current = i;
+                                setIsDragOver(true);
+                              } : undefined}
+                              onDragLeave={isEditable ? () => setIsDragOver(false) : undefined}
+                              onDrop={isEditable ? (e) => {
+                                e.preventDefault();
+                                setIsDragOver(false);
+                                activeSectionRef.current = i;
+                                const jsonRaw = e.dataTransfer.getData("application/json");
+                                if (jsonRaw) {
+                                  try {
+                                    const payload = JSON.parse(jsonRaw);
+                                    if (payload.type === "template") {
+                                      const el = sectionRefs.current[i];
+                                      if (el) el.innerHTML = sanitizeHtmlForEditor(payload.data);
+                                    } else if (payload.type === "phrase") {
+                                      insertAtCursor(payload.data);
+                                    } else if (payload.type === "signature" || payload.type === "stamp") {
+                                      insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
+                                    }
+                                  } catch (_) {}
+                                  return;
+                                }
+                                const templateRaw = e.dataTransfer.getData("text/x-report-template");
+                                if (templateRaw) {
+                                  try {
+                                    const parsed = JSON.parse(templateRaw);
                                     const el = sectionRefs.current[i];
-                                    if (el) el.innerHTML = sanitizeHtmlForEditor(payload.data);
-                                  } else if (payload.type === 'phrase') {
-                                    insertAtCursor(payload.data);
-                                  } else if (payload.type === 'signature' || payload.type === 'stamp') {
-                                    insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
-                                  }
-                                } catch (_) {}
-                                return;
-                              }
-                              // Legado: text/x-report-template
-                              const templateRaw = e.dataTransfer.getData('text/x-report-template');
-                              if (templateRaw) {
-                                try {
-                                  const { body } = JSON.parse(templateRaw);
-                                  const el = sectionRefs.current[i];
-                                  if (el) el.innerHTML = sanitizeHtmlForEditor(body);
-                                } catch (_) {}
-                                return;
-                              }
-                              const plainText = e.dataTransfer.getData('text/plain');
-                              if (plainText) insertAtCursor(plainText);
-                            } : undefined}
-                            style={{
-                              flex: 1, minHeight: "60mm",
-                              outline: isDragOver && activeSectionRef.current === i ? "2px dashed #3b82f6" : "none",
-                              borderRadius: "4px",
-                              lineHeight: 1.6, fontSize: "11pt", color: "#111",
-                              textAlign: "left", whiteSpace: "pre-wrap",
-                              cursor: isEditable ? "text" : "default",
-                              fontFamily: "'Times New Roman', Times, serif",
-                              transition: "outline 0.1s ease",
-                            }}
-                          />
-                        )}
-                      </div>
-
-                      {/* Assinatura/carimbo apenas na última página */}
-                      {isLastPage && isSigned && medCtx?.doctorName && (
-                        <div style={{ padding: "8mm 18mm 6mm 18mm", display: "flex", justifyContent: "center" }}>
-                          <div style={{ textAlign: "center", minWidth: 180, maxWidth: 260 }}>
-                            {medCtx.signatureUrl && <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 55, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2mm", }} />}
+                                    if (el) el.innerHTML = sanitizeHtmlForEditor(parsed.body ?? templateRaw);
+                                  } catch (_) {}
+                                  return;
+                                }
+                                const plainText = e.dataTransfer.getData("text/plain");
+                                if (plainText) insertAtCursor(plainText);
+                              } : undefined}
+                              style={{ minHeight: "60mm", outline: isDragOver && activeSectionRef.current === i ? "2px dashed #3b82f6" : "none", borderRadius: 4, lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", cursor: isEditable ? "text" : "default", fontFamily: "'Times New Roman', Times, serif", transition: "outline 0.1s ease" }}
+                            />
+                          )}
+                        </>
+                      }
+                      footer={
+                        isLastPage && isSigned && medCtx?.doctorName ? (
+                          <div style={{ textAlign: "center", minWidth: 180, maxWidth: 260, margin: "0 auto" }}>
+                            {medCtx.signatureUrl && <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 55, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />}
                             {medCtx.stampUrl && <img src={medCtx.stampUrl} alt="Carimbo" style={{ maxHeight: 110, maxWidth: 240, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />}
                             <div style={{ borderTop: "1.5px solid #333", width: "100%", marginBottom: "3mm" }} />
                             <div style={{ fontWeight: 700, fontSize: "10.5pt", textTransform: "uppercase", color: "#111", letterSpacing: "0.02em" }}>
@@ -1610,11 +1561,10 @@ export default function ReportEditorPage() {
                             {medCtx.crm && <div style={{ fontSize: "9pt", color: "#444", marginTop: 1 }}>CRM: {medCtx.crm}</div>}
                             {existingReport?.signedAt && <div style={{ fontSize: "8pt", color: "#666", marginTop: 3 }}>Assinado em: {new Date(existingReport.signedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</div>}
                           </div>
-                        </div>
-                      )}
-
-                      {/* Rodápé institucional removido a pedido do usuário */}
-                    </div>
+                        ) : <div />
+                      }
+                      style={{ width: "100%", minHeight: "1123px", boxShadow: "0 2px 12px rgba(0,0,0,0.10)", pageBreakAfter: isLastPage ? "auto" : "always", breakAfter: isLastPage ? "auto" : "page" }}
+                    />
                   );
                 })}
               </div>

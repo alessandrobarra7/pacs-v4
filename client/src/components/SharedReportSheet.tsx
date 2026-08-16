@@ -67,7 +67,7 @@ export function SharedReportSheet({
   backgroundOpacity = 1,
   backgroundSize = "cover",
   footerImageUrl,
-  fontFamily = "Times New Roman, Times, serif",
+  fontFamily = "Arial, Helvetica, sans-serif",
   fontSize = 11,
   lineHeight = 1.6,
   patientName,
@@ -79,11 +79,30 @@ export function SharedReportSheet({
   style,
   children,
 }: SharedReportSheetProps) {
-  const merged = { ...fallbackPositions, ...(positions ?? {}) };
+  const merged: SharedBlockPositions = { ...fallbackPositions, ...(positions ?? {}) };
+  // Compatibilidade: layouts antigos persistiam uma única chave `logo`.
+  // A folha canônica expande esse bloco para logo1/2/3 somente quando as
+  // posições novas ainda não existem, evitando divergência entre admin e clínico.
+  const legacyLogo = positions?.logo;
+  if (legacyLogo) {
+    ["logo1", "logo2", "logo3"].forEach((id, index) => {
+      if (!positions?.[id]) {
+        const step = Math.min(24, legacyLogo.w + 4);
+        merged[id] = {
+          ...fallbackPositions[id],
+          ...legacyLogo,
+          x: Math.max(0, Math.min(100 - legacyLogo.w, legacyLogo.x + index * step)),
+          y: Math.max(0, Math.min(100 - legacyLogo.h, legacyLogo.y)),
+        };
+      }
+    });
+  }
   const paperStyle: CSSProperties = {
     height: "297mm",
     minHeight: "1123px",
     width: "100%",
+    maxWidth: "210mm",
+    marginInline: "auto",
     position: "relative",
     overflow: "hidden",
     background: "#fff",

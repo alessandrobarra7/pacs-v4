@@ -37,6 +37,15 @@ describe("Admin Mobile UI & Advanced Layout Editor Contract", () => {
     expect(layoutEditorSource).toContain("Modo de posicionamento");
   });
 
+  it("uses Pointer Events and touch-action none for mobile drag and resize", () => {
+    expect(layoutEditorSource).toContain("const handlePointerDown");
+    expect(layoutEditorSource).toContain("const handlePointerMove");
+    expect(layoutEditorSource).toContain("onPointerCancel={handlePointerUp}");
+    expect(layoutEditorSource).toContain('touchAction: "none"');
+    expect(layoutEditorSource).toContain("window.addEventListener('pointermove'");
+    expect(layoutEditorSource).toContain("window.addEventListener('pointercancel'");
+  });
+
   it("protects dragging from null refs and missing blocks", () => {
     expect(layoutEditorSource).toContain("const drag = dragging.current;");
     expect(layoutEditorSource).toContain("const { block, origX, origY } = drag;");

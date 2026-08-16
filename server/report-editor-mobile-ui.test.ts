@@ -34,10 +34,13 @@ describe("ReportEditorPage — experiência mobile", () => {
   });
 
   it("usa documento fluido no mobile e preserva a folha compartilhada no desktop", () => {
-    expect(editorSource).toContain('className="report-page w-full md:w-[794px]"');
+    expect(editorSource).toContain('className="report-page"');
     expect(editorSource).toContain("<SharedReportSheet");
     expect(sharedSheetSource).toContain('height: "297mm"');
     expect(sharedSheetSource).toContain('minHeight: "1123px"');
+    expect(sharedSheetSource).toContain('const legacyLogo = positions?.logo;');
+    expect(sharedSheetSource).toContain('maxWidth: "210mm"');
+    expect(sharedSheetSource).toContain('fontFamily = "Arial, Helvetica, sans-serif"');
     expect(editorSource).toContain("min-h-[350px]");
     expect(editorSource).toContain("bottom-20 right-4");
   });

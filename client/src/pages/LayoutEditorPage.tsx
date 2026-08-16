@@ -298,8 +298,9 @@ export default function LayoutEditorPage() {
     setIsDirty(true);
   }, []);
 
-  // ── Handlers: drag-and-drop ────────────────────────────────────────────────
-  const handleMouseDown = useCallback((e: React.MouseEvent, block: BlockId) => {
+  // ── Handlers: drag-and-drop (Pointer Events: mouse, caneta e toque) ───────
+  const handlePointerDown = useCallback((e: React.PointerEvent, block: BlockId) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
     const canvas = canvasRef.current;
     const current = positions[block];
@@ -313,9 +314,10 @@ export default function LayoutEditorPage() {
       origX: current.x,
       origY: current.y,
     };
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* ponteiro pode já ter sido liberado */ }
   }, [positions]);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
     const drag = dragging.current;
     const canvas = canvasRef.current;
     if (!drag || !canvas) return;
@@ -335,7 +337,11 @@ export default function LayoutEditorPage() {
     setIsDirty(true);
   }, []);
 
-  const handleMouseUp = useCallback(() => {
+  const handlePointerUp = useCallback((e?: React.PointerEvent) => {
+    const canvas = canvasRef.current;
+    if (e && canvas?.hasPointerCapture(e.pointerId)) {
+      try { canvas.releasePointerCapture(e.pointerId); } catch { /* captura já liberada */ }
+    }
     dragging.current = null;
   }, []);
 
@@ -771,10 +777,11 @@ export default function LayoutEditorPage() {
                   <div
                     ref={canvasRef}
                     className="bg-white shadow-2xl relative overflow-hidden"
-                    style={{ width: 595, height: 842, userSelect: "none" }}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onMouseLeave={handleMouseUp}
+                    style={{ width: 595, height: 842, userSelect: "none", touchAction: "none" }}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    onPointerCancel={handlePointerUp}
+                    onPointerLeave={handlePointerUp}
                   >
                     {/* Fundo */}
                     {bgPreview && (
@@ -804,9 +811,9 @@ export default function LayoutEditorPage() {
                       return (
                         <div
                           key={block}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             setActiveBlock(block);
-                            handleMouseDown(e, block);
+                            handlePointerDown(e, block);
                           }}
                           style={{
                             position: "absolute",
@@ -831,47 +838,59 @@ export default function LayoutEditorPage() {
                           {isActive && (
                             <>
                               <div
-                                onMouseDown={(e) => {
+                                onPointerDown={(e) => {
+                                  e.preventDefault();
                                   e.stopPropagation();
+                                  try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* captura indisponível */ }
                                   const startX = e.clientX;
                                   const startW = pos.w;
-                                  const onMove = (me: MouseEvent) => {
+                                  const onMove = (me: PointerEvent) => {
                                     const dw = ((me.clientX - startX) / 450) * 100;
-                                    setPositions(prev => ({
-                                      ...prev,
-                                      [block]: { ...prev[block], w: Math.max(10, Math.min(100 - prev[block].x, startW + dw)) }
-                                    }));
+                                    setPositions(prev => {
+                                      const current = prev[block];
+                                      if (!current) return prev;
+                                      return { ...prev, [block]: { ...current, w: Math.max(10, Math.min(100 - current.x, startW + dw)) } };
+                                    });
+                                    setIsDirty(true);
                                   };
                                   const onUp = () => {
-                                    window.removeEventListener('mousemove', onMove);
-                                    window.removeEventListener('mouseup', onUp);
+                                    window.removeEventListener('pointermove', onMove);
+                                    window.removeEventListener('pointerup', onUp);
+                                    window.removeEventListener('pointercancel', onUp);
                                   };
-                                  window.addEventListener('mousemove', onMove);
-                                  window.addEventListener('mouseup', onUp);
+                                  window.addEventListener('pointermove', onMove);
+                                  window.addEventListener('pointerup', onUp);
+                                  window.addEventListener('pointercancel', onUp);
                                 }}
-                                style={{ position: 'absolute', right: 0, top: '25%', bottom: '25%', width: 8, background: info.color, cursor: 'ew-resize', zIndex: 30, borderRadius: '4px 0 0 4px' }}
+                                style={{ position: 'absolute', right: 0, top: '25%', bottom: '25%', width: 12, background: info.color, cursor: 'ew-resize', zIndex: 30, borderRadius: '4px 0 0 4px', touchAction: 'none' }}
                                 title="Arraste para redimensionar largura"
                               />
                               <div
-                                onMouseDown={(e) => {
+                                onPointerDown={(e) => {
+                                  e.preventDefault();
                                   e.stopPropagation();
+                                  try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* captura indisponível */ }
                                   const startY = e.clientY;
                                   const startH = pos.h;
-                                  const onMove = (me: MouseEvent) => {
+                                  const onMove = (me: PointerEvent) => {
                                     const dh = ((me.clientY - startY) / 600) * 100;
-                                    setPositions(prev => ({
-                                      ...prev,
-                                      [block]: { ...prev[block], h: Math.max(5, Math.min(100 - prev[block].y, startH + dh)) }
-                                    }));
+                                    setPositions(prev => {
+                                      const current = prev[block];
+                                      if (!current) return prev;
+                                      return { ...prev, [block]: { ...current, h: Math.max(5, Math.min(100 - current.y, startH + dh)) } };
+                                    });
+                                    setIsDirty(true);
                                   };
                                   const onUp = () => {
-                                    window.removeEventListener('mousemove', onMove);
-                                    window.removeEventListener('mouseup', onUp);
+                                    window.removeEventListener('pointermove', onMove);
+                                    window.removeEventListener('pointerup', onUp);
+                                    window.removeEventListener('pointercancel', onUp);
                                   };
-                                  window.addEventListener('mousemove', onMove);
-                                  window.addEventListener('mouseup', onUp);
+                                  window.addEventListener('pointermove', onMove);
+                                  window.addEventListener('pointerup', onUp);
+                                  window.addEventListener('pointercancel', onUp);
                                 }}
-                                style={{ position: 'absolute', bottom: 0, left: '25%', right: '25%', height: 8, background: info.color, cursor: 'ns-resize', zIndex: 30, borderRadius: '0 0 4px 4px' }}
+                                style={{ position: 'absolute', bottom: 0, left: '25%', right: '25%', height: 12, background: info.color, cursor: 'ns-resize', zIndex: 30, borderRadius: '0 0 4px 4px', touchAction: 'none' }}
                                 title="Arraste para redimensionar altura"
                               />
                             </>
@@ -918,22 +937,24 @@ export default function LayoutEditorPage() {
                     footerImageUrl={footerPreview}
                     patientName={REAL_PREVIEW_SAMPLE.patientName}
                     patientInfo={
-                      <>
-                        <div>Realizado em: {REAL_PREVIEW_SAMPLE.date}</div>
-                        <div>Data de nascimento: {REAL_PREVIEW_SAMPLE.birthDate}</div>
-                        <div>Sexo: {REAL_PREVIEW_SAMPLE.sex}</div>
-                      </>
+                      <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
+                        Realizado em: <strong>{REAL_PREVIEW_SAMPLE.date}</strong>
+                        <span style={{ margin: "0 6px" }}>·</span>
+                        Nasc.: <strong>{REAL_PREVIEW_SAMPLE.birthDate}</strong>
+                        <span style={{ margin: "0 6px" }}>·</span>
+                        Sexo: <strong>{REAL_PREVIEW_SAMPLE.sex}</strong>
+                      </div>
                     }
-                    title={<div style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "14px", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb", paddingBottom: 6 }}>{REAL_PREVIEW_SAMPLE.examTitle}</div>}
+                    title={<div style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #e0e0e0", paddingBottom: 6 }}>{REAL_PREVIEW_SAMPLE.examTitle}</div>}
                     body={
-                      <div style={{ width: "100%", fontSize: 11, lineHeight: 1.6 }}>
-                        <h2 style={{ margin: "0 0 12px", textAlign: "center", fontSize: 13, fontWeight: 700, textTransform: "uppercase" }}>{REAL_PREVIEW_SAMPLE.bodyTitle}</h2>
+                      <div style={{ width: "100%", fontSize: "11pt", lineHeight: 1.6 }}>
+                        <h2 style={{ margin: "0 0 12px", textAlign: "center", fontSize: "13pt", fontWeight: 700, textTransform: "uppercase" }}>{REAL_PREVIEW_SAMPLE.bodyTitle}</h2>
                         <div style={{ display: "grid", gap: 12 }}>
                           {REAL_PREVIEW_SAMPLE.body.map(paragraph => <p key={paragraph} style={{ margin: 0 }}>{paragraph}</p>)}
                         </div>
                       </div>
                     }
-                    footer={<div style={{ textAlign: "center", fontSize: 10 }}>Dr. Nome do Medico - CRM 12345</div>}
+                    footer={<div style={{ textAlign: "center", fontSize: "9pt" }}>Dr. Nome do Medico - CRM 12345</div>}
                     style={{ width: 595, height: 842, minHeight: 842 }}
                   />
                   <p className="text-xs text-gray-500 text-center mt-2">Previa real da pagina com os blocos aplicados</p>
