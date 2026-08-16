@@ -1513,38 +1513,14 @@ export function PacsQueryPage() {
   </body></html>`;
 
     if (actionType === 'download') {
-      toast.loading('Gerando arquivo PDF real...', { id: 'pdf-gen' });
-      try {
-        const container = document.createElement('div');
-        container.style.position = 'absolute';
-        container.style.left = '-9999px';
-        container.style.top = '0';
-        container.style.width = '794px';
-        container.innerHTML = fullHtml;
-        document.body.appendChild(container);
-
-        const canvas = await html2canvas(container.querySelector('body') || container, {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          windowWidth: 794,
-        });
-        document.body.removeChild(container);
-
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-        pdf.save(`Laudo_${patientName.replace(/\s+/g, '_')}.pdf`);
-        toast.dismiss('pdf-gen');
-        toast.success('PDF baixado com sucesso!');
-      } catch (err) {
-        toast.dismiss('pdf-gen');
-        toast.error('Erro ao gerar PDF. Abrindo visualização de impressão.');
-        const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-        window.open(URL.createObjectURL(blob), '_blank');
+      // Usar impressão nativa do navegador direcionada a PDF para preservar 100% da fidelidade e sem falhas de CORS do html2canvas
+      const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+      const win = window.open(URL.createObjectURL(blob), '_blank');
+      if (!win) {
+        toast.error('Bloqueador de pop-up ativo. Permita pop-ups para visualizar o laudo.');
+        return;
       }
+      toast.success('Janela de salvamento em PDF aberta com sucesso!');
     } else {
       const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
       const win = window.open(URL.createObjectURL(blob), '_blank');
