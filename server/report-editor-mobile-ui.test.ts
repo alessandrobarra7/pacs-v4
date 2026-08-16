@@ -18,6 +18,10 @@ const sharedPrintSource = readFileSync(
   resolve(process.cwd(), "client/src/components/SharedReportPrint.tsx"),
   "utf8",
 );
+const adminLayoutSource = readFileSync(
+  resolve(process.cwd(), "client/src/pages/LayoutEditorPage.tsx"),
+  "utf8",
+);
 
 describe("ReportEditorPage — experiência mobile", () => {
   it("mantém o editor desktop separado do fluxo mobile", () => {
@@ -39,7 +43,7 @@ describe("ReportEditorPage — experiência mobile", () => {
 
   it("usa documento fluido no mobile e preserva a folha compartilhada no desktop", () => {
     expect(editorSource).toContain('className="report-page"');
-    expect(editorSource).toContain("<SharedReportSheet");
+    expect(editorSource).toContain("<ClinicalReportSheet");
     expect(sharedSheetSource).toContain('height: "297mm"');
     expect(sharedSheetSource).toContain('minHeight: "1123px"');
     expect(sharedSheetSource).toContain('const legacyLogo = positions?.logo;');
@@ -50,7 +54,7 @@ describe("ReportEditorPage — experiência mobile", () => {
   });
 
   it("usa SharedReportSheet como canvas único com os mesmos blocos e coordenadas do layout administrativo", () => {
-    expect(editorSource).toContain("<SharedReportSheet");
+    expect(editorSource).toContain("<ClinicalReportSheet");
     expect(editorSource).toContain("SharedReportBodyGuide");
     expect(editorSource).toContain('data-placeholder={showBodyGuide ? "" : "Digite o laudo aqui..."}');
     expect(editorSource).toContain('const showSectionBodyGuide = !sectionHasContent && !isPreview;');
@@ -77,7 +81,9 @@ describe("ReportEditorPage — experiência mobile", () => {
     expect(pacsSource).toContain("positions: blockPositionsQ");
     expect(pacsSource).toContain("footerImageUrl: footerBase64Q || lFooterUrl");
     expect(sharedPrintSource).toContain("renderToStaticMarkup");
-    expect(sharedPrintSource).toContain("createElement(SharedReportSheet, props)");
+    expect(sharedPrintSource).toContain("createElement(ClinicalReportSheet, props)");
+    expect(adminLayoutSource).toContain("<SharedReportSheet");
+    expect(adminLayoutSource).not.toContain("<ClinicalReportSheet");
   });
 
   it("refaz a consulta quando o administrador salva um layout em outra aba", () => {

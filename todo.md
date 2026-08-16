@@ -1822,3 +1822,9 @@
 - [x] Fazer o editor médico renderizar exatamente a composição salva pelo administrador, incluindo o estado vazio sem trocar a estrutura por outro modelo.
 - [x] Fazer a impressão/PDF usar o mesmo DOM/contrato de blocos do layout salvo, sem HTML paralelo com posições independentes.
 - [x] Testar um layout deliberadamente alterado no admin, conferir a reprodução no médico e comparar o contrato do PDF final.
+
+## REFERÊNCIA EXCLUSIVA DO NOVO ZIP — APENAS VISUALIZAÇÃO MÉDICA E IMPRESSÃO/PDF
+- [x] Extrair e inspecionar o novo ZIP (`pacs-v4-main(2).zip`) para isolar os componentes de renderização do laudo.
+- [x] Aplicar a referência visual extraída exclusivamente no editor médico (`ReportEditorPage.tsx` / `SharedReportSheet.tsx`) e na janela de impressão/PDF (`SharedReportPrint.tsx`).
+- [x] Garantir que o painel administrativo, o banco de dados e as demais rotas permaneçam absolutamente intocados.
+- [x] Executar suíte de testes e validar a equivalência visual exata (186 testes passando).
