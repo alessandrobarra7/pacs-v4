@@ -1565,13 +1565,36 @@ export function PacsQueryPage() {
         }
       }
     } else {
-      const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-      const win = window.open(URL.createObjectURL(blob), '_blank');
-      if (!win) {
-        toast.error('Bloqueador de pop-up ativo. Permita pop-ups para visualizar o laudo.');
+      // Impressão direta sem abrir aba intermediária: usa iframe oculto que aciona window.print() automaticamente
+      const printIframe = document.createElement('iframe');
+      printIframe.style.position = 'fixed';
+      printIframe.style.left = '-9999px';
+      printIframe.style.top = '0';
+      printIframe.style.width = '0';
+      printIframe.style.height = '0';
+      document.body.appendChild(printIframe);
+
+      const pDoc = printIframe.contentWindow?.document;
+      if (!pDoc) {
+        toast.error('Não foi possível iniciar a impressão.');
+        document.body.removeChild(printIframe);
         return;
       }
-      toast.success('Laudo aberto para impressão com sucesso!');
+
+      pDoc.open();
+      pDoc.write(fullHtml.replace('window.onload = () => { window.print(); }', 'window.onload = () => { setTimeout(() => { window.print(); }, 400); }'));
+      pDoc.close();
+
+      toast.success('Abrindo diálogo de impressoras...');
+      
+      // Remover o iframe após a impressão
+      setTimeout(() => {
+        try {
+          if (printIframe.parentNode) {
+            document.body.removeChild(printIframe);
+          }
+        } catch (e) {}
+      }, 10000);
     }
   };
 
