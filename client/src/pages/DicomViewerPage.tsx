@@ -939,7 +939,7 @@ export function DicomViewerPage() {
   // OsiriX:  osirix://?methodName=DownloadURL&URL=<zip>&Display=YES (macOS)
   // Horos:   horos://?methodName=DownloadURL&URL=<zip>&Display=YES  (macOS, gratuito)
   const viewerLabels: Record<string, string> = { radiant: 'RadiAnt', weasis: 'Weasis', osirix: 'OsiriX', horos: 'Horos' };
-  const handleOpenViewer = async (viewer: 'radiant' | 'weasis' | 'osirix' | 'horos') => {
+  const handleOpenViewer = async (viewer: 'weasis' | 'osirix' | 'horos') => {
     if (!studyUid || launchingViewer) return;
     setLaunchingViewer(viewer);
     try {
@@ -952,11 +952,24 @@ export function DicomViewerPage() {
         });
         return;
       }
-      window.location.href = data.launchUrl;
-      toast.info(`Abrindo no ${viewerLabels[viewer]}...`, {
-        description: `${data.fileCount} imagens serão abertas. O viewer deve estar instalado. Arquivos temporários apagados ao fechar.`,
-        duration: 7000,
-      });
+      if (viewer === 'radiant' && data.isZip) {
+        const a = document.createElement('a');
+        a.href = data.launchUrl;
+        a.download = `estudo_dicom_${studyUid.slice(-12)}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast.success('ZIP do RadiAnt baixado!', {
+          description: 'Abra o arquivo .zip baixado com o RadiAnt DICOM Viewer.',
+          duration: 10000,
+        });
+      } else {
+        window.location.href = data.launchUrl;
+        toast.info(`Abrindo no ${viewerLabels[viewer]}...`, {
+          description: `${data.fileCount} imagens serão abertas. O viewer deve estar instalado. Arquivos temporários apagados ao fechar.`,
+          duration: 7000,
+        });
+      }
     } catch (err: any) {
       toast.error(`Erro ao abrir no ${viewerLabels[viewer]}`, { description: err.message });
     } finally {

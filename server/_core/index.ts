@@ -970,9 +970,10 @@ async function startServer() {
       });
       let launchUrl = '';
       if (viewer === 'radiant') {
-        // radiant://?n=f&v="url1"&v="url2"...
-        const params = fileUrls.map((u: string) => `v=${encodeURIComponent(`"${u}"`)}`).join('&');
-        launchUrl = `radiant://?n=f&${params}`;
+        // RadiAnt no Windows: em vez de dezenas de URLs individuais que falham, redireciona para o ZIP completo
+        const zipUrl = `${origin}/api/dicom-export/${studyUid}`;
+        // O RadiAnt aceita abrir arquivos ZIP locais descompactando-os; para forçar o download confiável no navegador, retornamos o link ZIP
+        return res.json({ launchUrl: zipUrl, fileCount: files.length, isZip: true });
       } else if (viewer === 'weasis') {
         // weasis://?$dicom:get -r "url1" -r "url2"...
         const args = fileUrls.map((u: string) => `-r "${u}"`).join(' ');
