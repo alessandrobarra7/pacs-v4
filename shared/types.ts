@@ -73,5 +73,12 @@ export interface LayoutSnapshot {
   preferences:  LayoutPreferences;
   header_html:  string | null;
   footer_html:  string | null;
+  /** Elementos visuais do canvas A4 no momento da assinatura. */
+  background_image_url?: string | null;
+  background_opacity?: string | number | null;
+  background_size?: string | null;
+  footer_image_url?: string | null;
+  logos?: Array<{ url: string; width: number; height: number; label: string }> | null;
+  block_positions?: Record<string, { x: number; y: number; w: number; h: number; visible: boolean }> | null;
   capturedAt:   string; // ISO 8601
 }

@@ -1785,3 +1785,4 @@
 - [x] Sincronizar o layout personalizado salvo pelo administrador (logos, posições, fundo, rodapé) para ser renderizado exatamente igual no ReportEditorPage e na exportação PDF
 - [x] Alinhar rigorosamente a versão desktop do ReportEditorPage para aplicar a posição exata (X, Y, largura, altura) salva pelo administrador para cada bloco (logos, paciente, título, corpo, rodapé)
 - [x] Unificar rigorosamente as coordenadas, escalas e IDs de blocos entre o LayoutEditorPage e o ReportEditorPage para que a posição salva no admin seja aplicada 1:1 no editor desktop
+- [x] Eliminar a montagem fixa redundante no ReportEditorPage desktop e renderizar exclusivamente a folha A4 com base nos blocos persistidos no LayoutEditorPage

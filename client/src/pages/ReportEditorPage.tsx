@@ -238,10 +238,33 @@ export default function ReportEditorPage() {
   );
 
   // Layout da unidade para o documento do laudo
-  const { data: unitLayout } = trpc.layouts.getByUnit.useQuery(
+  const { data: unitLayout, refetch: refetchUnitLayout } = trpc.layouts.getByUnit.useQuery(
     { unitId },
     { enabled: unitId > 0 }
   );
+
+  // Mantém o laudo aberto sincronizado com alterações feitas no editor administrativo.
+  useEffect(() => {
+    if (unitId <= 0) return;
+    const refreshIfSameUnit = (payload: unknown) => {
+      const update = payload as { unitId?: number } | null;
+      if (update?.unitId === unitId) void refetchUnitLayout();
+    };
+    const onCustomUpdate = (event: Event) => refreshIfSameUnit((event as CustomEvent<{ unitId?: number }>).detail);
+    const onStorageUpdate = (event: StorageEvent) => {
+      if (event.key !== "pacs-layout-updated" || !event.newValue) return;
+      try { refreshIfSameUnit(JSON.parse(event.newValue)); } catch { /* ignorar evento inválido */ }
+    };
+    window.addEventListener("pacs-layout-updated", onCustomUpdate);
+    window.addEventListener("storage", onStorageUpdate);
+    const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("pacs-layout-updates") : null;
+    channel?.addEventListener("message", event => refreshIfSameUnit(event.data));
+    return () => {
+      window.removeEventListener("pacs-layout-updated", onCustomUpdate);
+      window.removeEventListener("storage", onStorageUpdate);
+      channel?.close();
+    };
+  }, [unitId, refetchUnitLayout]);
 
   // Laudo existente
   const { data: existingReport } = trpc.reports.getByStudyUid.useQuery(
@@ -513,6 +536,12 @@ export default function ReportEditorPage() {
         preferences:  unitLayout.preferences as LayoutPreferences,
         header_html:  unitLayout.header_html ?? null,
         footer_html:  unitLayout.footer_html ?? null,
+        background_image_url: unitLayout.background_image_url ?? null,
+        background_opacity: unitLayout.background_opacity ?? null,
+        background_size: unitLayout.background_size ?? null,
+        footer_image_url: unitLayout.footer_image_url ?? null,
+        logos: Array.isArray(unitLayout.logos) ? unitLayout.logos : null,
+        block_positions: (unitLayout.block_positions as LayoutSnapshot["block_positions"]) ?? null,
         capturedAt:   new Date().toISOString(),
       } : null;
 
@@ -616,9 +645,14 @@ export default function ReportEditorPage() {
       } as LayoutSnapshot
     : null;
   const layoutPrefs = layoutSource?.preferences;
-  // GAP-BACKGROUND: imagem de fundo e posições dos blocos do layout da unidade
+  // GAP-BACKGROUND: a mesma fonte visual alimenta o desktop e o PDF.
+  // Laudos assinados usam o snapshot; campos ausentes em snapshots antigos
+  // recebem fallback do layout atual para preservar compatibilidade.
   type BlockPos = { x: number; y: number; w: number; h: number; visible: boolean };
-  const rawLayout = unitLayout as Record<string, unknown> | null | undefined;
+  const activeLayoutRecord = (isSigned && existingReport?.layout_snapshot)
+    ? { ...(unitLayout as Record<string, unknown> | null ?? {}), ...(existingReport.layout_snapshot as unknown as Record<string, unknown>) }
+    : (unitLayout as Record<string, unknown> | null | undefined);
+  const rawLayout = activeLayoutRecord;
   const toAbsUrl = (u: string | null | undefined) => u && u.startsWith('/') ? `${window.location.origin}${u}` : (u || null);
   const layoutBgUrl: string | null = toAbsUrl((rawLayout?.["background_image_url"] as string | null) ?? null);
   const layoutBgOpacity: number = parseFloat((rawLayout?.["background_opacity"] as string | null) ?? '1.0');

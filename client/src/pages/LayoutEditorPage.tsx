@@ -442,6 +442,19 @@ export default function LayoutEditorPage() {
       setIsDirty(false);
       toast.success("Layout salvo com sucesso!");
       await refetchLayout();
+      // Sincroniza abas abertas: o editor clínico refaz a consulta sem exigir F5.
+      try {
+        const update = { unitId, savedAt: Date.now() };
+        localStorage.setItem("pacs-layout-updated", JSON.stringify(update));
+        window.dispatchEvent(new CustomEvent("pacs-layout-updated", { detail: update }));
+        if (typeof BroadcastChannel !== "undefined") {
+          const channel = new BroadcastChannel("pacs-layout-updates");
+          channel.postMessage(update);
+          channel.close();
+        }
+      } catch {
+        // A atualização principal já foi persistida; sincronização entre abas é opcional.
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar layout.");
     } finally {

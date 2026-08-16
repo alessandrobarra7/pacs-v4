@@ -42,4 +42,11 @@ describe("ReportEditorPage — experiência mobile", () => {
     expect(editorSource).toContain('left: `${(layoutBlockPos as any)?.footer?.x ?? 2}%`');
     expect(editorSource).toContain('top: `${(layoutBlockPos as any)?.footer?.y ?? 88}%`');
   });
+
+  it("refaz a consulta quando o administrador salva um layout em outra aba", () => {
+    expect(editorSource).toContain('refetch: refetchUnitLayout');
+    expect(editorSource).toContain('pacs-layout-updated');
+    expect(editorSource).toContain('pacs-layout-updates');
+    expect(editorSource).toContain('void refetchUnitLayout()');
+  });
 });
