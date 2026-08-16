@@ -1501,30 +1501,26 @@ export function PacsQueryPage() {
     });
   })()
   }
-  <script>
-    window.onload = function() {
-      setTimeout(() => { window.print(); }, 400);
-    };
-  <\/script>
+    <script>
+      window.onload = function() {
+        if ("${actionType}" === "print") {
+          setTimeout(() => { window.print(); }, 400);
+        }
+      };
+    <\/script>
   </body></html>`;
 
     const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
     const blobUrl = URL.createObjectURL(blob);
 
+    const win = window.open(blobUrl, '_blank');
+    if (!win) {
+      toast.error('Bloqueador de pop-up ativo. Permita pop-ups para visualizar o laudo.');
+      return;
+    }
     if (actionType === 'download') {
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = `Laudo_${patientName.replace(/\s+/g, '_')}.html`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      toast.success('Laudo baixado com sucesso!');
+      toast.success('Na janela aberta, selecione "Salvar como PDF" no destino da impressão.');
     } else {
-      const win = window.open(blobUrl, '_blank');
-      if (!win) {
-        toast.error('Bloqueador de pop-up ativo. Permita pop-ups para visualizar o laudo.');
-        return;
-      }
       toast.success('Laudo aberto para impressão com sucesso!');
     }
   };
