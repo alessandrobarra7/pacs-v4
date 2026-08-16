@@ -1515,21 +1515,34 @@ export function PacsQueryPage() {
     if (actionType === 'download') {
       toast.loading('Gerando arquivo PDF para download...', { id: 'pdf-dl' });
       try {
-        const container = document.createElement('div');
-        container.style.position = 'fixed';
-        container.style.left = '-9999px';
-        container.style.top = '0';
-        container.style.width = '794px';
-        container.innerHTML = fullHtml;
-        document.body.appendChild(container);
+        // Criar iframe oculto para renderizar perfeitamente com CSS e imagens completas
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.left = '-9999px';
+        iframe.style.top = '0';
+        iframe.style.width = '794px';
+        iframe.style.height = '1123px';
+        document.body.appendChild(iframe);
 
-        const canvas = await html2canvas(container.querySelector('body') || container, {
+        const doc = iframe.contentWindow?.document;
+        if (!doc) throw new Error('Não foi possível inicializar o renderizador de PDF');
+        
+        doc.open();
+        doc.write(fullHtml);
+        doc.close();
+
+        // Aguardar carregamento de fontes e imagens
+        await new Promise((resolve) => setTimeout(resolve, 800));
+
+        const targetEl = doc.querySelector('.sheet') || doc.body;
+        const canvas = await html2canvas(targetEl as HTMLElement, {
           scale: 2,
           useCORS: true,
           logging: false,
           windowWidth: 794,
         });
-        document.body.removeChild(container);
+
+        document.body.removeChild(iframe);
 
         const imgData = canvas.toDataURL('image/png');
         const pdf = new jsPDF('p', 'mm', 'a4');
@@ -1537,22 +1550,19 @@ export function PacsQueryPage() {
         const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
         pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
         
-        // Forçar download real do arquivo .pdf
         pdf.save(`Laudo_${patientName.replace(/\s+/g, '_')}.pdf`);
         toast.dismiss('pdf-dl');
-        toast.success('Download do PDF concluído com sucesso!');
+        toast.success('PDF baixado com sucesso!');
       } catch (err) {
         toast.dismiss('pdf-dl');
-        // Fallback robusto: se o canvas falhar por CORS de alguma imagem externa, baixa o HTML estruturado com extensão .pdf ou abre para impressão
-        const blob = new Blob([fullHtml], { type: 'application/pdf;charset=utf-8' });
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = `Laudo_${patientName.replace(/\s+/g, '_')}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        toast.success('Download do laudo em PDF concluído!');
+        // Fallback seguro: se falhar o canvas, abrir a janela de impressão nativa onde o usuário pode escolher Salvar como PDF
+        const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+        const win = window.open(URL.createObjectURL(blob), '_blank');
+        if (win) {
+          toast.success('Visualização aberta. Selecione "Salvar como PDF" no menu de impressão.');
+        } else {
+          toast.error('Erro ao gerar PDF. Verifique os bloqueadores de pop-up.');
+        }
       }
     } else {
       const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
