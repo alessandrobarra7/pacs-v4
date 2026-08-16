@@ -84,3 +84,8 @@ Para garantir que a ordem visual dos blocos `patientName` e `patientInfo` seja e
 1. A ordem dos nós JSX no componente `SharedReportSheet.tsx` foi invertida para renderizar `patientName` antes de `patientInfo` no fluxo do DOM.
 2. Desta forma, mesmo que um layout legado ou padrão deixe as coordenadas próximas, a ordem de empilhamento e fluxo respeitará rigorosamente o padrão visual solicitado (nome em linha própria acima, seguido pelos detalhes do exame e do paciente).
 Testes: 186 testes Vitest aprovados com sucesso.
+
+
+## Atualização — Remoção do rótulo "Nome do paciente:"
+Conforme instrução direta do usuário, a legenda "Nome do paciente:" foi removida do componente `ClinicalPatientName`. Agora o nome completo do paciente é exibido isolado em linha própria, em letras maiúsculas e com destaque tipográfico limpo, sem nenhum texto de rótulo redundante.
+Testes: 186 testes Vitest aprovados com sucesso.

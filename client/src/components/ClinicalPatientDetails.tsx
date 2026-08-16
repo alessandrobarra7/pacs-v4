@@ -34,9 +34,8 @@ const labelStyle: CSSProperties = {
 
 export function ClinicalPatientName({ patientName }: Pick<ClinicalPatientDetailsProps, "patientName">) {
   return (
-    <div data-clinical-patient-name style={{ width: "100%", fontSize: "9pt", lineHeight: 1.35, color: "#17202a" }}>
-      <span style={labelStyle}>Nome do paciente:</span>{" "}
-      <span style={{ textTransform: "uppercase" }}>{patientName || "—"}</span>
+    <div data-clinical-patient-name style={{ width: "100%", fontSize: "11pt", fontWeight: 700, lineHeight: 1.35, color: "#111827", textTransform: "uppercase", letterSpacing: "0.02em" }}>
+      {patientName || "—"}
     </div>
   );
 }

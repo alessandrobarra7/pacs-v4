@@ -19,7 +19,7 @@ describe("ClinicalPatientDetails — cabeçalho organizado", () => {
       ),
     );
 
-    expect(markup).toContain("Nome do paciente:");
+    expect(markup).not.toContain("Nome do paciente:");
     expect(markup).toContain("KYARA SOPHIA MAGALHAES ARAUJO");
     expect(markup).toContain("Data de nascimento:");
     expect(markup).toContain("16/05/2026");
