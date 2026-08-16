@@ -1186,10 +1186,10 @@ export function DicomViewerPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => handleOpenViewer('radiant')}
+            onClick={handleOpenRadiant}
             disabled={!!launchingViewer || imageCount === 0}
             className="text-xs border-blue-700 text-blue-400 hover:bg-blue-900/40 h-7 px-2"
-            title="Abrir no RadiAnt DICOM Viewer (Windows) — sem PACS configurado"
+            title="Baixar ZIP e abrir no RadiAnt DICOM Viewer (Windows)"
           >
             {launchingViewer === 'radiant' ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ExternalLink className="h-3 w-3 mr-1" />}
             RadiAnt
