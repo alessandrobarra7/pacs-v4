@@ -616,6 +616,7 @@ export function PacsQueryPage() {
   const [isAnamnesisModalOpen, setIsAnamnesisModalOpen] = useState(false);
   const [isAttachmentsModalOpen, setIsAttachmentsModalOpen] = useState(false);
   const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [selectedStudy, setSelectedStudy] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, string>>({});
@@ -1101,8 +1102,14 @@ export function PacsQueryPage() {
     setIsAudioModalOpen(true);
   };
 
-  const handlePrintReport = async (study: any) => {
+  const handlePrintReport = (study: any) => {
     if (!study.studyInstanceUid) { toast.error('UID do estudo não disponível'); return; }
+    setSelectedStudy(study);
+    setIsPrintModalOpen(true);
+  };
+
+  const executePrintAction = async (study: any, actionType: 'print' | 'download') => {
+    if (!study.studyInstanceUid) return;
     const storedStudy = sessionStorage.getItem(`study_${study.studyInstanceUid}`);
     const studyData = storedStudy ? JSON.parse(storedStudy) : study;
     const patientName = (studyData.patientName || study.patientName || 'Não informado').replace(/\^/g, ' ').trim();
@@ -1478,6 +1485,7 @@ export function PacsQueryPage() {
           birthDate={birthDateFormatted || "—"}
           sex={sexFormatted || "—"}
           studyDate={studyDate || "—"}
+          modality={study.modality || studyData.modality || undefined}
           unitName={unitName || undefined}
         />
       ),
@@ -1502,12 +1510,23 @@ export function PacsQueryPage() {
 
     const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
     const blobUrl = URL.createObjectURL(blob);
-    const win = window.open(blobUrl, '_blank');
-    if (!win) {
-      toast.error('Bloqueador de pop-up ativo. Permita pop-ups para visualizar o laudo.');
-      return;
+
+    if (actionType === 'download') {
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `Laudo_${patientName.replace(/\s+/g, '_')}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast.success('Laudo baixado com sucesso!');
+    } else {
+      const win = window.open(blobUrl, '_blank');
+      if (!win) {
+        toast.error('Bloqueador de pop-up ativo. Permita pop-ups para visualizar o laudo.');
+        return;
+      }
+      toast.success('Laudo aberto para impressão com sucesso!');
     }
-    toast.success('Laudo aberto com sucesso em nova aba!');
   };
 
   const getReportStatus = (study: any) => {
@@ -2308,6 +2327,61 @@ export function PacsQueryPage() {
            }}
          />
        )}
+
+      {isPrintModalOpen && selectedStudy && (
+        <Dialog open={isPrintModalOpen} onOpenChange={(open) => { if (!open) { setIsPrintModalOpen(false); setSelectedStudy(null); } }}>
+          <DialogContent className="max-w-md bg-white border border-gray-200 shadow-xl rounded-xl p-6">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Printer className="h-5 w-5 text-blue-600" />
+                Opções de Laudo
+              </DialogTitle>
+              <DialogDescription className="text-sm text-gray-500 mt-1">
+                Escolha o formato desejado para o laudo de <strong className="text-gray-800">{(selectedStudy.patientName || 'Paciente').replace(/\^/g, ' ')}</strong>.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-4 my-6">
+              <button
+                type="button"
+                onClick={() => {
+                  const s = selectedStudy;
+                  setIsPrintModalOpen(false);
+                  setSelectedStudy(null);
+                  executePrintAction(s, 'download');
+                }}
+                className="flex flex-col items-center justify-center p-4 border border-blue-200 bg-blue-50/50 hover:bg-blue-100/70 text-blue-700 rounded-xl transition-all shadow-sm group"
+              >
+                <Download className="h-6 w-6 mb-2 text-blue-600 group-hover:scale-110 transition-transform" />
+                <span className="font-semibold text-sm">Baixar em PDF</span>
+                <span className="text-xs text-gray-400 mt-0.5">Salvar cópia local</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const s = selectedStudy;
+                  setIsPrintModalOpen(false);
+                  setSelectedStudy(null);
+                  executePrintAction(s, 'print');
+                }}
+                className="flex flex-col items-center justify-center p-4 border border-amber-200 bg-amber-50/50 hover:bg-amber-100/70 text-amber-800 rounded-xl transition-all shadow-sm group"
+              >
+                <Printer className="h-6 w-6 mb-2 text-amber-600 group-hover:scale-110 transition-transform" />
+                <span className="font-semibold text-sm">Imprimir Laudo</span>
+                <span className="text-xs text-gray-400 mt-0.5">Abrir visualização</span>
+              </button>
+            </div>
+            <DialogFooter className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => { setIsPrintModalOpen(false); setSelectedStudy(null); }}
+                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

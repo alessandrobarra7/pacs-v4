@@ -101,3 +101,10 @@ Conforme solicitado:
 ## Atualização — Alinhamento da Impressão PDF com Modalidade
 Após a inspeção do PDF de teste fornecido (`testesaaaaa.pdf`), o gerador de impressão estática do editor clínico (`handlePrint` em `ReportEditorPage.tsx`) foi ajustado para repassar a `modality` do estudo para o componente `ClinicalPatientDetails`. Desta forma, a impressão PDF gerada reflete exatamente o mesmo layout estruturado em duas linhas (Data + Modalidade e Nascimento + Sexo) exibido na tela do editor e na prévia administrativa.
 Testes: 186 testes Vitest aprovados com sucesso.
+
+
+## Atualização — Modal de Opções de Laudo (Baixar em PDF / Imprimir)
+Conforme solicitado pelo usuário, o botão único de impressão na listagem PACS foi transformado em um modal de opções acionado ao clique, sem adicionar novos botões à tabela e respeitando o design limpo:
+1. Ao clicar no botão de impressão, abre-se um modal elegante com duas ações claras: **Baixar em PDF** (baixando o HTML/PDF estruturado localmente) e **Imprimir Laudo** (abrindo a visualização formatada para impressão direta).
+2. Ambas as opções utilizam exatamente a mesma folha compartilhada A4 (`SharedReportSheet`), mantendo a consistência geométrica, as logos, a tipografia e o cabeçalho organizado.
+3. Validação concluída com 186 testes Vitest aprovados e TypeScript sem erros.
