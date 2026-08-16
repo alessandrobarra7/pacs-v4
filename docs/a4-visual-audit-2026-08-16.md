@@ -27,3 +27,9 @@ O UID real recuperado da listagem foi aberto no fluxo clínico. A folha exibiu a
 ## Teste multi-seção
 
 Com duas seções temporárias (`CRANIO` e `TORAX`) no mesmo estudo, o editor renderizou duas folhas A4 com a logo, dados do paciente e título de cada exame. O modo multi-seção preservou a separação por exame e não inseriu achados fictícios. A guia de corpo vazio desta validação multi-seção continua usando o placeholder de edição da seção, enquanto a página única usa a guia institucional completa; esse é um refinamento futuro caso se queira igualar também o estado vazio de cada seção.
+
+## Correção de fonte única — 16/08/2026
+
+A partir desta revisão, o layout persistido em `model_layouts.block_positions` é consumido como a única fonte de geometria pelo editor clínico e pela impressão. O PDF de página única e o PDF multi-seção passaram a chamar `renderSharedReportSheetHtml`, que renderiza o próprio `SharedReportSheet`; não existe mais uma montagem manual independente de `logo1`, `patientInfo`, `patientName`, `title`, `body` e `footer` nesses caminhos. Logos, fundo e rodapé são convertidos para dados embutidos antes da abertura da janela de impressão, preservando o resultado quando a janela não possui a sessão original.
+
+A regressão automatizada utiliza um layout deliberadamente alterado — logo em 71%/60%, paciente em 33%/3%, título em 0%/19%, corpo em 1%/32% e rodapé em 1%/73% — e confirma que as mesmas coordenadas, dados e blocos aparecem no HTML estático. TypeScript e 185 testes Vitest foram executados com sucesso.

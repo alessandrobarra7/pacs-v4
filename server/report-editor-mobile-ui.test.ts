@@ -14,6 +14,10 @@ const pacsSource = readFileSync(
   resolve(process.cwd(), "client/src/pages/PacsQueryPage.tsx"),
   "utf8",
 );
+const sharedPrintSource = readFileSync(
+  resolve(process.cwd(), "client/src/components/SharedReportPrint.tsx"),
+  "utf8",
+);
 
 describe("ReportEditorPage — experiência mobile", () => {
   it("mantém o editor desktop separado do fluxo mobile", () => {
@@ -65,26 +69,15 @@ describe("ReportEditorPage — experiência mobile", () => {
     expect(sharedSheetSource).toContain('top: `${p.y}%`');
   });
 
-  it("mantém a exportação de página única na mesma composição percentual do SharedReportSheet", () => {
-    expect(editorSource).toContain('class="shared-report-sheet print-shared-sheet"');
-    expect(editorSource).toContain('const printPosition = (position: BlockPos | undefined, fallback: BlockPos)');
-    expect(editorSource).toContain('data-layout-block="patientInfo"');
-    expect(editorSource).toContain('data-layout-block="patientName"');
-    expect(editorSource).toContain('data-layout-block="title"');
-    expect(editorSource).toContain('data-layout-block="body"');
-    expect(editorSource).toContain('data-layout-block="footer"');
-    expect(editorSource).toContain('object-fit:${layoutBgSize === \'contain\' ? \'contain\' : \'cover\'}');
-  });
-
-  it("mantém o download pela lista PACS na mesma folha A4 posicionada", () => {
-    expect(pacsSource).toContain('class="shared-report-sheet print-shared-sheet"');
-    expect(pacsSource).toContain("const blockPositionsQ");
-    expect(pacsSource).toContain("const printPositionQ");
-    expect(pacsSource).toContain('data-layout-block=\"patientInfo\"');
-    expect(pacsSource).toContain('data-layout-block=\"patientName\"');
-    expect(pacsSource).toContain('data-layout-block=\"title\"');
-    expect(pacsSource).toContain('data-layout-block=\"body\"');
-    expect(pacsSource).toContain('data-layout-block=\"footer\"');
+  it("usa o mesmo SharedReportSheet no editor clínico e na exportação", () => {
+    expect(editorSource).toContain("renderSharedReportSheetHtml");
+    expect(editorSource).toContain("positions: layoutBlockPos");
+    expect(editorSource).toContain("footerImageUrl: footerBase64 || layoutFooterUrl");
+    expect(pacsSource).toContain("renderSharedReportSheetHtml");
+    expect(pacsSource).toContain("positions: blockPositionsQ");
+    expect(pacsSource).toContain("footerImageUrl: footerBase64Q || lFooterUrl");
+    expect(sharedPrintSource).toContain("renderToStaticMarkup");
+    expect(sharedPrintSource).toContain("createElement(SharedReportSheet, props)");
   });
 
   it("refaz a consulta quando o administrador salva um layout em outra aba", () => {

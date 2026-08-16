@@ -7,6 +7,7 @@ import {
   Download, Loader2, CalendarDays, Mic, Volume2,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
+import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
@@ -1164,6 +1165,7 @@ export function PacsQueryPage() {
     // P5: reservar margem inferior para o rodapé
     const toAbsUrl = (u: string) => u && u.startsWith('/') ? `${window.location.origin}${u}` : u;
     const lFooterUrl = toAbsUrl((unitLayout as any)?.footer_image_url || '');
+    const footerBase64Q = lFooterUrl ? await fetchToBase64(lFooterUrl) : null;
     const footerReservedMmQ = lFooterUrl ? 30 : 0;
     const lMB = (lPrefs.marginBottom ?? 20) + footerReservedMmQ;
     const lML = lPrefs.marginLeft ?? 20;
@@ -1195,7 +1197,11 @@ export function PacsQueryPage() {
         print-color-adjust: exact;
       "></div>
     ` : '';
-    const lLogos: Array<{url:string;width:number;height:number}> = (unitLayout as any)?.logos || [];
+    const lLogos: Array<{url:string;width:number;height:number;label?:string}> = (unitLayout as any)?.logos || [];
+    const printLogosQ = await Promise.all(lLogos.slice(0, 3).filter((logo: any) => logo?.url).map(async (logo: any) => {
+      const absoluteUrl = toAbsUrl(logo.url);
+      return { ...logo, url: (absoluteUrl ? await fetchToBase64(absoluteUrl) : null) || absoluteUrl };
+    }));
     // Logos HTML: até 3 logos lado a lado
     const logosHtml = lLogos.filter((l: any) => l.url).length > 0
       ? lLogos.filter((l: any) => l.url).map((l: any) => `<img src="${l.url}" alt="Logo" style="max-height:${l.height||60}px;max-width:${l.width||180}px;object-fit:contain;margin-right:6px;" />`).join('')
@@ -1449,33 +1455,41 @@ export function PacsQueryPage() {
         }).join('');
       }
     } catch { /* não é JSON */ }
-    // Página única: mesma composição percentual do SharedReportSheet.
+    // Página única: a marcação é produzida pelo mesmo componente React usado no admin e no médico.
     const blockPositionsQ = ((unitLayout as any)?.block_positions || {}) as Record<string, { x: number; y: number; w: number; h: number; visible: boolean }>;
-    const printPositionQ = (position: { x: number; y: number; w: number; h: number; visible: boolean } | undefined, fallback: { x: number; y: number; w: number; h: number; visible: boolean }) => {
-      const p = position ?? fallback;
-      return `position:absolute;left:${p.x}%;top:${p.y}%;width:${p.w}%;height:${p.h}%;box-sizing:border-box;`;
-    };
-    const logosPositionedQ = lLogos.slice(0, 3).filter((l: any) => l?.url).map((logo: any, index: number) => {
-      const id = `logo${index + 1}`;
-      const fallback = index === 0 ? (blockPositionsQ.logo || { x: 2, y: 2, w: 26, h: 11, visible: true }) : { x: 2 + index * 30, y: 2, w: 20, h: 10, visible: true };
-      const position = blockPositionsQ[id] || (index === 0 ? blockPositionsQ.logo : undefined);
-      const url = toAbsUrl(logo.url);
-      return position?.visible === false ? '' : `<div data-layout-block="${id}" style="${printPositionQ(position, fallback)}display:flex;align-items:center;justify-content:center;padding:4px;z-index:2;overflow:hidden;"><img src="${url}" alt="${logo.label || `Logo ${index + 1}`}" style="width:100%;height:100%;object-fit:contain;display:block;" /></div>`;
-    }).join('');
-    const patientInfoPositionQ = blockPositionsQ.patientInfo || { x: 2, y: 15, w: 96, h: 9, visible: true };
-    const patientNamePositionQ = blockPositionsQ.patientName || { x: 2, y: 25, w: 96, h: 5, visible: true };
-    const titlePositionQ = blockPositionsQ.title || { x: 2, y: 31, w: 96, h: 6, visible: true };
-    const bodyPositionQ = blockPositionsQ.body || { x: 2, y: 38, w: 96, h: 48, visible: true };
-    const footerPositionQ = blockPositionsQ.footer || { x: 2, y: 88, w: 96, h: 9, visible: true };
-    return `<div class="shared-report-sheet print-shared-sheet" data-shared-report-sheet>
-      ${bgBase64Q ? `<img src="${bgBase64Q}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:${lBgSize === 'contain' ? 'contain' : 'cover'};opacity:${lBgOpacity};z-index:0;" />` : ''}
-      ${logosPositionedQ}
-      ${patientInfoPositionQ.visible ? `<div data-layout-block="patientInfo" style="${printPositionQ(patientInfoPositionQ, { x: 2, y: 15, w: 96, h: 9, visible: true })}display:flex;align-items:center;padding:4px 8px;z-index:3;overflow:hidden;font-size:8pt;line-height:1.35;">Realizado em: <strong>${studyDate}</strong><span style="margin:0 6px;">·</span>Nasc.: <strong>${birthDateFormatted || '—'}</strong><span style="margin:0 6px;">·</span>Sexo: <strong>${sexFormatted || '—'}</strong></div>` : ''}
-      ${patientNamePositionQ.visible ? `<div data-layout-block="patientName" style="${printPositionQ(patientNamePositionQ, { x: 2, y: 25, w: 96, h: 5, visible: true })}display:flex;align-items:center;padding:0 8px;z-index:3;overflow:hidden;font-size:11.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.02em;">${patientName || '—'}</div>` : ''}
-      ${titlePositionQ.visible ? `<div data-layout-block="title" style="${printPositionQ(titlePositionQ, { x: 2, y: 31, w: 96, h: 6, visible: true })}display:flex;align-items:center;justify-content:center;padding:0 8px;z-index:3;overflow:hidden;text-align:center;font-size:13pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e0e0e0;">${reportTitle || '—'}</div>` : ''}
-      ${bodyPositionQ.visible ? `<div data-layout-block="body" style="${printPositionQ(bodyPositionQ, { x: 2, y: 38, w: 96, h: 48, visible: true })}padding:8px 12px;overflow:hidden;z-index:3;font-size:${lSize}pt;line-height:${lLine};">${bodyHtml || '<p style="color:#9ca3af;font-style:italic;">Sem conteúdo para visualizar.</p>'}</div>` : ''}
-      ${footerPositionQ.visible ? `<div data-layout-block="footer" style="${printPositionQ(footerPositionQ, { x: 2, y: 88, w: 96, h: 9, visible: true })}display:flex;align-items:center;justify-content:center;overflow:hidden;z-index:4;">${lFooterUrl ? `<img src="${lFooterUrl}" alt="Rodapé" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" />` : ''}<div style="position:relative;z-index:1;width:100%;">${doctorFooterHtml || '<div style="height:4mm;"></div>'}</div></div>` : ''}
-    </div>`;
+    const printBodyQ = bodyHtml
+      ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+      : <div className="report-body"><p style={{ color: "#9ca3af", fontStyle: "italic" }}>Sem conteúdo para visualizar.</p></div>;
+    return renderSharedReportSheetHtml({
+      positions: blockPositionsQ,
+      logos: printLogosQ,
+      backgroundUrl: bgBase64Q || lBgUrl,
+      backgroundOpacity: lBgOpacity,
+      backgroundSize: lBgSize,
+      footerImageUrl: footerBase64Q || lFooterUrl,
+      fontFamily: fontStackQ,
+      fontSize: lSize,
+      lineHeight: lLine,
+      patientName,
+      patientInfo: (
+        <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
+          Realizado em: <strong>{studyDate}</strong>
+          <span style={{ margin: "0 6px" }}>·</span>
+          Nasc.: <strong>{birthDateFormatted || "—"}</strong>
+          <span style={{ margin: "0 6px" }}>·</span>
+          Sexo: <strong>{sexFormatted || "—"}</strong>
+        </div>
+      ),
+      title: (
+        <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
+          {reportTitle || "—"}
+        </div>
+      ),
+      body: printBodyQ,
+      footer: (
+        <div style={{ width: "100%" }} dangerouslySetInnerHTML={{ __html: doctorFooterHtml || '<div style="height:4mm;"></div>' }} />
+      ),
+    });
   })()
   }
   <script>

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import DOMPurify from 'dompurify';
 import type { LayoutPreferences, LayoutSnapshot } from '../../../shared/types';
 import { SharedReportBodyGuide, SharedReportSheet } from "@/components/SharedReportSheet";
+import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -785,6 +786,11 @@ export default function ReportEditorPage() {
 
     // FUNDO: base64 + background-image no body com dimensões físicas da folha
     const bgBase64 = layoutBgUrl ? await fetchToBase64(layoutBgUrl) : null;
+    const footerBase64 = layoutFooterUrl ? await fetchToBase64(layoutFooterUrl) : null;
+    const printLogos = await Promise.all(layoutLogos.map(async (logo) => {
+      const absoluteUrl = toAbsUrl(logo.url) || logo.url;
+      return { ...logo, url: (absoluteUrl ? await fetchToBase64(absoluteUrl) : null) || absoluteUrl };
+    }));
     // FIX: aplicar block_positions no print — mesma lógica do WYSIWYG
     const logoWidthPrint   = Math.round((bpLogo.w / 100) * 210); // mm (papel = 210mm)
     const logoAlignPrint   = bpLogo.x < 30 ? "left" : bpLogo.x > 70 ? "right" : "center";
@@ -866,6 +872,14 @@ export default function ReportEditorPage() {
     line-height: ${lLine};
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+  .shared-report-page-break {
+    page-break-after: always;
+    break-after: page;
+  }
+  .shared-report-page-break:last-of-type {
+    page-break-after: avoid;
+    break-after: avoid;
   }
   .draft-watermark {
     position: absolute;
@@ -980,71 +994,84 @@ export default function ReportEditorPage() {
   <!-- MULTI-EXAME: cada exame = div.print-page com height:297mm e page-break-after:always -->
   <!-- Abordagem div-por-página é mais confiável que múltiplas tabelas no Chrome -->
   ${(() => {
-    const headerHtml = `
-      <div class="header">
-        ${bpLogo.visible ? `<div class="header-logo">${logoHtml}</div>` : ''}
-        <div class="header-title" style="${!bpLogo.visible ? 'border-left:none;padding-left:0;' : ''}">
-          <div class="clinic-name">${unitName || ''}</div>
-          <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
-        </div>
-      </div>`;
-    const footerHtml = layoutFooterUrl
-      ? `<img src="${layoutFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
-      : `<div style="height:4mm;"></div>`;
-    const makePage = (content: string) => `
-      <div class="print-page">
-        ${headerHtml}
-        <div style="flex:1;">
-          <div class="patient-data">${patientDataHtml}</div>
-          ${content}
-        </div>
-        <div style="margin-top:auto;">${footerHtml}</div>
-      </div>`;
-    // Tentar parsear seções multi-exame
+    const renderPrintSheet = (sectionTitle: string, sectionBodyHtml: string, isLastPage: boolean) => {
+      const sectionBody = sectionBodyHtml.trim()
+        ? <div className="report-body" dangerouslySetInnerHTML={{ __html: sectionBodyHtml }} />
+        : <SharedReportBodyGuide />;
+      const markup = renderSharedReportSheetHtml({
+        positions: layoutBlockPos,
+        logos: printLogos,
+        backgroundUrl: bgBase64 || layoutBgUrl,
+        backgroundOpacity: layoutBgOpacity,
+        backgroundSize: layoutBgSize,
+        footerImageUrl: isLastPage ? (footerBase64 || layoutFooterUrl) : null,
+        fontFamily: fontStack,
+        fontSize: lSize,
+        lineHeight: lLine,
+        patientName,
+        patientInfo: (
+          <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
+            Realizado em: <strong>{studyDateFormatted || "—"}</strong>
+            <span style={{ margin: "0 6px" }}>·</span>
+            Nasc.: <strong>{birthDate || "—"}</strong>
+            <span style={{ margin: "0 6px" }}>·</span>
+            Sexo: <strong>{sexFormatted || "—"}</strong>
+          </div>
+        ),
+        title: (
+          <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
+            {sectionTitle || "—"}
+          </div>
+        ),
+        body: sectionBody,
+        footer: isLastPage
+          ? <div style={{ width: "100%" }} dangerouslySetInnerHTML={{ __html: doctorFooterHtml || '<div style="height:4mm;"></div>' }} />
+          : <div />,
+      });
+      return `<div class="shared-report-page-break">${markup}</div>`;
+    };
+    // Tentar parsear seções multi-exame usando uma folha compartilhada por seção.
     try {
       const rawBodyForSplit = collectBody();
       const secs: { title: string; body: string }[] = JSON.parse(rawBodyForSplit);
       if (secs && secs.length > 1) {
-        return secs.map((sec, i) => {
-          const isLast = i === secs.length - 1;
-          const secContent = `
-            ${bpTitle.visible ? `<div class="exam-title">${sec.title}</div>` : ''}
-            <div class="report-body">${sec.body}</div>
-            ${isLast && bpFooter.visible ? doctorFooterHtml : ''}`;
-          return makePage(secContent);
-        }).join('');
+        return secs.map((sec, i) => renderPrintSheet(sec.title, sec.body, i === secs.length - 1)).join('');
       }
     } catch {}
-    // Página única: mesma composição percentual do SharedReportSheet.
-    const printPosition = (position: BlockPos | undefined, fallback: BlockPos) => {
-      const p = position ?? fallback;
-      return `position:absolute;left:${p.x}%;top:${p.y}%;width:${p.w}%;height:${p.h}%;box-sizing:border-box;`;
-    };
-    const printLogoHtml = layoutLogos.slice(0, 3).map((logo, index) => {
-      const id = `logo${index + 1}`;
-      const fallback = index === 0 ? bpLogo : { x: 2 + index * 30, y: 2, w: 20, h: 10, visible: true };
-      const position = layoutBlockPos?.[id] ?? (index === 0 ? layoutBlockPos?.logo : undefined);
-      const logoUrl = toAbsUrl(logo.url) || logo.url;
-      return position?.visible === false ? '' : `
-        <div data-layout-block="${id}" style="${printPosition(position, fallback)}display:flex;align-items:center;justify-content:center;padding:4px;z-index:2;overflow:hidden;">
-          <img src="${logoUrl}" alt="${logo.label || `Logo ${index + 1}`}" style="width:100%;height:100%;object-fit:contain;display:block;" />
-        </div>`;
-    }).join('');
-    const patientInfoPosition = layoutBlockPos?.patientInfo ?? { x: 2, y: 15, w: 96, h: 9, visible: true };
-    const patientNamePosition = layoutBlockPos?.patientName ?? { x: 2, y: 25, w: 96, h: 5, visible: true };
-    const titlePosition = layoutBlockPos?.title ?? { x: 2, y: 31, w: 96, h: 6, visible: true };
-    const bodyPosition = layoutBlockPos?.body ?? { x: 2, y: 38, w: 96, h: 48, visible: true };
-    const footerPosition = layoutBlockPos?.footer ?? { x: 2, y: 88, w: 96, h: 9, visible: true };
-    return `
-      <div class="shared-report-sheet print-shared-sheet" data-shared-report-sheet>
-        ${bgBase64 ? `<img src="${bgBase64}" alt="" class="sheet-background" style="position:absolute;inset:0;width:100%;height:100%;object-fit:${layoutBgSize === 'contain' ? 'contain' : 'cover'};opacity:${layoutBgOpacity};z-index:0;" />` : ''}
-        ${printLogoHtml}
-        ${patientInfoPosition.visible ? `<div data-layout-block="patientInfo" style="${printPosition(patientInfoPosition, { x: 2, y: 15, w: 96, h: 9, visible: true })}display:flex;align-items:center;padding:4px 8px;z-index:3;overflow:hidden;font-size:8pt;line-height:1.35;">Realizado em: <strong>${studyDateFormatted || '—'}</strong><span style="margin:0 6px;">·</span>Nasc.: <strong>${birthDate || '—'}</strong><span style="margin:0 6px;">·</span>Sexo: <strong>${sexFormatted || '—'}</strong></div>` : ''}
-        ${patientNamePosition.visible ? `<div data-layout-block="patientName" style="${printPosition(patientNamePosition, { x: 2, y: 25, w: 96, h: 5, visible: true })}display:flex;align-items:center;padding:0 8px;z-index:3;overflow:hidden;font-size:11.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.02em;">${patientName || '—'}</div>` : ''}
-        ${titlePosition.visible ? `<div data-layout-block="title" style="${printPosition(titlePosition, { x: 2, y: 31, w: 96, h: 6, visible: true })}display:flex;align-items:center;justify-content:center;padding:0 8px;z-index:3;overflow:hidden;text-align:center;font-size:13pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e0e0e0;">${examTitle || '—'}</div>` : ''}
-        ${bodyPosition.visible ? `<div data-layout-block="body" style="${printPosition(bodyPosition, { x: 2, y: 38, w: 96, h: 48, visible: true })}padding:8px 12px;overflow:hidden;z-index:3;font-size:${lSize}pt;line-height:${lLine};">${bodyHtml || '<p style="color:#9ca3af;font-style:italic;">Sem conteúdo para visualizar.</p>'}</div>` : ''}
-        ${footerPosition.visible ? `<div data-layout-block="footer" style="${printPosition(footerPosition, { x: 2, y: 88, w: 96, h: 9, visible: true })}display:flex;align-items:center;justify-content:center;overflow:hidden;z-index:4;">${layoutFooterUrl ? `<img src="${toAbsUrl(layoutFooterUrl) || layoutFooterUrl}" alt="Rodapé" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" />` : ''}<div style="position:relative;z-index:1;width:100%;">${doctorFooterHtml || '<div style="height:4mm;"></div>'}</div></div>` : ''}
-      </div>`;
+    // Página única: a marcação é produzida pelo mesmo componente React usado no editor.
+    const printBody = bodyHtml
+      ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+      : <SharedReportBodyGuide />;
+    return renderSharedReportSheetHtml({
+      positions: layoutBlockPos,
+      logos: printLogos,
+      backgroundUrl: bgBase64 || layoutBgUrl,
+      backgroundOpacity: layoutBgOpacity,
+      backgroundSize: layoutBgSize,
+      footerImageUrl: footerBase64 || layoutFooterUrl,
+      fontFamily: fontStack,
+      fontSize: lSize,
+      lineHeight: lLine,
+      patientName,
+      patientInfo: (
+        <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
+          Realizado em: <strong>{studyDateFormatted || "—"}</strong>
+          <span style={{ margin: "0 6px" }}>·</span>
+          Nasc.: <strong>{birthDate || "—"}</strong>
+          <span style={{ margin: "0 6px" }}>·</span>
+          Sexo: <strong>{sexFormatted || "—"}</strong>
+        </div>
+      ),
+      title: (
+        <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
+          {examTitle || "—"}
+        </div>
+      ),
+      body: printBody,
+      footer: (
+        <div style={{ width: "100%" }} dangerouslySetInnerHTML={{ __html: doctorFooterHtml || '<div style="height:4mm;"></div>' }} />
+      ),
+    });
   })()}
   <!-- P5: rodapé via tfoot (renderiza em todas as páginas, compatível com PDF) -->
 <script>

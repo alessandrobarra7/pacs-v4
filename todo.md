@@ -1797,7 +1797,7 @@
 - [x] Validar arraste e redimensionamento por Pointer Events com teste automatizado e simulação de toque no sandbox.
 - [ ] Revalidar arraste e redimensionamento em dispositivo móvel físico.
 - [x] Revisar refinamentos finais de multi-seção após teste com dados reais.
-- [ ] Confirmar a referência final de branding institucional (tipografia, textos e hierarquia) para o PDF publicado.
+- [x] Confirmar a referência final de branding institucional (logo Instituto Acqua, Arial, título centralizado, dados do paciente e estrutura Técnica/Achados/Conclusão) para o PDF publicado.
 - [x] Unificar também o renderer de download/impressão da PacsQueryPage com o contrato percentual do `SharedReportSheet`.
 
 ## CORREÇÃO VISUAL REPORTADA — ADMIN x CLÍNICO A4
@@ -1816,3 +1816,9 @@
 - [x] Remover a aparência dominante de caixas coloridas no modo de edição e preservar a folha institucional real como base visual.
 - [x] Manter controles discretos de seleção, arraste e redimensionamento sobre cada bloco sem alterar a composição final.
 - [x] Validar lado a lado o modo de edição administrativo e o editor clínico com o layout salvo da unidade PACS Principal.
+
+## FONTE ÚNICA DEFINITIVA — LAYOUT ADMIN → MÉDICO → PDF
+- [x] Rastrear o layout salvo da unidade até o editor médico e confirmar que nenhum fallback substitui posições, logos ou preferências persistidas.
+- [x] Fazer o editor médico renderizar exatamente a composição salva pelo administrador, incluindo o estado vazio sem trocar a estrutura por outro modelo.
+- [x] Fazer a impressão/PDF usar o mesmo DOM/contrato de blocos do layout salvo, sem HTML paralelo com posições independentes.
+- [x] Testar um layout deliberadamente alterado no admin, conferir a reprodução no médico e comparar o contrato do PDF final.
