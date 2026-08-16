@@ -50,7 +50,7 @@ export function ClinicalPatientDetails({
   return (
     <div data-clinical-patient-details style={detailsStyle}>
       <div style={rowStyle}>
-        <span><span style={labelStyle}>Data de realização do exame:</span>{" "}{studyDate || "—"}</span>
+        <span><span style={labelStyle}>Data:</span>{" "}{studyDate || "—"}</span>
         {modality && <span><span style={labelStyle}>Modalidade:</span>{" "}{modality}</span>}
       </div>
       <div style={rowStyle}>

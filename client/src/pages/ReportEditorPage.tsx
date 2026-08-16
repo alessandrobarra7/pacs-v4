@@ -378,7 +378,12 @@ export default function ReportEditorPage() {
     if (raw) {
       try {
         const info = JSON.parse(raw);
-        setStudyInfo(info);
+        const normalizedInfo = {
+          ...info,
+          birthDate: info.birthDate || info.patientBirthDate || "",
+          sex: info.sex || info.patientSex || "",
+        };
+        setStudyInfo(normalizedInfo);
         setExamTitle(info.studyDescription || "");
         // Configura multi-seção se houver mais de 1 exame
         if (info.examNames && info.examNames.length > 1) {

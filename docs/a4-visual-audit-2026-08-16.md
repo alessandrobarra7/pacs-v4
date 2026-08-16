@@ -89,3 +89,10 @@ Testes: 186 testes Vitest aprovados com sucesso.
 ## Atualização — Remoção do rótulo "Nome do paciente:"
 Conforme instrução direta do usuário, a legenda "Nome do paciente:" foi removida do componente `ClinicalPatientName`. Agora o nome completo do paciente é exibido isolado em linha própria, em letras maiúsculas e com destaque tipográfico limpo, sem nenhum texto de rótulo redundante.
 Testes: 186 testes Vitest aprovados com sucesso.
+
+
+## Atualização — Mapeamento de nascimento/sexo e rótulo "Data"
+Conforme solicitado:
+1. O carregamento do estudo no editor clínico (`ReportEditorPage.tsx`) foi normalizado para mapear `patientBirthDate` e `patientSex` salvos na sessão para as propriedades canônicas `birthDate` e `sex`, resolvendo o problema de dados em branco ("—").
+2. O rótulo "Data de realização do exame:" foi alterado para "Data:" em `ClinicalPatientDetails.tsx`.
+3. Todos os testes unitários (186 testes) e checagens TypeScript passaram com sucesso, mantendo total paridade entre admin, editor clínico e PDF.
