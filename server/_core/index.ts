@@ -970,9 +970,22 @@ async function startServer() {
       });
       let launchUrl = '';
       if (viewer === 'radiant') {
-        // RadiAnt no Windows: utiliza o URL scheme oficial radiant:// com os links temporários de cada slice DICOM
-        const params = fileUrls.map((u: string) => `v=${encodeURIComponent(`"${u}"`)}`).join('&');
-        launchUrl = `radiant://?n=f&${params}`;
+        // RadiAnt no Windows: utiliza o URL scheme oficial PACS query/retrieve (-pstv e -paet)
+        // Exemplo: radiant://?n=paet&v=PACSAETITLE&n=pstv&v=0020000D&v=%22STUDYUID%22
+        // Buscamos a unidade ativa para preencher o AE Title se configurado
+        let aeTitle = '';
+        try {
+          const unit = db.prepare('SELECT ae_title FROM units LIMIT 1').get() as { ae_title?: string } | undefined;
+          if (unit && unit.ae_title) {
+            aeTitle = unit.ae_title.trim();
+          }
+        } catch {}
+
+        if (aeTitle) {
+          launchUrl = `radiant://?n=paet&v=${encodeURIComponent(aeTitle)}&n=pstv&v=0020000D&v=${encodeURIComponent(`"${studyUid}"`)}`;
+        } else {
+          launchUrl = `radiant://?n=pstv&v=0020000D&v=${encodeURIComponent(`"${studyUid}"`)}`;
+        }
       } else if (viewer === 'weasis') {
         // weasis://?$dicom:get -r "url1" -r "url2"...
         const args = fileUrls.map((u: string) => `-r "${u}"`).join(' ');

@@ -1,16 +1,14 @@
 import { describe, it, expect } from 'vitest';
 
-describe('Radiant Viewer Launch Protocol', () => {
-  it('should format radiant url scheme correctly with n=f and quoted file URLs', () => {
-    const fileUrls = [
-      'https://lauds.com.br/api/dicom-dl/token1',
-      'https://lauds.com.br/api/dicom-dl/token2',
-    ];
-    const params = fileUrls.map((u: string) => `v=${encodeURIComponent(`"${u}"`)}`).join('&');
-    const launchUrl = `radiant://?n=f&${params}`;
+describe('Radiant Viewer Launch Protocol (PACS Query/Retrieve)', () => {
+  it('should format radiant url scheme correctly with -pstv and optional -paet', () => {
+    const studyUid = '1.2.840.113619.2.415.3.2831193700.534.1786793198.951';
+    const aeTitle = 'PACSML';
+    
+    const launchUrl = `radiant://?n=paet&v=${encodeURIComponent(aeTitle)}&n=pstv&v=0020000D&v=${encodeURIComponent(`"${studyUid}"`)}`;
 
-    expect(launchUrl).toContain('radiant://?n=f&');
-    expect(launchUrl).toContain('v=');
-    expect(launchUrl).toContain(encodeURIComponent('"https://lauds.com.br/api/dicom-dl/token1"'));
+    expect(launchUrl).toContain('radiant://?n=paet&v=PACSML');
+    expect(launchUrl).toContain('&n=pstv&v=0020000D&v=');
+    expect(launchUrl).toContain(encodeURIComponent(`"${studyUid}"`));
   });
 });
