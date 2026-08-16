@@ -23,3 +23,7 @@ A listagem PACS chegou a exibir um estudo real de Antonia e o botão `Laudar`, m
 ## Validação com UID real do PACS
 
 O UID real recuperado da listagem foi aberto no fluxo clínico. A folha exibiu a logo institucional `INSTITUTO ACQUA`, o paciente `ANTONIA DE SOUZA BATISTA`, o título `CRANIO`, os dados do estudo e a estrutura visual do corpo com `LAUDO RADIOLOGICO`, `Técnica`, `Achados` e `Conclusão`. A composição corresponde à referência administrativa em escala e ordem de blocos; o corpo permanece orientativo até que um modelo ou texto clínico seja inserido.
+
+## Teste multi-seção
+
+Com duas seções temporárias (`CRANIO` e `TORAX`) no mesmo estudo, o editor renderizou duas folhas A4 com a logo, dados do paciente e título de cada exame. O modo multi-seção preservou a separação por exame e não inseriu achados fictícios. A guia de corpo vazio desta validação multi-seção continua usando o placeholder de edição da seção, enquanto a página única usa a guia institucional completa; esse é um refinamento futuro caso se queira igualar também o estado vazio de cada seção.

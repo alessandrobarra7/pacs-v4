@@ -49,6 +49,8 @@ describe("ReportEditorPage — experiência mobile", () => {
     expect(editorSource).toContain("<SharedReportSheet");
     expect(editorSource).toContain("SharedReportBodyGuide");
     expect(editorSource).toContain('data-placeholder={showBodyGuide ? "" : "Digite o laudo aqui..."}');
+    expect(editorSource).toContain('const showSectionBodyGuide = !sectionHasContent && !isPreview;');
+    expect(editorSource).toContain('data-placeholder={showSectionBodyGuide ? "" : `Digite o laudo de ${name}...`}');
     expect(sharedSheetSource).toContain('data-report-body-guide');
     expect(editorSource).toContain("positions={layoutBlockPos}");
     expect(editorSource).toContain("backgroundUrl={layoutBgUrl}");

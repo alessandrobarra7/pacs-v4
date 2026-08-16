@@ -1808,3 +1808,4 @@
 - [x] Reproduzir a divergência mostrada: admin institucional completo versus editor clínico com composição diferente.
 - [x] Unificar não apenas o componente, mas também escala, fonte, conteúdo demonstrativo, identificação do paciente, título e estado vazio do corpo.
 - [x] Validar lado a lado com dados representativos e atualizar o teste de contrato visual.
+- [x] Aplicar a mesma guia institucional de corpo vazio a cada seção do modo multi-exame, sem persistir conteúdo médico fictício.

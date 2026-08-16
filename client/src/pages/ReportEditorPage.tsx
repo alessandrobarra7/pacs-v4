@@ -1473,6 +1473,9 @@ export default function ReportEditorPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: 32, width: "100%" }}>
                 {examNames.map((name, i) => {
                   const isLastPage = i === examNames.length - 1;
+                  const sectionHasContent = Boolean(sectionRefs.current[i]?.innerText?.trim());
+                  const showSectionBodyGuide = !sectionHasContent && !isPreview;
+                  const previewSectionHtml = previewHtml.split("<hr/>")[i] || "";
                   return (
                     <SharedReportSheet
                       key={i}
@@ -1510,13 +1513,17 @@ export default function ReportEditorPage() {
                             </div>
                           )}
                           {isPreview ? (
-                            <div
-                              data-editor-content
-                              style={{ minHeight: "60mm", lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", fontFamily: "'Times New Roman', Times, serif", pointerEvents: "none", userSelect: "none" }}
-                              dangerouslySetInnerHTML={{ __html: previewHtml.split("<hr/>")[i] || "<p style='color:#9ca3af;font-style:italic;font-size:10pt'>Sem conteúdo para visualizar.</p>" }}
-                            />
+                            previewSectionHtml ? (
+                              <div
+                                data-editor-content
+                                style={{ minHeight: "60mm", lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", fontFamily: "Arial, Helvetica, sans-serif", pointerEvents: "none", userSelect: "none" }}
+                                dangerouslySetInnerHTML={{ __html: previewSectionHtml }}
+                              />
+                            ) : <SharedReportBodyGuide />
                           ) : (
-                            <div
+                            <div style={{ position: "relative", minHeight: "60mm" }}>
+                              {showSectionBodyGuide && <div style={{ position: "absolute", inset: "0 0 auto", zIndex: 0, pointerEvents: "none" }}><SharedReportBodyGuide /></div>}
+                              <div
                               ref={el => { sectionRefs.current[i] = el; }}
                               contentEditable={isEditable}
                               suppressContentEditableWarning
@@ -1524,7 +1531,8 @@ export default function ReportEditorPage() {
                               onFocus={() => { activeSectionRef.current = i; }}
                               onMouseUp={isEditable ? saveSelection : undefined}
                               onKeyUp={isEditable ? saveSelection : undefined}
-                              data-placeholder={`Digite o laudo de ${name}...`}
+                              onInput={isEditable ? markEditorContentChanged : undefined}
+                              data-placeholder={showSectionBodyGuide ? "" : `Digite o laudo de ${name}...`}
                               onDragOver={isEditable ? (e) => {
                                 e.preventDefault();
                                 e.dataTransfer.dropEffect = "copy";
@@ -1563,8 +1571,9 @@ export default function ReportEditorPage() {
                                 const plainText = e.dataTransfer.getData("text/plain");
                                 if (plainText) insertAtCursor(plainText);
                               } : undefined}
-                              style={{ minHeight: "60mm", outline: isDragOver && activeSectionRef.current === i ? "2px dashed #3b82f6" : "none", borderRadius: 4, lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", cursor: isEditable ? "text" : "default", fontFamily: "'Times New Roman', Times, serif", transition: "outline 0.1s ease" }}
-                            />
+                                style={{ position: "relative", zIndex: 1, width: "100%", minHeight: "60mm", outline: isDragOver && activeSectionRef.current === i ? "2px dashed #3b82f6" : "none", borderRadius: 4, lineHeight: 1.6, fontSize: "11pt", color: "#111", textAlign: "left", whiteSpace: "pre-wrap", cursor: isEditable ? "text" : "default", fontFamily: "Arial, Helvetica, sans-serif", transition: "outline 0.1s ease" }}
+                              />
+                              </div>
                           )}
                         </>
                       }
