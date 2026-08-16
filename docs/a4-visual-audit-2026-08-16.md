@@ -77,3 +77,10 @@ Para atender à observação detalhada do usuário sobre a divergência visual e
 2. O nome do paciente agora aparece em linha própria, seguido pelas linhas estruturadas de data de realização, modalidade, data de nascimento e sexo (sem o nome da unidade).
 3. A geometria persistida (`block_positions`) e o banco de dados permaneceram inalterados; apenas a renderização dos dados do paciente foi uniformizada entre os dois lados.
 Testes: 186 testes Vitest aprovados com sucesso.
+
+
+## Correção Final — Ordem de renderização no DOM do SharedReportSheet
+Para garantir que a ordem visual dos blocos `patientName` e `patientInfo` seja exatamente idêntica em todas as instâncias (admin, editor médico e PDF) sem alterar as coordenadas persistidas no banco:
+1. A ordem dos nós JSX no componente `SharedReportSheet.tsx` foi invertida para renderizar `patientName` antes de `patientInfo` no fluxo do DOM.
+2. Desta forma, mesmo que um layout legado ou padrão deixe as coordenadas próximas, a ordem de empilhamento e fluxo respeitará rigorosamente o padrão visual solicitado (nome em linha própria acima, seguido pelos detalhes do exame e do paciente).
+Testes: 186 testes Vitest aprovados com sucesso.

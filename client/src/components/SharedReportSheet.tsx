@@ -165,15 +165,15 @@ export function SharedReportSheet({
         );
       })}
 
-      {merged.patientInfo?.visible && (
-        <div data-layout-block="patientInfo" style={{ ...blockStyle(merged.patientInfo, fallbackPositions.patientInfo), display: "flex", alignItems: "center", padding: "4px 8px", zIndex: 3 }}>
-          {patientInfo}
-        </div>
-      )}
-
       {merged.patientName?.visible && (
         <div data-layout-block="patientName" style={{ ...blockStyle(merged.patientName, fallbackPositions.patientName), display: "flex", alignItems: "center", padding: "0 8px", zIndex: 3 }}>
           {patientNameContent ?? <span style={{ fontSize: "11.5pt", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.02em" }}>{patientName || "—"}</span>}
+        </div>
+      )}
+
+      {merged.patientInfo?.visible && (
+        <div data-layout-block="patientInfo" style={{ ...blockStyle(merged.patientInfo, fallbackPositions.patientInfo), display: "flex", alignItems: "center", padding: "4px 8px", zIndex: 3 }}>
+          {patientInfo}
         </div>
       )}
 
