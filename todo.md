@@ -1865,3 +1865,4 @@
 - [x] Corrigir o idioma declarado do documento público para pt-BR.
 - [x] Recompilar e publicar os assets da correção na VM1.
 - [ ] Validar HTTP, HTML público e acesso externo em navegador móvel sem erro removeChild.
+- [x] Corrigir a divergência de publicação que mantém o bundle antigo do RadiAnt na VM1 e validar que o botão baixa o ZIP DICOM em vez de usar radiant://
