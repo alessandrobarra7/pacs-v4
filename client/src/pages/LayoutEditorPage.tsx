@@ -783,23 +783,43 @@ export default function LayoutEditorPage() {
                     onPointerCancel={handlePointerUp}
                     onPointerLeave={handlePointerUp}
                   >
-                    {/* Fundo */}
-                    {bgPreview && (
-                      <img
-                        src={bgPreview}
-                        alt="Fundo"
-                        className="absolute inset-0 w-full h-full pointer-events-none"
-                        style={{
-                          zIndex: 0,
-                          opacity: bgOpacity,
-                          objectFit: pageBackgroundFit,
-                        }}
-                      />
-                    )}
+                    {/* A folha real permanece visível durante a edição; os overlays abaixo cuidam apenas da interação. */}
+                    <SharedReportSheet
+                      positions={positions}
+                      logos={logos.filter(logo => Boolean(logo.preview)).map(logo => ({
+                        url: logo.preview as string,
+                        width: logo.width,
+                        height: logo.height,
+                        label: logo.label,
+                      }))}
+                      backgroundUrl={bgPreview}
+                      backgroundOpacity={bgOpacity}
+                      backgroundSize={pageBackgroundFit}
+                      footerImageUrl={footerPreview}
+                      patientName={REAL_PREVIEW_SAMPLE.patientName}
+                      patientInfo={
+                        <div style={{ width: "100%", fontSize: "8pt", lineHeight: 1.35 }}>
+                          Realizado em: <strong>{REAL_PREVIEW_SAMPLE.date}</strong>
+                          <span style={{ margin: "0 6px" }}>·</span>
+                          Nasc.: <strong>{REAL_PREVIEW_SAMPLE.birthDate}</strong>
+                          <span style={{ margin: "0 6px" }}>·</span>
+                          Sexo: <strong>{REAL_PREVIEW_SAMPLE.sex}</strong>
+                        </div>
+                      }
+                      title={<div style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #e0e0e0", paddingBottom: 6 }}>{REAL_PREVIEW_SAMPLE.examTitle}</div>}
+                      body={
+                        <div style={{ width: "100%", fontSize: "11pt", lineHeight: 1.6 }}>
+                          <h2 style={{ margin: "0 0 12px", textAlign: "center", fontSize: "13pt", fontWeight: 700, textTransform: "uppercase" }}>{REAL_PREVIEW_SAMPLE.bodyTitle}</h2>
+                          <div style={{ display: "grid", gap: 12 }}>
+                            {REAL_PREVIEW_SAMPLE.body.map(paragraph => <p key={paragraph} style={{ margin: 0 }}>{paragraph}</p>)}
+                          </div>
+                        </div>
+                      }
+                      footer={<div style={{ textAlign: "center", fontSize: "9pt" }}>Dr. Nome do Medico - CRM 12345</div>}
+                      style={{ width: 595, height: 842, minHeight: 842 }}
+                    />
 
-                    {/* Rodape renderizado dentro do bloco configuravel. */}
-
-                    {/* Blocos drag-and-drop */}
+                    {/* Overlays transparentes para selecionar, arrastar e redimensionar blocos. */}
                     {activeBlockIds.map(block => {
                       const pos = positions[block];
                       const info = BLOCK_LABELS[block];
@@ -819,8 +839,8 @@ export default function LayoutEditorPage() {
                             position: "absolute",
                             left: `${pos.x}%`, top: `${pos.y}%`,
                             width: `${pos.w}%`, height: `${pos.h}%`,
-                            border: `2px ${isActive ? 'solid' : 'dashed'} ${info.color}`,
-                            background: isActive ? `${info.color}25` : `${info.color}10`,
+                            border: `${isActive ? 2 : 1}px ${isActive ? 'solid' : 'dashed'} ${isActive ? info.color : `${info.color}66`}`,
+                            background: isActive ? `${info.color}12` : "transparent",
                             cursor: "grab",
                             zIndex: isActive ? 20 : 2,
                             borderRadius: 4,
@@ -830,9 +850,9 @@ export default function LayoutEditorPage() {
                             transition: "box-shadow 0.1s, border 0.1s",
                           }}
                         >
-                          <div style={{ position: "absolute", top: 2, left: 4, fontSize: 8, fontWeight: 700, color: info.color, background: "rgba(255,255,255,0.95)", padding: "1px 5px", borderRadius: 3, lineHeight: 1.4, zIndex: 5, pointerEvents: "none", boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
-                            {info.label} ({Math.round(pos.w)}% × {Math.round(pos.h)}%)
-                          </div>
+                          {isActive && <div style={{ position: "absolute", top: 2, left: 4, fontSize: 8, fontWeight: 700, color: info.color, background: "rgba(255,255,255,0.96)", padding: "1px 5px", borderRadius: 3, lineHeight: 1.4, zIndex: 5, pointerEvents: "none", boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
+                            {info.label} · {Math.round(pos.w)}% × {Math.round(pos.h)}%
+                          </div>}
 
                           {/* Alças de redimensionamento rápido visíveis quando ativo */}
                           {isActive && (
@@ -896,24 +916,7 @@ export default function LayoutEditorPage() {
                             </>
                           )}
 
-                          <div style={{ fontSize: block === "title" ? 8 : 7, width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#555", textAlign: "center", padding: block === "footer" && footerPreview ? "16px 6px 6px" : "18px 6px 4px", whiteSpace: "pre-wrap", lineHeight: 1.4, pointerEvents: "none", maxWidth: "100%", overflow: "hidden" }}>
-                            {logoIndex >= 0 ? (
-                              logoSlot?.preview ? (
-                                <img
-                                  src={logoSlot.preview}
-                                  alt={logoSlot.label || `Logo ${logoIndex + 1}`}
-                                  style={{ width: '100%', height: '100%', maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }}
-                                />
-                              ) : (
-                                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                                  <div style={{ width: 28, height: 28, background: info.color + "33", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>L</div>
-                                  <span style={{ fontSize: 6, color: "#888" }}>{info.label}</span>
-                                </div>
-                              )
-                            ) : block === "footer" && footerPreview ? (
-                              <img src={footerPreview} alt="Rodape" style={{ width: "100%", height: "100%", maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }} />
-                            ) : info.preview}
-                          </div>
+                          {/* O conteúdo real permanece na folha compartilhada; este overlay não o duplica. */}
                         </div>
                       );
                     })}

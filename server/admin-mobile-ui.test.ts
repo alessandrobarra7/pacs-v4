@@ -37,6 +37,12 @@ describe("Admin Mobile UI & Advanced Layout Editor Contract", () => {
     expect(layoutEditorSource).toContain("Modo de posicionamento");
   });
 
+  it("keeps the institutional sheet visible while editing blocks", () => {
+    expect(layoutEditorSource).toContain("A folha real permanece visível durante a edição");
+    expect(layoutEditorSource).toContain("Overlays transparentes para selecionar, arrastar e redimensionar blocos");
+    expect(layoutEditorSource).toContain("O conteúdo real permanece na folha compartilhada; este overlay não o duplica.");
+  });
+
   it("uses Pointer Events and touch-action none for mobile drag and resize", () => {
     expect(layoutEditorSource).toContain("const handlePointerDown");
     expect(layoutEditorSource).toContain("const handlePointerMove");

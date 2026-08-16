@@ -1811,3 +1811,8 @@
 - [x] Unificar não apenas o componente, mas também escala, fonte, conteúdo demonstrativo, identificação do paciente, título e estado vazio do corpo.
 - [x] Validar lado a lado com dados representativos e atualizar o teste de contrato visual.
 - [x] Aplicar a mesma guia institucional de corpo vazio a cada seção do modo multi-exame, sem persistir conteúdo médico fictício.
+
+## CORREÇÃO DO MODO EDITAR BLOCOS — ADMIN x FOLHA CLÍNICA
+- [x] Remover a aparência dominante de caixas coloridas no modo de edição e preservar a folha institucional real como base visual.
+- [x] Manter controles discretos de seleção, arraste e redimensionamento sobre cada bloco sem alterar a composição final.
+- [x] Validar lado a lado o modo de edição administrativo e o editor clínico com o layout salvo da unidade PACS Principal.
