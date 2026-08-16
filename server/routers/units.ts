@@ -50,15 +50,16 @@ export const unitsRouter = router({
           // V14-P1 FIX: Fallback legado com perfil MÍNIMO (não libera tudo)
           // Alinha com assertUnitPermission e canAccessUnit
           if (ctx.user.unit_id === input.unitId) {
+            const isDoctorOrAdmin = ctx.user.role === 'medico' || ctx.user.role === 'unit_admin';
             return {
               view_studies: true,
-              edit_reports: false,
-              view_anamnesis: false,
-              edit_anamnesis: false,
-              edit_exam_legend: false,
+              edit_reports: isDoctorOrAdmin,
+              view_anamnesis: isDoctorOrAdmin,
+              edit_anamnesis: isDoctorOrAdmin,
+              edit_exam_legend: isDoctorOrAdmin,
               print_reports: true,
-              manage_templates: false,
-              view_financial: false,
+              manage_templates: isDoctorOrAdmin,
+              view_financial: isDoctorOrAdmin,
             };
           }
           return null;
