@@ -27,8 +27,19 @@ describe("ReportEditorPage — experiência mobile", () => {
 
   it("usa documento fluido no mobile e preserva a largura A4 no desktop", () => {
     expect(editorSource).toContain('className="report-page w-full md:w-[794px]"');
-    expect(editorSource).toContain('className="w-full md:w-[794px]"');
+    expect(editorSource).toContain('className="relative w-full md:w-[794px] overflow-hidden bg-white shadow-md print:shadow-none"');
     expect(editorSource).toContain("min-h-[350px]");
     expect(editorSource).toContain("bottom-20 right-4");
+  });
+
+  it("usa um canvas único com os mesmos blocos e coordenadas do layout administrativo", () => {
+    expect(editorSource).toContain('data-layout-block={`logo${i + 1}`}');
+    expect(editorSource).toContain('data-layout-block="patientName"');
+    expect(editorSource).toContain('data-layout-block="patientInfo"');
+    expect(editorSource).toContain('data-layout-block="title"');
+    expect(editorSource).toContain('data-layout-block="body"');
+    expect(editorSource).toContain('data-layout-block="footer"');
+    expect(editorSource).toContain('left: `${(layoutBlockPos as any)?.footer?.x ?? 2}%`');
+    expect(editorSource).toContain('top: `${(layoutBlockPos as any)?.footer?.y ?? 88}%`');
   });
 });

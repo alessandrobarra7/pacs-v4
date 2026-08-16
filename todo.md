@@ -1784,3 +1784,4 @@
 - [x] Ajustar os posicionamentos padrão do LayoutEditorPage para que a logo e os dados do paciente fiquem em faixas separadas (logo no topo esquerdo/centro, dados e título abaixo) sem sobreposição
 - [x] Sincronizar o layout personalizado salvo pelo administrador (logos, posições, fundo, rodapé) para ser renderizado exatamente igual no ReportEditorPage e na exportação PDF
 - [x] Alinhar rigorosamente a versão desktop do ReportEditorPage para aplicar a posição exata (X, Y, largura, altura) salva pelo administrador para cada bloco (logos, paciente, título, corpo, rodapé)
+- [x] Unificar rigorosamente as coordenadas, escalas e IDs de blocos entre o LayoutEditorPage e o ReportEditorPage para que a posição salva no admin seja aplicada 1:1 no editor desktop
