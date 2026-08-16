@@ -1602,118 +1602,133 @@ export default function ReportEditorPage() {
                   )}
                 </div>
 
-                {/* ══ CORPO ══ */}
-                <div style={{ flex: 1, padding: "16px 24px 12px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
-                  {bpTitle.visible && <div>
-                    {examTitle ? (
-                      editingTitle ? (
-                        <input
-                          ref={titleInputRef}
-                          value={examTitle}
-                          onChange={e => setExamTitle(e.target.value)}
-                          onBlur={() => setEditingTitle(false)}
-                          onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setEditingTitle(false); }}
-                          autoFocus
-                          style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Times New Roman', Times, serif", border: "2px solid #1a6b8a", borderRadius: 4, padding: "4px 8px", outline: "none", background: "#f0f8fb", boxSizing: "border-box", color: "#111" }}
-                        />
+                {/* ══ BLOCOS DE TÍTULO E CORPO POSICIONADOS EXATAMENTE COMO NO LAYOUT CONFIGURADO ══ */}
+                <div style={{ position: "relative", width: "100%", flex: 1, minHeight: 700 }}>
+                  {/* Título do Exame */}
+                  {((layoutBlockPos as any)?.title?.visible ?? true) && (
+                    <div style={{
+                      position: "absolute",
+                      left: `${(layoutBlockPos as any)?.title?.x ?? 2}%`,
+                      top: `${(layoutBlockPos as any)?.title?.y ?? 31}%`,
+                      width: `${(layoutBlockPos as any)?.title?.w ?? 96}%`,
+                      height: `${(layoutBlockPos as any)?.title?.h ?? 6}%`,
+                      display: "flex", alignItems: "center", justifyContent: "center", padding: "0 8px"
+                    }}>
+                      {examTitle ? (
+                        editingTitle ? (
+                          <input
+                            ref={titleInputRef}
+                            value={examTitle}
+                            onChange={e => setExamTitle(e.target.value)}
+                            onBlur={() => setEditingTitle(false)}
+                            onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setEditingTitle(false); }}
+                            autoFocus
+                            style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Times New Roman', Times, serif", border: "2px solid #1a6b8a", borderRadius: 4, padding: "4px 8px", outline: "none", background: "#f0f8fb", boxSizing: "border-box", color: "#111" }}
+                          />
+                        ) : (
+                          <div onClick={() => setEditingTitle(true)} title="Clique para editar o título" style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", cursor: "pointer", color: "#111", position: "relative", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
+                            {examTitle}
+                            <span style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", fontSize: "9pt", color: "#1a6b8a", opacity: 0.4 }}>✏</span>
+                          </div>
+                        )
                       ) : (
-                        <div onClick={() => setEditingTitle(true)} title="Clique para editar o título" style={{ textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", cursor: "pointer", color: "#111", position: "relative", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
-                          {examTitle}
-                          <span style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", fontSize: "9pt", color: "#1a6b8a", opacity: 0.4 }}>✏</span>
-                        </div>
-                      )
-                    ) : (
-                      <div style={{ textAlign: "center", color: "#aaa", fontSize: "11pt", fontStyle: "italic", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>Selecione o tipo de exame na barra lateral</div>
-                    )}
-                  </div>}
-                  {isSigned && !isRevising && (
-                    <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8 }}>
-                      <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
-                      <span>Laudo <strong>{existingReport?.status === "revised" ? "retificado" : "assinado"}</strong> — clique em <strong>Retificar</strong> para editar.</span>
+                        <div style={{ textAlign: "center", color: "#aaa", fontSize: "11pt", fontStyle: "italic", paddingBottom: 6, borderBottom: "1px solid #e0e0e0", width: "100%" }}>Selecione o tipo de exame na barra lateral</div>
+                      )}
                     </div>
                   )}
-                  {isPreview ? (
-                    /* ── MODO PRÉ-VISUALIZAÇÃO ────────────────────────────────────────────── */
-                    <div
-                      data-editor-content
-                      style={{
-                        flex: 1,
-                        minHeight: "60mm",
-                        lineHeight: 1.6,
-                        fontSize: "11pt",
-                        color: "#111",
-                        textAlign: "left",
-                        whiteSpace: "pre-wrap",
-                        fontFamily: "'Times New Roman', Times, serif",
-                        pointerEvents: "none",
-                        userSelect: "none",
-                      }}
-                      dangerouslySetInnerHTML={{
-                        __html: previewHtml || "<p style='color:#9ca3af;font-style:italic;font-size:10pt'>Sem conteúdo para visualizar.</p>",
-                      }}
-                    />
-                  ) : (
-                    /* ── MODO EDIÇÃO (código original sem alteração) ───────────────── */
-                    <div
-                      ref={docRef}
-                      contentEditable={isEditable}
-                      suppressContentEditableWarning
-                      data-editor-content
-                      onMouseUp={isEditable ? saveSelection : undefined}
-                      onKeyUp={isEditable ? saveSelection : undefined}
-                      data-placeholder="Digite o laudo aqui..."
-                      // FIX DnD: receber drop de templates e frases da sidebar
-                      onDragOver={isEditable ? (e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = 'copy';
-                        setIsDragOver(true);
-                      } : undefined}
-                      onDragLeave={isEditable ? () => setIsDragOver(false) : undefined}
-                      onDrop={isEditable ? (e) => {
-                        e.preventDefault();
-                        setIsDragOver(false);
-                        // Payload JSON unificado (ModelosTab, FrasesTab, CarimboTab)
-                        const jsonRaw = e.dataTransfer.getData('application/json');
-                        if (jsonRaw) {
-                          try {
-                            const payload = JSON.parse(jsonRaw);
-                            if (payload.type === 'template') {
-                              if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(payload.data);
-                              if (payload.examTitle) setExamTitle(payload.examTitle);
-                            } else if (payload.type === 'phrase') {
-                              insertAtCursor(payload.data);
-                            } else if (payload.type === 'signature' || payload.type === 'stamp') {
-                              insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
+
+                  {/* Corpo do Laudo */}
+                  {((layoutBlockPos as any)?.body?.visible ?? true) && (
+                    <div style={{
+                      position: "absolute",
+                      left: `${(layoutBlockPos as any)?.body?.x ?? 2}%`,
+                      top: `${(layoutBlockPos as any)?.body?.y ?? 38}%`,
+                      width: `${(layoutBlockPos as any)?.body?.w ?? 96}%`,
+                      height: `${(layoutBlockPos as any)?.body?.h ?? 48}%`,
+                      display: "flex", flexDirection: "column", padding: "8px 12px", boxSizing: "border-box"
+                    }}>
+                      {isSigned && !isRevising && (
+                        <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                          <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
+                          <span>Laudo <strong>{existingReport?.status === "revised" ? "retificado" : "assinado"}</strong> — clique em <strong>Retificar</strong> para editar.</span>
+                        </div>
+                      )}
+                      {isPreview ? (
+                        <div
+                          data-editor-content
+                          style={{
+                            flex: 1,
+                            minHeight: "60mm",
+                            lineHeight: 1.6,
+                            fontSize: "11pt",
+                            color: "#111",
+                            textAlign: "left",
+                            whiteSpace: "pre-wrap",
+                            fontFamily: "'Times New Roman', Times, serif",
+                            pointerEvents: "none",
+                            userSelect: "none",
+                          }}
+                          dangerouslySetInnerHTML={{
+                            __html: previewHtml || "<p style='color:#9ca3af;font-style:italic;font-size:10pt'>Sem conteúdo para visualizar.</p>",
+                          }}
+                        />
+                      ) : (
+                        <div
+                          ref={docRef}
+                          contentEditable={isEditable}
+                          suppressContentEditableWarning
+                          data-editor-content
+                          onMouseUp={isEditable ? saveSelection : undefined}
+                          onKeyUp={isEditable ? saveSelection : undefined}
+                          data-placeholder="Digite o laudo aqui..."
+                          onDragOver={isEditable ? (e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'copy';
+                            setIsDragOver(true);
+                          } : undefined}
+                          onDragLeave={isEditable ? () => setIsDragOver(false) : undefined}
+                          onDrop={isEditable ? (e) => {
+                            e.preventDefault();
+                            setIsDragOver(false);
+                            const jsonRaw = e.dataTransfer.getData('application/json');
+                            if (jsonRaw) {
+                              try {
+                                const payload = JSON.parse(jsonRaw);
+                                if (payload.type === 'template') {
+                                  if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(payload.data);
+                                  if (payload.examTitle) setExamTitle(payload.examTitle);
+                                } else if (payload.type === 'phrase') {
+                                  insertAtCursor(payload.data);
+                                } else if (payload.type === 'signature' || payload.type === 'stamp') {
+                                  insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
+                                }
+                              } catch (_) {}
+                              return;
                             }
-                          } catch (_) {}
-                          return;
-                        }
-                        // Legado: text/x-report-template
-                        const templateRaw = e.dataTransfer.getData('text/x-report-template');
-                        if (templateRaw) {
-                          try {
-                            const { body, examTitle } = JSON.parse(templateRaw);
-                            if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(body);
-                            if (examTitle) setExamTitle(examTitle);
-                          } catch (_) {}
-                          return;
-                        }
-                        const plainText = e.dataTransfer.getData('text/plain');
-                        if (plainText) insertAtCursor(plainText);
-                      } : undefined}
-                      style={{
-                        flex: 1, minHeight: "60mm",
-                        outline: isDragOver ? "2px dashed #3b82f6" : "none",
-                        borderRadius: isDragOver ? "4px" : undefined,
-                        backgroundColor: isDragOver ? "rgba(59,130,246,0.04)" : undefined,
-                        lineHeight: 1.6, fontSize: "11pt", color: "#111",
-                        textAlign: "left", whiteSpace: "pre-wrap",
-                        cursor: isEditable ? "text" : "default",
-                        fontFamily: "'Times New Roman', Times, serif",
-                        transition: "outline 0.1s ease, background-color 0.1s ease",
-                      }}
-                    />
+                            const templateRaw = e.dataTransfer.getData('text/x-report-template');
+                            if (templateRaw) {
+                              if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(templateRaw);
+                              return;
+                            }
+                          } : undefined}
+                          style={{
+                            flex: 1,
+                            minHeight: "60mm",
+                            outline: "none",
+                            lineHeight: 1.6,
+                            fontSize: "11pt",
+                            color: "#111",
+                            textAlign: "left",
+                            whiteSpace: "pre-wrap",
+                            cursor: isEditable ? "text" : "default",
+                            fontFamily: "'Times New Roman', Times, serif",
+                            transition: "outline 0.1s ease, background-color 0.1s ease",
+                          }}
+                        />
+                      )}
+                    </div>
                   )}
+
                 </div>
 
                 {/* ══ ASSINATURA / CARIMBO ══ */}
