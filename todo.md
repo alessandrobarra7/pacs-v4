@@ -1871,3 +1871,4 @@
 - [x] Validar via Vitest e testar a abertura automática no Windows
 - [x] Ajustar parâmetro n=f para arquivos locais no RadiAnt (compatível com estações comerciais sem configuração prévia)
 - [x] Configurar o RadiAnt para usar o método DownloadURL com o ZIP do estudo em background (idêntico ao Horos e OsiriX)
+- [x] Auditar e consolidar as diretrizes de deploy e infraestrutura do Setor 22 (`docs/PARECER_SETOR_22_DEPLOY.md`)
