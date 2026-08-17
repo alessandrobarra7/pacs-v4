@@ -1888,7 +1888,8 @@
 - [ ] Descartar a Secret Key exibida no chat e gerar uma nova credencial sem compartilhá-la na conversa
 - [x] Corrigir erro TypeScript em `server/authorization.ts` causado por fallback inalcançável após retorno de `assertDicomFileAccess`
 - [x] Corrigir carregamento lazy das secrets MinIO para compatibilidade com dotenv/PM2 antes de migrar o backend
-- [x] Migrar o backend de storage para usar MinIO VM3 (172.16.3.102:9000, bucket vm3-storage) sem credenciais hardcoded
+- [x] Migrar o backend de storage para usar MinIO VM3 (172.16.3.102:9000, bucket vm3-storage) sem credenciais hardcoded, mantendo estritamente locais na VM1: logos, assinaturas, carimbos, perfis e avatares
+- [x] Implementar exportação persistente de laudos assinados na VM3 (`reports.sign` gravando HTML em `laudos/{unit_id}/{report_id}_v{version}.html`)
 - [x] Implementar acesso privado com URLs pré-assinadas para logos, assinaturas e carimbos
 - [x] Atualizar remoção de logos, assinaturas e carimbos para apagar também o objeto no MinIO
 - [x] Migrar uploads de anexos e áudios para o MinIO por meio da camada compartilhada, mantendo referências e metadados existentes

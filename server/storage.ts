@@ -118,7 +118,12 @@ export async function storagePut(
   const key = normalizeKey(relKey);
   const buffer = typeof data === "string" ? Buffer.from(data, "utf-8") : Buffer.from(data);
 
-  if (isMinioConfigured()) {
+  // Escopo confirmado pelo usuário: logos, assinaturas, carimbos, perfis e configs
+  // permanecem estritamente locais na VM1. Apenas laudos fechados (exports),
+  // anexos de exames e áudios vinculados aos exames vão para a VM3 (MinIO).
+  const isLocalAsset = key.startsWith("logos/") || key.startsWith("signatures/") || key.startsWith("stamps/") || key.startsWith("avatars/") || key.startsWith("profiles/");
+
+  if (isMinioConfigured() && !isLocalAsset) {
     await minioUpload(key, buffer, contentType);
     return { key, url: encodeMediaKey(key) };
   }
@@ -134,7 +139,8 @@ export async function storageDelete(urlOrKey: string): Promise<void> {
   const key = decodeMediaKey(urlOrKey);
   if (!key) return;
 
-  if (isMinioConfigured() && !urlOrKey.trim().startsWith("/uploads/")) {
+  const isLocalAsset = key.startsWith("logos/") || key.startsWith("signatures/") || key.startsWith("stamps/") || key.startsWith("avatars/") || key.startsWith("profiles/");
+  if (isMinioConfigured() && !urlOrKey.trim().startsWith("/uploads/") && !isLocalAsset) {
     await minioDelete(key);
     return;
   }
@@ -159,6 +165,10 @@ export async function storageGetUrl(
   if (!isMinioConfigured() || value.startsWith("/uploads/")) return value;
   const key = decodeMediaKey(value);
   if (!key) throw new Error("[Storage] Referência vazia.");
+  const isLocalAsset = key.startsWith("logos/") || key.startsWith("signatures/") || key.startsWith("stamps/") || key.startsWith("avatars/") || key.startsWith("profiles/");
+  if (isLocalAsset) {
+    return value.startsWith("/api/media/") ? `/uploads/${key}` : value;
+  }
   return minioPresignedUrl(key, expirySeconds);
 }
 

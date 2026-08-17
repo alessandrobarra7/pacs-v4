@@ -151,6 +151,8 @@ export const reports = mysqlTable("reports", {
   previousVersionId: int("previousVersionId"),
   signedAt: timestamp("signedAt"),
   signedBy: int("signedBy"),
+  export_file_key: varchar("export_file_key", { length: 500 }),
+  export_file_url: varchar("export_file_url", { length: 500 }),
   /** Snapshot do model_layout no momento da assinatura — garante fidelidade histórica */
   layout_snapshot: json("layout_snapshot").$type<Record<string, unknown> | null>(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

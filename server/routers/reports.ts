@@ -223,10 +223,52 @@ export const reportsRouter = router({
           if (!canEdit) throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para assinar laudos nesta unidade' });
         }
         const signedAt = new Date();
+        
+        // Exportar e salvar cópia HTML persistente do laudo assinado na VM3 (MinIO)
+        let exportKey: string | null = null;
+        let exportUrl: string | null = null;
+        try {
+          const { minioUpload } = await import('../minio');
+          const unitIdForStorage = report.unit_id ?? ctx.user.unit_id ?? 0;
+          exportKey = `laudos/${unitIdForStorage}/${input.id}_v${report.version}.html`;
+          const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Laudo Radiológico #${input.id}</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 40px; color: #111; line-height: 1.5; }
+  .header { border-bottom: 2px solid #2563eb; padding-bottom: 15px; margin-bottom: 20px; }
+  .body { font-size: 14px; min-height: 300px; }
+  .footer { margin-top: 40px; border-top: 1px solid #ccc; padding-top: 15px; font-size: 12px; color: #555; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h2>Laudo Radiológico</h2>
+  <p><strong>Estudo ID:</strong> ${report.study_instance_uid || report.study_id || 'N/A'}</p>
+  <p><strong>Data da Assinatura:</strong> ${signedAt.toLocaleString('pt-BR')}</p>
+</div>
+<div class="body">
+  ${report.body}
+</div>
+<div class="footer">
+  <p>Assinado digitalmente por ID do Usuário: ${ctx.user.id}</p>
+</div>
+</body>
+</html>`;
+          const uploadRes = await minioUpload(exportKey, Buffer.from(htmlContent, 'utf-8'), 'text/html');
+          exportUrl = uploadRes.url;
+        } catch (exportErr) {
+          console.error("[Reports] Falha ao exportar laudo assinado para a VM3 (MinIO):", exportErr instanceof Error ? exportErr.message : "erro desconhecido");
+        }
+
         await updateReport(input.id, {
           status: 'signed',
           signedAt,
           signedBy: ctx.user.id,
+          export_file_key: exportKey,
+          export_file_url: exportUrl,
           layout_snapshot: input.layout_snapshot ?? null,  // FIX GAP-1: persistir snapshot do layout
         });
         
