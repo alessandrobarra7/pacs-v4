@@ -794,8 +794,8 @@ A seguir está a estrutura observada em cada tabela. `PRI` representa chave prim
 
 | Item | Estado observado | Consequência | Ação recomendada |
 |---|---|---|---|
-| `reports.export_file_key` | AUSENTE | O código da assinatura não terá onde registrar a chave do export persistente se a coluna estiver ausente | Confirmar e aplicar DDL idempotente antes de assinar laudos em produção |
-| `reports.export_file_url` | AUSENTE | A referência de compatibilidade do export não pode ser persistida | Confirmar e aplicar DDL idempotente antes de assinar laudos em produção |
+| `reports.export_file_key` | **PRESENTE após DDL de 17/08/2026** (`varchar(500)`, nullable) | A chave do export persistente pode ser registrada | Manter sincronizado com Drizzle e não remover |
+| `reports.export_file_url` | **PRESENTE após DDL de 17/08/2026** (`text`, nullable) | A referência de compatibilidade do export pode ser persistida | Manter sincronizado com Drizzle e não remover |
 | `reports.layout_snapshot` | presente | Preserva a composição histórica do laudo | Manter sincronizado com Drizzle e testes |
 | `study_attachments.file_key` | AUSENTE | A exclusão/recuperação de anexos pode depender somente de `file_url` | Avaliar inclusão de `file_key` para referência estável do objeto VM3 |
 | `study_audio_reports.file_key` | presente | Permite exclusão e recuperação pelo caminho do objeto | Manter preenchido para cada upload |
@@ -803,7 +803,7 @@ A seguir está a estrutura observada em cada tabela. `PRI` representa chave prim
 
 ### Ação crítica sobre `reports`
 
-O inventário fornecido mostra a tabela `reports` sem `export_file_key` e `export_file_url`, embora essas colunas existam no schema Drizzle atual e sejam necessárias para a exportação persistente na VM3. Isso deve ser tratado como **pendência de migração da VM2**, não como detalhe meramente documental. Antes de usar a assinatura de laudos em produção, deve-se confirmar com `SHOW COLUMNS FROM reports` e aplicar a alteração em janela controlada, com backup validado.
+A divergência foi regularizada em 17/08/2026 na VM2. O backup `/root/pacs-backups/pacs_portal_20260816_160438.sql.gz` passou no teste GZIP e no checksum SHA-256; em seguida foi criado o snapshot preventivo `reports_backup_20260817`. A DDL idempotente adicionou `reports.export_file_key varchar(500) NULL` e `reports.export_file_url text NULL`. A confirmação final foi feita com `SHOW COLUMNS FROM reports`. A tabela agora está compatível com o Drizzle e com a procedure de exportação de laudos; a persistência efetiva no MinIO ainda deve ser validada com um laudo controlado.
 
 ## 6. Dados sensíveis presentes como estrutura
 
@@ -817,7 +817,7 @@ A estrutura contém campos que exigem proteção operacional, mesmo sem valores 
 
 ## 8. Backups observados
 
-O diagnóstico da VM2 registrou `/root/pacs-backups/pacs_portal_20260816_160438.sql.gz` com aproximadamente 50 KB e um arquivo de checksum separado. O backup deve ser validado com `gzip -t` e `sha256sum -c` antes de qualquer DDL. A existência de um dump local não substitui uma cópia externa nem um teste de restauração periódico.
+O diagnóstico da VM2 registrou `/root/pacs-backups/pacs_portal_20260816_160438.sql.gz` com aproximadamente 50 KB e um arquivo de checksum separado. Antes da DDL, `gzip -t` e `sha256sum -c` retornaram sucesso. Também foi criado o snapshot de segurança `reports_backup_20260817` antes da alteração. A existência de um dump local não substitui uma cópia externa nem um teste de restauração periódico.
 
 ## 9. Próxima coleta recomendada
 
