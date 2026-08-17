@@ -1907,6 +1907,8 @@
 - [x] Executar script de validação de backup e DDL idempotente na VM2 para adicionar `export_file_key` e `export_file_url` em `reports` (GZIP/checksum OK; snapshot `reports_backup_20260817` criado)
 - [x] Atualizar a documentação oficial da VM2 (`docs/ESTRUTURA_BANCO_VM2.md`) para refletir o schema regularizado
 - [x] Consolidar o mapa de auditoria funcional e operacional das VM1 e VM2 no repositório (`docs/MAPA_AUDITORIA_FUNCIONAL_VM1_VM2.md`)
+- [x] Executar diagnóstico somente de leitura da VM3 para inventariar RAID1, filesystem, MinIO, bucket e regras de firewall
+- [x] Consolidar a documentação oficial de homologação e inventário da VM3 (`docs/VM3_ESTRUTURA_E_HOMOLOGACAO.md`)
 
 > Nota: a VM3 física consta como criada no documento técnico, mas a migração lógica dos fluxos do Portal ainda não foi comprovada; o bucket estava vazio no último registro documentado.
 > Segurança: credenciais do documento devem ser rotacionadas no ambiente real antes da entrada em produção definitiva e nunca devem ser gravadas no código ou em documentação pública.
