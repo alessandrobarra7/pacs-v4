@@ -1892,6 +1892,7 @@
 - [x] Implementar acesso privado com URLs pré-assinadas para logos, assinaturas e carimbos
 - [x] Atualizar remoção de logos, assinaturas e carimbos para apagar também o objeto no MinIO
 - [x] Migrar uploads de anexos e áudios para o MinIO por meio da camada compartilhada, mantendo referências e metadados existentes
+- [x] Normalizar URLs nas listagens de anexos, áudios e logos administrativas para URLs temporárias ou referências locais legadas
 - [x] Preservar compatibilidade controlada com uploads locais existentes durante a transição
 - [x] Criar testes Vitest para referências privadas, path traversal, configuração e fallback de migração VM3
 - [x] Validar build e suíte completa de testes antes do checkpoint da migração VM3 (build com heap 2 GB; 25 arquivos, 206 testes aprovados e 1 integração MinIO pulada por rede privada do sandbox)

@@ -7,6 +7,17 @@ import {
   createAuditLog, getDb, resolveEffectiveUnitId,
   getGroupPermissions, upsertGroupPermission,
 } from "../db";
+import { storageGetUrl } from "../storage";
+
+async function resolveAdminMedia(reference: string | null | undefined): Promise<string | null> {
+  if (!reference) return null;
+  try {
+    return await storageGetUrl(reference);
+  } catch (error) {
+    console.error("[Admin] Falha ao gerar URL temporária de mídia:", error instanceof Error ? error.message : "erro desconhecido");
+    return reference.startsWith("/uploads/") ? reference : null;
+  }
+}
 
 // ─── Permissões por grupo ────────────────────────────────────────────────────────────────────────────
 // Fonte única de verdade. Alterar APENAS AQUI ao mudar permissões de grupos.
@@ -557,7 +568,7 @@ export const adminRouter = router({
           { key: 'adminsMaster', roles: ['admin_master'] },
         ] as const;
 
-        return allUnits.map(unit => {
+        return Promise.all(allUnits.map(async (unit) => {
           const permsForUnit = permsByUnit[unit.id] ?? [];
 
           // Usuários via permissões
@@ -614,7 +625,7 @@ export const adminRouter = router({
               slug: unit.slug,
               isActive: unit.isActive,
               address: unit.address,
-              logo_url: unit.logo_url,
+              logo_url: await resolveAdminMedia(unit.logo_url),
             },
             totals: {
               totalUsers,
@@ -626,7 +637,7 @@ export const adminRouter = router({
             },
             groups,
           };
-        });
+        }));
       }),
 
     removeUserUnitLink: protectedProcedure

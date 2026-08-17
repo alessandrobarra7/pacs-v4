@@ -3,9 +3,18 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { study_audio_reports } from "../../drizzle/schema";
 import { eq, inArray, desc } from "drizzle-orm";
-import { storagePut, storageDelete } from "../storage";
+import { storagePut, storageDelete, storageGetUrl } from "../storage";
 import { TRPCError } from "@trpc/server";
 
+async function resolveAudioUrl(reference: string | null): Promise<string | null> {
+  if (!reference) return null;
+  try {
+    return await storageGetUrl(reference);
+  } catch (error) {
+    console.error("[AudioReports] Falha ao gerar URL temporária:", error instanceof Error ? error.message : "erro desconhecido");
+    return reference.startsWith("/uploads/") ? reference : null;
+  }
+}
 export const audioReportsRouter = router({
   /** Lista áudios gravados de um estudo */
   list: protectedProcedure
@@ -13,11 +22,15 @@ export const audioReportsRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
-      return db
+      const rows = await db
         .select()
         .from(study_audio_reports)
         .where(eq(study_audio_reports.study_instance_uid, input.study_instance_uid))
         .orderBy(desc(study_audio_reports.createdAt));
+      return Promise.all(rows.map(async (row) => ({
+        ...row,
+        file_url: await resolveAudioUrl(row.file_url),
+      })));
     }),
 
   /** Retorna quais UIDs possuem áudios cadastrados (para listagem PACS) */

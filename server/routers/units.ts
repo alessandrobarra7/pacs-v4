@@ -5,11 +5,29 @@ import {
   getAllUnits, getUnitById, createUnit, updateUnit, deleteUnit,
   getDb, createAuditLog,
 } from "../db";
+import { storageGetUrl } from "../storage";
+
+async function resolveUnitLogo(reference: string | null | undefined): Promise<string | null> {
+  if (!reference) return null;
+  try {
+    return await storageGetUrl(reference);
+  } catch (error) {
+    console.error("[Units] Falha ao gerar URL temporária da logo:", error instanceof Error ? error.message : "erro desconhecido");
+    return reference.startsWith("/uploads/") ? reference : null;
+  }
+}
+
+async function resolveUnitLogos<T extends { logo_url?: string | null }>(units: T[]): Promise<(T & { logo_url: string | null })[]> {
+  return Promise.all(units.map(async (unit) => ({
+    ...unit,
+    logo_url: await resolveUnitLogo(unit.logo_url),
+  })));
+}
 
 export const unitsRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role === 'admin_master') {
-        return await getAllUnits();
+        return resolveUnitLogos(await getAllUnits());
       }
       // Verificar permissões por unidade (nova lógica multi-unidade)
       const { getUserUnitPermissions } = await import('../db');
@@ -17,12 +35,12 @@ export const unitsRouter = router({
       if (perms.length > 0) {
         const unitIds = perms.map(p => p.unit_id);
         const allUnits = await getAllUnits();
-        return allUnits.filter(u => unitIds.includes(u.id));
+        return resolveUnitLogos(allUnits.filter(u => unitIds.includes(u.id)));
       }
       // Fallback: unidade única do usuário (campo unit_id legado)
       if (ctx.user.unit_id) {
         const unit = await getUnitById(ctx.user.unit_id);
-        return unit ? [unit] : [];
+        return unit ? resolveUnitLogos([unit]) : [];
       }
       return [];
     }),
@@ -91,7 +109,10 @@ export const unitsRouter = router({
           }
         }
         
-        return unit;
+        return {
+          ...unit,
+          logo_url: await resolveUnitLogo(unit.logo_url),
+        };
       }),
     
     create: adminProcedure

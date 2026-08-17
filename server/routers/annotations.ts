@@ -4,7 +4,17 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { getDb, getAnnotationsByStudy, upsertAnnotation, deleteAnnotation } from "../db";
 import { study_attachments } from "../../drizzle/schema";
 import { eq, inArray } from "drizzle-orm";
-import { storagePut, storageDelete } from "../storage";
+import { storagePut, storageDelete, storageGetUrl } from "../storage";
+
+async function resolveAttachmentUrl(reference: string | null): Promise<string | null> {
+  if (!reference) return null;
+  try {
+    return await storageGetUrl(reference);
+  } catch (error) {
+    console.error("[Attachments] Falha ao gerar URL temporária:", error instanceof Error ? error.message : "erro desconhecido");
+    return reference.startsWith("/uploads/") ? reference : null;
+  }
+}
 
 export const annotationsRouter = router({
   /** Busca anotações Cornerstone de um estudo (compatibilidade com viewer DICOM) */
@@ -53,10 +63,14 @@ export const annotationsRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
-      return db
+      const rows = await db
         .select()
         .from(study_attachments)
         .where(eq(study_attachments.study_instance_uid, input.study_instance_uid));
+      return Promise.all(rows.map(async (row) => ({
+        ...row,
+        file_url: await resolveAttachmentUrl(row.file_url),
+      })));
     }),
 
   /** Retorna quais UIDs possuem anexos cadastrados */
