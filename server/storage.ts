@@ -39,9 +39,12 @@ export async function storagePut(
   const subDir = path.dirname(key);
   const fileName = path.basename(key);
 
+  const filePath = path.resolve(UPLOADS_DIR, key);
+  const resolvedBase = path.resolve(UPLOADS_DIR);
+  if (!filePath.startsWith(resolvedBase + path.sep) && filePath !== resolvedBase) {
+    throw new Error("[Security] Caminho de upload inválido (path traversal bloqueado).");
+  }
   ensureDir(subDir);
-
-  const filePath = path.join(UPLOADS_DIR, key);
   const buffer = typeof data === "string" ? Buffer.from(data, "utf-8") : Buffer.from(data);
   fs.writeFileSync(filePath, buffer);
 
@@ -58,12 +61,16 @@ export async function storagePut(
 export function storageDelete(urlOrKey: string): void {
   try {
     const key = urlOrKey.replace(/^\/uploads\//, '').replace(/^\/+/, '');
-    const filePath = path.join(UPLOADS_DIR, key);
+    const filePath = path.resolve(UPLOADS_DIR, key);
+    const resolvedBase = path.resolve(UPLOADS_DIR);
+    if (!filePath.startsWith(resolvedBase + path.sep)) {
+      return;
+    }
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
-  } catch {
-    // Ignora se o arquivo já foi removido ou não existe
+  } catch (err) {
+    console.error('[Storage] Erro ao deletar arquivo:', err);
   }
 }
 

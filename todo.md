@@ -1876,3 +1876,5 @@
 - [x] Implementar revalidação de contas inativas/expiradas em cada requisição (`server/_core/context.ts`)
 - [x] Implementar bloqueio hierárquico em `admin.updateUser` e `admin.toggleUserActive` contra `admin_master` e `unit_admin`
 - [x] Adicionar e aprovar testes de regressão em `server/security.auth.test.ts` (17/17 aprovados)
+- [x] Implementar `assertDicomFileAccess` e isolamento por unidade em todas as rotas de cache, stream, arquivos DICOM, miniaturas, exportação ZIP e launch externo (Setores 05-06)
+- [x] Adicionar e aprovar testes em `server/dicom-isolation.test.ts` (200/200 testes aprovados no total)
