@@ -1918,7 +1918,8 @@
 - [x] Adicionar controles explícitos de voltar e fechar na prévia de anexos para uso móvel
 - [x] Corrigir a reprodução de áudios privados no mobile por rota autenticada da VM1
 - [x] Implementar retorno, avanço, barra de progresso interativa e controle de velocidade no player de áudio
-- [ ] Confirmar e documentar a localização física e metadados dos áudios nas VM1, VM2 e VM3
+- [x] Confirmar e documentar a localização física e metadados dos áudios nas VM1, VM2 e VM3 (`docs/EVIDENCIA_PERSISTENCIA_AUDIO_VM1_VM2_VM3.md`)
+- [x] Confirmar o host de banco efetivamente usado pelo Portal e resolver a divergência com o MySQL local da VM1
 
 > Nota: a VM3 física consta como criada no documento técnico, mas a migração lógica dos fluxos do Portal ainda não foi comprovada; o bucket estava vazio no último registro documentado.
 > Segurança: credenciais do documento devem ser rotacionadas no ambiente real antes da entrada em produção definitiva e nunca devem ser gravadas no código ou em documentação pública.
