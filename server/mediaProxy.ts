@@ -5,8 +5,6 @@
  * MinIO somente no momento da leitura. Não há fallback para IP ou bucket
  * antigos da VM2.
  */
-const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT;
-const MINIO_BUCKET = process.env.MINIO_BUCKET;
 const PRIVATE_MEDIA_PREFIX = "/api/media/";
 
 export function toProxyUrl(reference: string | null | undefined): string | null {
@@ -14,12 +12,14 @@ export function toProxyUrl(reference: string | null | undefined): string | null 
   if (reference.startsWith(PRIVATE_MEDIA_PREFIX) || reference.startsWith("/uploads/")) {
     return reference;
   }
-  if (!MINIO_ENDPOINT || !MINIO_BUCKET) return reference;
+  const minioEndpoint = process.env.MINIO_ENDPOINT;
+  const minioBucket = process.env.MINIO_BUCKET;
+  if (!minioEndpoint || !minioBucket) return reference;
 
   try {
     const parsed = new URL(reference);
-    const expectedOrigin = new URL(MINIO_ENDPOINT).origin;
-    const bucketPrefix = `/${MINIO_BUCKET}/`;
+    const expectedOrigin = new URL(minioEndpoint).origin;
+    const bucketPrefix = `/${minioBucket}/`;
     if (parsed.origin !== expectedOrigin || !parsed.pathname.startsWith(bucketPrefix)) {
       return reference;
     }

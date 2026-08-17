@@ -111,6 +111,28 @@ export async function minioDelete(key: string): Promise<void> {
   await getClient(config).removeObject(config.bucket, safeKey);
 }
 
+/**
+ * Lê um objeto privado para que a VM1 possa entregá-lo ao navegador sem
+ * expor a rota privada da VM3 ao dispositivo do usuário.
+ */
+export async function minioGetObject(key: string): Promise<{
+  stream: NodeJS.ReadableStream;
+  contentType?: string;
+  size?: number;
+}> {
+  const config = requireConfig();
+  const client = getClient(config);
+  const safeKey = assertSafeObjectKey(key);
+  await assertBucket(client, config.bucket);
+  const stat = await client.statObject(config.bucket, safeKey);
+  const stream = await client.getObject(config.bucket, safeKey);
+  return {
+    stream,
+    contentType: stat.metaData?.["content-type"] || stat.metaData?.["Content-Type"],
+    size: stat.size,
+  };
+}
+
 /** Gera uma URL temporária; o padrão curto evita links permanentes de objetos privados. */
 export async function minioPresignedUrl(
   key: string,

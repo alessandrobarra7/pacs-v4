@@ -2,6 +2,7 @@ import React, { useRef, useState } from "react";
 import {
   Camera,
   FileText,
+  ImageOff,
   Paperclip,
   Trash2,
   Upload,
@@ -37,6 +38,7 @@ export function PatientAttachmentsModal({
 }: PatientAttachmentsModalProps) {
   const [uploading, setUploading] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState<any | null>(null);
+  const [failedImageIds, setFailedImageIds] = useState<Set<number>>(new Set());
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraActiveRef = useRef(false);
@@ -98,6 +100,14 @@ export function PatientAttachmentsModal({
     } catch {
       toast.error("Não foi possível remover o anexo");
     }
+  };
+
+  const openPreview = (attachment: any) => {
+    if (!attachment.file_url) {
+      toast.error("Este anexo não está disponível para visualização.");
+      return;
+    }
+    setPreviewAttachment(attachment);
   };
 
   return (
@@ -169,23 +179,25 @@ export function PatientAttachmentsModal({
             <div className="flex items-center gap-2">
               {attachments.slice(0, 4).map((attachment: any) => {
                 const isImage = attachment.file_type?.startsWith("image/");
+                const imageFailed = failedImageIds.has(attachment.id);
                 return (
                   <div key={attachment.id} className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white">
                     <button
                       type="button"
-                      onClick={() => setPreviewAttachment(attachment)}
+                      onClick={() => openPreview(attachment)}
                       aria-label={`Visualizar ${attachment.file_name}`}
                       className="h-full w-full"
                     >
-                      {isImage ? (
+                      {isImage && attachment.file_url && !imageFailed ? (
                         <img
                           src={attachment.file_url}
                           alt={attachment.file_name}
                           className="h-full w-full object-cover"
+                          onError={() => setFailedImageIds((previous) => new Set(previous).add(attachment.id))}
                         />
                       ) : (
                         <span className="flex h-full w-full items-center justify-center text-gray-400">
-                          <FileText className="h-7 w-7" aria-hidden="true" />
+                          {isImage ? <ImageOff className="h-7 w-7" aria-hidden="true" /> : <FileText className="h-7 w-7" aria-hidden="true" />}
                         </span>
                       )}
                     </button>
@@ -223,7 +235,7 @@ export function PatientAttachmentsModal({
       </DialogContent>
 
       <Dialog open={!!previewAttachment} onOpenChange={(nextOpen) => !nextOpen && setPreviewAttachment(null)}>
-        <DialogContent className="w-[calc(100%-2rem)] max-w-2xl rounded-2xl p-3 sm:p-5">
+        <DialogContent showCloseButton={false} className="w-[calc(100%-2rem)] max-w-2xl rounded-2xl p-3 sm:p-5">
           <DialogHeader>
             <DialogTitle className="sr-only">Visualização do anexo</DialogTitle>
           </DialogHeader>
@@ -232,6 +244,11 @@ export function PatientAttachmentsModal({
               src={previewAttachment.file_url}
               alt={previewAttachment.file_name}
               className="max-h-[75vh] w-full rounded-lg object-contain"
+              onError={() => {
+                setFailedImageIds((previous) => new Set(previous).add(previewAttachment.id));
+                setPreviewAttachment(null);
+                toast.error("Não foi possível carregar a imagem deste anexo.");
+              }}
             />
           ) : previewAttachment ? (
             <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-lg bg-gray-50 p-6 text-center">

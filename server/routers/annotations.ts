@@ -4,16 +4,12 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { getDb, getAnnotationsByStudy, upsertAnnotation, deleteAnnotation } from "../db";
 import { study_attachments } from "../../drizzle/schema";
 import { eq, inArray } from "drizzle-orm";
-import { storagePut, storageDelete, storageGetUrl } from "../storage";
+import { storagePut, storageDelete } from "../storage";
+import { toProxyUrl } from "../mediaProxy";
 
 async function resolveAttachmentUrl(reference: string | null): Promise<string | null> {
   if (!reference) return null;
-  try {
-    return await storageGetUrl(reference);
-  } catch (error) {
-    console.error("[Attachments] Falha ao gerar URL temporária:", error instanceof Error ? error.message : "erro desconhecido");
-    return reference.startsWith("/uploads/") ? reference : null;
-  }
+  return toProxyUrl(reference);
 }
 
 export const annotationsRouter = router({

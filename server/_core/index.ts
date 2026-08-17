@@ -27,7 +27,8 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { storageGetUrl, storageKeyFromReference, storageUsesMinio } from "../storage";
+import { storageKeyFromReference, storageUsesMinio } from "../storage";
+import { minioGetObject } from "../minio";
 import { serveStatic, setupVite } from "./vite";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
@@ -301,8 +302,9 @@ async function startServer() {
     }
   }
 
-  // Mídia privada: o banco guarda uma referência estável e esta rota gera
-  // uma URL pré-assinada curta somente após autenticação e autorização.
+  // Mídia privada: o banco guarda uma referência estável e a VM1 transfere o
+  // objeto da VM3 após autenticação e autorização. Assim, celulares e redes
+  // externas nunca precisam alcançar o IP privado da VM3 diretamente.
   app.get('/api/media/*', requireAuth, async (req, res) => {
     try {
       if (!storageUsesMinio()) return res.status(404).send('Storage privado não configurado');
@@ -330,8 +332,18 @@ async function startServer() {
         return res.status(403).send('Acesso negado');
       }
 
-      const signedUrl = await storageGetUrl(reference, 900);
-      return res.redirect(302, signedUrl);
+      const object = await minioGetObject(key);
+      res.setHeader('Cache-Control', 'private, max-age=300');
+      res.setHeader('Content-Disposition', 'inline');
+      if (object.contentType) res.setHeader('Content-Type', object.contentType);
+      if (object.size !== undefined) res.setHeader('Content-Length', String(object.size));
+      object.stream.on('error', (streamError) => {
+        console.error('[Media] Falha ao transmitir objeto privado:', streamError instanceof Error ? streamError.message : 'erro desconhecido');
+        if (!res.headersSent) res.status(502).send('Falha ao ler mídia privada');
+        else res.end();
+      });
+      object.stream.pipe(res);
+      return;
     } catch (error: any) {
       const status = error?.code === 'FORBIDDEN' ? 403 : 404;
       return res.status(status).send(status === 403 ? 'Acesso negado' : 'Mídia não encontrada');

@@ -142,7 +142,7 @@ export function DicomViewerPage() {
   // ─── Anexos e Áudios do Paciente no Viewer ─────────────────────────────────
   const [showAttachmentsModal, setShowAttachmentsModal] = useState(false);
   const [showAudioModal, setShowAudioModal] = useState(false);
-  const { data: viewerAttachments = [] } = trpc.annotations.list.useQuery(
+  const { data: viewerAttachments = [], refetch: refetchViewerAttachments } = trpc.annotations.list.useQuery(
     { study_instance_uid: studyUid ?? "" },
     { enabled: !!studyUid }
   );
@@ -1784,7 +1784,9 @@ export function DicomViewerPage() {
           open={showAttachmentsModal}
           onClose={() => setShowAttachmentsModal(false)}
           studyInstanceUid={studyUid ?? ""}
+          unitId={viewerUnitId}
           patientName={studyMeta?.patient_name_override || studyMeta?.patient_name || studyInfo?.patientName}
+          onUploadSuccess={() => void refetchViewerAttachments()}
         />
       )}
 
