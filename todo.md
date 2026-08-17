@@ -1878,3 +1878,33 @@
 - [x] Adicionar e aprovar testes de regressão em `server/security.auth.test.ts` (17/17 aprovados)
 - [x] Implementar `assertDicomFileAccess` e isolamento por unidade em todas as rotas de cache, stream, arquivos DICOM, miniaturas, exportação ZIP e launch externo (Setores 05-06)
 - [x] Adicionar e aprovar testes em `server/dicom-isolation.test.ts` (200/200 testes aprovados no total)
+- [x] Implementar hardening de uploads e armazenamento local contra path traversal e validação rigorosa de magic bytes (Setores 19-20, checkpoint `b909223f`)
+
+# Migração VM3 MinIO/RAID1 — escopo iniciado em 17/08/2026
+
+- [x] Revisar a documentação da VM3 e confirmar pré-requisitos operacionais do RAID1, MinIO, bucket e conectividade VM1 → VM3
+- [ ] Validar a conectividade e autenticação MinIO a partir da VM1 (172.16.3.100), pois o sandbox não possui rota para a rede privada da VM3
+- [ ] Rotacionar a Secret Key da conta de aplicação `pacs-app` na VM3 antes de configurar o Portal
+- [ ] Descartar a Secret Key exibida no chat e gerar uma nova credencial sem compartilhá-la na conversa
+- [x] Corrigir erro TypeScript em `server/authorization.ts` causado por fallback inalcançável após retorno de `assertDicomFileAccess`
+- [x] Corrigir carregamento lazy das secrets MinIO para compatibilidade com dotenv/PM2 antes de migrar o backend
+- [x] Migrar o backend de storage para usar MinIO VM3 (172.16.3.102:9000, bucket vm3-storage) sem credenciais hardcoded
+- [x] Implementar acesso privado com URLs pré-assinadas para logos, assinaturas e carimbos
+- [x] Atualizar remoção de logos, assinaturas e carimbos para apagar também o objeto no MinIO
+- [x] Migrar uploads de anexos e áudios para o MinIO por meio da camada compartilhada, mantendo referências e metadados existentes
+- [x] Preservar compatibilidade controlada com uploads locais existentes durante a transição
+- [x] Criar testes Vitest para referências privadas, path traversal, configuração e fallback de migração VM3
+- [x] Validar build e suíte completa de testes antes do checkpoint da migração VM3 (build com heap 2 GB; 25 arquivos, 206 testes aprovados e 1 integração MinIO pulada por rede privada do sandbox)
+- [x] Documentar comandos de homologação na VM1 e VM3, incluindo verificação do RAID, MinIO, firewall e objeto real no bucket (`docs/VM3_HOMOLOGACAO_RUNBOOK.md`)
+- [ ] Planejar migração dos arquivos locais existentes da VM1 para o bucket da VM3 sem interromper a produção
+
+> Nota: a VM3 física consta como criada no documento técnico, mas a migração lógica dos fluxos do Portal ainda não foi comprovada; o bucket estava vazio no último registro documentado.
+> Segurança: credenciais do documento devem ser rotacionadas no ambiente real antes da entrada em produção definitiva e nunca devem ser gravadas no código ou em documentação pública.
+> Arquitetura: a VM3 é uma terceira camada de armazenamento; não substitui a VM1 (Portal) nem a VM2 (banco de dados). RAID1 fornece redundância local, mas não substitui backup externo.
+> Destrutivo: não executar wipefs, mkfs ou recriação do RAID nos discos /dev/sdb e /dev/sdc sem confirmação explícita de que não existem dados válidos.
+> Endpoint: manter a API MinIO 9000 acessível apenas pela VM1; a console 9001 permanece restrita até decisão operacional específica.
+> Dados: não armazenar bytes de arquivos no MySQL/MariaDB; o banco deve guardar somente chave, metadados e referências necessárias.
+> Rollback: preservar backup dos arquivos locais e das tabelas/referências antes de ativar a escrita no MinIO.
+> Responsabilidade: comandos de Proxmox, particionamento, RAID, firewall e systemd são executados na infraestrutura real; o sandbox não representa a VM3 física.
+> Pendências da documentação: término da ressincronização RAID1, validação do QEMU Guest Agent, revisão de referências antigas à VM2, validação após reboot e política de backup externo.
+> Fase atual: integração lógica implementada e validada no sandbox; autenticação S3 real pelo Portal e migração dos arquivos locais continuam pendentes de execução na VM1/VM3.

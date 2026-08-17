@@ -1,91 +1,126 @@
 /**
- * MinIO Storage Helper
- * Gerencia upload e acesso a logos de unidades e carimbos de médicos.
- * Credenciais lidas do .env da VM1.
+ * Cliente MinIO/S3 da VM3.
+ *
+ * A configuração é lida no momento da operação, e não no import do módulo.
+ * Isso é necessário porque a VM1 carrega o .env durante o bootstrap do
+ * servidor e o PM2 pode injetar as variáveis depois da avaliação dos imports.
  */
 import * as Minio from "minio";
 
-// F2-3: Credenciais lidas exclusivamente de variáveis de ambiente — sem fallback hardcoded
-const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT;
-const MINIO_BUCKET = process.env.MINIO_BUCKET;
-const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY;
-const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY;
-const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+type MinioRuntimeConfig = {
+  endpoint: string;
+  bucket: string;
+  accessKey: string;
+  secretKey: string;
+  useSSL: boolean;
+};
 
-if (IS_PRODUCTION && (!MINIO_ENDPOINT || !MINIO_ACCESS_KEY || !MINIO_SECRET_KEY)) {
-  throw new Error('[FATAL] Variáveis MINIO_ENDPOINT, MINIO_ACCESS_KEY e MINIO_SECRET_KEY devem estar definidas em produção.');
-}
+let cachedClient: Minio.Client | null = null;
+let cachedFingerprint = "";
 
-// Em desenvolvimento, usa defaults locais apenas se não definidos
-const endpoint = MINIO_ENDPOINT || 'http://localhost:9000';
-const bucket = MINIO_BUCKET || 'lauds';
+function readConfig(): MinioRuntimeConfig | null {
+  const endpoint = process.env.MINIO_ENDPOINT;
+  const bucket = process.env.MINIO_BUCKET;
+  const accessKey = process.env.MINIO_ACCESS_KEY;
+  const secretKey = process.env.MINIO_SECRET_KEY;
 
-// Parse endpoint para extrair host, porta e protocolo
-function parseEndpoint(url: string) {
-  const u = new URL(url);
+  if (!endpoint || !bucket || !accessKey || !secretKey) return null;
+
+  const parsed = new URL(endpoint);
+  const envUseSsl = process.env.MINIO_USE_SSL;
   return {
-    endPoint: u.hostname,
-    port: parseInt(u.port || (u.protocol === 'https:' ? '443' : '80')),
-    useSSL: u.protocol === 'https:',
+    endpoint,
+    bucket,
+    accessKey,
+    secretKey,
+    useSSL: envUseSsl === undefined ? parsed.protocol === "https:" : envUseSsl === "true",
   };
 }
 
-const { endPoint, port, useSSL } = parseEndpoint(endpoint);
-
-export const minioClient = new Minio.Client({
-  endPoint,
-  port,
-  useSSL,
-  accessKey: MINIO_ACCESS_KEY || 'minioadmin',
-  secretKey: MINIO_SECRET_KEY || 'minioadmin',
-});
-
-/**
- * Garante que o bucket existe, criando-o se necessário.
- */
-async function ensureBucket() {
-  const exists = await minioClient.bucketExists(bucket);
-  if (!exists) {
-    await minioClient.makeBucket(bucket, "us-east-1");
+function requireConfig(): MinioRuntimeConfig {
+  const config = readConfig();
+  if (!config) {
+    throw new Error(
+      "[MinIO] MINIO_ENDPOINT, MINIO_BUCKET, MINIO_ACCESS_KEY e MINIO_SECRET_KEY devem estar definidos.",
+    );
   }
+  return config;
 }
 
-/**
- * Faz upload de um arquivo para o MinIO.
- * @param key  Caminho relativo dentro do bucket (ex: "unidades/1/logo.png")
- * @param data Buffer com o conteúdo do arquivo
- * @param contentType MIME type do arquivo
- * @returns URL pública do arquivo
- */
+function getClient(config: MinioRuntimeConfig): Minio.Client {
+  const parsed = new URL(config.endpoint);
+  const port = Number.parseInt(parsed.port || (parsed.protocol === "https:" ? "443" : "80"), 10);
+  const fingerprint = `${config.endpoint}|${config.bucket}|${config.accessKey}|${config.useSSL}`;
+
+  if (!cachedClient || cachedFingerprint !== fingerprint) {
+    cachedClient = new Minio.Client({
+      endPoint: parsed.hostname,
+      port,
+      useSSL: config.useSSL,
+      accessKey: config.accessKey,
+      secretKey: config.secretKey,
+    });
+    cachedFingerprint = fingerprint;
+  }
+  return cachedClient;
+}
+
+export function isMinioConfigured(): boolean {
+  return readConfig() !== null;
+}
+
+function assertSafeObjectKey(key: string): string {
+  const normalized = key.replace(/^\/+/, "");
+  if (
+    !normalized ||
+    normalized.includes("\\") ||
+    normalized.split("/").some((part) => part === ".." || part === ".")
+  ) {
+    throw new Error("[Security] Chave de objeto MinIO inválida.");
+  }
+  return normalized;
+}
+
+async function assertBucket(client: Minio.Client, bucket: string): Promise<void> {
+  const exists = await client.bucketExists(bucket);
+  if (!exists) throw new Error(`[MinIO] Bucket configurado não existe: ${bucket}`);
+}
+
+export async function minioBucketExists(): Promise<boolean> {
+  const config = requireConfig();
+  return getClient(config).bucketExists(config.bucket);
+}
+
 export async function minioUpload(
   key: string,
   data: Buffer,
-  contentType: string
-): Promise<string> {
-  await ensureBucket();
-  await minioClient.putObject(bucket, key, data, data.length, {
+  contentType: string,
+): Promise<void> {
+  const config = requireConfig();
+  const client = getClient(config);
+  const safeKey = assertSafeObjectKey(key);
+  await assertBucket(client, config.bucket);
+  await client.putObject(config.bucket, safeKey, data, data.length, {
     "Content-Type": contentType,
   });
-  // Retorna URL de acesso direto (o bucket é acessível via HTTP na VM3)
-  return `${endpoint}/${bucket}/${key}`;
 }
 
-/**
- * Remove um arquivo do MinIO.
- * @param key Caminho relativo dentro do bucket
- */
 export async function minioDelete(key: string): Promise<void> {
-  try {
-    await minioClient.removeObject(bucket, key);
-  } catch {
-    // Ignora erros de arquivo não encontrado
-  }
+  const config = requireConfig();
+  const safeKey = assertSafeObjectKey(key);
+  await getClient(config).removeObject(config.bucket, safeKey);
 }
 
-/**
- * Gera uma URL pré-assinada para acesso temporário (7 dias).
- * Útil se o bucket for privado.
- */
-export async function minioPresignedUrl(key: string, expirySeconds = 604800): Promise<string> {
-  return minioClient.presignedGetObject(bucket, key, expirySeconds);
+/** Gera uma URL temporária; o padrão curto evita links permanentes de objetos privados. */
+export async function minioPresignedUrl(
+  key: string,
+  expirySeconds = 900,
+): Promise<string> {
+  const config = requireConfig();
+  const safeKey = assertSafeObjectKey(key);
+  return getClient(config).presignedGetObject(config.bucket, safeKey, expirySeconds);
+}
+
+export function minioBucketName(): string | null {
+  return readConfig()?.bucket ?? null;
 }

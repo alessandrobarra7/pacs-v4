@@ -1,28 +1,32 @@
 /**
- * Converte URLs internas do MinIO para URLs proxy acessíveis pelo browser.
- * O MinIO está na rede interna (172.16.x.x) e não é acessível diretamente pelo browser.
- * O endpoint /api/media/* faz proxy das imagens para o cliente.
+ * Normaliza referências de objetos privados para a rota estável da aplicação.
+ *
+ * A rota /api/media/* autentica o usuário e gera uma URL pré-assinada do
+ * MinIO somente no momento da leitura. Não há fallback para IP ou bucket
+ * antigos da VM2.
  */
+const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT;
+const MINIO_BUCKET = process.env.MINIO_BUCKET;
+const PRIVATE_MEDIA_PREFIX = "/api/media/";
 
-const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT || "http://172.16.3.101:9000";
-const MINIO_BUCKET = process.env.MINIO_BUCKET || "lauds";
-
-/**
- * Converte uma URL do MinIO para uma URL proxy relativa.
- * Ex: "http://172.16.3.101:9000/lauds/logos/unit_1_123.png"
- *  → "/api/media/logos/unit_1_123.png"
- */
-export function toProxyUrl(minioUrl: string | null | undefined): string | null {
-  if (!minioUrl) return null;
-
-  // Prefixo esperado: http://172.16.3.101:9000/lauds/
-  const prefix = `${MINIO_ENDPOINT}/${MINIO_BUCKET}/`;
-
-  if (minioUrl.startsWith(prefix)) {
-    const key = minioUrl.slice(prefix.length);
-    return `/api/media/${key}`;
+export function toProxyUrl(reference: string | null | undefined): string | null {
+  if (!reference) return null;
+  if (reference.startsWith(PRIVATE_MEDIA_PREFIX) || reference.startsWith("/uploads/")) {
+    return reference;
   }
+  if (!MINIO_ENDPOINT || !MINIO_BUCKET) return reference;
 
-  // Se já for uma URL proxy ou URL externa, retorna como está
-  return minioUrl;
+  try {
+    const parsed = new URL(reference);
+    const expectedOrigin = new URL(MINIO_ENDPOINT).origin;
+    const bucketPrefix = `/${MINIO_BUCKET}/`;
+    if (parsed.origin !== expectedOrigin || !parsed.pathname.startsWith(bucketPrefix)) {
+      return reference;
+    }
+    const key = decodeURIComponent(parsed.pathname.slice(bucketPrefix.length));
+    const encodedPath = key.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+    return `${PRIVATE_MEDIA_PREFIX}${encodedPath}`;
+  } catch {
+    return reference;
+  }
 }

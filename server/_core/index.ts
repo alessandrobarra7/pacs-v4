@@ -27,6 +27,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { storageGetUrl, storageKeyFromReference, storageUsesMinio } from "../storage";
 import { serveStatic, setupVite } from "./vite";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
@@ -299,6 +300,43 @@ async function startServer() {
       return res.status(401).json({ error: 'Não autenticado' });
     }
   }
+
+  // Mídia privada: o banco guarda uma referência estável e esta rota gera
+  // uma URL pré-assinada curta somente após autenticação e autorização.
+  app.get('/api/media/*', requireAuth, async (req, res) => {
+    try {
+      if (!storageUsesMinio()) return res.status(404).send('Storage privado não configurado');
+      const wildcard = String((req.params as Record<string, string>)[0] ?? '');
+      if (!wildcard || wildcard.includes('..')) return res.status(400).send('Referência inválida');
+      const reference = `/api/media/${wildcard}`;
+      const key = storageKeyFromReference(reference);
+      const user = (req as any).dicomUser;
+
+      const studyMatch = key.match(/^(?:attachments|audio_reports)\/([^/]+)\//);
+      if (studyMatch) {
+        const { assertDicomFileAccess } = await import('../authorization');
+        await assertDicomFileAccess(user, studyMatch[1], 'view_studies');
+      }
+
+      const unitLogoMatch = key.match(/^logos\/unit_(\d+)_/);
+      if (unitLogoMatch) {
+        const { canAccessUnit } = await import('../authorization');
+        const allowed = await canAccessUnit(user, Number(unitLogoMatch[1]), 'view_studies');
+        if (!allowed) return res.status(403).send('Acesso negado');
+      }
+
+      const personalMediaMatch = key.match(/^(?:signatures|stamps)\/user_(\d+)_/);
+      if (personalMediaMatch && user.role !== 'admin_master' && user.role !== 'unit_admin' && user.id !== Number(personalMediaMatch[1])) {
+        return res.status(403).send('Acesso negado');
+      }
+
+      const signedUrl = await storageGetUrl(reference, 900);
+      return res.redirect(302, signedUrl);
+    } catch (error: any) {
+      const status = error?.code === 'FORBIDDEN' ? 403 : 404;
+      return res.status(status).send(status === 403 ? 'Acesso negado' : 'Mídia não encontrada');
+    }
+  });
 
   // F1-2: Middleware de autenticação admin_master para rotas administrativas DICOM
   async function requireAdminAuth(req: express.Request, res: express.Response, next: express.NextFunction) {

@@ -16,6 +16,17 @@ import {
 import { eq } from "drizzle-orm";
 import sanitizeHtml from "sanitize-html";
 import { REPORT_SANITIZE_OPTIONS } from "../reportSanitize";
+import { storageGetUrl } from "../storage";
+
+async function resolveReportMedia(reference: string | null | undefined): Promise<string | null> {
+  if (!reference) return null;
+  try {
+    return await storageGetUrl(reference);
+  } catch (error) {
+    console.error("[Reports] Falha ao gerar URL temporária de mídia:", error instanceof Error ? error.message : "erro desconhecido");
+    return reference.startsWith("/uploads/") ? reference : null;
+  }
+}
 
 export const reportsRouter = router({
     getByStudyId: protectedProcedure
@@ -75,12 +86,16 @@ export const reportsRouter = router({
         // PRG-05: getUserById importado estaticamente no topo
         const signedByUserId = report.signedBy ?? report.author_user_id;
         const doctor = await getUserById(signedByUserId);
+        const [doctorStampUrl, doctorSignatureUrl] = await Promise.all([
+          resolveReportMedia(doctor?.stamp_url),
+          resolveReportMedia(doctor?.signature_url),
+        ]);
         return {
           ...report,
           doctorName: doctor?.name ?? '',
           doctorCrm: doctor?.crm ?? '',
-          doctorStampUrl: doctor?.stamp_url ?? null,
-          doctorSignatureUrl: doctor?.signature_url ?? null,
+          doctorStampUrl,
+          doctorSignatureUrl,
         };
       }),
     

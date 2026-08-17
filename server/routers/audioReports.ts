@@ -104,7 +104,7 @@ export const audioReportsRouter = router({
 
       const record = rows[0];
       try {
-        await storageDelete(record.file_key);
+        await storageDelete(record.file_url || record.file_key);
       } catch (_) {}
 
       await db

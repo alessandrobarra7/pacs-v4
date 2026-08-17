@@ -115,16 +115,6 @@ export async function assertDicomFileAccess(
   }
 
   return unitId;
-
-  // Fallback temporário para compatibilidade com usuários legados
-  if (user.unit_id === unitId) {
-    // Para fallback legado, apenas view_studies e view_anamnesis são permitidos por padrão
-    // Operações destrutivas (edit_reports, edit_anamnesis, etc.) exigem permissão explícita
-    const safePermissions: PermissionFlag[] = ["view_studies", "view_anamnesis", "print_reports"];
-    return safePermissions.includes(permission);
-  }
-
-  return false;
 }
 
 /**

@@ -136,7 +136,11 @@ export const annotationsRouter = router({
         .where(eq(study_attachments.id, input.id));
 
       if (row) {
-        storageDelete(row.file_url);
+        try {
+          await storageDelete(row.file_url);
+        } catch (error) {
+          console.error("[Attachments] Falha ao remover objeto:", error instanceof Error ? error.message : "erro desconhecido");
+        }
         await db.delete(study_attachments).where(eq(study_attachments.id, input.id));
       }
 
