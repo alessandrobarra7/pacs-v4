@@ -1899,6 +1899,7 @@
 - [x] Documentar comandos de homologação na VM1 e VM3, incluindo verificação do RAID, MinIO, firewall e objeto real no bucket (`docs/VM3_HOMOLOGACAO_RUNBOOK.md`)
 - [x] Planejar migração dos arquivos locais existentes da VM1 para o bucket da VM3 sem interromper a produção (`docs/VM3_HOMOLOGACAO_RUNBOOK.md`)
 - [x] Detalhar formalmente a arquitetura operacional, funções, limites, modelo de dados, segurança e backup por máquina virtual (`docs/ARQUITETURA_3_VMS_PACS.md`)
+- [x] Auditar o plano de implementação de código da VM3 e formalizar o parecer técnico (`docs/PARECER_PLANO_IMPLEMENTACAO_VM3.md`)
 
 > Nota: a VM3 física consta como criada no documento técnico, mas a migração lógica dos fluxos do Portal ainda não foi comprovada; o bucket estava vazio no último registro documentado.
 > Segurança: credenciais do documento devem ser rotacionadas no ambiente real antes da entrada em produção definitiva e nunca devem ser gravadas no código ou em documentação pública.
