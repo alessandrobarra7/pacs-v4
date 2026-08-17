@@ -44,6 +44,18 @@ export async function createContext(
           if (localUser) user = localUser;
         }
       }
+
+      // Revalidação em tempo real: se o usuário foi desativado ou expirou, invalidar sessão imediatamente
+      if (user) {
+        if (user.isActive === false) {
+          user = null;
+        } else if (user.expiration_date) {
+          const expDate = new Date(user.expiration_date);
+          if (!isNaN(expDate.getTime()) && expDate.getTime() <= Date.now()) {
+            user = null;
+          }
+        }
+      }
     }
   } catch {
     // Token inválido, expirado ou ausente — user fica null (anônimo)

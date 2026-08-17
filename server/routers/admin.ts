@@ -281,10 +281,17 @@ export const adminRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { users } = await import("../../drizzle/schema");
         const { eq: eqOp } = await import("drizzle-orm");
-        // F1-5: unit_admin só pode editar usuários da sua própria unidade
+        // F1-5 & Segurança Hierárquica: unit_admin só pode editar usuários da sua própria unidade e nunca contas admin_master ou unit_admin
+        const targetUserCheck = await db.select().from(users).where(eqOp(users.id, input.id)).limit(1);
+        const targetUser = targetUserCheck[0];
+        if (!targetUser) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
+        }
         if (ctx.user.role === 'unit_admin') {
-          const targetUser = await db.select().from(users).where(eqOp(users.id, input.id)).limit(1);
-          const targetUnitId = targetUser[0]?.unit_id;
+          if (targetUser.role === 'admin_master' || targetUser.role === 'unit_admin') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não pode gerenciar contas de administradores (master ou unit_admin)' });
+          }
+          const targetUnitId = targetUser.unit_id;
           const adminUnitId = ctx.user.unit_id;
           if (!adminUnitId || targetUnitId !== adminUnitId) {
             // Verificar também via user_unit_permissions
@@ -348,10 +355,17 @@ export const adminRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { users } = await import("../../drizzle/schema");
         const { eq: eqOp } = await import("drizzle-orm");
-        // F1-5: unit_admin só pode ativar/desativar usuários da sua própria unidade
+        // F1-5 & Segurança Hierárquica: unit_admin só pode gerenciar usuários comuns de sua própria unidade
+        const targetUserCheckToggle = await db.select().from(users).where(eqOp(users.id, input.id)).limit(1);
+        const targetUserToggle = targetUserCheckToggle[0];
+        if (!targetUserToggle) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
+        }
         if (ctx.user.role === 'unit_admin') {
-          const targetUser = await db.select().from(users).where(eqOp(users.id, input.id)).limit(1);
-          const targetUnitId = targetUser[0]?.unit_id;
+          if (targetUserToggle.role === 'admin_master' || targetUserToggle.role === 'unit_admin') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não pode alterar status de administradores (master ou unit_admin)' });
+          }
+          const targetUnitId = targetUserToggle.unit_id;
           const adminUnitId = ctx.user.unit_id;
           if (!adminUnitId || targetUnitId !== adminUnitId) {
             const { getUserUnitPermission: getUnitPerm } = await import('../db');

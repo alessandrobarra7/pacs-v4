@@ -249,3 +249,24 @@ describe("Segurança — Autorização Negativa", () => {
   });
 
 });
+
+  // ── Hierarquia de Admin: unit_admin vs admin_master ──────────────────────────
+
+  describe("Segurança Hierárquica — unit_admin gerenciando admin_master", () => {
+    it("unit_admin recebe FORBIDDEN ao tentar atualizar admin_master", async () => {
+      const ctx = unitAdminCtx(1);
+      const caller = appRouter.createCaller(ctx);
+      // ID 1 é admin_master no mock/setup ou simula usuário admin_master
+      await expect(
+        caller.admin.updateUser({ id: 1, name: "Intruso" })
+      ).rejects.toThrow(TRPCError);
+    });
+
+    it("unit_admin recebe FORBIDDEN ao tentar desativar admin_master", async () => {
+      const ctx = unitAdminCtx(1);
+      const caller = appRouter.createCaller(ctx);
+      await expect(
+        caller.admin.toggleUserActive({ id: 1, isActive: false })
+      ).rejects.toThrow(TRPCError);
+    });
+  });
