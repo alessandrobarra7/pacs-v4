@@ -216,14 +216,14 @@ export function AudioReportsModal({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && closeAudioModal()}>
-      <DialogContent showCloseButton={false} className="w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-gray-200 bg-white p-5 text-gray-900 shadow-xl">
+      <DialogContent showCloseButton={false} className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-sm overflow-x-hidden overflow-y-auto rounded-2xl border border-gray-200 bg-white p-4 text-gray-900 shadow-xl sm:p-5">
         <DialogHeader className="border-b border-gray-100 pb-3">
           <DialogTitle className="text-sm font-semibold text-gray-800">
             {patientName ? patientName.replace(/\^/g, " ").trim() : "Paciente"}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 pt-3">
+        <div className="min-w-0 space-y-4 pt-3">
           {allowRecording && (
             <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-gray-100 bg-gray-50 p-5">
               {recording ? (
@@ -249,8 +249,8 @@ export function AudioReportsModal({
           )}
 
           {activeAudio && (
-            <section className="overflow-hidden rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 p-4 shadow-sm" aria-label="Player de áudio ativo">
-              <div className="flex items-start justify-between gap-3">
+            <section className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 p-3 shadow-sm sm:p-4" aria-label="Player de áudio ativo">
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
                 <div className="flex min-w-0 items-center gap-2">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm">
                     <Volume2 className="h-4 w-4" aria-hidden="true" />
@@ -287,15 +287,15 @@ export function AudioReportsModal({
                 </div>
               </div>
 
-              <div className="mt-3 flex items-center justify-center gap-3">
-                <Button type="button" variant="ghost" size="sm" onClick={() => seekBy(-10)} className="h-10 min-w-14 gap-1 rounded-xl text-xs font-bold text-violet-700 hover:bg-violet-100" aria-label="Voltar 10 segundos">
+              <div className="mt-3 grid w-full grid-cols-3 items-center gap-1">
+                <Button type="button" variant="ghost" size="sm" onClick={() => seekBy(-10)} className="h-10 w-full gap-1 rounded-xl px-1 text-xs font-bold text-violet-700 hover:bg-violet-100" aria-label="Voltar 10 segundos">
                   <Rewind className="h-4 w-4" aria-hidden="true" />
                   10s
                 </Button>
-                <Button type="button" onClick={() => togglePlay(activeAudio)} className="h-12 w-12 rounded-full bg-violet-600 p-0 text-white shadow-md hover:bg-violet-700" aria-label={isPlaying ? "Pausar áudio" : "Reproduzir áudio"}>
+                <Button type="button" onClick={() => togglePlay(activeAudio)} className="mx-auto h-12 w-12 rounded-full bg-violet-600 p-0 text-white shadow-md hover:bg-violet-700" aria-label={isPlaying ? "Pausar áudio" : "Reproduzir áudio"}>
                   {isPlaying ? <Pause className="h-5 w-5" aria-hidden="true" /> : <Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden="true" />}
                 </Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => seekBy(10)} className="h-10 min-w-14 gap-1 rounded-xl text-xs font-bold text-violet-700 hover:bg-violet-100" aria-label="Avançar 10 segundos">
+                <Button type="button" variant="ghost" size="sm" onClick={() => seekBy(10)} className="h-10 w-full gap-1 rounded-xl px-1 text-xs font-bold text-violet-700 hover:bg-violet-100" aria-label="Avançar 10 segundos">
                   10s
                   <FastForward className="h-4 w-4" aria-hidden="true" />
                 </Button>

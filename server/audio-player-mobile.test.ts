@@ -27,6 +27,13 @@ describe("Player móvel de áudios vinculados", () => {
     expect(audioModalSource).not.toContain("import { Mic, Square, Trash2, X,");
   });
 
+  it("mantém o player contido e distribui os controles em telas estreitas", () => {
+    expect(audioModalSource).toContain("w-[calc(100vw-2rem)]");
+    expect(audioModalSource).toContain("overflow-x-hidden");
+    expect(audioModalSource).toContain("box-border w-full min-w-0 max-w-full");
+    expect(audioModalSource).toContain("grid w-full grid-cols-3");
+  });
+
   it("normaliza o áudio privado para a rota autenticada do Portal", () => {
     expect(audioRouterSource).toContain("toProxyUrl(reference)");
     expect(audioRouterSource).not.toContain("storageGetUrl(reference)");
