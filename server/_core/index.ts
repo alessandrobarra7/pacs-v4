@@ -28,7 +28,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { storageKeyFromReference, storageUsesMinio } from "../storage";
-import { minioGetObject } from "../minio";
+import { minioGetObject, minioStatObject } from "../minio";
 import { serveStatic, setupVite } from "./vite";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
@@ -332,11 +332,37 @@ async function startServer() {
         return res.status(403).send('Acesso negado');
       }
 
-      const object = await minioGetObject(key);
+      const objectMetadata = await minioStatObject(key);
+      const totalSize = objectMetadata.size ?? 0;
+      const rangeHeader = req.headers.range;
+      let object;
+
+      res.setHeader('Accept-Ranges', 'bytes');
       res.setHeader('Cache-Control', 'private, max-age=300');
       res.setHeader('Content-Disposition', 'inline');
-      if (object.contentType) res.setHeader('Content-Type', object.contentType);
-      if (object.size !== undefined) res.setHeader('Content-Length', String(object.size));
+      if (objectMetadata.contentType) res.setHeader('Content-Type', objectMetadata.contentType);
+
+      if (rangeHeader && totalSize > 0) {
+        const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+        if (!match) return res.status(416).setHeader('Content-Range', `bytes */${totalSize}`).end();
+        const start = match[1] ? Number.parseInt(match[1], 10) : 0;
+        const requestedEnd = match[2] ? Number.parseInt(match[2], 10) : totalSize - 1;
+        const end = Math.min(requestedEnd, totalSize - 1);
+        if (!Number.isFinite(start) || start < 0 || start >= totalSize || end < start) {
+          return res.status(416).setHeader('Content-Range', `bytes */${totalSize}`).end();
+        }
+        const length = end - start + 1;
+        object = await minioGetObject(key, { offset: start, length });
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+        res.setHeader('Content-Length', String(length));
+      } else if (objectMetadata.size !== undefined) {
+        object = await minioGetObject(key);
+        res.setHeader('Content-Length', String(objectMetadata.size));
+      } else {
+        object = await minioGetObject(key);
+      }
+
       object.stream.on('error', (streamError) => {
         console.error('[Media] Falha ao transmitir objeto privado:', streamError instanceof Error ? streamError.message : 'erro desconhecido');
         if (!res.headersSent) res.status(502).send('Falha ao ler mídia privada');

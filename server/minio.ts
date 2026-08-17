@@ -119,15 +119,41 @@ export async function minioGetObject(key: string): Promise<{
   stream: NodeJS.ReadableStream;
   contentType?: string;
   size?: number;
+}>;
+export async function minioGetObject(
+  key: string,
+  range?: { offset: number; length: number },
+): Promise<{
+  stream: NodeJS.ReadableStream;
+  contentType?: string;
+  size?: number;
 }> {
   const config = requireConfig();
   const client = getClient(config);
   const safeKey = assertSafeObjectKey(key);
   await assertBucket(client, config.bucket);
   const stat = await client.statObject(config.bucket, safeKey);
-  const stream = await client.getObject(config.bucket, safeKey);
+  const stream = range
+    ? await client.getPartialObject(config.bucket, safeKey, range.offset, range.length)
+    : await client.getObject(config.bucket, safeKey);
   return {
     stream,
+    contentType: stat.metaData?.["content-type"] || stat.metaData?.["Content-Type"],
+    size: stat.size,
+  };
+}
+
+/** Retorna somente os metadados do objeto privado, sem iniciar um download. */
+export async function minioStatObject(key: string): Promise<{
+  contentType?: string;
+  size?: number;
+}> {
+  const config = requireConfig();
+  const client = getClient(config);
+  const safeKey = assertSafeObjectKey(key);
+  await assertBucket(client, config.bucket);
+  const stat = await client.statObject(config.bucket, safeKey);
+  return {
     contentType: stat.metaData?.["content-type"] || stat.metaData?.["Content-Type"],
     size: stat.size,
   };

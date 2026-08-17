@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Mic, Square, Trash2, X, Loader2, Play, Pause, Volume2 } from "lucide-react";
+import { Mic, Square, Trash2, X, Loader2, Play, Pause, Rewind, FastForward, Gauge } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +35,7 @@ export function AudioReportsModal({
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -141,10 +142,15 @@ export function AudioReportsModal({
   };
 
   const togglePlay = (audio: any) => {
+    if (!audio.file_url) {
+      toast.error("Este áudio não está disponível para reprodução.");
+      return;
+    }
+
     if (playingId === audio.id) {
       if (audioRef.current) {
         if (audioRef.current.paused) {
-          audioRef.current.play();
+          audioRef.current.play().catch(() => toast.error("Não foi possível retomar o áudio."));
         } else {
           audioRef.current.pause();
           setPlayingId(null);
@@ -156,10 +162,14 @@ export function AudioReportsModal({
       }
       const el = new Audio(audio.file_url);
       audioRef.current = el;
-      el.play();
-      setPlayingId(audio.id);
+      el.preload = "metadata";
+      el.playbackRate = playbackRate;
       setCurrentTime(0);
       setDuration(audio.duration_seconds || 10);
+
+      el.onloadedmetadata = () => {
+        if (Number.isFinite(el.duration) && el.duration > 0) setDuration(el.duration);
+      };
 
       el.ontimeupdate = () => {
         setCurrentTime(el.currentTime);
@@ -168,7 +178,32 @@ export function AudioReportsModal({
         setPlayingId(null);
         setCurrentTime(0);
       };
+      el.onerror = () => {
+        setPlayingId(null);
+        toast.error("Não foi possível reproduzir este áudio. Verifique a conexão e tente novamente.");
+      };
+      el.play()
+        .then(() => setPlayingId(audio.id))
+        .catch(() => {
+          setPlayingId(null);
+          toast.error("Não foi possível iniciar o áudio no navegador.");
+        });
     }
+  };
+
+  const seekBy = (seconds: number) => {
+    const el = audioRef.current;
+    if (!el) return;
+    const nextTime = Math.max(0, Math.min(el.duration || duration || 0, el.currentTime + seconds));
+    el.currentTime = nextTime;
+    setCurrentTime(nextTime);
+  };
+
+  const cyclePlaybackRate = () => {
+    const rates = [1, 1.25, 1.5, 2];
+    const nextRate = rates[(rates.indexOf(playbackRate) + 1) % rates.length];
+    setPlaybackRate(nextRate);
+    if (audioRef.current) audioRef.current.playbackRate = nextRate;
   };
 
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>, audio: any) => {
@@ -296,19 +331,62 @@ export function AudioReportsModal({
                         )}
                       </div>
 
-                      {/* Barra de progresso interativa */}
+                      {/* Controles clínicos e barra de progresso interativa */}
                       {isPlaying && (
-                        <div
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSeek(e, audio);
-                          }}
-                          className="mt-2.5 h-2 w-full bg-purple-200 rounded-full overflow-hidden cursor-pointer relative"
-                        >
-                          <div
-                            className="h-full bg-purple-600 transition-all duration-100"
-                            style={{ width: `${Math.min(100, Math.max(0, prog))}%` }}
-                          />
+                        <div className="mt-3 space-y-2.5" onClick={(event) => event.stopPropagation()}>
+                          <div className="flex items-center justify-between gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => seekBy(-10)}
+                              className="h-8 gap-1 rounded-lg border-purple-200 px-2 text-[11px] font-semibold text-purple-700"
+                              aria-label="Voltar 10 segundos"
+                            >
+                              <Rewind className="h-3.5 w-3.5" aria-hidden="true" />
+                              10s
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={cyclePlaybackRate}
+                              className="h-8 gap-1 rounded-lg border-purple-200 px-2 text-[11px] font-semibold text-purple-700"
+                              aria-label={`Velocidade atual ${playbackRate}x; tocar para alterar`}
+                            >
+                              <Gauge className="h-3.5 w-3.5" aria-hidden="true" />
+                              {playbackRate}x
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => seekBy(10)}
+                              className="h-8 gap-1 rounded-lg border-purple-200 px-2 text-[11px] font-semibold text-purple-700"
+                              aria-label="Avançar 10 segundos"
+                            >
+                              10s
+                              <FastForward className="h-3.5 w-3.5" aria-hidden="true" />
+                            </Button>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] font-medium text-gray-500">
+                            <span>{formatTime(currentTime)}</span>
+                            <input
+                              type="range"
+                              min="0"
+                              max={Math.max(audioRef.current?.duration || duration || 1, 1)}
+                              step="0.1"
+                              value={Math.min(currentTime, audioRef.current?.duration || duration || 1)}
+                              onChange={(event) => {
+                                const nextTime = Number(event.target.value);
+                                if (audioRef.current) audioRef.current.currentTime = nextTime;
+                                setCurrentTime(nextTime);
+                              }}
+                              className="h-2 w-full accent-purple-600"
+                              aria-label="Progresso do áudio"
+                            />
+                            <span>{formatTime(audioRef.current?.duration || duration)}</span>
+                          </div>
                         </div>
                       )}
                     </div>

@@ -3,17 +3,13 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { study_audio_reports } from "../../drizzle/schema";
 import { eq, inArray, desc } from "drizzle-orm";
-import { storagePut, storageDelete, storageGetUrl } from "../storage";
+import { storagePut, storageDelete } from "../storage";
+import { toProxyUrl } from "../mediaProxy";
 import { TRPCError } from "@trpc/server";
 
 async function resolveAudioUrl(reference: string | null): Promise<string | null> {
   if (!reference) return null;
-  try {
-    return await storageGetUrl(reference);
-  } catch (error) {
-    console.error("[AudioReports] Falha ao gerar URL temporária:", error instanceof Error ? error.message : "erro desconhecido");
-    return reference.startsWith("/uploads/") ? reference : null;
-  }
+  return toProxyUrl(reference);
 }
 export const audioReportsRouter = router({
   /** Lista áudios gravados de um estudo */
