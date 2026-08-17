@@ -1870,3 +1870,4 @@
 - [x] Implementar a URL scheme oficial do RadiAnt com StudyInstanceUID e AETitle da unidade
 - [x] Validar via Vitest e testar a abertura automática no Windows
 - [x] Ajustar parâmetro n=f para arquivos locais no RadiAnt (compatível com estações comerciais sem configuração prévia)
+- [x] Configurar o RadiAnt para usar o método DownloadURL com o ZIP do estudo em background (idêntico ao Horos e OsiriX)
