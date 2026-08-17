@@ -59,6 +59,63 @@ export async function canAccessUnit(
     return (perm as Record<string, unknown>)[permission] === true || (perm as Record<string, unknown>)[permission] === 1;
   }
 
+  // Fallback legado
+  return user.unit_id === unitId;
+}
+
+/**
+ * Valida se o usuário tem permissão para acessar os arquivos DICOM em cache de um dado studyInstanceUid.
+ * Consulta studies_cache e study_metadata para descobrir a unit_id, negando acesso se o exame for órfão.
+ */
+export async function assertDicomFileAccess(
+  user: AuthUser,
+  studyInstanceUid: string,
+  permission: PermissionFlag = "view_studies"
+): Promise<number> {
+  const dbInstance = await getDb();
+  if (!dbInstance) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+  }
+
+  const { studies_cache, study_metadata } = await import("../drizzle/schema");
+  const { eq: eqOp } = await import("drizzle-orm");
+
+  // 1. Tentar buscar unit_id em studies_cache
+  const cached = await dbInstance
+    .select({ unit_id: studies_cache.unit_id })
+    .from(studies_cache)
+    .where(eqOp(studies_cache.study_instance_uid, studyInstanceUid))
+    .limit(1);
+
+  let unitId = cached[0]?.unit_id ?? null;
+
+  // 2. Se não achou em studies_cache, tentar study_metadata
+  if (!unitId) {
+    const meta = await dbInstance
+      .select({ unit_id: study_metadata.unit_id })
+      .from(study_metadata)
+      .where(eqOp(study_metadata.study_instance_uid, studyInstanceUid))
+      .limit(1);
+    unitId = meta[0]?.unit_id ?? null;
+  }
+
+  if (!unitId) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Exame não vinculado a nenhuma unidade conhecida (acesso negado por segurança).",
+    });
+  }
+
+  const allowed = await canAccessUnit(user, unitId, permission);
+  if (!allowed) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Você não tem permissão para acessar exames desta unidade.",
+    });
+  }
+
+  return unitId;
+
   // Fallback temporário para compatibilidade com usuários legados
   if (user.unit_id === unitId) {
     // Para fallback legado, apenas view_studies e view_anamnesis são permitidos por padrão

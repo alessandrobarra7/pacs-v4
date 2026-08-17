@@ -322,6 +322,12 @@ async function startServer() {
     if (!studyUid || studyUid.includes('..') || studyUid.includes('/')) {
       return res.status(400).json({ cached: false, count: 0 });
     }
+    try {
+      const { assertDicomFileAccess } = await import('../authorization');
+      await assertDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies');
+    } catch {
+      return res.status(403).json({ cached: false, count: 0 });
+    }
     const studyCacheDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
     try {
       const fs = await import('fs/promises');
@@ -336,10 +342,16 @@ async function startServer() {
   });
 
   // Serve DICOM files from cache
-  app.get('/api/dicom-files/:studyUid/:filename', requireAuth, (req, res) => {
+  app.get('/api/dicom-files/:studyUid/:filename', requireAuth, async (req, res) => {
     const { studyUid, filename } = req.params;
     if (filename.includes('..') || filename.includes('/') || studyUid.includes('..') || studyUid.includes('/')) {
       return res.status(400).send('Invalid path');
+    }
+    try {
+      const { assertDicomFileAccess } = await import('../authorization');
+      await assertDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies');
+    } catch {
+      return res.status(403).send('Acesso negado a este exame.');
     }
     const filePath = `${DICOM_CACHE_ROOT}/${studyUid}/${filename}`;
     res.sendFile(filePath, (err) => {
@@ -354,6 +366,12 @@ async function startServer() {
     const { studyUid } = req.params;
     if (studyUid.includes('..') || studyUid.includes('/')) {
       return res.status(400).json({ success: false, error: 'Invalid studyUid' });
+    }
+    try {
+      const { assertDicomFileAccess } = await import('../authorization');
+      await assertDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies');
+    } catch (e: any) {
+      return res.status(403).json({ success: false, error: e.message || 'Acesso negado' });
     }
     const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
     try {
@@ -491,6 +509,12 @@ async function startServer() {
     const { studyUid, filename } = req.params;
     if (studyUid.includes('..') || studyUid.includes('/') || filename.includes('..') || filename.includes('/')) {
       return res.status(400).json({ error: 'Invalid path' });
+    }
+    try {
+      const { assertDicomFileAccess } = await import('../authorization');
+      await assertDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies');
+    } catch (e: any) {
+      return res.status(403).json({ error: e.message || 'Acesso negado' });
     }
     const filePath = `${DICOM_CACHE_ROOT}/${studyUid}/${filename}`;
     try {
@@ -890,6 +914,13 @@ async function startServer() {
       return res.status(400).json({ error: 'Invalid studyUid' });
     }
 
+    try {
+      const { assertDicomFileAccess } = await import('../authorization');
+      await assertDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies');
+    } catch (e: any) {
+      return res.status(403).json({ error: e.message || 'Acesso negado' });
+    }
+
     const studyCacheDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
     try {
       const fs = await import('fs/promises');
@@ -946,6 +977,12 @@ async function startServer() {
     const viewer = ((req.query.viewer as string) || 'radiant').toLowerCase();
     if (!studyUid || studyUid.includes('..') || studyUid.includes('/')) {
       return res.status(400).json({ error: 'Invalid studyUid' });
+    }
+    try {
+      const { assertDicomFileAccess } = await import('../authorization');
+      await assertDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies');
+    } catch (e: any) {
+      return res.status(403).json({ error: e.message || 'Acesso negado' });
     }
     const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
     try {

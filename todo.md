@@ -1873,3 +1873,6 @@
 - [x] Configurar o RadiAnt para usar o método DownloadURL com o ZIP do estudo em background (idêntico ao Horos e OsiriX)
 - [x] Auditar e consolidar as diretrizes de deploy e infraestrutura do Setor 22 (`docs/PARECER_SETOR_22_DEPLOY.md`)
 - [x] Auditar e consolidar as diretrizes de Autenticação e RBAC dos Setores 1+2 (`docs/PARECER_SETOR_01_02_AUTH_RBAC.md`)
+- [x] Implementar revalidação de contas inativas/expiradas em cada requisição (`server/_core/context.ts`)
+- [x] Implementar bloqueio hierárquico em `admin.updateUser` e `admin.toggleUserActive` contra `admin_master` e `unit_admin`
+- [x] Adicionar e aprovar testes de regressão em `server/security.auth.test.ts` (17/17 aprovados)
