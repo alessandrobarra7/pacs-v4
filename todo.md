@@ -1915,6 +1915,7 @@
 - [x] Corrigir referências de mídia e miniaturas quebradas no modal de anexos do mobile
 - [x] Eliminar o aviso/painel vazio sobreposto após upload de anexo no mobile
 - [x] Validar a consistência do modal de anexos na listagem e no visualizador DICOM
+- [x] Adicionar controles explícitos de voltar e fechar na prévia de anexos para uso móvel
 
 > Nota: a VM3 física consta como criada no documento técnico, mas a migração lógica dos fluxos do Portal ainda não foi comprovada; o bucket estava vazio no último registro documentado.
 > Segurança: credenciais do documento devem ser rotacionadas no ambiente real antes da entrada em produção definitiva e nunca devem ser gravadas no código ou em documentação pública.

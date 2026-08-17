@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import {
   Camera,
+  ChevronLeft,
   FileText,
   ImageOff,
   Paperclip,
@@ -236,20 +237,50 @@ export function PatientAttachmentsModal({
 
       <Dialog open={!!previewAttachment} onOpenChange={(nextOpen) => !nextOpen && setPreviewAttachment(null)}>
         <DialogContent showCloseButton={false} className="w-[calc(100%-2rem)] max-w-2xl rounded-2xl p-3 sm:p-5">
-          <DialogHeader>
-            <DialogTitle className="sr-only">Visualização do anexo</DialogTitle>
+          <DialogHeader className="sr-only">
+            <DialogTitle>Visualização do anexo</DialogTitle>
           </DialogHeader>
-          {previewAttachment && previewAttachment.file_type?.startsWith("image/") ? (
-            <img
-              src={previewAttachment.file_url}
-              alt={previewAttachment.file_name}
-              className="max-h-[75vh] w-full rounded-lg object-contain"
-              onError={() => {
-                setFailedImageIds((previous) => new Set(previous).add(previewAttachment.id));
+          <div className="flex items-center justify-between gap-2 border-b border-gray-200 pb-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setPreviewAttachment(null)}
+              className="h-10 gap-1.5 px-2 text-sm font-semibold text-gray-700"
+            >
+              <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+              Voltar
+            </Button>
+            <p className="min-w-0 flex-1 truncate text-center text-sm font-semibold text-gray-800">
+              {previewAttachment?.file_name || "Anexo"}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
                 setPreviewAttachment(null);
-                toast.error("Não foi possível carregar a imagem deste anexo.");
+                onClose();
               }}
-            />
+              className="h-10 gap-1.5 border-gray-300 px-2 text-sm font-semibold text-gray-700"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+              Fechar
+            </Button>
+          </div>
+          {previewAttachment && previewAttachment.file_type?.startsWith("image/") ? (
+            <div className="flex max-h-[72vh] min-h-48 items-center justify-center overflow-auto rounded-lg bg-gray-50 p-2">
+              <img
+                src={previewAttachment.file_url}
+                alt={previewAttachment.file_name}
+                className="max-h-[68vh] w-full rounded-lg object-contain"
+                onError={() => {
+                  setFailedImageIds((previous) => new Set(previous).add(previewAttachment.id));
+                  setPreviewAttachment(null);
+                  toast.error("Não foi possível carregar a imagem deste anexo.");
+                }}
+              />
+            </div>
           ) : previewAttachment ? (
             <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-lg bg-gray-50 p-6 text-center">
               <FileText className="h-12 w-12 text-gray-400" aria-hidden="true" />
