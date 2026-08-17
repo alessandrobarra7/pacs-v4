@@ -1883,9 +1883,10 @@
 # Migração VM3 MinIO/RAID1 — escopo iniciado em 17/08/2026
 
 - [x] Revisar a documentação da VM3 e confirmar pré-requisitos operacionais do RAID1, MinIO, bucket e conectividade VM1 → VM3
-- [ ] Validar a conectividade e autenticação MinIO a partir da VM1 (172.16.3.100), pois o sandbox não possui rota para a rede privada da VM3
-- [ ] Rotacionar a Secret Key da conta de aplicação `pacs-app` na VM3 antes de configurar o Portal
-- [ ] Descartar a Secret Key exibida no chat e gerar uma nova credencial sem compartilhá-la na conversa
+- [x] Preservar a branch local `backup-local-vm1` e sincronizar a VM1 com o commit remoto `aa45197`
+- [x] Validar a conectividade e autenticação MinIO a partir da VM1 (172.16.3.100), pois o sandbox não possui rota para a rede privada da VM3
+- [x] Rotacionar a Secret Key da conta de aplicação `pacs-app` na VM3 antes de configurar o Portal
+- [x] Descartar a Secret Key exibida no chat e gerar uma nova credencial sem compartilhá-la na conversa
 - [x] Corrigir erro TypeScript em `server/authorization.ts` causado por fallback inalcançável após retorno de `assertDicomFileAccess`
 - [x] Corrigir carregamento lazy das secrets MinIO para compatibilidade com dotenv/PM2 antes de migrar o backend
 - [x] Migrar o backend de storage para usar MinIO VM3 (172.16.3.102:9000, bucket vm3-storage) sem credenciais hardcoded, mantendo estritamente locais na VM1: logos, assinaturas, carimbos, perfis e avatares
