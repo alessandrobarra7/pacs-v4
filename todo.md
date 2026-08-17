@@ -1910,6 +1910,7 @@
 - [x] Executar diagnóstico somente de leitura da VM3 para inventariar RAID1, filesystem, MinIO, bucket e regras de firewall
 - [x] Consolidar a documentação oficial de homologação e inventário da VM3 (`docs/VM3_ESTRUTURA_E_HOMOLOGACAO.md`)
 - [x] Dimensionar e registrar o consumo de espaço por artefato (cache DICOM, rascunho, laudo assinado HTML, anexos/fotos e áudio) nas VM1, VM2 e VM3 durante um ciclo completo de exame
+- [ ] Coletar logs de erro e auditar o espaço real ocupado nas VM1 e VM3 após teste real de exame
 
 > Nota: a VM3 física consta como criada no documento técnico, mas a migração lógica dos fluxos do Portal ainda não foi comprovada; o bucket estava vazio no último registro documentado.
 > Segurança: credenciais do documento devem ser rotacionadas no ambiente real antes da entrada em produção definitiva e nunca devem ser gravadas no código ou em documentação pública.

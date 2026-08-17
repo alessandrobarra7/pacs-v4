@@ -228,7 +228,7 @@ export const reportsRouter = router({
         let exportKey: string | null = null;
         let exportUrl: string | null = null;
         try {
-          const { minioUpload } = await import('../minio');
+          const { storagePut } = await import('../storage');
           const unitIdForStorage = report.unit_id ?? ctx.user.unit_id ?? 0;
           exportKey = `laudos/${unitIdForStorage}/${input.id}_v${report.version}.html`;
           const htmlContent = `<!DOCTYPE html>
@@ -257,7 +257,8 @@ export const reportsRouter = router({
 </div>
 </body>
 </html>`;
-          const uploadRes = await minioUpload(exportKey, Buffer.from(htmlContent, 'utf-8'), 'text/html');
+          const uploadRes = await storagePut(exportKey, Buffer.from(htmlContent, 'utf-8'), 'text/html');
+          exportKey = uploadRes.key;
           exportUrl = uploadRes.url;
         } catch (exportErr) {
           console.error("[Reports] Falha ao exportar laudo assinado para a VM3 (MinIO):", exportErr instanceof Error ? exportErr.message : "erro desconhecido");
