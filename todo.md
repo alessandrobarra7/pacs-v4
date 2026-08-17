@@ -1897,7 +1897,8 @@
 - [x] Criar testes Vitest para referências privadas, path traversal, configuração e fallback de migração VM3
 - [x] Validar build e suíte completa de testes antes do checkpoint da migração VM3 (build com heap 2 GB; 25 arquivos, 206 testes aprovados e 1 integração MinIO pulada por rede privada do sandbox)
 - [x] Documentar comandos de homologação na VM1 e VM3, incluindo verificação do RAID, MinIO, firewall e objeto real no bucket (`docs/VM3_HOMOLOGACAO_RUNBOOK.md`)
-- [ ] Planejar migração dos arquivos locais existentes da VM1 para o bucket da VM3 sem interromper a produção
+- [x] Planejar migração dos arquivos locais existentes da VM1 para o bucket da VM3 sem interromper a produção (`docs/VM3_HOMOLOGACAO_RUNBOOK.md`)
+- [x] Detalhar formalmente a arquitetura operacional, funções, limites, modelo de dados, segurança e backup por máquina virtual (`docs/ARQUITETURA_3_VMS_PACS.md`)
 
 > Nota: a VM3 física consta como criada no documento técnico, mas a migração lógica dos fluxos do Portal ainda não foi comprovada; o bucket estava vazio no último registro documentado.
 > Segurança: credenciais do documento devem ser rotacionadas no ambiente real antes da entrada em produção definitiva e nunca devem ser gravadas no código ou em documentação pública.
