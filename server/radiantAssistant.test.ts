@@ -6,6 +6,10 @@ const windowsAssistantSource = readFileSync(
   new URL("../tools/radiant-assistant/main.go", import.meta.url),
   "utf8",
 );
+const windowsInstallerSource = readFileSync(
+  new URL("../tools/radiant-assistant/installer.nsi", import.meta.url),
+  "utf8",
+);
 
 describe("Assistente RadiAnt", () => {
   it("emite token opaco de uso único e rejeita reutilização", () => {
@@ -35,5 +39,11 @@ describe("Assistente RadiAnt", () => {
     expect(windowsAssistantSource).toContain("RadiAntViewer64bit");
     expect(windowsAssistantSource).toContain("RadiAntViewer.exe");
     expect(windowsAssistantSource).not.toContain("pacs.xml");
+  });
+
+  it("encerra somente a versão antiga do Assistente antes de atualizar seus arquivos", () => {
+    expect(windowsInstallerSource).toContain("taskkill.exe");
+    expect(windowsInstallerSource).toContain("/IM PacsRadiantAssistant.exe");
+    expect(windowsInstallerSource).not.toContain("/IM RadiAntViewer.exe");
   });
 });

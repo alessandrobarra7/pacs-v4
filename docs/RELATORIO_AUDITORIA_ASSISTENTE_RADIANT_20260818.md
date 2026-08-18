@@ -117,6 +117,12 @@ O instalador do piloto foi obtido com integridade confirmada por SHA-256, mas o 
 
 Foi preparada uma correção que acrescenta `RadiAntViewer64bit`, locais comuns 32/64 bits e registros App Paths ao mecanismo de descoberta. Essa correção não lê, altera ou remove `pacs.xml`, AE Title, IP, porta, licença ou qualquer configuração hospitalar do RadiAnt. A nova validação do piloto deve confirmar somente a identificação do executável antes de abrir o estudo temporário.
 
+## 13. Achado do piloto Windows — atualização do Assistente
+
+Ao substituir a primeira versão pelo instalador corrigido, o instalador reportou arquivo bloqueado em `PacsRadiantAssistant.exe`. A análise indicou que a versão anterior do próprio Assistente permanecia em execução, impedindo a substituição do seu executável local. O evento não envolveu o RadiAnt hospitalar nem seus arquivos de configuração.
+
+O instalador foi ajustado para encerrar exclusivamente o processo `PacsRadiantAssistant.exe` antes de gravar a atualização e aguardar sua finalização. A regra de regressão impede a inclusão de comando para encerrar `RadiAntViewer.exe`. A próxima versão de piloto deve validar a substituição automática do Assistente e, em seguida, a identificação do RadiAnt existente.
+
 ## Referências
 
 1. [RadiAnt DICOM Viewer — Command-line arguments](https://www.radiantviewer.com/dicom-viewer-manual/command-line_arguments.html)

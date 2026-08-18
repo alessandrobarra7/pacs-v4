@@ -2016,3 +2016,5 @@
 - [x] Localizar o caminho real do executável RadiAnt no computador piloto e ampliar a detecção do Assistente sem modificar configurações locais.
 - [ ] Validar que a ativação identifica o RadiAnt existente antes de testar a abertura do estudo temporário.
 - [x] Incluir o caminho padrão validado `C:\Program Files\RadiAntViewer64bit\RadiAntViewer.exe` na detecção do Assistente RadiAnt.
+- [ ] Corrigir o instalador para encerrar somente `PacsRadiantAssistant.exe` antes de atualizar arquivos bloqueados, sem interromper `RadiAntViewer.exe`.
+- [ ] Validar no Windows piloto que a atualização substitui o Assistente antigo sem interrupção do RadiAnt existente.

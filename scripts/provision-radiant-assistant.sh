@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="v0.1.1-pilot"
+VERSION="v0.1.2-pilot"
 FILE_NAME="PacsRadiantAssistantSetup.exe"
 BASE_URL="https://github.com/alessandrobarra7/pacs-v4/releases/download/${VERSION}"
 TARGET_DIR="/var/lib/pacs-radiant-assistant"

@@ -11,6 +11,8 @@ UninstPage uninstConfirm
 UninstPage instfiles
 
 Section "Instalar"
+  nsExec::ExecToLog '"$SYSDIR\taskkill.exe" /F /IM PacsRadiantAssistant.exe'
+  Sleep 500
   SetOutPath "$INSTDIR"
   File "build\PacsRadiantAssistant.exe"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
