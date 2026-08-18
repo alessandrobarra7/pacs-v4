@@ -32,4 +32,32 @@ describe("otimizações de desempenho DICOM", () => {
     expect(fileRoute).toContain("await assertCachedDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies')");
     expect(fileRoute).toContain("requireAuth");
   });
+
+  it("transmite DICOMweb sem carregar a resposta inteira em memória", async () => {
+    const source = await fs.readFile(indexPath, "utf8");
+    const routeStart = source.indexOf("app.use('/api/dicomweb', requireAuth");
+    const routeEnd = source.indexOf("// ─────────────────────────────────────────────────────────────────────────────", routeStart);
+    const proxyRoute = source.slice(routeStart, routeEnd);
+
+    expect(source).toContain('import { Readable } from "node:stream"');
+    expect(proxyRoute).toContain("Readable.fromWeb(response.body as any)");
+    expect(proxyRoute).toContain("upstreamStream.pipe(res)");
+    expect(proxyRoute).not.toContain("response.arrayBuffer()");
+    expect(proxyRoute).toContain("'content-range'");
+    expect(proxyRoute).toContain("'accept-ranges'");
+  });
+
+  it("mantém as rotas administrativas de cache fora do caminho síncrono do event loop", async () => {
+    const source = await fs.readFile(indexPath, "utf8");
+    const routeStart = source.indexOf("app.get('/api/dicom-cache-info'");
+    const routeEnd = source.indexOf("// ─────────────────────────────────────────────────────────────────────────────", routeStart);
+    const cacheRoutes = source.slice(routeStart, routeEnd);
+
+    expect(cacheRoutes).toContain("await import('fs/promises')");
+    expect(cacheRoutes).toContain("await fileSystem.readdir(DICOM_CACHE_ROOT, { withFileTypes: true })");
+    expect(cacheRoutes).toContain("await fileSystem.rm(path.join(DICOM_CACHE_ROOT, uid), { recursive: true, force: true })");
+    expect(cacheRoutes).not.toContain("readdirSync");
+    expect(cacheRoutes).not.toContain("statSync");
+    expect(cacheRoutes).not.toContain("rmSync");
+  });
 });

@@ -23,6 +23,7 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import crypto from "crypto";
+import { Readable } from "node:stream";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
@@ -907,21 +908,38 @@ async function startServer() {
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization');
       
-      const contentType = response.headers.get('content-type');
-      if (contentType) res.setHeader('Content-Type', contentType);
-      
-      const contentLength = response.headers.get('content-length');
-      if (contentLength) res.setHeader('Content-Length', contentLength);
-      
-      // Copia headers multipart se presentes (WADO-RS retorna multipart/related)
-      const transferEncoding = response.headers.get('transfer-encoding');
-      if (transferEncoding) res.setHeader('Transfer-Encoding', transferEncoding);
+      // Preserva somente os cabeçalhos de resposta necessários ao WADO-RS e ao
+      // streaming HTTP, sem propagar cabeçalhos internos do Orthanc.
+      for (const headerName of [
+        'content-type',
+        'content-length',
+        'content-range',
+        'accept-ranges',
+        'cache-control',
+        'content-disposition',
+        'etag',
+        'last-modified',
+      ]) {
+        const headerValue = response.headers.get(headerName);
+        if (headerValue) res.setHeader(headerName, headerValue);
+      }
       
       res.status(response.status);
       
-      // Stream a resposta diretamente para o cliente (eficiente para imagens grandes)
-      const arrayBuffer = await response.arrayBuffer();
-      res.send(Buffer.from(arrayBuffer));
+      // WADO-RS pode retornar séries muito grandes. Não materializar a resposta
+      // inteira em memória evita travas por pressão de RAM no processo Node.
+      if (req.method === 'HEAD' || !response.body) {
+        return res.end();
+      }
+
+      const upstreamStream = Readable.fromWeb(response.body as any);
+      upstreamStream.on('error', (streamError) => {
+        console.error('[DICOMweb Proxy] Falha no streaming:', streamError instanceof Error ? streamError.message : 'erro desconhecido');
+        if (!res.headersSent) res.status(502).json({ error: 'DICOMweb Proxy Error' });
+        else res.destroy(streamError as Error);
+      });
+      upstreamStream.pipe(res);
+      return;
       
     } catch (error: any) {
       console.error('[DICOMweb Proxy] Erro:', error.message);
@@ -1286,22 +1304,26 @@ async function startServer() {
   // Endpoint: informações gerais do cache DICOM (tamanho total, estudos, etc.) — restrito a admin_master
   app.get('/api/dicom-cache-info', requireAdminAuth, async (_req, res) => {
     try {
-      if (!fs.existsSync(DICOM_CACHE_ROOT)) {
+      const fileSystem = await import('fs/promises');
+      const rootStat = await fileSystem.stat(DICOM_CACHE_ROOT).catch(() => null);
+      if (!rootStat?.isDirectory()) {
         return res.json({ totalSizeBytes: 0, totalSizeMB: 0, studyCount: 0, studies: [] });
       }
-      const studies = fs.readdirSync(DICOM_CACHE_ROOT).filter(d => {
-        try { return fs.statSync(path.join(DICOM_CACHE_ROOT, d)).isDirectory(); } catch { return false; }
-      });
+      const studies = (await fileSystem.readdir(DICOM_CACHE_ROOT, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
       let totalSizeBytes = 0;
       const studyInfos: { uid: string; sizeBytes: number; sizeMB: number; fileCount: number; lastAccess: number }[] = [];
       for (const uid of studies) {
         const studyDir = path.join(DICOM_CACHE_ROOT, uid);
         try {
-          const files = fs.readdirSync(studyDir).filter(f => f.endsWith('.dcm'));
+          const files = (await fileSystem.readdir(studyDir, { withFileTypes: true }))
+            .filter((entry) => entry.isFile() && entry.name.endsWith('.dcm'))
+            .map((entry) => entry.name);
           let studySize = 0;
           let lastAccess = 0;
           for (const f of files) {
-            const stat = fs.statSync(path.join(studyDir, f));
+            const stat = await fileSystem.stat(path.join(studyDir, f));
             studySize += stat.size;
             if (stat.atimeMs > lastAccess) lastAccess = stat.atimeMs;
           }
@@ -1324,16 +1346,18 @@ async function startServer() {
   // Endpoint: limpar todo o cache DICOM manualmentee — restrito a admin_master
   app.delete('/api/dicom-cache-clear', requireAdminAuth, async (_req, res) => {
     try {
-      if (!fs.existsSync(DICOM_CACHE_ROOT)) {
+      const fileSystem = await import('fs/promises');
+      const rootStat = await fileSystem.stat(DICOM_CACHE_ROOT).catch(() => null);
+      if (!rootStat?.isDirectory()) {
         return res.json({ success: true, removed: 0 });
       }
-      const studies = fs.readdirSync(DICOM_CACHE_ROOT).filter(d => {
-        try { return fs.statSync(path.join(DICOM_CACHE_ROOT, d)).isDirectory(); } catch { return false; }
-      });
+      const studies = (await fileSystem.readdir(DICOM_CACHE_ROOT, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
       let removed = 0;
       for (const uid of studies) {
         try {
-          fs.rmSync(path.join(DICOM_CACHE_ROOT, uid), { recursive: true, force: true });
+          await fileSystem.rm(path.join(DICOM_CACHE_ROOT, uid), { recursive: true, force: true });
           removed++;
           console.log(`[DICOM Cache] Limpo manualmente: ${uid}`);
         } catch {}

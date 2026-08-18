@@ -2051,3 +2051,13 @@
 - [ ] Decidir a política de permissão para exclusão de áudios e anexos clínicos, separando leitura de exclusão quando aplicável.
 - [ ] Remover ou proteger explicitamente o módulo legado `storageProxy` antes de qualquer eventual reativação.
 - [ ] Priorizar os gargalos remanescentes de desempenho e as pendências de infraestrutura confirmadas pela auditoria.
+
+## DESEMPENHO E ESTABILIDADE DE PRODUÇÃO — ROTAS CRÍTICAS
+
+- [ ] Mapear consumo de tempo, memória e tamanho de resposta das rotas DICOMweb, cache DICOM, mídia privada e competência financeira.
+- [x] Substituir o buffer completo no proxy DICOMweb por streaming com tratamento de erro e cabeçalhos preservados.
+- [x] Remover I/O síncrono das rotas administrativas de cache DICOM e do caminho de cache do visualizador.
+- [ ] Investigar e reduzir consultas N+1 em `calculateCompetence` sem alterar resultados financeiros.
+- [ ] Definir limites de concorrência, memória e timeout para C-GET/DICOM e downloads extensos.
+- [ ] Executar testes de regressão e carga controlada antes de qualquer atualização da VM1.
+- [ ] Coletar na VM1 métricas somente-leitura de PM2, Node, CPU, RAM, conexões e latência das rotas críticas.
