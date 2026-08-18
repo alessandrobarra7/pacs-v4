@@ -181,21 +181,19 @@ func cleanOldStudies(root string) {
 }
 
 func findRadiantExecutable() (string, error) {
-	candidates := []string{
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "RadiAntViewer", "RadiAntViewer.exe"),
-		filepath.Join(os.Getenv("ProgramFiles"), "RadiAntViewer", "RadiAntViewer.exe"),
-		filepath.Join(os.Getenv("ProgramFiles(x86)"), "RadiAntViewer", "RadiAntViewer.exe"),
-	}
+	candidates := radiantExecutableCandidates()
 	for _, candidate := range candidates {
-		if candidate != "" {
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return candidate, nil
-			}
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
 		}
 	}
 
-	for _, hive := range []string{"HKCU", "HKLM"} {
-		out, err := exec.Command("reg.exe", "query", hive+`\Software\Microsoft\Windows\CurrentVersion\App Paths\RadiAntViewer.exe`, "/ve").Output()
+	for _, key := range []string{
+		`HKCU\Software\Microsoft\Windows\CurrentVersion\App Paths\RadiAntViewer.exe`,
+		`HKLM\Software\Microsoft\Windows\CurrentVersion\App Paths\RadiAntViewer.exe`,
+		`HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\RadiAntViewer.exe`,
+	} {
+		out, err := exec.Command("reg.exe", "query", key, "/ve").Output()
 		if err == nil {
 			parts := strings.Fields(string(out))
 			if len(parts) > 0 {
@@ -207,6 +205,31 @@ func findRadiantExecutable() (string, error) {
 		}
 	}
 	return "", errors.New("RadiAnt não encontrado")
+}
+
+func radiantExecutableCandidates() []string {
+	roots := []string{
+		os.Getenv("ProgramFiles"),
+		os.Getenv("ProgramW6432"),
+		os.Getenv("ProgramFiles(x86)"),
+		os.Getenv("LOCALAPPDATA"),
+	}
+	directories := []string{"RadiAntViewer64bit", "RadiAntViewer", "RadiAnt DICOM Viewer"}
+	unique := make(map[string]bool)
+	candidates := make([]string, 0, len(roots)*len(directories))
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		for _, directory := range directories {
+			candidate := filepath.Join(root, directory, "RadiAntViewer.exe")
+			if !unique[candidate] {
+				unique[candidate] = true
+				candidates = append(candidates, candidate)
+			}
+		}
+	}
+	return candidates
 }
 
 func showMessage(title, message string) {

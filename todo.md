@@ -2006,8 +2006,13 @@
 - [x] Exibir no Portal somente a abertura padrão do Windows após a instalação única, sem instruções técnicas para médicos.
 - [x] Corrigir o download bloqueado do instalador `.exe` no navegador, substituindo o redirecionamento externo por entrega compatível pelo mesmo domínio do Portal.
 - [ ] Validar no navegador Windows que o instalador visual é baixado integralmente antes de repetir a ativação RadiAnt.
-- [ ] Verificar na VM1 a origem HTTP/HTTPS, os cabeçalhos e o status da resposta do instalador antes de alterar novamente o Portal.
+- [x] Verificar na VM1 a origem HTTP/HTTPS, os cabeçalhos e o status da resposta do instalador antes de alterar novamente o Portal.
 - [ ] Corrigir qualquer bloqueio de download inseguro ou incompatível do navegador sem solicitar que médicos desativem proteções locais.
 - [x] Produzir e versionar relatório de auditoria externa sobre a arquitetura RadiAnt, o piloto executado, os bloqueios de download e as recomendações de correção.
 - [ ] Substituir a busca de instalador pelo storage de desenvolvimento, indisponível na VM1, por artefato local controlado com checksum e entrega autenticada.
 - [ ] Atualizar o relatório de auditoria com a causa raiz confirmada `Storage proxy not configured` e a estratégia de correção local da VM1.
+- [ ] Validar o checksum SHA-256 do instalador baixado no Windows piloto antes de qualquer execução controlada.
+- [ ] Registrar que o aviso do Chrome decorre de instalador não assinado e bloquear a distribuição ampla até obtenção de assinatura de código.
+- [x] Localizar o caminho real do executável RadiAnt no computador piloto e ampliar a detecção do Assistente sem modificar configurações locais.
+- [ ] Validar que a ativação identifica o RadiAnt existente antes de testar a abertura do estudo temporário.
+- [x] Incluir o caminho padrão validado `C:\Program Files\RadiAntViewer64bit\RadiAntViewer.exe` na detecção do Assistente RadiAnt.

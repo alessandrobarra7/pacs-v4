@@ -111,6 +111,12 @@ O teste completo de usuário final permanece pendente até que o download do ins
 
 Após o provisionamento local, a auditoria deve registrar: checksum do artefato, permissões do arquivo em `/var/lib/pacs-radiant-assistant/`, status HTTP e cabeçalhos da resposta autenticada, além do resultado do download em Windows. Não devem ser incluídos `.env`, cookies de sessão, tokens temporários, nomes de pacientes ou arquivos DICOM.
 
+## 12. Achado do piloto Windows — detecção do RadiAnt
+
+O instalador do piloto foi obtido com integridade confirmada por SHA-256, mas o Assistente informou inicialmente que o RadiAnt não estava instalado. A coleta de somente leitura no computador piloto identificou o executável em `C:\Program Files\RadiAntViewer64bit\RadiAntViewer.exe`. O Assistente procurava somente os diretórios `RadiAntViewer` e, por isso, não reconheceu a instalação de 64 bits validada.
+
+Foi preparada uma correção que acrescenta `RadiAntViewer64bit`, locais comuns 32/64 bits e registros App Paths ao mecanismo de descoberta. Essa correção não lê, altera ou remove `pacs.xml`, AE Title, IP, porta, licença ou qualquer configuração hospitalar do RadiAnt. A nova validação do piloto deve confirmar somente a identificação do executável antes de abrir o estudo temporário.
+
 ## Referências
 
 1. [RadiAnt DICOM Viewer — Command-line arguments](https://www.radiantviewer.com/dicom-viewer-manual/command-line_arguments.html)
