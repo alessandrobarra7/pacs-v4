@@ -26,3 +26,35 @@ export function isValidImageBuffer(buf: Buffer): boolean {
   if (buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP') return true;
   return false;
 }
+
+export function detectImageMimeType(buf: Buffer): "image/png" | "image/jpeg" | "image/gif" | "image/webp" | null {
+  if (buf.length < 12) return null;
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return "image/png";
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return "image/jpeg";
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return "image/gif";
+  if (buf.slice(0, 4).toString("ascii") === "RIFF" && buf.slice(8, 12).toString("ascii") === "WEBP") return "image/webp";
+  return null;
+}
+
+export function detectAudioMimeType(buf: Buffer): "audio/mpeg" | "audio/wav" | "audio/ogg" | "audio/webm" | null {
+  if (buf.length < 4) return null;
+  if (buf.slice(0, 3).toString("ascii") === "ID3" || (buf[0] === 0xFF && (buf[1] & 0xE0) === 0xE0)) return "audio/mpeg";
+  if (buf.length >= 12 && buf.slice(0, 4).toString("ascii") === "RIFF" && buf.slice(8, 12).toString("ascii") === "WAVE") return "audio/wav";
+  if (buf.slice(0, 4).toString("ascii") === "OggS") return "audio/ogg";
+  if (buf.length >= 4 && buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3) return "audio/webm";
+  return null;
+}
+
+export function extensionForMediaMimeType(mimeType: string): string {
+  const extensions: Record<string, string> = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "audio/mpeg": "mp3",
+    "audio/wav": "wav",
+    "audio/ogg": "ogg",
+    "audio/webm": "webm",
+  };
+  return extensions[mimeType] ?? "bin";
+}

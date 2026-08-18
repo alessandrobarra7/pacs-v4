@@ -365,6 +365,13 @@ async function startServer() {
         await assertDicomFileAccess(user, studyMatch[1], 'view_studies');
       }
 
+      const reportMatch = key.match(/^laudos\/(\d+)\//);
+      if (reportMatch) {
+        const { canAccessUnit } = await import('../authorization');
+        const allowed = await canAccessUnit(user, Number(reportMatch[1]), 'print_reports');
+        if (!allowed) return res.status(403).send('Acesso negado');
+      }
+
       const unitLogoMatch = key.match(/^logos\/unit_(\d+)_/);
       if (unitLogoMatch) {
         const { canAccessUnit } = await import('../authorization');

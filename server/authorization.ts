@@ -29,6 +29,12 @@ export interface AuthUser {
   unit_id: number | null;
 }
 
+const LEGACY_SAFE_PERMISSIONS: PermissionFlag[] = ["view_studies", "view_anamnesis", "print_reports"];
+
+export function legacyFallbackAllows(userUnitId: number | null, unitId: number, permission: PermissionFlag): boolean {
+  return userUnitId === unitId && LEGACY_SAFE_PERMISSIONS.includes(permission);
+}
+
 /**
  * Verifica se um usuário pode acessar uma unidade com uma permissão específica.
  * - admin_master: sempre true
@@ -59,8 +65,8 @@ export async function canAccessUnit(
     return (perm as Record<string, unknown>)[permission] === true || (perm as Record<string, unknown>)[permission] === 1;
   }
 
-  // Fallback legado
-  return user.unit_id === unitId;
+  // Fallback legado: contas sem concessão granular jamais recebem escrita/gestão.
+  return legacyFallbackAllows(user.unit_id, unitId, permission);
 }
 
 /**
@@ -157,8 +163,7 @@ export async function getAllowedUnitIds(
     .map((p: typeof user_unit_permissions.$inferSelect) => p.unit_id);
 
   // Incluir fallback legado se não estiver já na lista
-  const safePermissions: PermissionFlag[] = ["view_studies", "view_anamnesis", "print_reports"];
-  if (user.unit_id && safePermissions.includes(permission) && !fromGranular.includes(user.unit_id)) {
+  if (user.unit_id && LEGACY_SAFE_PERMISSIONS.includes(permission) && !fromGranular.includes(user.unit_id)) {
     fromGranular.push(user.unit_id);
   }
 

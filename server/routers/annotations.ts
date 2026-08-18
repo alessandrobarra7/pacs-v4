@@ -6,6 +6,8 @@ import { study_attachments } from "../../drizzle/schema";
 import { eq, inArray } from "drizzle-orm";
 import { storagePut, storageDelete } from "../storage";
 import { toProxyUrl } from "../mediaProxy";
+import { assertDicomFileAccess } from "../authorization";
+import { detectImageMimeType, extensionForMediaMimeType } from "../routerUtils";
 
 async function resolveAttachmentUrl(reference: string | null): Promise<string | null> {
   if (!reference) return null;
@@ -56,7 +58,8 @@ export const annotationsRouter = router({
   /** Lista todos os anexos de um estudo (fotos, documentos) */
   list: protectedProcedure
     .input(z.object({ study_instance_uid: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await assertDicomFileAccess(ctx.user, input.study_instance_uid, "view_studies");
       const db = await getDb();
       if (!db) return [];
       const rows = await db
@@ -72,16 +75,28 @@ export const annotationsRouter = router({
   /** Retorna quais UIDs possuem anexos cadastrados */
   getAttachmentsStatusBatch: protectedProcedure
     .input(z.object({ studyInstanceUids: z.array(z.string()) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       if (!input.studyInstanceUids.length) return {} as Record<string, boolean>;
+      const result: Record<string, boolean> = {};
+      for (const uid of input.studyInstanceUids) result[uid] = false;
+
+      const access = await Promise.all(input.studyInstanceUids.map(async (studyUid) => {
+        try {
+          await assertDicomFileAccess(ctx.user, studyUid, "view_studies");
+          return studyUid;
+        } catch {
+          return null;
+        }
+      }));
+      const allowedStudyUids = access.filter((studyUid): studyUid is string => studyUid !== null);
+      if (!allowedStudyUids.length) return result;
+
       const db = await getDb();
-      if (!db) return {} as Record<string, boolean>;
+      if (!db) return result;
       const rows = await db
         .select({ study_instance_uid: study_attachments.study_instance_uid })
         .from(study_attachments)
-        .where(inArray(study_attachments.study_instance_uid, input.studyInstanceUids));
-      const result: Record<string, boolean> = {};
-      for (const uid of input.studyInstanceUids) result[uid] = false;
+        .where(inArray(study_attachments.study_instance_uid, allowedStudyUids));
       for (const row of rows) {
         if (row.study_instance_uid) result[row.study_instance_uid] = true;
       }
@@ -102,12 +117,12 @@ export const annotationsRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const unitId = await assertDicomFileAccess(ctx.user, input.study_instance_uid, "view_studies");
 
       const matches = input.file_data.match(/^data:(.+);base64,(.+)$/);
       if (!matches) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Formato base64 inválido" });
       }
-      const mimeType = matches[1];
       const base64Data = matches[2];
       const buffer = Buffer.from(base64Data, "base64");
 
@@ -115,7 +130,12 @@ export const annotationsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo muito grande. Máximo 15MB." });
       }
 
-      const ext = input.file_name.split(".").pop() || "jpg";
+      const mimeType = detectImageMimeType(buffer);
+      if (!mimeType) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Formato de anexo inválido. Envie uma imagem PNG, JPEG, GIF ou WebP real." });
+      }
+
+      const ext = extensionForMediaMimeType(mimeType);
       const safeName = `attachment_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
       const relKey = `attachments/${input.study_instance_uid}/${safeName}`;
 
@@ -123,7 +143,7 @@ export const annotationsRouter = router({
 
       await db.insert(study_attachments).values({
         study_instance_uid: input.study_instance_uid,
-        unit_id: input.unit_id || ctx.user.unit_id || null,
+        unit_id: unitId,
         user_id: ctx.user.id,
         file_url: url,
         file_name: input.file_name,
@@ -136,7 +156,7 @@ export const annotationsRouter = router({
   /** Remove um anexo */
   deleteAttachment: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -146,6 +166,7 @@ export const annotationsRouter = router({
         .where(eq(study_attachments.id, input.id));
 
       if (row) {
+        await assertDicomFileAccess(ctx.user, row.study_instance_uid, "view_studies");
         try {
           await storageDelete(row.file_url);
         } catch (error) {

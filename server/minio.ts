@@ -115,11 +115,6 @@ export async function minioDelete(key: string): Promise<void> {
  * Lê um objeto privado para que a VM1 possa entregá-lo ao navegador sem
  * expor a rota privada da VM3 ao dispositivo do usuário.
  */
-export async function minioGetObject(key: string): Promise<{
-  stream: NodeJS.ReadableStream;
-  contentType?: string;
-  size?: number;
-}>;
 export async function minioGetObject(
   key: string,
   range?: { offset: number; length: number },

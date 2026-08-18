@@ -6,6 +6,8 @@ import { eq, inArray, desc } from "drizzle-orm";
 import { storagePut, storageDelete } from "../storage";
 import { toProxyUrl } from "../mediaProxy";
 import { TRPCError } from "@trpc/server";
+import { assertDicomFileAccess } from "../authorization";
+import { detectAudioMimeType, extensionForMediaMimeType } from "../routerUtils";
 
 async function resolveAudioUrl(reference: string | null): Promise<string | null> {
   if (!reference) return null;
@@ -15,7 +17,8 @@ export const audioReportsRouter = router({
   /** Lista áudios gravados de um estudo */
   list: protectedProcedure
     .input(z.object({ study_instance_uid: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await assertDicomFileAccess(ctx.user, input.study_instance_uid, "view_studies");
       const db = await getDb();
       if (!db) return [];
       const rows = await db
@@ -32,16 +35,28 @@ export const audioReportsRouter = router({
   /** Retorna quais UIDs possuem áudios cadastrados (para listagem PACS) */
   getStatusBatch: protectedProcedure
     .input(z.object({ studyInstanceUids: z.array(z.string()) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       if (!input.studyInstanceUids.length) return {} as Record<string, boolean>;
+      const result: Record<string, boolean> = {};
+      for (const uid of input.studyInstanceUids) result[uid] = false;
+
+      const access = await Promise.all(input.studyInstanceUids.map(async (studyUid) => {
+        try {
+          await assertDicomFileAccess(ctx.user, studyUid, "view_studies");
+          return studyUid;
+        } catch {
+          return null;
+        }
+      }));
+      const allowedStudyUids = access.filter((studyUid): studyUid is string => studyUid !== null);
+      if (!allowedStudyUids.length) return result;
+
       const db = await getDb();
-      if (!db) return {} as Record<string, boolean>;
+      if (!db) return result;
       const rows = await db
         .select({ study_instance_uid: study_audio_reports.study_instance_uid })
         .from(study_audio_reports)
-        .where(inArray(study_audio_reports.study_instance_uid, input.studyInstanceUids));
-      const result: Record<string, boolean> = {};
-      for (const uid of input.studyInstanceUids) result[uid] = false;
+        .where(inArray(study_audio_reports.study_instance_uid, allowedStudyUids));
       for (const row of rows) {
         if (row.study_instance_uid) result[row.study_instance_uid] = true;
       }
@@ -62,12 +77,12 @@ export const audioReportsRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const unitId = await assertDicomFileAccess(ctx.user, input.study_instance_uid, "view_studies");
 
       const matches = input.file_data.match(/^data:(.+);base64,(.+)$/);
       if (!matches) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Formato de áudio base64 inválido" });
       }
-      const mimeType = matches[1];
       const base64Data = matches[2];
       const buffer = Buffer.from(base64Data, "base64");
 
@@ -75,7 +90,12 @@ export const audioReportsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Áudio muito grande. Máximo 25MB." });
       }
 
-      const ext = input.file_name.split(".").pop() || "webm";
+      const mimeType = detectAudioMimeType(buffer);
+      if (!mimeType) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Formato de áudio inválido. Envie MP3, WAV, OGG ou WEBM reais." });
+      }
+
+      const ext = extensionForMediaMimeType(mimeType);
       const safeName = `audio_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
       const relKey = `audio_reports/${input.study_instance_uid}/${safeName}`;
 
@@ -83,7 +103,7 @@ export const audioReportsRouter = router({
 
       await db.insert(study_audio_reports).values({
         study_instance_uid: input.study_instance_uid,
-        unit_id: input.unit_id || ctx.user.unit_id || null,
+        unit_id: unitId,
         user_id: ctx.user.id,
         file_url: url,
         file_key: relKey,
@@ -98,7 +118,7 @@ export const audioReportsRouter = router({
   /** Remove um áudio gravado */
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -112,6 +132,7 @@ export const audioReportsRouter = router({
       }
 
       const record = rows[0];
+      await assertDicomFileAccess(ctx.user, record.study_instance_uid, "view_studies");
       try {
         await storageDelete(record.file_url || record.file_key);
       } catch (_) {}

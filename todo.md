@@ -1924,6 +1924,12 @@
 - [x] Corrigir a largura, o alinhamento e o espaçamento do player de áudio em telas móveis estreitas
 - [x] Corrigir a URL ou rota WADO entregue ao Horos para eliminar a resposta HTTP 404 ao abrir estudos externos
 - [x] Documentar e versionar a validação real do Horos após abertura bem-sucedida do estudo (`docs/VALIDACAO_HOROS_DOWNLOADURL.md`)
+- [x] Auditar e corrigir os achados P0 de isolamento de laudos, permissões, anexos, áudios e validação de conteúdo do relatório Setor Desempenho v2
+- [x] P0: Exigir permissão de unidade para referências privadas no prefixo `laudos/`
+- [x] P0: Restringir o fallback legado de permissões às ações seguras de leitura
+- [x] P0: Validar acesso ao estudo antes de listar, gravar ou excluir áudios e anexos
+- [x] P0: Validar magic bytes e tipos permitidos antes de persistir áudio ou anexo
+- [ ] Coletar diagnóstico somente de leitura de desempenho nas VM1, VM2 e VM3 antes de priorizar otimizações estruturais
 
 > Nota: a VM3 física consta como criada no documento técnico, mas a migração lógica dos fluxos do Portal ainda não foi comprovada; o bucket estava vazio no último registro documentado.
 > Segurança: credenciais do documento devem ser rotacionadas no ambiente real antes da entrada em produção definitiva e nunca devem ser gravadas no código ou em documentação pública.
