@@ -1929,7 +1929,20 @@
 - [x] P0: Restringir o fallback legado de permissões às ações seguras de leitura
 - [x] P0: Validar acesso ao estudo antes de listar, gravar ou excluir áudios e anexos
 - [x] P0: Validar magic bytes e tipos permitidos antes de persistir áudio ou anexo
-- [ ] Coletar diagnóstico somente de leitura de desempenho nas VM1, VM2 e VM3 antes de priorizar otimizações estruturais
+- [x] Coletar diagnóstico somente de leitura de desempenho nas VM1, VM2 e VM3 antes de priorizar otimizações estruturais
+- [ ] Verificar a necessidade do serviço MySQL local ativo na VM1, pois o Portal está configurado para usar a VM2
+- [x] Confirmar a identidade por IP e os serviços ativos das VMs, pois a coleta rotulada como VM2 apresentou MinIO e PostgreSQL além do MySQL
+- [x] Documentar a divergência confirmada: a VM2 (172.16.3.101) executa MySQL, PostgreSQL e MinIO, com portas 9000 e 9001 expostas (`docs/DESATIVACAO_MINIO_RESIDUAL_VM2.md`)
+- [x] Inventariar a VM3 (172.16.3.102) para confirmar RAID, serviços, portas e eventual duplicidade de dados MinIO
+- [ ] Inventariar o MinIO residual ativo na VM2 antes de qualquer desligamento, para preservar possíveis objetos e configurações
+- [ ] Inventariar os objetos dos buckets residuais `db-lauds` e `lauds` na VM2 antes de migrar, restringir portas ou desativar o MinIO
+- [ ] Identificar sem expor segredo a conta raiz configurada no MinIO residual da VM2 para concluir o inventário dos buckets
+- [ ] Confirmar o arquivo e o formato efetivo das variáveis carregadas pelo serviço MinIO residual da VM2 antes de nova autenticação de inventário
+- [x] Executar teste reversível de parada do MinIO residual da VM2 com logs e rollback imediato preparados
+- [x] Desativar permanentemente o serviço MinIO residual da VM2 sem apagar `/data/minio`
+- [x] Remover as regras de firewall da VM2 para as portas residuais 9000 e 9001 após desativar o serviço
+- [x] Documentar o rollback de contingência e consolidar a VM3 como storage MinIO único do Portal (`docs/DESATIVACAO_MINIO_RESIDUAL_VM2.md`)
+- [x] Restringir de forma reversível as portas MinIO 9000 e 9001 da VM2 após a preservação e validação dos dados residuais
 
 > Nota: a VM3 física consta como criada no documento técnico, mas a migração lógica dos fluxos do Portal ainda não foi comprovada; o bucket estava vazio no último registro documentado.
 > Segurança: credenciais do documento devem ser rotacionadas no ambiente real antes da entrada em produção definitiva e nunca devem ser gravadas no código ou em documentação pública.
