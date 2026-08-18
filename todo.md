@@ -1968,3 +1968,35 @@
 - [ ] Investigar somente em leitura a origem e o uso efetivo do PostgreSQL na VM2 antes de considerar qualquer alteração de serviço.
 - [ ] Planejar a renomeação segura dos hostnames da VM1 e VM2, com confirmação de impacto em configurações e serviços antes da execução.
 - [ ] Confirmar a conclusão da ressincronização RAID1 e validar o fluxo completo de laudo, anexo e áudio no bucket da VM3 após o deploy atualizado.
+
+## RADIANT — QUERY/RETRIEVE DIRETO POR PACS (PILOTO)
+
+- [ ] Confirmar com documentação oficial do RadiAnt a sintaxe `radiant://` aplicável a PACS Query/Retrieve e os significados de `paet` e `pstv`.
+- [ ] Corrigir as premissas do guia técnico conforme o código atual, distinguindo o botão RadiAnt de Query/Retrieve do fallback ZIP já existente.
+- [ ] Escolher uma única unidade piloto e registrar IP, porta DICOM, AE Title, suporte a Query/Retrieve e rede autorizada sem expor porta DICOM à internet.
+- [ ] Validar manualmente no computador de um médico que o RadiAnt consulta e recupera um estudo da unidade piloto antes de alterar o Portal.
+- [ ] Implementar no backend o launch RadiAnt por PACS Query/Retrieve somente para unidades explicitamente habilitadas, preservando `assertDicomFileAccess`, auditoria e o fallback ZIP.
+- [ ] Atualizar a mensagem de UX do RadiAnt para informar pré-requisitos de configuração local e disponibilizar o fallback quando o piloto não estiver habilitado.
+- [ ] Cobrir a montagem da URI, autorização por unidade, unidade não habilitada e preservação dos viewers Horos/Weasis/OsiriX com testes Vitest.
+- [ ] Testar no sandbox, documentar a implantação e publicar a integração RadiAnt no GitHub antes de qualquer atualização da VM1.
+- [ ] Validar o piloto com dois estudos autorizados e um estudo bloqueado, sem alterar regras de firewall fora da rede autorizada.
+- [ ] Investigar mecanismo oficialmente suportado pelo RadiAnt para abrir arquivos remotos temporários ou distribuir a configuração PACS de forma centralizada, sem depender de cadastro manual por médico.
+- [ ] Modelar um fluxo em que o Portal autoriza o lançamento e entrega somente referências temporárias, deixando explícito o limite entre sessão web e conexão DICOM do aplicativo desktop.
+- [ ] Comparar o fluxo direto Query/Retrieve com o fluxo de arquivos temporários autenticados segundo segurança, configuração operacional, desempenho e compatibilidade real do RadiAnt.
+- [ ] Projetar um instalador ou script de preparação única para computadores Windows pessoais, sem exigir cadastro manual de PACS pelo médico a cada uso.
+- [ ] Manter Horos como caminho macOS já validado e limitar a integração RadiAnt aos computadores Windows compatíveis.
+- [ ] Definir um identificador AE Title exclusivo por estação Windows sem incluir credenciais ou endereços de PACS no botão do Portal.
+- [x] Projetar o botão "Ativar RadiAnt" como assistente de primeira utilização, com instalação local única e confirmação visual no Windows durante o piloto.
+- [ ] Impedir que uma confirmação de ativação seja forjada pelo navegador, usando desafio temporário vinculado ao usuário e à estação durante o pareamento inicial em uma futura versão assinada.
+- [ ] Definir o consentimento e a documentação de que acesso direto Query/Retrieve permite ao PACS reconhecer a estação fora da sessão do Portal.
+- [x] Validar o uso documentado de `radiantviewer.exe -f` para arquivos DICOM locais e substituir a hipótese não suportada de `DownloadURL` no RadiAnt.
+- [x] Projetar um assistente local do RadiAnt que aceite somente comandos temporários emitidos pelo Portal, baixe o estudo autorizado e o abra por `-f`, sem conhecer o PACS remoto.
+- [x] Vincular cada comando temporário à sessão, ao estudo, à expiração curta e a um único uso, evitando que URLs reutilizadas abram outro exame.
+- [x] Manter o computador Windows sem credenciais, IP ou AE Title dos PACS das unidades, preservando o Portal como único ponto de autorização clínica.
+- [x] Garantir que a ativação e a abertura RadiAnt não leiam, alterem, substituam ou removam o `pacs.xml` e nenhuma configuração hospitalar preexistente.
+- [x] Abrir o estudo exclusivamente como arquivos DICOM temporários locais, sem invocar Query/Retrieve, C-FIND, C-GET ou C-MOVE do RadiAnt.
+- [x] Avaliar o uso do AE Title padrão `RADIANT` e da porta 11112 apenas como destino DICOM, considerando NAT, firewall, IP público e controle por estação.
+- [ ] Documentar por que o padrão de listener RadiAnt não basta para entregar estudos a computadores pessoais externos sem conectividade de retorno segura.
+- [ ] Comparar o modo de listener padrão com o Assistente local, priorizando a preservação da configuração hospitalar e autorização por estudo.
+- [x] Implementar somente o fluxo Assistente RadiAnt com arquivos temporários autorizados nesta rodada, sem alterar Horos, PACS, AE Titles, IPs, portas ou `pacs.xml` existentes.
+- [ ] Preparar um pacote de teste para um computador Windows com RadiAnt já instalado e registrar o resultado antes de ampliar o recurso.

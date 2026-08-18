@@ -30,6 +30,7 @@ import { createContext } from "./context";
 import { storageKeyFromReference, storageUsesMinio } from "../storage";
 import { minioGetObject, minioStatObject } from "../minio";
 import { assertCachedDicomFileAccess } from "../authorization";
+import { buildRadiantAssistantInstaller, createRadiantAssistantTokenStore, RADIANT_ASSISTANT_SCHEME } from "../radiantAssistant";
 import { serveStatic, setupVite } from "./vite";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
@@ -289,6 +290,9 @@ async function startServer() {
   // Usado pelo RadiAnt, Weasis, OsiriX e Horos que não conseguem enviar cookies
   const dicomDlTokens = new Map<string, { filePath: string; expiresAt: number }>();
   const dicomZipTokens = new Map<string, { studyUid: string; expiresAt: number }>();
+  // Tokens exclusivos do Assistente RadiAnt: opacos, vinculados ao estudo/usuário,
+  // expiram em 10 minutos e são consumidos antes da entrega do ZIP.
+  const radiantAssistantTokens = createRadiantAssistantTokenStore();
   // Limpa tokens expirados a cada 10 minutos
   setInterval(() => {
     const now = Date.now();
@@ -298,6 +302,7 @@ async function startServer() {
     Array.from(dicomZipTokens.entries()).forEach(([token, entry]) => {
       if (entry.expiresAt < now) dicomZipTokens.delete(token);
     });
+    radiantAssistantTokens.prune();
   }, 10 * 60 * 1000);
 
   // Rota PÚBLICA: download de arquivo DICOM via token temporário (sem cookie)
@@ -355,6 +360,105 @@ async function startServer() {
     } catch (error) {
       console.error('[DICOM Export Token] Erro:', error);
       if (!res.headersSent) res.status(404).send('Estudo não disponível no cache');
+    }
+  });
+
+  // Instalador por usuário do Assistente RadiAnt. O script registra apenas o
+  // protocolo pacs-radiant:// e não lê nem altera as configurações do RadiAnt.
+  app.get('/api/radiant-assistant/installer', requireAuth, (req, res) => {
+    try {
+      const origin = `${req.protocol}://${req.get('host')}`;
+      const installer = buildRadiantAssistantInstaller(origin);
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="PacsRadiantAssistant.ps1"');
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(installer);
+    } catch (error) {
+      console.error('[RadiAnt Assistant] Falha ao gerar instalador:', error);
+      res.status(500).json({ error: 'Não foi possível preparar o Assistente RadiAnt.' });
+    }
+  });
+
+  // Emite uma URI para o Assistente local somente depois de validar sessão,
+  // unidade e permissão de leitura do estudo.
+  app.get('/api/radiant-assistant-launch/:studyUid', requireAuth, async (req, res) => {
+    const { studyUid } = req.params;
+    if (!studyUid || studyUid.includes('..') || studyUid.includes('/')) {
+      return res.status(400).json({ error: 'Identificador de estudo inválido.' });
+    }
+
+    let unitId: number;
+    try {
+      unitId = await assertCachedDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies');
+    } catch (error: any) {
+      return res.status(403).json({ error: error.message || 'Acesso negado.' });
+    }
+
+    try {
+      const studyCacheDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
+      const orderedRecords = await getOrderedDicomFiles(studyCacheDir);
+      if (orderedRecords.length === 0) {
+        return res.status(404).json({ error: 'Nenhuma imagem no cache. Abra o visualizador primeiro.' });
+      }
+
+      const user = (req as any).dicomUser;
+      const { token, expiresAt } = radiantAssistantTokens.issue({ studyUid, userId: user.id });
+      const { createAuditLog } = await import('../db');
+      void createAuditLog({
+        user_id: user.id,
+        unit_id: unitId,
+        action: 'OPEN_VIEWER',
+        target_type: 'study',
+        target_id: studyUid,
+        ip_address: req.ip,
+        user_agent: req.get('user-agent') || null,
+        metadata: { viewer: 'radiant-assistant', delivery: 'temporary-local-files', expiresAt },
+      });
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        launchUrl: `${RADIANT_ASSISTANT_SCHEME}://open/${token}`,
+        fileCount: orderedRecords.length,
+        expiresAt,
+        viewer: 'radiant-assistant',
+      });
+    } catch (error) {
+      console.error('[RadiAnt Assistant] Falha ao emitir launch:', error);
+      res.status(500).json({ error: 'Não foi possível preparar o estudo para o RadiAnt.' });
+    }
+  });
+
+  // Rota sem cookie para o Assistente local. O token opaco é consumido antes
+  // de iniciar a resposta, impedindo reutilização por navegador ou outro processo.
+  app.get('/api/radiant-assistant-download/:token', async (req, res) => {
+    const entry = radiantAssistantTokens.consume(req.params.token);
+    if (!entry) return res.status(410).send('Token RadiAnt expirado, inválido ou já utilizado.');
+
+    try {
+      const studyCacheDir = `${DICOM_CACHE_ROOT}/${entry.studyUid}`;
+      const orderedRecords = await getOrderedDicomFiles(studyCacheDir);
+      const dicomFiles = orderedRecords.map(record => record.fileName);
+      if (dicomFiles.length === 0) return res.status(404).send('Nenhuma imagem no cache.');
+
+      const archiver = (await import('archiver')).default;
+      const archive = archiver('zip', { zlib: { level: 1 } });
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', 'attachment; filename="radiant-study.zip"');
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Accel-Buffering', 'no');
+      archive.on('error', (error) => {
+        console.error('[RadiAnt Assistant] Falha ao gerar ZIP temporário:', error);
+        if (!res.headersSent) res.status(500).end();
+      });
+      archive.pipe(res);
+      for (const fileName of dicomFiles) {
+        archive.file(path.join(studyCacheDir, fileName), { name: fileName });
+      }
+      await archive.finalize();
+      console.log(`[RadiAnt Assistant] Estudo temporário entregue | ${entry.studyUid} | ${dicomFiles.length} arquivos`);
+    } catch (error) {
+      console.error('[RadiAnt Assistant] Falha ao entregar estudo temporário:', error);
+      if (!res.headersSent) res.status(404).send('Estudo não disponível no cache.');
     }
   });
 
@@ -1117,9 +1221,8 @@ async function startServer() {
     }
   });
 
-  // ─── Endpoint: gerar URL de launch para viewers externos (RadiAnt, Weasis, OsiriX, Horos) ──────────
+  // ─── Endpoint: gerar URL de launch para viewers externos (Weasis, OsiriX, Horos) ────────────────────
   // Sem dependência de PACS configurado: usa URLs diretas dos arquivos no cache do servidor.
-  // RadiAnt: radiant://?n=f&v="url1"&v="url2"... (abre arquivos remotos diretamente)
   // Weasis:  weasis://?$dicom:get -r "url1" -r "url2"... (abre arquivos remotos)
   // OsiriX:  osirix://?methodName=DownloadURL&URL=<zip>&Display=YES
   // Horos:   horos://?methodName=DownloadURL&URL=<zip>&Display=YES
@@ -1147,6 +1250,11 @@ async function startServer() {
       if (files.length === 0) {
         return res.status(404).json({ error: 'Nenhuma imagem no cache. Abra o visualizador primeiro.' });
       }
+      if (viewer === 'radiant') {
+        return res.status(409).json({
+          error: 'O RadiAnt usa o Assistente local. Atualize a página e clique em “Ativar RadiAnt” antes de abrir o estudo.',
+        });
+      }
       // Gera tokens temporários (2h) para cada arquivo DICOM
       // Necessário porque RadiAnt/Weasis não conseguem enviar cookies de sessão
       const origin = `${req.protocol}://${req.get('host')}`;
@@ -1158,14 +1266,7 @@ async function startServer() {
         return `${origin}/api/dicom-dl/${token}`;
       });
       let launchUrl = '';
-      if (viewer === 'radiant') {
-        // RadiAnt suporta o mesmo método DownloadURL via ZIP que o Horos/OsiriX
-        // Isso baixa o ZIP de forma transparente em background e abre o estudo completo sem exigir arquivos locais manuais
-        const zipToken = crypto.randomBytes(24).toString('hex');
-        dicomZipTokens.set(zipToken, { studyUid, expiresAt });
-        const zipUrl = `${origin}/api/dicom-export-dl/${zipToken}`;
-        launchUrl = `radiant://?methodName=DownloadURL&URL=${encodeURIComponent(zipUrl)}&Display=YES`;
-      } else if (viewer === 'weasis') {
+      if (viewer === 'weasis') {
         // weasis://?$dicom:get -r "url1" -r "url2"...
         const args = fileUrls.map((u: string) => `-r "${u}"`).join(' ');
         const cmd = `$dicom:get ${args}`;

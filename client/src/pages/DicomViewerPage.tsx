@@ -109,6 +109,7 @@ export function DicomViewerPage() {
   const [wl, setWl] = useState<{ ww: number; wc: number } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [launchingViewer, setLaunchingViewer] = useState<string | null>(null);
+  const [isActivatingRadiant, setIsActivatingRadiant] = useState(false);
   const [pacsAeTitle, setPacsAeTitle] = useState<string>("DPACS");
 
   // ─── Cine (Play automático) ───────────────────────────────────────────────
@@ -933,13 +934,13 @@ export function DicomViewerPage() {
       viewport.render();
     } catch (_) {}
   };
-    // ─── Viewers externos (RadiAnt, Weasis, OsiriX, Horos) ─────────────────────────────────────────────────────────────────
+  // ─── Viewers externos (Weasis, OsiriX, Horos) ────────────────────────────────────────────────────────────────────────────
   // Usa URLs diretas dos arquivos no cache do servidor — sem PACS configurado no cliente.
-  // RadiAnt: radiant://?n=f&v="url"... | Weasis: weasis://?$dicom:get -r "url"...
+  // Weasis:  weasis://?$dicom:get -r "url"...
   // OsiriX:  osirix://?methodName=DownloadURL&URL=<zip>&Display=YES (macOS)
   // Horos:   horos://?methodName=DownloadURL&URL=<zip>&Display=YES  (macOS, gratuito)
-  const viewerLabels: Record<string, string> = { radiant: 'RadiAnt', weasis: 'Weasis', osirix: 'OsiriX', horos: 'Horos' };
-  const handleOpenViewer = async (viewer: 'radiant' | 'weasis' | 'osirix' | 'horos') => {
+  const viewerLabels: Record<string, string> = { weasis: 'Weasis', osirix: 'OsiriX', horos: 'Horos' };
+  const handleOpenViewer = async (viewer: 'weasis' | 'osirix' | 'horos') => {
     if (!studyUid || launchingViewer) return;
     setLaunchingViewer(viewer);
     try {
@@ -963,42 +964,50 @@ export function DicomViewerPage() {
       setLaunchingViewer(null);
     }
   };
-  // RadiAnt abre ZIPs DICOM nativamente — baixar o ZIP é a única forma sem configurar PACS no cliente
+  // RadiAnt: usa o Assistente local para baixar somente o estudo autorizado e
+  // abrir os arquivos temporários sem tocar no PACS configurado pelo médico.
   const handleOpenRadiant = async () => {
     if (!studyUid || launchingViewer) return;
     setLaunchingViewer('radiant');
     try {
-      toast.info('Preparando ZIP para o RadiAnt...', {
-        description: 'O arquivo será baixado. Abra-o com o RadiAnt DICOM Viewer.',
-        duration: 6000,
-      });
-      const resp = await fetch(`/api/dicom-export/${studyUid}`);
+      const resp = await fetch(`/api/radiant-assistant-launch/${studyUid}`);
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
-        toast.error('Erro ao gerar ZIP para RadiAnt', {
+        toast.error('Não foi possível abrir no RadiAnt', {
           description: errData.error || 'Certifique-se de que o estudo está carregado no visualizador primeiro.',
           duration: 8000,
         });
         return;
       }
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      // Nome com extensão .zip para o Windows associar ao RadiAnt automaticamente
-      a.download = `estudo_dicom_${studyUid.slice(-12)}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success('ZIP baixado!', {
-        description: 'Abra o arquivo baixado com o RadiAnt DICOM Viewer. Dica: marque "Sempre abrir com RadiAnt" para facilitar próximas vezes.',
-        duration: 10000,
+      const data = await resp.json();
+      window.location.href = data.launchUrl;
+      toast.success('RadiAnt acionado', {
+        description: `${data.fileCount} imagens serão abertas pelo Assistente, sem alterar a configuração PACS existente.`,
+        duration: 8000,
       });
     } catch (err: any) {
       toast.error('Erro ao abrir no RadiAnt', { description: err.message });
     } finally {
       setLaunchingViewer(null);
+    }
+  };
+
+  const handleActivateRadiant = () => {
+    if (isActivatingRadiant) return;
+    setIsActivatingRadiant(true);
+    try {
+      const anchor = document.createElement('a');
+      anchor.href = '/api/radiant-assistant/installer';
+      anchor.download = 'PacsRadiantAssistant.ps1';
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      toast.info('Preparador RadiAnt baixado', {
+        description: 'No Windows, execute o arquivo baixado uma única vez. Ele não modifica o PACS, IP, porta, AE Title ou configurações já existentes no RadiAnt.',
+        duration: 12000,
+      });
+    } finally {
+      setIsActivatingRadiant(false);
     }
   };
 
@@ -1182,14 +1191,25 @@ export function DicomViewerPage() {
             )}
             Exportar ZIP
           </Button>
-          {/* Viewers externos: RadiAnt, Weasis, OsiriX, Horos */}
+          {/* Assistente RadiAnt: entrega local temporária, sem alterar configuração PACS existente */}
           <Button
             variant="outline"
             size="sm"
-            onClick={() => handleOpenViewer('radiant')}
+            onClick={handleActivateRadiant}
+            disabled={isActivatingRadiant}
+            className="text-xs border-cyan-700 text-cyan-300 hover:bg-cyan-900/40 h-7 px-2"
+            title="Preparar uma única vez o Assistente RadiAnt neste computador Windows"
+          >
+            {isActivatingRadiant ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ExternalLink className="h-3 w-3 mr-1" />}
+            Ativar RadiAnt
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleOpenRadiant}
             disabled={!!launchingViewer || imageCount === 0}
             className="text-xs border-blue-700 text-blue-400 hover:bg-blue-900/40 h-7 px-2"
-            title="Abrir no RadiAnt DICOM Viewer (Windows) via protocolo radiant://"
+            title="Abrir o estudo autorizado no RadiAnt sem modificar a configuração PACS existente"
           >
             {launchingViewer === 'radiant' ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ExternalLink className="h-3 w-3 mr-1" />}
             RadiAnt
