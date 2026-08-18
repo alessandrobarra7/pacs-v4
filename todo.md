@@ -1996,25 +1996,25 @@
 - [x] Garantir que a ativação e a abertura RadiAnt não leiam, alterem, substituam ou removam o `pacs.xml` e nenhuma configuração hospitalar preexistente.
 - [x] Abrir o estudo exclusivamente como arquivos DICOM temporários locais, sem invocar Query/Retrieve, C-FIND, C-GET ou C-MOVE do RadiAnt.
 - [x] Avaliar o uso do AE Title padrão `RADIANT` e da porta 11112 apenas como destino DICOM, considerando NAT, firewall, IP público e controle por estação.
-- [ ] Documentar por que o padrão de listener RadiAnt não basta para entregar estudos a computadores pessoais externos sem conectividade de retorno segura.
-- [ ] Comparar o modo de listener padrão com o Assistente local, priorizando a preservação da configuração hospitalar e autorização por estudo.
+- [x] Documentar por que o padrão de listener RadiAnt não basta para entregar estudos a computadores pessoais externos sem conectividade de retorno segura.
+- [x] Comparar o modo de listener padrão com o Assistente local, priorizando a preservação da configuração hospitalar e autorização por estudo.
 - [x] Implementar somente o fluxo Assistente RadiAnt com arquivos temporários autorizados nesta rodada, sem alterar Horos, PACS, AE Titles, IPs, portas ou `pacs.xml` existentes.
-- [ ] Preparar um pacote de teste para um computador Windows com RadiAnt já instalado e registrar o resultado antes de ampliar o recurso.
+- [x] Preparar um pacote de teste para um computador Windows com RadiAnt já instalado e registrar o resultado antes de ampliar o recurso.
 - [x] Remover PowerShell e arquivos `.ps1` da experiência de ativação apresentada a usuários finais.
 - [x] Produzir um instalador visual do Assistente RadiAnt, com associação de protocolo local e abertura pelo Windows sem comandos manuais.
 - [ ] Definir e aplicar assinatura de código antes de distribuição ampla do instalador Windows.
 - [x] Exibir no Portal somente a abertura padrão do Windows após a instalação única, sem instruções técnicas para médicos.
 - [x] Corrigir o download bloqueado do instalador `.exe` no navegador, substituindo o redirecionamento externo por entrega compatível pelo mesmo domínio do Portal.
-- [ ] Validar no navegador Windows que o instalador visual é baixado integralmente antes de repetir a ativação RadiAnt.
+- [x] Validar no navegador Windows que o instalador visual é baixado integralmente antes de repetir a ativação RadiAnt.
 - [x] Verificar na VM1 a origem HTTP/HTTPS, os cabeçalhos e o status da resposta do instalador antes de alterar novamente o Portal.
-- [ ] Corrigir qualquer bloqueio de download inseguro ou incompatível do navegador sem solicitar que médicos desativem proteções locais.
+- [x] Corrigir qualquer bloqueio de download inseguro ou incompatível do navegador sem solicitar que médicos desativem proteções locais.
 - [x] Produzir e versionar relatório de auditoria externa sobre a arquitetura RadiAnt, o piloto executado, os bloqueios de download e as recomendações de correção.
-- [ ] Substituir a busca de instalador pelo storage de desenvolvimento, indisponível na VM1, por artefato local controlado com checksum e entrega autenticada.
-- [ ] Atualizar o relatório de auditoria com a causa raiz confirmada `Storage proxy not configured` e a estratégia de correção local da VM1.
-- [ ] Validar o checksum SHA-256 do instalador baixado no Windows piloto antes de qualquer execução controlada.
+- [x] Substituir a busca de instalador pelo storage de desenvolvimento, indisponível na VM1, por artefato local controlado com checksum e entrega autenticada.
+- [x] Atualizar o relatório de auditoria com a causa raiz confirmada `Storage proxy not configured` e a estratégia de correção local da VM1.
+- [x] Validar o checksum SHA-256 do instalador baixado no Windows piloto antes de qualquer execução controlada.
 - [ ] Registrar que o aviso do Chrome decorre de instalador não assinado e bloquear a distribuição ampla até obtenção de assinatura de código.
 - [x] Localizar o caminho real do executável RadiAnt no computador piloto e ampliar a detecção do Assistente sem modificar configurações locais.
-- [ ] Validar que a ativação identifica o RadiAnt existente antes de testar a abertura do estudo temporário.
+- [x] Validar que a ativação identifica o RadiAnt existente antes de testar a abertura do estudo temporário.
 - [x] Incluir o caminho padrão validado `C:\Program Files\RadiAntViewer64bit\RadiAntViewer.exe` na detecção do Assistente RadiAnt.
-- [ ] Corrigir o instalador para encerrar somente `PacsRadiantAssistant.exe` antes de atualizar arquivos bloqueados, sem interromper `RadiAntViewer.exe`.
-- [ ] Validar no Windows piloto que a atualização substitui o Assistente antigo sem interrupção do RadiAnt existente.
+- [x] Corrigir o instalador para encerrar somente `PacsRadiantAssistant.exe` antes de atualizar arquivos bloqueados, sem interromper `RadiAntViewer.exe`.
+- [x] Validar no Windows piloto que a atualização substitui o Assistente antigo sem interrupção do RadiAnt existente.

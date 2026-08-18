@@ -123,6 +123,14 @@ Ao substituir a primeira versão pelo instalador corrigido, o instalador reporto
 
 O instalador foi ajustado para encerrar exclusivamente o processo `PacsRadiantAssistant.exe` antes de gravar a atualização e aguardar sua finalização. A regra de regressão impede a inclusão de comando para encerrar `RadiAntViewer.exe`. A próxima versão de piloto deve validar a substituição automática do Assistente e, em seguida, a identificação do RadiAnt existente.
 
+## 14. Resultado final do piloto controlado
+
+O piloto foi concluído com sucesso em 18/08/2026. A versão atualizada do Assistente substituiu a versão anterior sem bloquear arquivos, o navegador solicitou a autorização padrão para abrir o protocolo `pacs-radiant://` e o RadiAnt existente abriu as imagens do estudo autorizado. A evidência visual confirmou que a configuração hospitalar preexistente do RadiAnt permaneceu operacional durante todo o processo.
+
+O fluxo validado foi: autorização no Portal, emissão de token temporário de uso único, abertura do Assistente local pelo protocolo registrado, download temporário do estudo autorizado e abertura da pasta no RadiAnt. Não foram fornecidos ao computador externo IP, porta, AE Title, credenciais ou configuração de PACS; também não foram usados Query/Retrieve, C-FIND, C-GET ou C-MOVE.
+
+> A validação é restrita ao computador piloto e não autoriza distribuição ampla enquanto o instalador permanecer sem assinatura de código.
+
 ## Referências
 
 1. [RadiAnt DICOM Viewer — Command-line arguments](https://www.radiantviewer.com/dicom-viewer-manual/command-line_arguments.html)
