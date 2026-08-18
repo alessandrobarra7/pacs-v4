@@ -2036,3 +2036,18 @@
 - [x] Documentar a custódia de chave individual em token/HSM ou serviço gerenciado e proibir armazenamento em GitHub e nas VMs.
 - [ ] Preparar a assinatura SHA-256 com carimbo de tempo RFC 3161 dos binários do Assistente e do instalador final.
 - [x] Documentar a futura migração do certificado individual para certificado organizacional quando houver entidade empresarial formalizada.
+
+## IMPLEMENTAÇÃO EFETIVA DA CONFIANÇA WINDOWS — ASSISTENTE RADIANT
+
+- [ ] Selecionar emissor de certificado IV que confirme elegibilidade de pessoa física residente no Brasil e assinatura Authenticode pública.
+- [ ] Concluir fora do projeto a validação individual e a contratação de custódia não exportável para a chave de assinatura.
+- [ ] Integrar o certificado emitido ao processo controlado de assinatura do Assistente e do instalador, com SHA-256 e RFC 3161.
+- [ ] Substituir na VM1 somente o instalador cuja assinatura digital e hash tenham sido verificados.
+- [ ] Validar em Windows limpo o publicador individual, a integridade do instalador e o comportamento SmartScreen antes de ampliar a distribuição.
+
+## RECONCILIAÇÃO DA AUDITORIA EXTERNA V8 — 18/08/2026
+
+- [x] Reconciliar as afirmações da auditoria externa v8 com o código, o estado de deploy da VM1 e a infraestrutura real das três VMs.
+- [ ] Decidir a política de permissão para exclusão de áudios e anexos clínicos, separando leitura de exclusão quando aplicável.
+- [ ] Remover ou proteger explicitamente o módulo legado `storageProxy` antes de qualquer eventual reativação.
+- [ ] Priorizar os gargalos remanescentes de desempenho e as pendências de infraestrutura confirmadas pela auditoria.
