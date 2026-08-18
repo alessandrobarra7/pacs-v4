@@ -2018,3 +2018,12 @@
 - [x] Incluir o caminho padrão validado `C:\Program Files\RadiAntViewer64bit\RadiAntViewer.exe` na detecção do Assistente RadiAnt.
 - [x] Corrigir o instalador para encerrar somente `PacsRadiantAssistant.exe` antes de atualizar arquivos bloqueados, sem interromper `RadiAntViewer.exe`.
 - [x] Validar no Windows piloto que a atualização substitui o Assistente antigo sem interrupção do RadiAnt existente.
+
+## CONFIANÇA WINDOWS E ASSINATURA DE CÓDIGO — DISTRIBUIÇÃO COMERCIAL RADIANT
+
+- [x] Distinguir o aviso de abertura do protocolo local do alerta de reputação do executável e registrar os controles aplicáveis a cada um.
+- [x] Comparar certificados de assinatura de código OV e EV, incluindo o impacto esperado na confiança inicial do Microsoft SmartScreen.
+- [ ] Definir a entidade legal, o domínio oficial e os dados de validação que devem constar no certificado de assinatura do Assistente RadiAnt.
+- [x] Documentar o procedimento de aquisição, custódia de chave, assinatura, carimbo de tempo e validação do instalador Windows.
+- [ ] Preparar o pipeline de release para assinar, verificar e publicar somente artefatos com assinatura de código válida.
+- [ ] Validar em computador Windows limpo a identificação do publicador e a ausência de alerta de editor desconhecido antes de distribuição ampla.
