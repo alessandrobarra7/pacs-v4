@@ -68,36 +68,48 @@ O contexto visual do teste indica acesso ao Portal por endereço IP/porta em HTT
 
 Não se recomenda desativar Safe Browsing, políticas corporativas, antivírus ou proteções do navegador para contornar o problema. A correção deve ocorrer na origem e na distribuição do arquivo.
 
-## 7. Causa ainda não concluída
+## 7. Causa raiz confirmada
 
-Até a emissão deste relatório, a causa raiz do bloqueio ainda não está comprovada. As hipóteses em investigação são apresentadas abaixo em ordem de prioridade.
+A coleta de evidências na VM1 confirmou a causa raiz. O processo do Portal não possui as variáveis `BUILT_IN_FORGE_API_URL` e `BUILT_IN_FORGE_API_KEY`, e, durante o clique em **Ativar RadiAnt**, o log registrou:
 
-| Hipótese | Evidência atual | Como confirmar sem risco |
+```text
+[StorageProxy] installer download failed: Error: Storage proxy not configured
+```
+
+Logo, o endpoint autenticado não conseguia obter o instalador hospedado no armazenamento do ambiente de desenvolvimento. O navegador recebia uma resposta de erro durante o download e mostrava uma mensagem genérica. O domínio HTTPS, o certificado e a reversão HTTP para HTTPS foram validados na VM1 e não são a causa raiz deste incidente.
+
+| Hipótese | Status | Evidência |
 |---|---|---|
-| Portal acessado por HTTP/IP em vez de HTTPS/domínio | Indício visual no navegador e natureza do arquivo `.exe`. | Inspecionar URL efetiva, Nginx, portas 80/443 e resposta HTTPS na VM1. |
-| Política de download do navegador ou organização | A mensagem do navegador menciona contato com organização. | Verificar política local do browser e eventos de download, sem desabilitar controles. |
-| Cabeçalhos ou resposta interrompida no proxy | O endpoint foi alterado de redirecionamento para streaming, mas a falha persistiu. | Capturar status, `Content-Length`, `Content-Disposition`, cadeia de proxy e logs Nginx/PM2. |
-| Ausência de assinatura de código | O instalador é de piloto e não está assinado. | Verificar se o arquivo chega ao disco; se chegar, observar SmartScreen separadamente. |
+| Portal acessado por HTTP/IP em vez de HTTPS | Descartada como causa raiz | `https://lauds.com.br` respondeu HTTP 200 e HTTP redirecionou para HTTPS. |
+| Política de download do navegador ou organização | Não confirmada | Pode ser reavaliada apenas se persistir após a entrega local válida. |
+| Proxy de storage sem configuração na VM1 | **Confirmada** | Ausência das variáveis necessárias e log técnico explícito. |
+| Ausência de assinatura de código | Pendente | Continua relevante para distribuição ampla, porém não explica a falha antes de o arquivo chegar ao Windows. |
 
-## 8. Recomendações de correção
+## 8. Estratégia de correção local da VM1
+
+O instalador será publicado como **asset versionado de release** no repositório GitHub. A VM1 receberá o artefato por um script de provisionamento versionado (`scripts/provision-radiant-assistant.sh`), que baixa somente por HTTPS, valida SHA-256 e instala o arquivo fora do diretório da aplicação em `/var/lib/pacs-radiant-assistant/`.
+
+O endpoint autenticado do Portal transmitirá então esse arquivo local para o navegador com `Content-Disposition: attachment`, `Content-Length` e checksum em cabeçalho. A VM1 não dependerá do storage de desenvolvimento, e o instalador continuará fora do repositório de produção e fora de `dist/`.
+
+## 9. Recomendações de correção
 
 | Prioridade | Recomendação | Critério de aceite |
 |---|---|---|
-| P0 | Servir o Portal e o instalador por domínio HTTPS confiável, sem acesso do usuário final via IP/porta HTTP. | O navegador apresenta download normal de `.exe` sem falha de rede. |
-| P0 | Coletar cabeçalhos HTTP e logs da VM1 para distinguir bloqueio do browser, Nginx ou aplicação. | Status, tamanho e `Content-Disposition` documentados e coerentes. |
+| P0 | Provisionar o asset de release localmente na VM1 e validar SHA-256 antes de liberá-lo pelo endpoint autenticado. | O endpoint retorna o arquivo local com tamanho e checksum esperados. |
+| P0 | Manter o Portal e a entrega do instalador por domínio HTTPS confiável, sem orientar uso de IP/porta HTTP ao usuário final. | O navegador apresenta download normal de `.exe` sem falha de rede. |
 | P1 | Aplicar certificado de assinatura de código ao instalador Windows antes da distribuição ampla. | Arquivo assinado e verificável nas propriedades do Windows. |
 | P1 | Manter o instalador como arquivo de primeira utilização e o esquema `pacs-radiant://` como fluxo diário. | Após instalar uma vez, o médico só confirma a janela padrão de abertura do Windows. |
 | P2 | Adicionar confirmação de ativação vinculada a dispositivo e telemetria técnica sem dados clínicos. | O Portal diferencia instalação concluída, URI ausente e falha de abertura. |
 
-## 9. Limites e itens excluídos
+## 10. Limites e itens excluídos
 
 Este piloto não altera a integração Horos para macOS e não habilita acesso DICOM direto do RadiAnt ao PACS. Também não configura listener, porta 11112, AE Title padrão, VPN, firewall, NAT ou PACS locations no computador do médico.
 
 O teste completo de usuário final permanece pendente até que o download do instalador seja concluído com sucesso em Windows. Nenhuma conclusão de produção deve ser emitida antes desse aceite.
 
-## 10. Evidências solicitadas à VM1
+## 11. Evidências de aceite solicitadas à VM1
 
-Para fechar a causa raiz, a auditoria deve coletar em modo somente leitura: portas expostas, estado do Nginx, resposta local do endpoint do instalador, resposta HTTPS/HTTP do domínio público e configuração de reverse proxy. Não devem ser incluídos `.env`, cookies de sessão, tokens temporários, nomes de pacientes ou arquivos DICOM.
+Após o provisionamento local, a auditoria deve registrar: checksum do artefato, permissões do arquivo em `/var/lib/pacs-radiant-assistant/`, status HTTP e cabeçalhos da resposta autenticada, além do resultado do download em Windows. Não devem ser incluídos `.env`, cookies de sessão, tokens temporários, nomes de pacientes ou arquivos DICOM.
 
 ## Referências
 

@@ -21,6 +21,8 @@ describe("Integração RadiAnt por Assistente local", () => {
 
   it("expõe ativação e launch RadiAnt no visualizador sem remover Horos", () => {
     expect(viewerSource).toContain("/api/radiant-assistant-installer");
+    expect(serverSource).toContain("streamRadiantInstaller(res)");
+    expect(serverSource).not.toContain("streamStorageDownload(");
     expect(viewerSource).toContain("/api/radiant-assistant-launch/${studyUid}");
     expect(viewerSource).toContain("Ativar RadiAnt");
     expect(viewerSource).toContain("handleOpenViewer('horos')");

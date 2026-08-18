@@ -2009,3 +2009,5 @@
 - [ ] Verificar na VM1 a origem HTTP/HTTPS, os cabeçalhos e o status da resposta do instalador antes de alterar novamente o Portal.
 - [ ] Corrigir qualquer bloqueio de download inseguro ou incompatível do navegador sem solicitar que médicos desativem proteções locais.
 - [x] Produzir e versionar relatório de auditoria externa sobre a arquitetura RadiAnt, o piloto executado, os bloqueios de download e as recomendações de correção.
+- [ ] Substituir a busca de instalador pelo storage de desenvolvimento, indisponível na VM1, por artefato local controlado com checksum e entrega autenticada.
+- [ ] Atualizar o relatório de auditoria com a causa raiz confirmada `Storage proxy not configured` e a estratégia de correção local da VM1.

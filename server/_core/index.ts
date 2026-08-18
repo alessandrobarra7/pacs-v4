@@ -25,13 +25,13 @@ import net from "net";
 import crypto from "crypto";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
-import { registerStorageProxy, streamStorageDownload } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { storageKeyFromReference, storageUsesMinio } from "../storage";
 import { minioGetObject, minioStatObject } from "../minio";
 import { assertCachedDicomFileAccess } from "../authorization";
 import { createRadiantAssistantTokenStore, RADIANT_ASSISTANT_SCHEME } from "../radiantAssistant";
+import { streamRadiantInstaller } from "../radiantInstaller";
 import { serveStatic, setupVite } from "./vite";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
@@ -259,16 +259,11 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  registerStorageProxy(app);
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
 
   app.get('/api/radiant-assistant-installer', requireAuth, async (_req, res) => {
-    await streamStorageDownload(
-      res,
-      'PacsRadiantAssistantSetup-win64_43a8098a.exe',
-      'PacsRadiantAssistantSetup.exe',
-    );
+    await streamRadiantInstaller(res);
   });
   
   const DICOM_CACHE_ROOT = '/tmp/dicom-cache';
