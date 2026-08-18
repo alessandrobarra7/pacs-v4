@@ -18,6 +18,36 @@ type MinioRuntimeConfig = {
 let cachedClient: Minio.Client | null = null;
 let cachedFingerprint = "";
 
+type CachedBucketExistence = {
+  exists: boolean;
+  expiresAt: number;
+};
+
+export function createMinioBucketExistenceCache(
+  options: { ttlMs?: number; now?: () => number } = {},
+) {
+  const ttlMs = options.ttlMs ?? 5 * 60_000;
+  const now = options.now ?? Date.now;
+  const entries = new Map<string, CachedBucketExistence>();
+
+  return {
+    async getOrLoad(cacheKey: string, loader: () => Promise<boolean>): Promise<boolean> {
+      const timestamp = now();
+      const cached = entries.get(cacheKey);
+      if (cached && cached.expiresAt > timestamp) return cached.exists;
+
+      const exists = await loader();
+      entries.set(cacheKey, { exists, expiresAt: timestamp + ttlMs });
+      return exists;
+    },
+    clear() {
+      entries.clear();
+    },
+  };
+}
+
+const bucketExistenceCache = createMinioBucketExistenceCache();
+
 function readConfig(): MinioRuntimeConfig | null {
   const endpoint = process.env.MINIO_ENDPOINT;
   const bucket = process.env.MINIO_BUCKET;
@@ -65,6 +95,10 @@ function getClient(config: MinioRuntimeConfig): Minio.Client {
   return cachedClient;
 }
 
+function getBucketCacheKey(config: MinioRuntimeConfig): string {
+  return `${config.endpoint}|${config.bucket}|${config.accessKey}|${config.useSSL}`;
+}
+
 export function isMinioConfigured(): boolean {
   return readConfig() !== null;
 }
@@ -81,14 +115,21 @@ function assertSafeObjectKey(key: string): string {
   return normalized;
 }
 
-async function assertBucket(client: Minio.Client, bucket: string): Promise<void> {
-  const exists = await client.bucketExists(bucket);
-  if (!exists) throw new Error(`[MinIO] Bucket configurado não existe: ${bucket}`);
+async function assertBucket(client: Minio.Client, config: MinioRuntimeConfig): Promise<void> {
+  const exists = await bucketExistenceCache.getOrLoad(
+    getBucketCacheKey(config),
+    () => client.bucketExists(config.bucket),
+  );
+  if (!exists) throw new Error(`[MinIO] Bucket configurado não existe: ${config.bucket}`);
 }
 
 export async function minioBucketExists(): Promise<boolean> {
   const config = requireConfig();
-  return getClient(config).bucketExists(config.bucket);
+  const client = getClient(config);
+  return bucketExistenceCache.getOrLoad(
+    getBucketCacheKey(config),
+    () => client.bucketExists(config.bucket),
+  );
 }
 
 export async function minioUpload(
@@ -99,7 +140,7 @@ export async function minioUpload(
   const config = requireConfig();
   const client = getClient(config);
   const safeKey = assertSafeObjectKey(key);
-  await assertBucket(client, config.bucket);
+  await assertBucket(client, config);
   await client.putObject(config.bucket, safeKey, data, data.length, {
     "Content-Type": contentType,
   });
@@ -118,6 +159,7 @@ export async function minioDelete(key: string): Promise<void> {
 export async function minioGetObject(
   key: string,
   range?: { offset: number; length: number },
+  knownMetadata?: { contentType?: string; size?: number },
 ): Promise<{
   stream: NodeJS.ReadableStream;
   contentType?: string;
@@ -126,15 +168,15 @@ export async function minioGetObject(
   const config = requireConfig();
   const client = getClient(config);
   const safeKey = assertSafeObjectKey(key);
-  await assertBucket(client, config.bucket);
-  const stat = await client.statObject(config.bucket, safeKey);
+  await assertBucket(client, config);
+  const stat = knownMetadata ? undefined : await client.statObject(config.bucket, safeKey);
   const stream = range
     ? await client.getPartialObject(config.bucket, safeKey, range.offset, range.length)
     : await client.getObject(config.bucket, safeKey);
   return {
     stream,
-    contentType: stat.metaData?.["content-type"] || stat.metaData?.["Content-Type"],
-    size: stat.size,
+    contentType: knownMetadata?.contentType ?? stat?.metaData?.["content-type"] ?? stat?.metaData?.["Content-Type"],
+    size: knownMetadata?.size ?? stat?.size,
   };
 }
 
@@ -146,7 +188,7 @@ export async function minioStatObject(key: string): Promise<{
   const config = requireConfig();
   const client = getClient(config);
   const safeKey = assertSafeObjectKey(key);
-  await assertBucket(client, config.bucket);
+  await assertBucket(client, config);
   const stat = await client.statObject(config.bucket, safeKey);
   return {
     contentType: stat.metaData?.["content-type"] || stat.metaData?.["Content-Type"],

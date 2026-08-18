@@ -1942,6 +1942,7 @@
 - [x] Desativar permanentemente o serviço MinIO residual da VM2 sem apagar `/data/minio`
 - [x] Remover as regras de firewall da VM2 para as portas residuais 9000 e 9001 após desativar o serviço
 - [x] Documentar o rollback de contingência e consolidar a VM3 como storage MinIO único do Portal (`docs/DESATIVACAO_MINIO_RESIDUAL_VM2.md`)
+- [ ] Restaurar a desativação do MinIO residual da VM2 após a reativação manual do serviço
 - [x] Restringir de forma reversível as portas MinIO 9000 e 9001 da VM2 após a preservação e validação dos dados residuais
 
 > Nota: a VM3 física consta como criada no documento técnico, mas a migração lógica dos fluxos do Portal ainda não foi comprovada; o bucket estava vazio no último registro documentado.
@@ -1954,3 +1955,16 @@
 > Responsabilidade: comandos de Proxmox, particionamento, RAID, firewall e systemd são executados na infraestrutura real; o sandbox não representa a VM3 física.
 > Pendências da documentação: término da ressincronização RAID1, validação do QEMU Guest Agent, revisão de referências antigas à VM2, validação após reboot e política de backup externo.
 > Fase atual: integração lógica implementada e validada no sandbox; autenticação S3 real pelo Portal e migração dos arquivos locais continuam pendentes de execução na VM1/VM3.
+
+## RELATÓRIO TÉCNICO CONSOLIDADO — 18/08/2026
+
+- [x] Reconciliar linha a linha os achados do relatório com o código atual, os checkpoints e as evidências operacionais já coletadas, classificando cada item como corrigido, pendente ou dependente de nova evidência.
+- [x] Verificar na VM1 o commit ativo, a existência de `dist/public/index.html` e o estado do PM2 antes de qualquer novo deploy.
+- [ ] Confirmar após atualização da VM1 que os erros históricos de exportação de laudo e de frontend ausente não voltam a aparecer nos logs.
+- [x] Implementar cache curto de autorização por usuário e estudo nas rotas de fatias DICOM, preservando a validação de unidade e cobrindo o comportamento com testes Vitest.
+- [x] Otimizar a ordenação de arquivos DICOM para ler cabeçalhos de forma limitada e concorrente, sem alterar a ordem clínica já validada das imagens.
+- [x] Cachear a verificação de existência do bucket MinIO e eliminar chamadas de metadados redundantes no fluxo de mídia privada, com testes de regressão.
+- [x] Formalizar migrations SQL auditáveis para `study_audio_reports`, `study_attachments` e `reports.export_file_key`/`reports.export_file_url`, incluindo no schema Drizzle os índices existentes no banco real.
+- [ ] Investigar somente em leitura a origem e o uso efetivo do PostgreSQL na VM2 antes de considerar qualquer alteração de serviço.
+- [ ] Planejar a renomeação segura dos hostnames da VM1 e VM2, com confirmação de impacto em configurações e serviços antes da execução.
+- [ ] Confirmar a conclusão da ressincronização RAID1 e validar o fluxo completo de laudo, anexo e áudio no bucket da VM3 após o deploy atualizado.

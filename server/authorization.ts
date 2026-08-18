@@ -123,6 +123,75 @@ export async function assertDicomFileAccess(
   return unitId;
 }
 
+type DicomAccessResolver = (
+  user: AuthUser,
+  studyInstanceUid: string,
+  permission: PermissionFlag,
+) => Promise<number>;
+
+type CachedDicomAccess = {
+  unitId: number;
+  expiresAt: number;
+};
+
+/**
+ * Mantém por pouco tempo uma autorização de leitura que já foi verificada.
+ * O cache é propositalmente específico para o usuário, o snapshot de acesso,
+ * o estudo e a permissão solicitada. Falhas nunca são mantidas em cache.
+ */
+export function createDicomAccessCache(
+  resolver: DicomAccessResolver = assertDicomFileAccess,
+  options: { ttlMs?: number; now?: () => number; maxEntries?: number } = {},
+) {
+  const ttlMs = options.ttlMs ?? 60_000;
+  const now = options.now ?? Date.now;
+  const maxEntries = options.maxEntries ?? 10_000;
+  const entries = new Map<string, CachedDicomAccess>();
+
+  const makeKey = (user: AuthUser, studyInstanceUid: string, permission: PermissionFlag) =>
+    [user.id, user.role, user.unit_id ?? "none", permission, studyInstanceUid].join(":");
+
+  const pruneExpiredEntries = (timestamp: number) => {
+    entries.forEach((value, key) => {
+      if (value.expiresAt <= timestamp) entries.delete(key);
+    });
+  };
+
+  return {
+    async assert(user: AuthUser, studyInstanceUid: string, permission: PermissionFlag = "view_studies"): Promise<number> {
+      const timestamp = now();
+      const key = makeKey(user, studyInstanceUid, permission);
+      const cached = entries.get(key);
+      if (cached && cached.expiresAt > timestamp) return cached.unitId;
+
+      if (entries.size >= maxEntries) pruneExpiredEntries(timestamp);
+      if (entries.size >= maxEntries) entries.clear();
+
+      const unitId = await resolver(user, studyInstanceUid, permission);
+      entries.set(key, { unitId, expiresAt: timestamp + ttlMs });
+      return unitId;
+    },
+    clear() {
+      entries.clear();
+    },
+    size() {
+      return entries.size;
+    },
+  };
+}
+
+// Um minuto reduz milhares de consultas por visualização sem prolongar a janela
+// de uma alteração de permissão ou revogação de acesso.
+const dicomAccessCache = createDicomAccessCache();
+
+export async function assertCachedDicomFileAccess(
+  user: AuthUser,
+  studyInstanceUid: string,
+  permission: PermissionFlag = "view_studies",
+): Promise<number> {
+  return dicomAccessCache.assert(user, studyInstanceUid, permission);
+}
+
 /**
  * Lança FORBIDDEN se o usuário não tiver permissão na unidade.
  */

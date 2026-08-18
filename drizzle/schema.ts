@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, longtext, timestamp, varchar, boolean, date, json, decimal, uniqueIndex } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, longtext, timestamp, varchar, boolean, date, json, decimal, uniqueIndex, index } from "drizzle-orm/mysql-core";
 
 /**
  * Units (Medical facilities) - Each unit has its own Orthanc instance
@@ -294,7 +294,9 @@ export const study_audio_reports = mysqlTable("study_audio_reports", {
   duration_seconds: int("duration_seconds"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  studyUidIdx: index("idx_study_audio_uid").on(table.study_instance_uid),
+}));
 export type StudyAudioReport = typeof study_audio_reports.$inferSelect;
 export type InsertStudyAudioReport = typeof study_audio_reports.$inferInsert;
 
@@ -999,6 +1001,8 @@ export const study_attachments = mysqlTable("study_attachments", {
   file_name: varchar("file_name", { length: 255 }).notNull(),
   file_type: varchar("file_type", { length: 100 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  studyUidIdx: index("idx_study_attachments_uid").on(table.study_instance_uid),
+}));
 export type StudyAttachment = typeof study_attachments.$inferSelect;
 export type InsertStudyAttachment = typeof study_attachments.$inferInsert;

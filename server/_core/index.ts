@@ -29,6 +29,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { storageKeyFromReference, storageUsesMinio } from "../storage";
 import { minioGetObject, minioStatObject } from "../minio";
+import { assertCachedDicomFileAccess } from "../authorization";
 import { serveStatic, setupVite } from "./vite";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
@@ -86,6 +87,11 @@ type OrderedDicomFile = {
   modality: string;
   imagePosition: number[];
 };
+
+// As tags clínicas de ordenação ficam no cabeçalho, antes do Pixel Data.
+// Limitar a leitura evita carregar imagens inteiras só para ordenar o estudo.
+const DICOM_ORDER_HEADER_BYTES = 256 * 1024;
+const DICOM_ORDER_READ_CONCURRENCY = 12;
 
 const DICOM_ORDER_TAGS: Record<string, string> = {
   '0008,0060': 'modality',
@@ -169,22 +175,27 @@ function compareOrderedDicomFiles(a: OrderedDicomFile, b: OrderedDicomFile): num
 async function getOrderedDicomFiles(studyDir: string): Promise<OrderedDicomFile[]> {
   const fileSystem = await import('fs/promises');
   const fileNames = (await fileSystem.readdir(studyDir)).filter((fileName: string) => fileName.endsWith('.dcm'));
-  const records: OrderedDicomFile[] = [];
-  for (const fileName of fileNames) {
+  const readRecord = async (fileName: string): Promise<OrderedDicomFile> => {
     try {
-      const buffer = await fileSystem.readFile(`${studyDir}/${fileName}`);
-      const fields = readDicomOrderFields(buffer);
-      records.push({
-        fileName,
-        seriesUid: fields.seriesUid || 'unknown',
-        seriesNumber: parseDicomNumber(fields.seriesNumberRaw),
-        instanceNumber: parseDicomNumber(fields.instanceNumberRaw),
-        seriesDescription: fields.seriesDescription || '',
-        modality: fields.modality || '',
-        imagePosition: parseDicomPosition(fields.imagePositionRaw),
-      });
+      const handle = await fileSystem.open(path.join(studyDir, fileName), 'r');
+      try {
+        const header = Buffer.alloc(DICOM_ORDER_HEADER_BYTES);
+        const { bytesRead } = await handle.read(header, 0, header.length, 0);
+        const fields = readDicomOrderFields(header.subarray(0, bytesRead));
+        return {
+          fileName,
+          seriesUid: fields.seriesUid || 'unknown',
+          seriesNumber: parseDicomNumber(fields.seriesNumberRaw),
+          instanceNumber: parseDicomNumber(fields.instanceNumberRaw),
+          seriesDescription: fields.seriesDescription || '',
+          modality: fields.modality || '',
+          imagePosition: parseDicomPosition(fields.imagePositionRaw),
+        };
+      } finally {
+        await handle.close();
+      }
     } catch {
-      records.push({
+      return {
         fileName,
         seriesUid: 'unknown',
         seriesNumber: Number.POSITIVE_INFINITY,
@@ -192,9 +203,22 @@ async function getOrderedDicomFiles(studyDir: string): Promise<OrderedDicomFile[
         seriesDescription: '',
         modality: '',
         imagePosition: [],
-      });
+      };
     }
-  }
+
+  };
+
+  const records = new Array<OrderedDicomFile>(fileNames.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < fileNames.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      records[index] = await readRecord(fileNames[index]);
+    }
+  };
+  const workerCount = Math.min(DICOM_ORDER_READ_CONCURRENCY, fileNames.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
   return records.sort(compareOrderedDicomFiles);
 }
 
@@ -404,12 +428,12 @@ async function startServer() {
           return res.status(416).setHeader('Content-Range', `bytes */${totalSize}`).end();
         }
         const length = end - start + 1;
-        object = await minioGetObject(key, { offset: start, length });
+        object = await minioGetObject(key, { offset: start, length }, objectMetadata);
         res.status(206);
         res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
         res.setHeader('Content-Length', String(length));
       } else if (objectMetadata.size !== undefined) {
-        object = await minioGetObject(key);
+        object = await minioGetObject(key, undefined, objectMetadata);
         res.setHeader('Content-Length', String(objectMetadata.size));
       } else {
         object = await minioGetObject(key);
@@ -476,8 +500,7 @@ async function startServer() {
       return res.status(400).send('Invalid path');
     }
     try {
-      const { assertDicomFileAccess } = await import('../authorization');
-      await assertDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies');
+      await assertCachedDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies');
     } catch {
       return res.status(403).send('Acesso negado a este exame.');
     }
