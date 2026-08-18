@@ -163,3 +163,14 @@ UPDATE_VM1_PERFORMANCE
 ```
 
 Imediatamente após a atualização, repetir a coleta de linha de base e testar uma abertura de estudo com número representativo de imagens. Caso surja erro de streaming ou falha de visualização, interromper o teste e preservar os logs antes de qualquer nova alteração.
+
+## 10. Validação pós-deploy em produção
+
+**Commit validado na VM1:** `4789ffa`.  
+**Estado do processo:** PM2 online, HTTP local 200, sem erro de streaming, memória ou conexão nos registros verificados após a atualização.
+
+Foi executado um teste controlado de abertura de um estudo representativo no visualizador do navegador e no RadiAnt já instalado no Windows. Ambos os visualizadores carregaram as imagens corretamente. O monitor técnico não registrou falha de streaming, timeout, memória insuficiente ou reinicialização do processo.
+
+A ausência de mensagens do proxy DICOMweb neste teste é esperada: o visualizador web usou a rota de fatias/cache (`/api/dicom-files/*`), e o RadiAnt usou a exportação temporária autorizada do Assistente local. Portanto, a melhoria de streaming DICOMweb foi implantada e está protegida por teste automatizado, mas a rota específica deve ser medida quando algum cliente efetivamente consumir WADO-RS pelo proxy.
+
+Não foram registrados nomes de pacientes, laudos, identificadores de estudo ou imagens nesta documentação de validação.

@@ -2062,3 +2062,4 @@
 - [ ] Executar testes de regressão e carga controlada antes de qualquer atualização da VM1.
 - [x] Coletar na VM1 métricas somente-leitura de PM2, Node, CPU, RAM, conexões e latência das rotas críticas.
 - [x] Sanitizar a coleta de rotas Nginx para remover parâmetros de consulta antes de apresentar métricas agregadas.
+- [x] Validar pós-deploy a abertura de imagens no navegador e no RadiAnt, sem erro técnico nos registros monitorados.
