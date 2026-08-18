@@ -174,3 +174,13 @@ Foi executado um teste controlado de abertura de um estudo representativo no vis
 A ausência de mensagens do proxy DICOMweb neste teste é esperada: o visualizador web usou a rota de fatias/cache (`/api/dicom-files/*`), e o RadiAnt usou a exportação temporária autorizada do Assistente local. Portanto, a melhoria de streaming DICOMweb foi implantada e está protegida por teste automatizado, mas a rota específica deve ser medida quando algum cliente efetivamente consumir WADO-RS pelo proxy.
 
 Não foram registrados nomes de pacientes, laudos, identificadores de estudo ou imagens nesta documentação de validação.
+
+## 11. Otimização de apuração financeira no sandbox
+
+A função `calculateCompetence` buscava, para cada laudo do período, o responsável ativo da unidade, o preço do sistema e o preço do médico. Essa repetição transforma uma competência com muitos laudos em dezenas ou centenas de consultas adicionais, mesmo quando as regras de vigência são as mesmas.
+
+A nova implementação carrega antecipadamente as regras de responsável, preço do sistema e preço padrão do médico que podem vigorar no período. Para cada laudo, seleciona em memória o registro aplicável pela mesma regra anterior: `starts_at <= signedAt` e `ends_at >= signedAt` quando houver encerramento, priorizando o início de vigência mais recente. A data de assinatura continua sendo avaliada individualmente; logo, uma alteração de preço ou responsável dentro do mesmo mês continua produzindo valores distintos nos laudos anteriores e posteriores à mudança.
+
+O cálculo anterior não fornecia modalidade a `getActiveDoctorPrice`; portanto, a apuração de competência já usava o preço padrão de unidade/médico. A otimização preserva esse comportamento e não introduz, remove ou altera precificação por modalidade. A evolução para usar modalidade na apuração exige uma decisão funcional separada e testes financeiros específicos.
+
+**Validação no sandbox:** 36 arquivos Vitest aprovados, 241 testes aprovados e 1 integração MinIO ignorada; TypeScript sem erros; build de produção concluído com limite de memória de 1024 MiB. A atualização da VM1 só será preparada após revisão dessa regra financeira e confirmação de que uma competência representativa conclui com os mesmos totais esperados.

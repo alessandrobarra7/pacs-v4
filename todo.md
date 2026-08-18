@@ -2057,7 +2057,9 @@
 - [ ] Mapear consumo de tempo, memória e tamanho de resposta das rotas DICOMweb, cache DICOM, mídia privada e competência financeira.
 - [x] Substituir o buffer completo no proxy DICOMweb por streaming com tratamento de erro e cabeçalhos preservados.
 - [x] Remover I/O síncrono das rotas administrativas de cache DICOM e do caminho de cache do visualizador.
-- [ ] Investigar e reduzir consultas N+1 em `calculateCompetence` sem alterar resultados financeiros.
+- [x] Investigar e reduzir consultas N+1 em `calculateCompetence` sem alterar resultados financeiros.
+- [x] Cachear por data, unidade e responsável as consultas repetidas de vigência durante uma única apuração de competência, preservando o preço padrão já usado no cálculo.
+- [ ] Cobrir em teste a preservação de preços por modalidade e vigência após reduzir consultas da apuração financeira.
 - [ ] Definir limites de concorrência, memória e timeout para C-GET/DICOM e downloads extensos.
 - [ ] Executar testes de regressão e carga controlada antes de qualquer atualização da VM1.
 - [x] Coletar na VM1 métricas somente-leitura de PM2, Node, CPU, RAM, conexões e latência das rotas críticas.

@@ -1295,6 +1295,40 @@ export async function listBillingReportItems(filters: {
 
 // ─── Apuração de Competência ──────────────────────────────────────────────────
 
+type VigencyRow = {
+  starts_at: Date;
+  ends_at: Date | null;
+};
+
+/**
+ * Reproduz a regra SQL usada nas tabelas de vigência: a data deve estar entre
+ * starts_at e ends_at (quando houver), e o registro mais recente prevalece.
+ * Manter essa seleção em memória permite carregar as regras uma vez por
+ * competência, sem trocar os valores aplicados a cada laudo.
+ */
+export function selectActiveByVigency<T extends VigencyRow>(rows: T[], at: Date): T | undefined {
+  return rows.reduce<T | undefined>((active, row) => {
+    const startsAt = row.starts_at.getTime();
+    const endsAt = row.ends_at?.getTime();
+    const atTime = at.getTime();
+    const applies = startsAt <= atTime && (endsAt === undefined || endsAt >= atTime);
+    if (!applies) return active;
+    if (!active || row.starts_at.getTime() > active.starts_at.getTime()) return row;
+    return active;
+  }, undefined);
+}
+
+function groupRowsByKey<T>(rows: T[], getKey: (row: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = getKey(row);
+    const group = groups.get(key);
+    if (group) group.push(row);
+    else groups.set(key, [row]);
+  }
+  return groups;
+}
+
 /**
  * Apura todos os laudos signed/revised de uma competência (mês/ano) e
  * cria/atualiza os billing_report_items e os consolidados mensais.
@@ -1328,6 +1362,51 @@ export async function calculateCompetence(year: number, month: number, createdBy
     return d >= start && d < end;
   });
 
+  // Carrega as configurações que podem vigorar em qualquer instante da
+  // competência. Antes, cada laudo repetia até três consultas de vigência;
+  // agora a seleção mantém a mesma regra SQL em memória por data de assinatura.
+  const unitIds = Array.from(new Set(periodReports.map((report) => report.unit_id)));
+  const doctorUserIds = Array.from(new Set(periodReports
+    .map((report) => report.signedBy ?? report.author_user_id)
+    .filter((doctorUserId): doctorUserId is number => typeof doctorUserId === 'number')));
+
+  const responsibilityRows = unitIds.length > 0
+    ? await db.select().from(financial_responsible_units).where(and(
+        inArray(financial_responsible_units.unit_id, unitIds),
+        lte(financial_responsible_units.starts_at, end),
+        or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at, start)),
+      ))
+    : [];
+  const responsibleIds = Array.from(new Set(responsibilityRows.map((row) => row.financial_responsible_id)));
+
+  const systemPriceRows = unitIds.length > 0 && responsibleIds.length > 0
+    ? await db.select().from(billing_system_unit_prices).where(and(
+        inArray(billing_system_unit_prices.unit_id, unitIds),
+        inArray(billing_system_unit_prices.financial_responsible_id, responsibleIds),
+        lte(billing_system_unit_prices.starts_at, end),
+        or(isNull(billing_system_unit_prices.ends_at), gte(billing_system_unit_prices.ends_at, start)),
+      ))
+    : [];
+  const doctorPriceRows = unitIds.length > 0 && responsibleIds.length > 0 && doctorUserIds.length > 0
+    ? await db.select().from(billing_doctor_unit_prices).where(and(
+        inArray(billing_doctor_unit_prices.unit_id, unitIds),
+        inArray(billing_doctor_unit_prices.financial_responsible_id, responsibleIds),
+        inArray(billing_doctor_unit_prices.doctor_user_id, doctorUserIds),
+        lte(billing_doctor_unit_prices.starts_at, end),
+        or(isNull(billing_doctor_unit_prices.ends_at), gte(billing_doctor_unit_prices.ends_at, start)),
+      ))
+    : [];
+
+  const responsibilitiesByUnit = groupRowsByKey(responsibilityRows, (row) => String(row.unit_id));
+  const systemPricesByResponsibleUnit = groupRowsByKey(
+    systemPriceRows,
+    (row) => `${row.financial_responsible_id}:${row.unit_id}`,
+  );
+  const doctorPricesByResponsibleUnitUser = groupRowsByKey(
+    doctorPriceRows,
+    (row) => `${row.financial_responsible_id}:${row.unit_id}:${row.doctor_user_id}`,
+  );
+
   let ok = 0;
   let pending = 0;
   const errors: string[] = [];
@@ -1337,8 +1416,12 @@ export async function calculateCompetence(year: number, month: number, createdBy
       const doctorUserId = report.signedBy ?? report.author_user_id;
       const signedAt = new Date(report.signedAt!);
 
-      // Descobrir responsável ativo para a unidade
-      const respUnit = await getActiveResponsibleForUnit(report.unit_id, signedAt);
+      // Descobrir responsável ativo e preços vigentes usando o snapshot da
+      // competência, preservando a data de assinatura de cada laudo.
+      const respUnit = selectActiveByVigency(
+        responsibilitiesByUnit.get(String(report.unit_id)) ?? [],
+        signedAt,
+      );
       const financialResponsibleId = respUnit?.financial_responsible_id ?? null;
 
       // Buscar preços vigentes
@@ -1346,8 +1429,14 @@ export async function calculateCompetence(year: number, month: number, createdBy
       let doctorPrice: string | null = null;
 
       if (financialResponsibleId) {
-        const sp = await getActiveSystemPrice(financialResponsibleId, report.unit_id, signedAt);
-        const dp = await getActiveDoctorPrice(financialResponsibleId, report.unit_id, doctorUserId, signedAt);
+        const sp = selectActiveByVigency(
+          systemPricesByResponsibleUnit.get(`${financialResponsibleId}:${report.unit_id}`) ?? [],
+          signedAt,
+        );
+        const dp = selectActiveByVigency(
+          doctorPricesByResponsibleUnitUser.get(`${financialResponsibleId}:${report.unit_id}:${doctorUserId}`) ?? [],
+          signedAt,
+        );
         systemPrice = sp?.price_per_report ?? null;
         doctorPrice = dp?.price_per_report ?? null;
       }
