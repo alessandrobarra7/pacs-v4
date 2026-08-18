@@ -264,11 +264,15 @@ async function startServer() {
   // Mapa de tokens temporários para download de arquivos DICOM sem autenticação
   // Usado pelo RadiAnt, Weasis, OsiriX e Horos que não conseguem enviar cookies
   const dicomDlTokens = new Map<string, { filePath: string; expiresAt: number }>();
+  const dicomZipTokens = new Map<string, { studyUid: string; expiresAt: number }>();
   // Limpa tokens expirados a cada 10 minutos
   setInterval(() => {
     const now = Date.now();
     Array.from(dicomDlTokens.entries()).forEach(([token, entry]) => {
       if (entry.expiresAt < now) dicomDlTokens.delete(token);
+    });
+    Array.from(dicomZipTokens.entries()).forEach(([token, entry]) => {
+      if (entry.expiresAt < now) dicomZipTokens.delete(token);
     });
   }, 10 * 60 * 1000);
 
@@ -287,6 +291,47 @@ async function startServer() {
     res.sendFile(filePath, (err) => {
       if (err && !res.headersSent) res.status(404).send('Arquivo não encontrado');
     });
+  });
+
+  // Rota PÚBLICA: ZIP temporário para Horos/OsiriX via DownloadURL.
+  // O token opaco é emitido apenas após autenticação e autorização no launch.
+  app.get('/api/dicom-export-dl/:token', async (req, res) => {
+    const { token } = req.params;
+    const entry = dicomZipTokens.get(token);
+    if (!entry || entry.expiresAt < Date.now()) {
+      return res.status(410).send('Token expirado ou inválido');
+    }
+    const { studyUid } = entry;
+    if (!studyUid || studyUid.includes('..') || studyUid.includes('/')) {
+      return res.status(400).send('Estudo inválido');
+    }
+
+    try {
+      const studyCacheDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
+      const orderedRecords = await getOrderedDicomFiles(studyCacheDir);
+      const dicomFiles = orderedRecords.map(record => record.fileName);
+      if (dicomFiles.length === 0) return res.status(404).send('Nenhuma imagem no cache');
+
+      const path = await import('path');
+      const archiver = (await import('archiver')).default;
+      const archive = archiver('zip', { zlib: { level: 1 } });
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="DICOM_${studyUid.slice(0, 20)}.zip"`);
+      res.setHeader('X-Accel-Buffering', 'no');
+      archive.on('error', (error) => {
+        console.error('[DICOM Export Token] Erro ao gerar ZIP:', error);
+        if (!res.headersSent) res.status(500).end();
+      });
+      archive.pipe(res);
+      for (const fileName of dicomFiles) {
+        archive.file(path.join(studyCacheDir, fileName), { name: fileName });
+      }
+      await archive.finalize();
+      console.log(`[DICOM Export Token] ZIP servido para viewer externo | ${studyUid} | ${dicomFiles.length} arquivos`);
+    } catch (error) {
+      console.error('[DICOM Export Token] Erro:', error);
+      if (!res.headersSent) res.status(404).send('Estudo não disponível no cache');
+    }
   });
 
   // F1-1: Middleware de autenticação para rotas DICOM
@@ -1086,7 +1131,9 @@ async function startServer() {
       if (viewer === 'radiant') {
         // RadiAnt suporta o mesmo método DownloadURL via ZIP que o Horos/OsiriX
         // Isso baixa o ZIP de forma transparente em background e abre o estudo completo sem exigir arquivos locais manuais
-        const zipUrl = `${origin}/api/dicom-export/${studyUid}`;
+        const zipToken = crypto.randomBytes(24).toString('hex');
+        dicomZipTokens.set(zipToken, { studyUid, expiresAt });
+        const zipUrl = `${origin}/api/dicom-export-dl/${zipToken}`;
         launchUrl = `radiant://?methodName=DownloadURL&URL=${encodeURIComponent(zipUrl)}&Display=YES`;
       } else if (viewer === 'weasis') {
         // weasis://?$dicom:get -r "url1" -r "url2"...
@@ -1094,11 +1141,16 @@ async function startServer() {
         const cmd = `$dicom:get ${args}`;
         launchUrl = `weasis://?${encodeURIComponent(cmd)}`;
       } else if (viewer === 'osirix') {
-        // OsiriX: baixa o ZIP do estudo e abre (ZIP não precisa de token pois usa dicom-export)
-        const zipUrl = `${origin}/api/dicom-export/${studyUid}`;
+        // OsiriX baixa um ZIP temporário sem depender do cookie do navegador.
+        const zipToken = crypto.randomBytes(24).toString('hex');
+        dicomZipTokens.set(zipToken, { studyUid, expiresAt });
+        const zipUrl = `${origin}/api/dicom-export-dl/${zipToken}`;
         launchUrl = `osirix://?methodName=DownloadURL&URL=${encodeURIComponent(zipUrl)}&Display=YES`;
       } else if (viewer === 'horos') {
-        const zipUrl = `${origin}/api/dicom-export/${studyUid}`;
+        // Horos executa DownloadURL fora do navegador e não encaminha o cookie web.
+        const zipToken = crypto.randomBytes(24).toString('hex');
+        dicomZipTokens.set(zipToken, { studyUid, expiresAt });
+        const zipUrl = `${origin}/api/dicom-export-dl/${zipToken}`;
         launchUrl = `horos://?methodName=DownloadURL&URL=${encodeURIComponent(zipUrl)}&Display=YES`;
       } else {
         return res.status(400).json({ error: `Viewer não suportado: ${viewer}. Use radiant, weasis, osirix ou horos.` });
