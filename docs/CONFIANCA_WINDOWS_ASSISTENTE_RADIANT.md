@@ -93,6 +93,8 @@ Nenhuma senha, chave privada, certificado PFX, token USB, código de ativação 
 
 Enquanto não houver entidade empresarial formalizada, a alternativa tecnicamente adequada é uma assinatura de código com **validação individual (IV)**. Nesse modelo, o Windows exibe o nome civil verificado do titular do certificado como publicador; não deve exibir `Lauds`, `StudioBarra7` ou outro nome comercial como se fosse uma organização validada. Um certificado IV não requer registro empresarial, mas exige confirmação da identidade do titular.[7]
 
+A identidade pública aprovada pelo titular para aparecer como publicador é **Alessandro Lacerda Rocha**. A autoridade certificadora deve validar essa grafia e emite o sujeito final do certificado conforme a sua própria política. CPF, documento de identidade, data de nascimento, telefone, endereço completo, fotografia de validação e demais dados pessoais não integram este documento, o repositório ou o instalador.
+
 O candidato inicial é um certificado **IV Code Signing** de autoridade certificadora pública que aceite a validação do responsável residente no Brasil. A documentação do emissor deve ser confirmada diretamente antes da contratação, pois a aceitação de documentos, o método de contato e a disponibilidade comercial dependem da jurisdição e podem mudar. A referência consultada informa que a validação individual requer documento oficial com foto, endereço e ano de nascimento, comprovação facial e contato por telefone verificável.[8]
 
 > Documentos de identidade, fotografias, endereço completo, telefone e qualquer dado de pagamento devem ser enviados somente no portal oficial da autoridade certificadora escolhida. Eles não devem ser enviados ao Portal PACS, ao GitHub, às VMs ou por chat.

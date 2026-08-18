@@ -2032,6 +2032,7 @@
 
 - [ ] Confirmar fornecedores que emitam certificado individual público de assinatura de código para residente no Brasil e os documentos exigidos.
 - [x] Definir que o certificado provisório mostrará somente o nome civil validado do responsável, sem apresentar `Lauds` ou `StudioBarra7` como entidade verificada.
+- [x] Registrar, mediante consentimento expresso, a identidade pública de publicação `Alessandro Lacerda Rocha`, sem incluir identificadores pessoais adicionais.
 - [x] Documentar a custódia de chave individual em token/HSM ou serviço gerenciado e proibir armazenamento em GitHub e nas VMs.
 - [ ] Preparar a assinatura SHA-256 com carimbo de tempo RFC 3161 dos binários do Assistente e do instalador final.
 - [x] Documentar a futura migração do certificado individual para certificado organizacional quando houver entidade empresarial formalizada.
