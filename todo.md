@@ -2004,3 +2004,5 @@
 - [x] Produzir um instalador visual do Assistente RadiAnt, com associação de protocolo local e abertura pelo Windows sem comandos manuais.
 - [ ] Definir e aplicar assinatura de código antes de distribuição ampla do instalador Windows.
 - [x] Exibir no Portal somente a abertura padrão do Windows após a instalação única, sem instruções técnicas para médicos.
+- [x] Corrigir o download bloqueado do instalador `.exe` no navegador, substituindo o redirecionamento externo por entrega compatível pelo mesmo domínio do Portal.
+- [ ] Validar no navegador Windows que o instalador visual é baixado integralmente antes de repetir a ativação RadiAnt.

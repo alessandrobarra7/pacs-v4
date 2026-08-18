@@ -62,7 +62,7 @@ interface DicomSeries {
 }
 
 type ActiveTool = "WindowLevel" | "Zoom" | "Pan" | "Length" | "StackScroll";
-const RADIANT_ASSISTANT_INSTALLER_PATH = "/manus-storage/PacsRadiantAssistantSetup-win64_43a8098a.exe";
+const RADIANT_ASSISTANT_INSTALLER_PATH = "/api/radiant-assistant-installer";
 
 export function DicomViewerPage() {
   const { studyUid } = useParams<{ studyUid: string }>();

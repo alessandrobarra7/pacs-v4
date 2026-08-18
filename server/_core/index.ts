@@ -25,7 +25,7 @@ import net from "net";
 import crypto from "crypto";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
-import { registerStorageProxy } from "./storageProxy";
+import { registerStorageProxy, streamStorageDownload } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { storageKeyFromReference, storageUsesMinio } from "../storage";
@@ -262,6 +262,14 @@ async function startServer() {
   registerStorageProxy(app);
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+
+  app.get('/api/radiant-assistant-installer', requireAuth, async (_req, res) => {
+    await streamStorageDownload(
+      res,
+      'PacsRadiantAssistantSetup-win64_43a8098a.exe',
+      'PacsRadiantAssistantSetup.exe',
+    );
+  });
   
   const DICOM_CACHE_ROOT = '/tmp/dicom-cache';
 
