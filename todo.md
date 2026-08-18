@@ -1923,6 +1923,7 @@
 - [x] Redesenhar o player móvel de áudio com uma única ação de fechamento e controles de reprodução sempre visíveis
 - [x] Corrigir a largura, o alinhamento e o espaçamento do player de áudio em telas móveis estreitas
 - [x] Corrigir a URL ou rota WADO entregue ao Horos para eliminar a resposta HTTP 404 ao abrir estudos externos
+- [x] Documentar e versionar a validação real do Horos após abertura bem-sucedida do estudo (`docs/VALIDACAO_HOROS_DOWNLOADURL.md`)
 
 > Nota: a VM3 física consta como criada no documento técnico, mas a migração lógica dos fluxos do Portal ainda não foi comprovada; o bucket estava vazio no último registro documentado.
 > Segurança: credenciais do documento devem ser rotacionadas no ambiente real antes da entrada em produção definitiva e nunca devem ser gravadas no código ou em documentação pública.
