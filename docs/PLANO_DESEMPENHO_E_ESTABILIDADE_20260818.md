@@ -81,6 +81,7 @@ echo '=== NGINX: ROTAS AGREGADAS (SE DISPONÍVEL) ==='
 if [ -r /var/log/nginx/access.log ]; then
   tail -n 3000 /var/log/nginx/access.log \
     | awk '{print $7}' \
+    | sed -E 's/\?.*$//' \
     | sed -E \
         -e 's#^/api/dicomweb/.*#/api/dicomweb/*#' \
         -e 's#^/api/dicom-files/.*#/api/dicom-files/*#' \
@@ -92,6 +93,8 @@ else
 fi
 PERF_BASELINE_VM1
 ```
+
+> A remoção da *query string* é obrigatória antes da agregação. Ela evita que parâmetros de tRPC, como identificadores técnicos de estudo, sejam impressos no diagnóstico operacional.
 
 ## 6. Próximas otimizações, condicionadas à medição
 
@@ -105,3 +108,58 @@ PERF_BASELINE_VM1
 Depois de receber e revisar a linha de base, a atualização deverá seguir o procedimento já versionado para a VM1: sincronizar o commit, instalar dependências travadas, compilar com limite de memória, verificar `dist/public/index.html` e `dist/index.js`, e somente então reiniciar o PM2. Após o reinício, repetir a coleta de métricas e testar um estudo representativo.
 
 > Não publicar esta alteração na VM1 antes de coletar a linha de base e decidir, com as métricas, se há outro gargalo de produção que precise ser tratado no mesmo lote.
+
+## 8. Linha de base coletada na VM1
+
+**Coleta:** 18/08/2026 às 13:50 UTC.
+**Commit em execução na VM1:** `820f23d`.
+**Conclusão:** a VM1 não apresenta pressão atual de CPU, memória, swap, disco ou conexões. Ela está saudável para receber as otimizações já validadas, mas ainda executa uma versão anterior ao commit de desempenho.
+
+| Indicador | Resultado observado | Interpretação |
+|---|---:|---|
+| PM2 | `online`, modo `fork`, uptime de 3 h, 21 reinícios históricos, 0 reinício instável | Não há evidência de ciclo de falha atual. Os reinícios devem continuar sendo acompanhados após cada deploy. |
+| Processo Portal | 243,3 MiB de memória, 0% CPU no instante da coleta | Consumo normal para a capacidade de 14 GiB da VM; não justifica cluster neste momento. |
+| Carga do sistema | 0,07 / 0,02 / 0,00 | Sem saturação de CPU. |
+| Memória e swap | 13 GiB disponíveis; swap em 0 B | Sem pressão de memória. O streaming DICOMweb é preventivo contra picos de estudos grandes. |
+| Disco raiz | 80 GiB livres (15% usado) | Sem risco imediato de esgotamento. |
+| Cache DICOM local | 133 MiB em `/tmp/dicom-cache` | Baixo para a capacidade atual; manter acompanhamento após exames grandes. |
+| Conexões | 13 TCP estabelecidas no host; 0 conexões observadas nas portas 3000/443 no instante | Não há pico de tráfego no momento da coleta. |
+| Erros agregados PM2 | Nenhuma ocorrência de timeout, `ENOMEM`, heap esgotado, reset ou recusa nos últimos 400 registros verificados | Não há indício de travamento atual por memória ou rede. |
+
+### 8.1 Perfil de rotas
+
+No recorte de 3.000 acessos Nginx, a rota de maior atividade clínica foi `/api/dicom-files/*`, com 330 ocorrências. Ela é usada na entrega de fatias do estudo que já está em cache local. As rotas de status de laudo e de cache também tiveram atividade repetida, coerente com a listagem e o visualizador.
+
+O registro bruto inicial continha parâmetros de tRPC com identificadores técnicos de estudo. A coleta versionada foi corrigida para remover a *query string* antes da agregação; em coletas futuras, tais identificadores não serão exibidos no diagnóstico.
+
+Foram observadas 10 solicitações para caminho de WordPress (`/wp-admin/install.php`). Elas são varreduras automatizadas comuns na internet e não representam funcionalidade do Portal; não são gargalo de desempenho. Podem ser tratadas futuramente por regra Nginx de retorno rápido ou limitação, sem prioridade sobre as rotas clínicas.
+
+### 8.2 Decisão após a linha de base
+
+1. **Atualizar a VM1 para o commit de desempenho** é apropriado: as mudanças são isoladas em streaming DICOMweb e I/O assíncrono administrativo, com regressão completa aprovada.
+2. **Não alterar PM2 para cluster** nesta rodada: não há saturação de CPU ou memória que justifique a complexidade adicional e o cache de autorização atual é local ao processo.
+3. **Não alterar limites do C-GET** nesta rodada: a linha de base não contém duração de exames grandes nem pico de uso; limites arbitrários podem piorar a experiência de abertura.
+4. **Investigar `calculateCompetence` separadamente** com casos financeiros controlados, pois qualquer otimização deve preservar preço, modalidade, vigência e consolidação.
+
+## 9. Atualização recomendada da VM1
+
+Após revisar este registro, aplicar somente o commit de desempenho com o procedimento abaixo. O build usa limite de 1024 MiB, validado no sandbox, para reduzir risco de pressão de memória durante a compilação.
+
+```bash
+sudo bash <<'UPDATE_VM1_PERFORMANCE'
+set -euo pipefail
+cd /var/www/pacs-portal
+git fetch origin main
+git merge --ff-only origin/main
+pnpm install --frozen-lockfile
+NODE_OPTIONS=--max-old-space-size=1024 pnpm build
+test -s dist/public/index.html
+test -s dist/index.js
+pm2 restart pacs-portal --update-env
+pm2 save
+git log -1 --oneline
+pm2 status pacs-portal
+UPDATE_VM1_PERFORMANCE
+```
+
+Imediatamente após a atualização, repetir a coleta de linha de base e testar uma abertura de estudo com número representativo de imagens. Caso surja erro de streaming ou falha de visualização, interromper o teste e preservar os logs antes de qualquer nova alteração.

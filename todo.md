@@ -2060,4 +2060,5 @@
 - [ ] Investigar e reduzir consultas N+1 em `calculateCompetence` sem alterar resultados financeiros.
 - [ ] Definir limites de concorrência, memória e timeout para C-GET/DICOM e downloads extensos.
 - [ ] Executar testes de regressão e carga controlada antes de qualquer atualização da VM1.
-- [ ] Coletar na VM1 métricas somente-leitura de PM2, Node, CPU, RAM, conexões e latência das rotas críticas.
+- [x] Coletar na VM1 métricas somente-leitura de PM2, Node, CPU, RAM, conexões e latência das rotas críticas.
+- [x] Sanitizar a coleta de rotas Nginx para remover parâmetros de consulta antes de apresentar métricas agregadas.
