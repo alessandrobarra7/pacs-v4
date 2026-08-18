@@ -29,6 +29,10 @@ Este documento reconcilia o relatório externo de 18/08/2026 com o código-fonte
 
 A VM1 executava o commit `1df2863`, enquanto o repositório oficial já continha o checkpoint `fbe4bd6e` antes desta rodada de melhorias. Portanto, a existência do frontend no build atual não comprova a presença das correções P0 posteriores. O procedimento de atualização deve preservar `.env`, não executar limpeza destrutiva e exigir validação do arquivo `dist/public/index.html` antes do reinício do PM2.
 
+### Evidência pós-deploy
+
+Em 18/08/2026, a VM1 foi atualizada de forma controlada para o commit `a99b6d7`. O build confirmou os arquivos `dist/public/index.html` e `dist/index.js`, e o processo `pacs-portal` permaneceu online no PM2. Na sequência, foi realizado um teste de assinatura e exportação de laudo com monitoramento iniciado a partir do fim do log (`tail -n 0`). Nenhuma nova ocorrência de `reading 'url'`, `ENOENT` ou de falha de exportação foi registrada. Assim, os dois erros da Seção 0 do relatório ficam classificados como **históricos, corrigidos e não recorrentes no deploy atual**.
+
 ## Validação da migration no sandbox
 
 O sandbox aplicou a migration de forma idempotente e confirmou as colunas `reports.export_file_key` e `reports.export_file_url`, as tabelas de metadados de áudio e anexos, e os índices `idx_study_audio_uid` e `idx_study_attachments_uid`. A primeira execução demonstrou uma nuance importante: `CREATE TABLE IF NOT EXISTS` não acrescenta índices em tabelas preexistentes. Por isso, a versão final da migration verifica `information_schema.statistics` e adiciona cada índice ausente por `ALTER TABLE` condicional.

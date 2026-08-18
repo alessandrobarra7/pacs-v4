@@ -1960,7 +1960,7 @@
 
 - [x] Reconciliar linha a linha os achados do relatório com o código atual, os checkpoints e as evidências operacionais já coletadas, classificando cada item como corrigido, pendente ou dependente de nova evidência.
 - [x] Verificar na VM1 o commit ativo, a existência de `dist/public/index.html` e o estado do PM2 antes de qualquer novo deploy.
-- [ ] Confirmar após atualização da VM1 que os erros históricos de exportação de laudo e de frontend ausente não voltam a aparecer nos logs.
+- [x] Confirmar após atualização da VM1 que os erros históricos de exportação de laudo e de frontend ausente não voltam a aparecer nos logs.
 - [x] Implementar cache curto de autorização por usuário e estudo nas rotas de fatias DICOM, preservando a validação de unidade e cobrindo o comportamento com testes Vitest.
 - [x] Otimizar a ordenação de arquivos DICOM para ler cabeçalhos de forma limitada e concorrente, sem alterar a ordem clínica já validada das imagens.
 - [x] Cachear a verificação de existência do bucket MinIO e eliminar chamadas de metadados redundantes no fluxo de mídia privada, com testes de regressão.
