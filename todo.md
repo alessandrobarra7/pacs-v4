@@ -2065,3 +2065,9 @@
 - [x] Coletar na VM1 métricas somente-leitura de PM2, Node, CPU, RAM, conexões e latência das rotas críticas.
 - [x] Sanitizar a coleta de rotas Nginx para remover parâmetros de consulta antes de apresentar métricas agregadas.
 - [x] Validar pós-deploy a abertura de imagens no navegador e no RadiAnt, sem erro técnico nos registros monitorados.
+
+## CACHE DE ORDENAÇÃO DICOM — ROTAS DE MAIOR VOLUME
+
+- [x] Cachear por estudo a ordenação e os metadados de cabeçalho DICOM para evitar releitura repetida das mesmas fatias.
+- [x] Invalidar o cache de ordenação ao receber, limpar ou expirar um estudo do cache local.
+- [x] Validar que cache de ordenação não altera a autorização por usuário/unidade nem a sequência clínica de fatias.

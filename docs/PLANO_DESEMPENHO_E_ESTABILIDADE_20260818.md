@@ -184,3 +184,13 @@ A nova implementação carrega antecipadamente as regras de responsável, preço
 O cálculo anterior não fornecia modalidade a `getActiveDoctorPrice`; portanto, a apuração de competência já usava o preço padrão de unidade/médico. A otimização preserva esse comportamento e não introduz, remove ou altera precificação por modalidade. A evolução para usar modalidade na apuração exige uma decisão funcional separada e testes financeiros específicos.
 
 **Validação no sandbox:** 36 arquivos Vitest aprovados, 241 testes aprovados e 1 integração MinIO ignorada; TypeScript sem erros; build de produção concluído com limite de memória de 1024 MiB. A atualização da VM1 só será preparada após revisão dessa regra financeira e confirmação de que uma competência representativa conclui com os mesmos totais esperados.
+
+## 12. Cache limitado de ordenação DICOM no sandbox
+
+As rotas de maior volume do visualizador reutilizam `getOrderedDicomFiles` para listar imagens, agrupar séries, iniciar viewers externos e validar o cache local. Antes desta mudança, cada chamada relia até 256 KiB do cabeçalho de todas as fatias para reconstruir a mesma ordenação clínica, mesmo quando o estudo não havia mudado.
+
+O servidor agora mantém até 64 ordenações recentes, por no máximo 30 segundos. O cache armazena somente nome de arquivo e metadados mínimos já extraídos do cabeçalho — série, modalidade, número de instância e posição da imagem — nunca bytes de imagem. Antes de reutilizar uma entrada, o servidor confirma o `mtime` do diretório e a lista completa de arquivos DICOM; qualquer alteração força nova leitura e ordenação.
+
+O cache é invalidado explicitamente ao expirar, limpar ou remover um estudo do armazenamento local. A autorização continua a ocorrer antes de cada rota protegida e não é derivada do cache de ordenação. A sequência clínica permanece baseada em série, instância e posição espacial, com cópia defensiva dos registros para impedir modificação compartilhada entre requisições.
+
+**Validação no sandbox:** 36 arquivos Vitest aprovados, 243 testes aprovados e 1 integração MinIO ignorada; TypeScript sem erros e build de produção concluído. A atualização da VM1 será preparada em lote separado, depois da validação da otimização financeira ou conforme priorização operacional.

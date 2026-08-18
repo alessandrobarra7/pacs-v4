@@ -60,4 +60,21 @@ describe("otimizações de desempenho DICOM", () => {
     expect(cacheRoutes).not.toContain("statSync");
     expect(cacheRoutes).not.toContain("rmSync");
   });
+
+  it("reaproveita a ordenação DICOM apenas enquanto o diretório e a lista de arquivos permanecem iguais", async () => {
+    const source = await fs.readFile(indexPath, "utf8");
+    const orderedFunction = source.slice(
+      source.indexOf("async function getOrderedDicomFiles"),
+      source.indexOf("async function startServer"),
+    );
+
+    expect(source).toContain("const DICOM_ORDER_CACHE_TTL_MS = 30_000");
+    expect(source).toContain("const DICOM_ORDER_CACHE_MAX_ENTRIES = 64");
+    expect(orderedFunction).toContain("fileSystem.stat(studyDir)");
+    expect(orderedFunction).toContain("cached.directoryMtimeMs === directoryStat.mtimeMs");
+    expect(orderedFunction).toContain("cached.fileNames.every");
+    expect(orderedFunction).toContain("copyOrderedDicomRecords(cached.records)");
+    expect(source).toContain("invalidateOrderedDicomFiles(studyDir)");
+    expect(source).toContain("invalidateOrderedDicomFiles(dirPath)");
+  });
 });

@@ -95,6 +95,39 @@ type OrderedDicomFile = {
 // Limitar a leitura evita carregar imagens inteiras só para ordenar o estudo.
 const DICOM_ORDER_HEADER_BYTES = 256 * 1024;
 const DICOM_ORDER_READ_CONCURRENCY = 12;
+const DICOM_ORDER_CACHE_TTL_MS = 30_000;
+const DICOM_ORDER_CACHE_MAX_ENTRIES = 64;
+
+type OrderedDicomCacheEntry = {
+  directoryMtimeMs: number;
+  fileNames: string[];
+  records: OrderedDicomFile[];
+  expiresAt: number;
+};
+
+// A ordenação é consultada por várias rotas durante a mesma abertura de estudo.
+// O cache guarda apenas metadados de cabeçalho, nunca bytes de imagem, e é
+// invalidado quando o diretório local muda ou é removido.
+const orderedDicomFilesCache = new Map<string, OrderedDicomCacheEntry>();
+
+function copyOrderedDicomRecords(records: OrderedDicomFile[]): OrderedDicomFile[] {
+  return records.map((record) => ({ ...record, imagePosition: [...record.imagePosition] }));
+}
+
+function invalidateOrderedDicomFiles(studyDir: string): void {
+  orderedDicomFilesCache.delete(studyDir);
+}
+
+function pruneOrderedDicomFilesCache(now: number): void {
+  for (const [key, entry] of Array.from(orderedDicomFilesCache.entries())) {
+    if (entry.expiresAt <= now) orderedDicomFilesCache.delete(key);
+  }
+  while (orderedDicomFilesCache.size > DICOM_ORDER_CACHE_MAX_ENTRIES) {
+    const oldestKey = orderedDicomFilesCache.keys().next().value;
+    if (!oldestKey) break;
+    orderedDicomFilesCache.delete(oldestKey);
+  }
+}
 
 const DICOM_ORDER_TAGS: Record<string, string> = {
   '0008,0060': 'modality',
@@ -177,7 +210,23 @@ function compareOrderedDicomFiles(a: OrderedDicomFile, b: OrderedDicomFile): num
 
 async function getOrderedDicomFiles(studyDir: string): Promise<OrderedDicomFile[]> {
   const fileSystem = await import('fs/promises');
-  const fileNames = (await fileSystem.readdir(studyDir)).filter((fileName: string) => fileName.endsWith('.dcm'));
+  const [directoryStat, entries] = await Promise.all([
+    fileSystem.stat(studyDir),
+    fileSystem.readdir(studyDir, { withFileTypes: true }),
+  ]);
+  const fileNames = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.dcm'))
+    .map((entry) => entry.name)
+    .sort();
+  const now = Date.now();
+  const cached = orderedDicomFilesCache.get(studyDir);
+  const hasSameFiles = cached?.fileNames.length === fileNames.length
+    && cached.fileNames.every((fileName, index) => fileName === fileNames[index]);
+
+  if (cached && cached.expiresAt > now && cached.directoryMtimeMs === directoryStat.mtimeMs && hasSameFiles) {
+    return copyOrderedDicomRecords(cached.records);
+  }
+
   const readRecord = async (fileName: string): Promise<OrderedDicomFile> => {
     try {
       const handle = await fileSystem.open(path.join(studyDir, fileName), 'r');
@@ -222,7 +271,15 @@ async function getOrderedDicomFiles(studyDir: string): Promise<OrderedDicomFile[
   };
   const workerCount = Math.min(DICOM_ORDER_READ_CONCURRENCY, fileNames.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return records.sort(compareOrderedDicomFiles);
+  const orderedRecords = records.sort(compareOrderedDicomFiles);
+  orderedDicomFilesCache.set(studyDir, {
+    directoryMtimeMs: directoryStat.mtimeMs,
+    fileNames,
+    records: copyOrderedDicomRecords(orderedRecords),
+    expiresAt: now + DICOM_ORDER_CACHE_TTL_MS,
+  });
+  pruneOrderedDicomFilesCache(now);
+  return orderedRecords;
 }
 
 async function startServer() {
@@ -284,6 +341,7 @@ async function startServer() {
         // Usa atime (último acesso) para medir inatividade real
         const lastAccess = stat ? Math.max(stat.mtimeMs, stat.atimeMs) : 0;
         if (stat && now - lastAccess > THIRTY_MINUTES) {
+          invalidateOrderedDicomFiles(dirPath);
           await fs.rm(dirPath, { recursive: true, force: true });
           console.log(`[DICOM Cache] Limpeza automática: ${entry.name} (>30min inativo)`);
         }
@@ -684,6 +742,7 @@ async function startServer() {
     const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
     try {
       const fs = await import('fs/promises');
+      invalidateOrderedDicomFiles(studyDir);
       await fs.rm(studyDir, { recursive: true, force: true });
       console.log(`[DICOM Cache] Removido ao fechar viewer: ${studyUid}`);
       res.json({ success: true });
@@ -1357,6 +1416,7 @@ async function startServer() {
       let removed = 0;
       for (const uid of studies) {
         try {
+          invalidateOrderedDicomFiles(path.join(DICOM_CACHE_ROOT, uid));
           await fileSystem.rm(path.join(DICOM_CACHE_ROOT, uid), { recursive: true, force: true });
           removed++;
           console.log(`[DICOM Cache] Limpo manualmente: ${uid}`);
