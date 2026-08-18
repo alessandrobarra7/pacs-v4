@@ -2027,3 +2027,11 @@
 - [x] Documentar o procedimento de aquisição, custódia de chave, assinatura, carimbo de tempo e validação do instalador Windows.
 - [ ] Preparar o pipeline de release para assinar, verificar e publicar somente artefatos com assinatura de código válida.
 - [ ] Validar em computador Windows limpo a identificação do publicador e a ausência de alerta de editor desconhecido antes de distribuição ampla.
+
+## ASSINATURA INDIVIDUAL PROVISÓRIA — ASSISTENTE RADIANT
+
+- [ ] Confirmar fornecedores que emitam certificado individual público de assinatura de código para residente no Brasil e os documentos exigidos.
+- [x] Definir que o certificado provisório mostrará somente o nome civil validado do responsável, sem apresentar `Lauds` ou `StudioBarra7` como entidade verificada.
+- [x] Documentar a custódia de chave individual em token/HSM ou serviço gerenciado e proibir armazenamento em GitHub e nas VMs.
+- [ ] Preparar a assinatura SHA-256 com carimbo de tempo RFC 3161 dos binários do Assistente e do instalador final.
+- [x] Documentar a futura migração do certificado individual para certificado organizacional quando houver entidade empresarial formalizada.

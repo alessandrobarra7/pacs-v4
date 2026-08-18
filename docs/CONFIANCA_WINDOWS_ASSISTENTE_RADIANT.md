@@ -89,6 +89,43 @@ Para iniciar a contratação e configurar o pipeline, o proprietário deve escol
 
 Nenhuma senha, chave privada, certificado PFX, token USB, código de ativação ou segredo de pipeline deve ser enviado pelo chat, salvo no GitHub ou copiado para a VM1, VM2 ou VM3.
 
+## 9. Estratégia provisória: assinatura individual
+
+Enquanto não houver entidade empresarial formalizada, a alternativa tecnicamente adequada é uma assinatura de código com **validação individual (IV)**. Nesse modelo, o Windows exibe o nome civil verificado do titular do certificado como publicador; não deve exibir `Lauds`, `StudioBarra7` ou outro nome comercial como se fosse uma organização validada. Um certificado IV não requer registro empresarial, mas exige confirmação da identidade do titular.[7]
+
+O candidato inicial é um certificado **IV Code Signing** de autoridade certificadora pública que aceite a validação do responsável residente no Brasil. A documentação do emissor deve ser confirmada diretamente antes da contratação, pois a aceitação de documentos, o método de contato e a disponibilidade comercial dependem da jurisdição e podem mudar. A referência consultada informa que a validação individual requer documento oficial com foto, endereço e ano de nascimento, comprovação facial e contato por telefone verificável.[8]
+
+> Documentos de identidade, fotografias, endereço completo, telefone e qualquer dado de pagamento devem ser enviados somente no portal oficial da autoridade certificadora escolhida. Eles não devem ser enviados ao Portal PACS, ao GitHub, às VMs ou por chat.
+
+### 9.1 Custódia provisória recomendada
+
+A preferência é por **assinatura em nuvem gerenciada** pelo próprio emissor, com autenticação multifator do titular. Essa opção evita armazenar uma chave privada ou arquivo `.pfx` na VM1, no repositório ou em uma máquina de build. A alternativa é um token USB criptográfico compatível, guardado fisicamente pelo titular e conectado somente à estação controlada de assinatura. Requisitos atuais do setor exigem que chaves de certificados públicos de assinatura de código permaneçam em hardware seguro ou serviço de nuvem compatível, e não como arquivo exportável.[9]
+
+### 9.2 Limites da solução individual
+
+| Aspecto | Efeito da assinatura individual |
+|---|---|
+| Nome exibido pelo Windows | Nome civil validado do titular. |
+| Integridade do instalador | Verificável: qualquer alteração posterior invalida a assinatura. |
+| SmartScreen inicial | Ainda pode exibir aviso de aplicativo não reconhecido até formar reputação; não existe prazo ou volume garantido. |
+| Marca `Lauds` | Pode permanecer no nome do produto, site e interface, mas não aparece como organização verificada sem certificado empresarial. |
+| Migração futura | Ao formalizar a empresa, será necessário emitir certificado OV em nome da organização. Isso estabelece uma nova identidade de publicação e deve ser tratado como transição planejada. |
+
+### 9.3 Ordem de implementação
+
+1. Confirmar, diretamente com a autoridade certificadora, que ela aceita validação individual para o responsável residente no Brasil e que o certificado será confiável para Authenticode no Windows.
+2. Contratar o certificado IV e concluir a validação fora deste projeto, usando apenas o portal oficial do emissor.
+3. Configurar uma conta de assinatura em nuvem com autenticação multifator **ou** receber e custodiar o token criptográfico.
+4. Assinar primeiro o binário interno `PacsRadiantAssistant.exe`; em seguida, gerar e assinar o instalador `PacsRadiantAssistantSetup.exe`.
+5. Aplicar carimbo de tempo RFC 3161, verificar assinatura e hash, e executar validação em Windows limpo antes de substituir o artefato na VM1.
+6. Manter a distribuição como controlada até que a identidade individual e a reputação do certificado demonstrem comportamento estável. Quando houver organização formalizada, iniciar uma migração planejada para certificado OV.
+
+## Referências adicionais
+
+[7]: https://www.ssl.com/products/software-integrity/code-signing/iv/ "SSL.com — IV Code Signing"
+[8]: https://www.ssl.com/faqs/ssl-ov-validation-requirements/ "SSL.com — Requirements for OV and IV Certificates"
+[9]: https://www.ssl.com/how-to/ordering-process-for-code-and-document-signing-certificates/ "SSL.com — Ordering Process for Code and Document Signing Certificates"
+
 ## Referências
 
 [1]: https://learn.microsoft.com/en-us/windows-hardware/drivers/install/authenticode "Microsoft Learn — Authenticode digital signatures"
