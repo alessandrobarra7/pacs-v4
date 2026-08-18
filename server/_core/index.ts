@@ -25,12 +25,13 @@ import net from "net";
 import crypto from "crypto";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
+import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { storageKeyFromReference, storageUsesMinio } from "../storage";
 import { minioGetObject, minioStatObject } from "../minio";
 import { assertCachedDicomFileAccess } from "../authorization";
-import { buildRadiantAssistantInstaller, createRadiantAssistantTokenStore, RADIANT_ASSISTANT_SCHEME } from "../radiantAssistant";
+import { createRadiantAssistantTokenStore, RADIANT_ASSISTANT_SCHEME } from "../radiantAssistant";
 import { serveStatic, setupVite } from "./vite";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
@@ -258,6 +259,7 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  registerStorageProxy(app);
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   
@@ -360,22 +362,6 @@ async function startServer() {
     } catch (error) {
       console.error('[DICOM Export Token] Erro:', error);
       if (!res.headersSent) res.status(404).send('Estudo não disponível no cache');
-    }
-  });
-
-  // Instalador por usuário do Assistente RadiAnt. O script registra apenas o
-  // protocolo pacs-radiant:// e não lê nem altera as configurações do RadiAnt.
-  app.get('/api/radiant-assistant/installer', requireAuth, (req, res) => {
-    try {
-      const origin = `${req.protocol}://${req.get('host')}`;
-      const installer = buildRadiantAssistantInstaller(origin);
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.setHeader('Content-Disposition', 'attachment; filename="PacsRadiantAssistant.ps1"');
-      res.setHeader('Cache-Control', 'no-store');
-      res.send(installer);
-    } catch (error) {
-      console.error('[RadiAnt Assistant] Falha ao gerar instalador:', error);
-      res.status(500).json({ error: 'Não foi possível preparar o Assistente RadiAnt.' });
     }
   });
 

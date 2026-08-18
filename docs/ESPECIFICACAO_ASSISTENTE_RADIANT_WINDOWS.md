@@ -41,9 +41,9 @@ As recomendações de tratar parâmetros de URI como entrada não confiável, re
 
 ## Limites conhecidos
 
-O Portal não pode detectar de maneira confiável pelo navegador se o RadiAnt ou o Assistente está instalado. O usuário deve iniciar a ativação uma vez. A confirmação confiável é feita pelo callback HTTPS do Assistente, e não por temporizador no navegador.
+O Portal não pode detectar de maneira confiável pelo navegador se o RadiAnt ou o Assistente está instalado. O usuário deve iniciar a ativação uma vez. No piloto, a confirmação é exibida pelo instalador visual do Windows; a confirmação HTTPS vinculada ao dispositivo permanece uma evolução futura.
 
-O pacote de piloto é um script PowerShell por usuário, sem assinatura de código. Ele é adequado apenas para teste controlado em computador consentido. Uma distribuição ampla deve usar um instalador assinado e revisão de segurança do componente Windows.
+O pacote de piloto é um instalador visual por usuário, sem assinatura de código. Ele é adequado apenas para teste controlado em computador consentido. Uma distribuição ampla deve usar instalador assinado e revisão de segurança do componente Windows.
 
 Como o RadiAnt permanece aberto com arquivos locais, a remoção do diretório temporário não pode ocorrer enquanto o programa ainda precisar das imagens. A política de limpeza será definida e validada no piloto; ela não pode encerrar o RadiAnt do médico, tocar em suas configurações ou remover arquivos fora do diretório exclusivo do Assistente.
 

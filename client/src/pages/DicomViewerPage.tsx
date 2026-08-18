@@ -62,6 +62,7 @@ interface DicomSeries {
 }
 
 type ActiveTool = "WindowLevel" | "Zoom" | "Pan" | "Length" | "StackScroll";
+const RADIANT_ASSISTANT_INSTALLER_PATH = "/manus-storage/PacsRadiantAssistantSetup-win64_43a8098a.exe";
 
 export function DicomViewerPage() {
   const { studyUid } = useParams<{ studyUid: string }>();
@@ -997,13 +998,13 @@ export function DicomViewerPage() {
     setIsActivatingRadiant(true);
     try {
       const anchor = document.createElement('a');
-      anchor.href = '/api/radiant-assistant/installer';
-      anchor.download = 'PacsRadiantAssistant.ps1';
+      anchor.href = RADIANT_ASSISTANT_INSTALLER_PATH;
+      anchor.download = 'PacsRadiantAssistantSetup.exe';
       document.body.appendChild(anchor);
       anchor.click();
       document.body.removeChild(anchor);
-      toast.info('Preparador RadiAnt baixado', {
-        description: 'No Windows, execute o arquivo baixado uma única vez. Ele não modifica o PACS, IP, porta, AE Title ou configurações já existentes no RadiAnt.',
+      toast.info('Instalador do Assistente RadiAnt baixado', {
+        description: 'Abra o instalador e clique em Instalar uma única vez. Ele não modifica as configurações PACS já existentes no RadiAnt.',
         duration: 12000,
       });
     } finally {
@@ -1198,7 +1199,7 @@ export function DicomViewerPage() {
             onClick={handleActivateRadiant}
             disabled={isActivatingRadiant}
             className="text-xs border-cyan-700 text-cyan-300 hover:bg-cyan-900/40 h-7 px-2"
-            title="Preparar uma única vez o Assistente RadiAnt neste computador Windows"
+            title="Instalar uma única vez o Assistente RadiAnt neste computador Windows"
           >
             {isActivatingRadiant ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ExternalLink className="h-3 w-3 mr-1" />}
             Ativar RadiAnt

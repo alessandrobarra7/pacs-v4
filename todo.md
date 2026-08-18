@@ -2000,3 +2000,7 @@
 - [ ] Comparar o modo de listener padrão com o Assistente local, priorizando a preservação da configuração hospitalar e autorização por estudo.
 - [x] Implementar somente o fluxo Assistente RadiAnt com arquivos temporários autorizados nesta rodada, sem alterar Horos, PACS, AE Titles, IPs, portas ou `pacs.xml` existentes.
 - [ ] Preparar um pacote de teste para um computador Windows com RadiAnt já instalado e registrar o resultado antes de ampliar o recurso.
+- [x] Remover PowerShell e arquivos `.ps1` da experiência de ativação apresentada a usuários finais.
+- [x] Produzir um instalador visual do Assistente RadiAnt, com associação de protocolo local e abertura pelo Windows sem comandos manuais.
+- [ ] Definir e aplicar assinatura de código antes de distribuição ampla do instalador Windows.
+- [x] Exibir no Portal somente a abertura padrão do Windows após a instalação única, sem instruções técnicas para médicos.

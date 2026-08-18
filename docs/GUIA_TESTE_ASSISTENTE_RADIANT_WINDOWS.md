@@ -4,7 +4,7 @@
 
 Este teste verifica se o Portal abre um estudo autorizado no **RadiAnt já instalado**, sem alterar qualquer configuração hospitalar existente. O piloto não configura PACS, não cadastra IP, não altera porta, AE Title ou licença e não usa Query/Retrieve.
 
-> O Assistente é um script PowerShell de teste sem assinatura de código. Execute-o somente em computador Windows autorizado para este piloto.
+> O Assistente é um instalador visual de teste sem assinatura de código. Execute-o somente em computador Windows autorizado para este piloto.
 
 ## Pré-requisitos
 
@@ -12,18 +12,14 @@ O computador precisa executar Windows, possuir o RadiAnt instalado e ter acesso 
 
 ## Ativação única
 
-No visualizador DICOM do Portal, clique em **Ativar RadiAnt**. O navegador baixará `PacsRadiantAssistant.ps1`. Abra o PowerShell e execute, ajustando o caminho caso o navegador tenha usado outra pasta de download:
+No visualizador DICOM do Portal, clique em **Ativar RadiAnt**. O navegador baixará `PacsRadiantAssistantSetup.exe`. Abra o instalador baixado e clique em **Instalar**. Não é necessário abrir PowerShell, copiar comandos ou configurar PACS.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\Downloads\PacsRadiantAssistant.ps1"
-```
-
-Quando o RadiAnt for encontrado, ele será aberto e será exibida a mensagem **Ativação concluída**. O script cria apenas:
+Quando a instalação terminar, será exibida a mensagem **Ativação concluída**. O instalador cria apenas:
 
 | Local | Finalidade |
 |---|---|
 | `HKCU:\Software\Classes\pacs-radiant` | Associação do protocolo local do Assistente. |
-| `%LOCALAPPDATA%\PacsRadiantAssistant` | Script e diretório temporário dos estudos baixados. |
+| `%LOCALAPPDATA%\PacsRadiantAssistant` | Executável do Assistente e diretório temporário dos estudos baixados. |
 
 O teste não deve modificar qualquer arquivo ou configuração pertencente ao RadiAnt.
 
