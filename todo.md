@@ -2006,3 +2006,6 @@
 - [x] Exibir no Portal somente a abertura padrão do Windows após a instalação única, sem instruções técnicas para médicos.
 - [x] Corrigir o download bloqueado do instalador `.exe` no navegador, substituindo o redirecionamento externo por entrega compatível pelo mesmo domínio do Portal.
 - [ ] Validar no navegador Windows que o instalador visual é baixado integralmente antes de repetir a ativação RadiAnt.
+- [ ] Verificar na VM1 a origem HTTP/HTTPS, os cabeçalhos e o status da resposta do instalador antes de alterar novamente o Portal.
+- [ ] Corrigir qualquer bloqueio de download inseguro ou incompatível do navegador sem solicitar que médicos desativem proteções locais.
+- [x] Produzir e versionar relatório de auditoria externa sobre a arquitetura RadiAnt, o piloto executado, os bloqueios de download e as recomendações de correção.
