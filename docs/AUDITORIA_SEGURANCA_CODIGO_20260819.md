@@ -65,6 +65,12 @@ Por decisão operacional registrada, o módulo de áudios e anexos é visível e
 
 Esta política foi aplicada tanto na interface quanto nas procedures de áudio e anexos. O servidor ainda confirma a autorização no estudo antes de cada operação, de forma que alterar a interface do navegador não amplia permissões. A validação completa posterior aprovou 41 arquivos Vitest, 257 testes e uma integração MinIO deliberadamente ignorada; a verificação TypeScript não encontrou erro.
 
+### Validação e atualização da VM1
+
+O commit `50fe25b`, que contém a política clínica de mídia, foi compilado inicialmente em um *worktree* isolado na VM1. A compilação gerou `dist/public/index.html` com 367.349 bytes e `dist/index.js` com 540.429 bytes, enquanto o processo de produção permaneceu online e sem reinício.
+
+Após autorização explícita, a atualização controlada foi aplicada na VM1. O PM2 reiniciou somente depois da compilação concluída, permaneceu online após 15 segundos e o Portal respondeu `HTTP_LOCAL=200`. A checagem de registros não encontrou erros-alvo de streaming, memória, conexão ou bloqueio de papel inesperado. A VM1 está no commit `50fe25b`.
+
 ## Referências de avisos selecionados
 
 - [1] [Babel runtime — GHSA-968p-4wvh-cqc8](https://github.com/advisories/GHSA-968p-4wvh-cqc8)

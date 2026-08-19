@@ -2127,6 +2127,8 @@
 - [x] Exigir autorização por estudo nas rotas de leitura e gravação de anotações Cornerstone.
 - [x] Restringir o módulo de áudio e anexos aos papéis `medico` e `operador`; operador terá apenas consulta e reprodução.
 - [x] Permitir gravação e exclusão de áudios e anexos somente ao médico autor do item; bloquear `viewer` e demais papéis.
+- [x] Validar em worktree isolado na VM1 a compilação da política clínica de mídia antes do reinício do serviço.
+- [x] Atualizar controladamente a VM1 para a política clínica de mídia e validar PM2, HTTP local e erros-alvo.
 - [x] Executar auditoria de dependências e classificar vulnerabilidades por impacto no Portal.
 - [x] Implementar e testar no sandbox as correções confirmadas de streaming, anamnese, readiness e duração de sessão OAuth.
 - [x] Validar build completo do frontend de segurança antes de atualizar a VM1.
