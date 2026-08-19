@@ -2161,7 +2161,7 @@
 - [x] Migrar os overrides e a permissão de scripts de build do `package.json` para `pnpm-workspace.yaml`, conforme a configuração exigida pelo pnpm instalado.
 - [x] Fixar no workspace as correções transitivas compatíveis de `path-to-regexp`, `body-parser`, `follow-redirects`, `form-data`, `lodash` e `lodash-es`, sem atualizar Express, Axios, Archiver ou Cornerstone diretamente.
 - [x] Atualizar a fixação do gerenciador pnpm para uma versão que reconheça `pnpm-workspace.yaml` e validar os overrides em cópia temporária antes de alterar o lockfile principal.
-- [ ] Validar na VM1, em worktree isolado, o pnpm 10.30.1, o lockfile corrigido e o build da atualização transitiva antes de reiniciar o Portal.
+- [x] Validar na VM1, em worktree isolado, o pnpm 10.30.1, o lockfile corrigido e o build da atualização transitiva antes de reiniciar o Portal.
 - [ ] Atualizar controladamente a VM1 para as correções transitivas somente após a validação isolada aprovada.
 
 ## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE

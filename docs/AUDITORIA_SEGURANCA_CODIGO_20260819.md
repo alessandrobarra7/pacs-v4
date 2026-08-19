@@ -45,6 +45,12 @@ O sandbox executava pnpm 10.4.1 por causa da fixação anterior do projeto. Essa
 
 Após a sincronização do sandbox, as versões efetivas foram confirmadas e a auditoria caiu para 9 avisos baixos, 56 moderados e 46 altos: redução de 8 avisos agregados, sem alteração direta de Express, Axios, Archiver, Streamdown, Mermaid, Cornerstone ou vtk.js. A suíte de regressão aprovou 41 arquivos Vitest, 257 testes e uma integração MinIO ignorada; TypeScript não encontrou erros. O build de produção também concluiu, transformando 4.808 módulos e gerando os artefatos esperados. A atualização da VM1 continua bloqueada até a validação isolada desta mudança de dependências.
 
+### Validação isolada na VM1
+
+O commit `bc6b00c` foi compilado em *worktree* temporário na VM1 sem modificar o diretório ativo nem reiniciar o PM2. A instalação com *lockfile* congelado concluiu e o pnpm presente no candidato informou versão 10.30.1 antes do build. A compilação transformou 4.803 módulos, gerou `dist/public/index.html` com 367.349 bytes e `dist/index.js` com 540.429 bytes. O processo ativo permaneceu online, com 169,3 MiB de memória e sem alteração do contador de reinicializações.
+
+Os avisos do Vite referentes aos módulos Node externalizados nos codecs Cornerstone e ao *chunk* acima de 500 KiB permaneceram não bloqueantes e preexistentes. A validação confirma que as correções transitivas não exigem atualização direta de Cornerstone, vtk.js ou dos codecs DICOM; a atualização controlada da VM1 continua condicionada a autorização explícita.
+
 ## Itens ainda em revisão
 
 Os procedimentos prioritários que recebem `unitId` do cliente, sobretudo no módulo financeiro e de layout, foram revisados nesta rodada e tiveram os controles confirmados adicionados. A atualização de dependências continua deliberadamente separada: grande parte dos avisos de alta severidade pertence à árvore transitiva do visualizador DICOM e exige validação de visualização antes de produção.
