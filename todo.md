@@ -2166,9 +2166,9 @@
 - [ ] Reavaliar o inventário remanescente e atualizar Mermaid para uma versão corrigida compatível no sandbox, sem alterar Streamdown ou o visualizador DICOM diretamente.
 - [ ] Executar regressão de Markdown/diagramas, TypeScript e build após a atualização isolada de Mermaid.
 - [x] Diagnosticar a tela em branco relatada após a atualização de dependências, coletando console, rede e estado dos artefatos da VM1 antes de qualquer ação corretiva.
-- [ ] Recuperar o Portal por atualização corretiva ou reversão controlada somente após isolar a causa da tela em branco.
+- [x] Recuperar o Portal por atualização corretiva ou reversão controlada somente após isolar a causa da tela em branco.
 - [x] Declarar o *shim* seguro de `global` no bootstrap do cliente e cobrir a ausência de `ReferenceError` no bundle de navegador.
-- [ ] Validar em sandbox, worktree e pós-deploy a recuperação da interface após o erro `global is not defined`.
+- [x] Validar em sandbox, worktree e pós-deploy a recuperação da interface após o erro `global is not defined`.
 
 ## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE
 

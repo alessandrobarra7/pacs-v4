@@ -71,6 +71,16 @@ O Console do navegador afetado identificou então a causa: `Uncaught ReferenceEr
 
 O corretivo declarado no sandbox substitui identificadores `global` por `globalThis` durante a compilação Vite, sem inserir *polyfill* mutável em `window`. A suíte completa posterior aprovou 42 arquivos Vitest, 259 testes e uma integração MinIO ignorada; TypeScript não encontrou erros e o build de produção transformou 4.808 módulos em 31,96 segundos. A recuperação da VM1 permanece bloqueada até a validação isolada deste corretivo.
 
+### Validação isolada do corretivo
+
+O commit corretivo `0d06917` foi validado em *worktree* temporário na VM1. A instalação com *lockfile* congelado e pnpm 10.30.1 concluiu, e o build transformou 4.803 módulos em 36,68 segundos. Foram gerados `dist/public/index.html` com 367.349 bytes e `dist/index.js` com 540.471 bytes. O processo ativo permaneceu online, com o mesmo contador de reinicializações, enquanto a validação ocorria fora do diretório de produção.
+
+### Recuperação controlada da VM1
+
+Com autorização explícita, a VM1 avançou de `32ed79e` para `0d06917`. O build de produção transformou 4.803 módulos e terminou em 37,64 segundos; os artefatos foram gerados e verificados antes do reinício do PM2. Após 15 segundos, o processo `pacs-portal` estava online, respondeu `HTTP_LOCAL=200` e usava cerca de 189 MiB de memória.
+
+A verificação pós-deploy não encontrou `ReferenceError: global is not defined`, falhas de streaming DICOM, erros de memória ou falhas de conexão. Os avisos de *chunk* acima de 500 KiB e de módulos Node externalizados nos codecs Cornerstone permanecem conhecidos e não bloqueantes; eles devem ser tratados separadamente como melhoria de empacotamento e atualização clínica do visualizador.
+
 ## Itens ainda em revisão
 
 Os procedimentos prioritários que recebem `unitId` do cliente, sobretudo no módulo financeiro e de layout, foram revisados nesta rodada e tiveram os controles confirmados adicionados. A atualização de dependências continua deliberadamente separada: grande parte dos avisos de alta severidade pertence à árvore transitiva do visualizador DICOM e exige validação de visualização antes de produção.
