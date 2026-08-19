@@ -57,7 +57,13 @@ O processo `pacs-portal` foi reiniciado somente após a verificação dos artefa
 
 As rotas de áudio e anexo validam o estudo antes de listar, enviar ou remover objetos; o upload limita tamanho, verifica a assinatura binária do tipo aceito e armazena anexos e áudios na VM3. A rota `/api/media/*` exige sessão, rejeita tentativa de *path traversal*, associa chaves de anexos e áudio ao estudo e aplica autorização antes de transmitir o objeto. Os laudos, logos de unidade, assinaturas e carimbos seguem controles específicos de unidade ou usuário.
 
-O CORS permite somente as origens institucionais e locais de desenvolvimento explicitamente declaradas; as solicitações de origem diferente não recebem `Access-Control-Allow-Origin`. O CSP do aplicativo permanece desabilitado por compatibilidade com OHIF/Cornerstone, compensado parcialmente pelos cabeçalhos da borda Nginx já aplicados. A separação entre permissão de visualização e exclusão de áudios/anexos continua como decisão de política pendente: atualmente, quem possui `view_studies` no estudo consegue remover esses objetos.
+O CORS permite somente as origens institucionais e locais de desenvolvimento explicitamente declaradas; as solicitações de origem diferente não recebem `Access-Control-Allow-Origin`. O CSP do aplicativo permanece desabilitado por compatibilidade com OHIF/Cornerstone, compensado parcialmente pelos cabeçalhos da borda Nginx já aplicados.
+
+### Política clínica definida
+
+Por decisão operacional registrada, o módulo de áudios e anexos é visível exclusivamente para os papéis `medico` e `operador`. O operador pode listar, abrir anexos e reproduzir áudios, mas não consegue enviar nem remover arquivos. O médico pode consultar, enviar e excluir **somente** os itens dos quais é autor. Os papéis `viewer`, administrativo, financeiro e demais perfis não recebem os controles na interface e são bloqueados pelas rotas do servidor.
+
+Esta política foi aplicada tanto na interface quanto nas procedures de áudio e anexos. O servidor ainda confirma a autorização no estudo antes de cada operação, de forma que alterar a interface do navegador não amplia permissões. A validação completa posterior aprovou 41 arquivos Vitest, 257 testes e uma integração MinIO deliberadamente ignorada; a verificação TypeScript não encontrou erro.
 
 ## Referências de avisos selecionados
 

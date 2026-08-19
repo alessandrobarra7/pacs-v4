@@ -14,6 +14,18 @@ async function resolveAttachmentUrl(reference: string | null): Promise<string | 
   return toProxyUrl(reference);
 }
 
+function assertClinicalMediaViewer(role: string) {
+  if (role !== "medico" && role !== "operador") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a médicos e operadores" });
+  }
+}
+
+function assertClinicalMediaDoctor(role: string) {
+  if (role !== "medico") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Apenas médicos podem anexar ou excluir arquivos" });
+  }
+}
+
 export const annotationsRouter = router({
   /** Busca anotações Cornerstone de um estudo (compatibilidade com viewer DICOM) */
   getByStudy: protectedProcedure
@@ -61,6 +73,7 @@ export const annotationsRouter = router({
   list: protectedProcedure
     .input(z.object({ study_instance_uid: z.string() }))
     .query(async ({ input, ctx }) => {
+      assertClinicalMediaViewer(ctx.user.role);
       await assertDicomFileAccess(ctx.user, input.study_instance_uid, "view_studies");
       const db = await getDb();
       if (!db) return [];
@@ -78,6 +91,7 @@ export const annotationsRouter = router({
   getAttachmentsStatusBatch: protectedProcedure
     .input(z.object({ studyInstanceUids: z.array(z.string()) }))
     .query(async ({ input, ctx }) => {
+      assertClinicalMediaViewer(ctx.user.role);
       if (!input.studyInstanceUids.length) return {} as Record<string, boolean>;
       const result: Record<string, boolean> = {};
       for (const uid of input.studyInstanceUids) result[uid] = false;
@@ -117,6 +131,7 @@ export const annotationsRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      assertClinicalMediaDoctor(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const unitId = await assertDicomFileAccess(ctx.user, input.study_instance_uid, "view_studies");
@@ -168,6 +183,10 @@ export const annotationsRouter = router({
         .where(eq(study_attachments.id, input.id));
 
       if (row) {
+        assertClinicalMediaDoctor(ctx.user.role);
+        if (row.user_id !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Apenas o médico autor pode excluir este anexo" });
+        }
         await assertDicomFileAccess(ctx.user, row.study_instance_uid, "view_studies");
         try {
           await storageDelete(row.file_url);

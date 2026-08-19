@@ -48,8 +48,10 @@ export function PatientAttachmentsModal({
     { study_instance_uid: studyInstanceUid },
     { enabled: open && !!studyInstanceUid }
   );
+  const { data: currentUser } = trpc.auth.me.useQuery();
   const uploadMutation = trpc.annotations.upload.useMutation();
   const deleteMutation = trpc.annotations.deleteAttachment.useMutation();
+  const canManageAttachments = currentUser?.role === "medico";
 
   const openCamera = () => {
     cameraActiveRef.current = true;
@@ -131,7 +133,7 @@ export function PatientAttachmentsModal({
           </p>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3 pt-3">
+        {canManageAttachments && <div className="grid grid-cols-2 gap-3 pt-3">
           <Button
             type="button"
             disabled={uploading}
@@ -151,24 +153,24 @@ export function PatientAttachmentsModal({
             <Upload className="h-5 w-5" />
             Anexar arquivo
           </Button>
-        </div>
+        </div>}
 
-        <input
+        {canManageAttachments && <input
           ref={cameraInputRef}
           type="file"
           accept="image/*"
           capture="environment"
           className="hidden"
           onChange={handleFileUpload}
-        />
-        <input
+        />}
+        {canManageAttachments && <input
           ref={fileInputRef}
           type="file"
           accept="image/*,application/pdf"
           multiple
           className="hidden"
           onChange={handleFileUpload}
-        />
+        />}
 
         <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
           {attachments.length === 0 ? (
@@ -202,14 +204,14 @@ export function PatientAttachmentsModal({
                         </span>
                       )}
                     </button>
-                    <button
+                    {canManageAttachments && <button
                       type="button"
                       onClick={() => handleDelete(attachment.id)}
                       aria-label={`Remover ${attachment.file_name}`}
                       className="absolute right-1 top-1 hidden rounded-full bg-white/95 p-1 text-red-600 shadow group-hover:block"
                     >
                       <X className="h-3 w-3" aria-hidden="true" />
-                    </button>
+                    </button>}
                   </div>
                 );
               })}

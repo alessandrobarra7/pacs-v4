@@ -13,11 +13,25 @@ async function resolveAudioUrl(reference: string | null): Promise<string | null>
   if (!reference) return null;
   return toProxyUrl(reference);
 }
+
+function assertClinicalMediaViewer(role: string) {
+  if (role !== "medico" && role !== "operador") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a médicos e operadores" });
+  }
+}
+
+function assertClinicalMediaDoctor(role: string) {
+  if (role !== "medico") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Apenas médicos podem gravar ou excluir áudios" });
+  }
+}
+
 export const audioReportsRouter = router({
   /** Lista áudios gravados de um estudo */
   list: protectedProcedure
     .input(z.object({ study_instance_uid: z.string() }))
     .query(async ({ input, ctx }) => {
+      assertClinicalMediaViewer(ctx.user.role);
       await assertDicomFileAccess(ctx.user, input.study_instance_uid, "view_studies");
       const db = await getDb();
       if (!db) return [];
@@ -36,6 +50,7 @@ export const audioReportsRouter = router({
   getStatusBatch: protectedProcedure
     .input(z.object({ studyInstanceUids: z.array(z.string()) }))
     .query(async ({ input, ctx }) => {
+      assertClinicalMediaViewer(ctx.user.role);
       if (!input.studyInstanceUids.length) return {} as Record<string, boolean>;
       const result: Record<string, boolean> = {};
       for (const uid of input.studyInstanceUids) result[uid] = false;
@@ -75,6 +90,7 @@ export const audioReportsRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      assertClinicalMediaDoctor(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const unitId = await assertDicomFileAccess(ctx.user, input.study_instance_uid, "view_studies");
@@ -132,6 +148,10 @@ export const audioReportsRouter = router({
       }
 
       const record = rows[0];
+      assertClinicalMediaDoctor(ctx.user.role);
+      if (record.user_id !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas o médico autor pode excluir este áudio" });
+      }
       await assertDicomFileAccess(ctx.user, record.study_instance_uid, "view_studies");
       try {
         await storageDelete(record.file_url || record.file_key);

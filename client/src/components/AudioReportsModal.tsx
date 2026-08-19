@@ -48,8 +48,10 @@ export function AudioReportsModal({
     { study_instance_uid: studyInstanceUid },
     { enabled: open && !!studyInstanceUid },
   );
+  const { data: currentUser } = trpc.auth.me.useQuery();
   const uploadMutation = trpc.audioReports.upload.useMutation();
   const deleteMutation = trpc.audioReports.delete.useMutation();
+  const canManageAudio = currentUser?.role === "medico" && allowRecording;
   const activeAudio = audios.find((audio: any) => audio.id === activeAudioId) ?? null;
 
   const formatTime = (seconds: number) => {
@@ -224,7 +226,7 @@ export function AudioReportsModal({
         </DialogHeader>
 
         <div className="min-w-0 space-y-4 pt-3">
-          {allowRecording && (
+          {canManageAudio && (
             <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-gray-100 bg-gray-50 p-5">
               {recording ? (
                 <div className="flex flex-col items-center gap-2">
@@ -320,7 +322,7 @@ export function AudioReportsModal({
                         <span className="block text-[10px] font-medium text-gray-500">{formatTime(audio.duration_seconds || 0)}</span>
                       </span>
                     </Button>
-                    {allowRecording && (
+                    {canManageAudio && (
                       <Button variant="ghost" size="icon" onClick={(event) => handleDelete(audio.id, event)} className="h-8 w-8 shrink-0 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600" title="Excluir">
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>

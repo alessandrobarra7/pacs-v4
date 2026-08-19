@@ -2125,7 +2125,8 @@
 - [x] Revisar autorização das rotas clínicas REST e tRPC prioritárias, verificando isolamento por usuário e unidade.
 - [x] Revisar uploads, download de arquivos privados, cabeçalhos HTTP e validação de origem.
 - [x] Exigir autorização por estudo nas rotas de leitura e gravação de anotações Cornerstone.
-- [ ] Definir política de exclusão de áudios e anexos clínicos separada da permissão de visualização.
+- [x] Restringir o módulo de áudio e anexos aos papéis `medico` e `operador`; operador terá apenas consulta e reprodução.
+- [x] Permitir gravação e exclusão de áudios e anexos somente ao médico autor do item; bloquear `viewer` e demais papéis.
 - [x] Executar auditoria de dependências e classificar vulnerabilidades por impacto no Portal.
 - [x] Implementar e testar no sandbox as correções confirmadas de streaming, anamnese, readiness e duração de sessão OAuth.
 - [x] Validar build completo do frontend de segurança antes de atualizar a VM1.

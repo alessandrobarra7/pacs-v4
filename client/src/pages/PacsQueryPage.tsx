@@ -466,9 +466,10 @@ export function PacsQueryPage() {
   const trpcUtils = trpc.useUtils();
   const { data: user } = trpc.auth.me.useQuery();
 
-  const userRole = (user?.role || 'viewer') as UserRole;
-  const isAdmin = canAccessAdmin(userRole);
-  const isAdminMaster = user?.role === 'admin_master';
+const userRole = (user?.role || 'viewer') as UserRole;
+const isAdmin = canAccessAdmin(userRole);
+const isAdminMaster = user?.role === 'admin_master';
+  const canAccessClinicalMedia = user?.role === 'medico' || user?.role === 'operador';
 
   // Persistir unidade selecionada no localStorage para manter a seleção ao navegar entre páginas
   const SELECTED_UNIT_KEY = 'pacs_selected_unit_id';
@@ -1139,8 +1140,9 @@ export function PacsQueryPage() {
     navigate(`/reports/create/${uid}`);
   };
 
-  const handleListenAudio = (study: any) => {
-    setSelectedStudy(study);
+const handleListenAudio = (study: any) => {
+    if (!canAccessClinicalMedia) return;
+setSelectedStudy(study);
     setIsAudioModalOpen(true);
   };
 
@@ -2023,6 +2025,7 @@ export function PacsQueryPage() {
                     <td className="px-4 py-3 text-center">
                       {(() => {
                         const hasAttachments = !!attachmentsStatusMap[study.studyInstanceUid];
+                        if (!canAccessClinicalMedia) return null;
                         return (
                           <button
                             type="button"
@@ -2206,6 +2209,7 @@ export function PacsQueryPage() {
                         {/* 1. Anexo de imagens (condicional) */}
                         {(() => {
                           const hasAttachments = !!attachmentsStatusMap[study.studyInstanceUid];
+                          if (!canAccessClinicalMedia) return null;
                           return (
                             <button
                               type="button"
@@ -2399,7 +2403,7 @@ export function PacsQueryPage() {
         />
       )}
 
-       {isAttachmentsModalOpen && selectedStudy && (
+       {canAccessClinicalMedia && isAttachmentsModalOpen && selectedStudy && (
          <PatientAttachmentsModal
            open={isAttachmentsModalOpen}
            onClose={() => { setIsAttachmentsModalOpen(false); setSelectedStudy(null); }}
@@ -2412,14 +2416,14 @@ export function PacsQueryPage() {
          />
        )}
 
-       {isAudioModalOpen && selectedStudy && (
+       {canAccessClinicalMedia && isAudioModalOpen && selectedStudy && (
          <AudioReportsModal
            open={isAudioModalOpen}
            onClose={() => { setIsAudioModalOpen(false); setSelectedStudy(null); }}
            studyInstanceUid={selectedStudy.studyInstanceUid}
            unitId={effectiveUnitId ?? undefined}
            patientName={selectedStudy.patientName}
-           allowRecording={false}
+           allowRecording={user?.role === 'medico'}
            onUploadSuccess={() => {
              refetchAudioStatus();
            }}

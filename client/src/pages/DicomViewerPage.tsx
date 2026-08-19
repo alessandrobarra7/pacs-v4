@@ -91,6 +91,7 @@ export function DicomViewerPage() {
     { enabled: !!viewerUnitId && !!currentUser }
   );
   const canOpenReport = currentUser?.role === "admin_master" || viewerPermissions?.edit_reports === true;
+  const canAccessClinicalMedia = currentUser?.role === "medico" || currentUser?.role === "operador";
 
   // ─── Estado de fase ───────────────────────────────────────────────────────
   const [phase, setPhase] = useState<"idle" | "connecting" | "streaming" | "rendering" | "ready" | "error">("idle");
@@ -146,14 +147,15 @@ export function DicomViewerPage() {
   const [showAudioModal, setShowAudioModal] = useState(false);
   const { data: viewerAttachments = [], refetch: refetchViewerAttachments } = trpc.annotations.list.useQuery(
     { study_instance_uid: studyUid ?? "" },
-    { enabled: !!studyUid }
+    { enabled: !!studyUid && canAccessClinicalMedia }
   );
   const { data: viewerAudios = [], refetch: refetchViewerAudios } = trpc.audioReports.list.useQuery(
     { study_instance_uid: studyUid ?? "" },
-    { enabled: !!studyUid }
+    { enabled: !!studyUid && canAccessClinicalMedia }
   );
 
   function PatientViewerAttachmentsButton() {
+    if (!canAccessClinicalMedia) return null;
     return (
       <Button
         variant="outline"
@@ -173,6 +175,7 @@ export function DicomViewerPage() {
   }
 
   function PatientViewerAudioButton() {
+    if (!canAccessClinicalMedia) return null;
     return (
       <Button
         variant="outline"
@@ -1800,7 +1803,7 @@ export function DicomViewerPage() {
         )}
       </div>
 
-      {showAttachmentsModal && (
+      {canAccessClinicalMedia && showAttachmentsModal && (
         <PatientAttachmentsModal
           open={showAttachmentsModal}
           onClose={() => setShowAttachmentsModal(false)}
@@ -1811,14 +1814,14 @@ export function DicomViewerPage() {
         />
       )}
 
-      {showAudioModal && (
+      {canAccessClinicalMedia && showAudioModal && (
         <AudioReportsModal
           open={showAudioModal}
           onClose={() => setShowAudioModal(false)}
           studyInstanceUid={studyUid ?? ""}
           unitId={viewerUnitId ?? undefined}
           patientName={studyMeta?.patient_name_override || studyMeta?.patient_name || studyInfo?.patientName}
-          allowRecording={canOpenReport}
+          allowRecording={currentUser?.role === "medico"}
           onUploadSuccess={() => {
             refetchViewerAudios();
           }}
