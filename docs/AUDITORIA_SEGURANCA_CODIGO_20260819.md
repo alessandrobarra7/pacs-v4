@@ -57,6 +57,20 @@ Após autorização explícita, a VM1 avançou de `50fe25b` para `32ed79e` por *
 
 O build de produção transformou 4.803 módulos e concluiu em 33,24 segundos. Os artefatos `dist/public/index.html` e `dist/index.js` foram gerados com 367.349 e 540.429 bytes. O PM2 reiniciou somente depois da compilação, permaneceu online após 15 segundos, e o Portal respondeu `HTTP_LOCAL=200`. A leitura dos registros não encontrou erros-alvo de streaming DICOM, memória ou conexão. A VM1 agora executa o commit `32ed79e`.
 
+### Regressão visual em investigação
+
+Após a atualização, uma tela branca foi reportada e reproduzida ao abrir `https://lauds.com.br/` em navegador sem sessão. A VM1 confirmou que o HTML referencia `assets/index-DGOv4tV7.js`, que esse arquivo e os WASM testados existem e são entregues pelo Nginx com HTTP 200 e tipos MIME `application/javascript` e `application/wasm`. O PM2 está online; o único erro recente nos registros é um `ENOENT` histórico de cache temporário do Assistente RadiAnt, sem relação com a inicialização do cliente.
+
+O Console do navegador de reprodução ainda não registrou mensagem, o que mantém em investigação uma falha silenciosa no bootstrap, uma requisição que não aparece no recorte atual ou um estado de inicialização bloqueado. Nenhuma nova alteração na VM1 será feita até isolar a causa e validar uma recuperação reversível.
+
+A inspeção direta do DOM em produção confirmou posteriormente que o JavaScript principal, a folha CSS e a consulta `auth.me` foram carregados e que o React montou o formulário de login no elemento `#root`, sem mensagens de console. Na largura de 1280 pixels, a versão móvel do formulário estava corretamente com `display: none` por `md:hidden`; a investigação passou a concentrar-se na variante desktop do login e em suas classes responsivas, pois uma falha nessas classes pode deixar ambos os layouts ocultos e produzir a tela branca observada.
+
+A inspeção seguinte confirmou que a variante desktop também está presente e calculada como visível (`display: flex`, 1280 × 1100 pixels). Seus blocos esquerdo e direito e o cartão de login possuem dimensões válidas, com o cartão posicionado em 676 × 218 pixels e fundo escuro. Isso elimina a hipótese de ambos os layouts estarem ocultos por classes responsivas e aponta uma divergência entre a pintura capturada e o DOM calculado, a ser verificada por nova captura após a estabilização do navegador.
+
+O Console do navegador afetado identificou então a causa: `Uncaught ReferenceError: global is not defined` no bundle principal. A atualização de dependências introduziu uma referência de ambiente Node no código entregue ao navegador. Como a exceção ocorreu antes da montagem visível do React, o resultado foi a tela branca mesmo com HTML, CSS, JavaScript e WASM retornando HTTP 200.
+
+O corretivo declarado no sandbox substitui identificadores `global` por `globalThis` durante a compilação Vite, sem inserir *polyfill* mutável em `window`. A suíte completa posterior aprovou 42 arquivos Vitest, 259 testes e uma integração MinIO ignorada; TypeScript não encontrou erros e o build de produção transformou 4.808 módulos em 31,96 segundos. A recuperação da VM1 permanece bloqueada até a validação isolada deste corretivo.
+
 ## Itens ainda em revisão
 
 Os procedimentos prioritários que recebem `unitId` do cliente, sobretudo no módulo financeiro e de layout, foram revisados nesta rodada e tiveram os controles confirmados adicionados. A atualização de dependências continua deliberadamente separada: grande parte dos avisos de alta severidade pertence à árvore transitiva do visualizador DICOM e exige validação de visualização antes de produção.

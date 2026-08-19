@@ -9,6 +9,7 @@ overrides:
   form-data: 4.0.6
   lodash: 4.18.1
   lodash-es: 4.18.1
+  mermaid: 11.17.0
 
 onlyBuiltDependencies:
   - sharp

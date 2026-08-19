@@ -2163,6 +2163,12 @@
 - [x] Atualizar a fixação do gerenciador pnpm para uma versão que reconheça `pnpm-workspace.yaml` e validar os overrides em cópia temporária antes de alterar o lockfile principal.
 - [x] Validar na VM1, em worktree isolado, o pnpm 10.30.1, o lockfile corrigido e o build da atualização transitiva antes de reiniciar o Portal.
 - [x] Atualizar controladamente a VM1 para as correções transitivas somente após a validação isolada aprovada.
+- [ ] Reavaliar o inventário remanescente e atualizar Mermaid para uma versão corrigida compatível no sandbox, sem alterar Streamdown ou o visualizador DICOM diretamente.
+- [ ] Executar regressão de Markdown/diagramas, TypeScript e build após a atualização isolada de Mermaid.
+- [x] Diagnosticar a tela em branco relatada após a atualização de dependências, coletando console, rede e estado dos artefatos da VM1 antes de qualquer ação corretiva.
+- [ ] Recuperar o Portal por atualização corretiva ou reversão controlada somente após isolar a causa da tela em branco.
+- [x] Declarar o *shim* seguro de `global` no bootstrap do cliente e cobrir a ausência de `ReferenceError` no bundle de navegador.
+- [ ] Validar em sandbox, worktree e pós-deploy a recuperação da interface após o erro `global is not defined`.
 
 ## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE
 
