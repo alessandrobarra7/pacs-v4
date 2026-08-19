@@ -74,6 +74,7 @@ import {
   getUserUnitPermission,
   getUserUnitPermissions,
 } from "../db";
+import { canAccessUnit } from "../authorization";
 
 // ─── helpers monetários ─────────────────────────────────────────────────────
 
@@ -224,6 +225,39 @@ async function assertCanAccessFinancialUnit(
   throw new TRPCError({ code: 'FORBIDDEN' });
 }
 
+/** Retorna as unidades financeiras que podem compor consultas agregadas do usuário. */
+async function getAuthorizedFinancialUnitIds(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  user: { id: number; role: string; unit_id?: number | null },
+): Promise<number[] | null> {
+  if (user.role === 'admin_master') return null;
+
+  if (user.role === 'unit_admin') {
+    const permissions = await db
+      .select({ unit_id: user_unit_permissions.unit_id })
+      .from(user_unit_permissions)
+      .where(eq(user_unit_permissions.user_id, user.id));
+    const ids = permissions.map((permission) => permission.unit_id);
+    if (user.unit_id) ids.push(user.unit_id);
+    return Array.from(new Set(ids));
+  }
+
+  if (user.role === 'responsavel_financeiro') {
+    const responsibleId = await getResponsibleIdForUser(user.id);
+    if (!responsibleId) return [];
+    const links = await db
+      .select({ unit_id: financial_responsible_units.unit_id })
+      .from(financial_responsible_units)
+      .where(and(
+        eq(financial_responsible_units.financial_responsible_id, responsibleId),
+        isNull(financial_responsible_units.ends_at),
+      ));
+    return links.map((link) => link.unit_id);
+  }
+
+  return [];
+}
+
 function assertMedico(role: string) {
   if (role !== "medico" && role !== "admin_master") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a médicos" });
@@ -251,10 +285,13 @@ export const financeSimpleRouter = router({
       // P1E: dashboard usa ciclo real por unidade.
       // Busca todas as unidades relevantes e calcula o ciclo de cada uma.
 
-      // Determinar quais unidades incluir
-      let unitScope: number[] | null = null; // null = todas
-      if (ctx.user.role === "unit_admin" && ctx.user.unit_id) {
-        unitScope = [ctx.user.unit_id];
+      const unitScope = await getAuthorizedFinancialUnitIds(db, ctx.user); // null = todas
+      if (unitScope?.length === 0) {
+        return {
+          total_laudos: 0, system_total: 0, doctor_total: 0,
+          system_paid: 0, doctor_paid: 0, system_pending: 0, doctor_pending: 0,
+          system_pending_count: 0, doctor_pending_count: 0,
+        };
       }
 
       const allUnitsRows = await db
@@ -337,27 +374,12 @@ export const financeSimpleRouter = router({
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
       // P1D: unitSummary usa ciclo real por unidade (resolveFinancialCycle via calcCycleDates).
 
-      // Filtro de unidades: unit_admin vê apenas suas unidades (unit_id fixo OU via permissões)
-      let unitIdFilter: ReturnType<typeof eq> | ReturnType<typeof inArray> | undefined = undefined;
-      if (ctx.user.role === "unit_admin") {
-        if (ctx.user.unit_id) {
-          unitIdFilter = eq(units.id, ctx.user.unit_id);
-        } else {
-          const perms = await db
-            .select({ unit_id: user_unit_permissions.unit_id })
-            .from(user_unit_permissions)
-            .where(and(
-              eq(user_unit_permissions.user_id, ctx.user.id),
-              eq(user_unit_permissions.group_key, "administradoresUnidade")
-            ));
-          const unitIds = perms.map(p => p.unit_id);
-          if (unitIds.length > 0) {
-            unitIdFilter = inArray(units.id, unitIds);
-          } else {
-            return [];
-          }
-        }
-      }
+      // Filtro de unidades pela autoridade real do usuário financeiro.
+      const authorizedUnitIds = await getAuthorizedFinancialUnitIds(db, ctx.user);
+      if (authorizedUnitIds?.length === 0) return [];
+      let unitIdFilter: ReturnType<typeof eq> | ReturnType<typeof inArray> | undefined = authorizedUnitIds
+        ? inArray(units.id, authorizedUnitIds)
+        : undefined;
 
       // Filtro opcional por responsável financeiro
       if (input.responsible_id) {
@@ -442,6 +464,7 @@ export const financeSimpleRouter = router({
       assertAdmin(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id); // P4
 
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
       // Busca ciclo configurado para esta unidade
@@ -839,6 +862,7 @@ export const financeSimpleRouter = router({
       assertAdmin(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id); // P4
 
       // Busca o preço de sistema mais recente para a unidade
       const { billing_system_unit_prices, billing_doctor_unit_prices } = await import("../../drizzle/schema");
@@ -876,6 +900,7 @@ export const financeSimpleRouter = router({
       assertAdmin(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id); // P4
       const rows = await db
         .select({
           id: units.id,
@@ -1798,6 +1823,9 @@ export const financeSimpleRouter = router({
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'responsavel_financeiro' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id); // P4
         
         return await getCycleConfig(input.unit_id);
       }),
@@ -1815,26 +1843,6 @@ export const financeSimpleRouter = router({
         
         await upsertCycleConfig({ ...input, created_by: ctx.user.id });
         return { success: true };
-      }),
-
-    createVisitEvent: protectedProcedure
-      .input(z.object({
-        report_id: z.number(),
-        study_instance_uid: z.string().optional(),
-        unit_id: z.number(),
-        patient_name: z.string().optional(),
-        study_date: z.string().optional(),
-      }))
-      .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'medico' && ctx.user.role !== 'admin_master') {
-          throw new TRPCError({ code: 'FORBIDDEN' });
-        }
-        
-        return await createBillingVisitEvent({
-          ...input,
-          doctor_user_id: ctx.user.id, // sempre o médico logado
-          signed_at: new Date(),
-        });
       }),
 
     getDoctorProduction: protectedProcedure
@@ -1938,6 +1946,9 @@ export const financeSimpleRouter = router({
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'responsavel_financeiro' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id); // P4
         
         return await listUnitCycles(input.unit_id, input.cycle_type);
       }),
@@ -2278,6 +2289,12 @@ export const financeSimpleRouter = router({
       .query(async ({ input, ctx }) => {
         const allowed = ['admin_master', 'responsavel_financeiro'];
         if (!allowed.includes(ctx.user.role)) throw new TRPCError({ code: 'FORBIDDEN' });
+        if (ctx.user.role === 'responsavel_financeiro') {
+          const ownResponsibleId = await getResponsibleIdForUser(ctx.user.id);
+          if (!ownResponsibleId || ownResponsibleId !== input.responsibleId) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem acesso a este responsável financeiro.' });
+          }
+        }
         
         return await getResponsibleFullDashboard(input.responsibleId, {
           page: input.page,
@@ -2831,6 +2848,9 @@ export const financeSimpleRouter = router({
       .input(z.object({ unitId: z.number() }))
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') throw new TRPCError({ code: 'FORBIDDEN' });
+        if (ctx.user.role === 'unit_admin' && !await canAccessUnit(ctx.user, input.unitId, 'view_studies')) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para gerenciar esta unidade.' });
+        }
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
         const perms = await db
@@ -2849,6 +2869,9 @@ export const financeSimpleRouter = router({
       .input(z.object({ unitId: z.number(), userId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') throw new TRPCError({ code: 'FORBIDDEN' });
+        if (ctx.user.role === 'unit_admin' && !await canAccessUnit(ctx.user, input.unitId, 'view_studies')) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para gerenciar esta unidade.' });
+        }
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
         const existing = await db
@@ -2872,6 +2895,9 @@ export const financeSimpleRouter = router({
       .input(z.object({ unitId: z.number(), userId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') throw new TRPCError({ code: 'FORBIDDEN' });
+        if (ctx.user.role === 'unit_admin' && !await canAccessUnit(ctx.user, input.unitId, 'view_studies')) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para gerenciar esta unidade.' });
+        }
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
         await db

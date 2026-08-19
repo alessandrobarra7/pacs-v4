@@ -46,7 +46,14 @@ export const layoutsRouter = router({
    */
   getByUnit: protectedProcedure
     .input(z.object({ unitId: z.number().int().positive() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const canView = await canAccessUnit(ctx.user, input.unitId, 'view_studies');
+      if (!canView) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Você não tem permissão para acessar o layout desta unidade.',
+        });
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB indisponível' });
       const [layout] = await db.select()

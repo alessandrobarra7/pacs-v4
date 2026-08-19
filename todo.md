@@ -2124,7 +2124,7 @@
 - [x] Revisar autenticação, criação de sessão, atributos de cookies e fluxos de logout do Portal.
 - [x] Revisar autorização das rotas clínicas REST e tRPC prioritárias, verificando isolamento por usuário e unidade.
 - [ ] Revisar uploads, download de arquivos privados, cabeçalhos HTTP e validação de origem.
-- [ ] Executar auditoria de dependências e classificar vulnerabilidades por impacto no Portal.
+- [x] Executar auditoria de dependências e classificar vulnerabilidades por impacto no Portal.
 - [x] Implementar e testar no sandbox as correções confirmadas de streaming, anamnese, readiness e duração de sessão OAuth.
 - [ ] Validar build completo do frontend de segurança antes de atualizar a VM1.
 
@@ -2138,7 +2138,16 @@
 - [x] Alinhar expiração do cookie e JWT emitidos pelo callback OAuth à duração configurada de sessão.
 - [x] Exigir autorização individual por estudo nas rotas de status em lote de anamnese, áudios e anexos.
 - [ ] Revisar procedimentos financeiros e de layout que recebem `unitId` do cliente, comparando-os à política de papéis e unidades antes de qualquer alteração.
+- [x] Exigir `assertCanAccessFinancialUnit` em `financeSimple.doctorSummaryByUnit` antes de retornar médicos, valores e preços de uma unidade.
+- [x] Exigir `assertCanAccessFinancialUnit` em `financeSimple.getPriceConfig` e `financeSimple.getUnitDefaultPrices` antes de retornar configurações financeiras de uma unidade.
+- [x] Exigir `view_studies` em `layouts.getByUnit` antes de retornar o layout solicitado por unidade.
+- [x] Restringir `financeSimple.dashboard` e `financeSimple.unitSummary` às unidades ativamente vinculadas ao responsável financeiro logado.
+- [x] Impedir que um responsável financeiro consulte o painel completo de outro responsável em `financeSimple.getResponsibleFullDashboard`.
+- [x] Exigir acesso financeiro por unidade em `financeSimple.getCycleConfig` e `financeSimple.listUnitCycles`.
+- [x] Restringir `financeSimple.listTeamMembers`, `addTeamMember` e `removeTeamMember` ao administrador da unidade alvo.
+- [x] Remover a rota financeira legada `createVisitEvent`, sem consumidores ativos, para impedir criação manual de eventos de cobrança fora do fluxo de assinatura de laudo.
 - [ ] Classificar e atualizar dependências vulneráveis em lote compatível com o visualizador DICOM e o Portal.
+- [ ] Atualizar a resolução transitiva de `path-to-regexp` para 0.1.13 e validar as rotas Express sem alterar o visualizador DICOM.
 
 ## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE
 
