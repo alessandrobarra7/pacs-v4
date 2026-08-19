@@ -19,6 +19,7 @@ export const annotationsRouter = router({
   getByStudy: protectedProcedure
     .input(z.object({ studyInstanceUid: z.string() }))
     .query(async ({ input, ctx }) => {
+      await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
       return getAnnotationsByStudy(input.studyInstanceUid, ctx.user.id);
     }),
 
@@ -35,6 +36,7 @@ export const annotationsRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
       await upsertAnnotation({
         study_instance_uid: input.studyInstanceUid,
         series_instance_uid: input.seriesInstanceUid ?? null,

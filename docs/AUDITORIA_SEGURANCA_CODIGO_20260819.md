@@ -15,6 +15,7 @@
 | P1 | Financeiro por unidade | Consultas de médicos, preços, ciclos e equipe aceitavam unidade do cliente sem aplicar a política financeira de forma uniforme. | **Corrigido no sandbox:** procedimentos sensíveis usam `assertCanAccessFinancialUnit`; equipe de unidade exige escopo autorizado; dashboards agregados respeitam as unidades do responsável logado. |
 | P1 | Painel de responsável | Um responsável financeiro podia solicitar o identificador de outro responsável no painel detalhado. | **Corrigido no sandbox:** o identificador solicitado deve corresponder ao vínculo do usuário autenticado. |
 | P1 | Layout de laudo | `layouts.getByUnit` retornava o layout de qualquer unidade a todo usuário autenticado. | **Corrigido no sandbox:** leitura exige `view_studies` na unidade solicitada. |
+| P1 | Anotações Cornerstone | As rotas de leitura e gravação de anotações usavam o usuário como escopo de persistência, mas não confirmavam acesso ao estudo informado. | **Corrigido no sandbox:** ambas exigem `assertDicomFileAccess(..., 'view_studies')`. |
 | Preventivo | Superfície legada | O módulo `storageProxy` não era registrado, mas continha uma rota sem autenticação explícita caso fosse reativada. | **Removido do sandbox** após confirmar que não possuía consumidores ativos. A rota financeira legada de criação direta de evento de cobrança, também sem consumidores, foi removida; a reconciliação administrativa legítima foi preservada. |
 | P1 | Dependências | O inventário atualizado por `pnpm audit --prod --json` reportou 118 avisos: 10 baixos, 58 moderados e 50 altos, concentrados em cadeias de visualização DICOM e bibliotecas transitivas. | Classificação concluída; atualizações serão aplicadas por grupos compatíveis e validadas antes de produção. |
 
@@ -51,6 +52,12 @@ O build completo Vite do frontend foi encerrado pelo ambiente de sandbox durante
 Após a aprovação do build isolado, a atualização controlada foi executada na **VM1**. O diretório ativo avançou de `042b6e1` para `94e0a50` por *fast-forward*, usando o commit publicado no GitHub. O build de produção transformou 4.803 módulos e concluiu em 34,51 segundos; os artefatos `dist/public/index.html` e `dist/index.js` foram gerados com 367.349 e 538.774 bytes, respectivamente.
 
 O processo `pacs-portal` foi reiniciado somente após a verificação dos artefatos, permaneceu **online** após 15 segundos e respondeu `HTTP_LOCAL=200`. A verificação dos registros não encontrou os erros-alvo de streaming DICOM, memória ou conexão. Os avisos Vite sobre módulos Node externalizados pelos codecs Cornerstone e sobre *chunk* acima de 500 KiB permaneceram não bloqueantes, devendo ser tratados como melhoria de desempenho separada.
+
+## Revisão de mídia privada, upload e origem
+
+As rotas de áudio e anexo validam o estudo antes de listar, enviar ou remover objetos; o upload limita tamanho, verifica a assinatura binária do tipo aceito e armazena anexos e áudios na VM3. A rota `/api/media/*` exige sessão, rejeita tentativa de *path traversal*, associa chaves de anexos e áudio ao estudo e aplica autorização antes de transmitir o objeto. Os laudos, logos de unidade, assinaturas e carimbos seguem controles específicos de unidade ou usuário.
+
+O CORS permite somente as origens institucionais e locais de desenvolvimento explicitamente declaradas; as solicitações de origem diferente não recebem `Access-Control-Allow-Origin`. O CSP do aplicativo permanece desabilitado por compatibilidade com OHIF/Cornerstone, compensado parcialmente pelos cabeçalhos da borda Nginx já aplicados. A separação entre permissão de visualização e exclusão de áudios/anexos continua como decisão de política pendente: atualmente, quem possui `view_studies` no estudo consegue remover esses objetos.
 
 ## Referências de avisos selecionados
 

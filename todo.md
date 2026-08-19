@@ -2123,7 +2123,9 @@
 
 - [x] Revisar autenticação, criação de sessão, atributos de cookies e fluxos de logout do Portal.
 - [x] Revisar autorização das rotas clínicas REST e tRPC prioritárias, verificando isolamento por usuário e unidade.
-- [ ] Revisar uploads, download de arquivos privados, cabeçalhos HTTP e validação de origem.
+- [x] Revisar uploads, download de arquivos privados, cabeçalhos HTTP e validação de origem.
+- [x] Exigir autorização por estudo nas rotas de leitura e gravação de anotações Cornerstone.
+- [ ] Definir política de exclusão de áudios e anexos clínicos separada da permissão de visualização.
 - [x] Executar auditoria de dependências e classificar vulnerabilidades por impacto no Portal.
 - [x] Implementar e testar no sandbox as correções confirmadas de streaming, anamnese, readiness e duração de sessão OAuth.
 - [x] Validar build completo do frontend de segurança antes de atualizar a VM1.
