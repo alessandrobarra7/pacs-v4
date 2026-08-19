@@ -2071,3 +2071,4 @@
 - [x] Cachear por estudo a ordenação e os metadados de cabeçalho DICOM para evitar releitura repetida das mesmas fatias.
 - [x] Invalidar o cache de ordenação ao receber, limpar ou expirar um estudo do cache local.
 - [x] Validar que cache de ordenação não altera a autorização por usuário/unidade nem a sequência clínica de fatias.
+- [x] Registrar a validação em produção de duas aberturas consecutivas do mesmo estudo com sequência clínica preservada.

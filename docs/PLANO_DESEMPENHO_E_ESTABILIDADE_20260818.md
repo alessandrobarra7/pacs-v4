@@ -194,3 +194,9 @@ O servidor agora mantém até 64 ordenações recentes, por no máximo 30 segund
 O cache é invalidado explicitamente ao expirar, limpar ou remover um estudo do armazenamento local. A autorização continua a ocorrer antes de cada rota protegida e não é derivada do cache de ordenação. A sequência clínica permanece baseada em série, instância e posição espacial, com cópia defensiva dos registros para impedir modificação compartilhada entre requisições.
 
 **Validação no sandbox:** 36 arquivos Vitest aprovados, 243 testes aprovados e 1 integração MinIO ignorada; TypeScript sem erros e build de produção concluído. A atualização da VM1 será preparada em lote separado, depois da validação da otimização financeira ou conforme priorização operacional.
+
+## 13. Validação em produção do cache de ordenação
+
+Após a atualização da VM1 para o commit `042b6e1`, o Portal permaneceu online por mais de 19 minutos, respondeu HTTP 200 localmente e não registrou erros de streaming, memória ou conexão nos registros consultados. Foi então aberto o mesmo estudo duas vezes consecutivas no visualizador web, com fechamento entre as aberturas.
+
+As duas aberturas foram confirmadas como corretas, com manutenção da sequência clínica de fatias e sem travamento ou recarregamento inesperado. Essa evidência valida o comportamento funcional do cache de ordenação em produção. Não foram incluídos nesta documentação identificadores de estudo, dados de paciente, imagens ou laudos.
