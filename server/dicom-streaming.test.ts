@@ -178,6 +178,18 @@ describe('DicomViewerPage SSE streaming', () => {
     expect(content.indexOf('const response = await fetch(`/api/dicom-files/${studyUid}`, { method: "DELETE" })'))
       .toBeLessThan(content.lastIndexOf('renderingEngineRef.current.destroy()'));
   });
+
+  it('não deve voltar ao carregamento quando status SSE chegar após a primeira imagem', async () => {
+    const viewerPath = path.resolve(__dirname, '..', 'client', 'src', 'pages', 'DicomViewerPage.tsx');
+    const content = await fs.readFile(viewerPath, 'utf-8');
+    const completeSection = content.slice(content.indexOf('sse.addEventListener("complete"'));
+
+    expect(content).toContain('const setViewerPhase = useCallback');
+    expect(content).toContain('phaseRef.current = nextPhase;');
+    expect(content).toContain('if (phaseRef.current === "connecting" || phaseRef.current === "streaming")');
+    expect(completeSection.indexOf('await firstImageRender;'))
+      .toBeLessThan(completeSection.indexOf('fetch(`/api/dicom-files/${studyUid}`)'));
+  });
 });
 
 // ─── Testes do PacsQueryPage (pré-download) ──────────────────────────────────

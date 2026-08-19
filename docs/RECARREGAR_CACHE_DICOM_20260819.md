@@ -62,3 +62,16 @@ Em **19/08/2026**, a atualização controlada foi executada na **VM1**. A verifi
 | Registros-alvo | Nenhum erro de memória, conexão, streaming DICOMweb ou `global is not defined` identificado. |
 
 O Portal em produção está, portanto, na versão que inclui a recarga autorizada e isolada de cache para o estudo aberto.
+
+## Correção da finalização visual da recarga
+
+Durante a validação clínica, foi observado que um estudo podia atingir **100% dos arquivos recebidos** e ainda permanecer na tela de carregamento. A análise identificou uma condição de corrida no cliente: um evento `status` tardio do streaming poderia restaurar a fase `streaming` depois de a primeira imagem já estar pronta; além disso, a consolidação final da pilha não aguardava explicitamente a renderização inicial.
+
+| Ajuste | Efeito esperado |
+|---|---|
+| Transição de fase sincronizada | A referência de fase é atualizada no mesmo instante que o estado React, evitando que eventos SSE tardios reenviem o visualizador para `streaming`. |
+| Proteção aos eventos `status` | Estados de download só são aceitos enquanto a página ainda está conectando ou baixando. |
+| Finalização ordenada | O processamento do evento `complete` aguarda a promessa de renderização da primeira imagem antes de consolidar a pilha DICOM. |
+| Falha de renderização explícita | Se não houver viewport ou a primeira imagem não puder ser renderizada, a interface mostra erro em vez de permanecer carregando indefinidamente. |
+
+Essa correção não altera a autorização por estudo, a rota de invalidação, o escopo da limpeza ou o acesso aos arquivos clínicos. A validação no sandbox foi concluída com **42 arquivos de teste, 262 testes aprovados e 1 ignorado**, além de TypeScript sem erros. A atualização da VM1 requer novamente build isolado aprovado antes de qualquer reinício.

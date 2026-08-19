@@ -97,6 +97,10 @@ export function DicomViewerPage() {
   const [phase, setPhase] = useState<"idle" | "connecting" | "streaming" | "rendering" | "ready" | "error">("idle");
   const phaseRef = useRef<"idle" | "connecting" | "streaming" | "rendering" | "ready" | "error">("idle");
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+  const setViewerPhase = useCallback((nextPhase: "idle" | "connecting" | "streaming" | "rendering" | "ready" | "error") => {
+    phaseRef.current = nextPhase;
+    setPhase(nextPhase);
+  }, []);
   const [downloadProgress, setDownloadProgress] = useState<string>("Aguardando...");
   const [progressPercent, setProgressPercent] = useState(0);
   const [receivedCount, setReceivedCount] = useState(0);
@@ -338,12 +342,12 @@ export function DicomViewerPage() {
   // ─── Renderiza a 1ª imagem assim que tiver pelo menos 1 arquivo ──────────
   const renderFirstImage = useCallback(async (firstFilename: string) => {
     try {
-      setPhase("rendering");
+      setViewerPhase("rendering");
       setDownloadProgress("Renderizando 1ª imagem...");
       await ensureCornerstoneInit();
 
       const vp = viewportRef.current;
-      if (!vp) return;
+      if (!vp) throw new Error("Viewport DICOM não foi inicializado.");
 
       const firstId = `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${firstFilename}`;
       imageIdsRef.current = [firstId];
@@ -365,12 +369,14 @@ export function DicomViewerPage() {
         } catch (_) {}
       }, 500);
 
-      setPhase("ready");
+      setViewerPhase("ready");
       toast.success("1ª imagem carregada — restante chegando em background...");
     } catch (err: any) {
       console.error("[DicomViewer] Erro ao renderizar 1ª imagem:", err);
+      setError("Não foi possível renderizar a primeira imagem deste estudo.");
+      setViewerPhase("error");
     }
-  }, [studyUid, ensureCornerstoneInit]);
+  }, [studyUid, ensureCornerstoneInit, setViewerPhase]);
 
   // ─── Adiciona imagens ao stack progressivamente (batch para evitar O(n²)) ─────────────
   // BUG-1 FIX: agrupa imagens em janelas de 300ms e chama setStack uma única vez
@@ -469,7 +475,7 @@ export function DicomViewerPage() {
       sseRef.current = null;
     }
 
-    setPhase("connecting");
+    setViewerPhase("connecting");
     setError(null);
     setProgressPercent(5);
     setReceivedCount(0);
@@ -483,6 +489,7 @@ export function DicomViewerPage() {
     seriesLoadedRef.current = false; // FIX P4: resetar guard ao reiniciar — permite recarregar séries
 
     let firstFileReceived = false;
+    let firstImageRender: Promise<void> | null = null;
     let localTotal = 0;
     let localReceived = 0;
 
@@ -497,7 +504,9 @@ export function DicomViewerPage() {
           setDownloadProgress("Conectando ao PACS...");
           setProgressPercent(8);
         } else if (data.phase === "downloading") {
-          setPhase("streaming");
+          if (phaseRef.current === "connecting" || phaseRef.current === "streaming") {
+            setViewerPhase("streaming");
+          }
           setDownloadProgress(`Baixando imagens do PACS...`);
           setProgressPercent(10);
           if (data.total) {
@@ -506,7 +515,9 @@ export function DicomViewerPage() {
           }
           if (data.pacsAeTitle) setPacsAeTitle(data.pacsAeTitle);
         } else if (data.phase === "cached") {
-          setPhase("streaming");
+          if (phaseRef.current === "connecting" || phaseRef.current === "streaming") {
+            setViewerPhase("streaming");
+          }
           setDownloadProgress(`Cache encontrado: ${data.total} imagens`);
           localTotal = data.total || 0;
           setTotalCount(localTotal);
@@ -540,7 +551,8 @@ export function DicomViewerPage() {
 
         if (!firstFileReceived) {
           firstFileReceived = true;
-          renderFirstImage(filename).then(() => {
+          firstImageRender = renderFirstImage(filename);
+          firstImageRender.then(() => {
             loadMetadata();
           });
         } else {
@@ -566,6 +578,8 @@ export function DicomViewerPage() {
 
         setTimeout(async () => {
           try {
+            await firstImageRender;
+            if (phaseRef.current === "error") return;
             const resp = await fetch(`/api/dicom-files/${studyUid}`);
             if (resp.ok) {
               const listData = await resp.json();
@@ -580,9 +594,10 @@ export function DicomViewerPage() {
               setImageCount(finalIds.length);
 
               const vp = viewportRef.current;
-              if (vp && phaseRef.current === "ready") {
+              if (vp) {
                 const currentIdx = vp.getCurrentImageIdIndex?.() ?? 0;
                 await vp.setStack(finalIds, currentIdx);
+                vp.render();
               }
 
               if (listData.metadata?.patientName) {
@@ -606,18 +621,18 @@ export function DicomViewerPage() {
       try {
         const data = JSON.parse((e as MessageEvent).data || "{}");
         setError(data.message || "Erro ao carregar imagens do PACS");
-        setPhase("error");
+        setViewerPhase("error");
       } catch {
         // FIX P2: usar phaseRef.current em vez de phase (evita closure stale)
         if (phaseRef.current !== "ready") {
           setError("Conexão com o servidor interrompida. Tente novamente.");
-          setPhase("error");
+          setViewerPhase("error");
         }
       }
       sse.close();
       sseRef.current = null;
     });
-  }, [studyUid, renderFirstImage, addImageToStack, loadMetadata]);
+  }, [studyUid, renderFirstImage, addImageToStack, loadMetadata, setViewerPhase]);
   // BUG-4 FIX: removido `phase` das dependências — usar phaseRef.current dentro
   // do callback (já é uma ref e não causa recriação). A recriação por mudança de
   // phase causava closures stale nos event listeners do SSE durante o streaming.
