@@ -2156,6 +2156,13 @@
 - [x] Remover a rota financeira legada `createVisitEvent`, sem consumidores ativos, para impedir criação manual de eventos de cobrança fora do fluxo de assinatura de laudo.
 - [ ] Classificar e atualizar dependências vulneráveis em lote compatível com o visualizador DICOM e o Portal.
 - [ ] Atualizar a resolução transitiva de `path-to-regexp` para 0.1.13 e validar as rotas Express sem alterar o visualizador DICOM.
+- [x] Atualizar o inventário de produção e separar correções transitivas de baixo risco das cadeias Cornerstone/vtk.js que exigem validação visual.
+- [x] Aplicar apenas correções de dependências de baixo risco no sandbox, mantendo o visualizador DICOM inalterado até a validação clínica.
+- [x] Migrar os overrides e a permissão de scripts de build do `package.json` para `pnpm-workspace.yaml`, conforme a configuração exigida pelo pnpm instalado.
+- [x] Fixar no workspace as correções transitivas compatíveis de `path-to-regexp`, `body-parser`, `follow-redirects`, `form-data`, `lodash` e `lodash-es`, sem atualizar Express, Axios, Archiver ou Cornerstone diretamente.
+- [x] Atualizar a fixação do gerenciador pnpm para uma versão que reconheça `pnpm-workspace.yaml` e validar os overrides em cópia temporária antes de alterar o lockfile principal.
+- [ ] Validar na VM1, em worktree isolado, o pnpm 10.30.1, o lockfile corrigido e o build da atualização transitiva antes de reiniciar o Portal.
+- [ ] Atualizar controladamente a VM1 para as correções transitivas somente após a validação isolada aprovada.
 
 ## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE
 

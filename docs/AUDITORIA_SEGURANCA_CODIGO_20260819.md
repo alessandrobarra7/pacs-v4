@@ -37,6 +37,14 @@ O resultado do inventário não deve ser interpretado como 118 vetores independe
 
 Uma tentativa de atualização com comando genérico foi revertida integralmente no sandbox, porque ela promoveu diversas dependências não relacionadas. O repositório mantém o conjunto de versões previamente validado; nenhuma atualização de dependências foi incluída neste checkpoint de auditoria.
 
+### Compatibilidade do gerenciador pnpm
+
+O inventário anterior apontava 10 avisos baixos, 59 moderados e 50 altos. A separação inicial identificou correções transitivas de baixo risco para `path-to-regexp` 0.1.13, `body-parser` 1.20.6, `follow-redirects` 1.16.0, `form-data` 4.0.6 e `lodash`/`lodash-es` 4.18.1, sem atualização direta inicial de Express, Axios, Archiver ou Cornerstone.
+
+O sandbox executava pnpm 10.4.1 por causa da fixação anterior do projeto. Essa versão não aplicou os `overrides` declarados em `pnpm-workspace.yaml`; uma cópia temporária sem a fixação legada, executada com pnpm 10.30.1, aplicou todas as versões previstas. A documentação oficial confirma que `overrides` devem ser definidos em `pnpm-workspace.yaml` e que eles alteram a resolução transitiva. [7] A fixação do projeto foi então atualizada para pnpm 10.30.1, e o *lockfile* foi regenerado somente com as correções transitivas descritas.
+
+Após a sincronização do sandbox, as versões efetivas foram confirmadas e a auditoria caiu para 9 avisos baixos, 56 moderados e 46 altos: redução de 8 avisos agregados, sem alteração direta de Express, Axios, Archiver, Streamdown, Mermaid, Cornerstone ou vtk.js. A suíte de regressão aprovou 41 arquivos Vitest, 257 testes e uma integração MinIO ignorada; TypeScript não encontrou erros. O build de produção também concluiu, transformando 4.808 módulos e gerando os artefatos esperados. A atualização da VM1 continua bloqueada até a validação isolada desta mudança de dependências.
+
 ## Itens ainda em revisão
 
 Os procedimentos prioritários que recebem `unitId` do cliente, sobretudo no módulo financeiro e de layout, foram revisados nesta rodada e tiveram os controles confirmados adicionados. A atualização de dependências continua deliberadamente separada: grande parte dos avisos de alta severidade pertence à árvore transitiva do visualizador DICOM e exige validação de visualização antes de produção.
@@ -79,3 +87,4 @@ Após autorização explícita, a atualização controlada foi aplicada na VM1. 
 - [4] [Express — March 2026 Security Releases](https://expressjs.com/en/blog/2026-03-30-security-releases/)
 - [5] [Mermaid — GHSA-rhh3-jpg6-66xh](https://github.com/mermaid-js/mermaid/security/advisories/GHSA-rhh3-jpg6-66xh)
 - [6] [AWS SDK for JavaScript v3 — issue #7743](https://github.com/aws/aws-sdk-js-v3/issues/7743)
+- [7] [pnpm 10 — Settings / overrides](https://pnpm.io/10.x/settings)
