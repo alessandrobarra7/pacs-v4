@@ -63,3 +63,17 @@ A migração incremental `0048_exam_catalog_documents.sql` foi aplicada no ambie
 | Suíte completa | 44 arquivos, **271 testes aprovados** e 1 ignorado, executados em processo único para respeitar a memória do sandbox. |
 
 > A atualização da VM1 permanece bloqueada até que o commit seja validado por build completo em um *worktree* temporário. A migração da VM2 deverá ser executada somente após esse build e uma revisão final do SQL incremental.
+
+## Validação isolada na VM1
+
+Em **19/08/2026**, o commit `f21906b` foi compilado em *worktree* temporário na **VM1**, sem alteração do diretório ativo e sem reinício do PM2.
+
+| Verificação | Resultado |
+|---|---|
+| Instalação | Lockfile congelado aprovado com pnpm 10.30.1. |
+| Build Vite | 4.803 módulos transformados; conclusão em **34,55 s**. |
+| Artefatos | `dist/public/index.html` com 367.349 bytes e `dist/index.js` com 557.123 bytes. |
+| Serviço ativo | PM2 permaneceu online sem reinício, com aproximadamente 207 MiB de memória. |
+| Migração 0048 | Revisada: cria somente as duas tabelas novas, acrescenta colunas preservadoras e troca o índice de unicidade de `reports` para incluir `document_key`; não contém `DROP TABLE`, `DELETE` ou `TRUNCATE`. |
+
+Com o build aprovado, a próxima etapa requer diagnóstico somente leitura e aplicação controlada da migração na **VM2**, seguida de atualização da **VM1**. Nenhuma dessas operações foi executada nesta validação.
