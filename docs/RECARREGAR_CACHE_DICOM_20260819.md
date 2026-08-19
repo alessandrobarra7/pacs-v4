@@ -89,3 +89,18 @@ A validação em worktree temporário da **VM1** foi concluída em **19/08/2026*
 | Serviço ativo | PM2 permaneceu online, sem reinício, com aproximadamente 200 MiB de memória. |
 
 Os avisos de módulos Node externalizados pelos codecs Cornerstone e de chunk principal acima de 500 kB permanecem conhecidos e não bloqueiam esta correção pontual. A atualização controlada do diretório ativo continua sendo uma etapa separada, que exige autorização explícita.
+
+### Atualização controlada da correção na VM1
+
+A atualização controlada foi concluída em **19/08/2026**. As verificações de alterações rastreadas e de colisão com arquivos locais não versionados foram aprovadas antes do *fast-forward*; nenhum backup, diagnóstico ou áudio clínico local foi removido ou movido.
+
+| Verificação pós-deploy | Resultado |
+|---|---|
+| Commit ativo | **`43f44f9`** |
+| Build no diretório ativo | 4.803 módulos transformados; conclusão em **33,80 s**. |
+| Artefatos | `dist/public/index.html` com 367.349 bytes e `dist/index.js` com 540.692 bytes. |
+| PM2 | Reiniciado somente após build bem-sucedido; processo online após 15 segundos, com aproximadamente 189 MiB. |
+| Saúde local | `HTTP_LOCAL=200`. |
+| Registros-alvo | Nenhum erro de renderização inicial, streaming DICOMweb, memória ou conexão foi identificado. |
+
+O ajuste de finalização do streaming está em produção. A próxima validação funcional consiste em recarregar um estudo completo e confirmar que a imagem reaparece ao término, sem permanecer na tela de carregamento em 100%.
