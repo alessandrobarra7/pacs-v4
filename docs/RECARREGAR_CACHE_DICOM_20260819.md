@@ -30,6 +30,20 @@ A solicitação é limitada ao estudo aberto pelo `studyUid` presente na rota da
 | Bundle isolado do servidor | `server/_core/index.ts` compilado com sucesso; `index.js` com 540.692 bytes. |
 | Build completo do frontend no sandbox | Não concluído: o processo foi encerrado por limitação de memória durante a renderização de chunks. Isto não autoriza atualização da VM1. |
 
+## Evidência de validação isolada na VM1
+
+Em **19/08/2026**, a validação foi executada na **VM1** por meio de um *worktree* temporário, sem alteração do diretório ativo do Portal e sem reinício do PM2.
+
+| Verificação | Resultado |
+|---|---|
+| Commit candidato | **`1bc7d0e`** |
+| Instalação | Lockfile congelado aprovado com pnpm 10.30.1. |
+| Build Vite | **4.803 módulos transformados** e concluído em **35,84 s**. |
+| Artefatos | `dist/public/index.html` com 367.349 bytes e `dist/index.js` com 540.692 bytes. |
+| Serviço ativo | PM2 permaneceu online, sem reinício, com aproximadamente 196 MiB de memória. |
+
+O Vite emitiu avisos conhecidos de módulos Node externalizados em codecs Cornerstone e de chunk principal acima de 500 kB. Como o build foi concluído e tais avisos não foram introduzidos por esta mudança, eles ficam registrados para acompanhamento de desempenho, sem bloquear a atualização deste recurso pontual.
+
 ## Condição para atualização em produção
 
-A atualização permanece bloqueada até a **VM1** executar, em worktree temporário e sem reiniciar o serviço ativo, a instalação com lockfile congelado e o build completo de produção. Somente após essa validação será apropriado realizar a atualização controlada do Portal e reiniciar o processo do PM2.
+A validação isolada obrigatória foi aprovada. A atualização controlada da **VM1** permanece uma etapa separada: exige autorização explícita, novo build no diretório ativo e reinício do PM2 somente depois que os artefatos forem validados.

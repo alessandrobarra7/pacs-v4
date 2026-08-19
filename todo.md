@@ -2176,7 +2176,8 @@
 - [x] Adicionar no visualizador um botão de recarga com confirmação e retorno ao PACS após a limpeza do estudo aberto.
 - [x] Preservar o visualizador atual se a invalidação do cache do estudo falhar durante a recarga.
 - [x] Cobrir a recarga de cache por estudo com testes de autorização, invalidação e regressão do visualizador.
-- [ ] Validar, na VM1 e em worktree temporário, o build completo de produção antes de atualizar o Portal com a recarga de cache.
+- [x] Validar, na VM1 e em worktree temporário, o build completo de produção antes de atualizar o Portal com a recarga de cache.
+- [ ] Atualizar controladamente a VM1 com o commit validado, gerar artefatos no diretório ativo, reiniciar o PM2 somente após build aprovado e executar checagem pós-deploy.
 - [x] Avaliar a desativação do relatório de tamanho comprimido do Vite; revertida porque a limitação de memória ocorreu antes da conclusão de chunks e a configuração não seria eficaz.
 
 ## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE
