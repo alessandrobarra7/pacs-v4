@@ -2072,3 +2072,38 @@
 - [x] Invalidar o cache de ordenação ao receber, limpar ou expirar um estudo do cache local.
 - [x] Validar que cache de ordenação não altera a autorização por usuário/unidade nem a sequência clínica de fatias.
 - [x] Registrar a validação em produção de duas aberturas consecutivas do mesmo estudo com sequência clínica preservada.
+
+## HARDENING DEFENSIVO — NGINX E LINUX
+
+- [x] Inventariar somente por leitura portas expostas, serviços, UFW, Nginx, SSH e atualizações pendentes nas VMs do PACS.
+- [x] Restringir a exposição externa da VM1 às portas e rotas estritamente necessárias ao Portal.
+- [ ] Configurar cabeçalhos HTTP defensivos, limites de requisição e bloqueios de caminhos indevidos no Nginx sem afetar DICOM, mídia privada ou viewers externos.
+- [x] Aplicar cabeçalhos HTTP defensivos, limite conservador de conexões e bloqueio Nginx validado para caminhos sensíveis na VM1.
+- [ ] Reforçar SSH, atualizações de segurança, usuários e serviços Linux sem interromper acesso administrativo legítimo.
+- [ ] Implementar monitoramento de tentativas de acesso anormais, falhas de autenticação e erros Nginx/Portal.
+- [x] Habilitar Fail2Ban para SSH e varreduras Nginx inequivocamente abusivas, excluindo as redes privadas administrativas.
+- [ ] Documentar aplicação, validação e reversão de cada controle por VM antes de modificar produção.
+
+## CORREÇÃO DE BLOQUEIO NGINX — CAMINHOS SENSÍVEIS
+
+- [x] Diagnosticar a resposta 200 inicial para `/.git/HEAD` e confirmar na configuração efetivamente carregada o retorno correto 404.
+- [x] Concluir que não foi necessária substituição de localização, pois a regra regex efetivamente carregada bloqueia o caminho sensível com 404.
+- [x] Confirmar que a regra regex efetivamente carregada retorna 404 para `/.git/HEAD`, sem alteração adicional de localização.
+
+## VALIDAÇÃO DE IDENTIDADE SSH — VM1
+
+- [x] Confirmar pelo console atual a impressão digital SSH da VM1 antes de aceitar ou atualizar entrada no computador administrativo.
+- [ ] Validar nova sessão do usuário operacional somente por chave antes de desabilitar senha ou login remoto de root.
+
+## REDUÇÃO DE EXPOSIÇÃO EXTERNA — ACESSO ADMINISTRATIVO
+
+- [x] Confirmar redes privadas administrativas que devem manter acesso SSH à VM1 antes de remover a regra pública da porta 22.
+- [x] Remover exposição pública de SSH da VM1, mantendo somente as redes privadas administrativas autorizadas.
+- [x] Manter assinatura de código Windows como pendência comercial separada do hardening de rede e servidor.
+- [x] Manter assinatura de código Windows como pendência comercial separada do hardening de rede e servidor.
+
+## AJUSTE DE FAIXA SSH INTERNA — VM1
+
+- [x] Registrar a decisão de manter a regra UFW normalizada `172.16.0.0/22` para a rede interna administrativa controlada.
+- [x] Manter por decisão aprovada a faixa interna `172.16.0.0/22` e concentrar o hardening em acessos externos à VM1.
+- [x] Validar Portal HTTPS, bloqueio de caminho sensível, UFW e Fail2Ban após o hardening externo da VM1.
