@@ -51,6 +51,12 @@ O commit `bc6b00c` foi compilado em *worktree* temporário na VM1 sem modificar 
 
 Os avisos do Vite referentes aos módulos Node externalizados nos codecs Cornerstone e ao *chunk* acima de 500 KiB permaneceram não bloqueantes e preexistentes. A validação confirma que as correções transitivas não exigem atualização direta de Cornerstone, vtk.js ou dos codecs DICOM; a atualização controlada da VM1 continua condicionada a autorização explícita.
 
+### Atualização controlada da VM1
+
+Após autorização explícita, a VM1 avançou de `50fe25b` para `32ed79e` por *fast-forward*. O pnpm 10.30.1 foi confirmado antes da instalação com *lockfile* congelado; a sincronização atualizou 24 pacotes e removeu 6 entradas obsoletas, sem alteração direta de Express, Axios, Archiver, Streamdown, Mermaid, Cornerstone ou vtk.js.
+
+O build de produção transformou 4.803 módulos e concluiu em 33,24 segundos. Os artefatos `dist/public/index.html` e `dist/index.js` foram gerados com 367.349 e 540.429 bytes. O PM2 reiniciou somente depois da compilação, permaneceu online após 15 segundos, e o Portal respondeu `HTTP_LOCAL=200`. A leitura dos registros não encontrou erros-alvo de streaming DICOM, memória ou conexão. A VM1 agora executa o commit `32ed79e`.
+
 ## Itens ainda em revisão
 
 Os procedimentos prioritários que recebem `unitId` do cliente, sobretudo no módulo financeiro e de layout, foram revisados nesta rodada e tiveram os controles confirmados adicionados. A atualização de dependências continua deliberadamente separada: grande parte dos avisos de alta severidade pertence à árvore transitiva do visualizador DICOM e exige validação de visualização antes de produção.
