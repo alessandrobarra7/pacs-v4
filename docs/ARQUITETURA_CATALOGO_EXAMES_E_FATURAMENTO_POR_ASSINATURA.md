@@ -77,3 +77,18 @@ Em **19/08/2026**, o commit `f21906b` foi compilado em *worktree* temporário na
 | Migração 0048 | Revisada: cria somente as duas tabelas novas, acrescenta colunas preservadoras e troca o índice de unicidade de `reports` para incluir `document_key`; não contém `DROP TABLE`, `DELETE` ou `TRUNCATE`. |
 
 Com o build aprovado, a próxima etapa requer diagnóstico somente leitura e aplicação controlada da migração na **VM2**, seguida de atualização da **VM1**. Nenhuma dessas operações foi executada nesta validação.
+
+## Migração controlada na VM2
+
+Em **19/08/2026**, a migração 0048 foi aplicada na **VM2** após os diagnósticos de estrutura e unicidade. Antes do DDL, foi gerado um backup comprimido e validado das tabelas afetadas, armazenado com permissão `600` em diretório administrativo protegido. O procedimento não reiniciou o MySQL nem exibiu dados clínicos.
+
+| Verificação pós-migração | Resultado |
+|---|---|
+| Backup local | Gerado, testado com `gzip -t` e registrado com SHA-256. |
+| Tabelas novas | `exam_legend_documents` e `exam_legend_pacs_mappings` criadas. |
+| Colunas de `reports` | `exam_legend_id`, `document_key` e `document_label_snapshot` criadas. |
+| Laudos históricos | 13 registros preservados; os 13 receberam `document_key = primary`. |
+| Novo índice | Unicidade em `study_instance_uid`, `unit_id` e `document_key` criada. |
+| Duplicidades | Zero grupos duplicados após a migração. |
+
+A estrutura da VM2 está pronta para o código do catálogo. A atualização da **VM1** ainda é uma operação independente, exigindo nova autorização, build no diretório ativo e validação pós-deploy.

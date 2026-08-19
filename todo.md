@@ -2191,7 +2191,7 @@
 - [x] Permitir que admin_master e responsável financeiro autorizado configurem preços por médico, unidade e modalidade, sempre com vigência futura por ciclo e sem alterar eventos já assinados.
 - [x] Restringir ao admin_master a criação de exames e o mapeamento de descrições PACS para legendas canônicas, exibindo a descrição original quando não houver correspondência.
 - [x] Validar em worktree temporário da VM1 o build completo e revisar a migração 0048 antes de aplicar catálogo, documentos e preços históricos em produção.
-- [ ] Executar diagnóstico somente leitura e aplicar controladamente a migração 0048 na VM2, preservando laudos e eventos existentes.
+- [x] Executar diagnóstico somente leitura e aplicar controladamente a migração 0048 na VM2, preservando laudos e eventos existentes.
 - [ ] Atualizar controladamente a VM1 após a migração 0048 aprovada na VM2 e executar verificação pós-deploy.
 
 ## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE
