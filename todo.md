@@ -2128,6 +2128,8 @@
 - [x] Implementar e testar no sandbox as correções confirmadas de streaming, anamnese, readiness e duração de sessão OAuth.
 - [x] Validar build completo do frontend de segurança antes de atualizar a VM1.
 - [x] Executar na VM1 uma compilação isolada do commit auditado em `git worktree`, sem modificar o diretório ativo nem reiniciar o PM2.
+- [x] Atualizar a VM1 de forma controlada após build isolado aprovado, reiniciando o PM2 somente após a geração dos artefatos.
+- [x] Validar pós-deploy na VM1 o commit aplicado, o HTTP local, o estado do PM2 e a ausência de erros-alvo.
 
 ## CORREÇÃO P0 — AUTORIZAÇÃO DO STREAMING DICOM
 

@@ -53,3 +53,7 @@ A validação só é aprovada quando o comando termina com código zero, os dois
 A validação isolada foi executada na **VM1** no commit `0af226d` e foi aprovada. O Vite transformou 4.803 módulos e concluiu em 35,83 segundos; o bundle do servidor também terminou sem erro. Foram verificados `dist/public/index.html` com 367.349 bytes e `dist/index.js` com 538.774 bytes.
 
 O processo ativo `pacs-portal` permaneceu **online**, sem reinício, com o mesmo PID e contador de reinicializações durante o procedimento. Os avisos de módulos Node externalizados pelo Vite e de *chunk* acima de 500 KiB são avisos conhecidos do conjunto Cornerstone e não impediram a compilação. A área temporária do *worktree* foi removida pelo `trap` ao término do comando.
+
+## Desfecho da atualização controlada
+
+Com a aprovação isolada registrada, a atualização real foi aplicada na VM1 e avançou o Portal para o commit `94e0a50`. O processo PM2 reiniciou uma única vez como parte do procedimento controlado e permaneceu online, com resposta HTTP local 200 e sem erros-alvo encontrados nos registros após o período de estabilização.

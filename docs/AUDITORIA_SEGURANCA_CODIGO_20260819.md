@@ -46,6 +46,12 @@ Na primeira rodada, os testes direcionados e a suíte completa foram aprovados n
 
 O build completo Vite do frontend foi encerrado pelo ambiente de sandbox durante a transformação do conjunto Cornerstone, mesmo após liberar memória e ampliar o tempo de execução. Isso é uma limitação do recurso disponível no sandbox, não uma falha TypeScript ou de testes detectada nesta rodada. A validação isolada posterior na VM1 concluiu o build do commit auditado `0af226d` com sucesso, preservando o processo de produção sem reinício. A atualização real da VM1 continua como etapa separada e controlada.
 
+## Atualização controlada da VM1
+
+Após a aprovação do build isolado, a atualização controlada foi executada na **VM1**. O diretório ativo avançou de `042b6e1` para `94e0a50` por *fast-forward*, usando o commit publicado no GitHub. O build de produção transformou 4.803 módulos e concluiu em 34,51 segundos; os artefatos `dist/public/index.html` e `dist/index.js` foram gerados com 367.349 e 538.774 bytes, respectivamente.
+
+O processo `pacs-portal` foi reiniciado somente após a verificação dos artefatos, permaneceu **online** após 15 segundos e respondeu `HTTP_LOCAL=200`. A verificação dos registros não encontrou os erros-alvo de streaming DICOM, memória ou conexão. Os avisos Vite sobre módulos Node externalizados pelos codecs Cornerstone e sobre *chunk* acima de 500 KiB permaneceram não bloqueantes, devendo ser tratados como melhoria de desempenho separada.
+
 ## Referências de avisos selecionados
 
 - [1] [Babel runtime — GHSA-968p-4wvh-cqc8](https://github.com/advisories/GHSA-968p-4wvh-cqc8)
