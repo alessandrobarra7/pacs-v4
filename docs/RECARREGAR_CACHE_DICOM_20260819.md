@@ -75,3 +75,17 @@ Durante a validação clínica, foi observado que um estudo podia atingir **100%
 | Falha de renderização explícita | Se não houver viewport ou a primeira imagem não puder ser renderizada, a interface mostra erro em vez de permanecer carregando indefinidamente. |
 
 Essa correção não altera a autorização por estudo, a rota de invalidação, o escopo da limpeza ou o acesso aos arquivos clínicos. A validação no sandbox foi concluída com **42 arquivos de teste, 262 testes aprovados e 1 ignorado**, além de TypeScript sem erros. A atualização da VM1 requer novamente build isolado aprovado antes de qualquer reinício.
+
+### Validação isolada da correção na VM1
+
+A validação em worktree temporário da **VM1** foi concluída em **19/08/2026**, sem tocar no diretório ativo e sem reiniciar o PM2.
+
+| Verificação | Resultado |
+|---|---|
+| Commit candidato | **`e64a241`** |
+| Instalação | Lockfile congelado aprovado com pnpm 10.30.1. |
+| Build Vite | 4.803 módulos transformados; conclusão em **33,64 s**. |
+| Artefatos | `dist/public/index.html` com 367.349 bytes e `dist/index.js` com 540.692 bytes. |
+| Serviço ativo | PM2 permaneceu online, sem reinício, com aproximadamente 200 MiB de memória. |
+
+Os avisos de módulos Node externalizados pelos codecs Cornerstone e de chunk principal acima de 500 kB permanecem conhecidos e não bloqueiam esta correção pontual. A atualização controlada do diretório ativo continua sendo uma etapa separada, que exige autorização explícita.

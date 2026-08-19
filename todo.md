@@ -2180,7 +2180,8 @@
 - [x] Atualizar controladamente a VM1 com o commit validado, gerar artefatos no diretório ativo, reiniciar o PM2 somente após build aprovado e executar checagem pós-deploy.
 - [x] Avaliar a desativação do relatório de tamanho comprimido do Vite; revertida porque a limitação de memória ocorreu antes da conclusão de chunks e a configuração não seria eficaz.
 - [x] Corrigir a recarga DICOM que permanece na tela de carregamento após receber 100% dos arquivos do estudo.
-- [ ] Validar em worktree temporário da VM1 o build completo da correção de finalização da recarga antes de atualizar o Portal.
+- [x] Validar em worktree temporário da VM1 o build completo da correção de finalização da recarga antes de atualizar o Portal.
+- [ ] Atualizar controladamente a VM1 com a correção de finalização da recarga e validar o retorno do visualizador após 100% dos arquivos.
 
 ## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE
 
