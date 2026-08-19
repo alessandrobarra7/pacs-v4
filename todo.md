@@ -2107,3 +2107,14 @@
 - [x] Registrar a decisão de manter a regra UFW normalizada `172.16.0.0/22` para a rede interna administrativa controlada.
 - [x] Manter por decisão aprovada a faixa interna `172.16.0.0/22` e concentrar o hardening em acessos externos à VM1.
 - [x] Validar Portal HTTPS, bloqueio de caminho sensível, UFW e Fail2Ban após o hardening externo da VM1.
+
+## HARDENING DEFENSIVO — VM2 E VM3
+
+- [x] Inventariar somente por leitura portas expostas, UFW, MySQL, PostgreSQL, atualizações e serviços residuais da VM2.
+- [x] Inventariar somente por leitura portas, UFW, MinIO, RAID e atualizações pendentes da VM3.
+- [ ] Restringir cada serviço das VMs 2 e 3 somente às origens internas necessárias ao Portal PACS.
+- [x] Documentar as decisões de exposição, validação e reversão por VM.
+- [x] Restringir SSH da VM2 às redes privadas aprovadas e habilitar Fail2Ban sem alterar MySQL ou PostgreSQL.
+- [x] Instalar o pacote Fail2Ban ausente na VM2 e validar o jail padrão de SSH após a restrição de firewall.
+- [x] Restringir SSH da VM3 à rede interna aprovada e habilitar Fail2Ban sem alterar MinIO, RAID ou console fechado.
+- [x] Instalar o pacote Fail2Ban ausente na VM3 e validar o jail padrão de SSH após a restrição de firewall.
