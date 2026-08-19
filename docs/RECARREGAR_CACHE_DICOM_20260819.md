@@ -47,3 +47,18 @@ O Vite emitiu avisos conhecidos de módulos Node externalizados em codecs Corner
 ## Condição para atualização em produção
 
 A validação isolada obrigatória foi aprovada. A atualização controlada da **VM1** permanece uma etapa separada: exige autorização explícita, novo build no diretório ativo e reinício do PM2 somente depois que os artefatos forem validados.
+
+## Atualização controlada da VM1
+
+Em **19/08/2026**, a atualização controlada foi executada na **VM1**. A verificação de alterações rastreadas e de colisões com arquivos locais não versionados foi aprovada antes da compilação; os backups de ambiente, arquivos de diagnóstico e o áudio clínico existente foram preservados.
+
+| Verificação pós-deploy | Resultado |
+|---|---|
+| Commit ativo | **`cbd5db0`** |
+| Build no diretório ativo | Vite concluiu 4.803 módulos em **34,00 s**. |
+| Artefatos | `dist/public/index.html` com 367.349 bytes e `dist/index.js` com 540.692 bytes. |
+| PM2 | Reiniciado somente após o build; processo `pacs-portal` online após 15 segundos, com aproximadamente 184 MiB. |
+| Saúde local | `HTTP_LOCAL=200`. |
+| Registros-alvo | Nenhum erro de memória, conexão, streaming DICOMweb ou `global is not defined` identificado. |
+
+O Portal em produção está, portanto, na versão que inclui a recarga autorizada e isolada de cache para o estudo aberto.
