@@ -2118,3 +2118,30 @@
 - [x] Instalar o pacote Fail2Ban ausente na VM2 e validar o jail padrão de SSH após a restrição de firewall.
 - [x] Restringir SSH da VM3 à rede interna aprovada e habilitar Fail2Ban sem alterar MinIO, RAID ou console fechado.
 - [x] Instalar o pacote Fail2Ban ausente na VM3 e validar o jail padrão de SSH após a restrição de firewall.
+
+## AUDITORIA DEFENSIVA — CÓDIGO DO PORTAL
+
+- [x] Revisar autenticação, criação de sessão, atributos de cookies e fluxos de logout do Portal.
+- [x] Revisar autorização das rotas clínicas REST e tRPC prioritárias, verificando isolamento por usuário e unidade.
+- [ ] Revisar uploads, download de arquivos privados, cabeçalhos HTTP e validação de origem.
+- [ ] Executar auditoria de dependências e classificar vulnerabilidades por impacto no Portal.
+- [x] Implementar e testar no sandbox as correções confirmadas de streaming, anamnese, readiness e duração de sessão OAuth.
+- [ ] Validar build completo do frontend de segurança antes de atualizar a VM1.
+
+## CORREÇÃO P0 — AUTORIZAÇÃO DO STREAMING DICOM
+
+- [x] Exigir autorização explícita por estudo na rota `/api/dicom-stream/:studyUid` antes de reutilizar cache ou iniciar C-GET.
+- [x] Cobrir acesso negado, acesso autorizado e troca de unidade na rota de streaming DICOM.
+
+## ACHADOS PRIORITÁRIOS DA AUDITORIA DE CÓDIGO
+
+- [x] Alinhar expiração do cookie e JWT emitidos pelo callback OAuth à duração configurada de sessão.
+- [x] Exigir autorização individual por estudo nas rotas de status em lote de anamnese, áudios e anexos.
+- [ ] Revisar procedimentos financeiros e de layout que recebem `unitId` do cliente, comparando-os à política de papéis e unidades antes de qualquer alteração.
+- [ ] Classificar e atualizar dependências vulneráveis em lote compatível com o visualizador DICOM e o Portal.
+
+## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE
+
+- [x] Exigir autorização por estudo e unidade em `readiness.getByStudy` antes de retornar dados clínicos.
+- [x] Filtrar `readiness.getBatchStatus` por estudos autorizados e pela unidade efetivamente relacionada ao estudo.
+- [x] Cobrir acesso negado e acesso autorizado nas rotas de readiness individual e em lote.

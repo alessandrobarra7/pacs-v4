@@ -30,7 +30,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { storageKeyFromReference, storageUsesMinio } from "../storage";
 import { minioGetObject, minioStatObject } from "../minio";
-import { assertCachedDicomFileAccess } from "../authorization";
+import { assertCachedDicomFileAccess, assertDicomFileAccess } from "../authorization";
 import { createRadiantAssistantTokenStore, RADIANT_ASSISTANT_SCHEME } from "../radiantAssistant";
 import { streamRadiantInstaller } from "../radiantInstaller";
 import { serveStatic, setupVite } from "./vite";
@@ -1028,6 +1028,12 @@ async function startServer() {
     } catch {}
     if (!user) {
       return res.status(401).json({ error: 'Não autenticado' });
+    }
+
+    try {
+      await assertDicomFileAccess(user, studyUid, 'view_studies');
+    } catch (error: any) {
+      return res.status(403).json({ error: error?.message || 'Acesso negado ao estudo' });
     }
 
     // Configura SSE

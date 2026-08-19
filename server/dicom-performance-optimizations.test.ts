@@ -28,7 +28,7 @@ describe("otimizações de desempenho DICOM", () => {
     const routeEnd = source.indexOf("// Lista arquivos DICOM", routeStart);
     const fileRoute = source.slice(routeStart, routeEnd);
 
-    expect(source).toContain('import { assertCachedDicomFileAccess } from "../authorization"');
+    expect(source).toContain('import { assertCachedDicomFileAccess, assertDicomFileAccess } from "../authorization"');
     expect(fileRoute).toContain("await assertCachedDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies')");
     expect(fileRoute).toContain("requireAuth");
   });
@@ -76,5 +76,21 @@ describe("otimizações de desempenho DICOM", () => {
     expect(orderedFunction).toContain("copyOrderedDicomRecords(cached.records)");
     expect(source).toContain("invalidateOrderedDicomFiles(studyDir)");
     expect(source).toContain("invalidateOrderedDicomFiles(dirPath)");
+  });
+
+  it("exige autorização por estudo antes de consultar cache ou iniciar C-GET no streaming", async () => {
+    const source = await fs.readFile(indexPath, "utf8");
+    const routeStart = source.indexOf("app.get('/api/dicom-stream/:studyUid'");
+    const routeEnd = source.indexOf("// ─────────────────────────────────────────────────────────────────────────────", routeStart);
+    const streamRoute = source.slice(routeStart, routeEnd);
+
+    expect(source).toContain('import { assertCachedDicomFileAccess, assertDicomFileAccess } from "../authorization"');
+    expect(streamRoute).toContain("await assertDicomFileAccess(user, studyUid, 'view_studies')");
+    expect(streamRoute.indexOf("await assertDicomFileAccess(user, studyUid, 'view_studies')")).toBeLessThan(
+      streamRoute.indexOf("const studyCacheDir")
+    );
+    expect(streamRoute.indexOf("await assertDicomFileAccess(user, studyUid, 'view_studies')")).toBeLessThan(
+      streamRoute.indexOf("const moveParams")
+    );
   });
 });

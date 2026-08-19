@@ -4,6 +4,12 @@
  * PRG-01: testes de buildSessionCookie e createSession removidos — métodos eram código morto
  */
 import { describe, expect, it } from "vitest";
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const oauthPath = path.resolve(__dirname, "_core", "oauth.ts");
 
 // ─── Testes: SESSION_DURATION via env (N6) ────────────────────────────────────
 describe("SESSION_DURATION via ENV (N6)", () => {
@@ -32,6 +38,15 @@ describe("SESSION_DURATION via ENV (N6)", () => {
   it("parseInt com fallback '24' retorna valor correto para '8'", () => {
     const result = parseInt("8" ?? "24", 10);
     expect(result).toBe(8);
+  });
+
+  it("aplica a mesma duração configurada no JWT e no cookie do callback OAuth", async () => {
+    const source = await fs.readFile(oauthPath, "utf8");
+
+    expect(source).toContain("const sessionDurationMs = ENV.sessionDurationHours * 60 * 60 * 1000");
+    expect(source).toContain("expiresInMs: sessionDurationMs");
+    expect(source).toContain("maxAge: sessionDurationMs");
+    expect(source).not.toContain("ONE_YEAR_MS");
   });
 });
 

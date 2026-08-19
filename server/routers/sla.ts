@@ -14,7 +14,7 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { unit_report_sla_configs, report_readiness, exam_legends } from "../../drizzle/schema";
 import { eq, inArray, and, asc } from "drizzle-orm";
-import { canAccessUnit } from "../authorization";
+import { assertDicomFileAccess, canAccessUnit } from "../authorization";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -278,7 +278,11 @@ export const slaRouter = router({
   /** Retorna o readiness de um estudo específico */
   getByStudy: protectedProcedure
     .input(z.object({ studyInstanceUid: z.string(), unitId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const authorizedUnitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
+      if (authorizedUnitId !== input.unitId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "O estudo não pertence à unidade informada." });
+      }
       const db = await getDb();
       if (!db) return null;
       const rows = await db
@@ -298,15 +302,25 @@ export const slaRouter = router({
       studyInstanceUids: z.array(z.string()).max(500),
       unitId: z.number(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       if (!input.studyInstanceUids.length) return {} as Record<string, typeof report_readiness.$inferSelect>;
+      const access = await Promise.all(input.studyInstanceUids.map(async (studyInstanceUid) => {
+        try {
+          const authorizedUnitId = await assertDicomFileAccess(ctx.user, studyInstanceUid, "view_studies");
+          return authorizedUnitId === input.unitId ? studyInstanceUid : null;
+        } catch {
+          return null;
+        }
+      }));
+      const allowedStudyUids = access.filter((studyInstanceUid): studyInstanceUid is string => studyInstanceUid !== null);
+      if (!allowedStudyUids.length) return {} as Record<string, typeof report_readiness.$inferSelect>;
       const db = await getDb();
       if (!db) return {} as Record<string, typeof report_readiness.$inferSelect>;
       const rows = await db
         .select()
         .from(report_readiness)
         .where(and(
-          inArray(report_readiness.study_instance_uid, input.studyInstanceUids),
+          inArray(report_readiness.study_instance_uid, allowedStudyUids),
           eq(report_readiness.unit_id, input.unitId),
         ));
       const result: Record<string, typeof report_readiness.$inferSelect> = {};

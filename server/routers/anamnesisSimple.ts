@@ -73,16 +73,29 @@ export const anamnesisSimpleRouter = router({
     /** Retorna quais UIDs têm anamnese registrada (independente de unit_id) */
     getStatusBatch: protectedProcedure
       .input(z.object({ studyInstanceUids: z.array(z.string()) }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         if (!input.studyInstanceUids.length) return {} as Record<string, boolean>;
+        const result: Record<string, boolean> = {};
+        for (const uid of input.studyInstanceUids) result[uid] = false;
+
+        const access = await Promise.all(input.studyInstanceUids.map(async (studyInstanceUid) => {
+          try {
+            const studyUnitId = await getStudyUnitId(studyInstanceUid);
+            if (!studyUnitId) return null;
+            return await canAccessUnit(ctx.user, studyUnitId, "view_anamnesis") ? studyInstanceUid : null;
+          } catch {
+            return null;
+          }
+        }));
+        const allowedStudyUids = access.filter((studyInstanceUid): studyInstanceUid is string => studyInstanceUid !== null);
+        if (!allowedStudyUids.length) return result;
+
         const db = await getDb();
-        if (!db) return {} as Record<string, boolean>;
+        if (!db) return result;
         const rows = await db
           .select({ study_instance_uid: anamnesis_simple.study_instance_uid })
           .from(anamnesis_simple)
-          .where(inArray(anamnesis_simple.study_instance_uid, input.studyInstanceUids));
-        const result: Record<string, boolean> = {};
-        for (const uid of input.studyInstanceUids) result[uid] = false;
+          .where(inArray(anamnesis_simple.study_instance_uid, allowedStudyUids));
         for (const row of rows) result[row.study_instance_uid] = true;
         return result;
       }),
