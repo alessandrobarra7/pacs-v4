@@ -2126,8 +2126,8 @@
 - [ ] Revisar uploads, download de arquivos privados, cabeçalhos HTTP e validação de origem.
 - [x] Executar auditoria de dependências e classificar vulnerabilidades por impacto no Portal.
 - [x] Implementar e testar no sandbox as correções confirmadas de streaming, anamnese, readiness e duração de sessão OAuth.
-- [ ] Validar build completo do frontend de segurança antes de atualizar a VM1.
-- [ ] Executar na VM1 uma compilação isolada do commit auditado em `git worktree`, sem modificar o diretório ativo nem reiniciar o PM2.
+- [x] Validar build completo do frontend de segurança antes de atualizar a VM1.
+- [x] Executar na VM1 uma compilação isolada do commit auditado em `git worktree`, sem modificar o diretório ativo nem reiniciar o PM2.
 
 ## CORREÇÃO P0 — AUTORIZAÇÃO DO STREAMING DICOM
 

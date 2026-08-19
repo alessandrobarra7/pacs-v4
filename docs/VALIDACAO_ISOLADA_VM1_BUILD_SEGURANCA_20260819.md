@@ -47,3 +47,9 @@ VALIDATE_VM1_SECURITY_BUILD
 A validação só é aprovada quando o comando termina com código zero, os dois artefatos existem e o processo `pacs-portal` permanece **online** sem reinício. O resultado deve ser registrado junto ao `CANDIDATE_COMMIT`, aos tamanhos de `dist/public/index.html` e `dist/index.js`, e ao estado do PM2.
 
 > Não execute `git merge`, `pm2 restart`, migrações SQL ou mudanças de firewall durante esta validação. A atualização real da VM1 é uma etapa separada, condicionada ao build isolado aprovado e a uma nova verificação do commit publicado.
+
+## Resultado registrado
+
+A validação isolada foi executada na **VM1** no commit `0af226d` e foi aprovada. O Vite transformou 4.803 módulos e concluiu em 35,83 segundos; o bundle do servidor também terminou sem erro. Foram verificados `dist/public/index.html` com 367.349 bytes e `dist/index.js` com 538.774 bytes.
+
+O processo ativo `pacs-portal` permaneceu **online**, sem reinício, com o mesmo PID e contador de reinicializações durante o procedimento. Os avisos de módulos Node externalizados pelo Vite e de *chunk* acima de 500 KiB são avisos conhecidos do conjunto Cornerstone e não impediram a compilação. A área temporária do *worktree* foi removida pelo `trap` ao término do comando.

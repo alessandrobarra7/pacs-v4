@@ -44,7 +44,7 @@ Os procedimentos prioritários que recebem `unitId` do cliente, sobretudo no mó
 
 Na primeira rodada, os testes direcionados e a suíte completa foram aprovados no sandbox: 38 arquivos Vitest, 248 testes aprovados e 1 integração MinIO ignorada. Após as correções de escopo financeiro, layout e remoção de rotas legadas, a regressão completa também foi aprovada: 39 arquivos Vitest, 253 testes aprovados e 1 integração MinIO ignorada. A verificação TypeScript não encontrou erro, e o *bundle* isolado do servidor concluiu com sucesso.
 
-O build completo Vite do frontend foi encerrado pelo ambiente de sandbox durante a transformação do conjunto Cornerstone, mesmo após liberar memória e ampliar o tempo de execução. Isso é uma limitação do recurso disponível no sandbox, não uma falha TypeScript ou de testes detectada nesta rodada. Por precaução, nenhuma atualização da VM1 está autorizada a partir deste checkpoint até que o build completo seja novamente validado em ambiente com recursos suficientes ou que a estratégia de compilação seja revisada.
+O build completo Vite do frontend foi encerrado pelo ambiente de sandbox durante a transformação do conjunto Cornerstone, mesmo após liberar memória e ampliar o tempo de execução. Isso é uma limitação do recurso disponível no sandbox, não uma falha TypeScript ou de testes detectada nesta rodada. A validação isolada posterior na VM1 concluiu o build do commit auditado `0af226d` com sucesso, preservando o processo de produção sem reinício. A atualização real da VM1 continua como etapa separada e controlada.
 
 ## Referências de avisos selecionados
 
