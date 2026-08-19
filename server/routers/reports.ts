@@ -42,16 +42,19 @@ export const reportsRouter = router({
         return report;
       }),
 
-    getByStudyUid: protectedProcedure
-      .input(z.object({ studyInstanceUid: z.string() }))
-      .query(async ({ input, ctx }) => {
-        const db = await getDb();
-        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
-        // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
-        const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
-        if (unitIds !== undefined && unitIds.length === 0) return null; // sem acesso
-        const conditions: any[] = [eq(reports.study_instance_uid, input.studyInstanceUid)];
-        if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
+   getByStudyUid: protectedProcedure
+     .input(z.object({ studyInstanceUid: z.string(), documentKey: z.string().trim().min(1).max(80).default('primary') }))
+     .query(async ({ input, ctx }) => {
+       const db = await getDb();
+       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+       // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
+       const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
+       if (unitIds !== undefined && unitIds.length === 0) return null; // sem acesso
+        const conditions: any[] = [
+          eq(reports.study_instance_uid, input.studyInstanceUid),
+          eq(reports.document_key, input.documentKey),
+        ];
+       if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
         else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
         const rows = await db.select().from(reports).where(and(...conditions));
         const report = rows[0] ?? null;
@@ -63,16 +66,19 @@ export const reportsRouter = router({
       }),
 
     // Retorna laudo + dados do médico assinante (para impressão com carimbo)
-    getByStudyUidWithDoctor: protectedProcedure
-      .input(z.object({ studyInstanceUid: z.string() }))
-      .query(async ({ input, ctx }) => {
-        const db = await getDb();
-        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
-        // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
-        const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
-        if (unitIds !== undefined && unitIds.length === 0) return null; // sem acesso
-        const conditions: any[] = [eq(reports.study_instance_uid, input.studyInstanceUid)];
-        if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
+   getByStudyUidWithDoctor: protectedProcedure
+     .input(z.object({ studyInstanceUid: z.string(), documentKey: z.string().trim().min(1).max(80).default('primary') }))
+     .query(async ({ input, ctx }) => {
+       const db = await getDb();
+       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+       // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
+       const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
+       if (unitIds !== undefined && unitIds.length === 0) return null; // sem acesso
+        const conditions: any[] = [
+          eq(reports.study_instance_uid, input.studyInstanceUid),
+          eq(reports.document_key, input.documentKey),
+        ];
+       if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
         else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
         const rows = await db.select().from(reports).where(and(...conditions));
         const report = rows[0] ?? null;
@@ -98,11 +104,38 @@ export const reportsRouter = router({
           doctorSignatureUrl,
         };
       }),
+
+    /** Lista documentos de laudo já criados para um estudo na unidade autorizada. */
+    listByStudyUid: protectedProcedure
+      .input(z.object({ studyInstanceUid: z.string(), unit_id: z.number().optional() }))
+      .query(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        const unitId = ctx.user.role === 'admin_master'
+          ? (input.unit_id ?? ctx.user.unit_id)
+          : await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id, input.unit_id);
+        if (!unitId || !await canAccessUnit(ctx.user, unitId, 'view_studies')) return [];
+        return db.select({
+          id: reports.id,
+          document_key: reports.document_key,
+          document_label_snapshot: reports.document_label_snapshot,
+          status: reports.status,
+          author_user_id: reports.author_user_id,
+          signedAt: reports.signedAt,
+          signedBy: reports.signedBy,
+        }).from(reports).where(and(
+          eq(reports.study_instance_uid, input.studyInstanceUid),
+          eq(reports.unit_id, unitId),
+        )).orderBy(reports.document_key);
+      }),
     
     create: protectedProcedure
       .input(z.object({
         study_id: z.number().optional(),
         study_instance_uid: z.string().optional(),
+        exam_legend_id: z.number().int().positive().optional(),
+        document_key: z.string().trim().min(1).max(80).default('primary'),
+        document_label_snapshot: z.string().trim().min(1).max(255).optional(),
         template_id: z.number().optional(),
         body: z.string(),
         unit_id: z.number().optional(), // multi-unidade: médico passa a unidade selecionada

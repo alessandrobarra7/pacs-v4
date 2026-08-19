@@ -1,7 +1,7 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getDb, getStudyMetadata, getStudyMetadataBatch, createAuditLog, assertUnitPermission, getUserUnitPermission, upsertStudyCache } from "../db";
+import { getDb, getStudyMetadata, getStudyMetadataBatch, createAuditLog, assertUnitPermission, getUserUnitPermission, upsertStudyCache, getActivePacsExamMappings } from "../db";
 import { cFind } from "../dicom.service";
 import type { CFindResult } from "../dicom.service";
 import { MAX_UPLOAD_BYTES } from "../../shared/const";
@@ -165,10 +165,15 @@ export const pacsRouter = router({
           // Buscar overrides salvos localmente (study_metadata) para esta unidade e estes UIDs
           const studyUids = studies.map((s: any) => s.studyInstanceUID || s.studyInstanceUid).filter(Boolean);
           const { getStudyMetadataBatch } = await import('../db');
-          const metadataBatch = await getStudyMetadataBatch(studyUids, unit.id);
+          const [metadataBatch, pacsExamMappings] = await Promise.all([
+            getStudyMetadataBatch(studyUids, unit.id),
+            getActivePacsExamMappings(),
+          ]);
           const metadataMap = new Map(metadataBatch.map(m => [m.study_instance_uid, m]));
 
-          // Normaliza campos para o frontend e aplica overrides locais (Opção 1)
+          // Normaliza campos para o frontend. A legenda só é substituída por um
+          // mapeamento PACS explícito do catálogo central; sem correspondência,
+          // mantém a descrição original recebida do PACS.
           studies = studies.map((s: any) => {
             const uid = s.studyInstanceUID || s.studyInstanceUid || '';
             const meta = metadataMap.get(uid);
@@ -176,10 +181,10 @@ export const pacsRouter = router({
             const patientName = meta?.patient_name_override && meta.patient_name_override.trim() !== ''
               ? meta.patient_name_override.trim()
               : rawName;
-            const rawDesc = s.studyDescription || '';
-            const studyDescription = meta?.description_override && meta.description_override.trim() !== ''
-              ? meta.description_override.trim()
-              : rawDesc;
+            const rawDesc = (s.studyDescription || '').trim();
+            const mappingKey = `${String(s.modality || '').trim().toUpperCase()}\u0000${rawDesc.toUpperCase()}`;
+            const mappedExam = pacsExamMappings.get(mappingKey);
+            const studyDescription = mappedExam?.exam_name || rawDesc;
 
             return {
               studyInstanceUid: uid,
@@ -191,6 +196,7 @@ export const pacsRouter = router({
               studyTime: s.studyTime || '',
               modality: s.modality || '',
               studyDescription,
+              examLegendId: mappedExam?.id ?? null,
               accessionNumber: s.accessionNumber || '',
               numberOfSeries: s.numberOfSeries || 0,
               numberOfInstances: s.numberOfInstances || 0,

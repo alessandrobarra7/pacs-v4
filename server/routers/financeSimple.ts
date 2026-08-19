@@ -225,6 +225,62 @@ async function assertCanAccessFinancialUnit(
   throw new TRPCError({ code: 'FORBIDDEN' });
 }
 
+/** Preços financeiros só podem ser mantidos pelo admin_master ou pelo responsável da unidade vinculada. */
+async function assertCanManageFinancialPrices(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  user: { id: number; role: string },
+  unitId: number,
+  financialResponsibleId?: number,
+): Promise<void> {
+  if (user.role === 'admin_master') return;
+  if (user.role !== 'responsavel_financeiro') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Somente o administrador raiz ou o responsável financeiro pode configurar preços.' });
+  }
+  const ownResponsibleId = await getResponsibleIdForUser(user.id);
+  if (!ownResponsibleId || (financialResponsibleId !== undefined && ownResponsibleId !== financialResponsibleId)) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'O responsável financeiro não corresponde ao preço informado.' });
+  }
+  await assertCanAccessFinancialUnit(db, user, unitId);
+}
+
+function isSameCalendarDay(left: Date, right: Date): boolean {
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate();
+}
+
+/**
+ * Toda vigência de preço começa na abertura de um ciclo. Quando já há um
+ * preço vigente, a nova tabela só pode iniciar em ciclo futuro, preservando
+ * eventos financeiros e snapshots do ciclo atual.
+ */
+async function assertCycleAlignedPriceStart(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  unitId: number,
+  requestedStart: Date,
+  hasCurrentPrice: boolean,
+): Promise<void> {
+  // A primeira configuração pode ser feita durante um ciclo em andamento; ela
+  // só afetará assinaturas futuras, cujos eventos preservam o valor aplicado.
+  if (!hasCurrentPrice) return;
+  const requestedCycle = await resolveFinancialCycle(db, unitId, requestedStart);
+  if (!isSameCalendarDay(requestedStart, requestedCycle.startDate)) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'O início do preço deve coincidir com o primeiro dia do ciclo financeiro da unidade.',
+    });
+  }
+  if (hasCurrentPrice) {
+    const currentCycle = await resolveFinancialCycle(db, unitId, new Date());
+    if (requestedCycle.startDate.getTime() <= currentCycle.startDate.getTime()) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Uma alteração de preço já vigente deve iniciar somente em um novo ciclo financeiro.',
+      });
+    }
+  }
+}
+
 /** Retorna as unidades financeiras que podem compor consultas agregadas do usuário. */
 async function getAuthorizedFinancialUnitIds(
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
@@ -1561,7 +1617,9 @@ export const financeSimpleRouter = router({
         endsAt: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        await assertCanManageFinancialPrices(db, ctx.user, input.unitId, input.financialResponsibleId);
         
         const id = await upsertSystemUnitPrice({
           financial_responsible_id: input.financialResponsibleId,
@@ -1577,7 +1635,9 @@ export const financeSimpleRouter = router({
     listSystemPrices: protectedProcedure
       .input(z.object({ financialResponsibleId: z.number(), unitId: z.number() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        await assertCanManageFinancialPrices(db, ctx.user, input.unitId, input.financialResponsibleId);
         
         return await listSystemPricesForUnit(input.financialResponsibleId, input.unitId);
       }),
@@ -1593,7 +1653,9 @@ export const financeSimpleRouter = router({
         endsAt: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        await assertCanManageFinancialPrices(db, ctx.user, input.unitId, input.financialResponsibleId);
         
         const id = await upsertDoctorUnitPrice({
           financial_responsible_id: input.financialResponsibleId,
@@ -1610,7 +1672,9 @@ export const financeSimpleRouter = router({
     listDoctorPrices: protectedProcedure
       .input(z.object({ financialResponsibleId: z.number(), unitId: z.number() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        await assertCanManageFinancialPrices(db, ctx.user, input.unitId, input.financialResponsibleId);
         
         return await listDoctorPricesForUnit(input.financialResponsibleId, input.unitId);
       }),
@@ -1624,9 +1688,9 @@ export const financeSimpleRouter = router({
         doctorUserId: z.number(),
       }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        await assertCanManageFinancialPrices(db, ctx.user, input.unitId, input.financialResponsibleId);
         return db
           .select()
           .from(billing_doctor_modality_prices)
@@ -1650,16 +1714,33 @@ export const financeSimpleRouter = router({
         endsAt: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        await assertCanManageFinancialPrices(db, ctx.user, input.unitId, input.financialResponsibleId);
+        const startsAt = new Date(input.startsAt);
+        const activeRows = await db.select({ id: billing_doctor_modality_prices.id })
+          .from(billing_doctor_modality_prices)
+          .where(and(
+            eq(billing_doctor_modality_prices.financial_responsible_id, input.financialResponsibleId),
+            eq(billing_doctor_modality_prices.unit_id, input.unitId),
+            eq(billing_doctor_modality_prices.doctor_user_id, input.doctorUserId),
+            eq(billing_doctor_modality_prices.modality, input.modality.trim().toUpperCase()),
+            lte(billing_doctor_modality_prices.starts_at, new Date()),
+            or(isNull(billing_doctor_modality_prices.ends_at), gte(billing_doctor_modality_prices.ends_at, new Date())),
+          )).limit(1);
+        await assertCycleAlignedPriceStart(db, input.unitId, startsAt, activeRows.length > 0);
+        if (activeRows[0]) {
+          await db.update(billing_doctor_modality_prices)
+            .set({ ends_at: new Date(startsAt.getTime() - 1000) })
+            .where(eq(billing_doctor_modality_prices.id, activeRows[0].id));
+        }
         const result = await db.insert(billing_doctor_modality_prices).values({
           financial_responsible_id: input.financialResponsibleId,
           unit_id: input.unitId,
           doctor_user_id: input.doctorUserId,
           modality: input.modality.trim().toUpperCase(),
           price_per_report: input.pricePerReport,
-          starts_at: new Date(input.startsAt),
+          starts_at: startsAt,
           ends_at: input.endsAt ? new Date(input.endsAt) : null,
           created_by: ctx.user.id,
         });
@@ -1670,9 +1751,14 @@ export const financeSimpleRouter = router({
     endDoctorModalityPrice: protectedProcedure
       .input(z.object({ id: z.number(), endsAt: z.string() }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        const existing = await db.select({
+          unit_id: billing_doctor_modality_prices.unit_id,
+          financial_responsible_id: billing_doctor_modality_prices.financial_responsible_id,
+        }).from(billing_doctor_modality_prices).where(eq(billing_doctor_modality_prices.id, input.id)).limit(1);
+        if (!existing[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'Preço por modalidade não encontrado.' });
+        await assertCanManageFinancialPrices(db, ctx.user, existing[0].unit_id, existing[0].financial_responsible_id);
         await db
           .update(billing_doctor_modality_prices)
           .set({ ends_at: new Date(input.endsAt) })
@@ -2376,10 +2462,9 @@ export const financeSimpleRouter = router({
         startsAt: z.string(),
       }))
       .mutation(async ({ input, ctx }) => {
-        assertAdmin(ctx.user.role);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-        await assertCanAccessFinancialUnit(db, ctx.user, input.unitId); // P4
+        await assertCanManageFinancialPrices(db, ctx.user, input.unitId);
         // C4: Não criar mais "Sem Responsável" automaticamente.
         // Exigir que a unidade já tenha um responsável financeiro ativo.
         
@@ -2390,6 +2475,7 @@ export const financeSimpleRouter = router({
             message: 'Esta unidade não possui um responsável financeiro ativo. Vincule um responsável antes de configurar preços.',
           });
         }
+        await assertCanManageFinancialPrices(db, ctx.user, input.unitId, responsible.financial_responsible_id);
         const id = await upsertDoctorUnitPrice({
           financial_responsible_id: responsible.financial_responsible_id,
           unit_id: input.unitId,
@@ -3186,6 +3272,7 @@ export const financeSimpleRouter = router({
       assertAdmin(ctx.user.role);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id);
       const { reports: reportsTable } = await import('../../drizzle/schema');
       // Busca médicos distintos que assinaram laudos nesta unidade
       const doctorRows = await db

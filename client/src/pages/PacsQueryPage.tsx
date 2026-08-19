@@ -17,7 +17,6 @@ import { AnamnesisModal } from "@/components/AnamnesisModal";
 import { PatientAttachmentsModal } from "@/components/PatientAttachmentsModal";
 import { AudioReportsModal } from "@/components/AudioReportsModal";
 import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
-import { ExamPickerModal, ALL_CATALOG_EXAMS } from "@/components/ExamPickerModal";
 import { canAccessAdmin, type UserRole } from "../../../shared/permissions";
 
 import { Calendar } from "@/components/ui/calendar";
@@ -367,97 +366,17 @@ function AnatomicIcon({ label, className = '' }: { label: string; className?: st
   );
 }
 
-// Componente para edição do nome do exame via modal de seleção múltipla
-function EditableExamName({
-  value, studyUid, rawDescription, dbOverride, dbExamCount, onSaved, canEdit, unitId
-}: {
-  value: string;
-  studyUid: string;
-  rawDescription?: string;
-  dbOverride?: string | null;
-  dbExamCount?: number | null;
-  onSaved?: () => void;
-  canEdit?: boolean;
-  unitId?: number;  // V14-P2 FIX: unidade selecionada na tela
-}) {
-  const storageKey = `exam_label_${studyUid}`;
-  // Prioridade: banco > localStorage > PACS
-  const [label, setLabel] = useState(() =>
-    dbOverride || localStorage.getItem(storageKey) || value || 'Sem descrição'
-  );
-  const [showPicker, setShowPicker] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const saveMutation = trpc.studyMetadata.save.useMutation();
-
-  // Sincroniza quando o banco retorna um override atualizado
-  useEffect(() => {
-    if (dbOverride) setLabel(dbOverride);
-  }, [dbOverride]);
-
-  // Converte o label atual em array de exames para pré-selecionar no modal
-  const currentExams = label && label !== 'Sem descrição'
-    ? label.split(' + ').map(e => e.trim()).filter(Boolean)
-    : [];
-
-  const handlePickerConfirm = async (exams: string[], examCount: number) => {
-    const composed = exams.join(' + ');
-    setLabel(composed);
-    localStorage.setItem(storageKey, composed);
-    setShowPicker(false);
-    if (studyUid && studyUid.length > 5) {
-      setSaving(true);
-      try {
-        await saveMutation.mutateAsync({
-          studyInstanceUid: studyUid,
-          unit_id: unitId,  // V14-P2 FIX: enviar unidade selecionada
-          descriptionOverride: composed,
-          examCount,
-        });
-        onSaved?.();
-      } catch {
-        toast.error('Erro ao salvar descrição no banco');
-      } finally {
-        setSaving(false);
-      }
-    }
-  };
-
-  const isEdited = !!dbOverride;
+// A lista apenas apresenta a legenda original ou canônica já resolvida no servidor.
+// O mapeamento PACS é administrado exclusivamente no catálogo central pelo admin_master.
+function ExamName({ value }: { value: string }) {
+  const label = value || 'Sem descrição';
   return (
-    <>
-      <div className="flex items-center gap-2">
-        {/* Ícone anatômico — clicável (técnico) ou apenas visual (outros perfis) */}
-        {canEdit !== false ? (
-          <button
-            onClick={() => setShowPicker(true)}
-            title="Clique para selecionar / alterar exames"
-            className={`shrink-0 w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
-              isEdited
-                ? 'bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-200'
-                : 'bg-blue-50 text-blue-500 hover:bg-blue-100 border border-blue-100'
-            }`}
-          >
-            <AnatomicIcon label={label} className="w-4 h-4" />
-          </button>
-        ) : (
-          <span className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center bg-gray-50 text-gray-400 border border-gray-100">
-            <AnatomicIcon label={label} className="w-4 h-4" />
-          </span>
-        )}
-        {/* Nome do exame */}
-        <div className="flex flex-col min-w-0">
-          <span className={`text-sm leading-tight ${isEdited ? 'text-amber-700 font-medium' : 'text-gray-800'}`}>{label}</span>
-          {saving && <Loader2 className="h-3 w-3 animate-spin text-gray-400 mt-0.5" />}
-        </div>
-      </div>
-      {showPicker && (
-        <ExamPickerModal
-          initialExams={currentExams}
-          onConfirm={handlePickerConfirm}
-          onClose={() => setShowPicker(false)}
-        />
-      )}
-    </>
+    <div className="flex items-center gap-2">
+      <span className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center bg-blue-50 text-blue-500 border border-blue-100">
+        <AnatomicIcon label={label} className="w-4 h-4" />
+      </span>
+      <span className="text-sm leading-tight text-gray-800">{label}</span>
+    </div>
   );
 }
 
@@ -621,8 +540,14 @@ const isAdminMaster = user?.role === 'admin_master';
   const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [selectedStudy, setSelectedStudy] = useState<any>(null);
+  const [reportStudy, setReportStudy] = useState<any>(null);
+  const [isReportDocumentsModalOpen, setIsReportDocumentsModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, string>>({});
+  const { data: reportDocumentOptions = [], isLoading: isLoadingReportDocuments } = trpc.examCatalog.documentsForExam.useQuery(
+    { examLegendId: Number(reportStudy?.examLegendId ?? 1) },
+    { enabled: Boolean(reportStudy?.examLegendId) },
+  );
 
   // Pré-download automático: configuração por unidade
   const autoDownloadKey = `pacs_auto_download_unit_${effectiveUnitId || 'none'}`;
@@ -1081,6 +1006,30 @@ const isAdminMaster = user?.role === 'admin_master';
     handlePreDownload(study);
   };
 
+  const openReportDocument = (study: any, document?: { document_key: string; document_label: string }) => {
+    const uid = study.studyInstanceUid;
+    const documentKey = document?.document_key || 'primary';
+    const documentLabel = document?.document_label || study.studyDescription || 'Laudo principal';
+    sessionStorage.setItem(`study_${uid}`, JSON.stringify({
+      patientName: study.patientName || '',
+      patientID: study.patientID || '',
+      patientBirthDate: study.patientBirthDate || '',
+      patientSex: study.patientSex || '',
+      studyDate: study.studyDate || '',
+      studyTime: study.studyTime || '',
+      modality: study.modality || '',
+      studyDescription: study.studyDescription || 'Sem descrição',
+      accessionNumber: study.accessionNumber || '',
+      numberOfInstances: study.numberOfInstances || 0,
+      unitName,
+      unitId: effectiveUnitId ? Number(effectiveUnitId) : null,
+      examLegendId: study.examLegendId ?? null,
+      documentKey,
+      documentLabel,
+    }));
+    navigate(`/reports/create/${uid}?document=${encodeURIComponent(documentKey)}&documentLabel=${encodeURIComponent(documentLabel)}`);
+  };
+
   const handleReport = async (study: any) => {
     const uid = study.studyInstanceUid;
     if (!uid) { toast.error('UID do estudo não disponível'); return; }
@@ -1111,33 +1060,22 @@ const isAdminMaster = user?.role === 'admin_master';
       return;
     }
 
-    // Busca o exam_count do metadado em memória para passar ao editor de laudos
-    const meta = metadataMap?.[study.studyInstanceUid];
-    const examCount = meta?.exam_count ?? 1;
-    // Monta o label composto (banco > localStorage > PACS)
-    const examLabel = meta?.description_override
-      || localStorage.getItem(`exam_label_${study.studyInstanceUid}`)
-      || study.studyDescription
-      || 'Sem descrição';
-    // Decompoe em array de exames individuais
-    const examNames = examLabel.split(' + ').map((e: string) => e.trim()).filter(Boolean);
-    sessionStorage.setItem(`study_${uid}`, JSON.stringify({
-      patientName: study.patientName || '',
-      patientID: study.patientID || '',
-      patientBirthDate: study.patientBirthDate || '',
-      patientSex: study.patientSex || '',
-      studyDate: study.studyDate || '',
-      studyTime: study.studyTime || '',
-      modality: study.modality || '',
-      studyDescription: examLabel,
-      accessionNumber: study.accessionNumber || '',
-      numberOfInstances: study.numberOfInstances || 0,
-      unitName: unitName,
-      unitId: effectiveUnitId ? Number(effectiveUnitId) : null,
-      examCount,
-      examNames,
-    }));
-    navigate(`/reports/create/${uid}`);
+    if (study.examLegendId) {
+      try {
+        const documents = await trpcUtils.examCatalog.documentsForExam.fetch({ examLegendId: Number(study.examLegendId) });
+        if (documents.length > 1) {
+          setReportStudy(study);
+          setIsReportDocumentsModalOpen(true);
+          return;
+        }
+        openReportDocument(study, documents[0]);
+        return;
+      } catch {
+        toast.error('Não foi possível carregar os documentos clínicos do exame.');
+        return;
+      }
+    }
+    openReportDocument(study);
   };
 
 const handleListenAudio = (study: any) => {
@@ -1713,6 +1651,14 @@ setSelectedStudy(study);
                 Administração
               </button>
             )}
+            {isAdminMaster && (
+              <button
+                onClick={() => navigate('/admin/exames')}
+                className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                Catálogo de exames
+              </button>
+            )}
             {canViewFinancial && (
               <button
                 onClick={() => {
@@ -1974,20 +1920,11 @@ setSelectedStudy(study);
                       <span className="text-sm text-gray-600">{age || '-'}</span>
                     </td>
 
-                    {/* Exame — editável (persiste no banco) */}
+                    {/* Exame — legenda canônica do catálogo ou descrição original PACS */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${modalityCls}`}>{modality}</span>
-                        <EditableExamName
-                          value={study.studyDescription || ''}
-                          studyUid={study.studyInstanceUid || `${idx}`}
-                          rawDescription={study.studyDescription || ''}
-                          dbOverride={meta?.description_override || null}
-                          dbExamCount={meta?.exam_count ?? 1}
-                          onSaved={() => refetchMetadata()}
-                          canEdit={canEditExamLegend}
-                          unitId={effectiveUnitId ?? undefined}  // V14-P2 FIX
-                        />
+                        <ExamName value={study.studyDescription || ''} />
                       </div>
                     </td>
 
@@ -2429,6 +2366,50 @@ setSelectedStudy(study);
            }}
          />
        )}
+
+      {isReportDocumentsModalOpen && reportStudy && (
+        <Dialog open={isReportDocumentsModalOpen} onOpenChange={(open) => {
+          if (!open) {
+            setIsReportDocumentsModalOpen(false);
+            setReportStudy(null);
+          }
+        }}>
+          <DialogContent className="max-w-lg bg-white border border-gray-200 shadow-xl rounded-xl p-6">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <FileText className="h-5 w-5 text-amber-700" />
+                Escolher documento clínico
+              </DialogTitle>
+              <DialogDescription className="text-sm text-gray-500 mt-1">
+                Este exame possui documentos independentes. Cada opção tem rascunho, assinatura e evento financeiro próprios.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-4">
+              {isLoadingReportDocuments ? <p className="py-6 text-center text-sm text-gray-500">Carregando documentos…</p> : null}
+              {!isLoadingReportDocuments && !reportDocumentOptions.length ? <p className="py-6 text-center text-sm text-amber-700">Nenhum documento ativo foi encontrado para este exame.</p> : null}
+              {reportDocumentOptions.map((document) => (
+                <button
+                  key={document.id}
+                  type="button"
+                  onClick={() => {
+                    const study = reportStudy;
+                    setIsReportDocumentsModalOpen(false);
+                    setReportStudy(null);
+                    openReportDocument(study, document);
+                  }}
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-left transition-colors hover:border-amber-400 hover:bg-amber-50"
+                >
+                  <span className="block font-medium text-gray-900">{document.document_label}</span>
+                  <span className="mt-0.5 block text-xs text-gray-500">Documento e assinatura independentes</span>
+                </button>
+              ))}
+            </div>
+            <DialogFooter>
+              <button type="button" onClick={() => { setIsReportDocumentsModalOpen(false); setReportStudy(null); }} className="rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">Cancelar</button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {isPrintModalOpen && selectedStudy && (
         <Dialog open={isPrintModalOpen} onOpenChange={(open) => { if (!open) { setIsPrintModalOpen(false); setSelectedStudy(null); } }}>

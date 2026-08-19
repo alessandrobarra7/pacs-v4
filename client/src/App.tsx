@@ -20,6 +20,7 @@ import FinancePagamentos from "./pages/finance/FinancePagamentos";
 import FinanceMeuFinanceiro from "./pages/finance/FinanceMeuFinanceiro";
 import FinanceMeuResponsavel from "./pages/finance/FinanceMeuResponsavel";
 import { FinanceConfiguracao } from "./pages/finance/FinanceConfiguracao";
+import ExamCatalogPage from "./pages/ExamCatalogPage";
 import { useEffect } from "react";
 
 // Roles definidos no schema do banco de dados
@@ -115,6 +116,7 @@ function Router() {
       <Route path="/reports/create/:studyInstanceUid" component={() => <ProtectedRoute component={ReportEditorPage} />} />
       <Route path="/dicom-viewer/:studyUid" component={() => <ProtectedRoute component={DicomViewerPage} />} />
       <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} allowedRoles={['admin_master', 'unit_admin']} />} />
+      <Route path="/admin/exames" component={() => <ProtectedRoute component={ExamCatalogPage} allowedRoles={['admin_master']} />} />
       <Route path="/admin/layouts/:unitId" component={() => <ProtectedRoute component={LayoutEditorPage} allowedRoles={['admin_master', 'unit_admin']} />} />
 
       {/* Financeiro — módulo unificado sob /financeiro */}
@@ -127,7 +129,7 @@ function Router() {
       <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro} allowedRoles={['medico']} />} />
       <Route path="/financeiro/responsavel" component={() => <ProtectedRoute component={FinanceMeuResponsavel} allowedRoles={['responsavel_financeiro', 'admin_master']} />} />
       <Route path="/financeiro/dashboard" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin']} />} />
-      <Route path="/financeiro/configuracao" component={() => <ProtectedRoute component={FinanceConfiguracao} allowedRoles={['admin_master']} />} />
+      <Route path="/financeiro/configuracao" component={() => <ProtectedRoute component={FinanceConfiguracao} allowedRoles={['admin_master', 'responsavel_financeiro']} />} />
 
       {/* 404 */}
       <Route path="/404" component={NotFound} />

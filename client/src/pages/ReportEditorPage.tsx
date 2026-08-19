@@ -184,6 +184,9 @@ export default function ReportEditorPage() {
   const { user } = useAuth();
   const isAdminMaster = user?.role === "admin_master";
   const studyUid = window.location.pathname.split("/").pop() || "";
+  const reportSearch = new URLSearchParams(window.location.search);
+  const documentKey = reportSearch.get("document") || "primary";
+  const documentLabelFromRoute = reportSearch.get("documentLabel") || "";
 
   // Info do estudo (vinda do sessionStorage)
   const [studyInfo, setStudyInfo] = useState<StudyInfo | null>(null);
@@ -271,7 +274,7 @@ export default function ReportEditorPage() {
 
   // Laudo existente
   const { data: existingReport } = trpc.reports.getByStudyUid.useQuery(
-    { studyInstanceUid: studyUid },
+    { studyInstanceUid: studyUid, documentKey },
     { enabled: !!studyUid }
   );
 
@@ -282,7 +285,6 @@ export default function ReportEditorPage() {
   const signReport = trpc.reports.sign.useMutation();
   const reviseReport = trpc.reports.revise.useMutation();
   const deleteReport = trpc.reports.delete.useMutation();
-  const saveMetadata = trpc.studyMetadata.save.useMutation();
 
   // Estado de retificação
   const [isRevising, setIsRevising] = useState(false);
@@ -384,9 +386,9 @@ export default function ReportEditorPage() {
           sex: info.sex || info.patientSex || "",
         };
         setStudyInfo(normalizedInfo);
-        setExamTitle(info.studyDescription || "");
+        setExamTitle(documentLabelFromRoute || info.studyDescription || "");
         // Configura multi-seção se houver mais de 1 exame
-        if (info.examNames && info.examNames.length > 1) {
+        if (documentKey === "primary" && info.examNames && info.examNames.length > 1) {
           setExamNames(info.examNames);
           setSectionBodies(info.examNames.map(() => ""));
         } else {
@@ -395,7 +397,7 @@ export default function ReportEditorPage() {
         }
       } catch { /* ignore */ }
     }
-  }, [studyUid]);
+  }, [studyUid, documentKey, documentLabelFromRoute]);
 
   // ── Carregar laudo existente no documento ────────────────────────────────────
   useEffect(() => {
@@ -520,9 +522,11 @@ export default function ReportEditorPage() {
           study_instance_uid: studyUid,
           body,
           unit_id: studyInfo?.unitId ?? undefined, // multi-unidade: passa a unidade selecionada
+          document_key: documentKey,
+          document_label_snapshot: documentLabelFromRoute || examTitle || studyInfo?.studyDescription || undefined,
         });
         // Forçar refetch imediato para que cliques subsequentes usem update em vez de create
-        await utils.reports.getByStudyUid.invalidate({ studyInstanceUid: studyUid });
+        await utils.reports.getByStudyUid.invalidate({ studyInstanceUid: studyUid, documentKey });
       }
       toast.success("Rascunho salvo");
     } catch (e: any) {
@@ -546,6 +550,8 @@ export default function ReportEditorPage() {
           study_instance_uid: studyUid,
           body,
           unit_id: studyInfo?.unitId ?? undefined, // multi-unidade: passa a unidade selecionada
+          document_key: documentKey,
+          document_label_snapshot: documentLabelFromRoute || examTitle || studyInfo?.studyDescription || undefined,
         });
         reportId = result.id;
       } else {
@@ -579,18 +585,6 @@ export default function ReportEditorPage() {
         layout_snapshot: layoutSnapshot,  // FIX GAP-1: snapshot do layout
       });
 
-      // FIX P1: persistir examTitle em description_override para que impressões futuras usem o título correto
-      if (examTitle && studyUid) {
-        try {
-          await saveMetadata.mutateAsync({
-            studyInstanceUid: studyUid,
-            unit_id: studyInfo?.unitId ?? undefined,
-            descriptionOverride: examTitle,
-          });
-        } catch {
-          // Não bloquear a assinatura se o save de metadata falhar
-        }
-      }
       // Invalidar queries financeiras para atualizar saldo imediatamente
       void utils.financeSimple.getUnitFinancialInfo.invalidate();
       void utils.financeSimple.getDoctorSummary.invalidate();
@@ -605,7 +599,7 @@ export default function ReportEditorPage() {
     } catch (e: any) {
       toast.error(e.message || "Erro ao assinar");
     }
-  }, [existingReport, studyUid, studyInfo, createReport, updateReport, signReport, navigate, collectBody]);
+  }, [existingReport, studyUid, studyInfo, createReport, updateReport, signReport, navigate, collectBody, documentKey, documentLabelFromRoute, examTitle]);
 
   // ── Retificar laudo assinado ─────────────────────────────────────────────
   const handleRevise = useCallback(async () => {
@@ -2655,5 +2649,4 @@ function CarimboTab({
     </div>
   );
 }
-
 

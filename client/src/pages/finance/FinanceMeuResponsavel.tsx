@@ -7,11 +7,12 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Building2, ChevronLeft, ChevronRight, DollarSign, FileText,
-  CheckCircle2, Clock, AlertCircle, X, Users,
+  CheckCircle2, Clock, AlertCircle, X, Users, Settings,
 } from "lucide-react";
 import { FinanceShell } from "./FinanceShell";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 
 const MONTHS = [
   "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
@@ -122,6 +123,7 @@ function DoctorsModal({
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function FinanceMeuResponsavel() {
+  const [, navigate] = useLocation();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -154,16 +156,27 @@ export default function FinanceMeuResponsavel() {
             <h1 className="text-xl font-bold text-white">Meu Painel Financeiro</h1>
             <p className="text-slate-400 text-sm mt-0.5">Unidades sob sua responsabilidade</p>
           </div>
-          <div className="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-2">
-            <button onClick={prevMonth} className="text-slate-400 hover:text-white transition-colors">
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <span className="text-white font-medium text-sm min-w-[120px] text-center">
-              {MONTHS[month - 1]} {year}
-            </span>
-            <button onClick={nextMonth} className="text-slate-400 hover:text-white transition-colors">
-              <ChevronRight className="h-4 w-4" />
-            </button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigate('/financeiro/configuracao')}
+              className="border-cyan-700/70 text-cyan-300 hover:bg-cyan-950/40"
+            >
+              <Settings className="h-3.5 w-3.5 mr-1.5" />
+              Preços
+            </Button>
+            <div className="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-2">
+              <button onClick={prevMonth} className="text-slate-400 hover:text-white transition-colors">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="text-white font-medium text-sm min-w-[120px] text-center">
+                {MONTHS[month - 1]} {year}
+              </span>
+              <button onClick={nextMonth} className="text-slate-400 hover:text-white transition-colors">
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
 

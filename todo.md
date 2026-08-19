@@ -2182,14 +2182,15 @@
 - [x] Corrigir a recarga DICOM que permanece na tela de carregamento após receber 100% dos arquivos do estudo.
 - [x] Validar em worktree temporário da VM1 o build completo da correção de finalização da recarga antes de atualizar o Portal.
 - [x] Atualizar controladamente a VM1 com a correção de finalização da recarga e validar o retorno do visualizador após 100% dos arquivos.
-- [ ] Investigar legendas e nomes de exames exibidos incorretamente, conferindo a origem DICOM, as transformações do Portal e os rótulos da interface antes de alterar dados clínicos.
-- [ ] Projetar um catálogo global de exames, administrado somente pelo administrador raiz, que defina legenda canônica, quantidade de laudos e regra de evento financeiro.
-- [ ] Garantir que o catálogo permita múltiplos documentos e assinaturas independentes por exame, com quantidade de eventos financeiros configurável pelo administrador raiz.
-- [ ] Aplicar um evento financeiro por documento assinado, calculado pelo preço vigente configurado para médico, unidade e modalidade.
-- [ ] Permitir assinatura clínica sem preço, registrando evento financeiro pendente sem valor e orientando o médico a procurar o administrador quando desejar usar o módulo financeiro.
-- [ ] Exibir ao médico seu faturamento e seus eventos pendentes de preço separados por unidade.
-- [ ] Permitir que admin_master e responsável financeiro autorizado configurem preços por médico, unidade e modalidade, sempre com vigência futura por ciclo e sem alterar eventos já assinados.
-- [ ] Restringir ao admin_master a criação de exames e o mapeamento de descrições PACS para legendas canônicas, exibindo a descrição original quando não houver correspondência.
+- [x] Investigar legendas e nomes de exames exibidos incorretamente, conferindo a origem DICOM, as transformações do Portal e os rótulos da interface antes de alterar dados clínicos.
+- [x] Projetar um catálogo global de exames, administrado somente pelo administrador raiz, que defina legenda canônica, quantidade de laudos e regra de evento financeiro.
+- [x] Garantir que o catálogo permita múltiplos documentos e assinaturas independentes por exame, com quantidade de eventos financeiros configurável pelo administrador raiz.
+- [x] Aplicar um evento financeiro por documento assinado, calculado pelo preço vigente configurado para médico, unidade e modalidade.
+- [x] Permitir assinatura clínica sem preço, registrando evento financeiro pendente sem valor e orientando o médico a procurar o administrador quando desejar usar o módulo financeiro.
+- [x] Exibir ao médico seu faturamento e seus eventos pendentes de preço separados por unidade.
+- [x] Permitir que admin_master e responsável financeiro autorizado configurem preços por médico, unidade e modalidade, sempre com vigência futura por ciclo e sem alterar eventos já assinados.
+- [x] Restringir ao admin_master a criação de exames e o mapeamento de descrições PACS para legendas canônicas, exibindo a descrição original quando não houver correspondência.
+- [ ] Validar em worktree temporário da VM1 o build completo e revisar a migração 0048 antes de aplicar catálogo, documentos e preços históricos em produção.
 
 ## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE
 

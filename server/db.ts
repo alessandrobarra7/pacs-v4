@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/mysql2";
-import { or, and, eq, like, inArray, SQL, ne, gte, lte, isNull, desc, sql as drizzleSql2, count as drizzleCount, or as _or, and as _and, eq as _eq, lte as _lte, gte as _gte, ne as _ne, inArray as _inArray, isNull as isNullFn, desc as _desc } from "drizzle-orm";
+import { or, and, eq, like, inArray, SQL, ne, gte, lte, isNull, desc, asc, sql as drizzleSql2, count as drizzleCount, or as _or, and as _and, eq as _eq, lte as _lte, gte as _gte, ne as _ne, inArray as _inArray, isNull as isNullFn, desc as _desc } from "drizzle-orm";
 import { 
   InsertUser, 
   users, 
@@ -49,6 +49,12 @@ import {
   BillingMonthlySystemByUnit,
   BillingMonthlyDoctorByUnit,
   unit_exam_prices,
+  exam_legends,
+  exam_legend_documents,
+  exam_legend_pacs_mappings,
+  ExamLegend,
+  ExamLegendDocument,
+  ExamLegendPacsMapping,
   report_masks,
   ReportMask,
   InsertReportMask,
@@ -482,14 +488,21 @@ export async function getReportStatusByStudyUids(
     .from(reports)
     .where(and(...conditions));
 
-  const map: Record<string, string> = {};
+  const statusByStudy: Record<string, string[]> = {};
   for (const row of rows) {
     if (row.uid) {
-      const label =
-        row.status === "signed" ? "Assinado" :
-        row.status === "revised" ? "Revisado" :
-        "Em Andamento";
-      map[row.uid] = label;
+      (statusByStudy[row.uid] ??= []).push(row.status);
+    }
+  }
+  const map: Record<string, string> = {};
+  for (const [uid, statuses] of Object.entries(statusByStudy)) {
+    const completed = statuses.filter((status) => status === "signed" || status === "revised").length;
+    if (completed === statuses.length) {
+      map[uid] = statuses.includes("revised") ? "Revisado" : "Assinado";
+    } else if (statuses.length > 1 && completed > 0) {
+      map[uid] = `${completed}/${statuses.length} assinados`;
+    } else {
+      map[uid] = "Em Andamento";
     }
   }
   return map;
@@ -675,6 +688,153 @@ export async function upsertStudyMetadata(data: {
         edited_by_name: data.edited_by_name ?? null,
       },
     });
+}
+
+// ─── Catálogo central de exames ───────────────────────────────────────────────
+
+export type ExamCatalogDocumentInput = {
+  document_key: string;
+  document_label: string;
+  sort_order: number;
+};
+
+export type ExamCatalogEntry = ExamLegend & {
+  documents: ExamLegendDocument[];
+  pacsMappings: ExamLegendPacsMapping[];
+};
+
+/** Lista o catálogo global completo, incluindo documentos e descrições PACS mapeadas. */
+export async function listExamCatalog(includeInactive = true): Promise<ExamCatalogEntry[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const legends = await db.select().from(exam_legends)
+    .where(includeInactive ? undefined : eq(exam_legends.is_active, true))
+    .orderBy(asc(exam_legends.modality), asc(exam_legends.sort_order), asc(exam_legends.exam_name));
+  if (!legends.length) return [];
+
+  const legendIds = legends.map((legend) => legend.id);
+  const [documents, mappings] = await Promise.all([
+    db.select().from(exam_legend_documents)
+      .where(inArray(exam_legend_documents.exam_legend_id, legendIds))
+      .orderBy(asc(exam_legend_documents.sort_order), asc(exam_legend_documents.document_label)),
+    db.select().from(exam_legend_pacs_mappings)
+      .where(inArray(exam_legend_pacs_mappings.exam_legend_id, legendIds))
+      .orderBy(asc(exam_legend_pacs_mappings.modality), asc(exam_legend_pacs_mappings.pacs_description)),
+  ]);
+
+  const documentsByLegend = new Map<number, ExamLegendDocument[]>();
+  for (const document of documents) {
+    const list = documentsByLegend.get(document.exam_legend_id) ?? [];
+    list.push(document);
+    documentsByLegend.set(document.exam_legend_id, list);
+  }
+  const mappingsByLegend = new Map<number, ExamLegendPacsMapping[]>();
+  for (const mapping of mappings) {
+    const list = mappingsByLegend.get(mapping.exam_legend_id) ?? [];
+    list.push(mapping);
+    mappingsByLegend.set(mapping.exam_legend_id, list);
+  }
+  return legends.map((legend) => ({
+    ...legend,
+    documents: documentsByLegend.get(legend.id) ?? [],
+    pacsMappings: mappingsByLegend.get(legend.id) ?? [],
+  }));
+}
+
+/** Cria ou atualiza um exame canônico; o roteador expõe esta ação apenas ao admin_master. */
+export async function saveExamCatalogEntry(data: {
+  id?: number;
+  exam_name: string;
+  modality: string;
+  bilateral: boolean;
+  sort_order: number;
+  is_active: boolean;
+  created_by: number;
+}): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (data.id) {
+    await db.update(exam_legends).set({
+      exam_name: data.exam_name,
+      modality: data.modality,
+      bilateral: data.bilateral,
+      sort_order: data.sort_order,
+      is_active: data.is_active,
+    }).where(eq(exam_legends.id, data.id));
+    return data.id;
+  }
+  const result = await db.insert(exam_legends).values({
+    exam_name: data.exam_name,
+    modality: data.modality,
+    bilateral: data.bilateral,
+    sort_order: data.sort_order,
+    is_active: data.is_active,
+    created_by: data.created_by,
+  });
+  return Number(result[0].insertId);
+}
+
+/** Substitui apenas definições futuras; reports existentes preservam seus próprios snapshots. */
+export async function replaceExamCatalogDocuments(
+  examLegendId: number,
+  documents: ExamCatalogDocumentInput[],
+  createdBy: number,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.transaction(async (tx) => {
+    await tx.delete(exam_legend_documents)
+      .where(eq(exam_legend_documents.exam_legend_id, examLegendId));
+    if (documents.length) {
+      await tx.insert(exam_legend_documents).values(documents.map((document) => ({
+        exam_legend_id: examLegendId,
+        document_key: document.document_key,
+        document_label: document.document_label,
+        sort_order: document.sort_order,
+        is_active: true,
+        created_by: createdBy,
+      })));
+    }
+  });
+}
+
+/** Cria ou atualiza um mapeamento explícito PACS → exame canônico. */
+export async function saveExamCatalogPacsMapping(data: {
+  pacs_description: string;
+  modality: string;
+  exam_legend_id: number;
+  created_by: number;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(exam_legend_pacs_mappings).values(data).onDuplicateKeyUpdate({
+    set: { exam_legend_id: data.exam_legend_id, created_by: data.created_by },
+  });
+}
+
+export async function removeExamCatalogPacsMapping(mappingId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(exam_legend_pacs_mappings)
+    .where(eq(exam_legend_pacs_mappings.id, mappingId));
+}
+
+/** Retorna somente mapeamentos aprovados; ausência de chave mantém a descrição original do PACS. */
+export async function getActivePacsExamMappings(): Promise<Map<string, { id: number; exam_name: string }>> {
+  const db = await getDb();
+  if (!db) return new Map();
+  const rows = await db.select({
+    pacs_description: exam_legend_pacs_mappings.pacs_description,
+    modality: exam_legend_pacs_mappings.modality,
+    id: exam_legends.id,
+    exam_name: exam_legends.exam_name,
+  }).from(exam_legend_pacs_mappings)
+    .innerJoin(exam_legends, eq(exam_legends.id, exam_legend_pacs_mappings.exam_legend_id))
+    .where(eq(exam_legends.is_active, true));
+  return new Map(rows.map((row) => [
+    `${row.modality.trim().toUpperCase()}\u0000${row.pacs_description.trim().toUpperCase()}`,
+    { id: row.id, exam_name: row.exam_name },
+  ]));
 }
 
 // ─── User-Unit Permissions ────────────────────────────────────────────────────
@@ -2008,18 +2168,16 @@ export async function createBillingVisitEvent(data: {
   let systemAmt = systemPrice ? Math.round(Number(systemPrice.price_per_report ?? 0) * 100) / 100 : null;
   let doctorAmt = doctorPrice ? Math.round(Number(doctorPrice.price_per_report ?? 0) * 100) / 100 : null;
 
-  // Fallback: usa default_system_price e default_doctor_price da unidade quando não há responsável financeiro
-  if (systemAmt === null || doctorAmt === null) {
+  // O preço do sistema pode usar o padrão da unidade. O valor do médico nunca
+  // usa fallback global: cada assinatura sem preço médico vigente permanece
+  // pendente para que o painel sinalize a configuração ao administrador.
+  if (systemAmt === null) {
     const unitRow = await db.select({
       default_system_price: units.default_system_price,
-      default_doctor_price: units.default_doctor_price,
     }).from(units).where(eq(units.id, data.unit_id)).limit(1);
     const unitDefaults = unitRow[0];
     if (systemAmt === null && unitDefaults?.default_system_price != null) {
       systemAmt = Math.round(Number(unitDefaults.default_system_price) * 100) / 100;
-    }
-    if (doctorAmt === null && unitDefaults?.default_doctor_price != null) {
-      doctorAmt = Math.round(Number(unitDefaults.default_doctor_price) * 100) / 100;
     }
   }
 

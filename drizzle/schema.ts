@@ -143,6 +143,12 @@ export const reports = mysqlTable("reports", {
   unit_id: int("unit_id").notNull(),
   study_id: int("study_id"),
   study_instance_uid: varchar("study_instance_uid", { length: 128 }),
+  /** Exame canônico do catálogo no instante em que o documento foi criado. */
+  exam_legend_id: int("exam_legend_id"),
+  /** Chave estável do documento dentro de um exame composto. */
+  document_key: varchar("document_key", { length: 80 }).notNull().default("primary"),
+  /** Título clínico preservado do documento no instante de sua criação. */
+  document_label_snapshot: varchar("document_label_snapshot", { length: 255 }),
   template_id: int("template_id"),
   author_user_id: int("author_user_id").notNull(),
   body: text("body").notNull(),
@@ -158,8 +164,12 @@ export const reports = mysqlTable("reports", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
-  // N5 — Bug fix: garante um laudo por estudo por unidade, evitando duplicatas por race condition.
-  uidUnitIdx: uniqueIndex("reports_uid_unit_idx").on(table.study_instance_uid, table.unit_id),
+  // Um documento de cada definição por estudo/unidade, permitindo exames compostos.
+  uidUnitDocumentIdx: uniqueIndex("reports_uid_unit_document_idx").on(
+    table.study_instance_uid,
+    table.unit_id,
+    table.document_key,
+  ),
 }));
 
 export type Report = typeof reports.$inferSelect;
@@ -879,6 +889,10 @@ export const exam_legends = mysqlTable("exam_legends", {
   bilateral: boolean("bilateral").notNull().default(false),
   /** Ordem de exibição dentro da modalidade */
   sort_order: int("sort_order").notNull().default(0),
+  /** Exames inativos não são oferecidos em novos mapeamentos PACS. */
+  is_active: boolean("is_active").notNull().default(true),
+  /** Nulo somente para registros históricos criados antes do catálogo central. */
+  created_by: int("created_by"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({
@@ -886,6 +900,46 @@ export const exam_legends = mysqlTable("exam_legends", {
 }));
 export type ExamLegend = typeof exam_legends.$inferSelect;
 export type InsertExamLegend = typeof exam_legends.$inferInsert;
+
+/**
+ * Documentos clínicos independentes exigidos por um exame canônico.
+ * Exames simples possuem somente a chave "primary"; exames compostos podem
+ * exigir, por exemplo, cervical, dorsal e lombar com assinaturas separadas.
+ */
+export const exam_legend_documents = mysqlTable("exam_legend_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  exam_legend_id: int("exam_legend_id").notNull(),
+  document_key: varchar("document_key", { length: 80 }).notNull(),
+  document_label: varchar("document_label", { length: 255 }).notNull(),
+  sort_order: int("sort_order").notNull().default(0),
+  is_active: boolean("is_active").notNull().default(true),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uqLegendDocument: uniqueIndex("uq_exam_legend_document").on(t.exam_legend_id, t.document_key),
+}));
+export type ExamLegendDocument = typeof exam_legend_documents.$inferSelect;
+export type InsertExamLegendDocument = typeof exam_legend_documents.$inferInsert;
+
+/**
+ * Mapeamentos explícitos entre a descrição original recebida do PACS e o
+ * exame canônico escolhido pelo administrador raiz. Sem correspondência, a
+ * descrição original permanece visível ao usuário.
+ */
+export const exam_legend_pacs_mappings = mysqlTable("exam_legend_pacs_mappings", {
+  id: int("id").autoincrement().primaryKey(),
+  pacs_description: varchar("pacs_description", { length: 255 }).notNull(),
+  modality: varchar("modality", { length: 20 }).notNull().default(""),
+  exam_legend_id: int("exam_legend_id").notNull(),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uqPacsDescriptionModality: uniqueIndex("uq_pacs_description_modality").on(t.pacs_description, t.modality),
+}));
+export type ExamLegendPacsMapping = typeof exam_legend_pacs_mappings.$inferSelect;
+export type InsertExamLegendPacsMapping = typeof exam_legend_pacs_mappings.$inferInsert;
 
 /**
  * Unit Exam Prices — tabela de preços de exames por unidade

@@ -438,6 +438,8 @@ function ReadinessChecklist({ unitId }: { unitId: number }) {
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 export function FinanceConfiguracao() {
+  const { data: currentUser } = trpc.auth.me.useQuery();
+  const isAdminMaster = currentUser?.role === 'admin_master';
   const { data: units, isLoading: unitsLoading } = trpc.financeSimple.unitSummary.useQuery({});
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
   const [showPriceModal, setShowPriceModal] = useState(false);
@@ -537,15 +539,17 @@ export function FinanceConfiguracao() {
                     <Settings className="h-3.5 w-3.5 mr-1.5" />
                     Preços Padrão
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 px-3 text-xs border-slate-600 text-slate-300 hover:text-white"
-                    onClick={() => setShowCycleModal(true)}
-                  >
-                    <CalendarDays className="h-3.5 w-3.5 mr-1.5" />
-                    Ciclo
-                  </Button>
+                  {isAdminMaster && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-3 text-xs border-slate-600 text-slate-300 hover:text-white"
+                      onClick={() => setShowCycleModal(true)}
+                    >
+                      <CalendarDays className="h-3.5 w-3.5 mr-1.5" />
+                      Ciclo
+                    </Button>
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-slate-800">
@@ -564,13 +568,15 @@ export function FinanceConfiguracao() {
             </div>
 
             {/* ── Bloco E: Responsável Financeiro ── */}
-            <ResponsavelPanel
-              unitId={selectedUnitId}
-              onChanged={() => {
-                utils.financeSimple.unitFinancialReadiness.invalidate({ unit_id: selectedUnitId });
-                utils.financeSimple.unitSummary.invalidate();
-              }}
-            />
+            {isAdminMaster && (
+              <ResponsavelPanel
+                unitId={selectedUnitId}
+                onChanged={() => {
+                  utils.financeSimple.unitFinancialReadiness.invalidate({ unit_id: selectedUnitId });
+                  utils.financeSimple.unitSummary.invalidate();
+                }}
+              />
+            )}
 
             {/* ── Bloco B: Médicos com preço ── */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
@@ -617,7 +623,8 @@ export function FinanceConfiguracao() {
               </div>
             </div>
 
-            {/* ── Bloco F: Toggle de ativação financeira ── */}
+            {/* ── Blocos estruturais: exclusivos do administrador raiz ── */}
+            {isAdminMaster && <>
             <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
               <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-800">
                 <CheckCircle2 className="h-4 w-4 text-cyan-400" />
@@ -698,6 +705,7 @@ export function FinanceConfiguracao() {
                 )}
               </div>
             </div>
+            </>}
           </>
         )}
 

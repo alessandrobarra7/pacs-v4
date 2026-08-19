@@ -39,3 +39,27 @@ O Portal já mantém preços por médico, unidade e modalidade com vigência, al
 Nenhum laudo assinado, evento financeiro ou preço histórico será reescrito. Os valores já gravados permanecerão como snapshots auditáveis. As antigas legendas locais ou por estudo não serão usadas para inventar novos nomes; a descrição PACS original permanecerá como retorno seguro até que o `admin_master` crie um mapeamento explícito.
 
 As alterações de preço deverão possuir início de vigência alinhado a um ciclo. Por exemplo, um preço de R$ 20,00 vigente em agosto continuará aplicado aos documentos assinados em agosto; um preço de R$ 30,00 iniciado no ciclo seguinte valerá somente para novas assinaturas nesse ciclo ou depois dele.
+
+## Implementação no sandbox
+
+A migração incremental `0048_exam_catalog_documents.sql` foi aplicada no ambiente de desenvolvimento sem remover tabelas, laudos ou eventos existentes. Ela acrescenta disponibilidade e autoria administrativa ao catálogo, mapeamentos PACS explícitos e definições de documentos, além de evoluir `reports` para diferenciar documentos pela chave clínica dentro do mesmo estudo e unidade.
+
+| Entrega | Implementação |
+|---|---|
+| Catálogo central | Tela `/admin/exames`, protegida por `admin_master`, para manter exames canônicos, documentos ativos e mapeamentos PACS. |
+| Legenda na lista | O servidor usa somente mapeamento ativo aprovado; sem correspondência, devolve a descrição original do PACS. A edição livre por navegador e por metadado foi removida do fluxo. |
+| Exame composto | A lista abre um seletor de documentos; cada opção abre um rascunho, rota e assinatura independentes. |
+| Status do estudo | Estudos com múltiplos documentos mostram conclusão somente quando todos estiverem assinados ou revisados. |
+| Evento financeiro | Continua deduplicado por `report_id`: uma assinatura de documento gera um evento. Sem preço médico vigente, o evento permanece pendente sem valor. |
+| Preços | `admin_master` possui escopo global; o responsável financeiro opera apenas em unidades vinculadas. Alterações de preço por modalidade com valor vigente devem iniciar em ciclo futuro e encerram a vigência anterior sem reprecificar eventos históricos. |
+| Painéis | O médico já consulta faturamento e pendências por unidade. O responsável financeiro recebeu o atalho **Preços** e acesso controlado à configuração de preços, sem controles de responsável, ciclo, ativação ou reprocessamento. |
+
+## Evidências de validação no sandbox
+
+| Verificação | Resultado |
+|---|---|
+| TypeScript | `tsc --noEmit` concluído sem erros. |
+| Regressões específicas | 9 testes aprovados para catálogo, documentos, preço, ciclo e permissões financeiras. |
+| Suíte completa | 44 arquivos, **271 testes aprovados** e 1 ignorado, executados em processo único para respeitar a memória do sandbox. |
+
+> A atualização da VM1 permanece bloqueada até que o commit seja validado por build completo em um *worktree* temporário. A migração da VM2 deverá ser executada somente após esse build e uma revisão final do SQL incremental.
