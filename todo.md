@@ -2169,6 +2169,15 @@
 - [x] Recuperar o Portal por atualização corretiva ou reversão controlada somente após isolar a causa da tela em branco.
 - [x] Declarar o *shim* seguro de `global` no bootstrap do cliente e cobrir a ausência de `ReferenceError` no bundle de navegador.
 - [x] Validar em sandbox, worktree e pós-deploy a recuperação da interface após o erro `global is not defined`.
+- [x] Mapear o cache local e a rota atual de carregamento DICOM para invalidar somente o estudo aberto.
+- [x] Expor uma invalidação autorizada do cache DICOM por estudo, sem afetar outros exames em carregamento.
+- [x] Exigir `view_studies` também na rota existente de exclusão de cache por estudo antes de reutilizá-la para recarga.
+- [x] Cancelar o C-GET do estudo quando o cliente encerrar o streaming, evitando concorrência entre limpeza e download ativo.
+- [x] Adicionar no visualizador um botão de recarga com confirmação e retorno ao PACS após a limpeza do estudo aberto.
+- [x] Preservar o visualizador atual se a invalidação do cache do estudo falhar durante a recarga.
+- [x] Cobrir a recarga de cache por estudo com testes de autorização, invalidação e regressão do visualizador.
+- [ ] Validar, na VM1 e em worktree temporário, o build completo de produção antes de atualizar o Portal com a recarga de cache.
+- [x] Avaliar a desativação do relatório de tamanho comprimido do Vite; revertida porque a limitação de memória ocorreu antes da conclusão de chunks e a configuração não seria eficaz.
 
 ## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE
 

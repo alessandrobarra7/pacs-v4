@@ -739,6 +739,11 @@ async function startServer() {
     if (studyUid.includes('..') || studyUid.includes('/')) {
       return res.status(400).json({ success: false, error: 'Invalid studyUid' });
     }
+    try {
+      await assertDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies');
+    } catch (error: any) {
+      return res.status(403).json({ success: false, error: error?.message || 'Acesso negado ao estudo' });
+    }
     const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
     try {
       const fs = await import('fs/promises');

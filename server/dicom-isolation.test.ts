@@ -30,4 +30,16 @@ describe('Isolamento de Cache DICOM por Unidade (Setores 05-06)', () => {
     expect(content).toContain("app.get('/api/dicom-viewer-launch/:studyUid'");
     expect(content).toContain("assertDicomFileAccess");
   });
+
+  it('deve autorizar o estudo antes de excluir somente seu cache DICOM', async () => {
+    const indexPath = path.resolve(__dirname, '_core', 'index.ts');
+    const content = await fs.readFile(indexPath, 'utf-8');
+    const routeStart = content.indexOf("app.delete('/api/dicom-files/:studyUid'");
+    const routeEnd = content.indexOf("app.get('/api/dicom-series/:studyUid'", routeStart);
+    const route = content.slice(routeStart, routeEnd);
+
+    expect(route).toContain("assertDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies')");
+    expect(route).toContain('invalidateOrderedDicomFiles(studyDir)');
+    expect(route).toContain('fs.rm(studyDir, { recursive: true, force: true })');
+  });
 });

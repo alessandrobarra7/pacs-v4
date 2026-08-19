@@ -106,12 +106,15 @@ export function DicomViewerPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imageCount, setImageCount] = useState(0);
   const [viewport, setViewport] = useState<any>(null);
+  const isLoading = phase === "connecting" || phase === "streaming" || phase === "rendering";
+  const isBackgroundDownloading = phase === "ready" && totalCount > 0 && imageCount < totalCount;
   // StackScroll como ferramenta padrão ao abrir
   const [activeTool, setActiveTool] = useState<ActiveTool>("StackScroll");
   const [wl, setWl] = useState<{ ww: number; wc: number } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [launchingViewer, setLaunchingViewer] = useState<string | null>(null);
   const [isActivatingRadiant, setIsActivatingRadiant] = useState(false);
+  const [isReloadingStudy, setIsReloadingStudy] = useState(false);
   const [pacsAeTitle, setPacsAeTitle] = useState<string>("DPACS");
 
   // ─── Cine (Play automático) ───────────────────────────────────────────────
@@ -864,6 +867,62 @@ export function DicomViewerPage() {
     else startCine();
   }, [isCinePlaying, startCine, stopCine]);
 
+  const handleReloadStudy = useCallback(async () => {
+    if (!studyUid || isReloadingStudy || isLoading || isBackgroundDownloading) return;
+    const confirmed = window.confirm(
+      "As imagens temporárias deste estudo serão removidas e baixadas novamente do PACS. Deseja continuar?"
+    );
+    if (!confirmed) return;
+
+    setIsReloadingStudy(true);
+    try {
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
+      if (batchTimerRef.current) {
+        clearTimeout(batchTimerRef.current);
+        batchTimerRef.current = null;
+      }
+      const response = await fetch(`/api/dicom-files/${studyUid}`, { method: "DELETE" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Não foi possível limpar o cache deste estudo.");
+      }
+
+      stopCine();
+      if (renderingEngineRef.current) {
+        try { renderingEngineRef.current.destroy(); } catch (_) {}
+        renderingEngineRef.current = null;
+      }
+      viewportRef.current = null;
+      setViewport(null);
+      if (toolGroupIdRef.current) {
+        try { csTools.ToolGroupManager.destroyToolGroup(toolGroupIdRef.current); } catch (_) {}
+        toolGroupIdRef.current = null;
+      }
+      toolGroupRef.current = null;
+      cornerstoneInitRef.current = false;
+      imageIdsRef.current = [];
+      imageIdsSetRef.current.clear();
+      pendingIdsRef.current = [];
+      setImageIds([]);
+      setImageCount(0);
+      setCurrentIndex(0);
+      setSeries([]);
+      setActiveSeries(null);
+      setSeriesLoaded(false);
+      seriesLoadedRef.current = false;
+
+      toast.info("Cache do estudo removido. Solicitando novas imagens ao PACS...");
+      startStreamingViewer();
+    } catch (err: any) {
+      toast.error("Não foi possível recarregar as imagens", { description: err.message });
+    } finally {
+      setIsReloadingStudy(false);
+    }
+  }, [isBackgroundDownloading, isLoading, isReloadingStudy, startStreamingViewer, stopCine, studyUid]);
+
   // Reinicia cine quando FPS muda
   useEffect(() => {
     if (isCinePlaying) {
@@ -1041,10 +1100,8 @@ export function DicomViewerPage() {
     }
   };
 
-  const isLoading = phase === "connecting" || phase === "streaming" || phase === "rendering";
   const cornerstoneReady = phase === "ready";
   const showViewer = phase === "ready";
-  const isBackgroundDownloading = showViewer && totalCount > 0 && imageCount < totalCount;
 
   const handleOpenReportFromMobile = () => {
     if (!studyUid || !studyInfo) return;
@@ -1183,6 +1240,18 @@ export function DicomViewerPage() {
           <Button
             variant="outline"
             size="sm"
+            onClick={handleReloadStudy}
+            disabled={isReloadingStudy || isLoading || isBackgroundDownloading}
+            className="text-xs border-amber-700 text-amber-300 hover:bg-amber-900/40 h-7 px-2"
+            title="Remover apenas o cache deste estudo e baixar as imagens novamente do PACS"
+          >
+            <RefreshCw className={`h-3 w-3 mr-1 ${isReloadingStudy ? "animate-spin" : ""}`} />
+            Recarregar PACS
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleExportZip}
             disabled={isExporting || imageCount === 0}
             className="text-xs border-green-700 text-green-400 hover:bg-green-900/40 h-7 px-2"
@@ -1287,6 +1356,17 @@ export function DicomViewerPage() {
               {studyInfo?.studyDescription || "Estudo DICOM"}
             </p>
           </div>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={handleReloadStudy}
+            disabled={isReloadingStudy || isLoading || isBackgroundDownloading}
+            className="h-9 w-9 shrink-0 border-amber-700 text-amber-300 hover:bg-amber-900/40"
+            title="Recarregar imagens deste estudo do PACS"
+            aria-label="Recarregar imagens deste estudo do PACS"
+          >
+            <RefreshCw className={`h-4 w-4 ${isReloadingStudy ? "animate-spin" : ""}`} />
+          </Button>
         </div>
 
         <div className="grid grid-cols-3 gap-2 border-t border-slate-700/80 px-3 py-3">
