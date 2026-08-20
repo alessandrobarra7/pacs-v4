@@ -2119,7 +2119,10 @@ setSelectedStudy(study);
                 const patientNameEdited = !!meta?.patient_name_override;
                 const examLabel = meta?.description_override || study.studyDescription || 'Sem descrição';
                 const dateFormatted = formatDate(study.studyDate || '');
-                const relative = relativeTime(parseDicomDateTime(study.studyDate, study.studyTime));
+                const imageCount = Number.parseInt(String(study.numberOfInstances ?? ''), 10);
+                const imageCountLabel = Number.isFinite(imageCount) && imageCount > 0
+                  ? `${imageCount} ${imageCount === 1 ? 'imagem' : 'imagens'}`
+                  : 'Imagens não informadas';
                 const status = getReportStatus(study);
                 const mobileStatusCls = status === 'Assinado' || status === 'Concluído' || status === 'Revisado'
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
@@ -2145,7 +2148,7 @@ setSelectedStudy(study);
                         <div className="flex items-center gap-1.5 text-[11px] font-medium leading-none text-gray-500">
                           <span>{dateFormatted}</span>
                           <span className="text-gray-300">/</span>
-                          <span>{relative}</span>
+                          <span>{imageCountLabel}</span>
                         </div>
                         <div className="mt-1 truncate pr-1 text-xs uppercase leading-tight text-gray-500">
                           {examLabel}

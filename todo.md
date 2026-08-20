@@ -1224,6 +1224,7 @@
 - [ ] Revisar cabeçalho, resumo financeiro, filtros de data e cartões de estudo conforme referência enviada pelo usuário
 - [ ] Aplicar as alterações móveis aprovadas sem regressão da página principal desktop
 - [x] Reestruturar a faixa de resumo financeiro móvel para melhorar a hierarquia visual dos valores e do ciclo
+- [x] Substituir o tempo relativo pela quantidade de imagens do estudo nos cartões móveis
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
