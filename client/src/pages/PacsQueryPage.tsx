@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Search, Eye, FileText, Printer, Paperclip,
@@ -1885,12 +1885,18 @@ setSelectedStudy(study);
                 const status = getReportStatus(study);
                 const { cls: statusCls } = statusConfig[status] || { cls: 'bg-gray-100 text-gray-600 border-gray-300' };
                 const hasAnamnesis = !!anamnesisStatusMap[study.studyInstanceUid];
+                const desktopPreDownload = preDownloadMap[study.studyInstanceUid];
+                const isDesktopDownloadActive = desktopPreDownload?.phase === 'connecting' || desktopPreDownload?.phase === 'downloading';
+                const desktopDownloadPercent = desktopPreDownload?.total
+                  ? Math.min(100, Math.round((desktopPreDownload.received / desktopPreDownload.total) * 100))
+                  : 0;
+                const desktopFilledSegments = desktopPreDownload?.total
+                  ? Math.max(1, Math.ceil(desktopDownloadPercent / 5))
+                  : 5;
 
                 return (
-                  <tr
-                    key={idx}
-                    className="border-b border-gray-200 hover:bg-amber-50/60 transition-colors bg-white"
-                  >
+                  <Fragment key={`${study.studyInstanceUid || 'study'}-desktop-${idx}`}>
+                  <tr className="border-b border-gray-200 hover:bg-amber-50/60 transition-colors bg-white">
                     {/* Data */}
                     <td className="px-4 py-3">
                       <div className="text-sm text-gray-700">{dateFormatted}</div>
@@ -1945,8 +1951,7 @@ setSelectedStudy(study);
                           const isDownloading = preState?.phase === 'downloading' || preState?.phase === 'connecting';
                           return (
                             <button
-                              onClick={() => handleVisualize(study)}
-                              disabled={isDownloading}
+                              onClick={() => handleVisualize(study, true)}
                               title={isDownloaded ? 'Visualizar imagens DICOM' : isDownloading ? `Baixando imagens${preState.total ? `: ${preState.received}/${preState.total}` : '...'}` : 'Baixar imagens para visualizar'}
                               aria-label={isDownloaded ? 'Visualizar imagens DICOM' : isDownloading ? 'Baixando imagens DICOM' : 'Baixar imagens DICOM'}
                               className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors ${
@@ -2095,6 +2100,30 @@ setSelectedStudy(study);
                       </div>
                     </td>
                   </tr>
+                  {isDesktopDownloadActive && (
+                    <tr className="bg-emerald-50/80">
+                      <td colSpan={11} className="px-4 pb-3 pt-0">
+                        <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-white px-3 py-2" aria-live="polite">
+                          <div className="min-w-[180px] text-xs font-medium text-emerald-800">
+                            <span className="font-semibold">{desktopPreDownload?.phase === 'connecting' ? 'Preparando imagens...' : 'Baixando imagens'}</span>
+                            <span className="ml-2 text-emerald-700">{desktopPreDownload?.total ? `${desktopPreDownload.received}/${desktopPreDownload.total} · ${desktopDownloadPercent}%` : 'Aguardando PACS'}</span>
+                          </div>
+                          <div className="grid flex-1 grid-cols-20 gap-1" aria-label={`Progresso do download: ${desktopDownloadPercent}%`}>
+                            {Array.from({ length: 20 }, (_, segment) => (
+                              <span key={segment} className={`h-2 rounded-[2px] transition-colors ${segment < desktopFilledSegments ? 'bg-emerald-500' : 'border border-emerald-300 bg-white'} ${!desktopPreDownload?.total && segment < desktopFilledSegments ? 'animate-pulse' : ''}`} />
+                            ))}
+                          </div>
+                          <span className="shrink-0 text-[11px] text-emerald-700">O visualizador abrirá automaticamente.</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {desktopPreDownload?.phase === 'error' && (
+                    <tr className="bg-red-50/70">
+                      <td colSpan={11} className="px-4 pb-3 pt-0 text-xs text-red-700">Não foi possível concluir o download. Clique em Visualizar para tentar novamente.</td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>

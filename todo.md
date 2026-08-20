@@ -1227,6 +1227,7 @@
 - [x] Substituir o tempo relativo pela quantidade de imagens do estudo nos cartões móveis
 - [x] Exibir a quantidade de imagens também ao lado da data na tabela desktop e confirmar a atualização da prévia
 - [x] Exibir barra de progresso real do pré-download abaixo das ações do cartão móvel e abrir o visualizador ao concluir
+- [x] Exibir barra de progresso real do pré-download na linha da tabela desktop, preservando as ações existentes
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
