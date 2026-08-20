@@ -1231,6 +1231,8 @@
 - [x] Reproduzir no sandbox e corrigir o fluxo de barra de progresso e abertura automática do visualizador
 - [x] Registrar a validação manual aprovada da barra de progresso e preparar a atualização controlada da VM1
 - [x] Reduzir a faixa financeira móvel a uma linha com A receber neste ciclo, Laudos assinados e Fechamento do ciclo
+- [ ] Atualizar a VM1 do commit 097c508 para 758f5eb e validar a faixa financeira compacta no celular
+- [x] Reordenar a faixa para Ciclo, Laudos assinados e Receber neste ciclo, reduzindo-a à altura de uma linha de texto
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
