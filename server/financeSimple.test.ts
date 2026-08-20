@@ -134,4 +134,14 @@ describe("financeSimple router", () => {
     expect(setRoute).toContain("billing_doctor_exam_legend_prices");
     expect(setRoute).toContain("Legenda canônica ativa não encontrada");
   });
+
+  it("reserva a quitação da obrigação com a LAUDS ao administrador geral", async () => {
+    const source = await fs.readFile(routerPath, "utf8");
+    const start = source.indexOf("markSystemPaid: protectedProcedure");
+    const end = source.indexOf("myFinanceiro: protectedProcedure", start);
+    const route = source.slice(start, end);
+
+    expect(route).toContain('ctx.user.role !== "admin_master"');
+    expect(route).toContain("Somente o administrador geral pode confirmar o recebimento");
+  });
 });

@@ -702,14 +702,16 @@ export const financeSimpleRouter = router({
   /**
    * Marcar pagamento ao sistema como realizado (em lote por unidade+mês)
    */
-  markSystemPaid: protectedProcedure
+    markSystemPaid: protectedProcedure
     .input(z.object({
       unit_id: z.number().int(),
       reference_date: z.string().datetime().optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      assertAdmin(ctx.user.role); // P7: responsavel_financeiro também pode marcar (Opção B)
-      const db = await getDb();
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin_master") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Somente o administrador geral pode confirmar o recebimento da obrigação da unidade com a LAUDS." });
+        }
+        const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id); // P7: só unidades autorizadas
 

@@ -50,7 +50,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: Settings,
     label: "Configuração",
     path: "/financeiro/configuracao",
-    roles: ["admin_master"],
+    roles: ["admin_master", "responsavel_financeiro"],
   },
 ];
 

@@ -2264,3 +2264,17 @@
 - [x] Aplicar a migração 0050 na VM2 a partir do artefato versionado, sem depender de cópia local do repositório.
 - [x] Publicar o commit 4fdcda7 no GitHub e confirmar que a VM1 recebe o mesmo hash remoto antes da atualização.
 - [x] Atualizar a VM1 para bb11b49 após build isolado aprovado e validar PM2, HTTP local e logs pós-reinício.
+
+## PRÓXIMA ETAPA — TELAS FINANCEIRAS POR PERFIL
+
+- [x] Auditar as rotas, queries e permissões já existentes do responsável financeiro e do administrador geral.
+- [x] Definir e documentar o contrato de dados, isolamento por unidade e permissões das telas financeiras por perfil.
+- [ ] Completar o ambiente do responsável financeiro com unidade isolada, participantes, preços, produção, pagamentos médicos e obrigação LAUDS somente leitura.
+- [ ] Completar a supervisão do administrador geral com troca de responsável, ciclo, preço LAUDS e confirmação de recebimento por unidade.
+- [ ] Cobrir as telas financeiras por perfil com regressões de isolamento, RBAC e interface.
+
+## REVISÃO SOLICITADA — FLUXO DE SELEÇÃO DE EXAMES
+
+- [x] Validar com o usuário o papel do modal de seleção múltipla de exames e sua relação com a legenda canônica obrigatória antes de retomar implementações.
+- [x] Substituir o seletor suspenso em cada linha pelo acionador e modal visual de seleção de exames solicitado pelo usuário.
+- [x] Exibir no modal botões pesquisáveis e agrupados por modalidade, alimentados exclusivamente pelas legendas canônicas ativas cadastradas pelo administrador.

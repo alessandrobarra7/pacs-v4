@@ -424,8 +424,10 @@ function ExamName({ value }: { value: string }) {
   );
 }
 
-function StudyLegendPicker({ study, selection, canSelect }: { study: any; selection: any; canSelect: boolean }) {
+function StudyLegendPicker({ study, selection, canSelect, children }: { study: any; selection: any; canSelect: boolean; children?: React.ReactNode }) {
   const utils = trpc.useUtils();
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const { data: legends = [] } = trpc.studyExamLegend.listForStudy.useQuery(
     { studyInstanceUid: study.studyInstanceUid, modality: study.modality || "" },
     { enabled: Boolean(study.studyInstanceUid && study.modality && canSelect) },
@@ -434,21 +436,100 @@ function StudyLegendPicker({ study, selection, canSelect }: { study: any; select
     onSuccess: () => {
       utils.studyExamLegend.getBatch.invalidate();
       toast.success("Legenda clínica selecionada.");
+      setIsOpen(false);
+      setSearch("");
     },
     onError: (error) => toast.error("Não foi possível selecionar a legenda.", { description: error.message }),
   });
-  if (!canSelect) return selection ? <span className="text-xs font-medium text-cyan-700">{selection.exam_name_snapshot}</span> : null;
+  if (!canSelect) return <>{children ?? <span className="text-xs font-medium text-cyan-700">{selection?.exam_name_snapshot ?? study.studyDescription}</span>}</>;
+  const filteredLegends = legends.filter((legend) => legend.exam_name.toLocaleLowerCase("pt-BR").includes(search.trim().toLocaleLowerCase("pt-BR")));
+  const isLocked = Boolean(selection?.lockedAt);
   return (
-    <select
-      value={selection?.exam_legend_id ?? ""}
-      disabled={Boolean(selection?.lockedAt) || selectLegend.isPending}
-      onChange={(event) => event.target.value && selectLegend.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendId: Number(event.target.value) })}
-      className="mt-1 h-7 max-w-[220px] rounded border border-cyan-200 bg-cyan-50 px-2 text-xs font-medium text-cyan-800 disabled:cursor-not-allowed disabled:opacity-70"
-      title={selection?.lockedAt ? "Legenda bloqueada após a primeira assinatura" : "Selecione uma legenda cadastrada"}
-    >
-      <option value="">Selecionar legenda cadastrada</option>
-      {legends.map((legend) => <option key={legend.id} value={legend.id}>{legend.exam_name}</option>)}
-    </select>
+    <>
+      <button
+        type="button"
+        disabled={isLocked}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (!isLocked) setIsOpen(true);
+        }}
+        className="group w-full rounded-md text-left outline-none transition-colors hover:bg-cyan-50 focus-visible:ring-2 focus-visible:ring-cyan-500 disabled:cursor-not-allowed disabled:opacity-70"
+        title={isLocked ? "Legenda bloqueada após a primeira assinatura" : "Clique para selecionar um exame cadastrado"}
+      >
+        {children ?? <span className="px-1 text-xs font-medium text-slate-700">{selection?.exam_name_snapshot ?? study.studyDescription}</span>}
+      </button>
+
+      {isOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" onMouseDown={() => setIsOpen(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`legend-modal-title-${study.studyInstanceUid}`}
+            className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 id={`legend-modal-title-${study.studyInstanceUid}`} className="text-base font-semibold text-slate-900">Selecionar exame cadastrado</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Escolha uma legenda clínica criada pelo administrador para este estudo.</p>
+              </div>
+              <button type="button" onClick={() => setIsOpen(false)} className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Fechar seleção de exames">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {selection && (
+              <div className="border-b border-cyan-100 bg-cyan-50 px-5 py-3">
+                <span className="text-xs font-medium text-cyan-800">Selecionado: {selection.exam_name_snapshot}</span>
+              </div>
+            )}
+
+            <div className="border-b border-slate-100 px-5 py-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Buscar exame no catálogo..."
+                  autoFocus
+                  className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{study.modality || "Outros"} · Exames cadastrados</p>
+              {filteredLegends.length ? (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {filteredLegends.map((legend) => {
+                    const selected = selection?.exam_legend_id === legend.id;
+                    return (
+                      <button
+                        type="button"
+                        key={legend.id}
+                        disabled={selectLegend.isPending}
+                        onClick={() => selectLegend.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendId: legend.id })}
+                        className={`flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${selected ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-700 hover:border-cyan-300 hover:bg-cyan-50"}`}
+                      >
+                        <span>{legend.exam_name}</span>
+                        {selected && <Check className="h-4 w-4 shrink-0 text-cyan-600" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-10 text-center text-sm text-slate-500">Nenhum exame cadastrado encontrado para esta modalidade.</div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-slate-200 px-5 py-3">
+              <span className="text-xs text-slate-500">{filteredLegends.length} exame{filteredLegends.length === 1 ? "" : "s"} disponível{filteredLegends.length === 1 ? "" : "is"}</span>
+              <button type="button" onClick={() => setIsOpen(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -2055,15 +2136,16 @@ setSelectedStudy(study);
 
                     {/* Exame PACS como referência e legenda canônica obrigatória para laudo */}
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${modalityCls}`}>{modality}</span>
-                        <ExamName value={study.studyDescription || ''} />
-                      </div>
                       <StudyLegendPicker
                         study={study}
                         selection={legendSelectionByStudyUid.get(study.studyInstanceUid)}
                         canSelect={["operador", "atendente", "medico", "admin_master"].includes(user?.role ?? "")}
-                      />
+                      >
+                        <div className="flex items-center gap-2 px-1 py-0.5">
+                          <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${modalityCls}`}>{modality}</span>
+                          <ExamName value={study.studyDescription || ''} />
+                        </div>
+                      </StudyLegendPicker>
                     </td>
 
                     {/* Visualizar DICOM — inicia o download quando necessário e só abre após o cache completo */}
@@ -2311,20 +2393,15 @@ setSelectedStudy(study);
                           <span className="text-gray-300">/</span>
                           <span>{imageCountLabel}</span>
                         </div>
-                        <div className="mt-1 truncate pr-1 text-xs uppercase leading-tight text-gray-500">
-                          {examLabel}
-                        </div>
-                        <div
-                          className="mt-1"
-                          onClick={(event) => event.stopPropagation()}
-                          onKeyDown={(event) => event.stopPropagation()}
+                        <StudyLegendPicker
+                          study={study}
+                          selection={legendSelectionByStudyUid.get(study.studyInstanceUid)}
+                          canSelect={["operador", "atendente", "medico", "admin_master"].includes(user?.role ?? "")}
                         >
-                          <StudyLegendPicker
-                            study={study}
-                            selection={legendSelectionByStudyUid.get(study.studyInstanceUid)}
-                            canSelect={["operador", "atendente", "medico", "admin_master"].includes(user?.role ?? "")}
-                          />
-                        </div>
+                          <div className="mt-1 truncate rounded pr-1 text-xs uppercase leading-tight text-gray-500 group-hover:text-cyan-800">
+                            {examLabel}
+                          </div>
+                        </StudyLegendPicker>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
                         {/* 1. Anexo de imagens (condicional) */}
