@@ -17,4 +17,10 @@ describe("prioridade clínica na listagem de estudos", () => {
     expect(page.match(/<StudyPriorityControls/g)?.length).toBe(2);
     expect(page).toContain('Sinalizado por {markedByName || "outro usuário"}');
   });
+
+  it("mantém o estado clínico visível ao médico sem conceder controles de alteração", () => {
+    expect(page).toContain("!priority && !canMark");
+    expect(page).toContain("Sem prioridade clínica");
+    expect(page).toContain("canMark && isOwnPriority");
+  });
 });

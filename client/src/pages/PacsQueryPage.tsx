@@ -4,7 +4,7 @@ import {
   Search, Eye, FileText, Printer, Paperclip,
   Clipboard, Settings, DollarSign,
   ChevronLeft, ChevronRight, Clock, Pencil, Check, X,
-  Download, Loader2, CalendarDays, Mic, Volume2, AlertTriangle, Siren,
+  Download, Loader2, CalendarDays, Mic, Volume2, AlertTriangle, Siren, CircleDotDashed,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
@@ -225,7 +225,6 @@ function StudyPriorityControls({
   isSaving: boolean;
   onSelect: (priority: StudyPriorityValue) => void;
 }) {
-  if (!priority && !canMark) return null;
   const isOwnPriority = !priority || markedByUserId === currentUserId;
   const urgencyActive = priority === "urgencia";
   const maximumActive = priority === "prioridade_maxima";
@@ -236,6 +235,12 @@ function StudyPriorityControls({
         <span title={markedByName ? `Sinalizado por ${markedByName}` : undefined} className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase leading-none ${urgencyActive ? "border-red-200 bg-red-50 text-red-700" : "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"}`}>
           {urgencyActive ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <Siren className="h-3 w-3 shrink-0" />}
           {urgencyActive ? "Urgência" : "Prioridade máxima"}
+        </span>
+      )}
+      {!priority && !canMark && (
+        <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-semibold uppercase leading-none text-slate-500">
+          <CircleDotDashed className="h-3 w-3 shrink-0" />
+          Sem prioridade clínica
         </span>
       )}
       {canMark && isOwnPriority && (
