@@ -1230,6 +1230,7 @@
 - [x] Exibir barra de progresso real do pré-download na linha da tabela desktop, preservando as ações existentes
 - [x] Reproduzir no sandbox e corrigir o fluxo de barra de progresso e abertura automática do visualizador
 - [x] Registrar a validação manual aprovada da barra de progresso e preparar a atualização controlada da VM1
+- [x] Reduzir a faixa financeira móvel a uma linha com A receber neste ciclo, Laudos assinados e Fechamento do ciclo
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 

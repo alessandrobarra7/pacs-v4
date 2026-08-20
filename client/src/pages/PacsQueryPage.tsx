@@ -153,60 +153,55 @@ function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefin
 
   if (userRole === 'medico') {
     return (
-      <section className="border-b border-emerald-200 bg-emerald-50 text-emerald-950">
-        <div className="md:hidden px-4 py-3.5">
-          <div className="mb-2.5 flex items-center justify-between gap-3">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-800">Resumo do ciclo</span>
-            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Unidade selecionada</span>
-          </div>
-          {hasOpenCycle ? (
-            <div className="grid grid-cols-2 gap-2">
-              <FinancialMetric className="col-span-2 border-emerald-300 bg-white" label="A receber neste ciclo" value={fmtBRL(amount)} emphasis />
-              <FinancialMetric label="Valor por laudo" value={`${fmtBRL(parseFloat(info.price_per_report))} / laudo`} />
-              <FinancialMetric label="Laudos assinados" value={String(visits)} />
-              {endsAt && <FinancialMetric className="col-span-2" label="Fechamento do ciclo" value={new Date(endsAt).toLocaleDateString('pt-BR')} />}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-emerald-200 bg-white px-3 py-3 text-sm text-emerald-800">Nenhum ciclo aberto nesta unidade. O saldo atual é {fmtBRL(0)}.</div>
-          )}
-        </div>
-        <div className="hidden md:flex items-center gap-4 px-5 py-1.5 text-xs text-emerald-800">
-          <span className="font-semibold text-emerald-700">{fmtBRL(parseFloat(info.price_per_report))} / laudo</span>
-          <span className="text-emerald-600">•</span>
-          {hasOpenCycle ? <><span>Laudos no ciclo: <strong>{visits}</strong></span><span>A receber: <strong className="text-emerald-700">{fmtBRL(amount)}</strong></span>{endsAt && <span className="text-emerald-600">Fecha em: {new Date(endsAt).toLocaleDateString('pt-BR')}</span>}</> : <span className="text-emerald-600">Nenhum ciclo aberto nesta unidade — saldo: {fmtBRL(0)}</span>}
-        </div>
-      </section>
+      <FinancialSummaryLine
+        tone="emerald"
+        firstLabel="A receber neste ciclo"
+        firstValue={hasOpenCycle ? fmtBRL(amount) : fmtBRL(0)}
+        secondLabel="Laudos assinados"
+        secondValue={String(hasOpenCycle ? visits : 0)}
+        thirdLabel="Fechamento do ciclo"
+        thirdValue={endsAt && hasOpenCycle ? new Date(endsAt).toLocaleDateString('pt-BR') : '—'}
+      />
     );
   }
 
   // PASSO 7: Responsável financeiro vê resumo da unidade
   if (userRole === 'responsavel_financeiro') {
     return (
-      <section className="border-b border-blue-200 bg-blue-50 text-blue-950">
-        <div className="md:hidden px-4 py-3.5">
-          <div className="mb-2.5 flex items-center justify-between gap-3"><span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-blue-800">Resumo da unidade</span><span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">Ciclo atual</span></div>
-          {hasOpenCycle ? <div className="grid grid-cols-2 gap-2"><FinancialMetric className="col-span-2 border-blue-300 bg-white" label="Total a pagar médicos" value={fmtBRL(amount)} emphasis tone="blue" /><FinancialMetric label="Laudos no ciclo" value={String(visits)} tone="blue" />{endsAt && <FinancialMetric label="Fechamento" value={new Date(endsAt).toLocaleDateString('pt-BR')} tone="blue" />}</div> : <div className="rounded-xl border border-blue-200 bg-white px-3 py-3 text-sm text-blue-800">Nenhum ciclo aberto nesta unidade.</div>}
-        </div>
-        <div className="hidden md:flex items-center gap-4 px-5 py-1.5 text-xs text-blue-800">
-          <span className="font-semibold text-blue-700">Unidade</span><span className="text-blue-600">•</span>
-          {hasOpenCycle ? <><span>Laudos no ciclo: <strong>{visits}</strong></span><span>Total a pagar médicos: <strong className="text-blue-700">{fmtBRL(amount)}</strong></span>{endsAt && <span className="text-blue-600">Fecha em: {new Date(endsAt).toLocaleDateString('pt-BR')}</span>}</> : <span className="text-blue-600">Nenhum ciclo aberto nesta unidade</span>}
-        </div>
-      </section>
+      <FinancialSummaryLine
+        tone="blue"
+        firstLabel="Total a pagar médicos"
+        firstValue={hasOpenCycle ? fmtBRL(amount) : fmtBRL(0)}
+        secondLabel="Laudos assinados"
+        secondValue={String(hasOpenCycle ? visits : 0)}
+        thirdLabel="Fechamento do ciclo"
+        thirdValue={endsAt && hasOpenCycle ? new Date(endsAt).toLocaleDateString('pt-BR') : '—'}
+      />
     );
   }
 
   return null;
 }
 
-function FinancialMetric({ label, value, emphasis = false, tone = 'emerald', className = '' }: { label: string; value: string; emphasis?: boolean; tone?: 'emerald' | 'blue'; className?: string }) {
-  const palette = tone === 'blue'
-    ? 'border-blue-200 bg-blue-50 text-blue-950'
-    : 'border-emerald-200 bg-emerald-50 text-emerald-950';
+function FinancialSummaryLine({ tone, firstLabel, firstValue, secondLabel, secondValue, thirdLabel, thirdValue }: { tone: 'emerald' | 'blue'; firstLabel: string; firstValue: string; secondLabel: string; secondValue: string; thirdLabel: string; thirdValue: string }) {
+  const palette = tone === 'blue' ? 'border-blue-200 bg-blue-50 text-blue-950' : 'border-emerald-200 bg-emerald-50 text-emerald-950';
   const labelColor = tone === 'blue' ? 'text-blue-700' : 'text-emerald-700';
   return (
-    <div className={`min-w-0 rounded-xl border px-3 py-2.5 ${palette} ${className}`}>
-      <p className={`truncate text-[10px] font-semibold uppercase tracking-[0.08em] ${labelColor}`}>{label}</p>
-      <p className={`mt-1 truncate font-semibold tracking-tight ${emphasis ? 'text-2xl' : 'text-base'}`}>{value}</p>
+    <section className={`border-b ${palette}`}>
+      <div className="grid grid-cols-3 divide-x divide-current/15 px-2 py-2.5 sm:px-4 sm:py-2">
+        <FinancialSummaryValue label={firstLabel} value={firstValue} labelColor={labelColor} />
+        <FinancialSummaryValue label={secondLabel} value={secondValue} labelColor={labelColor} />
+        <FinancialSummaryValue label={thirdLabel} value={thirdValue} labelColor={labelColor} />
+      </div>
+    </section>
+  );
+}
+
+function FinancialSummaryValue({ label, value, labelColor }: { label: string; value: string; labelColor: string }) {
+  return (
+    <div className="min-w-0 px-2 text-center first:pl-0 last:pr-0">
+      <p className={`min-h-7 text-[10px] font-semibold uppercase leading-3 tracking-[0.04em] ${labelColor}`}>{label}</p>
+      <p className="mt-0.5 truncate text-sm font-bold tracking-tight sm:text-base">{value}</p>
     </div>
   );
 }

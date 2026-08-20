@@ -5,18 +5,17 @@ import { resolve } from "node:path";
 const page = readFileSync(resolve(process.cwd(), "client/src/pages/PacsQueryPage.tsx"), "utf8");
 
 describe("faixa financeira móvel", () => {
-  it("prioriza o valor financeiro principal e organiza os indicadores em grade no celular", () => {
-    expect(page).toContain('className="md:hidden px-4 py-3.5"');
-    expect(page).toContain('className="grid grid-cols-2 gap-2"');
-    expect(page).toContain('label="A receber neste ciclo"');
-    expect(page).toContain('label="Valor por laudo"');
-    expect(page).toContain('label="Laudos assinados"');
-    expect(page).toContain('label="Fechamento do ciclo"');
+  it("mantém os três indicadores em uma única linha compacta no celular", () => {
+    expect(page).toContain('className="grid grid-cols-3 divide-x divide-current/15 px-2 py-2.5 sm:px-4 sm:py-2"');
+    expect(page).toContain('firstLabel="A receber neste ciclo"');
+    expect(page).toContain('secondLabel="Laudos assinados"');
+    expect(page).toContain('thirdLabel="Fechamento do ciclo"');
+    expect(page).not.toContain('firstLabel="Valor por laudo"');
+    expect(page).not.toContain('Resumo do ciclo');
   });
 
-  it("mantém a faixa compacta de desktop e separa o resumo do responsável financeiro", () => {
-    expect(page).toContain('className="hidden md:flex items-center gap-4 px-5 py-1.5 text-xs text-emerald-800"');
-    expect(page).toContain('label="Total a pagar médicos"');
+  it("reutiliza a mesma composição enxuta para o responsável financeiro", () => {
+    expect(page).toContain('firstLabel="Total a pagar médicos"');
     expect(page).toContain('tone="blue"');
   });
 });
