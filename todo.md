@@ -2311,3 +2311,7 @@
 ## AJUSTE VISUAL — RESUMO FINANCEIRO DESKTOP
 
 - [x] Compactar ciclo, quantidade de laudos e valor do ciclo em uma única faixa curta no lado esquerdo do desktop, sem alterar a apresentação móvel.
+
+## CORREÇÃO — LOGIN MÓVEL
+
+- [x] Reorganizar a página de login móvel para eliminar a sobreposição entre marca, formulário, suporte e créditos.
