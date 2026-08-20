@@ -2307,3 +2307,7 @@
 
 - [x] Monitorar uma tentativa real de cadastro para correlacionar a requisição, os logs do Portal e a persistência no banco.
 - [x] Atualizar ou invalidar a consulta de legendas do modal após um novo cadastro para refletir imediatamente o catálogo ativo.
+
+## AJUSTE VISUAL — RESUMO FINANCEIRO DESKTOP
+
+- [x] Compactar ciclo, quantidade de laudos e valor do ciclo em uma única faixa curta no lado esquerdo do desktop, sem alterar a apresentação móvel.

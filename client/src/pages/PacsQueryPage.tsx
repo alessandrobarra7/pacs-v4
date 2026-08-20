@@ -188,7 +188,7 @@ function FinancialSummaryLine({ tone, firstLabel, firstValue, secondLabel, secon
   const labelColor = tone === 'blue' ? 'text-blue-700' : 'text-emerald-700';
   return (
     <section className={`border-b ${palette}`}>
-      <div className="grid h-10 grid-cols-3 divide-x divide-current/15 px-1 sm:px-4">
+      <div className="grid h-10 grid-cols-3 divide-x divide-current/15 px-1 sm:px-4 md:h-7 md:w-[395px] md:px-0">
         <FinancialSummaryValue label={firstLabel} value={firstValue} labelColor={labelColor} />
         <FinancialSummaryValue label={secondLabel} value={secondValue} labelColor={labelColor} />
         <FinancialSummaryValue label={thirdLabel} value={thirdValue} labelColor={labelColor} />
@@ -200,8 +200,8 @@ function FinancialSummaryLine({ tone, firstLabel, firstValue, secondLabel, secon
 function FinancialSummaryValue({ label, value, labelColor }: { label: string; value: string; labelColor: string }) {
   return (
     <div className="flex min-w-0 items-center justify-center gap-1 px-1 text-center first:pl-0 last:pr-0">
-      <span className={`truncate text-[9px] font-semibold uppercase leading-none tracking-[0.02em] ${labelColor}`} title={label}>{label}:</span>
-      <span className="truncate text-[12px] font-bold leading-none tracking-tight sm:text-sm">{value}</span>
+      <span className={`truncate text-[9px] font-semibold uppercase leading-none tracking-[0.02em] md:text-[8px] ${labelColor}`} title={label}>{label}:</span>
+      <span className="truncate text-[12px] font-bold leading-none tracking-tight md:text-[10px]">{value}</span>
     </div>
   );
 }

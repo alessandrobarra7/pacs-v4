@@ -4,9 +4,9 @@ import { resolve } from "node:path";
 
 const page = readFileSync(resolve(process.cwd(), "client/src/pages/PacsQueryPage.tsx"), "utf8");
 
-describe("faixa financeira móvel", () => {
+describe("faixa financeira responsiva", () => {
   it("mantém os três indicadores em uma linha ultracompacta na ordem solicitada", () => {
-    expect(page).toContain('className="grid h-10 grid-cols-3 divide-x divide-current/15 px-1 sm:px-4"');
+    expect(page).toContain('className="grid h-10 grid-cols-3 divide-x divide-current/15 px-1 sm:px-4 md:h-7 md:w-[395px] md:px-0"');
     expect(page).toContain('firstLabel="Ciclo"');
     expect(page).toContain('secondLabel="Assinados"');
     expect(page).toContain('thirdLabel="Receber"');
@@ -18,5 +18,11 @@ describe("faixa financeira móvel", () => {
   it("reutiliza a mesma composição enxuta para o responsável financeiro", () => {
     expect(page).toContain('thirdLabel="A pagar"');
     expect(page).toContain('tone="blue"');
+  });
+
+  it("limita a apresentação desktop ao trecho esquerdo e reduz sua altura", () => {
+    expect(page).toContain("md:h-7 md:w-[395px] md:px-0");
+    expect(page).toContain("md:text-[8px]");
+    expect(page).toContain("md:text-[10px]");
   });
 });
