@@ -3,8 +3,10 @@ import { z } from "zod";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import {
   listExamCatalog,
+  listCatalogUnits,
   removeExamCatalogPacsMapping,
   replaceExamCatalogDocuments,
+  replaceExamLegendUnitAvailability,
   saveExamCatalogEntry,
   saveExamCatalogPacsMapping,
 } from "../db";
@@ -30,6 +32,7 @@ const catalogSchema = z.object({
   financial_event_count: z.number().int().min(1).max(20).default(1),
   documents: z.array(documentSchema).min(1).max(20),
   pacsMappings: z.array(mappingSchema).max(100).default([]),
+  unavailableUnitIds: z.array(z.number().int().positive()).max(500).default([]),
 });
 
 function mappingKey(mapping: { pacs_description: string; modality: string }) {
@@ -43,6 +46,7 @@ function canonicalNameKey(name: string) {
 export const examCatalogRouter = router({
   /** Catálogo clínico global: leitura e manutenção exclusivas do administrador raiz. */
   list: adminProcedure.query(() => listExamCatalog(true)),
+  listUnits: adminProcedure.query(() => listCatalogUnits()),
 
   /** Disponibiliza somente os documentos de um exame já escolhido pelo fluxo PACS. */
   documentsForExam: protectedProcedure
@@ -69,6 +73,14 @@ export const examCatalogRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "A mesma descrição PACS não pode ser mapeada duas vezes no exame." });
       }
       mappingKeys.add(key);
+    }
+
+    const catalogUnits = await listCatalogUnits();
+    const knownUnitIds = new Set(catalogUnits.map((unit) => unit.id));
+    for (const unitId of input.unavailableUnitIds) {
+      if (!knownUnitIds.has(unitId)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A disponibilidade contém uma unidade inexistente." });
+      }
     }
 
     const canonicalName = canonicalNameKey(input.exam_name);
@@ -101,6 +113,7 @@ export const examCatalogRouter = router({
       })),
       ctx.user.id,
     );
+    await replaceExamLegendUnitAvailability(examLegendId, input.unavailableUnitIds, ctx.user.id);
     for (const mapping of input.pacsMappings) {
       await saveExamCatalogPacsMapping({
         pacs_description: mapping.pacs_description.trim(),

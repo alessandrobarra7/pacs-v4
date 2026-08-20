@@ -2321,3 +2321,14 @@
 - [x] Impedir que o reprocessamento financeiro legado crie cobrança duplicada para estudos já cobertos pelo catálogo clínico-financeiro.
 - [x] Remover definitivamente o código morto de preços do cadastro de usuários e sua consulta financeira residual.
 - [x] Bloquear a alteração de legenda canônica na primeira assinatura, conforme a regra documentada.
+
+## EVOLUÇÃO — COMPOSIÇÃO DE LEGENDAS E DISPONIBILIDADE POR UNIDADE
+
+- [x] Modelar seleção de múltiplas legendas canônicas no mesmo estudo, preservando as seleções e eventos já existentes.
+- [x] Permitir marcar várias legendas no modal e confirmar a composição em uma única ação auditável.
+- [x] Gerar laudos separados para cada legenda selecionada e para cada documento configurado em sua própria legenda.
+- [x] Somar eventos financeiros por legenda concluída, mantendo a origem do valor identificável no extrato e sem consolidar laudos distintos.
+- [x] Manter bloqueio individual de cada legenda após a primeira assinatura de um documento dela.
+- [x] Permitir ao admin_master definir as unidades autorizadas a visualizar e selecionar cada legenda canônica, inicialmente habilitada para todas as unidades.
+- [x] Filtrar o modal clínico para exibir somente as legendas disponíveis na unidade atual.
+- [x] Criar migração aditiva, testes de regressão e procedimento seguro para aplicação controlada na VM2.

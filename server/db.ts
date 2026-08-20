@@ -54,6 +54,7 @@ import {
   exam_legends,
   exam_legend_documents,
   exam_legend_pacs_mappings,
+  exam_legend_unit_availability,
   ExamLegend,
   ExamLegendDocument,
   ExamLegendPacsMapping,
@@ -703,6 +704,8 @@ export type ExamCatalogDocumentInput = {
 export type ExamCatalogEntry = ExamLegend & {
   documents: ExamLegendDocument[];
   pacsMappings: ExamLegendPacsMapping[];
+  /** Unidades explicitamente ocultadas; ausência preserva disponibilidade global. */
+  unavailableUnitIds: number[];
 };
 
 /** Lista o catálogo global completo, incluindo documentos e descrições PACS mapeadas. */
@@ -715,13 +718,15 @@ export async function listExamCatalog(includeInactive = true): Promise<ExamCatal
   if (!legends.length) return [];
 
   const legendIds = legends.map((legend) => legend.id);
-  const [documents, mappings] = await Promise.all([
+  const [documents, mappings, availability] = await Promise.all([
     db.select().from(exam_legend_documents)
       .where(inArray(exam_legend_documents.exam_legend_id, legendIds))
       .orderBy(asc(exam_legend_documents.sort_order), asc(exam_legend_documents.document_label)),
     db.select().from(exam_legend_pacs_mappings)
       .where(inArray(exam_legend_pacs_mappings.exam_legend_id, legendIds))
       .orderBy(asc(exam_legend_pacs_mappings.modality), asc(exam_legend_pacs_mappings.pacs_description)),
+    db.select().from(exam_legend_unit_availability)
+      .where(inArray(exam_legend_unit_availability.exam_legend_id, legendIds)),
   ]);
 
   const documentsByLegend = new Map<number, ExamLegendDocument[]>();
@@ -736,11 +741,28 @@ export async function listExamCatalog(includeInactive = true): Promise<ExamCatal
     list.push(mapping);
     mappingsByLegend.set(mapping.exam_legend_id, list);
   }
+  const unavailableUnitIdsByLegend = new Map<number, number[]>();
+  for (const item of availability) {
+    if (item.is_available) continue;
+    const list = unavailableUnitIdsByLegend.get(item.exam_legend_id) ?? [];
+    list.push(item.unit_id);
+    unavailableUnitIdsByLegend.set(item.exam_legend_id, list);
+  }
   return legends.map((legend) => ({
     ...legend,
     documents: documentsByLegend.get(legend.id) ?? [],
     pacsMappings: mappingsByLegend.get(legend.id) ?? [],
+    unavailableUnitIds: unavailableUnitIdsByLegend.get(legend.id) ?? [],
   }));
+}
+
+/** Unidades exibidas ao administrador ao definir a disponibilidade de uma legenda. */
+export async function listCatalogUnits(): Promise<Array<{ id: number; name: string; isActive: boolean }>> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ id: units.id, name: units.name, isActive: units.isActive })
+    .from(units)
+    .orderBy(asc(units.name));
 }
 
 /** Cria ou atualiza um exame canônico; o roteador expõe esta ação apenas ao admin_master. */
@@ -797,6 +819,32 @@ export async function replaceExamCatalogDocuments(
         document_label: document.document_label,
         sort_order: document.sort_order,
         is_active: true,
+        created_by: createdBy,
+      })));
+    }
+  });
+}
+
+/**
+ * Salva somente exceções de bloqueio. Assim, qualquer legenda nova começa
+ * disponível em todas as unidades e novas unidades também herdam esse padrão.
+ */
+export async function replaceExamLegendUnitAvailability(
+  examLegendId: number,
+  unavailableUnitIds: number[],
+  createdBy: number,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const normalizedUnitIds = Array.from(new Set(unavailableUnitIds));
+  await db.transaction(async (tx) => {
+    await tx.delete(exam_legend_unit_availability)
+      .where(eq(exam_legend_unit_availability.exam_legend_id, examLegendId));
+    if (normalizedUnitIds.length) {
+      await tx.insert(exam_legend_unit_availability).values(normalizedUnitIds.map((unitId) => ({
+        exam_legend_id: examLegendId,
+        unit_id: unitId,
+        is_available: false,
         created_by: createdBy,
       })));
     }

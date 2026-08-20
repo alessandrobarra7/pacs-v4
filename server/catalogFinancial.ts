@@ -6,13 +6,17 @@ import { getDb } from "./db";
  * Bloqueia a legenda na primeira assinatura e cria eventos financeiros somente
  * quando todos os documentos selecionados tiverem sido assinados.
  */
-export async function createCatalogEventsWhenComplete(input: { studyUid: string; unitId: number; doctorUserId: number; signedAt: Date }) {
+export async function createCatalogEventsWhenComplete(input: { studyUid: string; unitId: number; doctorUserId: number; documentKey: string; signedAt: Date }) {
   const db = await getDb();
   if (!db) return { handled: false, created: 0 };
-  const [selection] = await db.select().from(study_exam_legend_selections).where(and(
+  const candidates = await db.select().from(study_exam_legend_selections).where(and(
     eq(study_exam_legend_selections.study_instance_uid, input.studyUid),
     eq(study_exam_legend_selections.unit_id, input.unitId),
-  )).limit(1);
+  ));
+  const selection = candidates.find((item) => {
+    const snapshot = item.documents_snapshot as Array<{ key: string }>;
+    return snapshot.some((document) => document.key === input.documentKey);
+  });
   if (!selection) return { handled: false, created: 0 };
   // Esta função é chamada após cada assinatura. A atualização condicional mantém
   // imutável o instante da primeira assinatura, inclusive se houver concorrência.

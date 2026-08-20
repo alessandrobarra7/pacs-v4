@@ -25,6 +25,7 @@ import {
   billing_cycle_configs,
   billing_doctor_modality_prices,
   billing_doctor_exam_legend_prices,
+  billing_catalog_study_events,
   exam_legends,
   study_exam_legend_selections,
 } from "../../drizzle/schema";
@@ -847,15 +848,12 @@ export const financeSimpleRouter = router({
         }
       }
 
-      // Buscar unidades onde o médico tem eventos, com seus ciclos
+      // O contexto é sempre a unidade solicitada, inclusive quando ela possui
+      // apenas eventos do catálogo clínico-financeiro e nenhum evento legado.
       const unitRowsQuery = db
         .select({ id: units.id, name: units.name, s: units.billing_cycle_start_day, e: units.billing_cycle_end_day })
         .from(units)
-        .innerJoin(billing_visit_events, and(
-          eq(billing_visit_events.unit_id, units.id),
-          eq(billing_visit_events.doctor_user_id, ctx.user.id),
-        ))
-        .groupBy(units.id, units.name, units.billing_cycle_start_day, units.billing_cycle_end_day)
+        .where(eq(units.id, input.unit_id))
         .orderBy(units.name);
 
       const unitRows = allowedUnitIds !== null
@@ -867,21 +865,35 @@ export const financeSimpleRouter = router({
       const summaryRaw = await Promise.all(
         scopedUnitRows.map(async (u) => {
           const { cycleStart, cycleEnd, label: cycle_label } = calcCycleDates(u.s, u.e, refDate);
-          const r = await db
-            .select({
+          const [legacyRows, catalogRows] = await Promise.all([
+            db.select({
               total_laudos: sql<number>`COUNT(*)`,
               doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
               doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
               last_received_at: sql<Date | null>`MAX(${billing_visit_events.doctor_received_at})`,
             })
-            .from(billing_visit_events)
-            .where(and(
-              eq(billing_visit_events.doctor_user_id, ctx.user.id),
-              eq(billing_visit_events.unit_id, u.id),
-              sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
-              sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
-              ne(billing_visit_events.financial_status, 'cancelled'), // P8D
-            ));
+              .from(billing_visit_events)
+              .where(and(
+                eq(billing_visit_events.doctor_user_id, ctx.user.id),
+                eq(billing_visit_events.unit_id, u.id),
+                sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
+                sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+                ne(billing_visit_events.financial_status, 'cancelled'), // P8D
+              )),
+            db.select({
+              total_eventos: sql<number>`COUNT(*)`,
+              doctor_total: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
+            })
+              .from(billing_catalog_study_events)
+              .where(and(
+                eq(billing_catalog_study_events.doctor_user_id, ctx.user.id),
+                eq(billing_catalog_study_events.unit_id, u.id),
+                sql`${billing_catalog_study_events.signed_at} >= ${cycleStart}`,
+                sql`${billing_catalog_study_events.signed_at} < ${cycleEnd}`,
+              )),
+          ]);
+          const legacy = legacyRows[0];
+          const catalog = catalogRows[0];
           return {
             unit_id: u.id,
             unit_name: u.name ?? "Unidade",
@@ -890,14 +902,17 @@ export const financeSimpleRouter = router({
             cycle_label,
             cycle_start_date: cycleStart.toISOString(),
             cycle_end_date: cycleEnd.toISOString(),
-            ...r[0],
+            total_laudos: Number(legacy?.total_laudos ?? 0) + Number(catalog?.total_eventos ?? 0),
+            doctor_total: Number(legacy?.doctor_total ?? 0) + Number(catalog?.doctor_total ?? 0),
+            doctor_paid: legacy?.doctor_paid ?? 0,
+            last_received_at: legacy?.last_received_at ?? null,
           };
         })
       );
       const summary = summaryRaw;
 
       // Laudos individuais: buscar por unidade dentro do ciclo real
-      const eventsPerUnit = await Promise.all(
+      const legacyEventsPerUnit = await Promise.all(
         scopedUnitRows.map(async (u) => {
           const { cycleStart, cycleEnd } = calcCycleDates(u.s, u.e, refDate);
           return db
@@ -929,7 +944,47 @@ export const financeSimpleRouter = router({
             .orderBy(desc(billing_visit_events.signed_at));
         })
       );
-      const events = eventsPerUnit.flat().sort((a, b) =>
+      const catalogEventsPerUnit = await Promise.all(
+        scopedUnitRows.map(async (u) => {
+          const { cycleStart, cycleEnd } = calcCycleDates(u.s, u.e, refDate);
+          return db
+            .select({
+              id: billing_catalog_study_events.id,
+              unit_id: billing_catalog_study_events.unit_id,
+              unit_name: units.name,
+              modality_snapshot: study_exam_legend_selections.modality_snapshot,
+              exam_name_snapshot: billing_catalog_study_events.exam_name_snapshot,
+              doctor_amount_due: billing_catalog_study_events.price_applied,
+              pricing_status: billing_catalog_study_events.pricing_status,
+              signed_at: billing_catalog_study_events.signed_at,
+            })
+            .from(billing_catalog_study_events)
+            .innerJoin(study_exam_legend_selections, eq(
+              study_exam_legend_selections.id,
+              billing_catalog_study_events.study_selection_id,
+            ))
+            .leftJoin(units, eq(units.id, billing_catalog_study_events.unit_id))
+            .where(and(
+              eq(billing_catalog_study_events.doctor_user_id, ctx.user.id),
+              eq(billing_catalog_study_events.unit_id, u.id),
+              sql`${billing_catalog_study_events.signed_at} >= ${cycleStart}`,
+              sql`${billing_catalog_study_events.signed_at} < ${cycleEnd}`,
+            ))
+            .orderBy(desc(billing_catalog_study_events.signed_at));
+        })
+      );
+      const events = [
+        ...legacyEventsPerUnit.flat().map((event) => ({ ...event, source: "legacy" as const })),
+        ...catalogEventsPerUnit.flat().map((event) => ({
+          ...event,
+          id: `catalog-${event.id}`,
+          study_date: null,
+          doctor_received_at: null,
+          doctor_received_by_user_id: null,
+          paid_by_name: null,
+          source: "catalog" as const,
+        })),
+      ].sort((a, b) =>
         new Date(b.signed_at ?? 0).getTime() - new Date(a.signed_at ?? 0).getTime()
       );
 

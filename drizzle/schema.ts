@@ -923,7 +923,10 @@ export const exam_legends = mysqlTable("exam_legends", {
 export type ExamLegend = typeof exam_legends.$inferSelect;
 export type InsertExamLegend = typeof exam_legends.$inferInsert;
 
-/** Seleção auditável da legenda canônica que controla documentos e faturamento de um estudo. */
+/**
+ * Seleção auditável da legenda canônica que controla documentos e faturamento
+ * de um estudo. Um estudo pode conter várias legendas independentes.
+ */
 export const study_exam_legend_selections = mysqlTable("study_exam_legend_selections", {
   id: int("id").autoincrement().primaryKey(),
   study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
@@ -938,9 +941,26 @@ export const study_exam_legend_selections = mysqlTable("study_exam_legend_select
   lockedAt: timestamp("lockedAt"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({
-  uqStudyUnitLegendSelection: uniqueIndex("uq_study_unit_legend_selection").on(t.study_instance_uid, t.unit_id),
+  uqStudyUnitLegendSelection: uniqueIndex("uq_study_unit_legend_selection").on(t.study_instance_uid, t.unit_id, t.exam_legend_id),
 }));
 export type StudyExamLegendSelection = typeof study_exam_legend_selections.$inferSelect;
+
+/**
+ * Visibilidade administrativa da legenda por unidade. A ausência de registro
+ * mantém a legenda disponível para compatibilidade com o catálogo histórico.
+ */
+export const exam_legend_unit_availability = mysqlTable("exam_legend_unit_availability", {
+  id: int("id").autoincrement().primaryKey(),
+  exam_legend_id: int("exam_legend_id").notNull(),
+  unit_id: int("unit_id").notNull(),
+  is_available: boolean("is_available").notNull().default(true),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uqLegendUnitAvailability: uniqueIndex("uq_exam_legend_unit_availability").on(t.exam_legend_id, t.unit_id),
+}));
+export type ExamLegendUnitAvailability = typeof exam_legend_unit_availability.$inferSelect;
 
 /** Valor por evento financeiro da legenda, isolado por unidade, médico e vigência. */
 export const billing_doctor_exam_legend_prices = mysqlTable("billing_doctor_exam_legend_prices", {

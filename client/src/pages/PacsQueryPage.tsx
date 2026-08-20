@@ -426,145 +426,82 @@ function ExamName({ value }: { value: string }) {
 
 const LEGEND_MODAL_MODALITIES = ["CT", "RM", "CR", "US"] as const;
 
-function StudyLegendPicker({ study, selection, canSelect, children }: { study: any; selection: any; canSelect: boolean; children?: React.ReactNode }) {
+function StudyLegendPicker({ study, selections, canSelect, children }: { study: any; selections: any[]; canSelect: boolean; children?: React.ReactNode }) {
   const utils = trpc.useUtils();
   const [isOpen, setIsOpen] = useState(false);
   const [selectedModality, setSelectedModality] = useState<(typeof LEGEND_MODAL_MODALITIES)[number] | null>(null);
   const [search, setSearch] = useState("");
+  const [draftLegendIds, setDraftLegendIds] = useState<number[]>([]);
   const { data: legends = [] } = trpc.studyExamLegend.listForStudy.useQuery(
     { studyInstanceUid: study.studyInstanceUid, modality: study.modality || "OUTROS" },
-    {
-      enabled: Boolean(study.studyInstanceUid && canSelect),
-      staleTime: 0,
-      refetchOnMount: "always",
-      refetchOnWindowFocus: true,
-    },
+    { enabled: Boolean(study.studyInstanceUid && canSelect), staleTime: 0, refetchOnMount: "always", refetchOnWindowFocus: true },
   );
   const closeModal = () => {
     setIsOpen(false);
     setSelectedModality(null);
     setSearch("");
+    setDraftLegendIds([]);
   };
-  const selectLegend = trpc.studyExamLegend.select.useMutation({
+  const openModal = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    setDraftLegendIds(selections.map((selection) => selection.exam_legend_id));
+    setIsOpen(true);
+  };
+  const confirmSelections = trpc.studyExamLegend.confirmSelections.useMutation({
     onSuccess: () => {
       utils.studyExamLegend.getBatch.invalidate();
-      toast.success("Legenda clínica selecionada.");
+      toast.success("Composição clínica confirmada.");
       closeModal();
     },
-    onError: (error) => toast.error("Não foi possível selecionar a legenda.", { description: error.message }),
+    onError: (error) => toast.error("Não foi possível confirmar as legendas.", { description: error.message }),
   });
-  if (!canSelect) return <>{children ?? <span className="text-xs font-medium text-cyan-700">{selection?.exam_name_snapshot ?? study.studyDescription}</span>}</>;
+  const selectedNames = selections.map((selection) => selection.exam_name_snapshot).join(" + ");
+  if (!canSelect) return <>{children ?? <span className="text-xs font-medium text-cyan-700">{selectedNames || study.studyDescription}</span>}</>;
   const legendsForModality = selectedModality
     ? legends.filter((legend) => legend.modality === selectedModality && legend.exam_name.toLocaleLowerCase("pt-BR").includes(search.trim().toLocaleLowerCase("pt-BR")))
     : [];
-  const isLocked = Boolean(selection?.lockedAt);
   return (
     <>
-      <button
-        type="button"
-        disabled={isLocked}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (!isLocked) setIsOpen(true);
-        }}
-        className="group w-full rounded-md text-left outline-none transition-colors hover:bg-cyan-50 focus-visible:ring-2 focus-visible:ring-cyan-500 disabled:cursor-not-allowed disabled:opacity-70"
-        title={isLocked ? "Legenda bloqueada após a primeira assinatura" : "Clique para selecionar uma modalidade e um exame cadastrado"}
-      >
-        {children ?? <span className="px-1 text-xs font-medium text-slate-700">{selection?.exam_name_snapshot ?? study.studyDescription}</span>}
+      <button type="button" onClick={openModal} className="group w-full rounded-md text-left outline-none transition-colors hover:bg-cyan-50 focus-visible:ring-2 focus-visible:ring-cyan-500" title="Clique para compor um ou mais exames cadastrados">
+        {children ?? <span className="px-1 text-xs font-medium text-slate-700">{selectedNames || study.studyDescription}</span>}
       </button>
 
       {isOpen && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" onMouseDown={closeModal}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={`legend-modal-title-${study.studyInstanceUid}`}
-            className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
+          <div role="dialog" aria-modal="true" aria-labelledby={`legend-modal-title-${study.studyInstanceUid}`} className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
               <div className="flex items-start gap-2">
-                {selectedModality && (
-                  <button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} className="mt-0.5 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Voltar para modalidades">
-                    <ChevronLeft className="h-5 w-5" />
-                  </button>
-                )}
+                {selectedModality && <button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} className="mt-0.5 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Voltar para modalidades"><ChevronLeft className="h-5 w-5" /></button>}
                 <div>
-                  <h2 id={`legend-modal-title-${study.studyInstanceUid}`} className="text-base font-semibold text-slate-900">{selectedModality ? `Exames cadastrados · ${selectedModality}` : "Selecionar modalidade"}</h2>
-                  <p className="mt-0.5 text-xs text-slate-500">{selectedModality ? "Escolha um exame criado pelo administrador nesta modalidade." : "Escolha CT, RM, CR ou US para ver os exames cadastrados pelo administrador."}</p>
+                  <h2 id={`legend-modal-title-${study.studyInstanceUid}`} className="text-base font-semibold text-slate-900">{selectedModality ? `Exames cadastrados · ${selectedModality}` : "Compor exames do estudo"}</h2>
+                  <p className="mt-0.5 text-xs text-slate-500">{selectedModality ? "Marque um ou mais exames. Cada legenda terá seus laudos e eventos próprios." : "Escolha CT, RM, CR ou US para montar a composição clínica deste estudo."}</p>
                 </div>
               </div>
-              <button type="button" onClick={closeModal} className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Fechar seleção de exames">
-                <X className="h-5 w-5" />
-              </button>
+              <button type="button" onClick={closeModal} className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Fechar composição de exames"><X className="h-5 w-5" /></button>
             </div>
 
-            {selection && (
-              <div className="border-b border-cyan-100 bg-cyan-50 px-5 py-3">
-                <span className="text-xs font-medium text-cyan-800">Selecionado: {selection.exam_name_snapshot}</span>
-              </div>
-            )}
+            {selections.length > 0 && <div className="border-b border-cyan-100 bg-cyan-50 px-5 py-3"><p className="text-xs font-medium text-cyan-800">Composição atual</p><div className="mt-1.5 flex flex-wrap gap-1.5">{selections.map((selection) => <span key={selection.id} className={`rounded-full px-2 py-1 text-[11px] ${selection.lockedAt ? "bg-slate-700 text-white" : "bg-white text-cyan-900 ring-1 ring-cyan-200"}`}>{selection.exam_name_snapshot}{selection.lockedAt ? " · bloqueada" : ""}</span>)}</div></div>}
 
             {selectedModality ? (
               <>
-                <div className="border-b border-slate-100 px-5 py-3">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder={`Buscar exame ${selectedModality}...`}
-                      autoFocus
-                      className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
-                    />
-                  </div>
-                </div>
+                <div className="border-b border-slate-100 px-5 py-3"><div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Buscar exame ${selectedModality}...`} autoFocus className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></div></div>
                 <div className="flex-1 overflow-y-auto px-5 py-4">
-                  {legendsForModality.length ? (
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      {legendsForModality.map((legend) => {
-                        const selected = selection?.exam_legend_id === legend.id;
-                        return (
-                          <button
-                            type="button"
-                            key={legend.id}
-                            disabled={selectLegend.isPending}
-                            onClick={() => selectLegend.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendId: legend.id })}
-                            className={`flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${selected ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-700 hover:border-cyan-300 hover:bg-cyan-50"}`}
-                          >
-                            <span>{legend.exam_name}</span>
-                            {selected && <Check className="h-4 w-4 shrink-0 text-cyan-600" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="py-10 text-center text-sm text-slate-500">Nenhum exame {selectedModality} foi cadastrado pelo administrador.</div>
-                  )}
-                </div>
-                <div className="flex items-center justify-between border-t border-slate-200 px-5 py-3">
-                  <span className="text-xs text-slate-500">{legendsForModality.length} exame{legendsForModality.length === 1 ? "" : "s"} disponível{legendsForModality.length === 1 ? "" : "is"}</span>
-                  <button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">Voltar</button>
+                  {legendsForModality.length ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{legendsForModality.map((legend) => {
+                    const current = selections.find((selection) => selection.exam_legend_id === legend.id);
+                    const selected = draftLegendIds.includes(legend.id);
+                    const locked = Boolean(current?.lockedAt);
+                    return <button type="button" key={legend.id} disabled={confirmSelections.isPending || (locked && selected)} onClick={() => setDraftLegendIds((currentIds) => selected ? currentIds.filter((id) => id !== legend.id) : [...currentIds, legend.id])} className={`flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${selected ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-700 hover:border-cyan-300 hover:bg-cyan-50"} ${locked ? "cursor-not-allowed opacity-80" : ""}`}><span>{legend.exam_name}</span><span className="flex items-center gap-1">{locked && <span className="text-[10px] text-slate-500">Bloqueada</span>}{selected && <Check className="h-4 w-4 shrink-0 text-cyan-600" />}</span></button>;
+                  })}</div> : <div className="py-10 text-center text-sm text-slate-500">Nenhum exame {selectedModality} está disponível para esta unidade.</div>}
                 </div>
               </>
             ) : (
-              <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
-                {LEGEND_MODAL_MODALITIES.map((modality) => {
-                  const availableCount = legends.filter((legend) => legend.modality === modality).length;
-                  return (
-                    <button
-                      type="button"
-                      key={modality}
-                      onClick={() => setSelectedModality(modality)}
-                      className="flex min-h-28 flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-4 text-center transition-colors hover:border-cyan-400 hover:bg-cyan-50 focus-visible:ring-2 focus-visible:ring-cyan-500"
-                    >
-                      <span className="text-2xl font-bold tracking-tight text-slate-900">{modality}</span>
-                      <span className="mt-2 text-xs text-slate-500">{availableCount} exame{availableCount === 1 ? "" : "s"} cadastrado{availableCount === 1 ? "" : "s"}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">{LEGEND_MODAL_MODALITIES.map((modality) => {
+                const availableCount = legends.filter((legend) => legend.modality === modality).length;
+                return <button type="button" key={modality} onClick={() => setSelectedModality(modality)} className="flex min-h-28 flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-4 text-center transition-colors hover:border-cyan-400 hover:bg-cyan-50 focus-visible:ring-2 focus-visible:ring-cyan-500"><span className="text-2xl font-bold tracking-tight text-slate-900">{modality}</span><span className="mt-2 text-xs text-slate-500">{availableCount} exame{availableCount === 1 ? "" : "s"} disponível{availableCount === 1 ? "" : "is"}</span></button>;
+              })}</div>
             )}
+
+            <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"><span className="text-xs text-slate-500">{draftLegendIds.length} legenda{draftLegendIds.length === 1 ? "" : "s"} na composição</span><div className="flex gap-2"><button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} disabled={!selectedModality} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:invisible">Voltar</button><button type="button" disabled={!draftLegendIds.length || confirmSelections.isPending} onClick={() => confirmSelections.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendIds: draftLegendIds })} className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-cyan-600 disabled:cursor-not-allowed disabled:opacity-50">{confirmSelections.isPending ? "Confirmando…" : "Confirmar seleção"}</button></div></div>
           </div>
         </div>
       )}
@@ -746,10 +683,15 @@ const isAdminMaster = user?.role === 'admin_master';
     { unit_id: effectiveUnitId || 0, studyInstanceUids: priorityStudyUids },
     { enabled: Boolean(user?.id && effectiveUnitId && priorityStudyUids.length) },
   );
-  const legendSelectionByStudyUid = useMemo(
-    () => new Map(studyLegendSelections.map((selection) => [selection.study_instance_uid, selection])),
-    [studyLegendSelections],
-  );
+  const legendSelectionsByStudyUid = useMemo(() => {
+    const grouped = new Map<string, any[]>();
+    for (const selection of studyLegendSelections) {
+      const list = grouped.get(selection.study_instance_uid) ?? [];
+      list.push(selection);
+      grouped.set(selection.study_instance_uid, list);
+    }
+    return grouped;
+  }, [studyLegendSelections]);
   const setStudyPriority = trpc.studyPriority.set.useMutation({
     onSuccess: () => {
       trpcUtils.studyPriority.getBatch.invalidate();
@@ -764,14 +706,10 @@ const isAdminMaster = user?.role === 'admin_master';
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [selectedStudy, setSelectedStudy] = useState<any>(null);
   const [reportStudy, setReportStudy] = useState<any>(null);
+  const [reportDocumentOptions, setReportDocumentOptions] = useState<Array<{ document_key: string; document_label: string; examLegendId: number; examName: string }>>([]);
   const [isReportDocumentsModalOpen, setIsReportDocumentsModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, string>>({});
-  const { data: reportDocumentOptions = [], isLoading: isLoadingReportDocuments } = trpc.examCatalog.documentsForExam.useQuery(
-    { examLegendId: Number(reportStudy?.examLegendId ?? 1) },
-    { enabled: Boolean(reportStudy?.examLegendId) },
-  );
-
   // Pré-download automático: configuração por unidade
   const autoDownloadKey = `pacs_auto_download_unit_${effectiveUnitId || 'none'}`;
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean>(() => {
@@ -1239,9 +1177,12 @@ const isAdminMaster = user?.role === 'admin_master';
     handlePreDownload(study, openWhenReady);
   };
 
-  const openReportDocument = (study: any, document?: { document_key: string; document_label: string }) => {
+  const openReportDocument = (study: any, document?: { document_key: string; document_label: string; examLegendId?: number; examName?: string }) => {
     const uid = study.studyInstanceUid;
-    const selection = legendSelectionByStudyUid.get(uid);
+    const selections = legendSelectionsByStudyUid.get(uid) ?? [];
+    const selection = document?.examLegendId
+      ? selections.find((item) => item.exam_legend_id === document.examLegendId)
+      : selections[0];
     const documentKey = document?.document_key || 'primary';
     const documentLabel = document?.document_label || study.studyDescription || 'Laudo principal';
     sessionStorage.setItem(`study_${uid}`, JSON.stringify({
@@ -1252,7 +1193,7 @@ const isAdminMaster = user?.role === 'admin_master';
       studyDate: study.studyDate || '',
       studyTime: study.studyTime || '',
       modality: study.modality || '',
-      studyDescription: selection?.exam_name_snapshot || study.studyDescription || 'Sem descrição',
+      studyDescription: document?.examName || selection?.exam_name_snapshot || study.studyDescription || 'Sem descrição',
       accessionNumber: study.accessionNumber || '',
       numberOfInstances: study.numberOfInstances || 0,
       unitName,
@@ -1294,27 +1235,30 @@ const isAdminMaster = user?.role === 'admin_master';
       return;
     }
 
-    const selection = legendSelectionByStudyUid.get(uid);
-    if (!selection) {
+    const selections = legendSelectionsByStudyUid.get(uid) ?? [];
+    if (!selections.length) {
       toast.error('Selecione uma legenda cadastrada antes de gerar os laudos.', { description: 'A descrição recebida do PACS é somente referência e não gera cobrança.' });
       return;
     }
-    if (selection) {
-      try {
-        const documents = selection.documents_snapshot.map((document) => ({ document_key: document.key, document_label: document.label }));
-        if (documents.length > 1) {
-          setReportStudy(study);
-          setIsReportDocumentsModalOpen(true);
-          return;
-        }
-        openReportDocument(study, documents[0]);
-        return;
-      } catch {
-        toast.error('Não foi possível carregar os documentos clínicos do exame.');
+    try {
+      const documents = selections.flatMap((selection) => selection.documents_snapshot.map((document: { key: string; label: string }) => ({
+        document_key: document.key,
+        document_label: document.label,
+        examLegendId: selection.exam_legend_id,
+        examName: selection.exam_name_snapshot,
+      })));
+      if (documents.length > 1) {
+        setReportStudy(study);
+        setReportDocumentOptions(documents);
+        setIsReportDocumentsModalOpen(true);
         return;
       }
+      openReportDocument(study, documents[0]);
+      return;
+    } catch {
+      toast.error('Não foi possível carregar os documentos clínicos da composição.');
+      return;
     }
-    openReportDocument(study);
   };
 
 const handleListenAudio = (study: any) => {
@@ -2177,12 +2121,12 @@ setSelectedStudy(study);
                     <td className="px-4 py-3">
                       <StudyLegendPicker
                         study={study}
-                        selection={legendSelectionByStudyUid.get(study.studyInstanceUid)}
+                        selections={legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? []}
                         canSelect={["operador", "atendente", "medico", "admin_master"].includes(user?.role ?? "")}
                       >
                         <div className="flex items-center gap-2 px-1 py-0.5">
                           <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${modalityCls}`}>{modality}</span>
-                          <ExamName value={legendSelectionByStudyUid.get(study.studyInstanceUid)?.exam_name_snapshot || study.studyDescription || ''} />
+                          <ExamName value={(legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? []).map((selection) => selection.exam_name_snapshot).join(' + ') || study.studyDescription || ''} />
                         </div>
                       </StudyLegendPicker>
                     </td>
@@ -2390,7 +2334,7 @@ setSelectedStudy(study);
                   : 'Sem nome';
                 const patientName = (meta?.patient_name_override || patientNameRaw).toUpperCase();
                 const patientNameEdited = !!meta?.patient_name_override;
-                const examLabel = legendSelectionByStudyUid.get(study.studyInstanceUid)?.exam_name_snapshot || meta?.description_override || study.studyDescription || 'Sem descrição';
+                const examLabel = (legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? []).map((selection) => selection.exam_name_snapshot).join(' + ') || meta?.description_override || study.studyDescription || 'Sem descrição';
                 const dateFormatted = formatDate(study.studyDate || '');
                 const imageCount = Number.parseInt(String(study.numberOfInstances ?? ''), 10);
                 const imageCountLabel = Number.isFinite(imageCount) && imageCount > 0
@@ -2434,7 +2378,7 @@ setSelectedStudy(study);
                         </div>
                         <StudyLegendPicker
                           study={study}
-                          selection={legendSelectionByStudyUid.get(study.studyInstanceUid)}
+                          selections={legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? []}
                           canSelect={["operador", "atendente", "medico", "admin_master"].includes(user?.role ?? "")}
                         >
                           <div className="mt-1 truncate rounded pr-1 text-xs uppercase leading-tight text-gray-500 group-hover:text-cyan-800">
@@ -2707,6 +2651,7 @@ setSelectedStudy(study);
           if (!open) {
             setIsReportDocumentsModalOpen(false);
             setReportStudy(null);
+            setReportDocumentOptions([]);
           }
         }}>
           <DialogContent className="max-w-lg bg-white border border-gray-200 shadow-xl rounded-xl p-6">
@@ -2716,31 +2661,31 @@ setSelectedStudy(study);
                 Escolher documento clínico
               </DialogTitle>
               <DialogDescription className="text-sm text-gray-500 mt-1">
-                Este exame possui documentos independentes. Cada opção tem rascunho, assinatura e evento financeiro próprios.
+                Cada opção pertence à sua própria legenda clínica e terá rascunho, assinatura e evento financeiro independentes.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 py-4">
-              {isLoadingReportDocuments ? <p className="py-6 text-center text-sm text-gray-500">Carregando documentos…</p> : null}
-              {!isLoadingReportDocuments && !reportDocumentOptions.length ? <p className="py-6 text-center text-sm text-amber-700">Nenhum documento ativo foi encontrado para este exame.</p> : null}
+              {!reportDocumentOptions.length ? <p className="py-6 text-center text-sm text-amber-700">Nenhum documento ativo foi encontrado para a composição selecionada.</p> : null}
               {reportDocumentOptions.map((document) => (
                 <button
-                  key={document.id}
+                  key={document.document_key}
                   type="button"
                   onClick={() => {
                     const study = reportStudy;
                     setIsReportDocumentsModalOpen(false);
                     setReportStudy(null);
+                    setReportDocumentOptions([]);
                     openReportDocument(study, document);
                   }}
                   className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-left transition-colors hover:border-amber-400 hover:bg-amber-50"
                 >
-                  <span className="block font-medium text-gray-900">{document.document_label}</span>
-                  <span className="mt-0.5 block text-xs text-gray-500">Documento e assinatura independentes</span>
+                  <span className="block font-medium text-gray-900">{document.examName} · {document.document_label}</span>
+                  <span className="mt-0.5 block text-xs text-gray-500">Laudo, assinatura e evento financeiro independentes</span>
                 </button>
               ))}
             </div>
             <DialogFooter>
-              <button type="button" onClick={() => { setIsReportDocumentsModalOpen(false); setReportStudy(null); }} className="rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">Cancelar</button>
+              <button type="button" onClick={() => { setIsReportDocumentsModalOpen(false); setReportStudy(null); setReportDocumentOptions([]); }} className="rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">Cancelar</button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

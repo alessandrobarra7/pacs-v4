@@ -323,7 +323,7 @@ export const reportsRouter = router({
 
         // Catálogo clínico-financeiro: aguarda todas as assinaturas obrigatórias antes de criar eventos.
         const catalogBilling = effectiveUnitId && studyUid
-          ? await createCatalogEventsWhenComplete({ studyUid, unitId: effectiveUnitId, doctorUserId: report.author_user_id ?? ctx.user.id, signedAt })
+          ? await createCatalogEventsWhenComplete({ studyUid, unitId: effectiveUnitId, doctorUserId: report.author_user_id ?? ctx.user.id, documentKey: report.document_key, signedAt })
           : { handled: false, created: 0 };
         // Fluxo legado: um evento por laudo apenas quando o estudo ainda não usa catálogo selecionado.
         let doctor_amount_due: string | null = null;

@@ -23,6 +23,7 @@ type CatalogEntry = {
   financial_event_count: number;
   documents: CatalogDocument[];
   pacsMappings: CatalogMapping[];
+  unavailableUnitIds: number[];
 };
 
 type CatalogDraft = Omit<CatalogEntry, "id"> & { id?: number };
@@ -37,12 +38,14 @@ const emptyDraft = (): CatalogDraft => ({
   financial_event_count: 1,
   documents: [{ document_key: "primary", document_label: "Laudo principal", sort_order: 0 }],
   pacsMappings: [],
+  unavailableUnitIds: [],
 });
 
 export default function ExamCatalogPage({ embedded = false }: { embedded?: boolean }) {
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
   const { data: entries = [], isLoading } = trpc.examCatalog.list.useQuery();
+  const { data: catalogUnits = [] } = trpc.examCatalog.listUnits.useQuery();
   const save = trpc.examCatalog.save.useMutation({
     onSuccess: async () => {
       toast.success("Exame do catálogo salvo");
@@ -80,6 +83,7 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
       ...entry,
       documents: entry.documents.length ? entry.documents.map(({ document_key, document_label, sort_order }) => ({ document_key, document_label, sort_order })) : [emptyDraft().documents[0]],
       pacsMappings: entry.pacsMappings.map(({ id, pacs_description, modality }) => ({ id, pacs_description, modality })),
+      unavailableUnitIds: entry.unavailableUnitIds ?? [],
     });
     setOpen(true);
   };
@@ -106,6 +110,7 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
         pacs_description: mapping.pacs_description.trim(),
         modality: mapping.modality.trim().toUpperCase(),
       })),
+      unavailableUnitIds: draft.unavailableUnitIds,
     });
   };
 
@@ -183,6 +188,7 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
                       <span className="inline-flex items-center gap-1.5 text-slate-600"><FileText className="h-3.5 w-3.5 text-cyan-700" /><strong className="text-slate-800">{entry.documents.length}</strong> documento{entry.documents.length === 1 ? "" : "s"}</span>
                       <span className="inline-flex items-center gap-1.5 text-slate-600"><span className="font-semibold text-violet-700">$</span><strong className="text-slate-800">{entry.financial_event_count}</strong> evento{entry.financial_event_count === 1 ? "" : "s"} financeiro{entry.financial_event_count === 1 ? "" : "s"}</span>
                       <span className="inline-flex items-center gap-1.5 text-slate-600"><Link2 className="h-3.5 w-3.5 text-slate-500" /><strong className="text-slate-800">{entry.pacsMappings.length}</strong> mapeamento{entry.pacsMappings.length === 1 ? "" : "s"} PACS</span>
+                      <span className="inline-flex items-center gap-1.5 text-slate-600"><strong className="text-slate-800">{entry.unavailableUnitIds.length ? `${catalogUnits.length - entry.unavailableUnitIds.length}/${catalogUnits.length || 0}` : "Todas"}</strong> unidade{entry.unavailableUnitIds.length ? "s autorizadas" : "s autorizadas"}</span>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {entry.documents.length ? entry.documents.map((document) => <span key={document.document_key} className="inline-flex items-center gap-1 rounded-md bg-cyan-50 px-2 py-1 text-xs text-cyan-900"><FileText className="h-3 w-3 text-cyan-700" />{document.document_label}</span>) : <span className="text-xs text-amber-700">Sem documento clínico configurado</span>}
@@ -219,6 +225,31 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
               <ToggleField label="Exame bilateral" checked={draft.bilateral} onChange={(checked) => setDraft({ ...draft, bilateral: checked })} />
               <ToggleField label="Disponível para novos mapeamentos" checked={draft.is_active} onChange={(checked) => setDraft({ ...draft, is_active: checked })} />
             </div>
+
+            <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h3 className="font-medium text-white">Disponibilidade por unidade</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-400">Por padrão, a legenda fica disponível para todas as unidades. Desative somente as unidades que não devem vê-la no modal clínico.</p>
+                </div>
+                <Button type="button" size="sm" variant="outline" className="border-slate-700 bg-transparent text-slate-200 hover:bg-slate-800 hover:text-white" onClick={() => setDraft({ ...draft, unavailableUnitIds: [] })}>Autorizar todas</Button>
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {catalogUnits.map((unit) => {
+                  const available = !draft.unavailableUnitIds.includes(unit.id);
+                  return <label key={unit.id} className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2.5 transition-colors ${available ? "border-emerald-900/70 bg-emerald-950/30" : "border-slate-800 bg-slate-950/60"}`}>
+                    <span className="min-w-0"><span className="block truncate text-sm font-medium text-slate-100">{unit.name}</span><span className={`block text-xs ${unit.isActive ? "text-slate-400" : "text-amber-300"}`}>{unit.isActive ? "Disponível no Portal" : "Unidade inativa"}</span></span>
+                    <Switch checked={available} onCheckedChange={(checked) => setDraft({
+                      ...draft,
+                      unavailableUnitIds: checked
+                        ? draft.unavailableUnitIds.filter((unitId) => unitId !== unit.id)
+                        : [...draft.unavailableUnitIds, unit.id],
+                    })} />
+                  </label>;
+                })}
+              </div>
+              {!catalogUnits.length && <p className="mt-4 text-xs text-amber-300">Nenhuma unidade está disponível para configurar no momento.</p>}
+            </section>
 
             <SectionHeader title="Documentos clínicos" description="Cada linha representa um documento e uma assinatura independentes." onAdd={() => setDraft({ ...draft, documents: [...draft.documents, { document_key: `documento_${draft.documents.length + 1}`, document_label: "", sort_order: draft.documents.length }] })} />
             <div className="space-y-2">

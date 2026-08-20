@@ -69,7 +69,7 @@ describe("PacsQueryPage mobile study list contract", () => {
 
   it("mantém a seleção de legenda canônica disponível no cartão móvel sem abrir o visualizador", () => {
     expect(pageSource).toContain("<StudyLegendPicker");
-    expect(pageSource).toContain("selection={legendSelectionByStudyUid.get(study.studyInstanceUid)}");
+    expect(pageSource).toContain("selections={legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? []}");
     expect(pageSource).toContain('event.stopPropagation()');
     expect(pageSource).toContain('["operador", "atendente", "medico", "admin_master"]');
   });
