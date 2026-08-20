@@ -1245,6 +1245,7 @@
 - [x] Remover as colunas de prioridade do desktop e mostrar alerta apenas na linha do estudo quando houver sinalização
 - [x] Alinhar o alerta condicional de prioridade ao lado do sexo do paciente em uma única linha no desktop
 - [x] Adicionar botão OsiriX ao lado de Horos usando abertura local segura, sem alterar as integrações existentes
+- [x] Auditar a duplicidade entre cadastro de usuário e configuração financeira antes de alterar módulos administrativos
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
