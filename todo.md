@@ -1247,6 +1247,7 @@
 - [x] Adicionar botão OsiriX ao lado de Horos usando abertura local segura, sem alterar as integrações existentes
 - [x] Auditar a duplicidade entre cadastro de usuário e configuração financeira antes de alterar módulos administrativos
 - [x] Centralizar preços no módulo Financeiro, remover atalhos duplicados e impor vigência por ciclo no servidor
+- [x] Diagnosticar e corrigir o fluxo de abertura do Weasis sem alterar os demais visualizadores
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 

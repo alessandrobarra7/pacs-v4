@@ -354,6 +354,7 @@ async function startServer() {
   // Usado pelo RadiAnt, Weasis, OsiriX e Horos que não conseguem enviar cookies
   const dicomDlTokens = new Map<string, { filePath: string; expiresAt: number }>();
   const dicomZipTokens = new Map<string, { studyUid: string; expiresAt: number }>();
+  const weasisManifestTokens = new Map<string, { xml: string; expiresAt: number }>();
   // Tokens exclusivos do Assistente RadiAnt: opacos, vinculados ao estudo/usuário,
   // expiram em 10 minutos e são consumidos antes da entrega do ZIP.
   const radiantAssistantTokens = createRadiantAssistantTokenStore();
@@ -365,6 +366,9 @@ async function startServer() {
     });
     Array.from(dicomZipTokens.entries()).forEach(([token, entry]) => {
       if (entry.expiresAt < now) dicomZipTokens.delete(token);
+    });
+    Array.from(weasisManifestTokens.entries()).forEach(([token, entry]) => {
+      if (entry.expiresAt < now) weasisManifestTokens.delete(token);
     });
     radiantAssistantTokens.prune();
   }, 10 * 60 * 1000);
@@ -384,6 +388,18 @@ async function startServer() {
     res.sendFile(filePath, (err) => {
       if (err && !res.headersSent) res.status(404).send('Arquivo não encontrado');
     });
+  });
+
+  // Rota PÚBLICA: manifesto temporário do Weasis. Mantém a URI local curta
+  // mesmo para estudos com centenas de imagens.
+  app.get('/api/weasis-manifest/:token', (req, res) => {
+    const { token } = req.params;
+    const entry = weasisManifestTokens.get(token);
+    if (!entry || entry.expiresAt < Date.now()) {
+      return res.status(410).type('text/plain').send('Manifesto expirado ou inválido');
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('application/xml').send(entry.xml);
   });
 
   // Rota PÚBLICA: ZIP temporário para Horos/OsiriX via DownloadURL.
@@ -1344,9 +1360,32 @@ async function startServer() {
       });
       let launchUrl = '';
       if (viewer === 'weasis') {
-        // weasis://?$dicom:get -r "url1" -r "url2"...
-        const args = fileUrls.map((u: string) => `-r "${u}"`).join(' ');
-        const cmd = `$dicom:get ${args}`;
+        // O protocolo Weasis aceita uma URI curta com um manifesto XML. A lista
+        // direta de -r por imagem ultrapassa limites de URI em estudos grandes.
+        const escapeXml = (value: string) => value.replace(/[<>&"']/g, (char) => ({
+          '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;',
+        })[char] || char);
+        const orderedRecords = await getOrderedDicomFiles(studyDir);
+        const seriesMap = new Map<string, OrderedDicomFile[]>();
+        orderedRecords.forEach((record) => {
+          const entries = seriesMap.get(record.seriesUid) || [];
+          entries.push(record);
+          seriesMap.set(record.seriesUid, entries);
+        });
+        const manifestSeries = Array.from(seriesMap.entries()).map(([seriesUid, seriesRecords], seriesIndex) => {
+          const first = seriesRecords[0];
+          const instances = seriesRecords.map((record, instanceIndex) => {
+            const fileIndex = files.indexOf(record.fileName);
+            const fileUrl = new URL(fileUrls[fileIndex]).pathname;
+            return `<Instance SOPInstanceUID="2.25.${seriesIndex + 1}.${instanceIndex + 1}" InstanceNumber="${record.instanceNumber || instanceIndex + 1}" DirectDownloadFile="${escapeXml(fileUrl)}"/>`;
+          }).join('');
+          return `<Series SeriesInstanceUID="${escapeXml(seriesUid)}" SeriesDescription="${escapeXml(first.seriesDescription || 'Série DICOM')}" SeriesNumber="${first.seriesNumber || seriesIndex + 1}" Modality="${escapeXml(first.modality || 'OT')}">${instances}</Series>`;
+        }).join('');
+        const manifest = `<?xml version="1.0" encoding="UTF-8"?><manifest xmlns="http://www.weasis.org/xsd/2.5"><arcQuery arcId="pacs-portal" baseUrl="${escapeXml(origin)}"><Patient PatientID="${escapeXml(studyUid)}" PatientName="PACS PORTAL"><Study StudyInstanceUID="${escapeXml(studyUid)}" StudyDescription="Estudo PACS">${manifestSeries}</Study></Patient></arcQuery></manifest>`;
+        const manifestToken = crypto.randomBytes(24).toString('hex');
+        weasisManifestTokens.set(manifestToken, { xml: manifest, expiresAt });
+        const manifestUrl = `${origin}/api/weasis-manifest/${manifestToken}`;
+        const cmd = `$dicom:get -w "${manifestUrl}"`;
         launchUrl = `weasis://?${encodeURIComponent(cmd)}`;
       } else if (viewer === 'osirix') {
         // OsiriX baixa um ZIP temporário sem depender do cookie do navegador.
