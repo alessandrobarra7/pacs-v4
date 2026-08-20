@@ -17,4 +17,9 @@ describe("modal visual de legenda canônica", () => {
     expect(pageSource).toContain("filteredLegends.map((legend)");
     expect(pageSource).toContain("selectLegend.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendId: legend.id })");
   });
+
+  it("prioriza a legenda canônica selecionada na listagem e mantém o PACS como alternativa", () => {
+    expect(pageSource).toContain("legendSelectionByStudyUid.get(study.studyInstanceUid)?.exam_name_snapshot || study.studyDescription || ''");
+    expect(pageSource).toContain("legendSelectionByStudyUid.get(study.studyInstanceUid)?.exam_name_snapshot || meta?.description_override || study.studyDescription || 'Sem descrição'");
+  });
 });

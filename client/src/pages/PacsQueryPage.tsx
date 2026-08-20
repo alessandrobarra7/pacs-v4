@@ -2143,7 +2143,7 @@ setSelectedStudy(study);
                       >
                         <div className="flex items-center gap-2 px-1 py-0.5">
                           <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${modalityCls}`}>{modality}</span>
-                          <ExamName value={study.studyDescription || ''} />
+                          <ExamName value={legendSelectionByStudyUid.get(study.studyInstanceUid)?.exam_name_snapshot || study.studyDescription || ''} />
                         </div>
                       </StudyLegendPicker>
                     </td>
@@ -2351,7 +2351,7 @@ setSelectedStudy(study);
                   : 'Sem nome';
                 const patientName = (meta?.patient_name_override || patientNameRaw).toUpperCase();
                 const patientNameEdited = !!meta?.patient_name_override;
-                const examLabel = meta?.description_override || study.studyDescription || 'Sem descrição';
+                const examLabel = legendSelectionByStudyUid.get(study.studyInstanceUid)?.exam_name_snapshot || meta?.description_override || study.studyDescription || 'Sem descrição';
                 const dateFormatted = formatDate(study.studyDate || '');
                 const imageCount = Number.parseInt(String(study.numberOfInstances ?? ''), 10);
                 const imageCountLabel = Number.isFinite(imageCount) && imageCount > 0

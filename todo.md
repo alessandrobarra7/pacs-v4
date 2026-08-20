@@ -2278,3 +2278,8 @@
 - [x] Validar com o usuário o papel do modal de seleção múltipla de exames e sua relação com a legenda canônica obrigatória antes de retomar implementações.
 - [x] Substituir o seletor suspenso em cada linha pelo acionador e modal visual de seleção de exames solicitado pelo usuário.
 - [x] Exibir no modal botões pesquisáveis e agrupados por modalidade, alimentados exclusivamente pelas legendas canônicas ativas cadastradas pelo administrador.
+
+## CORREÇÃO — LEGENDA CANÔNICA NÃO REFLETIDA NA LISTAGEM
+
+- [x] Diagnosticar a divergência entre a seleção persistida da legenda canônica e o nome exibido na página principal.
+- [x] Priorizar a legenda canônica selecionada na listagem e manter a descrição PACS somente como alternativa quando não houver seleção.
