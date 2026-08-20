@@ -53,4 +53,12 @@ describe('Catálogo central de exames e documentos independentes', () => {
     expect(editor).toContain('document_label_snapshot: documentLabelFromRoute');
     expect(editor).not.toContain('const saveMetadata = trpc.studyMetadata.save.useMutation()');
   });
+
+  it('valida a duplicidade de legenda antes de gravar e evita expor erro bruto do banco', async () => {
+    const router = await fs.readFile(path.resolve(__dirname, 'routers', 'examCatalog.ts'), 'utf-8');
+    expect(router).toContain('function canonicalNameKey');
+    expect(router).toContain('existingWithSameName');
+    expect(router).toContain('code: "CONFLICT"');
+    expect(router).toContain('já existe no catálogo');
+  });
 });

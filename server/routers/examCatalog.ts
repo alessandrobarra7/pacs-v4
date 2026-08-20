@@ -36,6 +36,10 @@ function mappingKey(mapping: { pacs_description: string; modality: string }) {
   return `${mapping.modality.trim().toUpperCase()}\u0000${mapping.pacs_description.trim()}`;
 }
 
+function canonicalNameKey(name: string) {
+  return name.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleUpperCase("pt-BR");
+}
+
 export const examCatalogRouter = router({
   /** Catálogo clínico global: leitura e manutenção exclusivas do administrador raiz. */
   list: adminProcedure.query(() => listExamCatalog(true)),
@@ -65,6 +69,17 @@ export const examCatalogRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "A mesma descrição PACS não pode ser mapeada duas vezes no exame." });
       }
       mappingKeys.add(key);
+    }
+
+    const canonicalName = canonicalNameKey(input.exam_name);
+    const existingWithSameName = (await listExamCatalog(false)).find((entry) => (
+      entry.id !== input.id && canonicalNameKey(entry.exam_name) === canonicalName
+    ));
+    if (existingWithSameName) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: `A legenda canônica "${input.exam_name.trim()}" já existe no catálogo (ID ${existingWithSameName.id}). Use a legenda existente ou escolha outro nome.`,
+      });
     }
 
     const examLegendId = await saveExamCatalogEntry({

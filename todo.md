@@ -2288,3 +2288,7 @@
 
 - [x] Reorganizar a página do catálogo para priorizar busca, filtros, estado dos exames e ações de administração, sem criar dados de exemplo.
 - [x] Tornar a configuração de legenda, documentos clínicos, eventos financeiros e mapeamentos PACS mais compreensível e prática.
+
+## CORREÇÃO — FALHA AO SALVAR CATÁLOGO
+
+- [x] Diagnosticar e corrigir a falha de gravação ao editar uma legenda canônica existente.
