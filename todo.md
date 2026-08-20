@@ -1440,7 +1440,7 @@
 - [ ] FIN-BE-04: Endpoint de resumo financeiro da unidade: total sistema, total médicos individual, total médicos somado, total receita pacientes, lucro
 
 ### Fase 3 — Front-end: Meu Financeiro (médico)
-- [ ] FIN-FE-01: Reformular FinanceMeuFinanceiro seguindo layout MockMyFinance
+- [x] FIN-FE-01: Reformular FinanceMeuFinanceiro seguindo layout MockMyFinance
 - [ ] FIN-FE-02: Criar rota /financeiro/meu-financeiro/unidades/:id
 - [ ] FIN-FE-03: Criar página FinanceMeuFinanceiroUnidade seguindo layout MockDoctorUnitDetail
 
@@ -1563,7 +1563,7 @@
 - [x] FIN-3: Adicionar procedure billing.listAvailableUsers ao billingRouter (usuários para vincular como responsável)
 - [ ] FIN-4: Limpar App.tsx — remover rotas finance/* e finance2/* e billing/*, manter apenas /financeiro/*
 - [ ] FIN-5: Criar novo FinanceShell.tsx com entrada por role (médico → meu-financeiro, responsavel → responsavel, admin → admin)
-- [ ] FIN-6: Construir tela /financeiro/meu-financeiro (médico) — extrato por unidade usando financeSimple.myFinanceiro
+- [x] FIN-6: Construir tela /financeiro/meu-financeiro (médico) — extrato por unidade usando financeSimple.myFinanceiro
 - [x] FIN-7: Construir tela /financeiro/responsavel (responsavel_financeiro) — unidades vinculadas, médicos, dívida ao sistema
 - [ ] FIN-8: Construir tela /financeiro/admin (admin_master) — visão hierárquica de todos os responsáveis → unidades
 - [x] FIN-9: Atualizar botão Financeiro no PacsQueryPage para apontar para /financeiro (com redirect por role)
@@ -2202,6 +2202,9 @@
 - [ ] Restringir o módulo financeiro aos perfis médico e responsável financeiro, apresentando cada unidade como contexto financeiro independente sem consolidação cruzada.
 - [ ] Permitir ao admin_master assumir ou trocar o responsável financeiro de qualquer unidade, preservando os vínculos, históricos e poderes operacionais da unidade.
 - [ ] Permitir ao responsável financeiro da unidade criar novas contas ou vincular contas existentes somente como médico, operador ou visualizador.
+- [ ] Preparar prévias visuais das telas de responsável financeiro, médico e supervisão do administrador geral antes da implementação do novo ambiente.
+- [ ] Adotar no painel do médico uma composição operacional com tabela de documentos à esquerda, resumo e preços por modalidade à direita e contexto explícito de uma única unidade.
+- [ ] Implementar a tela Meu Financeiro do médico com a composição visual aprovada, usando dados reais e isolados por unidade.
 
 ## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE
 

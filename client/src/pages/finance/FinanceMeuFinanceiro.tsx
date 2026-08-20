@@ -1,289 +1,187 @@
 /**
- * FinanceMeuFinanceiro — Extrato financeiro do médico logado
- * Cards por unidade + modal de extrato + impressão
+ * FinanceMeuFinanceiro — painel operacional do médico, estritamente por unidade.
  * Desenvolvimento StudioBarra7
  */
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/_core/hooks/useAuth";
-import { CheckCircle2, Clock, FileText, Printer } from "lucide-react";
+import {
+  AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, CircleDollarSign,
+  FileText, Landmark, CalendarDays, BadgeDollarSign,
+} from "lucide-react";
 import { FinanceShell } from "./FinanceShell";
 
-type SummaryItem = {
-  unit_id: number;
-  unit_name: string;
-  cycle_start_day: number;
-  cycle_end_day: number;
-  cycle_label?: string;  // E5: label do ciclo calculado pelo backend
-  total_laudos: number;
-  doctor_total: number;
-  doctor_paid: number;
-  doctor_pending: number;
-  last_received_at: Date | null;
-  price_per_report: number | null;
-};
-
-type EventItem = {
-  id: number;
-  unit_id: number | null;
-  unit_name: string | null;
-  patient_name: string | null;
-  study_date: Date | null;
-  modality_snapshot: string | null;
-  exam_name_snapshot: string | null;
-  doctor_amount_due: string | null;
-  doctor_received_at: Date | null;
-  doctor_received_by_user_id: number | null;
-  paid_by_name: string | null;
-  pricing_status: string | null;  // FIN-C4: aviso de preço não configurado
-  signed_at: Date | null;
-};
-
-interface ExtractModalProps {
-  unit: SummaryItem;
-  referenceDate: string;
-  events: EventItem[];
-  onClose: () => void;
-}
-
-function ExtractModal({ unit, referenceDate, events, onClose }: ExtractModalProps) {
-  const unitEvents = events.filter(e => e.unit_id === unit.unit_id);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-          <div>
-            <h2 className="text-white font-semibold">{unit.unit_name}</h2>
-            <p className="text-slate-400 text-xs">Ciclo atual · {unitEvents.length} laudos</p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
-        </div>
-        <div className="overflow-y-auto flex-1">
-          {unitEvents.length === 0 ? (
-            <p className="text-slate-500 text-sm text-center py-10">Nenhum laudo nesta unidade.</p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-900">
-                <tr className="text-slate-400 text-xs uppercase tracking-wide border-b border-slate-700">
-                  <th className="px-4 py-2 text-left">Paciente</th>
-                  <th className="px-4 py-2 text-left hidden lg:table-cell">Modalidade</th>
-                  <th className="px-4 py-2 text-left hidden md:table-cell">Data</th>
-                  <th className="px-4 py-2 text-right">Valor</th>
-                  <th className="px-4 py-2 text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/30">
-                {unitEvents.map(ev => (
-                  <tr key={ev.id} className="hover:bg-slate-800/30">
-                    <td className="px-4 py-2.5 text-white">
-                      <span className="truncate block max-w-[180px]">{ev.patient_name ?? "—"}</span>
-                      {ev.exam_name_snapshot && (
-                        <span className="text-xs text-slate-500">{ev.exam_name_snapshot}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 hidden lg:table-cell">
-                      {ev.modality_snapshot ? (
-                        <span className="inline-block font-mono text-xs bg-slate-700 text-slate-200 rounded px-1.5 py-0.5">{ev.modality_snapshot}</span>
-                      ) : (
-                        <span className="text-slate-600 text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-400 hidden md:table-cell text-xs">
-                      {fmtDate(ev.study_date ?? ev.signed_at)}
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-medium">
-                      {ev.pricing_status && ev.pricing_status !== 'ok' ? (
-                        <span className="text-orange-400 text-xs" title={`Sem preço (${ev.pricing_status})`}>⚠ R$ 0,00</span>
-                      ) : (
-                        <span className="text-amber-400">{ev.doctor_amount_due ? fmtBRL(Number(ev.doctor_amount_due)) : "—"}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-center">
-                      {ev.doctor_received_at ? (
-                        <span className="inline-flex flex-col items-center gap-0.5 text-emerald-400 text-xs">
-                          <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Pago</span>
-                          {ev.paid_by_name && (
-                            <span className="text-slate-500 text-[10px]">por {ev.paid_by_name}</span>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-rose-400 text-xs">
-                          <Clock className="h-3.5 w-3.5" /> Pendente
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const MONTHS = [
-  "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
-  "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
 
-function fmtBRL(v: number) {
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const MODALITY_META: Record<string, { label: string; className: string }> = {
+  CT: { label: "Tomografia Computadorizada", className: "bg-sky-500/20 text-sky-300 border-sky-400/30" },
+  CR: { label: "Raio-X Convencional", className: "bg-amber-500/20 text-amber-300 border-amber-400/30" },
+  US: { label: "Ultrassonografia", className: "bg-emerald-500/20 text-emerald-300 border-emerald-400/30" },
+  MR: { label: "Ressonância Magnética", className: "bg-violet-500/20 text-violet-300 border-violet-400/30" },
+};
+
+function fmtBRL(value: number | string | null | undefined) {
+  return Number(value ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
-function fmtDate(d: Date | string | null | undefined) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("pt-BR");
+
+function fmtDate(value: Date | string | null | undefined) {
+  return value ? new Date(value).toLocaleDateString("pt-BR") : "—";
 }
 
 export default function FinanceMeuFinanceiro() {
-  const { user } = useAuth();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [selectedUnit, setSelectedUnit] = useState<SummaryItem | null>(null);
+  const [unitId, setUnitId] = useState<number | null>(null);
+  const referenceDate = useMemo(() => new Date(year, month - 1, 15).toISOString(), [year, month]);
 
-  const referenceDate = new Date(year, month - 1, 15).toISOString();
-  const { data, isLoading } = trpc.financeSimple.myFinanceiro.useQuery({ reference_date: referenceDate });
+  const unitsQuery = trpc.financeSimple.myFinanceiroUnits.useQuery();
+  const units = unitsQuery.data ?? [];
+  useEffect(() => {
+    if (unitId === null && units.length > 0) setUnitId(units[0].unit_id);
+  }, [unitId, units]);
 
-  function prevMonth() {
-    if (month === 1) { setMonth(12); setYear(y => y - 1); }
-    else setMonth(m => m - 1);
+  const financeQuery = trpc.financeSimple.myFinanceiro.useQuery(
+    { unit_id: unitId ?? 0, reference_date: referenceDate },
+    { enabled: unitId !== null },
+  );
+  const pricesQuery = trpc.financeSimple.myModalityPrices.useQuery(
+    { unit_id: unitId ?? 0, reference_date: referenceDate },
+    { enabled: unitId !== null },
+  );
+
+  const selectedUnit = units.find((unit) => unit.unit_id === unitId) ?? null;
+  const summary = financeQuery.data?.summary[0];
+  const events = financeQuery.data?.events ?? [];
+  const pricingPending = events.filter((event) => event.pricing_status && event.pricing_status !== "ok").length;
+
+  function previousMonth() {
+    if (month === 1) { setMonth(12); setYear((value) => value - 1); }
+    else setMonth((value) => value - 1);
   }
+
   function nextMonth() {
-    if (month === 12) { setMonth(1); setYear(y => y + 1); }
-    else setMonth(m => m + 1);
-  }
-
-  function handlePrint(u: SummaryItem) {
-    const unitEvents = (data?.events ?? []).filter(e => e.unit_id === u.unit_id);
-    const totalBruto = unitEvents.reduce((s, e) => s + Number(e.doctor_amount_due ?? 0), 0);
-    const totalPago = unitEvents.filter(e => e.doctor_received_at).reduce((s, e) => s + Number(e.doctor_amount_due ?? 0), 0);
-    const totalPend = unitEvents.filter(e => !e.doctor_received_at).reduce((s, e) => s + Number(e.doctor_amount_due ?? 0), 0);
-    const priceStr = u.price_per_report != null ? ` · R$ ${Number(u.price_per_report).toFixed(2).replace(".", ",")} / laudo` : "";
-    const rows = unitEvents.map(e => {
-      const dt = e.study_date ? new Date(e.study_date).toLocaleDateString("pt-BR") : "—";
-      const val = Number(e.doctor_amount_due ?? 0).toFixed(2).replace(".", ",");
-      const st = e.doctor_received_at ? "Pago" : "Pendente";
-      const cls = e.doctor_received_at ? "pago" : "pendente";
-      return `<tr><td>${e.patient_name ?? "—"}</td><td>${dt}</td><td>${e.exam_name_snapshot ?? e.modality_snapshot ?? "—"}</td><td>R$ ${val}</td><td class="${cls}">${st}</td></tr>`;
-    }).join("");
-    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Extrato — ${u.unit_name}</title><style>body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:20mm}h1{font-size:16px;margin-bottom:4px}h2{font-size:13px;color:#444;font-weight:normal;margin-bottom:2px}.sub{color:#666;font-size:11px;margin-bottom:16px}table{width:100%;border-collapse:collapse;margin-top:12px}th{text-align:left;padding:6px 8px;border-bottom:2px solid #333;font-size:11px;text-transform:uppercase;letter-spacing:.05em}td{padding:5px 8px;border-bottom:1px solid #eee}.pago{color:#166534;font-weight:500}.pendente{color:#991b1b}.totais{margin-top:16px;border-top:2px solid #333;padding-top:10px}.tr{display:flex;justify-content:space-between;padding:3px 0}@media print{@page{margin:20mm}}</style></head><body><h1>Extrato Financeiro</h1><h2>Médico: ${user?.name ?? user?.username ?? "—"}</h2><div class="sub">Unidade: ${u.unit_name} · Período: ${MONTHS[month-1]} ${year}${priceStr}</div><table><thead><tr><th>Paciente</th><th>Data</th><th>Exame</th><th>Valor</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table><div class="totais"><div class="tr"><span>Total de laudos:</span><span>${unitEvents.length}</span></div><div class="tr"><span>Total bruto:</span><span>R$ ${totalBruto.toFixed(2).replace(".", ",")}</span></div><div class="tr"><span>Pago:</span><span>R$ ${totalPago.toFixed(2).replace(".", ",")}</span></div><div class="tr"><span><strong>Pendente:</strong></span><span><strong>R$ ${totalPend.toFixed(2).replace(".", ",")}</strong></span></div></div></body></html>`;
-    const win = window.open("", "_blank", "width=900,height=700");
-    if (win) { win.document.write(html); win.document.close(); win.focus(); setTimeout(() => { win.print(); win.close(); }, 400); }
+    if (month === 12) { setMonth(1); setYear((value) => value + 1); }
+    else setMonth((value) => value + 1);
   }
 
   return (
     <FinanceShell>
-      <div className="p-6 space-y-6 max-w-4xl mx-auto">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white">Meu Financeiro</h1>
-            <p className="text-slate-400 text-sm mt-0.5">Seus laudos e pagamentos por unidade</p>
-          </div>
-          <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2">
-            <button onClick={prevMonth} className="text-slate-400 hover:text-white transition-colors px-1">‹</button>
-            <span className="text-white text-sm font-medium w-32 text-center">{MONTHS[month-1]} {year}</span>
-            <button onClick={nextMonth} className="text-slate-400 hover:text-white transition-colors px-1">›</button>
-          </div>
-        </div>
-
-        {/* ── Bloco de totais consolidados do período ── */}
-        {!isLoading && data?.summary && data.summary.length > 0 && (() => {
-          const totalLaudos = data.summary.reduce((s, u) => s + u.total_laudos, 0);
-          const totalBruto = data.summary.reduce((s, u) => s + u.doctor_total, 0);
-          const totalPago = data.summary.reduce((s, u) => s + u.doctor_paid, 0);
-          const totalPend = data.summary.reduce((s, u) => s + u.doctor_pending, 0);
-          return (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                { label: "Total de Laudos", value: String(totalLaudos), sub: "no período", color: "text-white" },
-                { label: "Total do Período", value: totalBruto.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), sub: "bruto", color: "text-amber-400" },
-                { label: "Recebido", value: totalPago.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), sub: "confirmado", color: "text-emerald-400" },
-                { label: "Pendente", value: totalPend.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), sub: "a receber", color: totalPend > 0 ? "text-rose-400" : "text-slate-400" },
-              ].map((item, i) => (
-                <div key={i} className="bg-slate-800/60 border border-slate-700 rounded-xl px-4 py-3">
-                  <p className="text-xs text-slate-500 uppercase tracking-wide">{item.label}</p>
-                  <p className={`text-lg font-bold mt-1 ${item.color}`}>{item.value}</p>
-                  <p className="text-xs text-slate-600 mt-0.5">{item.sub}</p>
-                </div>
-              ))}
+      <div className="min-h-full bg-slate-950">
+        <header className="border-b border-slate-800 bg-slate-900/70 px-4 py-4 md:px-7">
+          <div className="mx-auto flex max-w-[1500px] flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-cyan-400">Meu Financeiro</p>
+              <h1 className="mt-1 text-xl font-semibold text-white">Documentos e recebimentos</h1>
             </div>
-          );
-        })()}
-
-        {isLoading ? (
-          <div className="space-y-4">
-            {[1,2].map(i => <div key={i} className="h-48 bg-slate-800/40 rounded-xl animate-pulse" />)}
-          </div>
-        ) : !data?.summary.length ? (
-          <div className="text-center py-16">
-            <FileText className="h-12 w-12 text-slate-700 mx-auto mb-4" />
-            <p className="text-slate-400">Nenhum laudo finalizado em {MONTHS[month-1]} {year}</p>
-            <p className="text-slate-600 text-xs mt-1">Os laudos assinados aparecerão aqui automaticamente</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {data.summary.map((u) => (
-              <div key={u.unit_id} className="bg-slate-800/60 border border-slate-700 rounded-xl p-5 space-y-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-white font-semibold text-base">{u.unit_name}</p>
-                    <p className="text-slate-400 text-xs mt-0.5">
-                      {/* E5: cycle_label vem do backend (calcCycleDates), fallback simples se ausente */}
-                      <span>Ciclo: {u.cycle_label ?? `${u.cycle_start_day ?? 1}/${String(month).padStart(2,'0')} – ${u.cycle_end_day ?? 31}/${String(month).padStart(2,'0')}`}</span>
-                      {u.price_per_report != null ? (
-                        <span className="ml-2 text-cyan-400">· R$ {Number(u.price_per_report).toFixed(2).replace(".", ",")} / laudo</span>
-                      ) : (
-                        <span className="ml-2 text-amber-500">· Preço não configurado</span>
-                      )}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-2xl font-bold text-white">{u.total_laudos}</p>
-                    <p className="text-xs text-slate-400">laudos</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-slate-900/60 rounded-lg p-3">
-                    <p className="text-xs text-slate-500 mb-1">Total a receber</p>
-                    <p className="text-base font-bold text-amber-400">{fmtBRL(u.doctor_total)}</p>
-                  </div>
-                  <div className="bg-slate-900/60 rounded-lg p-3">
-                    <p className="text-xs text-slate-500 mb-1">Pago ✓</p>
-                    <p className="text-base font-bold text-emerald-400">{fmtBRL(u.doctor_paid)}</p>
-                  </div>
-                  <div className="bg-slate-900/60 rounded-lg p-3">
-                    <p className="text-xs text-slate-500 mb-1">Pendente ⏳</p>
-                    <p className="text-base font-bold text-rose-400">{fmtBRL(u.doctor_pending)}</p>
-                  </div>
-                </div>
-                <div className="flex gap-2 pt-1">
-                  <button
-                    onClick={() => setSelectedUnit(u)}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg text-sm transition-colors">
-                    <FileText className="h-4 w-4" /> Ver Extrato
-                  </button>
-                  <button
-                    onClick={() => handlePrint(u)}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg text-sm text-slate-300 transition-colors">
-                    <Printer className="h-4 w-4" /> Imprimir Extrato
-                  </button>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:min-w-[600px]">
+              <label className="text-xs text-slate-400">
+                Unidade <span className="text-cyan-300">(somente esta unidade)</span>
+                <select
+                  value={unitId ?? ""}
+                  onChange={(event) => setUnitId(Number(event.target.value))}
+                  className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-white outline-none focus:border-cyan-500"
+                >
+                  {units.map((unit) => <option key={unit.unit_id} value={unit.unit_id}>{unit.unit_name}</option>)}
+                </select>
+              </label>
+              <div className="text-xs text-slate-400">
+                Ciclo de referência
+                <div className="mt-1 flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900 px-2 py-1">
+                  <button aria-label="Mês anterior" onClick={previousMonth} className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white"><ChevronLeft className="h-4 w-4" /></button>
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-white"><CalendarDays className="h-4 w-4 text-cyan-400" />{MONTHS[month - 1]} {year}</span>
+                  <button aria-label="Próximo mês" onClick={nextMonth} className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white"><ChevronRight className="h-4 w-4" /></button>
                 </div>
               </div>
-            ))}
+            </div>
           </div>
-        )}
-      </div>
+        </header>
 
-      {selectedUnit !== null && (
-        <ExtractModal
-          unit={selectedUnit}
-          referenceDate={referenceDate}
-          events={data?.events ?? []}
-          onClose={() => setSelectedUnit(null)}
-        />
-      )}
+        <main className="mx-auto max-w-[1500px] p-4 md:p-7">
+          {unitsQuery.isLoading ? (
+            <div className="h-64 animate-pulse rounded-xl border border-slate-800 bg-slate-900/40" />
+          ) : units.length === 0 ? (
+            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-12 text-center">
+              <Landmark className="mx-auto h-10 w-10 text-slate-600" />
+              <h2 className="mt-4 text-base font-semibold text-white">Nenhuma unidade financeira disponível</h2>
+              <p className="mt-1 text-sm text-slate-400">Solicite ao responsável financeiro o vínculo e a permissão de acesso para sua unidade.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
+                <CheckCircle2 className="h-4 w-4" /> Dados exclusivos de <strong>{selectedUnit?.unit_name}</strong>. Nenhum valor de outra unidade é somado nesta tela.
+              </div>
+
+              <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <MetricCard label="Laudos assinados" value={String(summary?.total_laudos ?? 0)} icon={<FileText className="h-5 w-5" />} tone="cyan" />
+                <MetricCard label="A receber" value={fmtBRL(summary?.doctor_total)} icon={<CircleDollarSign className="h-5 w-5" />} tone="emerald" />
+                <MetricCard label="Recebido" value={fmtBRL(summary?.doctor_paid)} icon={<BadgeDollarSign className="h-5 w-5" />} tone="blue" />
+                <MetricCard label="Preço pendente" value={`${pricingPending} evento${pricingPending === 1 ? "" : "s"}`} icon={<AlertCircle className="h-5 w-5" />} tone="amber" sub={pricingPending > 0 ? "Consulte o responsável financeiro" : "Todos os eventos têm preço"} />
+              </section>
+
+              <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(380px,0.9fr)]">
+                <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60">
+                  <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+                    <div>
+                      <h2 className="font-semibold text-white">Meus documentos assinados</h2>
+                      <p className="mt-0.5 text-xs text-slate-400">Ciclo {summary?.cycle_label ?? `${MONTHS[month - 1]} ${year}`} · {events.length} documento(s)</p>
+                    </div>
+                    {financeQuery.isFetching && <span className="text-xs text-cyan-400">Atualizando…</span>}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[680px] text-sm">
+                      <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-5 py-3 text-left">Data</th><th className="px-3 py-3 text-left">Documento</th><th className="px-3 py-3 text-left">Modalidade</th><th className="px-3 py-3 text-right">Preço aplicado</th><th className="px-5 py-3 text-right">Recebimento</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/80">
+                        {financeQuery.isLoading ? (
+                          <tr><td colSpan={5} className="px-5 py-10 text-center text-slate-500">Carregando documentos…</td></tr>
+                        ) : events.length === 0 ? (
+                          <tr><td colSpan={5} className="px-5 py-12 text-center text-slate-500">Nenhum documento assinado neste ciclo para esta unidade.</td></tr>
+                        ) : events.map((event) => {
+                          const priced = !event.pricing_status || event.pricing_status === "ok";
+                          return <tr key={event.id} className="hover:bg-slate-800/35">
+                            <td className="px-5 py-3 text-slate-400">{fmtDate(event.study_date ?? event.signed_at)}</td>
+                            <td className="px-3 py-3 font-medium text-white">{event.exam_name_snapshot ?? "Documento assinado"}</td>
+                            <td className="px-3 py-3"><span className="rounded border border-slate-700 bg-slate-800 px-2 py-1 font-mono text-xs text-slate-300">{event.modality_snapshot ?? "—"}</span></td>
+                            <td className={`px-3 py-3 text-right font-medium ${priced ? "text-cyan-300" : "text-amber-300"}`}>{priced ? fmtBRL(event.doctor_amount_due) : "Preço pendente"}</td>
+                            <td className="px-5 py-3 text-right">{event.doctor_received_at ? <span className="inline-flex items-center gap-1 text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" />Recebido</span> : <span className="text-amber-300">A receber</span>}</td>
+                          </tr>;
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <aside className="rounded-xl border border-slate-800 bg-slate-900/60">
+                  <div className="border-b border-slate-800 px-5 py-4"><h2 className="font-semibold text-white">Preço por modalidade</h2><p className="mt-0.5 text-xs text-slate-400">Valores vigentes nesta unidade</p></div>
+                  <div className="divide-y divide-slate-800/80">
+                    {pricesQuery.isLoading ? <div className="p-6 text-sm text-slate-500">Carregando preços…</div> : !pricesQuery.data?.length ? <div className="p-6 text-sm text-amber-300">Nenhum preço por modalidade está configurado para este ciclo. Consulte o responsável financeiro.</div> : pricesQuery.data.map((price) => {
+                      const meta = MODALITY_META[price.modality] ?? { label: price.modality, className: "bg-slate-700 text-slate-200 border-slate-600" };
+                      return <div key={price.modality} className="flex items-center justify-between gap-4 px-5 py-4"><div className="flex items-center gap-3"><span className={`rounded border px-2 py-1 text-xs font-bold ${meta.className}`}>{price.modality}</span><span className="text-sm text-slate-200">{meta.label}</span></div><span className="font-semibold text-cyan-300">{fmtBRL(price.price_per_report)}</span></div>;
+                    })}
+                  </div>
+                  <div className="m-4 rounded-lg border border-slate-700/70 bg-slate-950/50 p-3 text-xs leading-relaxed text-slate-400">Valores definidos pelo responsável financeiro da unidade. Cada valor exibido é aplicado somente a documentos assinados dentro da vigência correspondente.</div>
+                </aside>
+              </section>
+            </div>
+          )}
+        </main>
+      </div>
     </FinanceShell>
   );
+}
+
+function MetricCard({ label, value, icon, tone, sub }: { label: string; value: string; icon: React.ReactNode; tone: "cyan" | "emerald" | "blue" | "amber"; sub?: string }) {
+  const tones = {
+    cyan: "border-cyan-500/20 bg-cyan-500/5 text-cyan-300",
+    emerald: "border-emerald-500/20 bg-emerald-500/5 text-emerald-300",
+    blue: "border-blue-500/20 bg-blue-500/5 text-blue-300",
+    amber: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+  };
+  return <div className={`rounded-xl border p-4 ${tones[tone]}`}><div className="flex items-center gap-2 text-xs opacity-80">{icon}<span>{label}</span></div><p className="mt-3 text-xl font-bold text-white">{value}</p>{sub && <p className="mt-1 text-xs opacity-80">{sub}</p>}</div>;
 }

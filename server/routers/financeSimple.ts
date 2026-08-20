@@ -713,11 +713,82 @@ export const financeSimpleRouter = router({
     }),
 
   /**
-   * Meu Financeiro — extrato do médico logado, por unidade
+   * Unidades financeiras do médico logado. A seleção explícita é obrigatória
+   * na interface para impedir consolidação acidental entre hospitais.
+   */
+  myFinanceiroUnits: protectedProcedure
+    .query(async ({ ctx }) => {
+      assertMedico(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      if (ctx.user.role === 'admin_master') return [];
+      const permissions = await getUserUnitPermissions(ctx.user.id);
+      const unitIds = permissions
+        .filter((permission) => permission.view_financial)
+        .map((permission) => permission.unit_id);
+      if (unitIds.length === 0) return [];
+
+      return db
+        .select({
+          unit_id: units.id,
+          unit_name: units.name,
+          cycle_start_day: units.billing_cycle_start_day,
+          cycle_end_day: units.billing_cycle_end_day,
+        })
+        .from(units)
+        .where(inArray(units.id, unitIds))
+        .orderBy(units.name);
+    }),
+
+  /** Preços vigentes do próprio médico no contexto de uma única unidade. */
+  myModalityPrices: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().int(),
+      reference_date: z.string().datetime().optional(),
+    }))
+    .query(async ({ input, ctx }) => {
+      assertMedico(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      if (ctx.user.role !== 'admin_master') {
+        const permissions = await getUserUnitPermissions(ctx.user.id);
+        const allowed = permissions.some((permission) =>
+          permission.unit_id === input.unit_id && permission.view_financial,
+        );
+        if (!allowed) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem acesso financeiro a esta unidade.' });
+        }
+      }
+
+      const referenceDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      return db
+        .select({
+          modality: billing_doctor_modality_prices.modality,
+          price_per_report: billing_doctor_modality_prices.price_per_report,
+          starts_at: billing_doctor_modality_prices.starts_at,
+        })
+        .from(billing_doctor_modality_prices)
+        .where(and(
+          eq(billing_doctor_modality_prices.doctor_user_id, ctx.user.id),
+          eq(billing_doctor_modality_prices.unit_id, input.unit_id),
+          lte(billing_doctor_modality_prices.starts_at, referenceDate),
+          or(
+            isNull(billing_doctor_modality_prices.ends_at),
+            gte(billing_doctor_modality_prices.ends_at, referenceDate),
+          ),
+        ))
+        .orderBy(billing_doctor_modality_prices.modality);
+    }),
+
+  /**
+   * Meu Financeiro — extrato do médico logado para uma única unidade.
    */
   myFinanceiro: protectedProcedure
     .input(z.object({
       reference_date: z.string().datetime().optional(),
+      unit_id: z.number().int(),
     }))
     .query(async ({ input, ctx }) => {
       assertMedico(ctx.user.role);
@@ -748,8 +819,8 @@ export const financeSimpleRouter = router({
         allowedUnitIds = allPerms
           .filter(p => p.view_financial)
           .map(p => p.unit_id);
-        if (allowedUnitIds.length === 0) {
-          return { summary: [], events: [] };
+        if (!allowedUnitIds.includes(input.unit_id)) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem acesso financeiro a esta unidade.' });
         }
       }
 
@@ -767,10 +838,11 @@ export const financeSimpleRouter = router({
       const unitRows = allowedUnitIds !== null
         ? (await unitRowsQuery).filter(u => allowedUnitIds!.includes(u.id))
         : await unitRowsQuery;
+      const scopedUnitRows = unitRows.filter((unit) => unit.id === input.unit_id);
 
       // Para cada unidade, buscar resumo dentro do ciclo real
       const summaryRaw = await Promise.all(
-        unitRows.map(async (u) => {
+        scopedUnitRows.map(async (u) => {
           const { cycleStart, cycleEnd, label: cycle_label } = calcCycleDates(u.s, u.e, refDate);
           const r = await db
             .select({
@@ -803,7 +875,7 @@ export const financeSimpleRouter = router({
 
       // Laudos individuais: buscar por unidade dentro do ciclo real
       const eventsPerUnit = await Promise.all(
-        unitRows.map(async (u) => {
+        scopedUnitRows.map(async (u) => {
           const { cycleStart, cycleEnd } = calcCycleDates(u.s, u.e, refDate);
           return db
             .select({
@@ -878,7 +950,7 @@ export const financeSimpleRouter = router({
       }
 
       // Fallback: se unidade não tem preço de modalidade, buscar default_doctor_price da unidade
-      for (const u of unitRows) {
+      for (const u of scopedUnitRows) {
         if (!priceByUnit.has(u.id)) {
           // Buscar default da unidade (já temos u.id — query inline)
           const unitDefault = await db
