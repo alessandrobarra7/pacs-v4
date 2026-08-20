@@ -11,10 +11,11 @@ describe("prioridade clínica na listagem de estudos", () => {
     expect(page).toContain('>Prioridade máxima</button>');
   });
 
-  it("consulta a prioridade por unidade e a exibe abaixo do status em desktop e mobile", () => {
+  it("consulta a prioridade por unidade e preserva indicadores nos dois layouts", () => {
     expect(page).toContain("trpc.studyPriority.getBatch.useQuery");
     expect(page).toContain("priorityByStudyUid.get(study.studyInstanceUid)");
-    expect(page.match(/<StudyPriorityControls/g)?.length).toBe(2);
+    expect(page.match(/<StudyPriorityControls/g)?.length).toBe(1);
+    expect(page.match(/<StudyPriorityDesktopCell/g)?.length).toBe(2);
     expect(page).toContain('Sinalizado por {markedByName || "outro usuário"}');
   });
 
@@ -24,9 +25,11 @@ describe("prioridade clínica na listagem de estudos", () => {
     expect(page).toContain("canMark && isOwnPriority");
   });
 
-  it("agrupa a sinalização clínica em um painel legível na tabela desktop", () => {
-    expect(page).toContain("Sinalização clínica");
-    expect(page).toContain("min-w-[172px]");
-    expect(page).toContain("text-[10px] font-bold uppercase");
+  it("expõe Urgência e Prioridade máxima em colunas compactas na tabela desktop", () => {
+    expect(page).toContain('title="Urgência">Urg.</th>');
+    expect(page).toContain('title="Prioridade máxima">Prior.</th>');
+    expect(page).toContain('type="urgencia"');
+    expect(page).toContain('type="prioridade_maxima"');
+    expect(page).toContain("<td colSpan={13}");
   });
 });

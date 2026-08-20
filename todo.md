@@ -1241,6 +1241,7 @@
 - [x] Atualizar a VM1 para o commit 3852302 após a migração aprovada da VM2 e validar prioridade clínica em produção
 - [x] Corrigir a ausência dos controles Urgência e Prioridade máxima nas listagens móvel e desktop para os perfis autorizados
 - [x] Ajustar a apresentação da sinalização clínica na tabela desktop e versionar a correção no GitHub
+- [x] Substituir o painel da coluna Status por colunas compactas e exclusivas de Urgência e Prioridade máxima no desktop
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
