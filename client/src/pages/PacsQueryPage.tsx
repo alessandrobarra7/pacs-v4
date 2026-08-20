@@ -2041,7 +2041,6 @@ setSelectedStudy(study);
                   : "Sem nome";
                 // Override do banco prevalece sobre o dado do PACS
                 const patientName = (meta?.patient_name_override || patientNameRaw).toUpperCase();
-                const patientNameEdited = !!meta?.patient_name_override;
                 const age = calcAge(study.patientBirthDate || '');
                 const sex = formatSex(study.patientSex || '');
                 const dateFormatted = formatDate(study.studyDate || '');
@@ -2073,21 +2072,21 @@ setSelectedStudy(study);
                       <div className="text-xs text-gray-400 mt-0.5">{imageCountLabel}</div>
                     </td>
 
-                    {/* Paciente — editável (Opção 1) */}
+                    {/* Paciente — a aparência é sempre neutra; o histórico da correção permanece no banco. */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5 group">
-                        <div className={`font-semibold text-sm leading-tight uppercase ${patientNameEdited ? 'text-amber-700' : 'text-gray-900'}`}>
+                        <div className="font-semibold text-sm leading-tight uppercase text-gray-900">
                           {patientName}
-                          {patientNameEdited && <span className="ml-1 text-xs text-amber-500" title="Nome editado no portal">✏️</span>}
                         </div>
                         {canEditExamLegend && (
                           <button
                             type="button"
                             onClick={() => handleEditPatientName(study.studyInstanceUid, patientName)}
                             title="Editar nome do paciente"
-                            className="opacity-0 group-hover:opacity-100 text-xs text-gray-400 hover:text-amber-600 p-1 transition-opacity"
+                            aria-label="Editar nome do paciente"
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-400 transition-colors hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700"
                           >
-                            ✏️
+                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
                         )}
                       </div>
@@ -2333,7 +2332,6 @@ setSelectedStudy(study);
                   ? study.patientName.replace(/\^+/g, ' ').replace(/\s{2,}/g, ' ').trim()
                   : 'Sem nome';
                 const patientName = (meta?.patient_name_override || patientNameRaw).toUpperCase();
-                const patientNameEdited = !!meta?.patient_name_override;
                 const examLabel = (legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? []).map((selection) => selection.exam_name_snapshot).join(' + ') || meta?.description_override || study.studyDescription || 'Sem descrição';
                 const dateFormatted = formatDate(study.studyDate || '');
                 const imageCount = Number.parseInt(String(study.numberOfInstances ?? ''), 10);
@@ -2514,7 +2512,7 @@ setSelectedStudy(study);
                       </div>
                     )}
                     <div className="mt-1.5 flex items-start gap-2">
-                      <div className={`min-w-0 flex-1 break-words pr-1 text-[15px] font-bold uppercase leading-tight ${patientNameEdited ? 'text-amber-700' : 'text-amber-800'}`}>
+                      <div className="min-w-0 flex-1 break-words pr-1 text-[15px] font-bold uppercase leading-tight text-amber-800">
                         {patientName}
                         {canEditExamLegend && (
                           <button

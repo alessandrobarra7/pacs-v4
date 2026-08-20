@@ -2332,3 +2332,16 @@
 - [x] Permitir ao admin_master definir as unidades autorizadas a visualizar e selecionar cada legenda canônica, inicialmente habilitada para todas as unidades.
 - [x] Filtrar o modal clínico para exibir somente as legendas disponíveis na unidade atual.
 - [x] Criar migração aditiva, testes de regressão e procedimento seguro para aplicação controlada na VM2.
+
+## IMPLANTAÇÃO CONTROLADA — MIGRAÇÃO 0051 E COMPOSIÇÃO DE LEGENDAS
+
+- [x] Executar diagnóstico e backup consistente na VM2 antes da migração 0051.
+- [x] Aplicar e verificar a migração 0051 na VM2 antes de qualquer atualização da VM1.
+- [x] Atualizar a VM1 para o commit 0b495d7 somente após a confirmação da VM2.
+- [ ] Validar o serviço da VM1 e a composição de duas legendas em estudo controlado após a implantação.
+
+## CORREÇÃO — INDICADOR VISUAL DE NOME DO PACIENTE
+
+- [x] Diagnosticar a divergência entre nomes padrão e nomes com aparência de edição na listagem PACS.
+- [x] Uniformizar cor, tipografia e ícone do nome do paciente conforme o estado real de correção persistida.
+- [x] Adicionar regressão de interface, validar no sandbox e versionar a correção antes de atualizar a VM1.
