@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { Plus, Pencil, Trash2, ArrowLeft, FileText, Link2, AlertTriangle } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowLeft, FileText, Link2, AlertTriangle, Search } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +37,7 @@ const emptyDraft = (): CatalogDraft => ({
   pacsMappings: [],
 });
 
-export default function ExamCatalogPage() {
+export default function ExamCatalogPage({ embedded = false }: { embedded?: boolean }) {
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
   const { data: entries = [], isLoading } = trpc.examCatalog.list.useQuery();
@@ -56,7 +56,17 @@ export default function ExamCatalogPage() {
 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<CatalogDraft>(emptyDraft);
+  const [search, setSearch] = useState("");
+  const [modalityFilter, setModalityFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("active");
   const activeCount = useMemo(() => entries.filter((entry: CatalogEntry) => entry.is_active).length, [entries]);
+  const mappingCount = useMemo(() => entries.reduce((total: number, entry: CatalogEntry) => total + entry.pacsMappings.length, 0), [entries]);
+  const filteredEntries = useMemo(() => entries.filter((entry: CatalogEntry) => {
+    const matchesText = entry.exam_name.toLocaleLowerCase("pt-BR").includes(search.trim().toLocaleLowerCase("pt-BR"));
+    const matchesModality = modalityFilter === "all" || entry.modality === modalityFilter;
+    const matchesStatus = statusFilter === "all" || (statusFilter === "active" ? entry.is_active : !entry.is_active);
+    return matchesText && matchesModality && matchesStatus;
+  }), [entries, search, modalityFilter, statusFilter]);
 
   const startCreate = () => {
     setDraft(emptyDraft());
@@ -96,8 +106,8 @@ export default function ExamCatalogPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-950/90">
+    <main className={embedded ? "space-y-5" : "min-h-screen bg-slate-950 text-slate-100"}>
+      {!embedded && <header className="border-b border-slate-800 bg-slate-950/90">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-5">
           <div className="flex min-w-0 items-center gap-4">
             <Button variant="ghost" size="icon" className="text-slate-300 hover:bg-slate-800 hover:text-white" onClick={() => navigate("/admin")} aria-label="Voltar à administração">
@@ -112,48 +122,64 @@ export default function ExamCatalogPage() {
             <Plus className="mr-2 h-4 w-4" /> Novo exame
           </Button>
         </div>
-      </header>
+      </header>}
 
-      <section className="mx-auto max-w-6xl space-y-6 px-6 py-8">
-        <Card className="border-amber-400/20 bg-amber-400/5 text-slate-100">
-          <CardContent className="flex gap-3 p-4 text-sm text-amber-100">
+      <section className={embedded ? "space-y-5" : "mx-auto max-w-6xl space-y-6 px-6 py-8"}>
+        {embedded && <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">Administração central</p>
+            <h2 className="mt-1 text-lg font-semibold text-gray-900">Catálogo de exames</h2>
+            <p className="text-sm text-gray-500">Legendas canônicas, documentos independentes e correspondências recebidas do PACS.</p>
+          </div>
+          <Button className="w-full bg-cyan-700 hover:bg-cyan-600 sm:w-auto" onClick={startCreate}><Plus className="mr-2 h-4 w-4" /> Novo exame</Button>
+        </div>}
+
+        <Card className={embedded ? "border-amber-200 bg-amber-50 text-amber-950" : "border-amber-400/20 bg-amber-400/5 text-slate-100"}>
+          <CardContent className={embedded ? "flex gap-3 p-4 text-sm text-amber-900" : "flex gap-3 p-4 text-sm text-amber-100"}>
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
             <p>Somente descrições PACS mapeadas aqui recebem legenda canônica. Quando não houver mapeamento, o Portal exibe a descrição original do PACS.</p>
           </CardContent>
         </Card>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric label="Exames cadastrados" value={entries.length} />
           <Metric label="Exames ativos" value={activeCount} />
           <Metric label="Documentos configurados" value={entries.reduce((total: number, entry: CatalogEntry) => total + entry.documents.length, 0)} />
+          <Metric label="Mapeamentos PACS" value={mappingCount} />
         </div>
 
-        <Card className="border-slate-800 bg-slate-900/60 text-slate-100">
+        <Card className={embedded ? "border-gray-200 bg-white text-gray-900" : "border-slate-800 bg-slate-900/60 text-slate-100"}>
           <CardHeader>
             <CardTitle>Exames disponíveis</CardTitle>
-            <CardDescription className="text-slate-400">Cada documento configurado terá seu próprio rascunho, assinatura e evento financeiro.</CardDescription>
+            <CardDescription className={embedded ? "text-gray-500" : "text-slate-400"}>Cada documento configurado terá seu próprio rascunho, assinatura e evento financeiro.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_150px_160px]">
+              <label className="relative block"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="border-gray-300 bg-white pl-9" placeholder="Buscar por nome de exame" /></label>
+              <select value={modalityFilter} onChange={(event) => setModalityFilter(event.target.value)} className="h-9 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-700"><option value="all">Todas as modalidades</option>{modalities.map((modality) => <option key={modality} value={modality}>{modality}</option>)}</select>
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-9 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-700"><option value="active">Somente ativos</option><option value="inactive">Somente inativos</option><option value="all">Todos os status</option></select>
+            </div>
+            <p className={embedded ? "text-xs text-gray-500" : "text-xs text-slate-400"}>{filteredEntries.length} resultado(s) conforme os filtros administrativos.</p>
             {isLoading ? <p className="py-8 text-center text-sm text-slate-400">Carregando catálogo…</p> : null}
-            {!isLoading && !entries.length ? <p className="py-8 text-center text-sm text-slate-400">Nenhum exame cadastrado no catálogo.</p> : null}
-            {entries.map((entry: CatalogEntry) => (
-              <article key={entry.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+            {!isLoading && !filteredEntries.length ? <p className="py-8 text-center text-sm text-slate-400">Nenhum exame corresponde aos filtros selecionados.</p> : null}
+            {filteredEntries.map((entry: CatalogEntry) => (
+              <article key={entry.id} className={embedded ? "rounded-xl border border-gray-200 bg-gray-50 p-4" : "rounded-xl border border-slate-800 bg-slate-950/60 p-4"}>
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div className="min-w-0 space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="font-medium text-white">{entry.exam_name}</h2>
+                      <h2 className={embedded ? "font-medium text-gray-900" : "font-medium text-white"}>{entry.exam_name}</h2>
                       <Badge variant="outline" className="border-cyan-500/40 text-cyan-300">{entry.modality}</Badge>
                       <Badge variant="outline" className={entry.is_active ? "border-emerald-500/40 text-emerald-300" : "border-slate-600 text-slate-400"}>{entry.is_active ? "Ativo" : "Inativo"}</Badge>
                     </div>
-                    <div className="flex flex-wrap gap-2 text-xs text-slate-300">
-                      {entry.documents.length ? entry.documents.map((document) => <span key={document.document_key} className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1"><FileText className="h-3.5 w-3.5 text-cyan-300" />{document.document_label}</span>) : <span className="text-amber-300">Sem documento clínico configurado</span>}
+                    <div className={embedded ? "flex flex-wrap gap-2 text-xs text-gray-700" : "flex flex-wrap gap-2 text-xs text-slate-300"}>
+                      {entry.documents.length ? entry.documents.map((document) => <span key={document.document_key} className={embedded ? "inline-flex items-center gap-1 rounded-md bg-cyan-50 px-2 py-1 text-cyan-900" : "inline-flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1"}><FileText className="h-3.5 w-3.5 text-cyan-600" />{document.document_label}</span>) : <span className="text-amber-600">Sem documento clínico configurado</span>}
                     </div>
-                    <div className="flex flex-wrap gap-2 text-xs text-slate-400">
-                      {entry.pacsMappings.map((mapping) => <span key={mapping.id} className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1"><Link2 className="h-3.5 w-3.5" />{mapping.modality || "Qualquer"}: {mapping.pacs_description}</span>)}
+                    <div className={embedded ? "flex flex-wrap gap-2 text-xs text-gray-500" : "flex flex-wrap gap-2 text-xs text-slate-400"}>
+                      {entry.pacsMappings.map((mapping) => <span key={mapping.id} className={embedded ? "inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1" : "inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1"}><Link2 className="h-3.5 w-3.5" />{mapping.modality || "Qualquer"}: {mapping.pacs_description}</span>)}
                       {!entry.pacsMappings.length ? <span>Sem descrição PACS mapeada.</span> : null}
                     </div>
                   </div>
-                  <Button variant="outline" className="border-slate-700 bg-transparent text-slate-200 hover:bg-slate-800 hover:text-white" onClick={() => startEdit(entry)}>
+                  <Button variant="outline" className={embedded ? "border-gray-300 bg-white text-gray-700 hover:bg-gray-100" : "border-slate-700 bg-transparent text-slate-200 hover:bg-slate-800 hover:text-white"} onClick={() => startEdit(entry)}>
                     <Pencil className="mr-2 h-4 w-4" /> Editar
                   </Button>
                 </div>
@@ -212,7 +238,7 @@ export default function ExamCatalogPage() {
 }
 
 function Metric({ label, value }: { label: string; value: number }) {
-  return <Card className="border-slate-800 bg-slate-900/60 text-slate-100"><CardContent className="p-4"><p className="text-xs uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 text-2xl font-semibold text-white">{value}</p></CardContent></Card>;
+  return <Card className="border-gray-200 bg-white text-gray-900"><CardContent className="p-4"><p className="text-xs uppercase tracking-wide text-gray-500">{label}</p><p className="mt-1 text-2xl font-semibold text-gray-900">{value}</p></CardContent></Card>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

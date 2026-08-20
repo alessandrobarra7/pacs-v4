@@ -9,7 +9,7 @@ import {
 import {
   Building2, Users, ClipboardList, Plus, Edit2, Trash2, Server, HardDrive,
   Trash, RefreshCw, Power, PowerOff, LayoutTemplate, Wallet, Link as LinkIcon,
-  UserCheck, X, ChevronDown, ChevronUp, Shield, MapPin, Eye, Settings2,
+  UserCheck, X, ChevronDown, ChevronUp, Shield, MapPin, Eye, Settings2, BookOpen,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -24,8 +24,9 @@ import { toast } from "sonner";
 import UnitFormDialog, { type UnitFormData } from "@/components/UnitFormDialog";
 import UserFormDialog, { type UserFormData } from "@/components/UserFormDialog";
 import { UsersPermissionsTab } from "@/components/UsersPermissionsTab";
+import ExamCatalogPage from "./ExamCatalogPage";
 
-type Tab = "units" | "users";
+type Tab = "units" | "users" | "catalog";
 
 const ROLE_LABELS: Record<string, string> = {
   admin_master: "Admin Master",
@@ -962,6 +963,7 @@ export default function AdminPage() {
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     ...(isAdminMaster ? [{ key: "units" as Tab, label: "Unidades", icon: <Building2 className="h-4 w-4" /> }] : []),
     ...(canManageUsers ? [{ key: "users" as Tab, label: "Usuários", icon: <Users className="h-4 w-4" /> }] : []),
+    ...(isAdminMaster ? [{ key: "catalog" as Tab, label: "Catálogo de exames", icon: <BookOpen className="h-4 w-4" /> }] : []),
   ];
 
   const effectiveTab = (!isAdminMaster && activeTab === "units") ? "users" : activeTab;
@@ -1007,6 +1009,9 @@ export default function AdminPage() {
       </div>
 
       <div className="px-3 sm:px-6 py-4 sm:py-5">
+
+        {/* ── ABA CATÁLOGO — exclusiva do administrador geral ── */}
+        {effectiveTab === "catalog" && isAdminMaster && <ExamCatalogPage embedded />}
 
         {/* ── ABA UNIDADES ── */}
         {effectiveTab === "units" && isAdminMaster && (

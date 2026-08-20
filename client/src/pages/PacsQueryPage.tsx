@@ -1651,14 +1651,6 @@ setSelectedStudy(study);
                 Administração
               </button>
             )}
-            {isAdminMaster && (
-              <button
-                onClick={() => navigate('/admin/exames')}
-                className="px-4 py-1.5 rounded text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                Catálogo de exames
-              </button>
-            )}
             {canViewFinancial && (
               <button
                 onClick={() => {

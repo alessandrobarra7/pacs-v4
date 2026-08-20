@@ -1206,6 +1206,12 @@
 - [ ] C5: FK em billing_visit_events para reports (ON DELETE CASCADE)
 - [ ] C6: Trigger de responsável único ativo por unidade (SQL para VM2)
 
+## CATÁLOGO DE EXAMES — Reorganização Administrativa
+
+- [x] Remover o acesso ao Catálogo de Exames da navegação principal e concentrá-lo na administração ao lado de Usuários e Unidades
+- [x] Reestruturar a tela do Catálogo de Exames para gestão administrativa mais clara de exames, documentos e mapeamentos PACS
+- [x] Validar rota, RBAC de admin_master e ausência do atalho no cabeçalho principal
+
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
 - [ ] Criar tabela exam_legends (exam_name, bilateral, modality) no schema Drizzle
