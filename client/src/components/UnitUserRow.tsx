@@ -10,6 +10,7 @@ export const ROLE_LABELS: Record<string, string> = {
   responsavel_financeiro: "Resp. Financeiro",
   viewer: "Visualizador",
   operador: "Operador",
+  atendente: "Atendente",
 };
 
 export const ROLE_COLORS: Record<string, string> = {
@@ -19,6 +20,7 @@ export const ROLE_COLORS: Record<string, string> = {
   responsavel_financeiro: "border-emerald-200 text-emerald-700 bg-emerald-50",
   viewer: "border-gray-200 text-gray-600 bg-gray-50",
   operador: "border-purple-200 text-purple-700 bg-purple-50",
+  atendente: "border-cyan-200 text-cyan-700 bg-cyan-50",
 };
 
 export interface UnitUser {
