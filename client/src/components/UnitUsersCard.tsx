@@ -21,6 +21,7 @@ export interface UnitAccessNode {
     responsibleCount: number;
     doctorCount: number;
     operatorCount: number;
+    attendantCount: number;
     viewerCount: number;
     unitAdminCount: number;
   };
@@ -28,6 +29,7 @@ export interface UnitAccessNode {
     responsaveisFinanceiros: UnitUser[];
     medicos: UnitUser[];
     operadores: UnitUser[];
+    atendentes: UnitUser[];
     visualizadores: UnitUser[];
     administradoresUnidade: UnitUser[];
     adminsMaster: UnitUser[];
@@ -66,6 +68,7 @@ export default function UnitUsersCard({
     totals.responsibleCount > 0 && `${totals.responsibleCount} resp.`,
     totals.doctorCount > 0 && `${totals.doctorCount} médico${totals.doctorCount !== 1 ? "s" : ""}`,
     totals.operatorCount > 0 && `${totals.operatorCount} operador${totals.operatorCount !== 1 ? "es" : ""}`,
+    totals.attendantCount > 0 && `${totals.attendantCount} atendente${totals.attendantCount !== 1 ? "s" : ""}`,
     totals.viewerCount > 0 && `${totals.viewerCount} visualizador${totals.viewerCount !== 1 ? "es" : ""}`,
     totals.unitAdminCount > 0 && `${totals.unitAdminCount} admin${totals.unitAdminCount !== 1 ? "s" : ""} unidade`,
   ].filter(Boolean).join(" · ");
@@ -170,6 +173,18 @@ export default function UnitUsersCard({
               currentUserId={currentUserId}
               currentUserRole={currentUserRole}
               emptyMessage="Nenhum operador vinculado"
+              onEdit={onEdit}
+              onToggleActive={onToggleActive}
+              onDelete={onDelete}
+              onRemoveLink={onRemoveLink}
+            />
+            <UnitUsersGroup
+              label="Atendentes"
+              users={groups.atendentes}
+              unitId={unit.id}
+              currentUserId={currentUserId}
+              currentUserRole={currentUserRole}
+              emptyMessage="Nenhum atendente vinculado"
               onEdit={onEdit}
               onToggleActive={onToggleActive}
               onDelete={onDelete}

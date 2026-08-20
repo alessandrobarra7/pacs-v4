@@ -23,6 +23,7 @@ const ROLES = [
   { value: "responsavel_financeiro", label: "Responsável Financeiro" },
   { value: "viewer", label: "Visualizador" },
   { value: "operador", label: "Operador" },
+  { value: "atendente", label: "Atendente" },
 ] as const;
 
 type Role = typeof ROLES[number]["value"];
@@ -71,6 +72,7 @@ const ROLE_COLORS: Record<string, string> = {
   responsavel_financeiro: "border-emerald-200 text-emerald-700 bg-emerald-50",
   viewer: "border-gray-200 text-gray-600 bg-gray-50",
   operador: "border-green-200 text-green-700 bg-green-50",
+  atendente: "border-cyan-200 text-cyan-700 bg-cyan-50",
 };
 
 const PERMISSION_LABELS: Array<{ key: keyof UnitPermission; label: string }> = [
@@ -88,6 +90,7 @@ function defaultPermission(unitId: number, role?: string): UnitPermission {
   const roleDefaults: Record<string, Omit<UnitPermission, 'unit_id'>> = {
     medico: { view_studies: true, edit_reports: true, view_anamnesis: true, edit_anamnesis: true, edit_exam_legend: true, print_reports: true, manage_templates: true },
     operador: { view_studies: true, edit_reports: false, view_anamnesis: true, edit_anamnesis: true, edit_exam_legend: true, print_reports: false, manage_templates: false },
+    atendente: { view_studies: true, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: false, manage_templates: false },
     viewer: { view_studies: true, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true, manage_templates: false },
     responsavel_financeiro: { view_studies: false, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: false, manage_templates: false },
     unit_admin: { view_studies: true, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true, manage_templates: false },

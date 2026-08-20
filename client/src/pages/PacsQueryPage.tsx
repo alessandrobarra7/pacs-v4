@@ -4,7 +4,7 @@ import {
   Search, Eye, FileText, Printer, Paperclip,
   Clipboard, Settings, DollarSign,
   ChevronLeft, ChevronRight, Clock, Pencil, Check, X,
-  Download, Loader2, CalendarDays, Mic, Volume2,
+  Download, Loader2, CalendarDays, Mic, Volume2, AlertTriangle, Siren,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
@@ -206,6 +206,49 @@ function FinancialSummaryValue({ label, value, labelColor }: { label: string; va
   );
 }
 
+type StudyPriorityValue = "urgencia" | "prioridade_maxima";
+
+function StudyPriorityControls({
+  priority,
+  markedByUserId,
+  markedByName,
+  currentUserId,
+  canMark,
+  isSaving,
+  onSelect,
+}: {
+  priority?: StudyPriorityValue;
+  markedByUserId?: number;
+  markedByName?: string | null;
+  currentUserId?: number;
+  canMark: boolean;
+  isSaving: boolean;
+  onSelect: (priority: StudyPriorityValue) => void;
+}) {
+  if (!priority && !canMark) return null;
+  const isOwnPriority = !priority || markedByUserId === currentUserId;
+  const urgencyActive = priority === "urgencia";
+  const maximumActive = priority === "prioridade_maxima";
+
+  return (
+    <div className="mt-1.5 flex flex-col items-center gap-1" onClick={(event) => event.stopPropagation()}>
+      {priority && (
+        <span title={markedByName ? `Sinalizado por ${markedByName}` : undefined} className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase leading-none ${urgencyActive ? "border-red-200 bg-red-50 text-red-700" : "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"}`}>
+          {urgencyActive ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <Siren className="h-3 w-3 shrink-0" />}
+          {urgencyActive ? "Urgência" : "Prioridade máxima"}
+        </span>
+      )}
+      {canMark && isOwnPriority && (
+        <div className="flex items-center justify-center gap-1">
+          <button type="button" disabled={isSaving} onClick={() => onSelect("urgencia")} className={`rounded-full border px-2 py-1 text-[9px] font-semibold leading-none transition-colors disabled:cursor-wait disabled:opacity-60 ${urgencyActive ? "border-red-300 bg-red-600 text-white" : "border-red-200 bg-white text-red-700 hover:bg-red-50"}`}>Urgência</button>
+          <button type="button" disabled={isSaving} onClick={() => onSelect("prioridade_maxima")} className={`rounded-full border px-2 py-1 text-[9px] font-semibold leading-none transition-colors disabled:cursor-wait disabled:opacity-60 ${maximumActive ? "border-fuchsia-300 bg-fuchsia-600 text-white" : "border-fuchsia-200 bg-white text-fuchsia-700 hover:bg-fuchsia-50"}`}>Prioridade máxima</button>
+        </div>
+      )}
+      {priority && canMark && !isOwnPriority && <span className="max-w-[130px] text-center text-[9px] leading-tight text-gray-500">Sinalizado por {markedByName || "outro usuário"}</span>}
+    </div>
+  );
+}
+
 /** Ordena estudos do mais recente para o mais antigo */
 function sortByDateDesc(studies: any[]): any[] {
   return [...studies].sort((a, b) => {
@@ -388,6 +431,7 @@ const isAdminMaster = user?.role === 'admin_master';
   // Anexos de requisições pertencem ao estudo: todo usuário autenticado que vê o estudo pode consultá-los.
   // Apenas o médico continua autorizado a enviar e excluir os próprios arquivos no modal.
   const canViewAttachments = Boolean(user?.id);
+  const canMarkStudyPriority = user?.role === "operador" || user?.role === "atendente";
 
   // Persistir unidade selecionada no localStorage para manter a seleção ao navegar entre páginas
   const SELECTED_UNIT_KEY = 'pacs_selected_unit_id';
@@ -532,6 +576,25 @@ const isAdminMaster = user?.role === 'admin_master';
   const [calendarDraftDate, setCalendarDraftDate] = useState<Date | undefined>(undefined);
   const [queryResults, setQueryResults] = useState<any[]>(() => {
     try { return JSON.parse(localStorage.getItem(cacheKey) || '[]'); } catch { return []; }
+  });
+  const priorityStudyUids = useMemo(
+    () => Array.from(new Set(queryResults.map((study: any) => study.studyInstanceUid).filter(Boolean))).slice(0, 100),
+    [queryResults],
+  );
+  const { data: studyPriorityFlags = [] } = trpc.studyPriority.getBatch.useQuery(
+    { studyInstanceUids: priorityStudyUids, unit_id: effectiveUnitId || undefined },
+    { enabled: Boolean(user?.id && effectiveUnitId && priorityStudyUids.length) },
+  );
+  const priorityByStudyUid = useMemo(
+    () => new Map(studyPriorityFlags.map((flag) => [flag.study_instance_uid, flag])),
+    [studyPriorityFlags],
+  );
+  const setStudyPriority = trpc.studyPriority.set.useMutation({
+    onSuccess: () => {
+      trpcUtils.studyPriority.getBatch.invalidate();
+      toast.success("Prioridade clínica atualizada.");
+    },
+    onError: (error) => toast.error("Não foi possível atualizar a prioridade.", { description: error.message }),
   });
   const [isQuerying, setIsQuerying] = useState(false);
   const [isAnamnesisModalOpen, setIsAnamnesisModalOpen] = useState(false);
@@ -1880,6 +1943,7 @@ setSelectedStudy(study);
                 const status = getReportStatus(study);
                 const { cls: statusCls } = statusConfig[status] || { cls: 'bg-gray-100 text-gray-600 border-gray-300' };
                 const hasAnamnesis = !!anamnesisStatusMap[study.studyInstanceUid];
+                const studyPriority = priorityByStudyUid.get(study.studyInstanceUid);
                 const desktopPreDownload = preDownloadMap[study.studyInstanceUid];
                 const isDesktopDownloadActive = desktopPreDownload?.phase === 'connecting' || desktopPreDownload?.phase === 'downloading';
                 const desktopDownloadPercent = desktopPreDownload?.total
@@ -2092,6 +2156,19 @@ setSelectedStudy(study);
                           hasAnamnesis={hasAnamnesis}
                           compact={true}
                         />
+                        <StudyPriorityControls
+                          priority={studyPriority?.priority as StudyPriorityValue | undefined}
+                          markedByUserId={studyPriority?.marked_by_user_id}
+                          markedByName={studyPriority?.marked_by_name}
+                          currentUserId={user?.id}
+                          canMark={canMarkStudyPriority}
+                          isSaving={setStudyPriority.isPending}
+                          onSelect={(priority) => setStudyPriority.mutate({
+                            studyInstanceUid: study.studyInstanceUid,
+                            unit_id: effectiveUnitId || undefined,
+                            priority: studyPriority?.priority === priority ? null : priority,
+                          })}
+                        />
                       </div>
                     </td>
                   </tr>
@@ -2151,6 +2228,7 @@ setSelectedStudy(study);
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
                   : 'bg-gray-50 text-gray-500 border-gray-200';
                 const hasAnamnesis = !!anamnesisStatusMap[study.studyInstanceUid];
+                const studyPriority = priorityByStudyUid.get(study.studyInstanceUid);
                 const mobilePreDownload = preDownloadMap[study.studyInstanceUid];
                 const isMobileDownloadActive = mobilePreDownload?.phase === 'connecting' || mobilePreDownload?.phase === 'downloading';
                 const mobileDownloadPercent = mobilePreDownload?.total
@@ -2338,6 +2416,19 @@ setSelectedStudy(study);
                           readiness={slaReadinessMap[study.studyInstanceUid]}
                           hasAnamnesis={hasAnamnesis}
                           compact={true}
+                        />
+                        <StudyPriorityControls
+                          priority={studyPriority?.priority as StudyPriorityValue | undefined}
+                          markedByUserId={studyPriority?.marked_by_user_id}
+                          markedByName={studyPriority?.marked_by_name}
+                          currentUserId={user?.id}
+                          canMark={canMarkStudyPriority}
+                          isSaving={setStudyPriority.isPending}
+                          onSelect={(priority) => setStudyPriority.mutate({
+                            studyInstanceUid: study.studyInstanceUid,
+                            unit_id: effectiveUnitId || undefined,
+                            priority: studyPriority?.priority === priority ? null : priority,
+                          })}
                         />
                       </div>
                     </div>

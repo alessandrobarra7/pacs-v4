@@ -40,7 +40,7 @@ export type InsertUnit = typeof units.$inferInsert;
 
 /**
  * Users with multi-tenant support and RBAC
- * Roles: admin_master, unit_admin, medico, viewer, operador
+ * Roles: admin_master, unit_admin, medico, viewer, operador, atendente
  */
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -51,7 +51,7 @@ export const users = mysqlTable("users", {
   username: varchar("username", { length: 64 }).unique(),
   password_hash: varchar("password_hash", { length: 255 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["admin_master", "unit_admin", "medico", "viewer", "operador", "responsavel_financeiro"]).default("viewer").notNull(),
+  role: mysqlEnum("role", ["admin_master", "unit_admin", "medico", "viewer", "operador", "atendente", "responsavel_financeiro"]).default("viewer").notNull(),
   isActive: boolean("isActive").default(true).notNull(),
   expiration_date: date("expiration_date"),
   crm: varchar("crm", { length: 50 }),
@@ -82,7 +82,7 @@ export const user_unit_permissions = mysqlTable("user_unit_permissions", {
   edit_exam_legend: boolean("edit_exam_legend").default(false).notNull(),
   view_financial: boolean("view_financial").default(false).notNull(),
   // Papel do usuário nesta unidade específica (independente do role global)
-  group_key: mysqlEnum("group_key", ["responsaveisFinanceiros", "medicos", "operadores", "visualizadores", "administradoresUnidade", "adminsMaster", "outros"]).default("outros"),
+  group_key: mysqlEnum("group_key", ["responsaveisFinanceiros", "medicos", "operadores", "atendentes", "visualizadores", "administradoresUnidade", "adminsMaster", "outros"]).default("outros"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -182,7 +182,7 @@ export const audit_log = mysqlTable("audit_log", {
   id: int("id").autoincrement().primaryKey(),
   user_id: int("user_id"),
   unit_id: int("unit_id"),
-  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "DELETE_REPORT", "REVISE_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "ACTIVATE_USER", "DEACTIVATE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA", "RESET_DOCTOR_BILLING", "CREATE_LAYOUT", "UPDATE_LAYOUT", "DELETE_LAYOUT", "BILLING_EVENT_FAILED", "FINANCIAL_ENABLED", "FINANCIAL_DISABLED", "BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED", "BILLING_EVENT_CANCELLED"]).notNull(),
+  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "DELETE_REPORT", "REVISE_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "ACTIVATE_USER", "DEACTIVATE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA", "SET_STUDY_PRIORITY", "UPDATE_STUDY_PRIORITY", "CLEAR_STUDY_PRIORITY", "RESET_DOCTOR_BILLING", "CREATE_LAYOUT", "UPDATE_LAYOUT", "DELETE_LAYOUT", "BILLING_EVENT_FAILED", "FINANCIAL_ENABLED", "FINANCIAL_DISABLED", "BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED", "BILLING_EVENT_CANCELLED"]).notNull(),
   target_type: varchar("target_type", { length: 50 }),
   target_id: varchar("target_id", { length: 100 }),
   ip_address: varchar("ip_address", { length: 45 }),
@@ -328,6 +328,26 @@ export const study_metadata = mysqlTable("study_metadata", {
 });
 export type StudyMetadata = typeof study_metadata.$inferSelect;
 export type InsertStudyMetadata = typeof study_metadata.$inferInsert;
+
+/**
+ * Prioridade clínica de estudo — uma única sinalização ativa por estudo/unidade.
+ * A autoria é preservada para impedir alterações por outros usuários da unidade.
+ */
+export const study_priority_flags = mysqlTable("study_priority_flags", {
+  id: int("id").autoincrement().primaryKey(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
+  unit_id: int("unit_id").notNull(),
+  priority: mysqlEnum("priority", ["urgencia", "prioridade_maxima"]).notNull(),
+  marked_by_user_id: int("marked_by_user_id").notNull(),
+  marked_by_name: varchar("marked_by_name", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  studyUnitUnique: uniqueIndex("study_priority_flags_uid_unit_unique").on(table.study_instance_uid, table.unit_id),
+  unitPriorityIdx: index("study_priority_flags_unit_priority_idx").on(table.unit_id, table.priority),
+}));
+export type StudyPriorityFlag = typeof study_priority_flags.$inferSelect;
+export type InsertStudyPriorityFlag = typeof study_priority_flags.$inferInsert;
 
 /**
  * Phrase Groups — Grouping for pre-defined report phrases

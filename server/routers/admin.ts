@@ -41,6 +41,15 @@ const GROUP_PERMISSIONS = {
     print_reports:    false,
     manage_templates: false,
   },
+  atendentes: {
+    view_studies:     true,
+    edit_reports:     false,
+    view_anamnesis:   false,
+    edit_anamnesis:   false,
+    edit_exam_legend: false,
+    print_reports:    false,
+    manage_templates: false,
+  },
   visualizadores: {
     view_studies:     true,
     edit_reports:     false,
@@ -275,7 +284,7 @@ export const adminRouter = router({
         id: z.number(),
         name: z.string().min(1).max(255).optional(),
         email: z.string().optional().nullable(),
-        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador', 'responsavel_financeiro']).optional(),
+        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador', 'atendente', 'responsavel_financeiro']).optional(),
         unit_id: z.number().optional().nullable(),
         isActive: z.boolean().optional(),
         expiration_date: z.string().optional().nullable(),
@@ -563,6 +572,7 @@ export const adminRouter = router({
           { key: 'responsaveisFinanceiros', roles: ['responsavel_financeiro'] },
           { key: 'medicos', roles: ['medico'] },
           { key: 'operadores', roles: ['operador'] },
+          { key: 'atendentes', roles: ['atendente'] },
           { key: 'visualizadores', roles: ['viewer'] },
           { key: 'administradoresUnidade', roles: ['unit_admin'] },
           { key: 'adminsMaster', roles: ['admin_master'] },
@@ -597,6 +607,7 @@ export const adminRouter = router({
             responsaveisFinanceiros: [],
             medicos: [],
             operadores: [],
+            atendentes: [],
             visualizadores: [],
             administradoresUnidade: [],
             adminsMaster: [],
@@ -632,6 +643,7 @@ export const adminRouter = router({
               responsibleCount: groups.responsaveisFinanceiros.length,
               doctorCount: groups.medicos.length,
               operatorCount: groups.operadores.length,
+              attendantCount: groups.atendentes.length,
               viewerCount: groups.visualizadores.length,
               unitAdminCount: groups.administradoresUnidade.length,
             },
@@ -745,9 +757,9 @@ export const adminRouter = router({
         email: z.string().email().optional(),
         name: z.string().min(1),
         password: z.string().min(6),
-        role: z.enum(['medico', 'operador', 'viewer', 'responsavel_financeiro']),
+        role: z.enum(['medico', 'operador', 'atendente', 'viewer', 'responsavel_financeiro']),
         unitId: z.number(),
-        groupKey: z.enum(['medicos', 'operadores', 'visualizadores', 'responsaveisFinanceiros', 'administradoresUnidade']),
+        groupKey: z.enum(['medicos', 'operadores', 'atendentes', 'visualizadores', 'responsaveisFinanceiros', 'administradoresUnidade']),
       }))
       .mutation(async ({ input, ctx }) => {
         // Apenas admin_master e unit_admin podem criar usuários
@@ -869,7 +881,7 @@ export const adminRouter = router({
       .input(z.object({
         userId: z.number(),
         unitId: z.number(),
-        groupKey: z.enum(['responsaveisFinanceiros', 'medicos', 'operadores', 'visualizadores', 'administradoresUnidade', 'adminsMaster']),
+        groupKey: z.enum(['responsaveisFinanceiros', 'medicos', 'operadores', 'atendentes', 'visualizadores', 'administradoresUnidade', 'adminsMaster']),
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
@@ -975,7 +987,7 @@ export const adminRouter = router({
   setGroupPermissions: protectedProcedure
     .input(z.object({
       permissions: z.record(
-        z.enum(['medicos', 'operadores', 'visualizadores',
+        z.enum(['medicos', 'operadores', 'atendentes', 'visualizadores',
                 'responsaveisFinanceiros', 'administradoresUnidade']),
         z.object({
           view_studies:     z.boolean(),

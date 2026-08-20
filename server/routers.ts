@@ -38,6 +38,7 @@ import { financeSimpleRouter } from "./routers/financeSimple";
 import { masksRouter } from "./routers/masks";
 import { audioReportsRouter } from "./routers/audioReports";
 import { examCatalogRouter } from "./routers/examCatalog";
+import { studyPriorityRouter } from "./routers/studyPriority";
 
 export const appRouter = router({
   system: systemRouter,
@@ -95,7 +96,7 @@ export const appRouter = router({
         email: z.string().email().optional(),
         name: z.string().min(1),
         password: z.string().min(6),
-        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador', 'responsavel_financeiro']),
+        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador', 'atendente', 'responsavel_financeiro']),
         unit_id: z.number().optional(),
       }))
       .mutation(async ({ input }) => {
@@ -149,6 +150,7 @@ export const appRouter = router({
   masks: masksRouter,
   audioReports: audioReportsRouter,
   examCatalog: examCatalogRouter,
+  studyPriority: studyPriorityRouter,
 });
 
 export type AppRouter = typeof appRouter;

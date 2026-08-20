@@ -72,7 +72,7 @@ export const authRouter = router({
       email: z.string().email().optional(),
       name: z.string().min(1),
       password: z.string().min(6),
-      role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador', 'responsavel_financeiro']),
+      role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador', 'atendente', 'responsavel_financeiro']),
       unit_id: z.number().optional(),
     }))
     .mutation(async ({ input }) => {

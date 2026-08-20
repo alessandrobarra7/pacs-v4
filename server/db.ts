@@ -20,6 +20,8 @@ import {
   anamnesis_simple,
   study_metadata,
   StudyMetadata,
+  study_priority_flags,
+  StudyPriorityFlag,
   billing_cycle_configs,
   billing_cycles,
   billing_visit_events,
@@ -176,7 +178,7 @@ export async function createLocalUser(data: {
   email?: string;
   name: string;
   password_hash: string;
-  role: 'admin_master' | 'unit_admin' | 'medico' | 'viewer' | 'operador' | 'responsavel_financeiro';
+  role: 'admin_master' | 'unit_admin' | 'medico' | 'viewer' | 'operador' | 'atendente' | 'responsavel_financeiro';
   unit_id?: number;
 }) {
   const db = await getDb();

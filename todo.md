@@ -1233,6 +1233,10 @@
 - [x] Reduzir a faixa financeira móvel a uma linha com A receber neste ciclo, Laudos assinados e Fechamento do ciclo
 - [ ] Atualizar a VM1 do commit 097c508 para 758f5eb e validar a faixa financeira compacta no celular
 - [x] Reordenar a faixa para Ciclo, Laudos assinados e Receber neste ciclo, reduzindo-a à altura de uma linha de texto
+- [ ] Atualizar a VM1 para o commit 5ca02ea e validar a faixa financeira ultracompacta no celular
+- [x] Criar sinalização por estudo de Urgência e Prioridade máxima, acionável por operador e atendente com autoria imutável
+- [x] Exibir prioridade abaixo do status do laudo no mobile e desktop, visível ao médico antes de laudar
+- [x] Validar isolamento por unidade, autoria da sinalização e bloqueio de alterações por outros usuários
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
