@@ -10,6 +10,7 @@ import {
 import { and, inArray, desc } from "drizzle-orm";
 import { canAccessUnit } from "../authorization";
 import { closeReadinessOnReport, ensureReadinessExists } from "./sla";
+import { createCatalogEventsWhenComplete } from "../catalogFinancial";
 import {
   reports, report_versions, billing_report_items, billing_visit_events as billing_visit_events_table,
 } from "../../drizzle/schema";
@@ -309,6 +310,7 @@ export const reportsRouter = router({
         // P2: Usar sempre report.unit_id como fonte de verdade para audit log e evento financeiro
         // input.unit_id é apenas hint de contexto de UI — não deve influenciar dados financeiros
         const effectiveUnitId = report.unit_id ?? ctx.user.unit_id;
+        const studyUid = input.study_instance_uid ?? report.study_instance_uid;
         await createAuditLog({
           user_id: ctx.user.id,
           unit_id: effectiveUnitId,
@@ -319,13 +321,16 @@ export const reportsRouter = router({
           user_agent: ctx.req.headers['user-agent'],
         });
 
-        // Registro financeiro atômico: se unit_id fornecido e usuário é médico ou admin_master
+        // Catálogo clínico-financeiro: aguarda todas as assinaturas obrigatórias antes de criar eventos.
+        const catalogBilling = effectiveUnitId && studyUid
+          ? await createCatalogEventsWhenComplete({ studyUid, unitId: effectiveUnitId, doctorUserId: report.author_user_id ?? ctx.user.id, signedAt })
+          : { handled: false, created: 0 };
+        // Fluxo legado: um evento por laudo apenas quando o estudo ainda não usa catálogo selecionado.
         let doctor_amount_due: string | null = null;
-        if (effectiveUnitId && (ctx.user.role === 'medico' || ctx.user.role === 'admin_master')) {
+        if (!catalogBilling.handled && effectiveUnitId && (ctx.user.role === 'medico' || ctx.user.role === 'admin_master')) {
           try {
             // M3A: Buscar modalidade do estudo para precificação por modalidade
             let studyModality: string | null = null;
-            const studyUid = input.study_instance_uid ?? report.study_instance_uid;
             if (studyUid) {
               try {
                 const db = await getDb();

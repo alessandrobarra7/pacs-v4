@@ -1248,6 +1248,10 @@
 - [x] Auditar a duplicidade entre cadastro de usuário e configuração financeira antes de alterar módulos administrativos
 - [x] Centralizar preços no módulo Financeiro, remover atalhos duplicados e impor vigência por ciclo no servidor
 - [x] Diagnosticar e corrigir o fluxo de abertura do Weasis sem alterar os demais visualizadores
+- [x] Diagnosticar o erro de criação de exame canônico no Catálogo de Exames antes de alterar o módulo
+- [ ] Redesenhar o catálogo para selecionar legenda clínica, documentos e eventos financeiros por estudo
+- [ ] Implementar precificação por legenda canônica, unidade e médico com vigência por ciclo
+- [ ] Implementar seleção obrigatória de legenda, documentos independentes e eventos consolidados por estudo
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 

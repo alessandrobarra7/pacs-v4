@@ -911,6 +911,8 @@ export const exam_legends = mysqlTable("exam_legends", {
   sort_order: int("sort_order").notNull().default(0),
   /** Exames inativos não são oferecidos em novos mapeamentos PACS. */
   is_active: boolean("is_active").notNull().default(true),
+  /** Quantidade de eventos financeiros liberados quando todos os documentos forem assinados. */
+  financial_event_count: int("financial_event_count").notNull().default(1),
   /** Nulo somente para registros históricos criados antes do catálogo central. */
   created_by: int("created_by"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -920,6 +922,61 @@ export const exam_legends = mysqlTable("exam_legends", {
 }));
 export type ExamLegend = typeof exam_legends.$inferSelect;
 export type InsertExamLegend = typeof exam_legends.$inferInsert;
+
+/** Seleção auditável da legenda canônica que controla documentos e faturamento de um estudo. */
+export const study_exam_legend_selections = mysqlTable("study_exam_legend_selections", {
+  id: int("id").autoincrement().primaryKey(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
+  unit_id: int("unit_id").notNull(),
+  exam_legend_id: int("exam_legend_id").notNull(),
+  exam_name_snapshot: varchar("exam_name_snapshot", { length: 255 }).notNull(),
+  modality_snapshot: varchar("modality_snapshot", { length: 20 }).notNull(),
+  documents_snapshot: json("documents_snapshot").$type<Array<{ key: string; label: string; sort_order: number }>>().notNull(),
+  financial_event_count: int("financial_event_count").notNull().default(1),
+  selected_by: int("selected_by").notNull(),
+  selectedAt: timestamp("selectedAt").defaultNow().notNull(),
+  lockedAt: timestamp("lockedAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uqStudyUnitLegendSelection: uniqueIndex("uq_study_unit_legend_selection").on(t.study_instance_uid, t.unit_id),
+}));
+export type StudyExamLegendSelection = typeof study_exam_legend_selections.$inferSelect;
+
+/** Valor por evento financeiro da legenda, isolado por unidade, médico e vigência. */
+export const billing_doctor_exam_legend_prices = mysqlTable("billing_doctor_exam_legend_prices", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  doctor_user_id: int("doctor_user_id").notNull(),
+  exam_legend_id: int("exam_legend_id").notNull(),
+  price_per_event: decimal("price_per_event", { precision: 10, scale: 2 }).notNull(),
+  starts_at: date("starts_at").notNull(),
+  ends_at: date("ends_at"),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uqDoctorLegendPriceStart: uniqueIndex("uq_doctor_legend_price_start").on(t.unit_id, t.doctor_user_id, t.exam_legend_id, t.starts_at),
+}));
+export type BillingDoctorExamLegendPrice = typeof billing_doctor_exam_legend_prices.$inferSelect;
+
+/** Eventos financeiros do catálogo, criados apenas após todas as assinaturas exigidas. */
+export const billing_catalog_study_events = mysqlTable("billing_catalog_study_events", {
+  id: int("id").autoincrement().primaryKey(),
+  study_selection_id: int("study_selection_id").notNull(),
+  event_index: int("event_index").notNull(),
+  unit_id: int("unit_id").notNull(),
+  doctor_user_id: int("doctor_user_id").notNull(),
+  exam_legend_id: int("exam_legend_id").notNull(),
+  exam_name_snapshot: varchar("exam_name_snapshot", { length: 255 }).notNull(),
+  price_applied: decimal("price_applied", { precision: 10, scale: 2 }),
+  pricing_status: mysqlEnum("pricing_status", ["ok", "pending_doctor_price"]).notNull().default("pending_doctor_price"),
+  signed_at: timestamp("signed_at").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uqCatalogSelectionEvent: uniqueIndex("uq_catalog_selection_event").on(t.study_selection_id, t.event_index),
+}));
+export type BillingCatalogStudyEvent = typeof billing_catalog_study_events.$inferSelect;
 
 /**
  * Documentos clínicos independentes exigidos por um exame canônico.

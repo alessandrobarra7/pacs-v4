@@ -14,10 +14,11 @@ describe('Catálogo central de exames e documentos independentes', () => {
     expect(router).toContain('documentsForExam: protectedProcedure');
   });
 
-  it('mantém a descrição PACS quando não há mapeamento aprovado e não reutiliza overrides legados', async () => {
+  it('mantém a descrição PACS como referência e exige uma legenda selecionada para laudar', async () => {
     const pacs = await fs.readFile(path.resolve(__dirname, 'routers', 'pacs.ts'), 'utf-8');
     expect(pacs).toContain('getActivePacsExamMappings');
-    expect(pacs).toContain('const studyDescription = mappedExam?.exam_name || rawDesc;');
+    expect(pacs).toContain('const studyDescription = rawDesc;');
+    expect(pacs).toContain('suggestedExamLegendId: mappedExam?.id ?? null');
     expect(pacs).not.toContain('meta?.description_override');
 
     const list = await fs.readFile(path.resolve(__dirname, '..', 'client', 'src', 'pages', 'PacsQueryPage.tsx'), 'utf-8');
@@ -26,7 +27,8 @@ describe('Catálogo central de exames e documentos independentes', () => {
     const reportHandler = list.slice(reportStart, reportEnd);
     expect(reportHandler).not.toContain('exam_label_');
     expect(reportHandler).not.toContain('description_override');
-    expect(reportHandler).toContain('documentsForExam.fetch');
+    expect(reportHandler).toContain('Selecione uma legenda cadastrada antes de gerar os laudos.');
+    expect(reportHandler).toContain('selection.documents_snapshot');
     expect(list).not.toContain('function EditableExamName');
     expect(list).not.toContain('ExamPickerModal');
   });

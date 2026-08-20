@@ -171,9 +171,8 @@ export const pacsRouter = router({
           ]);
           const metadataMap = new Map(metadataBatch.map(m => [m.study_instance_uid, m]));
 
-          // Normaliza campos para o frontend. A legenda só é substituída por um
-          // mapeamento PACS explícito do catálogo central; sem correspondência,
-          // mantém a descrição original recebida do PACS.
+          // A descrição PACS permanece uma sugestão. A legenda canônica será
+          // escolhida explicitamente por um perfil autorizado no Portal.
           studies = studies.map((s: any) => {
             const uid = s.studyInstanceUID || s.studyInstanceUid || '';
             const meta = metadataMap.get(uid);
@@ -184,7 +183,7 @@ export const pacsRouter = router({
             const rawDesc = (s.studyDescription || '').trim();
             const mappingKey = `${String(s.modality || '').trim().toUpperCase()}\u0000${rawDesc.toUpperCase()}`;
             const mappedExam = pacsExamMappings.get(mappingKey);
-            const studyDescription = mappedExam?.exam_name || rawDesc;
+            const studyDescription = rawDesc;
 
             return {
               studyInstanceUid: uid,
@@ -196,7 +195,8 @@ export const pacsRouter = router({
               studyTime: s.studyTime || '',
               modality: s.modality || '',
               studyDescription,
-              examLegendId: mappedExam?.id ?? null,
+              suggestedExamLegendId: mappedExam?.id ?? null,
+              suggestedExamLegendName: mappedExam?.exam_name ?? null,
               accessionNumber: s.accessionNumber || '',
               numberOfSeries: s.numberOfSeries || 0,
               numberOfInstances: s.numberOfInstances || 0,

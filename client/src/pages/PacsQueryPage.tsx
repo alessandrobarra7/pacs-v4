@@ -424,6 +424,34 @@ function ExamName({ value }: { value: string }) {
   );
 }
 
+function StudyLegendPicker({ study, selection, canSelect }: { study: any; selection: any; canSelect: boolean }) {
+  const utils = trpc.useUtils();
+  const { data: legends = [] } = trpc.studyExamLegend.listForStudy.useQuery(
+    { studyInstanceUid: study.studyInstanceUid, modality: study.modality || "" },
+    { enabled: Boolean(study.studyInstanceUid && study.modality && canSelect) },
+  );
+  const selectLegend = trpc.studyExamLegend.select.useMutation({
+    onSuccess: () => {
+      utils.studyExamLegend.getBatch.invalidate();
+      toast.success("Legenda clínica selecionada.");
+    },
+    onError: (error) => toast.error("Não foi possível selecionar a legenda.", { description: error.message }),
+  });
+  if (!canSelect) return selection ? <span className="text-xs font-medium text-cyan-700">{selection.exam_name_snapshot}</span> : null;
+  return (
+    <select
+      value={selection?.exam_legend_id ?? ""}
+      disabled={Boolean(selection?.lockedAt) || selectLegend.isPending}
+      onChange={(event) => event.target.value && selectLegend.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendId: Number(event.target.value) })}
+      className="mt-1 h-7 max-w-[220px] rounded border border-cyan-200 bg-cyan-50 px-2 text-xs font-medium text-cyan-800 disabled:cursor-not-allowed disabled:opacity-70"
+      title={selection?.lockedAt ? "Legenda bloqueada após a primeira assinatura" : "Selecione uma legenda cadastrada"}
+    >
+      <option value="">Selecionar legenda cadastrada</option>
+      {legends.map((legend) => <option key={legend.id} value={legend.id}>{legend.exam_name}</option>)}
+    </select>
+  );
+}
+
 export function PacsQueryPage() {
   const [, navigate] = useLocation();
   const trpcUtils = trpc.useUtils();
@@ -593,6 +621,14 @@ const isAdminMaster = user?.role === 'admin_master';
   const priorityByStudyUid = useMemo(
     () => new Map(studyPriorityFlags.map((flag) => [flag.study_instance_uid, flag])),
     [studyPriorityFlags],
+  );
+  const { data: studyLegendSelections = [] } = trpc.studyExamLegend.getBatch.useQuery(
+    { unit_id: effectiveUnitId || 0, studyInstanceUids: priorityStudyUids },
+    { enabled: Boolean(user?.id && effectiveUnitId && priorityStudyUids.length) },
+  );
+  const legendSelectionByStudyUid = useMemo(
+    () => new Map(studyLegendSelections.map((selection) => [selection.study_instance_uid, selection])),
+    [studyLegendSelections],
   );
   const setStudyPriority = trpc.studyPriority.set.useMutation({
     onSuccess: () => {
@@ -1085,6 +1121,7 @@ const isAdminMaster = user?.role === 'admin_master';
 
   const openReportDocument = (study: any, document?: { document_key: string; document_label: string }) => {
     const uid = study.studyInstanceUid;
+    const selection = legendSelectionByStudyUid.get(uid);
     const documentKey = document?.document_key || 'primary';
     const documentLabel = document?.document_label || study.studyDescription || 'Laudo principal';
     sessionStorage.setItem(`study_${uid}`, JSON.stringify({
@@ -1095,12 +1132,12 @@ const isAdminMaster = user?.role === 'admin_master';
       studyDate: study.studyDate || '',
       studyTime: study.studyTime || '',
       modality: study.modality || '',
-      studyDescription: study.studyDescription || 'Sem descrição',
+      studyDescription: selection?.exam_name_snapshot || study.studyDescription || 'Sem descrição',
       accessionNumber: study.accessionNumber || '',
       numberOfInstances: study.numberOfInstances || 0,
       unitName,
       unitId: effectiveUnitId ? Number(effectiveUnitId) : null,
-      examLegendId: study.examLegendId ?? null,
+      examLegendId: selection?.exam_legend_id ?? null,
       documentKey,
       documentLabel,
     }));
@@ -1137,9 +1174,14 @@ const isAdminMaster = user?.role === 'admin_master';
       return;
     }
 
-    if (study.examLegendId) {
+    const selection = legendSelectionByStudyUid.get(uid);
+    if (!selection) {
+      toast.error('Selecione uma legenda cadastrada antes de gerar os laudos.', { description: 'A descrição recebida do PACS é somente referência e não gera cobrança.' });
+      return;
+    }
+    if (selection) {
       try {
-        const documents = await trpcUtils.examCatalog.documentsForExam.fetch({ examLegendId: Number(study.examLegendId) });
+        const documents = selection.documents_snapshot.map((document) => ({ document_key: document.key, document_label: document.label }));
         if (documents.length > 1) {
           setReportStudy(study);
           setIsReportDocumentsModalOpen(true);
@@ -2011,12 +2053,17 @@ setSelectedStudy(study);
                       <span className="text-sm text-gray-600">{age || '-'}</span>
                     </td>
 
-                    {/* Exame — legenda canônica do catálogo ou descrição original PACS */}
+                    {/* Exame PACS como referência e legenda canônica obrigatória para laudo */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${modalityCls}`}>{modality}</span>
                         <ExamName value={study.studyDescription || ''} />
                       </div>
+                      <StudyLegendPicker
+                        study={study}
+                        selection={legendSelectionByStudyUid.get(study.studyInstanceUid)}
+                        canSelect={["operador", "atendente", "medico", "admin_master"].includes(user?.role ?? "")}
+                      />
                     </td>
 
                     {/* Visualizar DICOM — inicia o download quando necessário e só abre após o cache completo */}

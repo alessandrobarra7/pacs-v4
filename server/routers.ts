@@ -39,6 +39,7 @@ import { masksRouter } from "./routers/masks";
 import { audioReportsRouter } from "./routers/audioReports";
 import { examCatalogRouter } from "./routers/examCatalog";
 import { studyPriorityRouter } from "./routers/studyPriority";
+import { studyExamLegendRouter } from "./routers/studyExamLegend";
 
 export const appRouter = router({
   system: systemRouter,
@@ -151,6 +152,7 @@ export const appRouter = router({
   audioReports: audioReportsRouter,
   examCatalog: examCatalogRouter,
   studyPriority: studyPriorityRouter,
+  studyExamLegend: studyExamLegendRouter,
 });
 
 export type AppRouter = typeof appRouter;
