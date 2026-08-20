@@ -2262,4 +2262,4 @@
 ## IMPLANTAÇÃO CONTROLADA — CATÁLOGO CLÍNICO-FINANCEIRO
 
 - [x] Aplicar a migração 0050 na VM2 a partir do artefato versionado, sem depender de cópia local do repositório.
-- [ ] Publicar o commit 4fdcda7 no GitHub e confirmar que a VM1 recebe o mesmo hash remoto antes da atualização.
+- [x] Publicar o commit 4fdcda7 no GitHub e confirmar que a VM1 recebe o mesmo hash remoto antes da atualização.
