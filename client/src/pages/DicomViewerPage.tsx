@@ -92,6 +92,7 @@ export function DicomViewerPage() {
   );
   const canOpenReport = currentUser?.role === "admin_master" || viewerPermissions?.edit_reports === true;
   const canAccessClinicalMedia = currentUser?.role === "medico" || currentUser?.role === "operador";
+  const canViewAttachments = Boolean(currentUser?.id);
 
   // ─── Estado de fase ───────────────────────────────────────────────────────
   const [phase, setPhase] = useState<"idle" | "connecting" | "streaming" | "rendering" | "ready" | "error">("idle");
@@ -154,7 +155,7 @@ export function DicomViewerPage() {
   const [showAudioModal, setShowAudioModal] = useState(false);
   const { data: viewerAttachments = [], refetch: refetchViewerAttachments } = trpc.annotations.list.useQuery(
     { study_instance_uid: studyUid ?? "" },
-    { enabled: !!studyUid && canAccessClinicalMedia }
+    { enabled: !!studyUid && canViewAttachments }
   );
   const { data: viewerAudios = [], refetch: refetchViewerAudios } = trpc.audioReports.list.useQuery(
     { study_instance_uid: studyUid ?? "" },
@@ -162,7 +163,7 @@ export function DicomViewerPage() {
   );
 
   function PatientViewerAttachmentsButton() {
-    if (!canAccessClinicalMedia) return null;
+    if (!canViewAttachments) return null;
     return (
       <Button
         variant="outline"
@@ -1898,7 +1899,7 @@ export function DicomViewerPage() {
         )}
       </div>
 
-      {canAccessClinicalMedia && showAttachmentsModal && (
+      {canViewAttachments && showAttachmentsModal && (
         <PatientAttachmentsModal
           open={showAttachmentsModal}
           onClose={() => setShowAttachmentsModal(false)}

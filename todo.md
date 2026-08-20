@@ -1212,6 +1212,13 @@
 - [x] Reestruturar a tela do Catálogo de Exames para gestão administrativa mais clara de exames, documentos e mapeamentos PACS
 - [x] Validar rota, RBAC de admin_master e ausência do atalho no cabeçalho principal
 
+## ANEXOS CLÍNICOS — Restauração do Acesso
+
+- [x] Restaurar o botão de Anexos na listagem de estudos para desktop e mobile
+- [x] Preservar a abertura do modal, a prévia e as permissões clínicas já aprovadas
+- [x] Validar regressões de interface e RBAC de anexos antes de publicar
+- [x] Liberar a visualização de anexos para todos os usuários autenticados, mantendo envio e exclusão apenas pelo médico autor
+
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
 - [ ] Criar tabela exam_legends (exam_name, bilateral, modality) no schema Drizzle

@@ -389,6 +389,9 @@ const userRole = (user?.role || 'viewer') as UserRole;
 const isAdmin = canAccessAdmin(userRole);
 const isAdminMaster = user?.role === 'admin_master';
   const canAccessClinicalMedia = user?.role === 'medico' || user?.role === 'operador';
+  // Anexos de requisições pertencem ao estudo: todo usuário autenticado que vê o estudo pode consultá-los.
+  // Apenas o médico continua autorizado a enviar e excluir os próprios arquivos no modal.
+  const canViewAttachments = Boolean(user?.id);
 
   // Persistir unidade selecionada no localStorage para manter a seleção ao navegar entre páginas
   const SELECTED_UNIT_KEY = 'pacs_selected_unit_id';
@@ -1954,7 +1957,7 @@ setSelectedStudy(study);
                     <td className="px-4 py-3 text-center">
                       {(() => {
                         const hasAttachments = !!attachmentsStatusMap[study.studyInstanceUid];
-                        if (!canAccessClinicalMedia) return null;
+                        if (!canViewAttachments) return null;
                         return (
                           <button
                             type="button"
@@ -2138,7 +2141,7 @@ setSelectedStudy(study);
                         {/* 1. Anexo de imagens (condicional) */}
                         {(() => {
                           const hasAttachments = !!attachmentsStatusMap[study.studyInstanceUid];
-                          if (!canAccessClinicalMedia) return null;
+                          if (!canViewAttachments) return null;
                           return (
                             <button
                               type="button"
@@ -2332,7 +2335,7 @@ setSelectedStudy(study);
         />
       )}
 
-       {canAccessClinicalMedia && isAttachmentsModalOpen && selectedStudy && (
+       {canViewAttachments && isAttachmentsModalOpen && selectedStudy && (
          <PatientAttachmentsModal
            open={isAttachmentsModalOpen}
            onClose={() => { setIsAttachmentsModalOpen(false); setSelectedStudy(null); }}

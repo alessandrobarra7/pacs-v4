@@ -14,12 +14,6 @@ async function resolveAttachmentUrl(reference: string | null): Promise<string | 
   return toProxyUrl(reference);
 }
 
-function assertClinicalMediaViewer(role: string) {
-  if (role !== "medico" && role !== "operador") {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a médicos e operadores" });
-  }
-}
-
 function assertClinicalMediaDoctor(role: string) {
   if (role !== "medico") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Apenas médicos podem anexar ou excluir arquivos" });
@@ -73,7 +67,6 @@ export const annotationsRouter = router({
   list: protectedProcedure
     .input(z.object({ study_instance_uid: z.string() }))
     .query(async ({ input, ctx }) => {
-      assertClinicalMediaViewer(ctx.user.role);
       await assertDicomFileAccess(ctx.user, input.study_instance_uid, "view_studies");
       const db = await getDb();
       if (!db) return [];
@@ -91,7 +84,6 @@ export const annotationsRouter = router({
   getAttachmentsStatusBatch: protectedProcedure
     .input(z.object({ studyInstanceUids: z.array(z.string()) }))
     .query(async ({ input, ctx }) => {
-      assertClinicalMediaViewer(ctx.user.role);
       if (!input.studyInstanceUids.length) return {} as Record<string, boolean>;
       const result: Record<string, boolean> = {};
       for (const uid of input.studyInstanceUids) result[uid] = false;
