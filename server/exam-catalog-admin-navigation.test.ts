@@ -26,4 +26,11 @@ describe("navegação administrativa do catálogo de exames", () => {
     expect(catalog).toContain('Todas as modalidades');
     expect(catalog).toContain('Somente ativos');
   });
+
+  it("permite ao administrador definir eventos financeiros independentemente dos documentos clínicos", () => {
+    expect(catalog).toContain('financial_event_count: 1');
+    expect(catalog).toContain('label="Eventos"');
+    expect(catalog).toContain('número de documentos e o número de eventos são regras independentes');
+    expect(catalog).toContain('eventos financeiros');
+  });
 });

@@ -24,6 +24,8 @@ import {
   billing_system_unit_prices,
   billing_cycle_configs,
   billing_doctor_modality_prices,
+  billing_doctor_exam_legend_prices,
+  exam_legends,
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, ne, sql, sql as sqlFn, desc, inArray, gte, lte, or, SQL } from "drizzle-orm";
 import {
@@ -1855,6 +1857,103 @@ export const financeSimpleRouter = router({
           .set({ ends_at: new Date(input.endsAt) })
           .where(eq(billing_doctor_modality_prices.id, input.id));
         return { success: true };
+      }),
+
+    // ── Preços por Legenda Canônica ───────────────────────────────────────────
+    /**
+     * Retorna as legendas ativas e o histórico de valores do médico no contexto
+     * financeiro da unidade. O responsável só acessa as próprias unidades; o
+     * admin_master pode supervisionar qualquer uma delas.
+     */
+    listDoctorLegendPrices: protectedProcedure
+      .input(z.object({
+        financialResponsibleId: z.number(),
+        unitId: z.number().int().positive(),
+        doctorUserId: z.number().int().positive(),
+      }))
+      .query(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        await assertCanManageFinancialPrices(db, ctx.user, input.unitId, input.financialResponsibleId);
+
+        const [legends, prices] = await Promise.all([
+          db.select({
+            id: exam_legends.id,
+            exam_name: exam_legends.exam_name,
+            modality: exam_legends.modality,
+            financial_event_count: exam_legends.financial_event_count,
+          })
+            .from(exam_legends)
+            .where(eq(exam_legends.is_active, true))
+            .orderBy(exam_legends.modality, exam_legends.sort_order, exam_legends.exam_name),
+          db.select()
+            .from(billing_doctor_exam_legend_prices)
+            .where(and(
+              eq(billing_doctor_exam_legend_prices.unit_id, input.unitId),
+              eq(billing_doctor_exam_legend_prices.doctor_user_id, input.doctorUserId),
+            ))
+            .orderBy(desc(billing_doctor_exam_legend_prices.starts_at)),
+        ]);
+
+        return { legends, prices };
+      }),
+
+    /** Cria uma nova vigência de preço para uma legenda canônica e encerra a anterior. */
+    setDoctorLegendPrice: protectedProcedure
+      .input(z.object({
+        financialResponsibleId: z.number(),
+        unitId: z.number().int().positive(),
+        doctorUserId: z.number().int().positive(),
+        examLegendId: z.number().int().positive(),
+        pricePerEvent: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Informe um valor monetário válido.'),
+        startsAt: z.string(),
+        endsAt: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+        await assertCanManageFinancialPrices(db, ctx.user, input.unitId, input.financialResponsibleId);
+
+        const legend = await db.select({ id: exam_legends.id })
+          .from(exam_legends)
+          .where(and(eq(exam_legends.id, input.examLegendId), eq(exam_legends.is_active, true)))
+          .limit(1);
+        if (!legend[0]) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Legenda canônica ativa não encontrada.' });
+        }
+
+        const startsAt = new Date(input.startsAt);
+        if (Number.isNaN(startsAt.getTime())) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Data de início inválida.' });
+        }
+        const currentRows = await db.select({ id: billing_doctor_exam_legend_prices.id })
+          .from(billing_doctor_exam_legend_prices)
+          .where(and(
+            eq(billing_doctor_exam_legend_prices.unit_id, input.unitId),
+            eq(billing_doctor_exam_legend_prices.doctor_user_id, input.doctorUserId),
+            eq(billing_doctor_exam_legend_prices.exam_legend_id, input.examLegendId),
+            lte(billing_doctor_exam_legend_prices.starts_at, new Date()),
+            or(isNull(billing_doctor_exam_legend_prices.ends_at), gte(billing_doctor_exam_legend_prices.ends_at, new Date())),
+          ))
+          .limit(1);
+        await assertCycleAlignedPriceStart(db, input.unitId, startsAt, currentRows.length > 0);
+
+        if (currentRows[0]) {
+          await db.update(billing_doctor_exam_legend_prices)
+            .set({ ends_at: new Date(startsAt.getTime() - 24 * 60 * 60 * 1000) })
+            .where(eq(billing_doctor_exam_legend_prices.id, currentRows[0].id));
+        }
+
+        const result = await db.insert(billing_doctor_exam_legend_prices).values({
+          unit_id: input.unitId,
+          doctor_user_id: input.doctorUserId,
+          exam_legend_id: input.examLegendId,
+          price_per_event: input.pricePerEvent,
+          starts_at: startsAt,
+          ends_at: input.endsAt ? new Date(input.endsAt) : null,
+          created_by: ctx.user.id,
+        });
+        return { id: Number(result[0].insertId) };
       }),
 
     // ── Apuração de Competência ────────────────────────────────────────────────

@@ -751,6 +751,7 @@ export async function saveExamCatalogEntry(data: {
   bilateral: boolean;
   sort_order: number;
   is_active: boolean;
+  financial_event_count: number;
   created_by: number;
 }): Promise<number> {
   const db = await getDb();
@@ -762,6 +763,7 @@ export async function saveExamCatalogEntry(data: {
       bilateral: data.bilateral,
       sort_order: data.sort_order,
       is_active: data.is_active,
+      financial_event_count: data.financial_event_count,
     }).where(eq(exam_legends.id, data.id));
     return data.id;
   }
@@ -771,6 +773,7 @@ export async function saveExamCatalogEntry(data: {
     bilateral: data.bilateral,
     sort_order: data.sort_order,
     is_active: data.is_active,
+    financial_event_count: data.financial_event_count,
     created_by: data.created_by,
   });
   return Number(result[0].insertId);

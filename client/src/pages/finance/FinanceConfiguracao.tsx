@@ -10,7 +10,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   CheckCircle2, AlertCircle, Settings, CalendarDays,
-  Users, RefreshCw, ChevronDown, Building2, Link2, UserPlus, X, Plus,
+  Users, RefreshCw, ChevronDown, Building2, Link2, UserPlus, X, Plus, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -139,6 +139,114 @@ function DoctorPriceRow({ doctor, unitId, financialResponsibleId, cycleStartDay,
             financialResponsibleId={financialResponsibleId}
             unitId={unitId}
           />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Preços por legenda canônica ────────────────────────────────────────────
+function DoctorLegendPricesSection({ doctors, unitId, financialResponsibleId, cycleStartDay }: {
+  doctors: Array<{ doctor_user_id: number; doctor_name: string | null }>;
+  unitId: number;
+  financialResponsibleId: number | null;
+  cycleStartDay?: number | null;
+}) {
+  const [doctorUserId, setDoctorUserId] = useState<number | null>(null);
+  const [editingLegendId, setEditingLegendId] = useState<number | null>(null);
+  const [price, setPrice] = useState("");
+  const [startsAt, setStartsAt] = useState(isoDate(new Date()));
+  const utils = trpc.useUtils();
+  const selectedDoctor = doctors.find((doctor) => doctor.doctor_user_id === doctorUserId) ?? null;
+  const canLoad = !!selectedDoctor;
+  const financialResponsibleIdForRequest = financialResponsibleId ?? 0;
+  const { data, isLoading } = trpc.financeSimple.listDoctorLegendPrices.useQuery(
+    {
+      financialResponsibleId: financialResponsibleIdForRequest,
+      unitId,
+      doctorUserId: selectedDoctor?.doctor_user_id ?? 0,
+    },
+    { enabled: canLoad },
+  );
+  const save = trpc.financeSimple.setDoctorLegendPrice.useMutation({
+    onSuccess: () => {
+      toast.success("Preço por legenda atualizado");
+      utils.financeSimple.listDoctorLegendPrices.invalidate();
+      setEditingLegendId(null);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const findCurrentPrice = (legendId: number) => {
+    const now = new Date();
+    return data?.prices.find((item: any) => {
+      const start = new Date(item.starts_at);
+      const end = item.ends_at ? new Date(item.ends_at) : null;
+      return item.exam_legend_id === legendId && start <= now && (!end || end >= now);
+    }) ?? null;
+  };
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      <div className="flex flex-col gap-3 px-5 py-4 border-b border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-2">
+          <FileText className="h-4 w-4 text-violet-400 mt-0.5 shrink-0" />
+          <div>
+            <h2 className="text-sm font-semibold text-white">Preços por Legenda Canônica</h2>
+            <p className="text-xs text-slate-400 mt-0.5">O valor é aplicado por evento financeiro da legenda, isolado por médico e unidade.</p>
+          </div>
+        </div>
+        <select
+          value={doctorUserId ?? ""}
+          onChange={(event) => { setDoctorUserId(event.target.value ? Number(event.target.value) : null); setEditingLegendId(null); }}
+          className="h-8 min-w-52 rounded-md border border-slate-600 bg-slate-800 px-2 text-xs text-white"
+        >
+          <option value="">Selecione um médico</option>
+          {doctors.map((doctor) => <option key={doctor.doctor_user_id} value={doctor.doctor_user_id}>{doctor.doctor_name ?? `Médico #${doctor.doctor_user_id}`}</option>)}
+        </select>
+      </div>
+
+      {!doctors.length ? (
+        <p className="px-5 py-6 text-center text-sm text-slate-500">Vincule um médico à unidade antes de configurar preços por legenda.</p>
+      ) : !selectedDoctor ? (
+        <p className="px-5 py-6 text-center text-sm text-slate-500">Selecione um médico para consultar e configurar os valores por legenda.</p>
+      ) : isLoading ? (
+        <div className="space-y-2 p-4">{[1, 2, 3].map((item) => <div key={item} className="h-12 animate-pulse rounded bg-slate-800" />)}</div>
+      ) : !data?.legends.length ? (
+        <p className="px-5 py-6 text-center text-sm text-slate-500">Não há legendas canônicas ativas. O administrador geral deve cadastrá-las no Catálogo de Exames.</p>
+      ) : (
+        <div className="divide-y divide-slate-800/60">
+          {data.legends.map((legend: any) => {
+            const currentPrice = findCurrentPrice(legend.id);
+            const editing = editingLegendId === legend.id;
+            const hasPrice = currentPrice && Number(currentPrice.price_per_event) >= 0;
+            return (
+              <div key={legend.id} className="px-5 py-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-white">{legend.exam_name}</p>
+                    <p className="text-xs text-slate-400">{legend.modality} · {legend.financial_event_count} {legend.financial_event_count === 1 ? "evento" : "eventos"} ao concluir todas as assinaturas</p>
+                  </div>
+                  {editing ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Input type="number" min="0" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} className="h-8 w-24 border-slate-600 bg-slate-800 text-xs text-white" placeholder="0.00" />
+                      <Input type="date" value={startsAt} min={hasPrice ? nextCycleStartDate(cycleStartDay) : isoDate(new Date())} onChange={(event) => setStartsAt(event.target.value)} className="h-8 w-36 border-slate-600 bg-slate-800 text-xs text-white" />
+                      <Button size="sm" className="h-8 bg-violet-600 px-3 text-xs hover:bg-violet-500" disabled={save.isPending} onClick={() => save.mutate({ financialResponsibleId: financialResponsibleIdForRequest, unitId, doctorUserId: selectedDoctor.doctor_user_id, examLegendId: legend.id, pricePerEvent: String(Number(price) || 0), startsAt: new Date(`${startsAt}T12:00:00`).toISOString() })}>{save.isPending ? "..." : "Salvar"}</Button>
+                      <Button size="sm" variant="ghost" className="h-8 px-2 text-xs text-slate-400" onClick={() => setEditingLegendId(null)}>Cancelar</Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className={`text-sm font-medium ${hasPrice ? "text-emerald-400" : "text-amber-400"}`}>{hasPrice ? `${fmtBRL(Number(currentPrice.price_per_event))}/evento` : "Pendente"}</p>
+                        <p className="text-[11px] text-slate-500">{hasPrice ? `Desde ${new Date(currentPrice.starts_at).toLocaleDateString("pt-BR")}` : "Sem valor definido"}</p>
+                      </div>
+                      <Button size="sm" variant="ghost" className="h-8 px-2.5 text-xs text-violet-300 hover:text-violet-200" onClick={() => { setPrice(currentPrice ? String(currentPrice.price_per_event) : ""); setStartsAt(hasPrice ? nextCycleStartDate(cycleStartDay) : isoDate(new Date())); setEditingLegendId(legend.id); }}>Editar</Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -640,6 +748,13 @@ export function FinanceConfiguracao() {
                 </div>
               )}
             </div>
+
+            <DoctorLegendPricesSection
+              doctors={doctors ?? []}
+              unitId={selectedUnitId}
+              financialResponsibleId={readiness?.responsible_id ?? null}
+              cycleStartDay={readiness?.cycle_start_day ?? null}
+            />
 
             {/* ── Bloco C: Checklist de aptidão ── */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">

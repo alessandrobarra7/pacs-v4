@@ -2314,6 +2314,17 @@ setSelectedStudy(study);
                         <div className="mt-1 truncate pr-1 text-xs uppercase leading-tight text-gray-500">
                           {examLabel}
                         </div>
+                        <div
+                          className="mt-1"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
+                          <StudyLegendPicker
+                            study={study}
+                            selection={legendSelectionByStudyUid.get(study.studyInstanceUid)}
+                            canSelect={["operador", "atendente", "medico", "admin_master"].includes(user?.role ?? "")}
+                          />
+                        </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
                         {/* 1. Anexo de imagens (condicional) */}

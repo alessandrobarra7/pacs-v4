@@ -20,6 +20,7 @@ type CatalogEntry = {
   bilateral: boolean;
   sort_order: number;
   is_active: boolean;
+  financial_event_count: number;
   documents: CatalogDocument[];
   pacsMappings: CatalogMapping[];
 };
@@ -33,6 +34,7 @@ const emptyDraft = (): CatalogDraft => ({
   bilateral: false,
   sort_order: 0,
   is_active: true,
+  financial_event_count: 1,
   documents: [{ document_key: "primary", document_label: "Laudo principal", sort_order: 0 }],
   pacsMappings: [],
 });
@@ -93,6 +95,7 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
       bilateral: draft.bilateral,
       sort_order: Number(draft.sort_order) || 0,
       is_active: draft.is_active,
+      financial_event_count: Number(draft.financial_event_count) || 1,
       documents: documents.map((document, index) => ({
         document_key: document.document_key.trim().toLowerCase(),
         document_label: document.document_label.trim(),
@@ -151,7 +154,7 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
         <Card className={embedded ? "border-gray-200 bg-white text-gray-900" : "border-slate-800 bg-slate-900/60 text-slate-100"}>
           <CardHeader>
             <CardTitle>Exames disponíveis</CardTitle>
-            <CardDescription className={embedded ? "text-gray-500" : "text-slate-400"}>Cada documento configurado terá seu próprio rascunho, assinatura e evento financeiro.</CardDescription>
+            <CardDescription className={embedded ? "text-gray-500" : "text-slate-400"}>Cada documento exige assinatura própria; os eventos financeiros são liberados somente quando todas as assinaturas estiverem concluídas.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_150px_160px]">
@@ -169,6 +172,7 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className={embedded ? "font-medium text-gray-900" : "font-medium text-white"}>{entry.exam_name}</h2>
                       <Badge variant="outline" className="border-cyan-500/40 text-cyan-300">{entry.modality}</Badge>
+                      <Badge variant="outline" className="border-violet-500/40 text-violet-300">{entry.financial_event_count} {entry.financial_event_count === 1 ? "evento financeiro" : "eventos financeiros"}</Badge>
                       <Badge variant="outline" className={entry.is_active ? "border-emerald-500/40 text-emerald-300" : "border-slate-600 text-slate-400"}>{entry.is_active ? "Ativo" : "Inativo"}</Badge>
                     </div>
                     <div className={embedded ? "flex flex-wrap gap-2 text-xs text-gray-700" : "flex flex-wrap gap-2 text-xs text-slate-300"}>
@@ -196,11 +200,13 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
             <DialogDescription className="text-slate-400">A alteração afeta somente futuros documentos e mapeamentos; assinaturas anteriores preservam seus snapshots.</DialogDescription>
           </DialogHeader>
           <div className="space-y-6 py-2">
-            <div className="grid gap-4 md:grid-cols-[1fr_150px_110px]">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_110px_120px_100px]">
               <Field label="Legenda canônica"><Input value={draft.exam_name} onChange={(event) => setDraft({ ...draft, exam_name: event.target.value })} className="border-slate-700 bg-slate-900" placeholder="Ex.: Tomografia de Abdômen Total" /></Field>
               <Field label="Modalidade"><select value={draft.modality} onChange={(event) => setDraft({ ...draft, modality: event.target.value })} className="h-9 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-sm">{modalities.map((modality) => <option key={modality}>{modality}</option>)}</select></Field>
+              <Field label="Eventos"><Input type="number" min="1" max="20" value={draft.financial_event_count} onChange={(event) => setDraft({ ...draft, financial_event_count: Number(event.target.value) || 1 })} className="border-slate-700 bg-slate-900" title="Eventos criados após todas as assinaturas" /></Field>
               <Field label="Ordem"><Input type="number" min="0" value={draft.sort_order} onChange={(event) => setDraft({ ...draft, sort_order: Number(event.target.value) })} className="border-slate-700 bg-slate-900" /></Field>
             </div>
+            <p className="-mt-2 text-xs text-slate-400">Defina quantos eventos financeiros esta legenda gera após todos os documentos clínicos serem assinados. O número de documentos e o número de eventos são regras independentes.</p>
             <div className="flex flex-wrap gap-6 rounded-lg border border-slate-800 p-3">
               <ToggleField label="Exame bilateral" checked={draft.bilateral} onChange={(checked) => setDraft({ ...draft, bilateral: checked })} />
               <ToggleField label="Disponível para novos mapeamentos" checked={draft.is_active} onChange={(checked) => setDraft({ ...draft, is_active: checked })} />

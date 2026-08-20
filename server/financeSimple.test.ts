@@ -36,6 +36,8 @@ describe("financeSimple router", () => {
     expect(procs).toContain("listDoctorModalityPrices");
     expect(procs).toContain("setDoctorModalityPrice");
     expect(procs).toContain("endDoctorModalityPrice");
+    expect(procs).toContain("listDoctorLegendPrices");
+    expect(procs).toContain("setDoctorLegendPrice");
     expect(procs).not.toContain("createVisitEvent");
   });
 
@@ -115,5 +117,21 @@ describe("financeSimple router", () => {
     expect(cycleConfig).toContain("await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id)");
     expect(cycleList).toContain("await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id)");
     expect(teamProcedures.match(/canAccessUnit\(ctx\.user, input\.unitId, 'view_studies'\)/g)).toHaveLength(3);
+  });
+
+  it("protege a matriz por legenda e preserva vigências por ciclo", async () => {
+    const source = await fs.readFile(routerPath, "utf8");
+    const listStart = source.indexOf("listDoctorLegendPrices: protectedProcedure");
+    const setStart = source.indexOf("setDoctorLegendPrice: protectedProcedure", listStart);
+    const setEnd = source.indexOf("// ── Apuração de Competência", setStart);
+    const listRoute = source.slice(listStart, setStart);
+    const setRoute = source.slice(setStart, setEnd);
+
+    expect(listRoute).toContain("assertCanManageFinancialPrices");
+    expect(listRoute).toContain("eq(exam_legends.is_active, true)");
+    expect(setRoute).toContain("assertCanManageFinancialPrices");
+    expect(setRoute).toContain("assertCycleAlignedPriceStart");
+    expect(setRoute).toContain("billing_doctor_exam_legend_prices");
+    expect(setRoute).toContain("Legenda canônica ativa não encontrada");
   });
 });

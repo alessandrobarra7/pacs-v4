@@ -27,6 +27,7 @@ const catalogSchema = z.object({
   bilateral: z.boolean().default(false),
   sort_order: z.number().int().min(0).max(10_000).default(0),
   is_active: z.boolean().default(true),
+  financial_event_count: z.number().int().min(1).max(20).default(1),
   documents: z.array(documentSchema).min(1).max(20),
   pacsMappings: z.array(mappingSchema).max(100).default([]),
 });
@@ -73,6 +74,7 @@ export const examCatalogRouter = router({
       bilateral: input.bilateral,
       sort_order: input.sort_order,
       is_active: input.is_active,
+      financial_event_count: input.financial_event_count,
       created_by: ctx.user.id,
     });
     await replaceExamCatalogDocuments(
