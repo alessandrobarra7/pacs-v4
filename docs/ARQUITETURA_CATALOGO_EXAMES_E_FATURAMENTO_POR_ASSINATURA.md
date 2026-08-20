@@ -92,3 +92,18 @@ Em **19/08/2026**, a migração 0048 foi aplicada na **VM2** após os diagnósti
 | Duplicidades | Zero grupos duplicados após a migração. |
 
 A estrutura da VM2 está pronta para o código do catálogo. A atualização da **VM1** ainda é uma operação independente, exigindo nova autorização, build no diretório ativo e validação pós-deploy.
+
+## Atualização controlada da VM1
+
+Em **20/08/2026**, a atualização do Portal foi concluída na **VM1** após a migração aprovada da VM2. O procedimento confirmou a ausência de alterações rastreadas e colisões com artefatos locais não versionados antes do *fast-forward*. Nenhum backup, diagnóstico ou mídia clínica local foi removido ou movido.
+
+| Verificação pós-deploy | Resultado |
+|---|---|
+| Commit ativo | **`d64bcb0`** |
+| Build Vite | 4.803 módulos transformados; conclusão em **32,54 s**. |
+| Artefatos | `dist/public/index.html` com 367.349 bytes e `dist/index.js` com 557.123 bytes. |
+| PM2 | Reiniciado somente após build bem-sucedido; online após 15 segundos, com aproximadamente 195 MiB. |
+| Saúde local | `HTTP_LOCAL=200`. |
+| Registros-alvo | Nenhum erro de coluna ausente, memória, conexão ou streaming DICOMweb identificado. |
+
+O catálogo central, os documentos de laudo independentes e a governança de preço por ciclo estão ativos em produção. A validação funcional administrativa permanece necessária: criar um mapeamento PACS, configurar documentos para um exame composto, assinar documentos e conferir os eventos por unidade.
