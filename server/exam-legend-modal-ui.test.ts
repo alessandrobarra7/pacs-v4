@@ -6,15 +6,17 @@ const pageSource = readFileSync(resolve(process.cwd(), "client/src/pages/PacsQue
 
 describe("modal visual de legenda canônica", () => {
   it("abre a seleção pelo próprio item do exame, sem seletor suspenso na listagem", () => {
-    expect(pageSource).toContain('title={isLocked ? "Legenda bloqueada após a primeira assinatura" : "Clique para selecionar um exame cadastrado"}');
-    expect(pageSource).toContain("Selecionar exame cadastrado");
+    expect(pageSource).toContain('title={isLocked ? "Legenda bloqueada após a primeira assinatura" : "Clique para selecionar uma modalidade e um exame cadastrado"}');
+    expect(pageSource).toContain("Selecionar modalidade");
     expect(pageSource).not.toContain('<option value="">Selecionar legenda cadastrada</option>');
   });
 
-  it("mostra botões pesquisáveis alimentados pelas legendas ativas retornadas pelo servidor", () => {
-    expect(pageSource).toContain("const filteredLegends = legends.filter");
-    expect(pageSource).toContain("Buscar exame no catálogo...");
-    expect(pageSource).toContain("filteredLegends.map((legend)");
+  it("abre primeiro as modalidades e depois mostra botões pesquisáveis dos exames do administrador", () => {
+    expect(pageSource).toContain('const LEGEND_MODAL_MODALITIES = ["CT", "RM", "CR", "US"] as const');
+    expect(pageSource).toContain("Selecionar modalidade");
+    expect(pageSource).toContain("const legendsForModality = selectedModality");
+    expect(pageSource).toContain("Buscar exame ${selectedModality}...");
+    expect(pageSource).toContain("legendsForModality.map((legend)");
     expect(pageSource).toContain("selectLegend.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendId: legend.id })");
   });
 
