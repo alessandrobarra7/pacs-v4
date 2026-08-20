@@ -1985,14 +1985,18 @@ setSelectedStudy(study);
                           </button>
                         )}
                       </div>
-                      {sex && <div className="text-xs text-gray-400 mt-0.5">{sex}</div>}
-                      {studyPriority && (
-                        <div
-                          title={studyPriority.marked_by_name ? `Sinalizado por ${studyPriority.marked_by_name}` : undefined}
-                          className={`mt-1 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase leading-none ${studyPriority.priority === "urgencia" ? "border-red-200 bg-red-50 text-red-700" : "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"}`}
-                        >
-                          {studyPriority.priority === "urgencia" ? <AlertTriangle className="h-3 w-3" /> : <Siren className="h-3 w-3" />}
-                          {studyPriority.priority === "urgencia" ? "Urgência" : "Prioridade máxima"}
+                      {(sex || studyPriority) && (
+                        <div className="mt-0.5 flex items-center gap-2">
+                          {sex && <span className="text-xs text-gray-400">{sex}</span>}
+                          {studyPriority && (
+                            <span
+                              title={studyPriority.marked_by_name ? `Sinalizado por ${studyPriority.marked_by_name}` : undefined}
+                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase leading-none ${studyPriority.priority === "urgencia" ? "border-red-200 bg-red-50 text-red-700" : "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"}`}
+                            >
+                              {studyPriority.priority === "urgencia" ? <AlertTriangle className="h-3 w-3" /> : <Siren className="h-3 w-3" />}
+                              {studyPriority.priority === "urgencia" ? "Urgência" : "Prioridade máxima"}
+                            </span>
+                          )}
                         </div>
                       )}
                       {meta?.notes && (

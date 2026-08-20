@@ -32,4 +32,10 @@ describe("prioridade clínica na listagem de estudos", () => {
     expect(page).toContain("studyPriority.priority === \"urgencia\"");
     expect(page).toContain("<td colSpan={11}");
   });
+
+  it("alinha a sinalização clínica ao lado do sexo na ficha desktop do paciente", () => {
+    expect(page).toContain("(sex || studyPriority) && (");
+    expect(page).toContain('className="mt-0.5 flex items-center gap-2"');
+    expect(page).toContain('{sex && <span className="text-xs text-gray-400">{sex}</span>}');
+  });
 });

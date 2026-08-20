@@ -1243,6 +1243,7 @@
 - [x] Ajustar a apresentação da sinalização clínica na tabela desktop e versionar a correção no GitHub
 - [x] Substituir o painel da coluna Status por colunas compactas e exclusivas de Urgência e Prioridade máxima no desktop
 - [x] Remover as colunas de prioridade do desktop e mostrar alerta apenas na linha do estudo quando houver sinalização
+- [x] Alinhar o alerta condicional de prioridade ao lado do sexo do paciente em uma única linha no desktop
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
