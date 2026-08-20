@@ -2315,3 +2315,9 @@
 ## CORREÇÃO — LOGIN MÓVEL
 
 - [x] Reorganizar a página de login móvel para eliminar a sobreposição entre marca, formulário, suporte e créditos.
+
+## AUDITORIA V11 — DIVERGÊNCIAS CLÍNICO-FINANCEIRAS
+
+- [x] Impedir que o reprocessamento financeiro legado crie cobrança duplicada para estudos já cobertos pelo catálogo clínico-financeiro.
+- [x] Remover definitivamente o código morto de preços do cadastro de usuários e sua consulta financeira residual.
+- [x] Bloquear a alteração de legenda canônica na primeira assinatura, conforme a regra documentada.

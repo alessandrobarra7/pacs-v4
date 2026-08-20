@@ -2,7 +2,10 @@ import { and, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import { billing_catalog_study_events, billing_doctor_exam_legend_prices, reports, study_exam_legend_selections } from "../drizzle/schema";
 import { getDb } from "./db";
 
-/** Cria eventos do catálogo somente quando todos os documentos selecionados foram assinados. */
+/**
+ * Bloqueia a legenda na primeira assinatura e cria eventos financeiros somente
+ * quando todos os documentos selecionados tiverem sido assinados.
+ */
 export async function createCatalogEventsWhenComplete(input: { studyUid: string; unitId: number; doctorUserId: number; signedAt: Date }) {
   const db = await getDb();
   if (!db) return { handled: false, created: 0 };
@@ -11,6 +14,14 @@ export async function createCatalogEventsWhenComplete(input: { studyUid: string;
     eq(study_exam_legend_selections.unit_id, input.unitId),
   )).limit(1);
   if (!selection) return { handled: false, created: 0 };
+  // Esta função é chamada após cada assinatura. A atualização condicional mantém
+  // imutável o instante da primeira assinatura, inclusive se houver concorrência.
+  if (!selection.lockedAt) {
+    await db.update(study_exam_legend_selections).set({ lockedAt: input.signedAt }).where(and(
+      eq(study_exam_legend_selections.id, selection.id),
+      isNull(study_exam_legend_selections.lockedAt),
+    ));
+  }
   const documents = selection.documents_snapshot as Array<{ key: string }>;
   const signed = await db.select({ document_key: reports.document_key }).from(reports).where(and(
     eq(reports.study_instance_uid, input.studyUid), eq(reports.unit_id, input.unitId),
@@ -18,7 +29,6 @@ export async function createCatalogEventsWhenComplete(input: { studyUid: string;
     inArray(reports.status, ["signed", "revised"]),
   ));
   if (new Set(signed.map((item) => item.document_key)).size < documents.length) return { handled: true, created: 0 };
-  if (!selection.lockedAt) await db.update(study_exam_legend_selections).set({ lockedAt: input.signedAt }).where(eq(study_exam_legend_selections.id, selection.id));
   const existing = await db.select({ id: billing_catalog_study_events.id }).from(billing_catalog_study_events).where(eq(billing_catalog_study_events.study_selection_id, selection.id));
   if (existing.length) return { handled: true, created: 0 };
   const [price] = await db.select().from(billing_doctor_exam_legend_prices).where(and(

@@ -26,6 +26,7 @@ import {
   billing_doctor_modality_prices,
   billing_doctor_exam_legend_prices,
   exam_legends,
+  study_exam_legend_selections,
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, ne, sql, sql as sqlFn, desc, inArray, gte, lte, or, SQL } from "drizzle-orm";
 import {
@@ -1483,8 +1484,11 @@ export const financeSimpleRouter = router({
     }),
 
   /**
-   * FIN-R1: Reprocessar billing_visit_events faltantes.
-   * Busca todos os laudos assinados/revisados sem evento financeiro e cria os eventos.
+   * FIN-R1: Reprocessar billing_visit_events legados faltantes.
+   * Busca somente laudos assinados/revisados sem evento financeiro legado e sem
+   * seleção de legenda canônica. Estudos selecionados pelo catálogo têm o seu
+   * próprio fluxo consolidado em billing_catalog_study_events e jamais podem
+   * voltar para billing_visit_events.
    * dry_run=true apenas lista os laudos afetados sem criar nada.
    * dry_run=false cria os eventos para todos os laudos listados.
    * Restrito a admin_master.
@@ -1501,8 +1505,9 @@ export const financeSimpleRouter = router({
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
       const { reports, studies_cache } = await import('../../drizzle/schema');
 
-      // Busca laudos assinados/revisados sem billing_visit_event correspondente
-      // Faz LEFT JOIN com studies_cache para obter patient_name e study_date
+      // Busca exclusivamente laudos legados: sem billing_visit_event e sem seleção
+      // canônica. O segundo critério bloqueia reprocessamento duplicado mesmo quando
+      // o catálogo ainda aguarda as demais assinaturas antes de consolidar eventos.
       const missing = await db
         .select({
           report_id: reports.id,
@@ -1517,6 +1522,13 @@ export const financeSimpleRouter = router({
         .from(reports)
         .leftJoin(billing_visit_events, eq(billing_visit_events.report_id, reports.id))
         .leftJoin(
+          study_exam_legend_selections,
+          and(
+            eq(study_exam_legend_selections.study_instance_uid, reports.study_instance_uid),
+            eq(study_exam_legend_selections.unit_id, reports.unit_id),
+          )
+        )
+        .leftJoin(
           studies_cache,
           and(
             eq(studies_cache.study_instance_uid, reports.study_instance_uid),
@@ -1526,6 +1538,7 @@ export const financeSimpleRouter = router({
         .where(and(
           sql`${reports.status} IN ('signed', 'revised')`,
           isNull(billing_visit_events.id),
+          isNull(study_exam_legend_selections.id),
           input.unit_id ? eq(reports.unit_id, input.unit_id) : undefined,
         ))
         .orderBy(reports.signedAt)
