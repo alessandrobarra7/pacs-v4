@@ -1325,6 +1325,17 @@ export function DicomViewerPage() {
             {launchingViewer === 'horos' ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ExternalLink className="h-3 w-3 mr-1" />}
             Horos
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleOpenViewer('osirix')}
+            disabled={!!launchingViewer || imageCount === 0}
+            className="text-xs border-teal-700 text-teal-300 hover:bg-teal-900/40 h-7 px-2"
+            title="Abrir no OsiriX (macOS) com o estudo autorizado, sem PACS configurado"
+          >
+            {launchingViewer === 'osirix' ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ExternalLink className="h-3 w-3 mr-1" />}
+            OsiriX
+          </Button>
           {/* Botão Anamnese */}
           <Button
             variant="outline"

@@ -22,4 +22,16 @@ describe('Horos Viewer Launch Protocol', () => {
     expect(source).toContain('dicomZipTokens.set(zipToken, { studyUid, expiresAt })');
     expect(source).toContain('horos://?methodName=DownloadURL&URL=${encodeURIComponent(zipUrl)}&Display=YES');
   });
+
+  it('exposes the OsiriX button beside the existing Horos integration using the same temporary ZIP flow', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const [serverSource, clientSource] = await Promise.all([
+      readFile(new URL('./_core/index.ts', import.meta.url), 'utf-8'),
+      readFile(new URL('../client/src/pages/DicomViewerPage.tsx', import.meta.url), 'utf-8'),
+    ]);
+
+    expect(serverSource).toContain('osirix://?methodName=DownloadURL&URL=${encodeURIComponent(zipUrl)}&Display=YES');
+    expect(clientSource).toContain("handleOpenViewer('osirix')");
+    expect(clientSource).toContain('Abrir no OsiriX (macOS) com o estudo autorizado, sem PACS configurado');
+  });
 });
