@@ -1242,6 +1242,7 @@
 - [x] Corrigir a ausência dos controles Urgência e Prioridade máxima nas listagens móvel e desktop para os perfis autorizados
 - [x] Ajustar a apresentação da sinalização clínica na tabela desktop e versionar a correção no GitHub
 - [x] Substituir o painel da coluna Status por colunas compactas e exclusivas de Urgência e Prioridade máxima no desktop
+- [x] Remover as colunas de prioridade do desktop e mostrar alerta apenas na linha do estudo quando houver sinalização
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
