@@ -2193,6 +2193,15 @@
 - [x] Validar em worktree temporário da VM1 o build completo e revisar a migração 0048 antes de aplicar catálogo, documentos e preços históricos em produção.
 - [x] Executar diagnóstico somente leitura e aplicar controladamente a migração 0048 na VM2, preservando laudos e eventos existentes.
 - [x] Atualizar controladamente a VM1 após a migração 0048 aprovada na VM2 e executar verificação pós-deploy.
+- [ ] Redesenhar o módulo financeiro por perfil: administração geral, responsável financeiro por unidade e médico.
+- [ ] Integrar gestão de usuários da unidade, preços médicos, produção de laudos e obrigações da unidade em uma jornada administrativa coerente.
+- [ ] Exibir ao responsável financeiro usuários, produção médica e eventos devidos à LAUDS somente dentro das unidades vinculadas.
+- [ ] Permitir ao responsável financeiro criar e gerir somente médicos, operadores e visualizadores da própria unidade, preservando histórico em desativação ou desvinculação.
+- [ ] Restringir ao admin_master a quitação de obrigações da unidade com a LAUDS; o responsável financeiro poderá apenas consultar esse status.
+- [ ] Permitir ao responsável financeiro marcar pagamento apenas de médicos que ele próprio cadastrou ou vinculou na unidade autorizada.
+- [ ] Restringir o módulo financeiro aos perfis médico e responsável financeiro, apresentando cada unidade como contexto financeiro independente sem consolidação cruzada.
+- [ ] Permitir ao admin_master assumir ou trocar o responsável financeiro de qualquer unidade, preservando os vínculos, históricos e poderes operacionais da unidade.
+- [ ] Permitir ao responsável financeiro da unidade criar novas contas ou vincular contas existentes somente como médico, operador ou visualizador.
 
 ## CORREÇÃO P1 — READINESS POR ESTUDO E UNIDADE
 
