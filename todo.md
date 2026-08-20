@@ -1237,6 +1237,8 @@
 - [x] Criar sinalização por estudo de Urgência e Prioridade máxima, acionável por operador e atendente com autoria imutável
 - [x] Exibir prioridade abaixo do status do laudo no mobile e desktop, visível ao médico antes de laudar
 - [x] Validar isolamento por unidade, autoria da sinalização e bloqueio de alterações por outros usuários
+- [x] Aplicar e validar na VM2 a migração 0049 de prioridade clínica antes de atualizar a VM1
+- [x] Atualizar a VM1 para o commit 3852302 após a migração aprovada da VM2 e validar prioridade clínica em produção
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
