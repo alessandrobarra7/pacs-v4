@@ -230,15 +230,16 @@ function StudyPriorityControls({
   const maximumActive = priority === "prioridade_maxima";
 
   return (
-    <div className="mt-1.5 flex flex-col items-center gap-1" onClick={(event) => event.stopPropagation()}>
+    <div className="mt-1.5 flex w-full min-w-[172px] flex-col items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5" onClick={(event) => event.stopPropagation()}>
+      <span className="text-[8px] font-bold uppercase leading-none tracking-[0.08em] text-slate-500">Sinalização clínica</span>
       {priority && (
-        <span title={markedByName ? `Sinalizado por ${markedByName}` : undefined} className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase leading-none ${urgencyActive ? "border-red-200 bg-red-50 text-red-700" : "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"}`}>
+        <span title={markedByName ? `Sinalizado por ${markedByName}` : undefined} className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase leading-none ${urgencyActive ? "border-red-200 bg-red-50 text-red-700" : "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"}`}>
           {urgencyActive ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <Siren className="h-3 w-3 shrink-0" />}
           {urgencyActive ? "Urgência" : "Prioridade máxima"}
         </span>
       )}
       {!priority && !canMark && (
-        <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-semibold uppercase leading-none text-slate-500">
+        <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase leading-none text-slate-500">
           <CircleDotDashed className="h-3 w-3 shrink-0" />
           Sem prioridade clínica
         </span>

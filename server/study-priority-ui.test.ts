@@ -23,4 +23,10 @@ describe("prioridade clínica na listagem de estudos", () => {
     expect(page).toContain("Sem prioridade clínica");
     expect(page).toContain("canMark && isOwnPriority");
   });
+
+  it("agrupa a sinalização clínica em um painel legível na tabela desktop", () => {
+    expect(page).toContain("Sinalização clínica");
+    expect(page).toContain("min-w-[172px]");
+    expect(page).toContain("text-[10px] font-bold uppercase");
+  });
 });

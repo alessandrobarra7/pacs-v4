@@ -1240,6 +1240,7 @@
 - [x] Aplicar e validar na VM2 a migração 0049 de prioridade clínica antes de atualizar a VM1
 - [x] Atualizar a VM1 para o commit 3852302 após a migração aprovada da VM2 e validar prioridade clínica em produção
 - [x] Corrigir a ausência dos controles Urgência e Prioridade máxima nas listagens móvel e desktop para os perfis autorizados
+- [x] Ajustar a apresentação da sinalização clínica na tabela desktop e versionar a correção no GitHub
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
