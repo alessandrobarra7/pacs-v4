@@ -2263,3 +2263,4 @@
 
 - [x] Aplicar a migração 0050 na VM2 a partir do artefato versionado, sem depender de cópia local do repositório.
 - [x] Publicar o commit 4fdcda7 no GitHub e confirmar que a VM1 recebe o mesmo hash remoto antes da atualização.
+- [x] Atualizar a VM1 para bb11b49 após build isolado aprovado e validar PM2, HTTP local e logs pós-reinício.
