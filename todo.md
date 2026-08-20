@@ -1225,6 +1225,7 @@
 - [ ] Aplicar as alterações móveis aprovadas sem regressão da página principal desktop
 - [x] Reestruturar a faixa de resumo financeiro móvel para melhorar a hierarquia visual dos valores e do ciclo
 - [x] Substituir o tempo relativo pela quantidade de imagens do estudo nos cartões móveis
+- [x] Exibir a quantidade de imagens também ao lado da data na tabela desktop e confirmar a atualização da prévia
 
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 

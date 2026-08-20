@@ -61,19 +61,6 @@ function parseDicomDateTime(date: string, time?: string): Date | null {
   return new Date(`${y}-${m}-${d}T${h}:${mi}:${s}`);
 }
 
-/** Retorna string relativa: "5d14h32m", "2h15m", "45m" */
-function relativeTime(dt: Date | null): string {
-  if (!dt) return '-';
-  const diff = Math.floor((Date.now() - dt.getTime()) / 1000);
-  if (diff < 0) return 'agora';
-  const d = Math.floor(diff / 86400);
-  const h = Math.floor((diff % 86400) / 3600);
-  const m = Math.floor((diff % 3600) / 60);
-  if (d > 0) return `${d}d${h}h${m}m`;
-  if (h > 0) return `${h}h${m}m`;
-  return `${m}m`;
-}
-
 /** Formata data DICOM para exibição: DD/MM/YYYY */
 function formatDate(dicomDate: string): string {
   if (!dicomDate || dicomDate.length < 8) return '-';
@@ -1878,9 +1865,11 @@ setSelectedStudy(study);
                 const patientNameEdited = !!meta?.patient_name_override;
                 const age = calcAge(study.patientBirthDate || '');
                 const sex = formatSex(study.patientSex || '');
-                const dt = parseDicomDateTime(study.studyDate, study.studyTime);
-                const relative = relativeTime(dt);
                 const dateFormatted = formatDate(study.studyDate || '');
+                const imageCount = Number.parseInt(String(study.numberOfInstances ?? ''), 10);
+                const imageCountLabel = Number.isFinite(imageCount) && imageCount > 0
+                  ? `${imageCount} ${imageCount === 1 ? 'imagem' : 'imagens'}`
+                  : 'Imagens não informadas';
                 const modality = (study.modality || '-').toUpperCase();
                 const modalityCls = modalityColor[modality] || 'bg-gray-100 text-gray-700';
                 const status = getReportStatus(study);
@@ -1895,7 +1884,7 @@ setSelectedStudy(study);
                     {/* Data */}
                     <td className="px-4 py-3">
                       <div className="text-sm text-gray-700">{dateFormatted}</div>
-                      <div className="text-xs text-gray-400 mt-0.5">{relative}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">{imageCountLabel}</div>
                     </td>
 
                     {/* Paciente — editável (Opção 1) */}
