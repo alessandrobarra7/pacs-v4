@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { exam_legends, exam_legend_documents, study_exam_legend_selections } from "../../drizzle/schema";
 import { assertDicomFileAccess } from "../authorization";
@@ -23,7 +23,8 @@ export const studyExamLegendRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados indisponível." });
       return db.select({ id: exam_legends.id, exam_name: exam_legends.exam_name, modality: exam_legends.modality, financial_event_count: exam_legends.financial_event_count })
         .from(exam_legends)
-        .where(and(eq(exam_legends.is_active, true), eq(exam_legends.modality, input.modality.trim().toUpperCase())));
+        .where(eq(exam_legends.is_active, true))
+        .orderBy(asc(exam_legends.modality), asc(exam_legends.sort_order), asc(exam_legends.exam_name));
     }),
 
   getBatch: protectedProcedure

@@ -2292,3 +2292,7 @@
 ## CORREÇÃO — FALHA AO SALVAR CATÁLOGO
 
 - [x] Diagnosticar e corrigir a falha de gravação ao editar uma legenda canônica existente.
+
+## CORREÇÃO — MODAL EXIBE POUCAS LEGENDAS
+
+- [x] Diagnosticar por que o modal de seleção mostra apenas duas legendas para o estudo e corrigir o filtro confirmado.
