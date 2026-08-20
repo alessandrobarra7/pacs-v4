@@ -44,9 +44,10 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
   const utils = trpc.useUtils();
   const { data: entries = [], isLoading } = trpc.examCatalog.list.useQuery();
   const save = trpc.examCatalog.save.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("Exame do catálogo salvo");
       utils.examCatalog.list.invalidate();
+      await utils.studyExamLegend.listForStudy.invalidate();
       setOpen(false);
     },
     onError: (error) => toast.error(error.message),

@@ -2302,3 +2302,8 @@
 - [x] Auditar os 213 exames pré-definidos, sua origem e dependências antes de qualquer exclusão.
 - [x] Remover somente os exames pré-definidos após validação, preservando os criados pelo administrador e qualquer histórico vinculado.
 - [x] Substituir a lista direta por modal de modalidades CT, RM, CR e US, seguido da lista de exames cadastrados pelo administrador.
+
+## DIAGNÓSTICO — CADASTRO DE NOVA LEGENDA
+
+- [x] Monitorar uma tentativa real de cadastro para correlacionar a requisição, os logs do Portal e a persistência no banco.
+- [x] Atualizar ou invalidar a consulta de legendas do modal após um novo cadastro para refletir imediatamente o catálogo ativo.

@@ -433,7 +433,12 @@ function StudyLegendPicker({ study, selection, canSelect, children }: { study: a
   const [search, setSearch] = useState("");
   const { data: legends = [] } = trpc.studyExamLegend.listForStudy.useQuery(
     { studyInstanceUid: study.studyInstanceUid, modality: study.modality || "OUTROS" },
-    { enabled: Boolean(study.studyInstanceUid && canSelect) },
+    {
+      enabled: Boolean(study.studyInstanceUid && canSelect),
+      staleTime: 0,
+      refetchOnMount: "always",
+      refetchOnWindowFocus: true,
+    },
   );
   const closeModal = () => {
     setIsOpen(false);

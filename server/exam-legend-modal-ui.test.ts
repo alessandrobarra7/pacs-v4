@@ -27,6 +27,13 @@ describe("modal visual de legenda canônica", () => {
     expect(routerSource).not.toContain("eq(exam_legends.modality, input.modality.trim().toUpperCase())");
   });
 
+  it("refaz a consulta de legendas ao retornar para a listagem após um novo cadastro administrativo", () => {
+    const catalogPage = readFileSync(resolve(process.cwd(), "client/src/pages/ExamCatalogPage.tsx"), "utf8");
+    expect(catalogPage).toContain("await utils.studyExamLegend.listForStudy.invalidate()");
+    expect(pageSource).toContain('refetchOnMount: "always"');
+    expect(pageSource).toContain("refetchOnWindowFocus: true");
+  });
+
   it("prioriza a legenda canônica selecionada na listagem e mantém o PACS como alternativa", () => {
     expect(pageSource).toContain("legendSelectionByStudyUid.get(study.studyInstanceUid)?.exam_name_snapshot || study.studyDescription || ''");
     expect(pageSource).toContain("legendSelectionByStudyUid.get(study.studyInstanceUid)?.exam_name_snapshot || meta?.description_override || study.studyDescription || 'Sem descrição'");
