@@ -573,6 +573,7 @@ const isAdminMaster = user?.role === 'admin_master';
     total: number;
     error?: string;
   }>>({});
+  const openViewerAfterDownloadRef = useRef<Record<string, boolean>>({});
 
   // Ao montar ou ao mudar a lista de estudos, verifica quais já estão em cache no servidor
   // Isso garante que o botão verde persiste ao voltar do viewer
@@ -619,10 +620,11 @@ const isAdminMaster = user?.role === 'admin_master';
     });
   }, [queryResults, autoDownloadEnabled]);
 
-  const handlePreDownload = (study: any) => {
+  const handlePreDownload = (study: any, openWhenComplete = false) => {
     const uid = study.studyInstanceUid;
     if (!uid) { toast.error('UID do estudo não disponível'); return; }
     const current = preDownloadMap[uid];
+    if (openWhenComplete) openViewerAfterDownloadRef.current[uid] = true;
     if (current && (current.phase === 'connecting' || current.phase === 'downloading')) return; // já em andamento
 
     setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'connecting', received: 0, total: 0 } }));
@@ -682,12 +684,19 @@ const isAdminMaster = user?.role === 'admin_master';
       try {
         const data = JSON.parse(e.data);
         setPreDownloadMap(prev => ({ ...prev, [uid]: { phase: 'done', received: data.total, total: data.total } }));
+        const shouldOpenViewer = openViewerAfterDownloadRef.current[uid] === true;
+        delete openViewerAfterDownloadRef.current[uid];
+        sse.close();
+        if (shouldOpenViewer) {
+          const unitParam = effectiveUnitId ? `?unitId=${effectiveUnitId}` : '';
+          navigate(`/dicom-viewer/${uid}${unitParam}`);
+          return;
+        }
         toast.success(`Download concluído: ${data.total} imagem(ns)`, {
           description: 'Clique em Visualizar para abrir o viewer instantaneamente.',
           action: { label: 'Visualizar', onClick: () => handleVisualize(study) },
         });
       } catch {}
-      sse.close();
     });
 
     sse.addEventListener('error', (e) => {
@@ -949,7 +958,7 @@ const isAdminMaster = user?.role === 'admin_master';
 
 
 
-  const handleVisualize = async (study: any) => {
+  const handleVisualize = async (study: any, openWhenReady = false) => {
     if (!study.studyInstanceUid) { toast.error('UID do estudo não disponível'); return; }
     const unitParam = effectiveUnitId ? `?unitId=${effectiveUnitId}` : '';
     const uid = study.studyInstanceUid;
@@ -986,6 +995,7 @@ const isAdminMaster = user?.role === 'admin_master';
       return;
     }
     if (isDownloading) {
+      if (openWhenReady) openViewerAfterDownloadRef.current[uid] = true;
       toast.info('Download em andamento', { description: 'Aguarde todas as imagens serem baixadas antes de visualizar.' });
       return;
     }
@@ -1007,7 +1017,7 @@ const isAdminMaster = user?.role === 'admin_master';
     toast.info('Estudo ainda não baixado', {
       description: 'O download completo das imagens será iniciado agora. O visualizador abrirá somente ao finalizar.',
     });
-    handlePreDownload(study);
+    handlePreDownload(study, openWhenReady);
   };
 
   const openReportDocument = (study: any, document?: { document_key: string; document_label: string }) => {
@@ -2117,17 +2127,25 @@ setSelectedStudy(study);
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
                   : 'bg-gray-50 text-gray-500 border-gray-200';
                 const hasAnamnesis = !!anamnesisStatusMap[study.studyInstanceUid];
+                const mobilePreDownload = preDownloadMap[study.studyInstanceUid];
+                const isMobileDownloadActive = mobilePreDownload?.phase === 'connecting' || mobilePreDownload?.phase === 'downloading';
+                const mobileDownloadPercent = mobilePreDownload?.total
+                  ? Math.min(100, Math.round((mobilePreDownload.received / mobilePreDownload.total) * 100))
+                  : 0;
+                const filledSegments = mobilePreDownload?.total
+                  ? Math.max(1, Math.ceil(mobileDownloadPercent / 10))
+                  : 3;
 
                 return (
                   <article
                     key={`${study.studyInstanceUid || 'study'}-mobile-${idx}`}
                     role={canViewer ? 'button' : undefined}
                     tabIndex={canViewer ? 0 : undefined}
-                    onClick={() => { if (canViewer) handleVisualize(study); }}
+                    onClick={() => { if (canViewer) handleVisualize(study, true); }}
                     onKeyDown={(event) => {
                       if (canViewer && (event.key === 'Enter' || event.key === ' ')) {
                         event.preventDefault();
-                        handleVisualize(study);
+                        handleVisualize(study, true);
                       }
                     }}
                     className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-[0_2px_8px_rgba(15,23,42,0.08)] transition-colors active:bg-blue-50"
@@ -2248,6 +2266,28 @@ setSelectedStudy(study);
                         })()}
                       </div>
                     </div>
+                    {isMobileDownloadActive && (
+                      <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2" aria-live="polite">
+                        <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-emerald-800">
+                          <span>{mobilePreDownload?.phase === 'connecting' ? 'Preparando imagens...' : 'Baixando imagens para abrir o visualizador'}</span>
+                          <span className="shrink-0">{mobilePreDownload?.total ? `${mobilePreDownload.received}/${mobilePreDownload.total}` : 'Aguardando PACS'}</span>
+                        </div>
+                        <div className="mt-1.5 grid grid-cols-10 gap-1" aria-label={`Progresso do download: ${mobileDownloadPercent}%`}>
+                          {Array.from({ length: 10 }, (_, segment) => (
+                            <span
+                              key={segment}
+                              className={`h-2 rounded-[2px] transition-colors ${segment < filledSegments ? 'bg-emerald-500' : 'border border-emerald-300 bg-white'} ${!mobilePreDownload?.total && segment < filledSegments ? 'animate-pulse' : ''}`}
+                            />
+                          ))}
+                        </div>
+                        <p className="mt-1 text-[10px] text-emerald-700">{mobilePreDownload?.total ? `${mobileDownloadPercent}% concluído — o visualizador abrirá automaticamente.` : 'Aguardando a contagem total de imagens do PACS.'}</p>
+                      </div>
+                    )}
+                    {mobilePreDownload?.phase === 'error' && (
+                      <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-[10px] text-red-700" role="status">
+                        Não foi possível concluir o download. Toque novamente no cartão para tentar de novo.
+                      </div>
+                    )}
                     <div className="mt-1.5 flex items-start gap-2">
                       <div className={`min-w-0 flex-1 break-words pr-1 text-[15px] font-bold uppercase leading-tight ${patientNameEdited ? 'text-amber-700' : 'text-amber-800'}`}>
                         {patientName}

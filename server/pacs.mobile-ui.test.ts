@@ -67,6 +67,16 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(pageSource).toContain("handlePrintReport(study)");
   });
 
+  it("mostra o progresso real do pré-download abaixo das ações e abre o viewer ao concluir", () => {
+    expect(pageSource).toContain("const mobilePreDownload = preDownloadMap[study.studyInstanceUid]");
+    expect(pageSource).toContain("const isMobileDownloadActive = mobilePreDownload?.phase === 'connecting' || mobilePreDownload?.phase === 'downloading'");
+    expect(pageSource).toContain("grid grid-cols-10 gap-1");
+    expect(pageSource).toContain("Baixando imagens para abrir o visualizador");
+    expect(pageSource).toContain("o visualizador abrirá automaticamente.");
+    expect(pageSource).toContain("handleVisualize(study, true)");
+    expect(pageSource).toContain("openViewerAfterDownloadRef");
+  });
+
   it("restores Laudar as a desktop table action without bypassing RBAC", () => {
     expect(pageSource).toContain('title="Laudar exame">Laudar</th>');
     expect(pageSource).toContain("{canLaudo ? (");
