@@ -2283,3 +2283,8 @@
 
 - [x] Diagnosticar a divergência entre a seleção persistida da legenda canônica e o nome exibido na página principal.
 - [x] Priorizar a legenda canônica selecionada na listagem e manter a descrição PACS somente como alternativa quando não houver seleção.
+
+## REDESENHO — CATÁLOGO DE EXAMES
+
+- [x] Reorganizar a página do catálogo para priorizar busca, filtros, estado dos exames e ações de administração, sem criar dados de exemplo.
+- [x] Tornar a configuração de legenda, documentos clínicos, eventos financeiros e mapeamentos PACS mais compreensível e prática.

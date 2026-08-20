@@ -137,60 +137,67 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
           <Button className="w-full bg-cyan-700 hover:bg-cyan-600 sm:w-auto" onClick={startCreate}><Plus className="mr-2 h-4 w-4" /> Novo exame</Button>
         </div>}
 
-        <Card className={embedded ? "border-amber-200 bg-amber-50 text-amber-950" : "border-amber-400/20 bg-amber-400/5 text-slate-100"}>
-          <CardContent className={embedded ? "flex gap-3 p-4 text-sm text-amber-900" : "flex gap-3 p-4 text-sm text-amber-100"}>
-            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
-            <p>Somente descrições PACS mapeadas aqui recebem legenda canônica. Quando não houver mapeamento, o Portal exibe a descrição original do PACS.</p>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Exames cadastrados" value={entries.length} />
-          <Metric label="Exames ativos" value={activeCount} />
-          <Metric label="Documentos configurados" value={entries.reduce((total: number, entry: CatalogEntry) => total + entry.documents.length, 0)} />
-          <Metric label="Mapeamentos PACS" value={mappingCount} />
-        </div>
-
-        <Card className={embedded ? "border-gray-200 bg-white text-gray-900" : "border-slate-800 bg-slate-900/60 text-slate-100"}>
-          <CardHeader>
-            <CardTitle>Exames disponíveis</CardTitle>
-            <CardDescription className={embedded ? "text-gray-500" : "text-slate-400"}>Cada documento exige assinatura própria; os eventos financeiros são liberados somente quando todas as assinaturas estiverem concluídas.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_150px_160px]">
-              <label className="relative block"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="border-gray-300 bg-white pl-9" placeholder="Buscar por nome de exame" /></label>
-              <select value={modalityFilter} onChange={(event) => setModalityFilter(event.target.value)} className="h-9 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-700"><option value="all">Todas as modalidades</option>{modalities.map((modality) => <option key={modality} value={modality}>{modality}</option>)}</select>
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-9 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-700"><option value="active">Somente ativos</option><option value="inactive">Somente inativos</option><option value="all">Todos os status</option></select>
+        <section className={embedded ? "overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" : "overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60"}>
+          <div className={embedded ? "border-b border-slate-100 bg-gradient-to-r from-cyan-50 via-white to-white px-5 py-4" : "border-b border-slate-800 px-5 py-4"}>
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <p className={embedded ? "text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700" : "text-xs font-semibold uppercase tracking-[0.16em] text-cyan-300"}>Fluxo do catálogo</p>
+                <h3 className={embedded ? "mt-1 text-lg font-semibold text-slate-900" : "mt-1 text-lg font-semibold text-white"}>Crie uma legenda, defina os laudos e vincule a descrição do PACS</h3>
+                <p className={embedded ? "mt-1 text-sm text-slate-600" : "mt-1 text-sm text-slate-400"}>A legenda é selecionada pelo usuário na página principal; os documentos e eventos determinam o que acontece depois.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-sm sm:flex sm:items-center sm:gap-6">
+                <SummaryMetric label="Cadastrados" value={entries.length} />
+                <SummaryMetric label="Ativos" value={activeCount} accent="text-emerald-700" />
+                <SummaryMetric label="Documentos" value={entries.reduce((total: number, entry: CatalogEntry) => total + entry.documents.length, 0)} />
+                <SummaryMetric label="Mapeamentos" value={mappingCount} />
+              </div>
             </div>
-            <p className={embedded ? "text-xs text-gray-500" : "text-xs text-slate-400"}>{filteredEntries.length} resultado(s) conforme os filtros administrativos.</p>
-            {isLoading ? <p className="py-8 text-center text-sm text-slate-400">Carregando catálogo…</p> : null}
-            {!isLoading && !filteredEntries.length ? <p className="py-8 text-center text-sm text-slate-400">Nenhum exame corresponde aos filtros selecionados.</p> : null}
+          </div>
+
+          <div className="border-b border-slate-100 px-5 py-3">
+            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_160px_170px]">
+              <label className="relative block"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 border-slate-300 bg-white pl-9" placeholder="Buscar legenda canônica" /></label>
+              <select value={modalityFilter} onChange={(event) => setModalityFilter(event.target.value)} className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"><option value="all">Modalidade: todas</option>{modalities.map((modality) => <option key={modality} value={modality}>Modalidade: {modality}</option>)}</select>
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"><option value="active">Status: ativos</option><option value="inactive">Status: inativos</option><option value="all">Status: todos</option></select>
+            </div>
+            <div className="mt-3 flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-slate-500"><strong className="text-slate-700">{filteredEntries.length}</strong> exame{filteredEntries.length === 1 ? "" : "s"} encontrado{filteredEntries.length === 1 ? "" : "s"}.</p>
+              <p className="flex items-center gap-1.5 text-amber-700"><AlertTriangle className="h-3.5 w-3.5" /> Sem mapeamento, o Portal conserva a descrição original recebida do PACS.</p>
+            </div>
+          </div>
+
+          <div className="space-y-2 bg-slate-50/70 p-3 sm:p-4">
+            {isLoading ? <p className="py-10 text-center text-sm text-slate-400">Carregando catálogo…</p> : null}
+            {!isLoading && !filteredEntries.length ? <p className="py-10 text-center text-sm text-slate-400">Nenhum exame corresponde aos filtros selecionados.</p> : null}
             {filteredEntries.map((entry: CatalogEntry) => (
-              <article key={entry.id} className={embedded ? "rounded-xl border border-gray-200 bg-gray-50 p-4" : "rounded-xl border border-slate-800 bg-slate-950/60 p-4"}>
-                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                  <div className="min-w-0 space-y-3">
+              <article key={entry.id} className="rounded-xl border border-slate-200 bg-white p-4 transition-shadow hover:shadow-sm">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className={embedded ? "font-medium text-gray-900" : "font-medium text-white"}>{entry.exam_name}</h2>
-                      <Badge variant="outline" className="border-cyan-500/40 text-cyan-300">{entry.modality}</Badge>
-                      <Badge variant="outline" className="border-violet-500/40 text-violet-300">{entry.financial_event_count} {entry.financial_event_count === 1 ? "evento financeiro" : "eventos financeiros"}</Badge>
-                      <Badge variant="outline" className={entry.is_active ? "border-emerald-500/40 text-emerald-300" : "border-slate-600 text-slate-400"}>{entry.is_active ? "Ativo" : "Inativo"}</Badge>
+                      <h2 className="font-semibold text-slate-900">{entry.exam_name}</h2>
+                      <Badge variant="outline" className="border-cyan-200 bg-cyan-50 text-cyan-800">{entry.modality}</Badge>
+                      <Badge variant="outline" className={entry.is_active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-300 bg-slate-100 text-slate-500"}>{entry.is_active ? "Ativo" : "Inativo"}</Badge>
                     </div>
-                    <div className={embedded ? "flex flex-wrap gap-2 text-xs text-gray-700" : "flex flex-wrap gap-2 text-xs text-slate-300"}>
-                      {entry.documents.length ? entry.documents.map((document) => <span key={document.document_key} className={embedded ? "inline-flex items-center gap-1 rounded-md bg-cyan-50 px-2 py-1 text-cyan-900" : "inline-flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1"}><FileText className="h-3.5 w-3.5 text-cyan-600" />{document.document_label}</span>) : <span className="text-amber-600">Sem documento clínico configurado</span>}
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                      <span className="inline-flex items-center gap-1.5 text-slate-600"><FileText className="h-3.5 w-3.5 text-cyan-700" /><strong className="text-slate-800">{entry.documents.length}</strong> documento{entry.documents.length === 1 ? "" : "s"}</span>
+                      <span className="inline-flex items-center gap-1.5 text-slate-600"><span className="font-semibold text-violet-700">$</span><strong className="text-slate-800">{entry.financial_event_count}</strong> evento{entry.financial_event_count === 1 ? "" : "s"} financeiro{entry.financial_event_count === 1 ? "" : "s"}</span>
+                      <span className="inline-flex items-center gap-1.5 text-slate-600"><Link2 className="h-3.5 w-3.5 text-slate-500" /><strong className="text-slate-800">{entry.pacsMappings.length}</strong> mapeamento{entry.pacsMappings.length === 1 ? "" : "s"} PACS</span>
                     </div>
-                    <div className={embedded ? "flex flex-wrap gap-2 text-xs text-gray-500" : "flex flex-wrap gap-2 text-xs text-slate-400"}>
-                      {entry.pacsMappings.map((mapping) => <span key={mapping.id} className={embedded ? "inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1" : "inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1"}><Link2 className="h-3.5 w-3.5" />{mapping.modality || "Qualquer"}: {mapping.pacs_description}</span>)}
-                      {!entry.pacsMappings.length ? <span>Sem descrição PACS mapeada.</span> : null}
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {entry.documents.length ? entry.documents.map((document) => <span key={document.document_key} className="inline-flex items-center gap-1 rounded-md bg-cyan-50 px-2 py-1 text-xs text-cyan-900"><FileText className="h-3 w-3 text-cyan-700" />{document.document_label}</span>) : <span className="text-xs text-amber-700">Sem documento clínico configurado</span>}
+                      {entry.pacsMappings.slice(0, 2).map((mapping) => <span key={mapping.id} className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600"><Link2 className="h-3 w-3" />{mapping.modality || "Qualquer"}: {mapping.pacs_description}</span>)}
+                      {entry.pacsMappings.length > 2 && <span className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500">+{entry.pacsMappings.length - 2} mapeamento{entry.pacsMappings.length - 2 === 1 ? "" : "s"}</span>}
+                      {!entry.pacsMappings.length ? <span className="text-xs text-slate-500">Sem descrição PACS mapeada.</span> : null}
                     </div>
                   </div>
-                  <Button variant="outline" className={embedded ? "border-gray-300 bg-white text-gray-700 hover:bg-gray-100" : "border-slate-700 bg-transparent text-slate-200 hover:bg-slate-800 hover:text-white"} onClick={() => startEdit(entry)}>
-                    <Pencil className="mr-2 h-4 w-4" /> Editar
+                  <Button variant="outline" className="shrink-0 border-slate-300 bg-white text-slate-700 hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800" onClick={() => startEdit(entry)}>
+                    <Pencil className="mr-2 h-4 w-4" /> Configurar
                   </Button>
                 </div>
               </article>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       </section>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -243,8 +250,8 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
-  return <Card className="border-gray-200 bg-white text-gray-900"><CardContent className="p-4"><p className="text-xs uppercase tracking-wide text-gray-500">{label}</p><p className="mt-1 text-2xl font-semibold text-gray-900">{value}</p></CardContent></Card>;
+function SummaryMetric({ label, value, accent = "text-slate-900" }: { label: string; value: number; accent?: string }) {
+  return <div className="min-w-[68px]"><p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p><p className={`text-lg font-semibold ${accent}`}>{value}</p></div>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

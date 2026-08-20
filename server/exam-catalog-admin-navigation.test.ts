@@ -20,11 +20,12 @@ describe("navegação administrativa do catálogo de exames", () => {
     expect(admin).toContain('<ExamCatalogPage embedded />');
   });
 
-  it("mantém os controles administrativos de busca, modalidade e status no catálogo incorporado", () => {
+  it("mantém os controles administrativos de busca, modalidade e status na composição prática do catálogo", () => {
     expect(catalog).toContain('embedded = false');
-    expect(catalog).toContain('Buscar por nome de exame');
-    expect(catalog).toContain('Todas as modalidades');
-    expect(catalog).toContain('Somente ativos');
+    expect(catalog).toContain('Fluxo do catálogo');
+    expect(catalog).toContain('Buscar legenda canônica');
+    expect(catalog).toContain('Modalidade: todas');
+    expect(catalog).toContain('Status: ativos');
   });
 
   it("permite ao administrador definir eventos financeiros independentemente dos documentos clínicos", () => {
