@@ -19,15 +19,31 @@ import { FinanceShell } from "./FinanceShell";
 import { fmtBRL, PriceConfigModal, CycleConfigModal } from "./FinanceModals";
 import { ModalityPricesSection } from "@/components/DoctorPriceManager";
 
+function isoDate(value: Date): string {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function nextCycleStartDate(cycleStartDay?: number | null): string {
+  const today = new Date();
+  const day = Math.min(Math.max(cycleStartDay ?? 1, 1), 28);
+  const candidate = new Date(today.getFullYear(), today.getMonth(), day);
+  if (candidate <= new Date(today.getFullYear(), today.getMonth(), today.getDate())) {
+    candidate.setMonth(candidate.getMonth() + 1);
+  }
+  return isoDate(candidate);
+}
+
 /// ─── Bloco B: Linha de médico com preço configurável inline ──────────────
-function DoctorPriceRow({ doctor, unitId, financialResponsibleId, onSaved }: {
+function DoctorPriceRow({ doctor, unitId, financialResponsibleId, cycleStartDay, onSaved }: {
   doctor: { doctor_user_id: number; doctor_name: string; price_per_report: number | null };
   unitId: number;
   financialResponsibleId: number | null;
+  cycleStartDay?: number | null;
   onSaved: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [price, setPrice] = useState(String(doctor.price_per_report ?? ""));
+  const [startsAt, setStartsAt] = useState(isoDate(new Date()));
   const utils = trpc.useUtils();
   const save = trpc.financeSimple.setDoctorPriceDirect.useMutation({
     onSuccess: () => {
@@ -81,11 +97,19 @@ function DoctorPriceRow({ doctor, unitId, financialResponsibleId, onSaved }: {
               placeholder="0.00"
               autoFocus
             />
+            <Input
+              type="date"
+              value={startsAt}
+              min={hasPrice ? nextCycleStartDate(cycleStartDay) : isoDate(new Date())}
+              onChange={(e) => setStartsAt(e.target.value)}
+              className="h-7 w-36 bg-slate-800 border-slate-600 text-white text-xs"
+              title={hasPrice ? "Alterações de preço iniciam na abertura do próximo ciclo" : "Data de início da primeira configuração"}
+            />
             <Button
               size="sm"
               className="h-7 px-2.5 text-xs bg-cyan-600 hover:bg-cyan-500"
               disabled={save.isPending}
-              onClick={() => save.mutate({ unitId: unitId, doctorUserId: doctor.doctor_user_id, pricePerReport: String(parseFloat(price) || 0), startsAt: new Date().toISOString() })}
+              onClick={() => save.mutate({ unitId: unitId, doctorUserId: doctor.doctor_user_id, pricePerReport: String(parseFloat(price) || 0), startsAt: new Date(`${startsAt}T12:00:00`).toISOString() })}
             >
               {save.isPending ? "..." : "Salvar"}
             </Button>
@@ -97,7 +121,11 @@ function DoctorPriceRow({ doctor, unitId, financialResponsibleId, onSaved }: {
           <Button
             size="sm" variant="ghost"
             className="h-7 px-2.5 text-xs text-slate-400 hover:text-cyan-400"
-            onClick={() => { setPrice(String(doctor.price_per_report ?? "")); setEditing(true); }}
+            onClick={() => {
+              setPrice(String(doctor.price_per_report ?? ""));
+              setStartsAt(hasPrice ? nextCycleStartDate(cycleStartDay) : isoDate(new Date()));
+              setEditing(true);
+            }}
           >
             Editar
           </Button>
@@ -605,6 +633,7 @@ export function FinanceConfiguracao() {
                       doctor={d}
                       unitId={selectedUnitId}
                       financialResponsibleId={readiness?.responsible_id ?? null}
+                      cycleStartDay={readiness?.cycle_start_day ?? null}
                       onSaved={() => utils.financeSimple.listDoctorsForUnit.invalidate({ unit_id: selectedUnitId! })}
                     />
                   ))}

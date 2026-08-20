@@ -370,7 +370,6 @@ export default function UserFormDialog({
       crm: crm.trim() || undefined,
       _stampFile: !isEditing ? stampFile || undefined : undefined,
       _signatureFile: !isEditing ? signatureFile || undefined : undefined,
-      _pendingPrices: isMedicoCreating ? pendingPrices : undefined,
     } as any);
   };
 
@@ -387,8 +386,8 @@ export default function UserFormDialog({
   // Preços pendentes para configuração na criação do médico (unit_id -> valor string)
   const [pendingPrices, setPendingPrices] = useState<Record<number, string>>({});
 
-  // Determinar quais abas mostrar
-  const showFinancialTabs = isMedicoEditing || isMedicoCreating;
+  // Cadastro de usuário não concentra preços nem resumos financeiros.
+  const showFinancialTabs = false;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -406,7 +405,7 @@ export default function UserFormDialog({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className={`grid w-full shrink-0 ${showFinancialTabs ? "grid-cols-4" : "grid-cols-2"}`}>
+          <TabsList className="grid w-full shrink-0 grid-cols-2">
             <TabsTrigger value="dados" className="gap-1.5 text-xs">
               <User className="h-3.5 w-3.5" />
               Dados

@@ -281,6 +281,24 @@ async function assertCycleAlignedPriceStart(
   }
 }
 
+async function assertDoctorUnitPriceStart(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  unitId: number,
+  doctorUserId: number,
+  startsAt: Date,
+): Promise<void> {
+  const activeRows = await db.select({ id: billing_doctor_unit_prices.id })
+    .from(billing_doctor_unit_prices)
+    .where(and(
+      eq(billing_doctor_unit_prices.unit_id, unitId),
+      eq(billing_doctor_unit_prices.doctor_user_id, doctorUserId),
+      lte(billing_doctor_unit_prices.starts_at, new Date()),
+      or(isNull(billing_doctor_unit_prices.ends_at), gte(billing_doctor_unit_prices.ends_at, new Date())),
+    ))
+    .limit(1);
+  await assertCycleAlignedPriceStart(db, unitId, startsAt, activeRows.length > 0);
+}
+
 /** Retorna as unidades financeiras que podem compor consultas agregadas do usuário. */
 async function getAuthorizedFinancialUnitIds(
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
@@ -1728,13 +1746,14 @@ export const financeSimpleRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         await assertCanManageFinancialPrices(db, ctx.user, input.unitId, input.financialResponsibleId);
-        
+        const startsAt = new Date(input.startsAt);
+        await assertDoctorUnitPriceStart(db, input.unitId, input.doctorUserId, startsAt);
         const id = await upsertDoctorUnitPrice({
           financial_responsible_id: input.financialResponsibleId,
           unit_id: input.unitId,
           doctor_user_id: input.doctorUserId,
           price_per_report: input.pricePerReport,
-          starts_at: new Date(input.startsAt),
+          starts_at: startsAt,
           ends_at: input.endsAt ? new Date(input.endsAt) : null,
           created_by: ctx.user.id,
         });
@@ -2548,12 +2567,14 @@ export const financeSimpleRouter = router({
           });
         }
         await assertCanManageFinancialPrices(db, ctx.user, input.unitId, responsible.financial_responsible_id);
+        const startsAt = new Date(input.startsAt);
+        await assertDoctorUnitPriceStart(db, input.unitId, input.doctorUserId, startsAt);
         const id = await upsertDoctorUnitPrice({
           financial_responsible_id: responsible.financial_responsible_id,
           unit_id: input.unitId,
           doctor_user_id: input.doctorUserId,
           price_per_report: input.pricePerReport,
-          starts_at: new Date(input.startsAt),
+          starts_at: startsAt,
           ends_at: null,
           created_by: ctx.user.id,
         });

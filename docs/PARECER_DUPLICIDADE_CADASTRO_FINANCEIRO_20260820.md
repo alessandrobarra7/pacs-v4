@@ -25,3 +25,9 @@ O problema de vigência existe, mas com causa diferente da descrita no documento
 ## Segurança e dados
 
 A remoção proposta é de interface e fluxo; não requer apagar histórico de preços, eventos financeiros ou usuários. Antes da implementação, devem ser acrescentados testes de RBAC, preservação de histórico e bloqueio de alteração de preço fora da data de vigência permitida.
+
+## Implementação autorizada
+
+O cadastro passou a exibir somente as abas **Dados** e **Unidades**. O caminho de preços pendentes durante a criação foi removido, e a aba de médicos por unidade preserva apenas o vínculo, a listagem e a remoção de médicos. A precificação permanece no módulo Financeiro.
+
+As mutações de preço padrão `setDoctorPrice` e `setDoctorPriceDirect` agora verificam, no servidor, se já existe preço ativo antes de aceitar uma nova vigência. Quando existe, a nova data deve coincidir com a abertura de um ciclo futuro. A tela de Configuração Financeira passou a exibir a data de início e sugere a primeira abertura de ciclo disponível para uma alteração de preço já vigente.
