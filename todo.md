@@ -1219,6 +1219,12 @@
 - [x] Validar regressões de interface e RBAC de anexos antes de publicar
 - [x] Liberar a visualização de anexos para todos os usuários autenticados, mantendo envio e exclusão apenas pelo médico autor
 
+## PÁGINA PRINCIPAL MÓVEL — Revisão de Interface
+
+- [ ] Revisar cabeçalho, resumo financeiro, filtros de data e cartões de estudo conforme referência enviada pelo usuário
+- [ ] Aplicar as alterações móveis aprovadas sem regressão da página principal desktop
+- [x] Reestruturar a faixa de resumo financeiro móvel para melhorar a hierarquia visual dos valores e do ciclo
+
 ## MÓDULO DE LAUDO — Legendas Bilaterais, Frases e Templates Padrão
 
 - [ ] Criar tabela exam_legends (exam_name, bilateral, modality) no schema Drizzle
