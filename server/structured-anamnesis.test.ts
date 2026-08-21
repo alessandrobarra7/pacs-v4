@@ -27,6 +27,8 @@ describe("anamnese estruturada por modalidade", () => {
     expect(modal).toContain('CR: { title: "Radiografia", questions: [');
     expect(modal).toContain('US: { title: "Ultrassonografia", questions: [');
     expect(modal).toContain("Marque a região informada pelo paciente");
+    expect(modal).toContain("anatomical-body-pain-map_f4c4497b.png");
+    expect(modal).toContain("Mapa anatômico frontal do corpo humano");
     expect(modal).toContain("sem gerar diagnóstico automático");
   });
 

@@ -2363,6 +2363,12 @@
 - [x] Exibir anamnese estruturada e legível como painel clínico no visualizador DICOM.
 - [x] Criar migração aditiva, testes de segurança e regressões do fluxo antes de aplicar na VM2.
 
+## CORREÇÃO VISUAL — MAPA CORPORAL DA ANAMNESE
+
+- [x] Substituir a silhueta geométrica por mapa anatômico frontal adequado à marcação de dor.
+- [x] Manter regiões corporais clicáveis, acessíveis e identificáveis sem sobrepor a ilustração anatômica.
+- [x] Validar o mapa corporal no questionário e atualizar as regressões antes de publicar a correção.
+
 ## DIAGNÓSTICO — LENTIDÃO GERAL DO PORTAL EM PRODUÇÃO
 
 - [x] Coletar métricas somente leitura da VM1, PM2, Node, Nginx e latência HTTP durante a lentidão reportada.
