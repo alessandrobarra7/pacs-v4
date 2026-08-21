@@ -2347,28 +2347,6 @@
 - [x] Uniformizar cor, tipografia e ícone do nome do paciente conforme o estado real de correção persistida.
 - [x] Adicionar regressão de interface, validar no sandbox e versionar a correção antes de atualizar a VM1.
 
-## CORREÇÃO RESIDUAL — LISTAGEM DESKTOP DE PACIENTES
-
-- [ ] Identificar e remover o destaque residual em âmbar e o lápis aplicado somente a alguns nomes na tabela desktop.
-- [ ] Preservar a ação de edição autorizada sem diferenciar visualmente pacientes com histórico de correção.
-- [ ] Adicionar regressão desktop, validar e versionar a correção antes de atualizar a VM1.
-
-## EVOLUÇÃO — ANAMNESES ESTRUTURADAS POR MODALIDADE
-
-- [x] Criar fluxo de escolha inicial entre CT, RM, CR e US ao abrir a anamnese.
-- [x] Definir questionário específico por modalidade, limitado a oito perguntas objetivas e com ramificações condicionais.
-- [x] Implementar os oito grupos de perguntas aprovados para RM, CT, CR e US, incluindo duração de sintomas e condições específicas da modalidade.
-- [x] Implementar resposta de dor com seleção de localização em mapa corporal gráfico, sem inferência diagnóstica.
-- [x] Persistir respostas estruturadas por estudo e unidade, com autoria, atualização e isolamento de acesso auditáveis.
-- [x] Exibir anamnese estruturada e legível como painel clínico no visualizador DICOM.
-- [x] Criar migração aditiva, testes de segurança e regressões do fluxo antes de aplicar na VM2.
-
-## CORREÇÃO VISUAL — MAPA CORPORAL DA ANAMNESE
-
-- [x] Substituir a silhueta geométrica por mapa anatômico frontal adequado à marcação de dor.
-- [x] Manter regiões corporais clicáveis, acessíveis e identificáveis sem sobrepor a ilustração anatômica.
-- [x] Validar o mapa corporal no questionário e atualizar as regressões antes de publicar a correção.
-
 ## DIAGNÓSTICO — LENTIDÃO GERAL DO PORTAL EM PRODUÇÃO
 
 - [x] Coletar métricas somente leitura da VM1, PM2, Node, Nginx e latência HTTP durante a lentidão reportada.
@@ -2381,5 +2359,3 @@
 - [x] Eliminar trabalho repetitivo e bloqueio do fluxo principal ao preparar estudos com muitas imagens.
 - [x] Implementar carregamento progressivo seguro, sem alterar arquivos DICOM, série clínica ou integrações externas.
 - [x] Criar regressões de desempenho, validar build e versionar a otimização antes de atualizar a VM1.
-- [x] Atualizar a VM1 para o commit 7f62609 após build isolado aprovado e validar PM2, HTTP local e logs pós-reinício.
-- [ ] Validar a navegação do estudo clínico de grande volume após a otimização de renderização.

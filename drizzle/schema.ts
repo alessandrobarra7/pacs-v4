@@ -284,31 +284,6 @@ export type AnamnesisSimple = typeof anamnesis_simple.$inferSelect;
 export type InsertAnamnesisSimple = typeof anamnesis_simple.$inferInsert;
 
 /**
- * Structured anamnesis — concise modality-specific clinical questionnaire.
- * The legacy simple record is preserved for readiness and backward compatibility.
- */
-export const study_anamnesis_structured = mysqlTable("study_anamnesis_structured", {
-  id: int("id").autoincrement().primaryKey(),
-  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
-  unit_id: int("unit_id").notNull(),
-  modality: varchar("modality", { length: 8 }).notNull(),
-  patient_name: varchar("patient_name", { length: 255 }),
-  answers: json("answers").$type<Record<string, unknown>>().notNull(),
-  pain_locations: json("pain_locations").$type<string[]>().notNull().default([]),
-  summary: text("summary").notNull(),
-  created_by_user_id: int("created_by_user_id").notNull(),
-  updated_by_user_id: int("updated_by_user_id").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => ({
-  studyUnitUnique: uniqueIndex("study_anamnesis_structured_uid_unit_unique").on(table.study_instance_uid, table.unit_id),
-  unitUpdatedIdx: index("study_anamnesis_structured_unit_updated_idx").on(table.unit_id, table.updatedAt),
-}));
-
-export type StructuredAnamnesis = typeof study_anamnesis_structured.$inferSelect;
-export type InsertStructuredAnamnesis = typeof study_anamnesis_structured.$inferInsert;
-
-/**
  * Study Metadata — Editable overrides per unit
  * Allows technicians to edit patient name, study description, etc.
  * All users of the same unit see the same overrides (shared data layer)
