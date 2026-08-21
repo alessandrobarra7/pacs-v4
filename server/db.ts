@@ -471,12 +471,18 @@ export async function createAuditLog(log: InsertAuditLog) {
   }
 }
 
-/** Retorna um mapa { studyInstanceUid → status } para uma lista de UIDs */
+export type StudyReportStatus = {
+  label: string;
+  signerNames: string[];
+  signedAt: Date | null;
+};
+
+/** Retorna status agregado e profissionais que assinaram os documentos de cada estudo. */
 export async function getReportStatusByStudyUids(
   studyUids: string[],
   unitId?: number,
   unitIds?: number[]
-): Promise<Record<string, string>> {
+): Promise<Record<string, StudyReportStatus>> {
   const db = await getDb();
   if (!db || studyUids.length === 0) return {};
 
@@ -487,26 +493,54 @@ export async function getReportStatusByStudyUids(
   else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
 
   const rows = await db
-    .select({ uid: reports.study_instance_uid, status: reports.status })
+    .select({
+      uid: reports.study_instance_uid,
+      status: reports.status,
+      signedBy: reports.signedBy,
+      authorUserId: reports.author_user_id,
+      signedAt: reports.signedAt,
+    })
     .from(reports)
     .where(and(...conditions));
 
-  const statusByStudy: Record<string, string[]> = {};
+  const statusByStudy: Record<string, typeof rows> = {};
+  const signerIds = new Set<number>();
   for (const row of rows) {
     if (row.uid) {
-      (statusByStudy[row.uid] ??= []).push(row.status);
+      (statusByStudy[row.uid] ??= []).push(row);
+      if (row.status === "signed" || row.status === "revised") {
+        signerIds.add(row.signedBy ?? row.authorUserId);
+      }
     }
   }
-  const map: Record<string, string> = {};
-  for (const [uid, statuses] of Object.entries(statusByStudy)) {
-    const completed = statuses.filter((status) => status === "signed" || status === "revised").length;
-    if (completed === statuses.length) {
-      map[uid] = statuses.includes("revised") ? "Revisado" : "Assinado";
-    } else if (statuses.length > 1 && completed > 0) {
-      map[uid] = `${completed}/${statuses.length} assinados`;
-    } else {
-      map[uid] = "Em Andamento";
+  const signerNameById = new Map<number, string>();
+  if (signerIds.size > 0) {
+    const signerRows = await db
+      .select({ id: users.id, name: users.name })
+      .from(users)
+      .where(inArray(users.id, Array.from(signerIds)));
+    for (const signer of signerRows) {
+      if (signer.name) signerNameById.set(signer.id, signer.name);
     }
+  }
+
+  const map: Record<string, StudyReportStatus> = {};
+  for (const [uid, reportRows] of Object.entries(statusByStudy)) {
+    const completedRows = reportRows.filter((row) => row.status === "signed" || row.status === "revised");
+    const completed = completedRows.length;
+    const label = completed === reportRows.length
+      ? (reportRows.some((row) => row.status === "revised") ? "Revisado" : "Assinado")
+      : reportRows.length > 1 && completed > 0
+        ? `${completed}/${reportRows.length} assinados`
+        : "Em Andamento";
+    const signerNames = Array.from(new Set(completedRows
+      .map((row) => signerNameById.get(row.signedBy ?? row.authorUserId))
+      .filter((name): name is string => !!name)));
+    const signedAt = completedRows
+      .map((row) => row.signedAt)
+      .filter((value): value is Date => value instanceof Date)
+      .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    map[uid] = { label, signerNames, signedAt };
   }
   return map;
 }

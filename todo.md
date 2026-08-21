@@ -2420,3 +2420,10 @@
 - [x] Auditar a consulta e o mapa de status de anamnese usados pela listagem por unidade.
 - [x] Fazer o ícone de anamnese preenchida ficar verde de modo consistente no desktop e no mobile, para todos os perfis autorizados.
 - [x] Cobrir o caso de regressão, validar build e versionar antes de atualizar a VM1.
+
+## CORREÇÃO — STATUS DE ASSINATURA E MÉDICO RESPONSÁVEL
+
+- [x] Auditar a origem do status Assinado na listagem, os documentos do estudo e a identificação do médico assinante.
+- [x] Corrigir qualquer divergência entre editor, listagem e autoria da assinatura, preservando trilha de auditoria.
+- [x] Apresentar claramente o médico responsável pela assinatura quando o estudo estiver concluído, em desktop e mobile.
+- [x] Cobrir cenários de regressão, validar build e versionar antes de atualizar a VM1.

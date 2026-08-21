@@ -219,14 +219,17 @@ describe("E4 — reports.statusByStudyUids: propagação de unitIds", () => {
 
   it("médico multiunidade: getReportStatusByStudyUids recebe unitIds=[3,7]", async () => {
     vi.mocked(resolveUnitFilter).mockResolvedValue({ unitIds: [3, 7] });
-    vi.mocked(getReportStatusByStudyUids).mockResolvedValue({ "1.2.3": "Assinado", "4.5.6": "Em Andamento" });
+    vi.mocked(getReportStatusByStudyUids).mockResolvedValue({
+      "1.2.3": { label: "Assinado", signerNames: ["Dr. Multiunidade"], signedAt: new Date("2026-08-16T22:51:20Z") },
+      "4.5.6": { label: "Em Andamento", signerNames: [], signedAt: null },
+    });
 
     const ctx = makeCtx({ unit_id: null });
     const caller = appRouter.createCaller(ctx);
     const result = await caller.reports.statusByStudyUids({ studyUids: ["1.2.3", "4.5.6"] });
 
     expect(getReportStatusByStudyUids).toHaveBeenCalledWith(["1.2.3", "4.5.6"], undefined, [3, 7]);
-    expect(result).toMatchObject({ "1.2.3": "Assinado" });
+    expect(result).toMatchObject({ "1.2.3": { label: "Assinado", signerNames: ["Dr. Multiunidade"] } });
   });
 
   it("médico sem unidade: getReportStatusByStudyUids recebe unitIds=[]", async () => {
@@ -243,7 +246,7 @@ describe("E4 — reports.statusByStudyUids: propagação de unitIds", () => {
 
   it("médico com unit_id legado: getReportStatusByStudyUids recebe unitId=5", async () => {
     vi.mocked(resolveUnitFilter).mockResolvedValue({ unitId: 5 });
-    vi.mocked(getReportStatusByStudyUids).mockResolvedValue({ "9.8.7": "Assinado" });
+    vi.mocked(getReportStatusByStudyUids).mockResolvedValue({ "9.8.7": { label: "Assinado", signerNames: ["Dr. Multiunidade"], signedAt: null } });
 
     const ctx = makeCtx({ unit_id: 5 });
     const caller = appRouter.createCaller(ctx);

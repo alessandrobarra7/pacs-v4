@@ -90,4 +90,14 @@ describe("ReportEditorPage — experiência mobile", () => {
     expect(editorSource).toContain('pacs-layout-updates');
     expect(editorSource).toContain('void refetchUnitLayout()');
   });
+
+  it("usa o assinante persistido e a unidade do estudo ao abrir ou imprimir um laudo concluído", () => {
+    expect(editorSource).toContain('getByStudyUidWithDoctor.useQuery');
+    expect(editorSource).toContain('unit_id: unitId || undefined');
+    expect(editorSource).toContain('const signedDoctorName = isSigned');
+    expect(editorSource).toContain('const signedDoctorSignatureUrl = isSigned');
+    expect(editorSource).toContain('signedDoctorName');
+    expect(editorSource).toContain('signedDoctorSignatureUrl');
+    expect(editorSource).not.toContain('isSigned && medCtx?.doctorName');
+  });
 });

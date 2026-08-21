@@ -44,12 +44,18 @@ export const reportsRouter = router({
       }),
 
    getByStudyUid: protectedProcedure
-     .input(z.object({ studyInstanceUid: z.string(), documentKey: z.string().trim().min(1).max(80).default('primary') }))
+     .input(z.object({ studyInstanceUid: z.string(), documentKey: z.string().trim().min(1).max(80).default('primary'), unit_id: z.number().int().positive().optional() }))
      .query(async ({ input, ctx }) => {
        const db = await getDb();
        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
        // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
-       const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
+       const hasRequestedUnit = input.unit_id !== undefined;
+       if (hasRequestedUnit && !await canAccessUnit(ctx.user, input.unit_id!, 'view_studies')) {
+         throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado à unidade selecionada' });
+       }
+       const { unitId, unitIds } = hasRequestedUnit
+         ? { unitId: input.unit_id, unitIds: undefined }
+         : await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
        if (unitIds !== undefined && unitIds.length === 0) return null; // sem acesso
         const conditions: any[] = [
           eq(reports.study_instance_uid, input.studyInstanceUid),
@@ -68,12 +74,18 @@ export const reportsRouter = router({
 
     // Retorna laudo + dados do médico assinante (para impressão com carimbo)
    getByStudyUidWithDoctor: protectedProcedure
-     .input(z.object({ studyInstanceUid: z.string(), documentKey: z.string().trim().min(1).max(80).default('primary') }))
+     .input(z.object({ studyInstanceUid: z.string(), documentKey: z.string().trim().min(1).max(80).default('primary'), unit_id: z.number().int().positive().optional() }))
      .query(async ({ input, ctx }) => {
        const db = await getDb();
        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
        // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
-       const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
+       const hasRequestedUnit = input.unit_id !== undefined;
+       if (hasRequestedUnit && !await canAccessUnit(ctx.user, input.unit_id!, 'view_studies')) {
+         throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado à unidade selecionada' });
+       }
+       const { unitId, unitIds } = hasRequestedUnit
+         ? { unitId: input.unit_id, unitIds: undefined }
+         : await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
        if (unitIds !== undefined && unitIds.length === 0) return null; // sem acesso
         const conditions: any[] = [
           eq(reports.study_instance_uid, input.studyInstanceUid),
@@ -406,9 +418,15 @@ export const reportsRouter = router({
       }),
 
     statusByStudyUids: protectedProcedure
-      .input(z.object({ studyUids: z.array(z.string()) }))
+      .input(z.object({ studyUids: z.array(z.string()), unit_id: z.number().int().positive().optional() }))
       .query(async ({ input, ctx }) => {
         // E4: médico multiunidade (unit_id null) usa inArray com suas unidades
+        if (input.unit_id !== undefined) {
+          if (!await canAccessUnit(ctx.user, input.unit_id, 'view_studies')) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado à unidade selecionada' });
+          }
+          return await getReportStatusByStudyUids(input.studyUids, input.unit_id);
+        }
         const { unitId, unitIds } = await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
         return await getReportStatusByStudyUids(input.studyUids, unitId, unitIds);
       }),

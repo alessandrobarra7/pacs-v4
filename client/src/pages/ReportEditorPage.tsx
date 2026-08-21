@@ -274,8 +274,12 @@ export default function ReportEditorPage() {
 
   // Laudo existente
   const { data: existingReport } = trpc.reports.getByStudyUid.useQuery(
-    { studyInstanceUid: studyUid, documentKey },
-    { enabled: !!studyUid }
+    { studyInstanceUid: studyUid, documentKey, unit_id: unitId || undefined },
+    { enabled: !!studyUid && unitId > 0 }
+  );
+  const { data: signedReportWithDoctor } = trpc.reports.getByStudyUidWithDoctor.useQuery(
+    { studyInstanceUid: studyUid, documentKey, unit_id: unitId || undefined },
+    { enabled: !!studyUid && unitId > 0 && (existingReport?.status === "signed" || existingReport?.status === "revised") }
   );
 
   // Mutations
@@ -301,6 +305,10 @@ export default function ReportEditorPage() {
 
   const isSigned = existingReport?.status === 'signed' || existingReport?.status === 'revised';
   const isEditable = !isSigned || isRevising;
+  const signedDoctorName = isSigned ? (signedReportWithDoctor?.doctorName || "Assinante não identificado") : (medCtx?.doctorName || "");
+  const signedDoctorCrm = isSigned ? (signedReportWithDoctor?.doctorCrm || "") : (medCtx?.crm || "");
+  const signedDoctorSignatureUrl = isSigned ? (signedReportWithDoctor?.doctorSignatureUrl || null) : (medCtx?.signatureUrl || null);
+  const signedDoctorStampUrl = isSigned ? (signedReportWithDoctor?.doctorStampUrl || null) : (medCtx?.stampUrl || null);
   // ── Toolbar de formatação ────────────────────────────────────────────────
   const [fontSize, setFontSize] = useState("11");
   // ── Pré-visualização ─────────────────────────────────────────────────────
@@ -745,17 +753,16 @@ export default function ReportEditorPage() {
 
     // FIX: converter assinatura e carimbo para base64
     // URLs do MinIO não carregam na janela de impressão (sem autenticação)
-    const sigBase64   = medCtx?.signatureUrl ? await fetchToBase64(medCtx.signatureUrl) : null;
-    const stampBase64 = medCtx?.stampUrl     ? await fetchToBase64(medCtx.stampUrl)     : null;
+    const sigBase64   = signedDoctorSignatureUrl ? await fetchToBase64(signedDoctorSignatureUrl) : null;
+    const stampBase64 = signedDoctorStampUrl     ? await fetchToBase64(signedDoctorStampUrl)     : null;
 
-    const doctorFooterHtml = isSignedOrRevised && medCtx?.doctorName ? `
+    const doctorFooterHtml = isSignedOrRevised && signedDoctorName ? `
       <div class="doctor-footer">
         ${sigBase64   ? `<img src="${sigBase64}"   alt="Assinatura" class="sig-img" />` : ''}
         ${stampBase64 ? `<img src="${stampBase64}" alt="Carimbo"    class="stamp-img" />` : ''}
         <div class="sig-line"></div>
-        <div class="sig-name">${medCtx.doctorName}${existingReport?.status === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
-        ${(medCtx as any)?.specialty ? `<div class="sig-role">${(medCtx as any).specialty}</div>` : ''}
-        ${medCtx.crm ? `<div class="sig-crm">CRM: ${medCtx.crm}</div>` : ''}
+        <div class="sig-name">${signedDoctorName}${existingReport?.status === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
+        ${signedDoctorCrm ? `<div class="sig-crm">CRM: ${signedDoctorCrm}</div>` : ''}
         ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
       </div>
     ` : '';
@@ -1096,7 +1103,7 @@ export default function ReportEditorPage() {
     }
     win.document.write(html);
     win.document.close();
-  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection]);
+  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
 
   // FIX BUG-2: inserir imagem inline no contentEditable
   // A imagem faz parte do documento, é salva no laudo e arrastável pelo browser nativamente.
@@ -1608,17 +1615,17 @@ export default function ReportEditorPage() {
                         </>
                       }
                       footer={
-                        isLastPage && isSigned && medCtx?.doctorName ? (
+                        isLastPage && isSigned && signedDoctorName ? (
                           <div style={{ textAlign: "center", minWidth: 180, maxWidth: 260, margin: "0 auto" }}>
-                            {medCtx.signatureUrl && <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 55, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />}
-                            {medCtx.stampUrl && <img src={medCtx.stampUrl} alt="Carimbo" style={{ maxHeight: 110, maxWidth: 240, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />}
+                            {signedDoctorSignatureUrl && <img src={signedDoctorSignatureUrl} alt="Assinatura" style={{ maxHeight: 55, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />}
+                            {signedDoctorStampUrl && <img src={signedDoctorStampUrl} alt="Carimbo" style={{ maxHeight: 110, maxWidth: 240, objectFit: "contain", display: "block", margin: "0 auto 2mm" }} />}
                             <div style={{ borderTop: "1.5px solid #333", width: "100%", marginBottom: "3mm" }} />
                             <div style={{ fontWeight: 700, fontSize: "10.5pt", textTransform: "uppercase", color: "#111", letterSpacing: "0.02em" }}>
-                              {medCtx.doctorName}
+                              {signedDoctorName}
                               {existingReport?.status === "revised" && <span style={{ background: "#f59e0b", color: "#fff", fontSize: "7pt", padding: "1px 6px", borderRadius: 3, fontWeight: 700, marginLeft: 6, verticalAlign: "middle" }}>RETIFICADO</span>}
                             </div>
                             <div style={{ fontSize: "9pt", color: "#444", marginTop: 2, letterSpacing: "0.04em" }}>MÉDICO RADIOLOGISTA</div>
-                            {medCtx.crm && <div style={{ fontSize: "9pt", color: "#444", marginTop: 1 }}>CRM: {medCtx.crm}</div>}
+                            {signedDoctorCrm && <div style={{ fontSize: "9pt", color: "#444", marginTop: 1 }}>CRM: {signedDoctorCrm}</div>}
                             {existingReport?.signedAt && <div style={{ fontSize: "8pt", color: "#666", marginTop: 3 }}>Assinado em: {new Date(existingReport.signedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</div>}
                           </div>
                         ) : <div />
@@ -1736,13 +1743,13 @@ export default function ReportEditorPage() {
                   </>
                 }
                 footer={
-                  isSigned && medCtx?.doctorName ? (
+                  isSigned && signedDoctorName ? (
                     <div style={{ textAlign: "center", minWidth: 180, maxWidth: "90%", background: layoutFooterUrl ? "rgba(255,255,255,0.82)" : "transparent", padding: "4px 12px", margin: "0 auto" }}>
-                      {medCtx.signatureUrl && <img src={medCtx.signatureUrl} alt="Assinatura" style={{ maxHeight: 45, maxWidth: 180, objectFit: "contain", display: "block", margin: "0 auto 2px" }} />}
-                      {medCtx.stampUrl && <img src={medCtx.stampUrl} alt="Carimbo" style={{ maxHeight: 70, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2px" }} />}
+                      {signedDoctorSignatureUrl && <img src={signedDoctorSignatureUrl} alt="Assinatura" style={{ maxHeight: 45, maxWidth: 180, objectFit: "contain", display: "block", margin: "0 auto 2px" }} />}
+                      {signedDoctorStampUrl && <img src={signedDoctorStampUrl} alt="Carimbo" style={{ maxHeight: 70, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 2px" }} />}
                       <div style={{ borderTop: "1.5px solid #333", width: "100%", marginBottom: 3 }} />
-                      <div style={{ fontWeight: 700, fontSize: "9pt", textTransform: "uppercase", color: "#111" }}>{medCtx.doctorName}{existingReport?.status === "revised" && <span style={{ marginLeft: 6, color: "#92400e", fontSize: "7pt" }}>RETIFICADO</span>}</div>
-                      <div style={{ fontSize: "8pt", color: "#444" }}>MÉDICO RADIOLOGISTA{medCtx.crm ? ` · CRM: ${medCtx.crm}` : ""}</div>
+                      <div style={{ fontWeight: 700, fontSize: "9pt", textTransform: "uppercase", color: "#111" }}>{signedDoctorName}{existingReport?.status === "revised" && <span style={{ marginLeft: 6, color: "#92400e", fontSize: "7pt" }}>RETIFICADO</span>}</div>
+                      <div style={{ fontSize: "8pt", color: "#444" }}>MÉDICO RADIOLOGISTA{signedDoctorCrm ? ` · CRM: ${signedDoctorCrm}` : ""}</div>
                     </div>
                   ) : <div />
                 }
@@ -1900,12 +1907,12 @@ export default function ReportEditorPage() {
             </div>
 
             {/* Rodapé e Assinatura Mobile */}
-            {isSigned && medCtx?.doctorName && (
+            {isSigned && signedDoctorName && (
               <div className="mt-4 pt-3 border-t border-gray-200 text-center relative z-10 font-sans">
-                {medCtx.signatureUrl && <img src={medCtx.signatureUrl} alt="Assinatura" className="h-10 mx-auto object-contain mb-1" />}
-                {medCtx.stampUrl && <img src={medCtx.stampUrl} alt="Carimbo" className="h-16 mx-auto object-contain mb-1" />}
-                <p className="font-bold uppercase text-[10px] text-gray-900">{medCtx.doctorName}</p>
-                <p className="text-[9px] text-gray-600">CRM: {medCtx.crm || "12345"} | Médico Radiologista</p>
+                {signedDoctorSignatureUrl && <img src={signedDoctorSignatureUrl} alt="Assinatura" className="h-10 mx-auto object-contain mb-1" />}
+                {signedDoctorStampUrl && <img src={signedDoctorStampUrl} alt="Carimbo" className="h-16 mx-auto object-contain mb-1" />}
+                <p className="font-bold uppercase text-[10px] text-gray-900">{signedDoctorName}</p>
+                <p className="text-[9px] text-gray-600">{signedDoctorCrm ? `CRM: ${signedDoctorCrm} | ` : ""}Médico Radiologista</p>
               </div>
             )}
 
@@ -1974,7 +1981,7 @@ export default function ReportEditorPage() {
                 />
               )}
               {activeTab === "frases" && <FrasesTab onInsert={(text) => { insertAtCursor(text); setShowMobileTools(false); }} onFocus={saveSelection} />}
-              {activeTab === "carimbo" && <CarimboTab signatureUrl={medCtx?.signatureUrl ?? null} stampUrl={medCtx?.stampUrl ?? null} doctorName={medCtx?.doctorName ?? ""} crm={medCtx?.crm ?? ""} />}
+              {activeTab === "carimbo" && <CarimboTab signatureUrl={signedDoctorSignatureUrl} stampUrl={signedDoctorStampUrl} doctorName={signedDoctorName} crm={signedDoctorCrm} />}
             </div>
           </div>
         )}
@@ -2649,4 +2656,3 @@ function CarimboTab({
     </div>
   );
 }
-
