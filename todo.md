@@ -2434,3 +2434,11 @@
 - [x] Fazer o editor reconhecer o laudo assinado existente e exibir Retificar/Apagar conforme autorização do médico e do admin_master.
 - [x] Preservar exclusão auditada, motivo obrigatório do admin_master e bloqueios de permissão existentes.
 - [x] Cobrir cenários de regressão, validar build e versionar antes de atualizar a VM1.
+
+## PROPOSTA VISUAL — ORGANIZAÇÃO DE UNIDADE E FINANCEIRO
+
+- [x] Criar e apresentar uma prévia anotada das abas operacionais da unidade e das abas financeiras, com legendas funcionais, antes de alterar o cadastro real.
+- [ ] Reorganizar o futuro módulo financeiro para que a cobrança por evento financeiro seja a modalidade principal; cobrança mensal será apenas uma alternativa comercial configurável.
+- [x] Simplificar o cadastro de Unidade para dados cadastrais, operacionais e clínicos, removendo moeda e todos os campos financeiros da interface.
+- [x] Manter a aba Médicos limitada ao vínculo e à autorização clínica por unidade, sem preços ou custos profissionais.
+- [ ] Criar no Financeiro a configuração por unidade para valores de eventos e custos dos médicos vinculados, preservando regras de vigência e auditoria.

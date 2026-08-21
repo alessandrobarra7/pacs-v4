@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -10,9 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
-  Upload, Building2, Trash2, ImageOff, Settings2, Stethoscope,
-  DollarSign, TrendingUp, UserCheck, Pencil, Check, X, AlertTriangle,
-  Wifi, WifiOff, Users, Loader2, Plus, UserMinus, Timer,
+  Building2, ImageOff, Loader2, Plus, Settings2, Stethoscope, Timer,
+  Trash2, Upload, UserMinus, Users, Wifi, WifiOff,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import UnitDoctorsTab from "./UnitDoctorsTab";
@@ -39,17 +38,23 @@ interface UnitFormDialogProps {
   loading?: boolean;
 }
 
-type DialogTab = "dados" | "responsavel" | "medicos" | "equipe" | "custo" | "resumo" | "sla";
+type DialogTab = "dados" | "medicos" | "equipe" | "sla";
 
 const NAV_ITEMS: { id: DialogTab; label: string; icon: React.ElementType; editOnly?: boolean }[] = [
-  { id: "dados",       label: "Dados",        icon: Settings2 },
-  { id: "responsavel", label: "Responsável",  icon: UserCheck,  editOnly: true },
-  { id: "medicos",     label: "Médicos",      icon: Stethoscope,editOnly: true },
-  { id: "equipe",      label: "Equipe",       icon: Users,      editOnly: true },
-  { id: "custo",       label: "Custo Sistema",icon: DollarSign, editOnly: true },
-  { id: "resumo",      label: "Resumo",       icon: TrendingUp, editOnly: true },
-  { id: "sla",         label: "SLA do Laudo", icon: Timer,       editOnly: true },
+  { id: "dados", label: "Dados", icon: Settings2 },
+  { id: "medicos", label: "Médicos", icon: Stethoscope, editOnly: true },
+  { id: "equipe", label: "Equipe", icon: Users, editOnly: true },
+  { id: "sla", label: "SLA do Laudo", icon: Timer, editOnly: true },
 ];
+
+const ROLE_LABELS: Record<string, string> = {
+  unit_admin: "Admin Unidade",
+  operador: "Operador",
+  atendente: "Atendente",
+  viewer: "Visualizador",
+  responsavel_financeiro: "Responsável Financeiro",
+  admin_master: "Admin Master",
+};
 
 export default function UnitFormDialog({
   open, onOpenChange, unit, onSave, loading = false,
@@ -68,129 +73,117 @@ export default function UnitFormDialog({
   const [logoFile, setLogoFile] = useState<string | null>(null);
   const [removingLogo, setRemovingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
-
-  // Custo / Responsável
-  const [editingSystemPrice, setEditingSystemPrice] = useState(false);
-  const [systemPriceValue, setSystemPriceValue] = useState("");
-  const [selectedResponsibleId, setSelectedResponsibleId] = useState<number | null>(null);
-  // Criação inline de responsável
-  const [showCreateResp, setShowCreateResp] = useState(false);
-  const [createRespForm, setCreateRespForm] = useState({ legal_name: "", person_type: "PJ" as "PF" | "PJ", cpf_cnpj: "", email: "", phone: "" });
-
-  // Teste de conexão DICOM (na aba Dados)
   const [testingDicom, setTestingDicom] = useState(false);
   const [dicomTestResult, setDicomTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-
-  // Equipe
   const [addingTeamUserId, setAddingTeamUserId] = useState<number | null>(null);
-
-  const utils = trpc.useUtils();
-  const isEditing = !!unit?.id;
-
-  // SLA
   const [slaEnabled, setSlaEnabled] = useState(false);
   const [slaValue, setSlaValue] = useState("4");
   const [slaUnit, setSlaUnit] = useState<"hour" | "day">("hour");
   const [slaNotes, setSlaNotes] = useState("");
   const [slaEditing, setSlaEditing] = useState(false);
+  const isEditing = !!unit?.id;
+  const utils = trpc.useUtils();
 
   const { data: slaConfig, refetch: refetchSla } = trpc.sla.getUnitSla.useQuery(
     { unitId: unit?.id ?? 0 },
-    { enabled: isEditing && !!unit?.id && open && activeTab === "sla" }
+    { enabled: isEditing && !!unit?.id && open && activeTab === "sla" },
   );
-
   const setUnitSla = trpc.sla.setUnitSla.useMutation({
-    onSuccess: () => { toast.success("SLA salvo com sucesso"); setSlaEditing(false); refetchSla(); },
-    onError: (e) => toast.error(e.message || "Erro ao salvar SLA"),
+    onSuccess: () => {
+      toast.success("SLA salvo com sucesso");
+      setSlaEditing(false);
+      refetchSla();
+    },
+    onError: (error) => toast.error(error.message || "Erro ao salvar SLA"),
   });
-
   const updateLogo = trpc.medicalData.updateUnitLogo.useMutation({
-    onSuccess: () => { toast.success("Logo atualizado"); setLogoFile(null); utils.medicalData.getReportContext.invalidate(); },
-    onError: (e) => toast.error(e.message || "Erro ao salvar logo"),
+    onSuccess: () => {
+      toast.success("Logo atualizado");
+      setLogoFile(null);
+      utils.medicalData.getReportContext.invalidate();
+    },
+    onError: (error) => toast.error(error.message || "Erro ao salvar logo"),
   });
-
   const removeLogo = trpc.medicalData.removeLogo.useMutation({
-    onSuccess: () => { toast.success("Logo removido"); setLogoPreview(null); setLogoFile(null); setRemovingLogo(false); utils.medicalData.getReportContext.invalidate(); },
-    onError: (e) => { toast.error(e.message || "Erro ao remover logo"); setRemovingLogo(false); },
+    onSuccess: () => {
+      toast.success("Logo removido");
+      setLogoPreview(null);
+      setLogoFile(null);
+      setRemovingLogo(false);
+      utils.medicalData.getReportContext.invalidate();
+    },
+    onError: (error) => {
+      toast.error(error.message || "Erro ao remover logo");
+      setRemovingLogo(false);
+    },
   });
-
-  const { data: unitCtx, refetch: refetchUnitCtx } = trpc.financeSimple.getUnitFullContext.useQuery(
-    { unitId: unit?.id ?? 0 },
-    { enabled: isEditing && !!unit?.id && open }
-  );
-
-  const { data: responsibles } = trpc.financeSimple.listResponsibles.useQuery(undefined, {
-    enabled: isEditing && open,
+  const testDicomConnection = trpc.financeSimple.testOrthancConnection.useMutation({
+    onSuccess: (data) => {
+      setDicomTestResult(data);
+      setTestingDicom(false);
+    },
+    onError: (error) => {
+      setDicomTestResult({ ok: false, message: error.message });
+      setTestingDicom(false);
+    },
   });
-
   const { data: teamMembers, refetch: refetchTeam } = trpc.financeSimple.listTeamMembers.useQuery(
     { unitId: unit?.id ?? 0 },
-    { enabled: isEditing && !!unit?.id && open && activeTab === "equipe" }
+    { enabled: isEditing && !!unit?.id && open && activeTab === "equipe" },
   );
-
   const { data: allUsers } = trpc.admin.listUsers.useQuery(undefined, {
     enabled: isEditing && open && activeTab === "equipe",
   });
-
-  const setSystemPriceDirect = trpc.financeSimple.setSystemPriceDirect.useMutation({
-    onSuccess: () => { toast.success("Custo do sistema atualizado"); setEditingSystemPrice(false); refetchUnitCtx(); },
-    onError: (e) => toast.error(e.message || "Erro ao atualizar custo"),
-  });
-
-  const linkResponsibleDirect = trpc.financeSimple.linkResponsibleToUnitDirect.useMutation({
-    onSuccess: () => { toast.success("Responsável vinculado"); setSelectedResponsibleId(null); refetchUnitCtx(); utils.financeSimple.listResponsibles.invalidate(); },
-    onError: (e) => toast.error(e.message || "Erro ao vincular responsável"),
-  });
-  const createAndLinkResponsible = trpc.financeSimple.createResponsible.useMutation({
-    onSuccess: async (data) => {
-      await utils.financeSimple.listResponsibles.invalidate();
-      if (unit?.id) {
-        linkResponsibleDirect.mutate({ unitId: unit.id, responsibleId: data.id, startsAt: new Date().toISOString() });
-      }
-      setShowCreateResp(false);
-      setCreateRespForm({ legal_name: "", person_type: "PJ", cpf_cnpj: "", email: "", phone: "" });
-    },
-    onError: (e) => toast.error(e.message || "Erro ao criar responsável"),
-  });
-
-  const testOrthancConnection = trpc.financeSimple.testOrthancConnection.useMutation({
-    onSuccess: (data) => { setDicomTestResult(data); setTestingDicom(false); },
-    onError: (e) => { setDicomTestResult({ ok: false, message: e.message }); setTestingDicom(false); },
-  });
-
   const addTeamMember = trpc.financeSimple.addTeamMember.useMutation({
-    onSuccess: () => { toast.success("Membro adicionado"); setAddingTeamUserId(null); refetchTeam(); },
-    onError: (e) => toast.error(e.message || "Erro ao adicionar membro"),
+    onSuccess: () => {
+      toast.success("Membro adicionado");
+      setAddingTeamUserId(null);
+      refetchTeam();
+    },
+    onError: (error) => toast.error(error.message || "Erro ao adicionar membro"),
   });
-
   const removeTeamMember = trpc.financeSimple.removeTeamMember.useMutation({
-    onSuccess: () => { toast.success("Membro removido"); refetchTeam(); },
-    onError: (e) => toast.error(e.message || "Erro ao remover membro"),
+    onSuccess: () => {
+      toast.success("Membro removido");
+      refetchTeam();
+    },
+    onError: (error) => toast.error(error.message || "Erro ao remover membro"),
   });
 
   useEffect(() => {
-    if (open) {
-      setActiveTab("dados");
-      setEditingSystemPrice(false);
-      setSystemPriceValue("");
-      setSelectedResponsibleId(null);
-      setDicomTestResult(null);
-      setAddingTeamUserId(null);
-      if (unit) {
-        setName(unit.name); setSlug(unit.slug); setAddress(unit.address || "");
-        setEquipmentInfo(unit.equipment_info || ""); setPacsIp(unit.pacs_ip || "");
-        setPacsPort(String(unit.pacs_port || 11112)); setPacsAeTitle(unit.pacs_ae_title || "");
-        setPacsLocalAeTitle(unit.pacs_local_ae_title || "LAUDS"); setIsActive(unit.isActive);
-        setLogoPreview(unit.logo_url || null); setLogoFile(null); setRemovingLogo(false);
-      } else {
-        setName(""); setSlug(""); setAddress(""); setEquipmentInfo("");
-        setPacsIp(""); setPacsPort("11112"); setPacsAeTitle(""); setPacsLocalAeTitle("LAUDS");
-        setIsActive(true); setLogoPreview(null); setLogoFile(null); setRemovingLogo(false);
-      }
+    if (!open) return;
+    setActiveTab("dados");
+    setDicomTestResult(null);
+    setAddingTeamUserId(null);
+    if (unit) {
+      setName(unit.name);
+      setSlug(unit.slug);
+      setAddress(unit.address || "");
+      setEquipmentInfo(unit.equipment_info || "");
+      setPacsIp(unit.pacs_ip || "");
+      setPacsPort(String(unit.pacs_port || 11112));
+      setPacsAeTitle(unit.pacs_ae_title || "");
+      setPacsLocalAeTitle(unit.pacs_local_ae_title || "LAUDS");
+      setIsActive(unit.isActive);
+      setLogoPreview(unit.logo_url || null);
+      setLogoFile(null);
+      setRemovingLogo(false);
+      return;
     }
+    setName("");
+    setSlug("");
+    setAddress("");
+    setEquipmentInfo("");
+    setPacsIp("");
+    setPacsPort("11112");
+    setPacsAeTitle("");
+    setPacsLocalAeTitle("LAUDS");
+    setIsActive(true);
+    setLogoPreview(null);
+    setLogoFile(null);
+    setRemovingLogo(false);
   }, [open, unit]);
 
-  // Sincronizar estados SLA quando o config é carregado
   useEffect(() => {
     if (slaConfig) {
       setSlaEnabled(slaConfig.enabled);
@@ -205,122 +198,94 @@ export default function UnitFormDialog({
     }
   }, [slaConfig, activeTab]);
 
+  const handleNameChange = (value: string) => {
+    setName(value);
+    if (!unit) {
+      setSlug(value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""));
+    }
+  };
+  const handleLogoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Imagem muito grande. Máximo 2 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = reader.result as string;
+      setLogoFile(data);
+      setLogoPreview(data);
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
+  const handleSave = () => {
+    if (!name.trim()) {
+      toast.error("Informe o nome da unidade");
+      return;
+    }
+    if (!pacsIp.trim()) {
+      toast.error("Informe o IP do PACS");
+      return;
+    }
+    const port = Number.parseInt(pacsPort, 10);
+    if (Number.isNaN(port) || port < 1 || port > 65535) {
+      toast.error("Porta PACS inválida");
+      return;
+    }
+    onSave({
+      id: unit?.id,
+      name: name.trim(),
+      slug: slug.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      address: address.trim(),
+      equipment_info: equipmentInfo.trim(),
+      pacs_ip: pacsIp.trim(),
+      pacs_port: port,
+      pacs_ae_title: pacsAeTitle.trim(),
+      pacs_local_ae_title: pacsLocalAeTitle.trim() || "LAUDS",
+      isActive,
+      _logoFile: logoFile || undefined,
+    } as UnitFormData);
+  };
   const handleSaveSla = () => {
     if (!unit?.id) return;
-    if (slaEnabled && (!slaValue || parseInt(slaValue) < 1)) {
+    if (slaEnabled && (!slaValue || Number.parseInt(slaValue, 10) < 1)) {
       toast.error("Informe um valor de prazo válido");
       return;
     }
     setUnitSla.mutate({
       unitId: unit.id,
       enabled: slaEnabled,
-      slaValue: slaEnabled ? parseInt(slaValue) : undefined,
+      slaValue: slaEnabled ? Number.parseInt(slaValue, 10) : undefined,
       slaUnit: slaEnabled ? slaUnit : undefined,
       notes: slaNotes || undefined,
     });
   };
 
-  const handleNameChange = (v: string) => {
-    setName(v);
-    if (!unit) setSlug(v.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""));
-  };
-
-  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { toast.error("Imagem muito grande. Máximo 2 MB."); return; }
-    const reader = new FileReader();
-    reader.onload = () => { const d = reader.result as string; setLogoFile(d); setLogoPreview(d); };
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  };
-
-  const handleRemoveLogo = () => {
-    if (!unit?.id) return;
-    if (!confirm("Remover o logo desta unidade?")) return;
-    setRemovingLogo(true);
-    removeLogo.mutate({ unitId: unit.id });
-  };
-
-  const handleSaveSystemPrice = () => {
-    if (!unit?.id) return;
-    const val = parseFloat(systemPriceValue.replace(",", "."));
-    if (isNaN(val) || val < 0) { toast.error("Informe um valor válido"); return; }
-    setSystemPriceDirect.mutate({ unitId: unit.id, pricePerReport: val.toFixed(2), startsAt: new Date().toISOString() });
-  };
-
-  const handleLinkResponsible = () => {
-    if (!unit?.id || !selectedResponsibleId) return;
-    linkResponsibleDirect.mutate({ unitId: unit.id, responsibleId: selectedResponsibleId, startsAt: new Date().toISOString() });
-  };
-
-  const handleTestDicom = () => {
-    if (!unit?.id) return;
-    setTestingDicom(true);
-    setDicomTestResult(null);
-    testOrthancConnection.mutate({ unitId: unit.id });
-  };
-
-  const handleSave = () => {
-    if (!name.trim()) { toast.error("Informe o nome da unidade"); return; }
-    if (!pacsIp.trim()) { toast.error("Informe o IP do PACS"); return; }
-    const port = parseInt(pacsPort);
-    if (isNaN(port) || port < 1 || port > 65535) { toast.error("Porta PACS inválida"); return; }
-    onSave({
-      id: unit?.id, name: name.trim(),
-      slug: slug.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-      address: address.trim(), equipment_info: equipmentInfo.trim(),
-      pacs_ip: pacsIp.trim(), pacs_port: port,
-      pacs_ae_title: pacsAeTitle.trim(), pacs_local_ae_title: pacsLocalAeTitle.trim() || "LAUDS",
-      isActive, _logoFile: logoFile || undefined,
-    } as any);
-  };
-
-  const activeResponsible = unitCtx?.activeResponsible;
-  const isDefaultResp = activeResponsible?.legal_name === "Sem Responsável";
-  const activeSystemPrice = unitCtx?.activeSystemPrice;
-
-  const teamUserIds = new Set((teamMembers ?? []).map(m => m.id));
-  const availableUsers = (allUsers ?? []).filter(u => u.role !== "medico" && !teamUserIds.has(u.id));
-
-  const ROLE_LABELS: Record<string, string> = {
-    unit_admin: "Admin Unidade", operador: "Operador", viewer: "Visualizador",
-    responsavel_financeiro: "Resp. Financeiro", admin_master: "Admin Master",
-  };
-
-  const visibleTabs = NAV_ITEMS.filter(t => !t.editOnly || isEditing);
+  const visibleTabs = NAV_ITEMS.filter((tab) => !tab.editOnly || isEditing);
+  const teamUserIds = new Set((teamMembers ?? []).map((member) => member.id));
+  const availableUsers = (allUsers ?? []).filter((member) => member.role !== "medico" && !teamUserIds.has(member.id));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="!max-w-[96vw] w-[96vw] h-[95vh] max-h-[95vh] p-0 overflow-hidden flex flex-col gap-0">
-        {/* ── HEADER ─────────────────────────────────────────────────────── */}
         <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
           <DialogTitle className="text-lg font-semibold flex items-center gap-2">
             <Building2 className="h-5 w-5 text-muted-foreground" />
             {isEditing ? `Editar: ${name || "Unidade"}` : "Nova Unidade"}
-            {isEditing && (
-              <Badge variant={isActive ? "default" : "secondary"} className="text-xs ml-1">
-                {isActive ? "Ativa" : "Inativa"}
-              </Badge>
-            )}
+            {isEditing && <Badge variant={isActive ? "default" : "secondary"} className="text-xs ml-1">{isActive ? "Ativa" : "Inativa"}</Badge>}
           </DialogTitle>
         </DialogHeader>
 
-        {/* ── BODY: sidebar + conteúdo ────────────────────────────────────── */}
         <div className="flex flex-1 overflow-hidden">
-
-          {/* Sidebar de navegação */}
           <nav className="w-56 shrink-0 border-r border-border bg-muted/30 flex flex-col py-4 gap-1 overflow-y-auto">
             {visibleTabs.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 type="button"
                 onClick={() => setActiveTab(id)}
-                className={`flex items-center gap-3 px-5 py-3 text-sm font-medium transition-colors text-left w-full
-                  ${activeTab === id
-                    ? "bg-background text-foreground border-r-2 border-primary shadow-sm"
-                    : "text-muted-foreground hover:text-foreground hover:bg-background/60"
-                  }`}
+                className={`flex items-center gap-3 px-5 py-3 text-sm font-medium transition-colors text-left w-full ${activeTab === id ? "bg-background text-foreground border-r-2 border-primary shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/60"}`}
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 {label}
@@ -328,65 +293,60 @@ export default function UnitFormDialog({
             ))}
           </nav>
 
-          {/* Área de conteúdo */}
           <div className="flex-1 overflow-y-auto px-8 py-6">
-
-            {/* ── ABA DADOS ─────────────────────────────────────────────── */}
             {activeTab === "dados" && (
               <div className="space-y-6 max-w-3xl">
-                {/* Informações gerais */}
                 <div>
-                  <h3 className="text-sm font-semibold text-foreground mb-4">Informações da Unidade</h3>
+                  <h3 className="text-sm font-semibold text-foreground mb-1">Cadastro operacional da unidade</h3>
+                  <p className="text-xs text-muted-foreground">Identificação, infraestrutura PACS e situação operacional. Valores, eventos, custos e pagamentos são configurados exclusivamente no módulo Financeiro.</p>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-foreground mb-4">Identificação e infraestrutura</h4>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label className="text-sm font-medium">Nome da Unidade</Label>
-                      <Input value={name} onChange={e => handleNameChange(e.target.value)} className="mt-1" placeholder="Ex: PACS Principal" />
+                      <Input value={name} onChange={(event) => handleNameChange(event.target.value)} className="mt-1" placeholder="Ex: Hospital da Criança" />
                     </div>
                     <div>
-                      <Label className="text-sm font-medium">Slug (URL)</Label>
-                      <Input value={slug} onChange={e => setSlug(e.target.value)} className="mt-1 font-mono text-sm" placeholder="pacs-principal" disabled={isEditing} />
+                      <Label className="text-sm font-medium">Código interno</Label>
+                      <Input value={slug} onChange={(event) => setSlug(event.target.value)} className="mt-1 font-mono text-sm" placeholder="hospital-da-crianca" disabled={isEditing} />
                     </div>
                   </div>
                   <div className="mt-4">
                     <Label className="text-sm font-medium">Endereço</Label>
-                    <Input value={address} onChange={e => setAddress(e.target.value)} className="mt-1" placeholder="Rua, número, cidade" />
+                    <Input value={address} onChange={(event) => setAddress(event.target.value)} className="mt-1" placeholder="Rua, número, cidade" />
                   </div>
                   <div className="mt-4">
                     <Label className="text-sm font-medium">Equipamentos</Label>
-                    <Textarea value={equipmentInfo} onChange={e => setEquipmentInfo(e.target.value)} className="mt-1 text-sm" rows={2} placeholder="Tomógrafo, ressonância..." />
+                    <Textarea value={equipmentInfo} onChange={(event) => setEquipmentInfo(event.target.value)} className="mt-1 text-sm" rows={2} placeholder="Tomógrafo, ressonância, raio-X..." />
                   </div>
                 </div>
 
-                {/* Conexão DICOM */}
                 <div className="border-t border-border pt-5">
-                  <h3 className="text-sm font-semibold text-foreground mb-4">Conexão DICOM / PACS</h3>
+                  <h4 className="text-sm font-semibold text-foreground mb-4">Conexão DICOM / PACS</h4>
                   <div className="grid grid-cols-3 gap-3">
-                    <div className="col-span-1">
+                    <div>
                       <Label className="text-sm font-medium">IP do PACS</Label>
-                      <Input value={pacsIp} onChange={e => setPacsIp(e.target.value)} className="mt-1 font-mono text-sm" placeholder="192.168.1.100" />
+                      <Input value={pacsIp} onChange={(event) => setPacsIp(event.target.value)} className="mt-1 font-mono text-sm" placeholder="172.16.3.100" />
                     </div>
                     <div>
                       <Label className="text-sm font-medium">Porta DICOM</Label>
-                      <Input value={pacsPort} onChange={e => setPacsPort(e.target.value)} className="mt-1 font-mono text-sm" placeholder="11112" />
+                      <Input value={pacsPort} onChange={(event) => setPacsPort(event.target.value)} className="mt-1 font-mono text-sm" placeholder="11112" />
                     </div>
                     <div>
                       <Label className="text-sm font-medium">AE Title</Label>
-                      <Input value={pacsAeTitle} onChange={e => setPacsAeTitle(e.target.value)} className="mt-1 font-mono text-sm" placeholder="ORTHANC" />
+                      <Input value={pacsAeTitle} onChange={(event) => setPacsAeTitle(event.target.value)} className="mt-1 font-mono text-sm" placeholder="PACS_HC" />
                     </div>
                   </div>
                   <div className="mt-3">
                     <Label className="text-sm font-medium">AE Title Local</Label>
-                    <Input value={pacsLocalAeTitle} onChange={e => setPacsLocalAeTitle(e.target.value)} className="mt-1 font-mono text-sm" placeholder="LAUDS" />
+                    <Input value={pacsLocalAeTitle} onChange={(event) => setPacsLocalAeTitle(event.target.value)} className="mt-1 font-mono text-sm" placeholder="LAUDS" />
                   </div>
-
-                  {/* Botão Testar Conexão — inline com os campos DICOM */}
                   {isEditing && (
                     <div className="mt-4 flex items-center gap-3">
-                      <Button type="button" variant="outline" size="sm" onClick={handleTestDicom} disabled={testingDicom || !pacsIp}>
-                        {testingDicom
-                          ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />Testando...</>
-                          : <><Wifi className="h-3.5 w-3.5 mr-2" />Testar Conexão DICOM</>
-                        }
+                      <Button type="button" variant="outline" size="sm" onClick={() => { setTestingDicom(true); setDicomTestResult(null); testDicomConnection.mutate({ unitId: unit?.id ?? 0 }); }} disabled={testingDicom || !pacsIp}>
+                        {testingDicom ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />Testando...</> : <><Wifi className="h-3.5 w-3.5 mr-2" />Testar conexão DICOM</>}
                       </Button>
                       {dicomTestResult && (
                         <div className={`flex items-center gap-2 text-sm rounded-md px-3 py-1.5 border ${dicomTestResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
@@ -398,25 +358,18 @@ export default function UnitFormDialog({
                   )}
                 </div>
 
-                {/* Logo */}
                 <div className="border-t border-border pt-5">
-                  <h3 className="text-sm font-semibold text-foreground mb-2">Logo da Unidade</h3>
-                  <p className="text-xs text-muted-foreground mb-3">Aparece no cabeçalho do laudo. PNG com fundo branco, máx. 2 MB.</p>
+                  <h4 className="text-sm font-semibold text-foreground mb-2">Logo da Unidade</h4>
+                  <p className="text-xs text-muted-foreground mb-3">Aparece no cabeçalho do laudo. PNG ou JPG, até 2 MB.</p>
                   {logoPreview ? (
                     <div className="flex items-start gap-4">
-                      <img src={logoPreview} alt="Logo" className="h-20 max-w-[200px] object-contain border border-gray-200 rounded p-2 bg-white" />
+                      <img src={logoPreview} alt="Logo da unidade" className="h-20 max-w-[200px] object-contain border border-gray-200 rounded p-2 bg-white" />
                       <div className="flex flex-col gap-2 mt-1">
                         <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 text-xs border border-dashed border-gray-300 rounded hover:bg-gray-50 transition-colors">
                           <Upload className="h-3.5 w-3.5 text-gray-400" /><span className="text-gray-600">Trocar logo</span>
                           <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
                         </label>
-                        {unit?.id && (
-                          <button type="button" onClick={handleRemoveLogo} disabled={removingLogo || removeLogo.isPending}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-50">
-                            {removingLogo ? <span className="animate-spin h-3.5 w-3.5 border-2 border-red-400 border-t-transparent rounded-full" /> : <Trash2 className="h-3.5 w-3.5" />}
-                            Remover logo
-                          </button>
-                        )}
+                        {unit?.id && <button type="button" onClick={() => { if (confirm("Remover o logo desta unidade?")) { setRemovingLogo(true); removeLogo.mutate({ unitId: unit.id ?? 0 }); } }} disabled={removingLogo || removeLogo.isPending} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" />Remover logo</button>}
                       </div>
                     </div>
                   ) : (
@@ -426,489 +379,45 @@ export default function UnitFormDialog({
                       <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
                     </label>
                   )}
-                  {logoFile && <p className="text-xs text-amber-600 flex items-center gap-1 mt-2"><Upload className="h-3 w-3" />Novo logo será salvo ao clicar em "Salvar Alterações"</p>}
+                  {logoFile && <p className="text-xs text-amber-600 flex items-center gap-1 mt-2"><Upload className="h-3 w-3" />Novo logo será salvo ao clicar em “Salvar alterações”.</p>}
                 </div>
 
-                {/* Status */}
                 <div className="flex items-center gap-3 border-t border-border pt-5">
                   <Switch checked={isActive} onCheckedChange={setIsActive} />
-                  <div>
-                    <span className="text-sm font-medium">{isActive ? "Unidade Ativa" : "Unidade Desativada"}</span>
-                    <p className="text-xs text-muted-foreground">{isActive ? "Novos exames podem ser recebidos" : "Unidade bloqueada para novos exames"}</p>
-                  </div>
+                  <div><span className="text-sm font-medium">{isActive ? "Unidade ativa" : "Unidade desativada"}</span><p className="text-xs text-muted-foreground">{isActive ? "Novos exames podem ser recebidos" : "Unidade bloqueada para novos exames"}</p></div>
                 </div>
-
-                <div className="flex justify-end gap-3 border-t border-border pt-5">
-                  <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>Cancelar</Button>
-                  <Button onClick={handleSave} disabled={loading || updateLogo.isPending}>
-                    {loading || updateLogo.isPending ? "Salvando..." : unit ? "Salvar Alterações" : "Criar Unidade"}
-                  </Button>
-                </div>
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><strong>Ambiente operacional:</strong> esta tela não contém preços, custos, cobranças ou pagamentos.</div>
+                <div className="flex justify-end gap-3 border-t border-border pt-5"><Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>Cancelar</Button><Button onClick={handleSave} disabled={loading || updateLogo.isPending}>{loading || updateLogo.isPending ? "Salvando..." : unit ? "Salvar alterações" : "Criar unidade"}</Button></div>
               </div>
             )}
 
-            {/* ── ABA RESPONSÁVEL ──────────────────────────────────────── */}
-            {activeTab === "responsavel" && isEditing && (
-              <div className="space-y-5 max-w-3xl">
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
-                    <UserCheck className="h-4 w-4 text-blue-600" /> Responsável Financeiro
-                  </h3>
-                  <p className="text-xs text-muted-foreground">Pessoa ou empresa responsável pelo contrato financeiro desta unidade.</p>
-                </div>
-
-                {activeResponsible ? (
-                  <div className={`rounded-lg border p-4 ${isDefaultResp ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
-                    {isDefaultResp && (
-                      <div className="flex items-center gap-2 mb-3">
-                        <AlertTriangle className="h-4 w-4 text-amber-600" />
-                        <p className="text-xs text-amber-700 font-medium">Responsável padrão — configure um responsável real</p>
-                      </div>
-                    )}
-                    <p className="text-sm font-semibold">{activeResponsible.legal_name}</p>
-                    {activeResponsible.trade_name && <p className="text-xs text-muted-foreground mt-0.5">{activeResponsible.trade_name}</p>}
-                    {activeResponsible.email && <p className="text-xs text-muted-foreground mt-1">{activeResponsible.email}</p>}
-                    {activeResponsible.phone && <p className="text-xs text-muted-foreground">{activeResponsible.phone}</p>}
-                    <p className="text-xs text-muted-foreground mt-1">Vigente desde {new Date(activeResponsible.starts_at!).toLocaleDateString("pt-BR")}</p>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 flex items-center gap-3">
-                    <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-amber-800">Sem responsável configurado</p>
-                      <p className="text-xs text-amber-700">Configure um responsável para habilitar o módulo financeiro desta unidade.</p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="border-t border-border pt-4">
-                  <div className="flex items-center justify-between mb-1">
-                    <Label className="text-sm font-medium">Vincular responsável</Label>
-                    <button type="button" onClick={() => setShowCreateResp(v => !v)}
-                      className="text-xs text-primary hover:underline flex items-center gap-1">
-                      <Plus className="h-3 w-3" />{showCreateResp ? "Cancelar" : "Novo responsável"}
-                    </button>
-                  </div>
-                  {showCreateResp ? (
-                    <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3 mb-3">
-                      <p className="text-xs font-medium text-muted-foreground">Criar e vincular novo responsável financeiro</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="col-span-2">
-                          <Label className="text-xs">Nome / Razão Social *</Label>
-                          <Input className="h-8 mt-1 text-sm" placeholder="Ex: Hospital São Lucas LTDA" value={createRespForm.legal_name}
-                            onChange={e => setCreateRespForm(f => ({ ...f, legal_name: e.target.value }))} />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Tipo</Label>
-                          <select value={createRespForm.person_type} onChange={e => setCreateRespForm(f => ({ ...f, person_type: e.target.value as "PF" | "PJ" }))}
-                            className="w-full h-8 mt-1 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
-                            <option value="PJ">Pessoa Jurídica</option>
-                            <option value="PF">Pessoa Física</option>
-                          </select>
-                        </div>
-                        <div>
-                          <Label className="text-xs">{createRespForm.person_type === "PJ" ? "CNPJ" : "CPF"}</Label>
-                          <Input className="h-8 mt-1 text-sm" placeholder={createRespForm.person_type === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"}
-                            value={createRespForm.cpf_cnpj} onChange={e => setCreateRespForm(f => ({ ...f, cpf_cnpj: e.target.value }))} />
-                        </div>
-                        <div>
-                          <Label className="text-xs">E-mail</Label>
-                          <Input className="h-8 mt-1 text-sm" type="email" placeholder="contato@empresa.com"
-                            value={createRespForm.email} onChange={e => setCreateRespForm(f => ({ ...f, email: e.target.value }))} />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Telefone</Label>
-                          <Input className="h-8 mt-1 text-sm" placeholder="(00) 00000-0000"
-                            value={createRespForm.phone} onChange={e => setCreateRespForm(f => ({ ...f, phone: e.target.value }))} />
-                        </div>
-                      </div>
-                      <Button type="button" size="sm" className="w-full"
-                        disabled={!createRespForm.legal_name.trim() || createAndLinkResponsible.isPending}
-                        onClick={() => createAndLinkResponsible.mutate({ ...createRespForm, email: createRespForm.email || undefined, phone: createRespForm.phone || undefined, cpf_cnpj: createRespForm.cpf_cnpj || undefined })}>
-                        {createAndLinkResponsible.isPending ? <><Loader2 className="h-3 w-3 mr-2 animate-spin" />Criando...</> : "Criar e vincular"}
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-xs text-muted-foreground mt-1 mb-3">Selecione um responsável cadastrado para vincular a esta unidade{!responsibles?.filter(r => r.isActive && r.legal_name !== "Sem Responsável").length ? " — ou clique em \"Novo responsável\" para criar" : ""}.</p>
-                      <div className="flex gap-3">
-                        <select value={selectedResponsibleId ?? ""} onChange={e => setSelectedResponsibleId(e.target.value ? Number(e.target.value) : null)}
-                          className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring">
-                          <option value="">Selecione um responsável...</option>
-                          {responsibles?.filter(r => r.isActive && r.legal_name !== "Sem Responsável").map(r => (
-                            <option key={r.id} value={r.id}>{r.legal_name}{r.trade_name ? ` (${r.trade_name})` : ""}</option>
-                          ))}
-                        </select>
-                        <Button type="button" disabled={!selectedResponsibleId || linkResponsibleDirect.isPending} onClick={handleLinkResponsible}>
-                          {linkResponsibleDirect.isPending ? "Vinculando..." : "Vincular"}
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {unitCtx?.responsibleHistory && unitCtx.responsibleHistory.length > 1 && (
-                  <div className="border-t border-border pt-4">
-                    <p className="text-xs font-medium text-muted-foreground mb-3">Histórico de responsáveis</p>
-                    <div className="space-y-1">
-                      {unitCtx.responsibleHistory.map((rh) => (
-                        <div key={rh.link_id} className="flex items-center justify-between text-xs text-muted-foreground py-2 border-b border-border/30 last:border-0">
-                          <span className={rh.ends_at ? "line-through opacity-50" : "font-medium"}>{rh.legal_name}</span>
-                          <span>{new Date(rh.starts_at!).toLocaleDateString("pt-BR")}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── ABA MÉDICOS ──────────────────────────────────────────── */}
             {activeTab === "medicos" && isEditing && (
-              <div className="h-full">
-                {/* Banner explicativo sobre o preço do médico */}
-                <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-start gap-3">
-                  <DollarSign className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-blue-800">Valor por laudo do médico</p>
-                    <p className="text-xs text-blue-700 mt-0.5">
-                      Cada médico pode ter um valor diferente por laudo assinado nesta unidade.
-                      Clique no ícone <Pencil className="inline h-3 w-3" /> ou no valor na coluna <strong>Valor/Laudo</strong> para definir ou alterar.
-                      Este valor é independente do custo do sistema (configurado na aba <strong>Custo Sistema</strong>).
-                    </p>
-                  </div>
-                </div>
+              <div className="space-y-4 max-w-4xl">
+                <div><h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1"><Stethoscope className="h-4 w-4 text-blue-600" />Médicos vinculados</h3><p className="text-xs text-muted-foreground">Esta aba controla somente o vínculo e a autorização clínica para laudar nesta unidade. Preços, vigências e eventos financeiros são configurados no módulo Financeiro.</p></div>
                 <UnitDoctorsTab unitId={unit!.id!} />
               </div>
             )}
 
-            {/* ── ABA EQUIPE ───────────────────────────────────────────── */}
             {activeTab === "equipe" && isEditing && (
               <div className="space-y-5 max-w-3xl">
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
-                    <Users className="h-4 w-4 text-indigo-600" /> Equipe da Unidade
-                  </h3>
-                  <p className="text-xs text-muted-foreground">Operadores, visualizadores e administradores de unidade vinculados a este PACS. Médicos são gerenciados na aba Médicos.</p>
-                </div>
-
-                <div className="flex gap-3">
-                  <select value={addingTeamUserId ?? ""} onChange={e => setAddingTeamUserId(e.target.value ? Number(e.target.value) : null)}
-                    className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
-                    <option value="">Selecionar usuário para adicionar...</option>
-                    {availableUsers.map(u => (
-                      <option key={u.id} value={u.id}>{u.name} — {ROLE_LABELS[u.role] ?? u.role}</option>
-                    ))}
-                  </select>
-                  <Button type="button" disabled={!addingTeamUserId || addTeamMember.isPending}
-                    onClick={() => addingTeamUserId && addTeamMember.mutate({ unitId: unit!.id!, userId: addingTeamUserId })}>
-                    <Plus className="h-4 w-4 mr-2" />Adicionar
-                  </Button>
-                </div>
-
-                {teamMembers && teamMembers.length > 0 ? (
-                  <div className="space-y-2">
-                    {teamMembers.map(m => (
-                      <div key={m.id} className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
-                        <div>
-                          <p className="text-sm font-medium">{m.name}</p>
-                          <p className="text-xs text-muted-foreground">{ROLE_LABELS[m.role] ?? m.role} · @{m.username}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <Badge variant={m.isActive ? "default" : "secondary"} className="text-xs">
-                            {m.isActive ? "Ativo" : "Inativo"}
-                          </Badge>
-                          <button type="button"
-                            onClick={() => removeTeamMember.mutate({ unitId: unit!.id!, userId: m.id })}
-                            disabled={removeTeamMember.isPending}
-                            className="p-1.5 rounded text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors">
-                            <UserMinus className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-12 text-muted-foreground border border-dashed border-border rounded-lg">
-                    <Users className="h-10 w-10 mx-auto mb-3 opacity-20" />
-                    <p className="text-sm">Nenhum membro de equipe vinculado</p>
-                    <p className="text-xs mt-1">Use o seletor acima para adicionar membros</p>
-                  </div>
-                )}
+                <div><h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1"><Users className="h-4 w-4 text-indigo-600" />Equipe da Unidade</h3><p className="text-xs text-muted-foreground">Operadores, atendentes, visualizadores e administradores de unidade vinculados a este PACS.</p></div>
+                <div className="flex gap-3"><select value={addingTeamUserId ?? ""} onChange={(event) => setAddingTeamUserId(event.target.value ? Number(event.target.value) : null)} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"><option value="">Selecionar usuário para adicionar...</option>{availableUsers.map((member) => <option key={member.id} value={member.id}>{member.name} — {ROLE_LABELS[member.role] ?? member.role}</option>)}</select><Button type="button" disabled={!addingTeamUserId || addTeamMember.isPending} onClick={() => addingTeamUserId && addTeamMember.mutate({ unitId: unit!.id!, userId: addingTeamUserId })}><Plus className="h-4 w-4 mr-2" />Adicionar</Button></div>
+                {teamMembers?.length ? <div className="space-y-2">{teamMembers.map((member) => <div key={member.id} className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3"><div><p className="text-sm font-medium">{member.name}</p><p className="text-xs text-muted-foreground">{ROLE_LABELS[member.role] ?? member.role} · @{member.username}</p></div><div className="flex items-center gap-3"><Badge variant={member.isActive ? "default" : "secondary"} className="text-xs">{member.isActive ? "Ativo" : "Inativo"}</Badge><button type="button" onClick={() => removeTeamMember.mutate({ unitId: unit!.id!, userId: member.id })} disabled={removeTeamMember.isPending} className="p-1.5 rounded text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors"><UserMinus className="h-4 w-4" /></button></div></div>)}</div> : <div className="text-center py-12 text-muted-foreground border border-dashed border-border rounded-lg"><Users className="h-10 w-10 mx-auto mb-3 opacity-20" /><p className="text-sm">Nenhum membro de equipe vinculado</p><p className="text-xs mt-1">Use o seletor acima para adicionar membros.</p></div>}
               </div>
             )}
 
-            {/* ── ABA CUSTO SISTEMA ────────────────────────────────────── */}
-            {activeTab === "custo" && isEditing && (
-              <div className="space-y-5 max-w-3xl">
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
-                    <DollarSign className="h-4 w-4 text-emerald-600" /> Custo do Sistema por Laudo
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    Valor cobrado pelo <strong>sistema</strong> por laudo assinado nesta unidade.
-                    Este valor é diferente do valor pago ao médico (configurado na aba <strong>Médicos</strong>).
-                  </p>
-                </div>
-
-                <div className="rounded-lg border border-border bg-background p-5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Custo vigente</p>
-                      {activeSystemPrice ? (
-                        <p className="text-3xl font-bold text-emerald-600 mt-1">
-                          R$ {parseFloat(activeSystemPrice.price_per_report).toFixed(2)}
-                          <span className="text-base font-normal text-muted-foreground ml-2">/ laudo</span>
-                        </p>
-                      ) : (
-                        <p className="text-sm text-amber-500 mt-2">Não configurado</p>
-                      )}
-                      {activeSystemPrice && <p className="text-xs text-muted-foreground mt-1">Desde {new Date(activeSystemPrice.starts_at!).toLocaleDateString("pt-BR")}</p>}
-                    </div>
-                    {!editingSystemPrice && (
-                      <button type="button" onClick={() => { setEditingSystemPrice(true); setSystemPriceValue(activeSystemPrice ? parseFloat(activeSystemPrice.price_per_report).toFixed(2) : ""); }}
-                        className="p-2 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                  {editingSystemPrice && (
-                    <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border">
-                      <span className="text-sm text-muted-foreground">R$</span>
-                      <Input value={systemPriceValue} onChange={e => setSystemPriceValue(e.target.value)} className="h-9 w-32 text-sm text-right" placeholder="0.00" autoFocus
-                        onKeyDown={e => { if (e.key === "Enter") handleSaveSystemPrice(); if (e.key === "Escape") setEditingSystemPrice(false); }} />
-                      <span className="text-sm text-muted-foreground">/ laudo</span>
-                      <button type="button" onClick={handleSaveSystemPrice} disabled={setSystemPriceDirect.isPending}
-                        className="p-2 rounded text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-50"><Check className="h-4 w-4" /></button>
-                      <button type="button" onClick={() => setEditingSystemPrice(false)}
-                        className="p-2 rounded text-muted-foreground hover:bg-muted transition-colors"><X className="h-4 w-4" /></button>
-                    </div>
-                  )}
-                </div>
-
-                {unitCtx?.systemPriceHistory && unitCtx.systemPriceHistory.length > 0 && (
-                  <div className="border-t border-border pt-4">
-                    <p className="text-xs font-medium text-muted-foreground mb-3">Histórico de custos do sistema</p>
-                    <div className="space-y-1">
-                      {unitCtx.systemPriceHistory.map((sp) => (
-                        <div key={sp.id} className="flex items-center justify-between text-xs text-muted-foreground py-2 border-b border-border/30 last:border-0">
-                          <span>{new Date(sp.starts_at!).toLocaleDateString("pt-BR")}</span>
-                          <span className={sp.ends_at ? "line-through opacity-50" : "text-emerald-600 font-medium"}>R$ {parseFloat(sp.price_per_report).toFixed(2)}</span>
-                          <span>{sp.ends_at ? "Encerrado" : "Vigente"}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── ABA RESUMO ───────────────────────────────────────────── */}
-            {activeTab === "resumo" && isEditing && (
-              <div className="space-y-5 max-w-3xl">
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
-                    <TrendingUp className="h-4 w-4 text-blue-600" /> Resumo Financeiro
-                  </h3>
-                  <p className="text-xs text-muted-foreground">Ciclo corrente — dados consolidados desta unidade.</p>
-                </div>
-
-                {unitCtx ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="rounded-lg border border-border bg-background p-4">
-                        <p className="text-xs text-muted-foreground font-medium">Laudos no ciclo</p>
-                        <p className="text-3xl font-bold mt-1">{unitCtx.financialSummary.totalReports}</p>
-                      </div>
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-                        <p className="text-xs text-emerald-700 font-medium">Custo médicos</p>
-                        <p className="text-3xl font-bold text-emerald-700 mt-1">R$ {parseFloat(unitCtx.financialSummary.totalDoctorAmount).toFixed(2)}</p>
-                      </div>
-                      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-                        <p className="text-xs text-blue-700 font-medium">Custo sistema</p>
-                        <p className="text-3xl font-bold text-blue-700 mt-1">R$ {parseFloat(unitCtx.financialSummary.totalSystemAmount).toFixed(2)}</p>
-                      </div>
-                      <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
-                        <p className="text-xs text-purple-700 font-medium">Total geral</p>
-                        <p className="text-3xl font-bold text-purple-700 mt-1">R$ {parseFloat(unitCtx.financialSummary.totalGeral).toFixed(2)}</p>
-                      </div>
-                    </div>
-
-                    {unitCtx.doctorPrices && unitCtx.doctorPrices.length > 0 && (
-                      <div className="border-t border-border pt-4">
-                        <p className="text-xs font-medium text-muted-foreground mb-3">Médicos com preço configurado</p>
-                        <div className="space-y-2">
-                          {unitCtx.doctorPrices.map((dp) => (
-                            <div key={dp.id} className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
-                              <p className="text-sm font-medium">{dp.doctor_name}</p>
-                              <p className="text-sm text-emerald-600 font-medium">R$ {parseFloat(dp.price_per_report).toFixed(2)}/laudo</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {unitCtx.financialSummary.totalReports === 0 && (
-                      <div className="text-center py-10 text-muted-foreground border border-dashed border-border rounded-lg">
-                        <TrendingUp className="h-10 w-10 mx-auto mb-3 opacity-20" />
-                        <p className="text-sm">Nenhum laudo no ciclo corrente</p>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <div className="animate-spin h-7 w-7 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-                    <p className="text-sm">Carregando resumo financeiro...</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── ABA SLA DO LAUDO ─────────────────────────────────── */}
             {activeTab === "sla" && isEditing && (
               <div className="space-y-6 max-w-2xl">
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
-                    <Timer className="h-4 w-4 text-blue-600" /> SLA do Laudo
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    Define o prazo máximo para entrega do laudo após a anamnese ser inserida.
-                    O contador inicia apenas na primeira anamnese válida e não é reiniciado por edições posteriores.
-                  </p>
-                </div>
-
-                {/* Toggle habilitado */}
-                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-5 py-4">
-                  <div>
-                    <p className="text-sm font-medium">SLA habilitado</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Ativar contagem de prazo para esta unidade</p>
-                  </div>
-                  <Switch
-                    checked={slaEnabled}
-                    onCheckedChange={(v) => { setSlaEnabled(v); setSlaEditing(true); }}
-                  />
-                </div>
-
-                {/* Campos de prazo */}
-                {slaEnabled && (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label className="text-sm font-medium">Valor do prazo</Label>
-                        <Input
-                          type="number" min="1" max="999"
-                          value={slaValue}
-                          onChange={e => { setSlaValue(e.target.value); setSlaEditing(true); }}
-                          className="mt-1 font-mono"
-                          placeholder="Ex: 4"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium">Unidade</Label>
-                        <select
-                          value={slaUnit}
-                          onChange={e => { setSlaUnit(e.target.value as "hour" | "day"); setSlaEditing(true); }}
-                          className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                        >
-                          <option value="hour">Horas</option>
-                          <option value="day">Dias</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Exemplos rápidos */}
-                    <div className="flex gap-2 flex-wrap">
-                      {[
-                        { label: "4h",   value: 4,  unit: "hour" as const },
-                        { label: "8h",   value: 8,  unit: "hour" as const },
-                        { label: "24h",  value: 24, unit: "hour" as const },
-                        { label: "2 dias",value: 2, unit: "day"  as const },
-                        { label: "7 dias",value: 7, unit: "day"  as const },
-                        { label: "10 dias",value: 10,unit: "day" as const },
-                      ].map(p => (
-                        <button
-                          key={p.label} type="button"
-                          onClick={() => { setSlaValue(String(p.value)); setSlaUnit(p.unit); setSlaEditing(true); }}
-                          className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                            slaValue === String(p.value) && slaUnit === p.unit
-                              ? "bg-blue-600 text-white border-blue-600"
-                              : "border-border text-muted-foreground hover:border-blue-400 hover:text-blue-600"
-                          }`}
-                        >
-                          {p.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Notas */}
-                <div>
-                  <Label className="text-sm font-medium">Observações</Label>
-                  <Textarea
-                    value={slaNotes}
-                    onChange={e => { setSlaNotes(e.target.value); setSlaEditing(true); }}
-                    className="mt-1 text-sm" rows={2}
-                    placeholder="Ex: Prazo conforme contrato com operadora X"
-                  />
-                </div>
-
-                {/* Status atual */}
-                {slaConfig && (
-                  <div className="rounded-lg border border-border bg-muted/20 px-5 py-4">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Configuração atual no banco</p>
-                    <div className="flex items-center gap-3">
-                      <Badge variant={slaConfig.enabled ? "default" : "secondary"}>
-                        {slaConfig.enabled ? "Habilitado" : "Desabilitado"}
-                      </Badge>
-                      {slaConfig.enabled && slaConfig.sla_value && (
-                        <span className="text-sm font-medium">
-                          {slaConfig.sla_value} {slaConfig.sla_unit === "hour" ? "hora(s)" : "dia(s)"}
-                        </span>
-                      )}
-                      {slaConfig.effective_from && (
-                        <span className="text-xs text-muted-foreground">
-                          desde {new Date(slaConfig.effective_from).toLocaleDateString("pt-BR")}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Botão salvar */}
-                <div className="flex gap-3 pt-2">
-                  <Button
-                    onClick={handleSaveSla}
-                    disabled={setUnitSla.isPending}
-                    className="gap-2"
-                  >
-                    {setUnitSla.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    Salvar SLA
-                  </Button>
-                  {slaEditing && (
-                    <Button variant="outline" onClick={() => {
-                      setSlaEditing(false);
-                      if (slaConfig) {
-                        setSlaEnabled(slaConfig.enabled);
-                        setSlaValue(String(slaConfig.sla_value ?? 4));
-                        setSlaUnit((slaConfig.sla_unit as "hour" | "day") ?? "hour");
-                        setSlaNotes(slaConfig.notes ?? "");
-                      }
-                    }}>Cancelar</Button>
-                  )}
-                </div>
+                <div><h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1"><Timer className="h-4 w-4 text-blue-600" />SLA do Laudo</h3><p className="text-xs text-muted-foreground">Define o prazo clínico para entrega do laudo após a anamnese ser inserida. Urgência e Alerta Crítico não alteram o prazo configurado.</p></div>
+                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-5 py-4"><div><p className="text-sm font-medium">SLA habilitado</p><p className="text-xs text-muted-foreground mt-0.5">Ativar a contagem de prazo para esta unidade</p></div><Switch checked={slaEnabled} onCheckedChange={(value) => { setSlaEnabled(value); setSlaEditing(true); }} /></div>
+                {slaEnabled && <div className="grid grid-cols-2 gap-4"><div><Label className="text-sm font-medium">Valor do prazo</Label><Input type="number" min="1" max="999" value={slaValue} onChange={(event) => { setSlaValue(event.target.value); setSlaEditing(true); }} className="mt-1 font-mono" /></div><div><Label className="text-sm font-medium">Unidade</Label><select value={slaUnit} onChange={(event) => { setSlaUnit(event.target.value as "hour" | "day"); setSlaEditing(true); }} className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm"><option value="hour">Horas</option><option value="day">Dias</option></select></div></div>}
+                <div><Label className="text-sm font-medium">Observações</Label><Textarea value={slaNotes} onChange={(event) => { setSlaNotes(event.target.value); setSlaEditing(true); }} className="mt-1 text-sm" rows={2} placeholder="Observações clínicas do SLA" /></div>
+                {slaConfig && <div className="rounded-lg border border-border bg-muted/20 px-5 py-4"><p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Configuração atual</p><div className="flex items-center gap-3"><Badge variant={slaConfig.enabled ? "default" : "secondary"}>{slaConfig.enabled ? "Habilitado" : "Desabilitado"}</Badge>{slaConfig.enabled && slaConfig.sla_value && <span className="text-sm font-medium">{slaConfig.sla_value} {slaConfig.sla_unit === "hour" ? "hora(s)" : "dia(s)"}</span>}</div></div>}
+                <div className="flex gap-3 pt-2"><Button onClick={handleSaveSla} disabled={!slaEditing || setUnitSla.isPending}>{setUnitSla.isPending ? "Salvando..." : "Salvar SLA"}</Button><Button variant="outline" onClick={() => { setSlaEditing(false); refetchSla(); }} disabled={!slaEditing}>Cancelar alterações</Button></div>
               </div>
             )}
-
-          </div>{/* fim área de conteúdo */}
-        </div>{/* fim body */}
-
-        {/* ── FOOTER (apenas nas abas não-dados) ─────────────────────────── */}
-        {activeTab !== "dados" && (
-          <div className="px-6 py-3 border-t border-border shrink-0 flex justify-end">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Fechar</Button>
           </div>
-        )}
+        </div>
       </DialogContent>
     </Dialog>
   );
