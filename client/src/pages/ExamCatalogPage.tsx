@@ -172,37 +172,37 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
             </div>
           </div>
 
-          <div className="space-y-2 bg-slate-50/70 p-3 sm:p-4">
+          <div className="bg-slate-50/70 p-3 sm:p-4">
             {isLoading ? <p className="py-10 text-center text-sm text-slate-400">Carregando catálogo…</p> : null}
             {!isLoading && !filteredEntries.length ? <p className="py-10 text-center text-sm text-slate-400">Nenhum exame corresponde aos filtros selecionados.</p> : null}
-            {filteredEntries.map((entry: CatalogEntry) => (
-              <article key={entry.id} className="rounded-xl border border-slate-200 bg-white p-4 transition-shadow hover:shadow-sm">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="font-semibold text-slate-900">{entry.exam_name}</h2>
-                      <Badge variant="outline" className="border-cyan-200 bg-cyan-50 text-cyan-800">{entry.modality}</Badge>
-                      <Badge variant="outline" className={entry.is_active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-300 bg-slate-100 text-slate-500"}>{entry.is_active ? "Ativo" : "Inativo"}</Badge>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-                      <span className="inline-flex items-center gap-1.5 text-slate-600"><FileText className="h-3.5 w-3.5 text-cyan-700" /><strong className="text-slate-800">{entry.documents.length}</strong> documento{entry.documents.length === 1 ? "" : "s"}</span>
-                      <span className="inline-flex items-center gap-1.5 text-slate-600"><span className="font-semibold text-violet-700">$</span><strong className="text-slate-800">{entry.financial_event_count}</strong> evento{entry.financial_event_count === 1 ? "" : "s"} financeiro{entry.financial_event_count === 1 ? "" : "s"}</span>
-                      <span className="inline-flex items-center gap-1.5 text-slate-600"><Link2 className="h-3.5 w-3.5 text-slate-500" /><strong className="text-slate-800">{entry.pacsMappings.length}</strong> mapeamento{entry.pacsMappings.length === 1 ? "" : "s"} PACS</span>
-                      <span className="inline-flex items-center gap-1.5 text-slate-600"><strong className="text-slate-800">{entry.unavailableUnitIds.length ? `${catalogUnits.length - entry.unavailableUnitIds.length}/${catalogUnits.length || 0}` : "Todas"}</strong> unidade{entry.unavailableUnitIds.length ? "s autorizadas" : "s autorizadas"}</span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {entry.documents.length ? entry.documents.map((document) => <span key={document.document_key} className="inline-flex items-center gap-1 rounded-md bg-cyan-50 px-2 py-1 text-xs text-cyan-900"><FileText className="h-3 w-3 text-cyan-700" />{document.document_label}</span>) : <span className="text-xs text-amber-700">Sem documento clínico configurado</span>}
-                      {entry.pacsMappings.slice(0, 2).map((mapping) => <span key={mapping.id} className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600"><Link2 className="h-3 w-3" />{mapping.modality || "Qualquer"}: {mapping.pacs_description}</span>)}
-                      {entry.pacsMappings.length > 2 && <span className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500">+{entry.pacsMappings.length - 2} mapeamento{entry.pacsMappings.length - 2 === 1 ? "" : "s"}</span>}
-                      {!entry.pacsMappings.length ? <span className="text-xs text-slate-500">Sem descrição PACS mapeada.</span> : null}
-                    </div>
+            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+              {filteredEntries.map((entry: CatalogEntry) => {
+                const availableUnits = Math.max(catalogUnits.length - entry.unavailableUnitIds.length, 0);
+                const unitLabel = entry.unavailableUnitIds.length ? `${availableUnits}/${catalogUnits.length || 0} unidades` : "Todas as unidades";
+                return <article key={entry.id} className="group flex min-h-[252px] flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-cyan-300 hover:shadow-md">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0"><h2 className="truncate text-sm font-semibold text-slate-900" title={entry.exam_name}>{entry.exam_name}</h2><p className="mt-1 text-xs text-slate-500">Legenda clínica canônica</p></div>
+                    <div className="flex shrink-0 items-center gap-1.5"><Badge variant="outline" className="border-cyan-200 bg-cyan-50 text-cyan-800">{entry.modality}</Badge><Badge variant="outline" className={entry.is_active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-300 bg-slate-100 text-slate-500"}>{entry.is_active ? "Ativo" : "Inativo"}</Badge></div>
                   </div>
-                  <Button variant="outline" className="shrink-0 border-slate-300 bg-white text-slate-700 hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800" onClick={() => startEdit(entry)}>
-                    <Pencil className="mr-2 h-4 w-4" /> Configurar
-                  </Button>
-                </div>
-              </article>
-            ))}
+
+                  <div className="mt-4 grid grid-cols-3 overflow-hidden rounded-lg border border-slate-100 bg-slate-50">
+                    <CatalogMetric label="Laudos" value={entry.documents.length} accent="text-cyan-800" />
+                    <CatalogMetric label="Eventos" value={entry.financial_event_count} accent="text-violet-700" divided />
+                    <CatalogMetric label="PACS" value={entry.pacsMappings.length} accent="text-slate-700" divided />
+                  </div>
+
+                  <div className="mt-3 flex min-h-9 flex-wrap content-start gap-1.5">
+                    {entry.documents.length ? entry.documents.slice(0, 2).map((document) => <span key={document.document_key} className="inline-flex max-w-full items-center gap-1 rounded-md bg-cyan-50 px-2 py-1 text-[11px] text-cyan-900"><FileText className="h-3 w-3 shrink-0 text-cyan-700" /><span className="truncate">{document.document_label}</span></span>) : <span className="text-xs text-amber-700">Sem documento clínico configurado</span>}
+                    {entry.documents.length > 2 && <span className="rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-600">+{entry.documents.length - 2} laudos</span>}
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-2 text-xs text-slate-500"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-emerald-50 font-semibold text-emerald-700">U</span><span className="truncate">{unitLabel} autorizadas</span></div>
+                  <div className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Link2 className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{entry.pacsMappings.length ? `${entry.pacsMappings[0]?.modality || "PACS"}: ${entry.pacsMappings[0]?.pacs_description}` : "Sem descrição PACS mapeada"}</span></div>
+
+                  <Button variant="outline" className="mt-auto w-full border-slate-300 bg-white text-slate-700 group-hover:border-cyan-300 group-hover:bg-cyan-50 group-hover:text-cyan-800" onClick={() => startEdit(entry)}><Pencil className="mr-2 h-4 w-4" />Configurar legenda</Button>
+                </article>;
+              })}
+            </div>
           </div>
         </section>
       </section>
@@ -289,6 +289,10 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
 
 function SummaryMetric({ label, value, accent = "text-slate-900" }: { label: string; value: number; accent?: string }) {
   return <div className="min-w-[68px]"><p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p><p className={`text-lg font-semibold ${accent}`}>{value}</p></div>;
+}
+
+function CatalogMetric({ label, value, accent, divided = false }: { label: string; value: number; accent: string; divided?: boolean }) {
+  return <div className={`px-2 py-2 text-center ${divided ? "border-l border-slate-100" : ""}`}><p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{label}</p><p className={`mt-0.5 text-base font-semibold ${accent}`}>{value}</p></div>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

@@ -2448,3 +2448,9 @@
 - [x] Reorganizar o formulário de cadastro e edição de legenda canônica em cartões menores, preservando documentos, eventos, disponibilidade por unidade e mapeamentos PACS.
 - [x] Remover o campo Ordem da interface; manter a ordenação automática por modalidade e nome, preservando o valor legado no banco sem migração destrutiva.
 - [x] Cobrir a nova organização com testes de regressão e validar o build antes de publicar.
+
+## CATÁLOGO CLÍNICO — LISTAGEM EM CARTÕES
+
+- [x] Substituir as linhas largas da listagem principal do catálogo por cartões compactos e escaneáveis, preservando indicadores, filtros e botão Configurar.
+- [x] Tornar visualmente clara a distinção entre os cartões da listagem e o formulário aberto por Configurar.
+- [x] Validar a nova listagem no desktop e no mobile, com regressões e build antes de publicar.
