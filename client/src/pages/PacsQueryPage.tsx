@@ -239,7 +239,7 @@ function StudyPriorityControls({
           {priority && (
             <span title={markedByName ? `Sinalizado por ${markedByName}` : undefined} className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase leading-none ${urgencyActive ? "border-red-200 bg-red-50 text-red-700" : "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"}`}>
               {urgencyActive ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <Siren className="h-3 w-3 shrink-0" />}
-              {urgencyActive ? "Urgência" : "Prioridade máxima"}
+              {urgencyActive ? "Urgência" : "Alerta Crítico"}
             </span>
           )}
           {indicator}
@@ -254,11 +254,21 @@ function StudyPriorityControls({
       {canMark && isOwnPriority && (
         <div className="flex w-full flex-wrap items-center justify-center gap-1">
           <button type="button" disabled={isSaving} onClick={() => onSelect("urgencia")} className={`rounded-full border px-2 py-1 text-[9px] font-semibold leading-none transition-colors disabled:cursor-wait disabled:opacity-60 ${urgencyActive ? "border-red-300 bg-red-600 text-white" : "border-red-200 bg-white text-red-700 hover:bg-red-50"}`}>Urgência</button>
-          <button type="button" disabled={isSaving} onClick={() => onSelect("prioridade_maxima")} className={`rounded-full border px-2 py-1 text-[9px] font-semibold leading-none transition-colors disabled:cursor-wait disabled:opacity-60 ${maximumActive ? "border-fuchsia-300 bg-fuchsia-600 text-white" : "border-fuchsia-200 bg-white text-fuchsia-700 hover:bg-fuchsia-50"}`}>Prioridade máxima</button>
+          <button type="button" disabled={isSaving} onClick={() => onSelect("prioridade_maxima")} className={`rounded-full border px-2 py-1 text-[9px] font-semibold leading-none transition-colors disabled:cursor-wait disabled:opacity-60 ${maximumActive ? "border-fuchsia-300 bg-fuchsia-600 text-white" : "border-fuchsia-200 bg-white text-fuchsia-700 hover:bg-fuchsia-50"}`}>Alerta Crítico</button>
         </div>
       )}
       {priority && canMark && !isOwnPriority && <span className="mx-auto max-w-[130px] text-center text-[9px] leading-tight text-gray-500">Sinalizado por {markedByName || "outro usuário"}</span>}
     </div>
+  );
+}
+
+/** LED discreto para chamar atenção em estudos marcados como Alerta Crítico. */
+function CriticalAlertLed() {
+  return (
+    <span className="relative inline-flex h-2.5 w-2.5 shrink-0" role="status" aria-label="Alerta Crítico ativo" title="Alerta Crítico ativo">
+      <span className="absolute inline-flex h-full w-full rounded-full bg-red-400/70 motion-safe:animate-ping" aria-hidden="true" />
+      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-600 ring-2 ring-red-100" aria-hidden="true" />
+    </span>
   );
 }
 
@@ -2081,6 +2091,7 @@ setSelectedStudy(study);
                 const studyPriority = priorityByStudyUid.get(study.studyInstanceUid);
                 const slaReadiness = slaReadinessMap[study.studyInstanceUid];
                 const desktopPreDownload = preDownloadMap[study.studyInstanceUid];
+                const isCriticalPriority = studyPriority?.priority === "prioridade_maxima";
                 const isDesktopDownloadActive = desktopPreDownload?.phase === 'connecting' || desktopPreDownload?.phase === 'downloading';
                 const desktopDownloadPercent = desktopPreDownload?.total
                   ? Math.min(100, Math.round((desktopPreDownload.received / desktopPreDownload.total) * 100))
@@ -2101,6 +2112,7 @@ setSelectedStudy(study);
                     {/* Paciente — a aparência é sempre neutra; o histórico da correção permanece no banco. */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5 group">
+                        {isCriticalPriority && <CriticalAlertLed />}
                         <div className="font-semibold text-sm leading-tight uppercase text-gray-900">
                           {patientName}
                         </div>
@@ -2125,7 +2137,7 @@ setSelectedStudy(study);
                               className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase leading-none ${studyPriority.priority === "urgencia" ? "border-red-200 bg-red-50 text-red-700" : "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"}`}
                             >
                               {studyPriority.priority === "urgencia" ? <AlertTriangle className="h-3 w-3" /> : <Siren className="h-3 w-3" />}
-                              {studyPriority.priority === "urgencia" ? "Urgência" : "Prioridade máxima"}
+                              {studyPriority.priority === "urgencia" ? "Urgência" : "Alerta Crítico"}
                             </span>
                           )}
                           <SlaCountdown
@@ -2372,6 +2384,7 @@ setSelectedStudy(study);
                 const studyPriority = priorityByStudyUid.get(study.studyInstanceUid);
                 const slaReadiness = slaReadinessMap[study.studyInstanceUid];
                 const mobilePreDownload = preDownloadMap[study.studyInstanceUid];
+                const isCriticalPriority = studyPriority?.priority === "prioridade_maxima";
                 const isMobileDownloadActive = mobilePreDownload?.phase === 'connecting' || mobilePreDownload?.phase === 'downloading';
                 const mobileDownloadPercent = mobilePreDownload?.total
                   ? Math.min(100, Math.round((mobilePreDownload.received / mobilePreDownload.total) * 100))
@@ -2540,7 +2553,10 @@ setSelectedStudy(study);
                     )}
                     <div className="mt-1.5 flex items-start gap-2">
                       <div className="min-w-0 flex-1 break-words pr-1 text-[15px] font-bold uppercase leading-tight text-amber-800">
-                        {patientName}
+                        <span className="inline-flex items-start gap-1.5">
+                          {isCriticalPriority && <CriticalAlertLed />}
+                          <span>{patientName}</span>
+                        </span>
                         {canEditExamLegend && (
                           <button
                             type="button"

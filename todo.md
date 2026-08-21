@@ -2408,3 +2408,9 @@
 - [x] Auditar e habilitar a troca de unidade para médicos vinculados a mais de uma unidade, mantendo as restrições de acesso por vínculo.
 - [x] Reduzir em aproximadamente 50% a altura do resumo móvel de Ciclo, Assinados e Receber, sem comprometer a legibilidade.
 - [x] Adicionar regressões de interface e autorização, validar build e versionar antes de atualizar a VM1.
+
+## SINALIZAÇÃO CLÍNICA — ALERTA CRÍTICO
+
+- [x] Substituir a terminologia exibida de Prioridade máxima por Alerta Crítico, preservando o valor interno e as permissões atuais.
+- [x] Adicionar um indicador visual discreto e pulsante próximo ao nome do paciente apenas para estudos em Alerta Crítico.
+- [x] Cobrir desktop e mobile com regressões de interface e validar build antes de atualizar a VM1.
