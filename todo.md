@@ -2571,3 +2571,4 @@
 - [x] Produzir relatório de auditoria da transição entre eventos legados e de catálogo, incluindo os limites para eventos históricos já criados.
 - [x] Cobrir a consolidação com testes de preço individual, fallback da unidade, ausência de preço e métricas de painel.
 - [x] Corrigir a aplicação aditiva da migração 0054 e os diagnósticos TypeScript surgidos durante a integração.
+- [x] Publicar no GitHub a correção auditada no commit 3834408.
