@@ -468,7 +468,11 @@ export const adminRouter = router({
           }
         }
         const { setUserUnitPermissions } = await import('../db');
-        await setUserUnitPermissions(input.userId, input.permissions);
+        const permissionsWithoutTemplateAdministration = input.permissions.map((permission) => ({
+          ...permission,
+          manage_templates: false,
+        }));
+        await setUserUnitPermissions(input.userId, permissionsWithoutTemplateAdministration);
         await createAuditLog({
           user_id: ctx.user.id,
           unit_id: ctx.user.unit_id ?? undefined,
@@ -984,8 +988,8 @@ export const adminRouter = router({
       return getGroupPermissions();
     }),
 
-  setGroupPermissions: protectedProcedure
-    .input(z.object({
+    setGroupPermissions: protectedProcedure
+      .input(z.object({
       permissions: z.record(
         z.enum(['medicos', 'operadores', 'atendentes', 'visualizadores',
                 'responsaveisFinanceiros', 'administradoresUnidade']),
@@ -1012,7 +1016,7 @@ export const adminRouter = router({
           manage_templates: boolean; view_financial: boolean; }
       ][];
       for (const [groupKey, perms] of entries) {
-        await upsertGroupPermission(groupKey, perms, ctx.user.id);
+        await upsertGroupPermission(groupKey, { ...perms, manage_templates: false }, ctx.user.id);
       }
       await createAuditLog({
         user_id:     ctx.user.id,

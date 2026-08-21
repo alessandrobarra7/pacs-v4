@@ -50,7 +50,7 @@ const DEFAULT_GROUP_PERMISSIONS: Record<GroupKey, Record<PermissionKey, boolean>
   medicos: {
     view_studies: true, edit_reports: true, view_anamnesis: true,
     edit_anamnesis: true, edit_exam_legend: true, print_reports: true,
-    manage_templates: true,
+    manage_templates: false,
     view_financial: false,
   },
   operadores: {
@@ -80,12 +80,13 @@ const DEFAULT_GROUP_PERMISSIONS: Record<GroupKey, Record<PermissionKey, boolean>
   adminsMaster: {
     view_studies: true, edit_reports: true, view_anamnesis: true,
     edit_anamnesis: true, edit_exam_legend: true, print_reports: true,
-    manage_templates: true,
+    manage_templates: false,
     view_financial: true,
   },
 };
 
-const PERMISSIONS = Object.keys(PERMISSION_LABELS) as PermissionKey[];
+const PERMISSIONS = (Object.keys(PERMISSION_LABELS) as PermissionKey[])
+  .filter((permission) => permission !== "manage_templates");
 const GROUPS = Object.keys(GROUP_LABELS) as GroupKey[];
 
 // ─── Componente Toggle ────────────────────────────────────────────────────────

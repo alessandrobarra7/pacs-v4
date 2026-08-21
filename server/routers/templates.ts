@@ -10,6 +10,12 @@ import sanitizeHtml from "sanitize-html";
 import { REPORT_SANITIZE_OPTIONS } from "../reportSanitize";
 import { canAccessUnit } from "../authorization";
 
+function assertCanManageTemplates(role: string) {
+  if (role !== "admin_master") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Somente o administrador master pode administrar modelos de laudo." });
+  }
+}
+
 export const templatesRouter = router({
     // Listar templates pessoais do usuário logado
     listMine: protectedProcedure.query(async ({ ctx }) => {
@@ -71,6 +77,7 @@ export const templatesRouter = router({
         bodyTemplate: z.string(),
       }))
       .mutation(async ({ input, ctx }) => {
+        assertCanManageTemplates(ctx.user.role);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
         const { templates } = await import('../../drizzle/schema');
@@ -99,6 +106,7 @@ export const templatesRouter = router({
         bodyTemplate: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
+        assertCanManageTemplates(ctx.user.role);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
         const { templates } = await import('../../drizzle/schema');
@@ -117,6 +125,7 @@ export const templatesRouter = router({
     deletePersonal: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        assertCanManageTemplates(ctx.user.role);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
         const { templates } = await import('../../drizzle/schema');
@@ -140,6 +149,7 @@ export const templatesRouter = router({
         unit_id: z.number().optional(), // V12-5 FIX: aceitar unit_id para usuários multiunidade
       }))
       .mutation(async ({ input, ctx }) => {
+        assertCanManageTemplates(ctx.user.role);
         if (input.isGlobal && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admin_master can create global templates' });
         }
@@ -171,6 +181,7 @@ export const templatesRouter = router({
         isActive: z.boolean().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
+        assertCanManageTemplates(ctx.user.role);
         const { id, ...data } = input;
         const template = await getTemplateById(id);
         if (!template) {
@@ -188,6 +199,7 @@ export const templatesRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        assertCanManageTemplates(ctx.user.role);
         const template = await getTemplateById(input.id);
         if (!template) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Template nao encontrado' });
@@ -205,6 +217,7 @@ export const templatesRouter = router({
     useAsBase: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        assertCanManageTemplates(ctx.user.role);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
         const template = await getTemplateById(input.id);

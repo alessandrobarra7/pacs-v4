@@ -82,19 +82,18 @@ const PERMISSION_LABELS: Array<{ key: keyof UnitPermission; label: string }> = [
   { key: "edit_anamnesis", label: "Editar Anamnese" },
   { key: "edit_exam_legend", label: "Editar Legenda de Exame" },
   { key: "print_reports", label: "Imprimir Laudos" },
-  { key: "manage_templates", label: "Gerenciar Templates" },
 ];
 
 function defaultPermission(unitId: number, role?: string): UnitPermission {
   // Define default permissions based on role
   const roleDefaults: Record<string, Omit<UnitPermission, 'unit_id'>> = {
-    medico: { view_studies: true, edit_reports: true, view_anamnesis: true, edit_anamnesis: true, edit_exam_legend: true, print_reports: true, manage_templates: true },
+    medico: { view_studies: true, edit_reports: true, view_anamnesis: true, edit_anamnesis: true, edit_exam_legend: true, print_reports: true, manage_templates: false },
     operador: { view_studies: true, edit_reports: false, view_anamnesis: true, edit_anamnesis: true, edit_exam_legend: true, print_reports: false, manage_templates: false },
     atendente: { view_studies: true, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: false, manage_templates: false },
     viewer: { view_studies: true, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true, manage_templates: false },
     responsavel_financeiro: { view_studies: false, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: false, manage_templates: false },
     unit_admin: { view_studies: true, edit_reports: false, view_anamnesis: false, edit_anamnesis: false, edit_exam_legend: false, print_reports: true, manage_templates: false },
-    admin_master: { view_studies: true, edit_reports: true, view_anamnesis: true, edit_anamnesis: true, edit_exam_legend: true, print_reports: true, manage_templates: true },
+    admin_master: { view_studies: true, edit_reports: true, view_anamnesis: true, edit_anamnesis: true, edit_exam_legend: true, print_reports: true, manage_templates: false },
   };
   const defaults = roleDefaults[role || 'viewer'] || roleDefaults.viewer;
   return {

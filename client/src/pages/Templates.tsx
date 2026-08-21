@@ -59,7 +59,9 @@ export default function TemplatesPage() {
   });
 
   // Queries
+  const { data: currentUser } = trpc.auth.me.useQuery();
   const { data: templates, isLoading, refetch } = trpc.templates.list.useQuery();
+  const canManageTemplates = currentUser?.role === "admin_master";
 
   // Mutations
   const createTemplate = trpc.templates.create.useMutation({
@@ -156,7 +158,7 @@ export default function TemplatesPage() {
             Gerencie templates reutilizáveis para laudos radiológicos
           </p>
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        {canManageTemplates ? <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
             <Button onClick={() => resetForm()}>
               <Plus className="mr-2 h-4 w-4" />
@@ -254,7 +256,7 @@ export default function TemplatesPage() {
               </div>
             </div>
           </DialogContent>
-        </Dialog>
+        </Dialog> : <p className="max-w-sm text-right text-xs leading-relaxed text-muted-foreground">Os Modelos de Laudo são administrados exclusivamente pelo Administrador Master.</p>}
       </div>
 
       <Card>
@@ -321,23 +323,25 @@ export default function TemplatesPage() {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEdit(template)}
-                          title="Editar"
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDelete(template.id)}
-                          title="Excluir"
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {canManageTemplates && <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEdit(template)}
+                            title="Editar"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(template.id)}
+                            title="Excluir"
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -347,10 +351,10 @@ export default function TemplatesPage() {
           ) : (
             <div className="text-center py-12">
               <p className="text-muted-foreground mb-4">Nenhum template cadastrado</p>
-              <Button onClick={() => setIsCreateOpen(true)}>
+              {canManageTemplates ? <Button onClick={() => setIsCreateOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Criar Primeiro Template
-              </Button>
+              </Button> : <p className="text-xs text-muted-foreground">A criação de modelos é exclusiva do Administrador Master.</p>}
             </div>
           )}
         </CardContent>

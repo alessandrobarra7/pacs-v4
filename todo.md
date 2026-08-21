@@ -2471,3 +2471,15 @@
 - [x] Permitir remover uma legenda já selecionada diretamente no modal de composição antes da confirmação.
 - [x] Preservar as regras de bloqueio clínico e a substituição auditável ao confirmar a nova composição.
 - [x] Cobrir remoção, substituição e casos bloqueados por regressões antes de publicar.
+
+## AUDITORIA — AUTORIZAÇÃO DO EDITOR DE LAUDOS
+
+- [x] Revisar onde a permissão de laudar é exibida, gravada e aplicada no editor e nas rotas de laudo.
+- [x] Separar a administração de permissões, exclusiva do admin_master, da autorização clínica para redigir, assinar e retificar laudos.
+- [x] Apresentar a matriz de acesso proposta antes de alterar regras clínicas já em produção; escopo corrigido pelo solicitante para Modelos de Laudo.
+
+## CORREÇÃO — ADMINISTRAÇÃO DE MODELOS DE LAUDO
+
+- [x] Revisar as rotas, telas e permissões que permitem criar, editar ou excluir Modelos de Laudo.
+- [x] Tornar a administração dos modelos exclusiva do admin_master e remover a permissão configurável de outros perfis.
+- [x] Preservar integralmente a edição, assinatura e retificação clínica de laudos pelos médicos autorizados.
