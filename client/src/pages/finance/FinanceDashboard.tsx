@@ -1,272 +1,291 @@
 /**
- * FinanceDashboard — Módulo financeiro simplificado
- * Nível 1: lista de Responsáveis Financeiros com totais
- * Nível 2: ao selecionar um responsável, mostra suas unidades
- * Nível 3: ao selecionar uma unidade, mostra médicos e ações de pagamento
- * Desenvolvimento StudioBarra7
+ * FinanceDashboard — Financeiro v2 (experiência visual do admin_master)
+ *
+ * Entrada: catálogo de unidades. Detalhe: métricas do ciclo, taxa LAUDS,
+ * preços por modalidade e total individual de médicos. Nesta fase, a tela
+ * reutiliza os dados e as mutações já existentes, sem substituir o modelo
+ * financeiro legado nem criar novas regras de cálculo.
  */
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import {
-  Building2, ChevronLeft, ChevronRight, DollarSign,
-  FileText, CheckCircle2, AlertCircle, X, Settings, CalendarDays, ArrowLeft
-} from "lucide-react";
+import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ModalityPricesSection } from "@/components/DoctorPriceManager";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Building2,
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  CircleDollarSign,
+  Edit3,
+  FileText,
+  Landmark,
+  Loader2,
+  Settings2,
+  Stethoscope,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
-import { FinanceShell } from "./FinanceShell";
-import { DoctorRow, fmtBRL, MONTHS, PriceConfigModal, CycleConfigModal } from "./FinanceModals";
+import { fmtBRL, MONTHS } from "./FinanceModals";
 
+const MODALITIES = ["CT", "CR", "MR", "US"] as const;
 
-// ─── Painel de detalhes da unidade selecionada ────────────────────────────────
-function UnitDetail({ unit, referenceDate }: { unit: any; referenceDate: string }) {
-  const utils = trpc.useUtils();
-  const { user } = useAuth();
-  const [showPriceModal, setShowPriceModal] = useState(false);
-  const [showCycleModal, setShowCycleModal] = useState(false);
-  const { data: doctors, isLoading } = trpc.financeSimple.doctorSummaryByUnit.useQuery({ unit_id: unit.unit_id, reference_date: referenceDate });
-  const markSystemPaid = trpc.financeSimple.markSystemPaid.useMutation({
-    onSuccess: () => {
-      toast.success(`Pagamento ao sistema da ${unit.unit_name} marcado como pago`);
-      utils.financeSimple.unitSummary.invalidate();
-      utils.financeSimple.dashboard.invalidate();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-  const isAdmin = user?.role === "admin_master";
+type UnitSummary = {
+  unit_id: number;
+  unit_name: string;
+  cycle_label: string;
+  total_laudos: number;
+  system_total: number;
+  doctor_total: number;
+  system_pending: number;
+  doctor_pending: number;
+};
+
+function asMoney(value: number | string | null | undefined) {
+  return Number(value ?? 0);
+}
+
+function monthReference(year: number, month: number) {
+  return new Date(year, month - 1, 15, 12, 0, 0).toISOString();
+}
+
+function MiniMetric({ label, value, tone = "slate" }: { label: string; value: string; tone?: "slate" | "cyan" | "emerald" | "amber" }) {
+  const tones = {
+    slate: "text-slate-700",
+    cyan: "text-cyan-700",
+    emerald: "text-emerald-700",
+    amber: "text-amber-700",
+  };
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-800 bg-slate-900/50 shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-white font-semibold text-base">{unit.unit_name}</h2>
-            <p className="text-slate-400 text-xs mt-0.5">{unit.total_laudos} laudo{unit.total_laudos !== 1 ? "s" : ""} no período</p>
-          </div>
-          {isAdmin && (
-            <div className="flex items-center gap-2">
-              <button onClick={() => setShowCycleModal(true)} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-violet-400 transition-colors border border-slate-700 hover:border-violet-500/50 rounded-lg px-2.5 py-1.5">
-                <CalendarDays className="h-3.5 w-3.5" /> Ciclo
-              </button>
-              <button onClick={() => setShowPriceModal(true)} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-cyan-400 transition-colors border border-slate-700 hover:border-cyan-500/50 rounded-lg px-2.5 py-1.5">
-                <Settings className="h-3.5 w-3.5" /> Preços
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="grid grid-cols-3 gap-3 mt-3">
-          <div className="bg-slate-800/50 rounded-lg px-3 py-2">
-            <p className="text-xs text-slate-500 uppercase tracking-wide">Sistema</p>
-            <p className="text-sm font-bold text-cyan-400">{fmtBRL(unit.system_total)}</p>
-            {unit.system_pending > 0 ? <p className="text-xs text-rose-400">{fmtBRL(unit.system_pending)} pend.</p> : unit.system_total > 0 ? <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Pago</p> : null}
-          </div>
-          <div className="bg-slate-800/50 rounded-lg px-3 py-2">
-            <p className="text-xs text-slate-500 uppercase tracking-wide">Médicos</p>
-            <p className="text-sm font-bold text-amber-400">{fmtBRL(unit.doctor_total)}</p>
-            {unit.doctor_pending > 0 && <p className="text-xs text-rose-400">{fmtBRL(unit.doctor_pending)} pend.</p>}
-          </div>
-          <div className="bg-slate-800/50 rounded-lg px-3 py-2">
-            <p className="text-xs text-slate-500 uppercase tracking-wide">Laudos</p>
-            <p className="text-sm font-bold text-blue-400">{unit.total_laudos}</p>
-            <p className="text-xs text-slate-500">{unit.doctor_pending_count > 0 ? `${unit.doctor_pending_count} méd. pend.` : "Tudo pago"}</p>
-          </div>
-        </div>
-        {isAdmin && unit.system_pending_count > 0 && (
-          <div className="mt-3 flex items-center justify-between bg-cyan-500/5 border border-cyan-500/20 rounded-lg px-3 py-2">
-            <div className="flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-cyan-400" />
-              <span className="text-sm text-slate-300">Pagamento ao sistema: <span className="text-cyan-400 font-semibold">{fmtBRL(unit.system_total)}</span></span>
-            </div>
-            <Button size="sm" variant="outline" className="text-xs border-cyan-600/50 text-cyan-400 hover:bg-cyan-500/10 hover:border-cyan-500" disabled={markSystemPaid.isPending} onClick={() => markSystemPaid.mutate({ unit_id: unit.unit_id, reference_date: referenceDate })}>
-              {markSystemPaid.isPending ? "..." : "Marcar sistema pago"}
-            </Button>
-          </div>
-        )}
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-5 py-3 border-b border-slate-800">
-          <p className="text-xs text-slate-400 uppercase tracking-wide font-medium flex items-center gap-2"><FileText className="h-3.5 w-3.5" /> Médicos</p>
-        </div>
-        {isLoading ? (
-          <div className="p-4 space-y-2">{[1,2,3].map(i => <div key={i} className="h-14 bg-slate-800/40 rounded-lg animate-pulse" />)}</div>
-        ) : !doctors?.length ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <FileText className="h-8 w-8 text-slate-700 mb-2" />
-            <p className="text-slate-500 text-sm">Nenhum médico com laudos neste período.</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-700/30">
-            {doctors.map((doc) => <DoctorRow key={doc.doctor_user_id} doctor={doc} unitId={unit.unit_id} referenceDate={referenceDate} />)}
-          </div>
-        )}
-      </div>
-      {showPriceModal && <PriceConfigModal unitId={unit.unit_id} unitName={unit.unit_name} onClose={() => setShowPriceModal(false)} />}
-      {showCycleModal && <CycleConfigModal unitId={unit.unit_id} unitName={unit.unit_name} onClose={() => setShowCycleModal(false)} />}
+    <div className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{label}</p>
+      <p className={`mt-0.5 text-sm font-semibold tabular-nums ${tones[tone]}`}>{value}</p>
     </div>
   );
 }
 
-// helper: gera ISO string para o dia 15 do mês/ano selecionado (ponto de referência seguro para calcCycleDates)
-function toRefDate(year: number, month: number): string {
-  return new Date(year, month - 1, 15).toISOString();
+function UnitCatalogCard({ unit, referenceDate, onOpen }: { unit: UnitSummary; referenceDate: string; onOpen: () => void }) {
+  const { data: prices } = trpc.financeSimple.getUnitDefaultPrices.useQuery({ unit_id: unit.unit_id });
+  const eventCount = Number(unit.total_laudos ?? 0);
+  const systemRate = prices?.default_system_price;
+  const margin = asMoney(unit.system_total) - asMoney(unit.doctor_total);
+
+  return (
+    <article className="group flex min-h-[242px] flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-cyan-300 hover:shadow-md">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Building2 className="h-4 w-4 shrink-0 text-cyan-700" />
+            <h2 className="truncate text-sm font-bold uppercase tracking-tight text-slate-900">{unit.unit_name}</h2>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">{unit.cycle_label}</p>
+        </div>
+        <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">Ativa</span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <MiniMetric label="Eventos no ciclo" value={String(eventCount)} tone="cyan" />
+        <MiniMetric label="Taxa LAUDS / evento" value={systemRate == null ? "Não definida" : fmtBRL(asMoney(systemRate))} tone="emerald" />
+        <MiniMetric label="Soma para o sistema" value={fmtBRL(asMoney(unit.system_total))} tone="emerald" />
+        <MiniMetric label="Margem atual" value={fmtBRL(margin)} tone="amber" />
+      </div>
+
+      <div className="mt-auto flex items-center justify-between pt-4">
+        <span className="text-xs text-slate-500"><Users className="mr-1 inline h-3.5 w-3.5" />Repasses: {fmtBRL(asMoney(unit.doctor_total))}</span>
+        <Button size="sm" onClick={onOpen} className="h-8 bg-cyan-700 px-3 text-xs hover:bg-cyan-600">
+          Abrir financeiro <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </article>
+  );
 }
 
-// ─── Componente principal ─────────────────────────────────────────────────────
-export default function FinanceDashboard() {
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  // Nível 1: responsável selecionado
-  const [selectedResponsible, setSelectedResponsible] = useState<{ id: number | null; name: string } | null>(null);
-  // Nível 2: unidade selecionada
-  const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
-
-  const referenceDate = toRefDate(year, month);
-
-  // Dados nível 1: resumo por responsável
-  const { data: responsibles, isLoading: loadingResp } = trpc.financeSimple.responsibleSummary.useQuery({ reference_date: referenceDate });
-
-  // Dados nível 2: unidades do responsável selecionado
-  const { data: units, isLoading: loadingUnits } = trpc.financeSimple.unitSummary.useQuery(
-    { reference_date: referenceDate, responsible_id: selectedResponsible?.id ?? undefined },
-    { enabled: selectedResponsible !== null }
+function DoctorModalities({ unitId, doctorId, responsibleId }: { unitId: number; doctorId: number; responsibleId: number | null }) {
+  const { data: prices } = trpc.financeSimple.listDoctorModalityPrices.useQuery(
+    { financialResponsibleId: responsibleId ?? 0, unitId, doctorUserId: doctorId },
+    { enabled: responsibleId !== null },
   );
-
-  const selectedUnit = units?.find(u => u.unit_id === selectedUnitId) ?? null;
-
-  function prevMonth() {
-    setSelectedUnitId(null);
-    if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1);
-  }
-  function nextMonth() {
-    setSelectedUnitId(null);
-    if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1);
+  const now = new Date();
+  const currentByModality = new Map<string, number>();
+  for (const price of prices ?? []) {
+    const starts = new Date(price.starts_at);
+    const ends = price.ends_at ? new Date(price.ends_at) : null;
+    if (starts <= now && (!ends || ends >= now) && !currentByModality.has(price.modality)) {
+      currentByModality.set(price.modality, asMoney(price.price_per_report));
+    }
   }
 
   return (
-    <FinanceShell>
-      <div className="flex flex-col h-full overflow-hidden">
-        {/* Barra de mês */}
-        <div className="shrink-0 border-b border-slate-800 bg-slate-900/50 px-5 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {selectedResponsible && (
-              <button
-                onClick={() => { setSelectedResponsible(null); setSelectedUnitId(null); }}
-                className="text-slate-400 hover:text-white transition-colors"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-            )}
-            <h2 className="text-white font-semibold text-sm">
-              {selectedResponsible
-                ? selectedResponsible.id === null ? "Sem Responsável" : selectedResponsible.name
-                : "Dashboard Financeiro"}
-            </h2>
-          </div>
-          <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5">
-            <button onClick={prevMonth} className="text-slate-400 hover:text-white transition-colors px-1"><ChevronLeft className="h-4 w-4" /></button>
-            <span className="text-white font-medium text-sm min-w-[130px] text-center">{MONTHS[month - 1]} {year}</span>
-            <button onClick={nextMonth} className="text-slate-400 hover:text-white transition-colors px-1"><ChevronRight className="h-4 w-4" /></button>
-          </div>
+    <>
+      {MODALITIES.map((modality) => (
+        <td key={modality} className="px-2 py-3 text-center text-xs font-medium text-slate-700">
+          {currentByModality.has(modality) ? fmtBRL(currentByModality.get(modality) ?? 0) : <span className="text-slate-300">—</span>}
+        </td>
+      ))}
+    </>
+  );
+}
+
+function SystemRateEditor({ unitId, defaultDoctorPrice, currentPrice }: { unitId: number; defaultDoctorPrice: number | null | undefined; currentPrice: number | null | undefined }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(String(currentPrice ?? ""));
+  const utils = trpc.useUtils();
+  const save = trpc.financeSimple.setUnitDefaultPrices.useMutation({
+    onSuccess: () => {
+      toast.success("Taxa da LAUDS por evento atualizada");
+      utils.financeSimple.getUnitDefaultPrices.invalidate({ unit_id: unitId });
+      utils.financeSimple.unitSummary.invalidate();
+      setOpen(false);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  return (
+    <>
+      <Button variant="outline" size="sm" className="h-8 border-cyan-200 text-xs text-cyan-800 hover:bg-cyan-50" onClick={() => { setValue(String(currentPrice ?? "")); setOpen(true); }}>
+        <Edit3 className="mr-1.5 h-3.5 w-3.5" />Editar taxa
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Taxa da LAUDS por evento</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-500">Este é o valor padrão já suportado pelo modelo atual para a unidade. A matriz específica por modalidade será persistida na próxima etapa do Financeiro v2.</p>
+          <Input type="number" min="0" step="0.01" value={value} onChange={(event) => setValue(event.target.value)} placeholder="0,00" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button disabled={save.isPending} onClick={() => save.mutate({ unit_id: unitId, default_system_price: Number(value) || 0, default_doctor_price: Number(defaultDoctorPrice ?? 0) })}>{save.isPending ? "Salvando..." : "Salvar"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function UnitFinancialDetail({ unit, year, month, onBack }: { unit: UnitSummary; year: number; month: number; onBack: () => void }) {
+  const { user } = useAuth();
+  const referenceDate = useMemo(() => monthReference(year, month), [year, month]);
+  const { data: defaultPrices } = trpc.financeSimple.getUnitDefaultPrices.useQuery({ unit_id: unit.unit_id });
+  const { data: doctors = [], isLoading: doctorsLoading } = trpc.financeSimple.doctorSummaryByUnit.useQuery({ unit_id: unit.unit_id, reference_date: referenceDate });
+  const { data: linkedDoctors = [] } = trpc.financeSimple.listDoctorsForUnit.useQuery({ unit_id: unit.unit_id });
+  const { data: readiness } = trpc.financeSimple.unitFinancialReadiness.useQuery({ unit_id: unit.unit_id });
+  const [expandedDoctorId, setExpandedDoctorId] = useState<number | null>(null);
+  const isAdminMaster = user?.role === "admin_master";
+  const margin = asMoney(unit.system_total) - asMoney(unit.doctor_total);
+  const doctorById = new Map(doctors.filter((doctor) => doctor.doctor_user_id != null).map((doctor) => [doctor.doctor_user_id as number, doctor]));
+  const rows = linkedDoctors.length
+    ? linkedDoctors.map((doctor: any) => ({ id: doctor.doctor_user_id ?? doctor.id, name: doctor.doctor_name ?? doctor.name ?? "Médico", summary: doctorById.get(doctor.doctor_user_id ?? doctor.id) }))
+    : doctors.map((doctor) => ({ id: doctor.doctor_user_id ?? 0, name: doctor.doctor_name ?? "Médico", summary: doctor }));
+
+  return (
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6 md:py-8">
+      <button onClick={onBack} className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-cyan-800">
+        <ChevronLeft className="h-4 w-4" /> Voltar às unidades
+      </button>
+
+      <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="flex items-center gap-2"><span className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-700">Financeiro / Unidades</span></div>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{unit.unit_name}</h1>
+          <p className="mt-1 text-sm text-slate-500">Configuração e acompanhamento do ciclo {MONTHS[month - 1]} de {year}.</p>
         </div>
-
-        {/* Nível 1: lista de responsáveis */}
-        {!selectedResponsible && (
-          <div className="flex-1 overflow-y-auto p-5">
-            {loadingResp ? (
-              <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-24 bg-slate-800/40 rounded-xl animate-pulse" />)}</div>
-            ) : !responsibles?.length ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center">
-                <DollarSign className="h-12 w-12 text-slate-700 mb-3" />
-                <p className="text-slate-400 text-sm">Nenhum laudo faturado em {MONTHS[month-1]} {year}</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {responsibles.map((r) => {
-                  const hasPending = r.system_pending > 0 || r.doctor_pending > 0;
-                  return (
-                    <button
-                      key={r.responsible_id ?? "none"}
-                      onClick={() => setSelectedResponsible({ id: r.responsible_id, name: r.responsible_name })}
-                      className="w-full text-left bg-slate-800/60 border border-slate-700 hover:border-cyan-500/40 hover:bg-slate-800 rounded-xl p-4 transition-all"
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <p className="text-white font-semibold">{r.responsible_name}</p>
-                          <p className="text-slate-400 text-xs mt-0.5">
-                            {r.unit_count} unidade{r.unit_count !== 1 ? "s" : ""} · {r.total_laudos} laudos
-                          </p>
-                        </div>
-                        {hasPending && <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />}
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-slate-900/60 rounded-lg p-2.5">
-                          <p className="text-xs text-slate-500 mb-1">Sistema</p>
-                          <p className="text-sm font-semibold text-cyan-400">{fmtBRL(r.system_total)}</p>
-                          {r.system_pending > 0 && <p className="text-xs text-rose-400">{fmtBRL(r.system_pending)} pend.</p>}
-                        </div>
-                        <div className="bg-slate-900/60 rounded-lg p-2.5">
-                          <p className="text-xs text-slate-500 mb-1">Médicos</p>
-                          <p className="text-sm font-semibold text-amber-400">{fmtBRL(r.doctor_total)}</p>
-                          {r.doctor_pending > 0 && <p className="text-xs text-amber-500">{fmtBRL(r.doctor_pending)} pend.</p>}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Nível 2: unidades do responsável + detalhe */}
-        {selectedResponsible && (
-          <div className="flex flex-1 overflow-hidden">
-            {/* Coluna esquerda — unidades */}
-            <div className="w-64 shrink-0 border-r border-slate-800 overflow-y-auto bg-slate-900/50">
-              <div className="px-4 py-3 border-b border-slate-800">
-                <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Unidades</p>
-              </div>
-              {loadingUnits ? (
-                <div className="p-3 space-y-2">{[1,2,3].map(i => <div key={i} className="h-14 bg-slate-800/40 rounded-lg animate-pulse" />)}</div>
-              ) : !units?.length ? (
-                <div className="p-4 text-center text-slate-500 text-xs">Nenhum laudo em {MONTHS[month-1]} {year}</div>
-              ) : (
-                <div className="p-2 space-y-1">
-                  {units.map((u) => {
-                    const isSelected = selectedUnitId === u.unit_id;
-                    const hasPending = u.system_pending > 0 || u.doctor_pending > 0;
-                    return (
-                      <button key={u.unit_id} onClick={() => setSelectedUnitId(u.unit_id)} className={`w-full text-left rounded-lg px-3 py-2.5 transition-all ${isSelected ? "bg-cyan-500/20 border border-cyan-500/40" : "hover:bg-slate-800/60 border border-transparent"}`}>
-                        <div className="flex items-center justify-between mb-1">
-                          <p className={`text-sm font-medium truncate ${isSelected ? "text-cyan-300" : "text-white"}`}>{u.unit_name}</p>
-                          {hasPending && <AlertCircle className="h-3.5 w-3.5 text-rose-400 shrink-0 ml-1" />}
-                        </div>
-                        <div className="flex items-center gap-2 text-xs">
-                          <span className="text-slate-400">{u.total_laudos} laudos</span>
-                          {u.system_pending > 0 && <span className="text-rose-400">S: {fmtBRL(u.system_pending)}</span>}
-                          {u.doctor_pending > 0 && <span className="text-amber-400">M: {fmtBRL(u.doctor_pending)}</span>}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            {/* Corpo direito — detalhe da unidade */}
-            <div className="flex-1 overflow-hidden">
-              {!selectedUnit ? (
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                  <Building2 className="h-12 w-12 text-slate-700 mb-3" />
-                  <p className="text-slate-500 text-sm">Selecione uma unidade para ver os detalhes</p>
-                </div>
-              ) : (
-                <UnitDetail unit={selectedUnit} referenceDate={referenceDate} />
-              )}
-            </div>
-          </div>
-        )}
+        <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" /> Unidade ativa</span>
       </div>
-    </FinanceShell>
+
+      <section className="mt-6 grid gap-3 md:grid-cols-4">
+        <div className="rounded-xl border border-cyan-100 bg-cyan-50/50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Taxa LAUDS por evento</p>
+          <p className="mt-2 text-2xl font-bold text-slate-950">{defaultPrices?.default_system_price == null ? "Não definida" : fmtBRL(asMoney(defaultPrices.default_system_price))}</p>
+          {isAdminMaster && <div className="mt-3"><SystemRateEditor unitId={unit.unit_id} currentPrice={defaultPrices?.default_system_price} defaultDoctorPrice={defaultPrices?.default_doctor_price} /></div>}
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Eventos no ciclo</p><p className="mt-2 text-2xl font-bold text-slate-950">{unit.total_laudos}</p><p className="mt-1 text-xs text-slate-500">{unit.cycle_label}</p></div>
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700">Soma para o sistema</p><p className="mt-2 text-2xl font-bold text-slate-950">{fmtBRL(asMoney(unit.system_total))}</p><p className="mt-1 text-xs text-emerald-700">Movimentação LAUDS</p></div>
+        <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-700">Margem atual</p><p className="mt-2 text-2xl font-bold text-slate-950">{fmtBRL(margin)}</p><p className="mt-1 text-xs text-amber-700">Sistema menos repasses</p></div>
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div><h2 className="text-base font-bold text-slate-900">Preço que a unidade paga por evento</h2><p className="mt-1 text-sm text-slate-500">Valores vigentes até uma nova alteração autorizada.</p></div>
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500"><Settings2 className="h-3.5 w-3.5" /> Configuração financeira da unidade</span>
+        </div>
+        <div className="grid grid-cols-2 gap-3 p-5 md:grid-cols-4">
+          {MODALITIES.map((modality) => (
+            <div key={modality} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+              <p className="text-xs font-bold text-slate-500">{modality}</p>
+              <p className="mt-2 text-lg font-bold text-slate-900">{defaultPrices?.default_system_price == null ? "—" : fmtBRL(asMoney(defaultPrices.default_system_price))}</p>
+              <p className="mt-1 text-[11px] text-slate-500">Usa a taxa padrão atual</p>
+            </div>
+          ))}
+        </div>
+        <div className="mx-5 mb-5 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">A matriz de valor da unidade por modalidade está pronta visualmente; nesta primeira validação ela ainda utiliza a taxa padrão já registrada, sem criar uma nova regra de cálculo.</div>
+      </section>
+
+      <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-2 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div><h2 className="text-base font-bold text-slate-900">Médicos envolvidos — preços por modalidade</h2><p className="mt-1 text-sm text-slate-500">Edite os valores do médico por modalidade; o total individual considera os eventos já registrados no ciclo atual.</p></div>
+          <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600"><Stethoscope className="h-4 w-4 text-cyan-700" /> {rows.length} médico{rows.length === 1 ? "" : "s"}</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-[860px] w-full text-sm">
+            <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.1em] text-slate-500"><tr><th className="px-5 py-3 text-left">Médico</th>{MODALITIES.map((modality) => <th key={modality} className="px-2 py-3 text-center">{modality}</th>)}<th className="px-4 py-3 text-center">Eventos</th><th className="px-5 py-3 text-right">Total no ciclo</th><th className="px-4 py-3 text-right">Ação</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {doctorsLoading ? <tr><td colSpan={9} className="py-10 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin text-cyan-700" /></td></tr> : rows.length === 0 ? <tr><td colSpan={9} className="py-10 text-center text-slate-500">Nenhum médico vinculado a esta unidade.</td></tr> : rows.map((doctor) => (
+                <>
+                  <tr key={doctor.id} className="hover:bg-slate-50/80"><td className="px-5 py-3 font-semibold text-slate-900">{doctor.name}</td><DoctorModalities unitId={unit.unit_id} doctorId={doctor.id} responsibleId={readiness?.responsible_id ?? null} /><td className="px-4 py-3 text-center font-medium text-slate-600">{doctor.summary?.total_laudos ?? 0}</td><td className="px-5 py-3 text-right font-bold text-slate-900">{fmtBRL(asMoney(doctor.summary?.doctor_total))}</td><td className="px-4 py-3 text-right">{isAdminMaster && readiness?.responsible_id ? <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setExpandedDoctorId(expandedDoctorId === doctor.id ? null : doctor.id)}><Edit3 className="mr-1.5 h-3.5 w-3.5" />Editar preços</Button> : <span className="text-xs text-slate-400">Somente consulta</span>}</td></tr>
+                  {expandedDoctorId === doctor.id && readiness?.responsible_id && <tr key={`${doctor.id}-editor`}><td colSpan={9} className="bg-slate-50 px-5 py-4"><ModalityPricesSection doctor={{ id: doctor.id, name: doctor.name, crm: null }} financialResponsibleId={readiness.responsible_id} unitId={unit.unit_id} /></td></tr>}
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="mt-6 grid gap-4 md:grid-cols-[1fr_320px]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="flex items-center gap-2 text-base font-bold text-slate-900"><CircleDollarSign className="h-4 w-4 text-cyan-700" />Soma individual por médico</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{doctors.map((doctor) => <div key={doctor.doctor_user_id} className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">{doctor.doctor_name}</p><p className="mt-1 text-sm text-slate-600">Ciclo {MONTHS[month - 1]}</p><p className="mt-1 text-xl font-bold text-slate-900">{fmtBRL(asMoney(doctor.doctor_total))}</p></div>)}</div></div>
+        <div className="rounded-2xl bg-slate-900 p-5 text-white shadow-sm"><Landmark className="h-5 w-5 text-cyan-300" /><p className="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Total de repasses médicos</p><p className="mt-2 text-2xl font-bold">{fmtBRL(asMoney(unit.doctor_total))}</p><p className="mt-3 text-sm text-slate-300">Movimentação total da unidade: <strong className="text-white">{fmtBRL(asMoney(unit.system_total))}</strong></p></div>
+      </section>
+    </div>
+  );
+}
+
+export default function FinanceDashboard() {
+  const [, navigate] = useLocation();
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
+  const referenceDate = useMemo(() => monthReference(year, month), [year, month]);
+  const { data: units = [], isLoading } = trpc.financeSimple.unitSummary.useQuery({ reference_date: referenceDate });
+  const selectedUnit = units.find((unit) => unit.unit_id === selectedUnitId) as UnitSummary | undefined;
+  const changeMonth = (direction: -1 | 1) => {
+    setSelectedUnitId(null);
+    if (direction === -1) {
+      if (month === 1) { setMonth(12); setYear((value) => value - 1); } else setMonth((value) => value - 1);
+    } else if (month === 12) { setMonth(1); setYear((value) => value + 1); } else setMonth((value) => value + 1);
+  };
+
+  const nav = <><button onClick={() => navigate("/")} className="rounded-lg px-4 py-2 text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white">Estudos</button><button onClick={() => navigate("/admin")} className="rounded-lg px-4 py-2 text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white">Administração</button><button className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm">Financeiro</button></>;
+
+  return (
+    <div className="min-h-screen bg-[#f6f8fb] text-slate-900">
+      <AppHeader nav={nav} />
+      {selectedUnit ? <UnitFinancialDetail unit={selectedUnit} year={year} month={month} onBack={() => setSelectedUnitId(null)} /> : (
+        <main className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6 md:py-8">
+          <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-end md:justify-between">
+            <div><p className="text-xs font-bold uppercase tracking-[0.15em] text-cyan-700">Administração financeira</p><h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">Financeiro por unidade</h1><p className="mt-1 text-sm text-slate-500">Selecione uma unidade para configurar preços e acompanhar o ciclo financeiro.</p></div>
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-1 shadow-sm"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => changeMonth(-1)}><ChevronLeft className="h-4 w-4" /></Button><span className="min-w-40 text-center text-sm font-semibold text-slate-800"><CalendarDays className="mr-1.5 inline h-4 w-4 text-cyan-700" />{MONTHS[month - 1]} {year}</span><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => changeMonth(1)}><ChevronRight className="h-4 w-4" /></Button></div>
+          </div>
+          <div className="mt-6 rounded-xl border border-cyan-100 bg-cyan-50/70 px-4 py-3 text-sm text-cyan-950"><FileText className="mr-2 inline h-4 w-4 text-cyan-700" />A legenda define a composição clínica e a quantidade de eventos. Os valores são configurados por unidade, modalidade e médico.</div>
+          {isLoading ? <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{[1,2,3,4,5,6].map((key) => <div key={key} className="h-60 animate-pulse rounded-2xl bg-slate-200" />)}</div> : units.length === 0 ? <div className="mt-12 rounded-2xl border border-dashed border-slate-300 bg-white py-16 text-center"><Building2 className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-4 text-base font-semibold text-slate-800">Nenhuma unidade com eventos no ciclo</h2><p className="mt-1 text-sm text-slate-500">Quando houver eventos financeiros, as unidades aparecerão aqui.</p></div> : <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{(units as UnitSummary[]).map((unit) => <UnitCatalogCard key={unit.unit_id} unit={unit} referenceDate={referenceDate} onOpen={() => setSelectedUnitId(unit.unit_id)} />)}</div>}
+        </main>
+      )}
+    </div>
   );
 }

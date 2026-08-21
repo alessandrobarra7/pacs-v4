@@ -87,8 +87,8 @@ function FinanceRedirect() {
     } else if (user.role === 'responsavel_financeiro') {
       navigate('/financeiro/responsavel', { replace: true });
     } else {
-      // admin_master e unit_admin vão para pagamentos
-      navigate('/financeiro/pagamentos', { replace: true });
+      // admin_master e unit_admin iniciam no catálogo financeiro por unidade.
+      navigate('/financeiro/dashboard', { replace: true });
     }
   }, [user, navigate]);
 

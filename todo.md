@@ -2490,3 +2490,23 @@
 - [x] Mapear como as legendas canônicas, documentos clínicos, eventos financeiros e preços se relacionam hoje.
 - [x] Definir uma arquitetura financeira nova, orientada a eventos, preservando laudos e histórico existentes.
 - [ ] Implementar a reformulação somente após aprovação explícita do novo fluxo e do plano de migração.
+
+## FINANCEIRO V2 — REGRAS E PROPOSTA VISUAL
+
+- [ ] Registrar que a legenda define composição clínica e quantidade de eventos, mas não determina preços.
+- [ ] Modelar a precificação por unidade, modalidade e médico, com vigência contínua até uma alteração autorizada.
+- [ ] Criar propostas visuais do painel do admin_master com unidades, médicos, preços por evento, movimentação, pagamentos e margem do sistema.
+- [ ] Definir a regra de distribuição de pagamento quando documentos de uma composição forem assinados por médicos diferentes.
+
+## FINANCEIRO V2 — CATÁLOGO E DETALHE POR UNIDADE
+
+- [x] Projetar a entrada do admin_master como caixas de unidades, cada uma com resumo de ciclo, eventos, faturamento do sistema e total de repasses médicos.
+- [x] Projetar o detalhe da unidade com preço LAUDS por evento, total de eventos e faturamento do ciclo, preços da unidade por modalidade, tabela editável de médicos por modalidade e total individual do médico no ciclo.
+- [x] Gerar mockups revisados desse fluxo antes de qualquer implementação do Financeiro v2.
+
+## FINANCEIRO V2 — IMPLEMENTAÇÃO VISUAL NO SANDBOX
+
+- [x] Implementar a página inicial do Financeiro como catálogo de unidades com métricas resumidas por ciclo.
+- [x] Implementar a tela de detalhe por unidade com taxa LAUDS por evento, eventos do ciclo, soma para o sistema, preços por modalidade e tabela de médicos.
+- [x] Preservar temporariamente as regras e os dados existentes, sem migração de banco nem mudança de cálculo nesta fase visual.
+- [x] Validar o fluxo no sandbox com testes e build antes de apresentar para revisão.
