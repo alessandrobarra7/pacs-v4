@@ -2454,3 +2454,14 @@
 - [x] Substituir as linhas largas da listagem principal do catálogo por cartões compactos e escaneáveis, preservando indicadores, filtros e botão Configurar.
 - [x] Tornar visualmente clara a distinção entre os cartões da listagem e o formulário aberto por Configurar.
 - [x] Validar a nova listagem no desktop e no mobile, com regressões e build antes de publicar.
+
+## CATÁLOGO CLÍNICO — GRADE DENSA
+
+- [x] Reduzir a altura dos cartões do catálogo e exibir quatro colunas no desktop para acomodar muitas legendas.
+- [x] Manter na listagem apenas nome, modalidade, situação, contadores essenciais e acesso a Configurar; detalhes permanecem no formulário.
+- [x] Cobrir a grade densa com regressões e validar build antes de publicar.
+
+## CORREÇÃO — ATUALIZAÇÃO DA LISTAGEM EM PRODUÇÃO
+
+- [x] Confirmar por diagnóstico somente leitura o remoto e a disponibilidade do commit 041705e na VM1.
+- [x] Aplicar somente após confirmação a atualização controlada da listagem em cartões na VM1 e validar o commit ativo.

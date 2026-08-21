@@ -46,11 +46,12 @@ describe("navegação administrativa do catálogo de exames", () => {
   });
 
   it("exibe as legendas em cartões compactos com resumo e acesso à configuração", () => {
-    expect(catalog).toContain('sm:grid-cols-2 2xl:grid-cols-3');
+    expect(catalog).toContain('sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4');
+    expect(catalog).toContain('min-h-[148px]');
     expect(catalog).toContain('function CatalogMetric');
     expect(catalog).toContain('label="Laudos"');
     expect(catalog).toContain('label="Eventos"');
     expect(catalog).toContain('label="PACS"');
-    expect(catalog).toContain('Configurar legenda');
+    expect(catalog).toContain('>Configurar</Button>');
   });
 });
