@@ -18,6 +18,7 @@ import {
   InsertDicomAnnotation,
   DicomAnnotation,
   anamnesis_simple,
+  study_anamnesis_structured,
   study_metadata,
   StudyMetadata,
   study_priority_flags,
@@ -604,6 +605,57 @@ export async function saveAnamnesisSimple(data: {
         presets: data.presets,
         manual_text: data.manual_text,
         patient_name: data.patient_name ?? null,
+      },
+    });
+}
+
+export async function getStructuredAnamnesis(studyInstanceUid: string, unitId: number | null) {
+  const db = await getDb();
+  if (!db || !unitId) return null;
+  const rows = await db
+    .select()
+    .from(study_anamnesis_structured)
+    .where(and(
+      eq(study_anamnesis_structured.study_instance_uid, studyInstanceUid),
+      eq(study_anamnesis_structured.unit_id, unitId),
+    ))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function saveStructuredAnamnesis(data: {
+  study_instance_uid: string;
+  unit_id: number;
+  modality: string;
+  patient_name?: string | null;
+  answers: Record<string, unknown>;
+  pain_locations: string[];
+  summary: string;
+  user_id: number;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(study_anamnesis_structured)
+    .values({
+      study_instance_uid: data.study_instance_uid,
+      unit_id: data.unit_id,
+      modality: data.modality,
+      patient_name: data.patient_name ?? null,
+      answers: data.answers,
+      pain_locations: data.pain_locations,
+      summary: data.summary,
+      created_by_user_id: data.user_id,
+      updated_by_user_id: data.user_id,
+    })
+    .onDuplicateKeyUpdate({
+      set: {
+        modality: data.modality,
+        patient_name: data.patient_name ?? null,
+        answers: data.answers,
+        pain_locations: data.pain_locations,
+        summary: data.summary,
+        updated_by_user_id: data.user_id,
       },
     });
 }

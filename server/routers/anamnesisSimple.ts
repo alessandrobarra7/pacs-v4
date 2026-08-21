@@ -1,13 +1,23 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getAnamnesisSimple, saveAnamnesisSimple, createAuditLog, getDb, resolveEffectiveUnitId } from "../db";
+import { getAnamnesisSimple, saveAnamnesisSimple, getStructuredAnamnesis, saveStructuredAnamnesis, createAuditLog, getDb, resolveEffectiveUnitId } from "../db";
 import { evaluateAndUpsertReadiness } from "./sla";
 import { anamnesis_simple } from "../../drizzle/schema";
 import { inArray } from "drizzle-orm";
 import { canAccessUnit, getStudyUnitId } from "../authorization";
 
 export const anamnesisSimpleRouter = router({
+    getStructuredByStudy: protectedProcedure
+      .input(z.object({ studyInstanceUid: z.string() }))
+      .query(async ({ input, ctx }) => {
+        const studyUnitId = await getStudyUnitId(input.studyInstanceUid);
+        if (!studyUnitId || !await canAccessUnit(ctx.user, studyUnitId, 'view_anamnesis')) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para visualizar anamnese deste estudo' });
+        }
+        return getStructuredAnamnesis(input.studyInstanceUid, studyUnitId);
+      }),
+
     /** Busca a anamnese de um estudo */
     getByStudy: protectedProcedure
       .input(z.object({ studyInstanceUid: z.string() }))
@@ -68,6 +78,56 @@ export const anamnesisSimpleRouter = router({
           readiness = result.readiness;
         }
         return { success: true, readiness };
+      }),
+
+    saveStructured: protectedProcedure
+      .input(z.object({
+        studyInstanceUid: z.string(),
+        patientName: z.string().max(255).optional(),
+        modality: z.enum(['CT', 'RM', 'CR', 'US']),
+        answers: z.record(z.string(), z.unknown()),
+        painLocations: z.array(z.string().max(48)).max(12),
+        summary: z.string().min(1).max(2000),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const studyUnitId = await getStudyUnitId(input.studyInstanceUid);
+        if (!studyUnitId || !await canAccessUnit(ctx.user, studyUnitId, 'edit_anamnesis')) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para editar anamnese deste estudo' });
+        }
+
+        await saveStructuredAnamnesis({
+          study_instance_uid: input.studyInstanceUid,
+          unit_id: studyUnitId,
+          modality: input.modality,
+          patient_name: input.patientName ?? null,
+          answers: input.answers,
+          pain_locations: input.painLocations,
+          summary: input.summary,
+          user_id: ctx.user.id,
+        });
+
+        await saveAnamnesisSimple({
+          study_instance_uid: input.studyInstanceUid,
+          unit_id: studyUnitId,
+          created_by_user_id: ctx.user.id,
+          patient_name: input.patientName ?? null,
+          presets: [`Anamnese estruturada — ${input.modality}`],
+          manual_text: input.summary,
+        });
+        await createAuditLog({
+          user_id: ctx.user.id,
+          action: 'CREATE_ANAMNESIS',
+          target_type: 'study_anamnesis_structured',
+          target_id: input.studyInstanceUid,
+          metadata: { modality: input.modality, structured: true },
+        });
+        await evaluateAndUpsertReadiness({
+          studyInstanceUid: input.studyInstanceUid,
+          unitId: studyUnitId,
+          createdByUserId: ctx.user.id,
+          manualText: input.summary,
+        });
+        return { success: true };
       }),
 
     /** Retorna quais UIDs têm anamnese registrada (independente de unit_id) */

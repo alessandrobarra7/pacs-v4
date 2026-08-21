@@ -171,6 +171,10 @@ export function DicomViewerPage() {
     { studyInstanceUid: studyUid ?? "" },
     { enabled: !!studyUid }
   );
+  const structuredAnamnesisQuery = trpc.anamnesisSimple.getStructuredByStudy.useQuery(
+    { studyInstanceUid: studyUid ?? "" },
+    { enabled: !!studyUid }
+  );
 
   // ─── Anexos e Áudios do Paciente no Viewer ─────────────────────────────────
   const [showAttachmentsModal, setShowAttachmentsModal] = useState(false);
@@ -1482,8 +1486,20 @@ export function DicomViewerPage() {
             )}
             {/* Anamnese */}
             <p className="text-xs font-semibold text-emerald-400 mb-1">Indicação Clínica / Anamnese</p>
-            {anamnesisQuery.isLoading ? (
+            {anamnesisQuery.isLoading || structuredAnamnesisQuery.isLoading ? (
               <p className="text-xs text-gray-500">Carregando...</p>
+            ) : structuredAnamnesisQuery.data ? (
+              <div className="space-y-2 rounded border border-emerald-800/70 bg-emerald-950/20 p-2">
+                <div className="flex items-center gap-2">
+                  <span className="rounded bg-emerald-900/60 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300">{structuredAnamnesisQuery.data.modality}</span>
+                  <span className="text-xs text-emerald-200">Questionário estruturado</span>
+                </div>
+                <p className="text-xs leading-relaxed text-gray-200">{structuredAnamnesisQuery.data.summary}</p>
+                {(structuredAnamnesisQuery.data.pain_locations as string[])?.length > 0 && (
+                  <p className="text-xs text-amber-300">Dor informada: {(structuredAnamnesisQuery.data.pain_locations as string[]).join(", ")}</p>
+                )}
+                <p className="text-[10px] text-gray-500">Atualizada em {new Date(structuredAnamnesisQuery.data.updatedAt).toLocaleString("pt-BR")}</p>
+              </div>
             ) : anamnesisQuery.data ? (
               <div className="space-y-1">
                 {(anamnesisQuery.data.presets as string[])?.length > 0 && (
