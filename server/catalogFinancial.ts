@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   billing_catalog_study_events,
   billing_doctor_modality_prices,
@@ -7,7 +7,7 @@ import {
   reports,
   study_exam_legend_selections,
 } from "../drizzle/schema";
-import { getDb } from "./db";
+import { getDb, selectActiveByVigency } from "./db";
 
 function normalizeModality(modality: string | null | undefined) {
   const normalized = (modality ?? "").trim().toUpperCase();
@@ -48,38 +48,35 @@ export async function createCatalogEventsWhenComplete(input: { studyUid: string;
   const existing = await db.select({ id: billing_catalog_study_events.id }).from(billing_catalog_study_events).where(eq(billing_catalog_study_events.study_selection_id, selection.id));
   if (existing.length) return { handled: true, created: 0 };
   const modality = normalizeModality(selection.modality_snapshot);
-  const [doctorModalityPrice, unitModalityPrice, systemPrice] = await Promise.all([
+  const [doctorModalityRows, unitModalityRows, systemPriceRows] = await Promise.all([
     db.select().from(billing_doctor_modality_prices).where(and(
       eq(billing_doctor_modality_prices.unit_id, input.unitId),
       eq(billing_doctor_modality_prices.doctor_user_id, input.doctorUserId),
       eq(billing_doctor_modality_prices.modality, modality),
-      lte(billing_doctor_modality_prices.starts_at, input.signedAt),
-      or(isNull(billing_doctor_modality_prices.ends_at), gte(billing_doctor_modality_prices.ends_at, input.signedAt)),
-    )).orderBy(desc(billing_doctor_modality_prices.starts_at)).limit(1),
+    )),
     db.select().from(billing_unit_modality_prices).where(and(
       eq(billing_unit_modality_prices.unit_id, input.unitId),
       eq(billing_unit_modality_prices.modality, modality),
-      lte(billing_unit_modality_prices.starts_at, input.signedAt),
-      or(isNull(billing_unit_modality_prices.ends_at), gte(billing_unit_modality_prices.ends_at, input.signedAt)),
-    )).orderBy(desc(billing_unit_modality_prices.starts_at)).limit(1),
+    )),
     db.select().from(billing_system_unit_prices).where(and(
       eq(billing_system_unit_prices.unit_id, input.unitId),
-      lte(billing_system_unit_prices.starts_at, input.signedAt),
-      or(isNull(billing_system_unit_prices.ends_at), gte(billing_system_unit_prices.ends_at, input.signedAt)),
-    )).orderBy(desc(billing_system_unit_prices.starts_at)).limit(1),
+    )),
   ]);
-  const doctorModalityAmount = doctorModalityPrice[0]
-    ? Number(doctorModalityPrice[0].price_per_report)
+  const doctorModalityPrice = selectActiveByVigency(doctorModalityRows, input.signedAt);
+  const unitModalityPrice = selectActiveByVigency(unitModalityRows, input.signedAt);
+  const systemPrice = selectActiveByVigency(systemPriceRows, input.signedAt);
+  const doctorModalityAmount = doctorModalityPrice
+    ? Number(doctorModalityPrice.price_per_report)
     : null;
-  const unitModalityAmount = unitModalityPrice[0]
-    ? Number(unitModalityPrice[0].price_per_event)
+  const unitModalityAmount = unitModalityPrice
+    ? Number(unitModalityPrice.price_per_event)
     : null;
-  const doctorPriceSource = doctorModalityPrice[0]
+  const doctorPriceSource = doctorModalityPrice
     ? "doctor_modality"
-    : unitModalityPrice[0]
+    : unitModalityPrice
       ? "unit_modality_fallback"
       : null;
-  const systemAmount = systemPrice[0] ? Number(systemPrice[0].price_per_report) : null;
+  const systemAmount = systemPrice ? Number(systemPrice.price_per_report) : null;
   const doctorAmount = doctorModalityAmount ?? unitModalityAmount;
   const pricingStatus = systemAmount !== null && doctorAmount !== null
     ? "ok" as const

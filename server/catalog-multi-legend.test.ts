@@ -1,56 +1,61 @@
-import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const root = process.cwd();
-const read = (file: string) => readFileSync(resolve(root, file), "utf8");
+const state = vi.hoisted(() => ({
+  responses: [] as unknown[][],
+  inserts: [] as unknown[],
+}));
 
-describe("composição de legendas clínicas por estudo", () => {
-  it("permite uma seleção auditável por legenda no mesmo estudo e unidade", () => {
-    const schema = read("drizzle/schema.ts");
-    const migration = read("drizzle/0051_multi_legend_selection_unit_availability.sql");
-
-    expect(schema).toContain(".on(t.study_instance_uid, t.unit_id, t.exam_legend_id)");
-    expect(migration).toContain("ADD UNIQUE INDEX `uq_study_unit_legend_selection` (`study_instance_uid`, `unit_id`, `exam_legend_id`)");
-  });
-
-  it("confirma o conjunto de legendas e usa chaves de documento próprias para evitar colisões entre laudos", () => {
-    const router = read("server/routers/studyExamLegend.ts");
-
-    expect(router).toContain("confirmSelections");
-    expect(router).toContain("examLegendIds: z.array(z.number().int().positive()).min(1).max(20)");
-    expect(router).toContain("return `legend_${legendId}_document_${documentId}`");
-    expect(router).toContain("não pode ser removida após a primeira assinatura");
-  });
-
-  it("bloqueia e consolida somente a legenda que possui o documento assinado", () => {
-    const coordinator = read("server/catalogFinancial.ts");
-    const reports = read("server/routers/reports.ts");
-
-    expect(coordinator).toContain("documentKey: string");
-    expect(coordinator).toContain("document.key === input.documentKey");
-    expect(reports).toContain("documentKey: report.document_key");
-  });
+vi.mock("./db", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./db")>();
+  return {
+    ...original,
+    getDb: vi.fn(async () => ({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => Promise.resolve(state.responses.shift() ?? [])),
+        })),
+      })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => undefined) })) })),
+      insert: vi.fn(() => ({ values: vi.fn(async (value: unknown) => state.inserts.push(value)) })),
+    })),
+  };
 });
 
-describe("disponibilidade de legenda por unidade e financeiro", () => {
-  it("mantém a disponibilidade global como padrão e salva somente exceções bloqueadas", () => {
-    const db = read("server/db.ts");
-    const catalog = read("server/routers/examCatalog.ts");
-    const page = read("client/src/pages/ExamCatalogPage.tsx");
+import { createCatalogEventsWhenComplete } from "./catalogFinancial";
 
-    expect(db).toContain("replaceExamLegendUnitAvailability");
-    expect(db).toContain("is_available: false");
-    expect(catalog).toContain("unavailableUnitIds");
-    expect(page).toContain("Disponibilidade por unidade");
-    expect(page).toContain("Autorizar todas");
+describe("Composição de legendas clínicas por estudo", () => {
+  beforeEach(() => {
+    state.responses = [];
+    state.inserts = [];
   });
 
-  it("inclui eventos do catálogo no extrato e no total financeiro da unidade", () => {
-    const finance = read("server/routers/financeSimple.ts");
+  it("cria evento somente para a seleção cujo documento foi assinado, sem colidir com outra legenda do mesmo estudo", async () => {
+    const current = { starts_at: new Date("2026-08-01T00:00:00.000Z"), ends_at: null };
+    const selectionA = {
+      id: 101, unit_id: 12, exam_legend_id: 1, exam_name_snapshot: "CRÂNIO", modality_snapshot: "CR",
+      financial_event_count: 1, documents_snapshot: [{ key: "legend_1_document_1" }], lockedAt: null,
+    };
+    const selectionB = {
+      id: 102, unit_id: 12, exam_legend_id: 2, exam_name_snapshot: "TÓRAX", modality_snapshot: "CR",
+      financial_event_count: 1, documents_snapshot: [{ key: "legend_2_document_1" }], lockedAt: null,
+    };
+    state.responses = [
+      [selectionA, selectionB],
+      [{ document_key: "legend_1_document_1" }],
+      [],
+      [],
+      [{ ...current, price_per_event: "18.00" }],
+      [{ ...current, price_per_report: "3.50" }],
+    ];
 
-    expect(finance).toContain("billing_catalog_study_events");
-    expect(finance).toContain("total_eventos");
-    expect(finance).toContain('source: "catalog" as const');
+    const result = await createCatalogEventsWhenComplete({
+      studyUid: "1.2.840", unitId: 12, doctorUserId: 31,
+      documentKey: "legend_1_document_1", signedAt: new Date("2026-08-21T12:00:00.000Z"),
+    });
+
+    expect(result).toEqual({ handled: true, created: 1 });
+    expect(state.inserts).toEqual([[
+      expect.objectContaining({ study_selection_id: 101, exam_name_snapshot: "CRÂNIO" }),
+    ]]);
   });
 });

@@ -1,6 +1,6 @@
 # Financeiro v2 — Configuração Vigente por Unidade
 
-**Situação:** implementada e validada exclusivamente no sandbox em 21 de agosto de 2026. Esta etapa não foi aplicada à VM1 nem à VM2 de produção.
+**Situação:** configuração, consolidação de eventos e baixa operacional validadas exclusivamente no sandbox em 21 de agosto de 2026. As migrações posteriores à 0053 ainda não foram aplicadas à VM1 nem à VM2 de produção.
 
 ## Finalidade
 
@@ -14,19 +14,27 @@ O detalhe financeiro de cada unidade passa a concentrar a configuração por rot
 
 ## Alterações visuais aprovadas
 
-O cabeçalho da unidade não mostra mais uma referência fixa a mês. Foram retirados os cartões e blocos de **Margem atual**, **Soma individual por médico** e **Total de repasses médicos**. Permanecem em destaque a taxa LAUDS, os eventos do ciclo e a soma do sistema, calculada como taxa vigente multiplicada pela quantidade de eventos do ciclo.
+O cabeçalho da unidade não mostra mais uma referência fixa a mês. Foram retirados os cartões e blocos de **Margem atual**, **Soma individual por médico** e **Total de repasses médicos**. Permanecem em destaque a taxa LAUDS, os eventos do ciclo e a soma do sistema, calculada a partir dos snapshots de valor efetivamente aplicados aos eventos.
 
 A área **Valor vigente por modalidade** exibe CT, CR, RM e US com valor inicial de R$ 0,00. Para administradores e responsáveis financeiros autorizados, cada campo pode ser alterado diretamente. A tabela de médicos também foi simplificada: os valores por modalidade são editados na própria célula, sem botão ou linha adicional de edição. Campo sem valor individual deixa explícito o uso do fallback da unidade.
 
-## Migração 0053
+## Migrações aditivas
 
-A migração `drizzle/0053_finance_v2_unit_modality_prices.sql` é exclusivamente aditiva. Ela cria `billing_unit_modality_prices` e o índice único por unidade, modalidade e instante de início da vigência. Nenhuma tabela existente, evento financeiro, preço legado ou dado clínico é removido ou modificado pela migração.
+| Migração | Finalidade |
+|---|---|
+| `0053_finance_v2_unit_modality_prices.sql` | Cria o fallback de preço da unidade por modalidade. |
+| `0054_finance_catalog_event_snapshots.sql` | Registra modalidade, preços e taxa LAUDS aplicados em cada evento de catálogo. |
+| `0055_finance_catalog_payment_tracking.sql` | Registra data, usuário e observação das baixas de médico e sistema no evento de catálogo. |
+
+As três migrações são exclusivamente aditivas. Nenhuma tabela existente, evento financeiro, preço legado ou dado clínico é removido, reprocessado ou sobrescrito.
 
 O gerador automático foi interrompido no sandbox porque o metadado histórico do Drizzle tentou reinterpretar tabelas já existentes como criações ou renomeações. Por segurança, a migração foi escrita de forma explícita, revisada e aplicada apenas ao banco de desenvolvimento. A aplicação na VM2 exige backup prévio e execução controlada da mesma migração após aprovação do sandbox.
 
-## Limites desta etapa
+## Consolidação e baixa operacional
 
-O fechamento formal de ciclo e as telas dedicadas para iniciar ou encerrar ciclos continuam pendentes. Os totais por médico ainda leem os eventos já consolidados pelo fluxo financeiro preexistente; a próxima etapa deve fazer a apuração por médico considerar diretamente o preço por modalidade efetivamente aplicado em cada evento novo, sem reprocessar registros históricos.
+Os resumos de unidade, apuração por médico, extrato médico e drill-down operacional agregam os eventos legados e os eventos do catálogo, preservando a origem de cada registro. A baixa em lote do médico agora marca ambos os fluxos e mantém autoria e observação no catálogo. A baixa da obrigação da unidade com a LAUDS permanece exclusiva do `admin_master` e também passa a atingir ambos os fluxos.
+
+O fechamento formal de ciclo e as telas dedicadas para iniciar ou encerrar ciclos continuam pendentes. Eventos históricos de catálogo que já foram criados sem preço ou sem dados de pagamento não são reprocessados automaticamente; a validação operacional deve ocorrer em novas assinaturas após a configuração dos valores vigentes.
 
 ## Validação visual no sandbox
 

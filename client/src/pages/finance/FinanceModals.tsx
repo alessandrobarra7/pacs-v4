@@ -75,7 +75,7 @@ export function LaudosModal({
               <tbody className="divide-y divide-slate-700/30">
                 {data.map((ev) => (
                   <tr key={ev.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="px-6 py-3 text-white truncate max-w-[180px]">{ev.patient_name ?? "—"}</td>
+                    <td className="px-6 py-3 text-white truncate max-w-[180px]">{ev.patient_name ?? "—"}<span className={`ml-1.5 text-[10px] font-semibold uppercase ${(ev as any).source === "catalog" ? "text-cyan-400" : "text-slate-500"}`}>{(ev as any).source === "catalog" ? "Catálogo" : "Legado"}</span></td>
                     <td className="px-4 py-3 text-slate-400 text-xs">
                       {(ev as any).modality_snapshot ?? "—"}
                     </td>

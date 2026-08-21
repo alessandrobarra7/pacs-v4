@@ -1043,6 +1043,14 @@ export const billing_catalog_study_events = mysqlTable("billing_catalog_study_ev
   system_price_applied: decimal("system_price_applied", { precision: 10, scale: 2 }),
   system_amount_due: decimal("system_amount_due", { precision: 10, scale: 2 }),
   pricing_status: mysqlEnum("pricing_status", ["ok", "pending_system_price", "pending_doctor_price", "pending_both"]).notNull().default("pending_both"),
+  /** Baixa operacional do repasse ao médico, com autoria e observação. */
+  doctor_received_at: timestamp("doctor_received_at"),
+  doctor_received_by_user_id: int("doctor_received_by_user_id"),
+  doctor_payment_note: varchar("doctor_payment_note", { length: 500 }),
+  /** Baixa operacional da obrigação da unidade com a LAUDS, exclusiva do admin_master. */
+  system_paid_at: timestamp("system_paid_at"),
+  system_paid_by_user_id: int("system_paid_by_user_id"),
+  system_payment_note: varchar("system_payment_note", { length: 500 }),
   signed_at: timestamp("signed_at").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

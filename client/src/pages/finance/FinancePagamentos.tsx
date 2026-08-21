@@ -77,6 +77,9 @@ function EventsModal({
                       {ev.modality_snapshot && (
                         <span className="ml-1.5 text-xs text-slate-500">{ev.modality_snapshot}</span>
                       )}
+                      <span className={`ml-1.5 text-[10px] font-semibold uppercase ${ev.source === "catalog" ? "text-cyan-400" : "text-slate-500"}`}>
+                        {ev.source === "catalog" ? "Catálogo" : "Legado"}
+                      </span>
                     </td>
                     <td className="px-4 py-2.5 text-slate-400 whitespace-nowrap">
                       {fmtDate(ev.study_date ?? ev.signed_at)}

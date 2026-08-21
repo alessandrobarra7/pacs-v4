@@ -508,7 +508,10 @@ export const financeSimpleRouter = router({
                 total_laudos: sql<number>`COALESCE(COUNT(${billing_catalog_study_events.id}), 0)`,
                 system_total: sql<number>`COALESCE(SUM(${billing_catalog_study_events.system_amount_due}), 0)`,
                 doctor_total: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
-                pending_count: sql<number>`COALESCE(COUNT(${billing_catalog_study_events.id}), 0)`,
+                system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.system_paid_at} IS NOT NULL THEN ${billing_catalog_study_events.system_amount_due} ELSE 0 END), 0)`,
+                doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.doctor_received_at} IS NOT NULL THEN ${billing_catalog_study_events.price_applied} ELSE 0 END), 0)`,
+                system_pending_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.system_paid_at} IS NULL AND ${billing_catalog_study_events.system_amount_due} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
+                doctor_pending_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.doctor_received_at} IS NULL AND ${billing_catalog_study_events.price_applied} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
               })
               .from(billing_catalog_study_events)
               .where(and(
@@ -528,10 +531,10 @@ export const financeSimpleRouter = router({
             total_laudos: Number(legacy?.total_laudos ?? 0) + Number(catalog?.total_laudos ?? 0),
             system_total: toMoney(legacy?.system_total) + toMoney(catalog?.system_total),
             doctor_total: toMoney(legacy?.doctor_total) + toMoney(catalog?.doctor_total),
-            system_paid: legacy?.system_paid ?? 0,
-            doctor_paid: legacy?.doctor_paid ?? 0,
-            system_pending_count: Number(legacy?.system_pending_count ?? 0) + Number(catalog?.pending_count ?? 0),
-            doctor_pending_count: Number(legacy?.doctor_pending_count ?? 0) + Number(catalog?.pending_count ?? 0),
+            system_paid: toMoney(legacy?.system_paid) + toMoney(catalog?.system_paid),
+            doctor_paid: toMoney(legacy?.doctor_paid) + toMoney(catalog?.doctor_paid),
+            system_pending_count: Number(legacy?.system_pending_count ?? 0) + Number(catalog?.system_pending_count ?? 0),
+            doctor_pending_count: Number(legacy?.doctor_pending_count ?? 0) + Number(catalog?.doctor_pending_count ?? 0),
           };
         })
       );
@@ -606,6 +609,9 @@ export const financeSimpleRouter = router({
             doctor_name: users.name,
             total_laudos: sql<number>`COUNT(*)`,
             doctor_total: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
+            doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.doctor_received_at} IS NOT NULL THEN ${billing_catalog_study_events.price_applied} ELSE 0 END), 0)`,
+            doctor_pending_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.doctor_received_at} IS NULL AND ${billing_catalog_study_events.price_applied} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
+            last_received_at: sql<Date | null>`MAX(${billing_catalog_study_events.doctor_received_at})`,
           })
           .from(billing_catalog_study_events)
           .leftJoin(users, eq(users.id, billing_catalog_study_events.doctor_user_id))
@@ -646,9 +652,11 @@ export const financeSimpleRouter = router({
           doctor_name: current?.doctor_name ?? row.doctor_name ?? "Médico",
           total_laudos: (current?.total_laudos ?? 0) + Number(row.total_laudos),
           doctor_total: (current?.doctor_total ?? 0) + toMoney(row.doctor_total),
-          doctor_paid: current?.doctor_paid ?? 0,
-          doctor_pending_count: (current?.doctor_pending_count ?? 0) + Number(row.total_laudos),
-          last_received_at: current?.last_received_at ?? null,
+          doctor_paid: (current?.doctor_paid ?? 0) + toMoney(row.doctor_paid),
+          doctor_pending_count: (current?.doctor_pending_count ?? 0) + Number(row.doctor_pending_count),
+          last_received_at: [current?.last_received_at, row.last_received_at]
+            .filter((value): value is Date => value instanceof Date)
+            .sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
         });
       }
       const rows = Array.from(summaryByDoctor.values())
@@ -716,32 +724,61 @@ export const financeSimpleRouter = router({
       const { cycleStart: startDate, cycleEnd: endDate } =
         calcCycleDates(unitRow[0]?.s, unitRow[0]?.e, refDate);
 
-      const rows = await db
-        .select({
-          id: billing_visit_events.id,
-          report_id: billing_visit_events.report_id,
-          patient_name: billing_visit_events.patient_name,
-          study_date: billing_visit_events.study_date,
-          modality_snapshot: billing_visit_events.modality_snapshot,
-          exam_name_snapshot: billing_visit_events.exam_name_snapshot,
-          system_amount_due: billing_visit_events.system_amount_due,
-          doctor_amount_due: billing_visit_events.doctor_amount_due,
-          doctor_received_at: billing_visit_events.doctor_received_at,
-          system_paid_at: billing_visit_events.system_paid_at,
-          signed_at: billing_visit_events.signed_at,
-        })
-        .from(billing_visit_events)
-        .where(
-          and(
+      const [legacyRows, catalogRows] = await Promise.all([
+        db
+          .select({
+            id: billing_visit_events.id,
+            report_id: billing_visit_events.report_id,
+            patient_name: billing_visit_events.patient_name,
+            study_date: billing_visit_events.study_date,
+            modality_snapshot: billing_visit_events.modality_snapshot,
+            exam_name_snapshot: billing_visit_events.exam_name_snapshot,
+            system_amount_due: billing_visit_events.system_amount_due,
+            doctor_amount_due: billing_visit_events.doctor_amount_due,
+            doctor_received_at: billing_visit_events.doctor_received_at,
+            system_paid_at: billing_visit_events.system_paid_at,
+            signed_at: billing_visit_events.signed_at,
+          })
+          .from(billing_visit_events)
+          .where(and(
             eq(billing_visit_events.unit_id, input.unit_id),
             eq(billing_visit_events.doctor_user_id, input.doctor_user_id),
             sql`${billing_visit_events.signed_at} >= ${startDate}`,
             sql`${billing_visit_events.signed_at} < ${endDate}`,
-          )
-        )
-        .orderBy(desc(billing_visit_events.signed_at));
+          ))
+          .orderBy(desc(billing_visit_events.signed_at)),
+        db
+          .select({
+            id: billing_catalog_study_events.id,
+            modality_snapshot: billing_catalog_study_events.modality_snapshot,
+            exam_name_snapshot: billing_catalog_study_events.exam_name_snapshot,
+            system_amount_due: billing_catalog_study_events.system_amount_due,
+            doctor_amount_due: billing_catalog_study_events.price_applied,
+            doctor_received_at: billing_catalog_study_events.doctor_received_at,
+            system_paid_at: billing_catalog_study_events.system_paid_at,
+            signed_at: billing_catalog_study_events.signed_at,
+          })
+          .from(billing_catalog_study_events)
+          .where(and(
+            eq(billing_catalog_study_events.unit_id, input.unit_id),
+            eq(billing_catalog_study_events.doctor_user_id, input.doctor_user_id),
+            sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
+            sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
+          ))
+          .orderBy(desc(billing_catalog_study_events.signed_at)),
+      ]);
 
-      return rows;
+      return [
+        ...legacyRows.map((event) => ({ ...event, source: "legacy" as const })),
+        ...catalogRows.map((event) => ({
+          ...event,
+          id: `catalog-${event.id}`,
+          report_id: null,
+          patient_name: null,
+          study_date: null,
+          source: "catalog" as const,
+        })),
+      ].sort((a, b) => new Date(b.signed_at ?? 0).getTime() - new Date(a.signed_at ?? 0).getTime());
     }),
 
   /**
@@ -763,10 +800,11 @@ export const financeSimpleRouter = router({
       // P1F: usar resolveFinancialCycle para garantir ciclo reall
       const { startDate, endDate } = await resolveFinancialCycle(db, input.unit_id, refDate);
       const now = new Date();
-      await db
-        .update(billing_visit_events)
-        .set({ doctor_received_at: now, doctor_received_by_user_id: ctx.user.id })
-        .where(
+      await Promise.all([
+        db
+          .update(billing_visit_events)
+          .set({ doctor_received_at: now, doctor_received_by_user_id: ctx.user.id })
+          .where(
           and(
             eq(billing_visit_events.unit_id, input.unit_id),
             eq(billing_visit_events.doctor_user_id, input.doctor_user_id),
@@ -774,7 +812,19 @@ export const financeSimpleRouter = router({
             sql`${billing_visit_events.signed_at} < ${endDate}`,
             isNull(billing_visit_events.doctor_received_at),
           )
-        );
+          ),
+        db
+          .update(billing_catalog_study_events)
+          .set({ doctor_received_at: now, doctor_received_by_user_id: ctx.user.id, doctor_payment_note: input.note ?? null })
+          .where(and(
+            eq(billing_catalog_study_events.unit_id, input.unit_id),
+            eq(billing_catalog_study_events.doctor_user_id, input.doctor_user_id),
+            sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
+            sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
+            isNotNull(billing_catalog_study_events.price_applied),
+            isNull(billing_catalog_study_events.doctor_received_at),
+          )),
+      ]);
 
       return { success: true, paid_at: now };
     }),
@@ -786,6 +836,7 @@ export const financeSimpleRouter = router({
     .input(z.object({
       unit_id: z.number().int(),
       reference_date: z.string().datetime().optional(),
+      note: z.string().max(500).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== "admin_master") {
@@ -799,17 +850,29 @@ export const financeSimpleRouter = router({
       // P1F: usar resolveFinancialCycle para garantir ciclo real
       const { startDate, endDate } = await resolveFinancialCycle(db, input.unit_id, refDate);
       const now = new Date();
-      await db
-        .update(billing_visit_events)
-        .set({ system_paid_at: now, system_paid_by_user_id: ctx.user.id })
-        .where(
+      await Promise.all([
+        db
+          .update(billing_visit_events)
+          .set({ system_paid_at: now, system_paid_by_user_id: ctx.user.id })
+          .where(
           and(
             eq(billing_visit_events.unit_id, input.unit_id),
             sql`${billing_visit_events.signed_at} >= ${startDate}`,
             sql`${billing_visit_events.signed_at} < ${endDate}`,
             isNull(billing_visit_events.system_paid_at),
           )
-        );
+          ),
+        db
+          .update(billing_catalog_study_events)
+          .set({ system_paid_at: now, system_paid_by_user_id: ctx.user.id, system_payment_note: input.note ?? null })
+          .where(and(
+            eq(billing_catalog_study_events.unit_id, input.unit_id),
+            sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
+            sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
+            isNotNull(billing_catalog_study_events.system_amount_due),
+            isNull(billing_catalog_study_events.system_paid_at),
+          )),
+      ]);
 
       return { success: true, paid_at: now };
     }),
@@ -961,6 +1024,8 @@ export const financeSimpleRouter = router({
             db.select({
               total_eventos: sql<number>`COUNT(*)`,
               doctor_total: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
+              doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.doctor_received_at} IS NOT NULL THEN ${billing_catalog_study_events.price_applied} ELSE 0 END), 0)`,
+              last_received_at: sql<Date | null>`MAX(${billing_catalog_study_events.doctor_received_at})`,
             })
               .from(billing_catalog_study_events)
               .where(and(
@@ -982,8 +1047,10 @@ export const financeSimpleRouter = router({
             cycle_end_date: cycleEnd.toISOString(),
             total_laudos: Number(legacy?.total_laudos ?? 0) + Number(catalog?.total_eventos ?? 0),
             doctor_total: Number(legacy?.doctor_total ?? 0) + Number(catalog?.doctor_total ?? 0),
-            doctor_paid: legacy?.doctor_paid ?? 0,
-            last_received_at: legacy?.last_received_at ?? null,
+            doctor_paid: toMoney(legacy?.doctor_paid) + toMoney(catalog?.doctor_paid),
+            last_received_at: [legacy?.last_received_at, catalog?.last_received_at]
+              .filter((value): value is Date => value instanceof Date)
+              .sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
           };
         })
       );
@@ -1033,6 +1100,9 @@ export const financeSimpleRouter = router({
               modality_snapshot: study_exam_legend_selections.modality_snapshot,
               exam_name_snapshot: billing_catalog_study_events.exam_name_snapshot,
               doctor_amount_due: billing_catalog_study_events.price_applied,
+              doctor_received_at: billing_catalog_study_events.doctor_received_at,
+              doctor_received_by_user_id: billing_catalog_study_events.doctor_received_by_user_id,
+              paid_by_name: sql<string | null>`(SELECT u2.name FROM users u2 WHERE u2.id = ${billing_catalog_study_events.doctor_received_by_user_id} LIMIT 1)`,
               pricing_status: billing_catalog_study_events.pricing_status,
               signed_at: billing_catalog_study_events.signed_at,
             })
@@ -1057,9 +1127,6 @@ export const financeSimpleRouter = router({
           ...event,
           id: `catalog-${event.id}`,
           study_date: null,
-          doctor_received_at: null,
-          doctor_received_by_user_id: null,
-          paid_by_name: null,
           source: "catalog" as const,
         })),
       ].sort((a, b) =>

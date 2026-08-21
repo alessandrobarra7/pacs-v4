@@ -2572,3 +2572,12 @@
 - [x] Cobrir a consolidação com testes de preço individual, fallback da unidade, ausência de preço e métricas de painel.
 - [x] Corrigir a aplicação aditiva da migração 0054 e os diagnósticos TypeScript surgidos durante a integração.
 - [x] Publicar no GitHub a correção auditada no commit 3834408.
+
+## FINANCEIRO V2 — BAIXA OPERACIONAL E TESTES COMPORTAMENTAIS
+- [x] Confirmar o isolamento atual entre os controles de pagamento dos eventos legados e os eventos de catálogo.
+- [x] Projetar e implementar baixa auditável de médico e sistema para eventos de catálogo, preservando RBAC e sem alterar eventos históricos.
+- [x] Unificar a listagem operacional por médico para exibir eventos legados e de catálogo com identificação de origem e estado de pagamento.
+- [x] Converter também as regressões remanescentes de reprocessamento, múltiplas legendas e painel em testes comportamentais de integração controlada.
+- [x] Substituir as regressões críticas de preços, trava de legenda e baixa operacional por testes comportamentais executáveis.
+- [x] Corrigir a documentação financeira que ainda descreve uma limitação já resolvida na apuração por médico.
+- [x] Produzir relatório de auditoria da baixa operacional do catálogo antes de qualquer atualização de produção.
