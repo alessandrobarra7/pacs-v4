@@ -38,4 +38,18 @@ describe("modal visual de legenda canônica", () => {
     expect(pageSource).toContain("legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? []");
     expect(pageSource).toContain(".map((selection) => selection.exam_name_snapshot).join(' + ')");
   });
+
+  it("permite retirar uma legenda desbloqueada diretamente da composição antes de confirmar", () => {
+    expect(pageSource).toContain("const selectedLegendItems = draftLegendIds.map");
+    expect(pageSource).toContain("const removeFromDraft = (legendId: number)");
+    expect(pageSource).toContain("Remover legenda ${legend.name}");
+    expect(pageSource).toContain("Remova e inclua legendas antes de confirmar.");
+  });
+
+  it("mantém a proteção visual e de servidor para legendas bloqueadas após a primeira assinatura", () => {
+    const routerSource = readFileSync(resolve(process.cwd(), "server/routers/studyExamLegend.ts"), "utf8");
+    expect(pageSource).toContain("!legend.locked && <button");
+    expect(pageSource).toContain("Legendas bloqueadas não podem ser removidas após a primeira assinatura.");
+    expect(routerSource).toContain("não pode ser removida após a primeira assinatura");
+  });
 });

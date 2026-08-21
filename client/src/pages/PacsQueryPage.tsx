@@ -478,6 +478,16 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
   const legendsForModality = selectedModality
     ? legends.filter((legend) => legend.modality === selectedModality && legend.exam_name.toLocaleLowerCase("pt-BR").includes(search.trim().toLocaleLowerCase("pt-BR")))
     : [];
+  const selectedLegendItems = draftLegendIds.map((legendId) => {
+    const selection = selections.find((item) => item.exam_legend_id === legendId);
+    const legend = legends.find((item) => item.id === legendId);
+    return {
+      id: legendId,
+      name: selection?.exam_name_snapshot ?? legend?.exam_name ?? "Legenda selecionada",
+      locked: Boolean(selection?.lockedAt),
+    };
+  });
+  const removeFromDraft = (legendId: number) => setDraftLegendIds((currentIds) => currentIds.filter((id) => id !== legendId));
   return (
     <>
       <button type="button" onClick={openModal} className="group w-full rounded-md text-left outline-none transition-colors hover:bg-cyan-50 focus-visible:ring-2 focus-visible:ring-cyan-500" title="Clique para compor um ou mais exames cadastrados">
@@ -498,7 +508,7 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
               <button type="button" onClick={closeModal} className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Fechar composição de exames"><X className="h-5 w-5" /></button>
             </div>
 
-            {selections.length > 0 && <div className="border-b border-cyan-100 bg-cyan-50 px-5 py-3"><p className="text-xs font-medium text-cyan-800">Composição atual</p><div className="mt-1.5 flex flex-wrap gap-1.5">{selections.map((selection) => <span key={selection.id} className={`rounded-full px-2 py-1 text-[11px] ${selection.lockedAt ? "bg-slate-700 text-white" : "bg-white text-cyan-900 ring-1 ring-cyan-200"}`}>{selection.exam_name_snapshot}{selection.lockedAt ? " · bloqueada" : ""}</span>)}</div></div>}
+            {selectedLegendItems.length > 0 && <div className="border-b border-cyan-100 bg-cyan-50 px-5 py-3"><div className="flex items-center justify-between gap-3"><p className="text-xs font-medium text-cyan-800">Composição em edição</p><p className="text-[11px] text-cyan-700">Remova e inclua legendas antes de confirmar.</p></div><div className="mt-1.5 flex flex-wrap gap-1.5">{selectedLegendItems.map((legend) => <span key={legend.id} className={`inline-flex items-center gap-1 rounded-full py-1 pl-2 text-[11px] ${legend.locked ? "bg-slate-700 pr-2 text-white" : "bg-white pr-1 text-cyan-900 ring-1 ring-cyan-200"}`}><span>{legend.name}{legend.locked ? " · bloqueada" : ""}</span>{!legend.locked && <button type="button" onClick={() => removeFromDraft(legend.id)} disabled={confirmSelections.isPending} className="rounded-full p-0.5 text-cyan-700 transition-colors hover:bg-cyan-100 hover:text-cyan-950 disabled:opacity-50" aria-label={`Remover legenda ${legend.name}`} title={`Remover ${legend.name}`}><X className="h-3 w-3" /></button>}</span>)}</div>{selectedLegendItems.some((legend) => legend.locked) && <p className="mt-2 text-[11px] text-slate-600">Legendas bloqueadas não podem ser removidas após a primeira assinatura.</p>}</div>}
 
             {selectedModality ? (
               <>

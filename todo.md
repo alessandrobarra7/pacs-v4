@@ -2465,3 +2465,9 @@
 
 - [x] Confirmar por diagnóstico somente leitura o remoto e a disponibilidade do commit 041705e na VM1.
 - [x] Aplicar somente após confirmação a atualização controlada da listagem em cartões na VM1 e validar o commit ativo.
+
+## CORREÇÃO — COMPOSIÇÃO DE LEGENDAS
+
+- [x] Permitir remover uma legenda já selecionada diretamente no modal de composição antes da confirmação.
+- [x] Preservar as regras de bloqueio clínico e a substituição auditável ao confirmar a nova composição.
+- [x] Cobrir remoção, substituição e casos bloqueados por regressões antes de publicar.
