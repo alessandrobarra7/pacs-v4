@@ -502,6 +502,27 @@ export type BillingSystemUnitPrice = typeof billing_system_unit_prices.$inferSel
 export type InsertBillingSystemUnitPrice = typeof billing_system_unit_prices.$inferInsert;
 
 /**
+ * billing_unit_modality_prices — Valor padrão que a unidade paga por evento
+ * financeiro de cada modalidade. É o fallback aplicado somente quando não há
+ * valor individual vigente do médico para a mesma unidade e modalidade.
+ * Cada alteração encerra a vigência anterior, preservando auditoria completa.
+ */
+export const billing_unit_modality_prices = mysqlTable("billing_unit_modality_prices", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  modality: varchar("modality", { length: 10 }).notNull(),
+  price_per_event: decimal("price_per_event", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  starts_at: timestamp("starts_at").notNull(),
+  ends_at: timestamp("ends_at"),
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uqUnitModalityStart: uniqueIndex("uq_unit_modality_price_start").on(t.unit_id, t.modality, t.starts_at),
+}));
+export type BillingUnitModalityPrice = typeof billing_unit_modality_prices.$inferSelect;
+export type InsertBillingUnitModalityPrice = typeof billing_unit_modality_prices.$inferInsert;
+
+/**
  * billing_doctor_unit_prices — Preço do médico por responsável + unidade + médico com vigência
  * Configurado pelo admin_master. Mesmo médico pode ter valores diferentes por unidade.
  */

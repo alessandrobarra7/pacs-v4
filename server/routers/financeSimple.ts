@@ -24,6 +24,7 @@ import {
   billing_system_unit_prices,
   billing_cycle_configs,
   billing_doctor_modality_prices,
+  billing_unit_modality_prices,
   billing_doctor_exam_legend_prices,
   billing_catalog_study_events,
   exam_legends,
@@ -1113,18 +1114,28 @@ export const financeSimpleRouter = router({
           name: units.name,
           default_system_price: units.default_system_price,
           default_doctor_price: units.default_doctor_price,
-        })
+      })
         .from(units)
         .where(eq(units.id, input.unit_id))
         .limit(1);
       const u = rows[0];
       if (!u) throw new TRPCError({ code: "NOT_FOUND" });
+      const now = new Date();
+      const activeSystemRate = await db.select({ price_per_report: billing_system_unit_prices.price_per_report })
+        .from(billing_system_unit_prices)
+        .where(and(
+          eq(billing_system_unit_prices.unit_id, input.unit_id),
+          lte(billing_system_unit_prices.starts_at, now),
+          or(isNull(billing_system_unit_prices.ends_at), gte(billing_system_unit_prices.ends_at, now)),
+        ))
+        .orderBy(desc(billing_system_unit_prices.starts_at))
+        .limit(1);
       return {
         unit_id: u.id,
         unit_name: u.name,
         // FIX: usar toMoney() em vez de parseFloat() — mesmo padrão do módulo financeiro
         // != null (em vez de ?) garante que 0 seja retornado como 0, não como null
-        default_system_price: u.default_system_price != null ? toMoney(u.default_system_price) : null,
+        default_system_price: activeSystemRate[0] ? toMoney(activeSystemRate[0].price_per_report) : (u.default_system_price != null ? toMoney(u.default_system_price) : null),
         default_doctor_price: u.default_doctor_price != null ? toMoney(u.default_doctor_price) : null,
       };
     }),
@@ -1149,6 +1160,166 @@ export const financeSimpleRouter = router({
         })
         .where(eq(units.id, input.unit_id));
       return { ok: true };
+    }),
+
+  /** Valores padrão vigentes da unidade. São o fallback por modalidade para médicos sem preço individual. */
+  getUnitModalityPrices: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().int(),
+      reference_date: z.string().datetime().optional(),
+    }))
+    .query(async ({ input, ctx }) => {
+      assertAdmin(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id);
+
+      const referenceDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      const rows = await db
+        .select({
+          id: billing_unit_modality_prices.id,
+          modality: billing_unit_modality_prices.modality,
+          price_per_event: billing_unit_modality_prices.price_per_event,
+          starts_at: billing_unit_modality_prices.starts_at,
+          ends_at: billing_unit_modality_prices.ends_at,
+          created_by: billing_unit_modality_prices.created_by,
+        })
+        .from(billing_unit_modality_prices)
+        .where(and(
+          eq(billing_unit_modality_prices.unit_id, input.unit_id),
+          lte(billing_unit_modality_prices.starts_at, referenceDate),
+          or(isNull(billing_unit_modality_prices.ends_at), gte(billing_unit_modality_prices.ends_at, referenceDate)),
+        ))
+        .orderBy(desc(billing_unit_modality_prices.starts_at));
+
+      const current = new Map<string, typeof rows[number]>();
+      for (const row of rows) {
+        const modality = row.modality.trim().toUpperCase();
+        if (!current.has(modality)) current.set(modality, row);
+      }
+
+      return ["CT", "CR", "MR", "US"].map((modality) => {
+        const row = current.get(modality);
+        return {
+          modality,
+          price_per_event: row ? toMoney(row.price_per_event) : 0,
+          configured: Boolean(row),
+          starts_at: row?.starts_at ?? null,
+          ends_at: row?.ends_at ?? null,
+          created_by: row?.created_by ?? null,
+        };
+      });
+    }),
+
+  /** Publica uma nova vigência imediata e encerra a anterior, sem sobrescrever o histórico. */
+  setUnitModalityPrice: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().int(),
+      modality: z.enum(["CT", "CR", "MR", "US"]),
+      price_per_event: z.number().min(0).max(99999999.99),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanManageFinancialPrices(db, ctx.user, input.unit_id);
+
+      const now = new Date();
+      const current = await db
+        .select({ id: billing_unit_modality_prices.id })
+        .from(billing_unit_modality_prices)
+        .where(and(
+          eq(billing_unit_modality_prices.unit_id, input.unit_id),
+          eq(billing_unit_modality_prices.modality, input.modality),
+          lte(billing_unit_modality_prices.starts_at, now),
+          or(isNull(billing_unit_modality_prices.ends_at), gte(billing_unit_modality_prices.ends_at, now)),
+        ))
+        .orderBy(desc(billing_unit_modality_prices.starts_at))
+        .limit(1);
+
+      if (current[0]) {
+        await db
+          .update(billing_unit_modality_prices)
+          .set({ ends_at: new Date(now.getTime() - 1000) })
+          .where(eq(billing_unit_modality_prices.id, current[0].id));
+      }
+
+      const result = await db.insert(billing_unit_modality_prices).values({
+        unit_id: input.unit_id,
+        modality: input.modality,
+        price_per_event: input.price_per_event.toFixed(2),
+        starts_at: now,
+        ends_at: null,
+        created_by: ctx.user.id,
+      });
+
+      return { id: Number(result[0].insertId), starts_at: now };
+    }),
+
+  /** Taxa LAUDS efetiva e a primeira data permitida para uma nova vigência. */
+  getUnitSystemRate: protectedProcedure
+    .input(z.object({ unit_id: z.number().int() }))
+    .query(async ({ input, ctx }) => {
+      assertAdmin(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id);
+      const now = new Date();
+      const active = await db.select({
+        id: billing_system_unit_prices.id,
+        price_per_report: billing_system_unit_prices.price_per_report,
+        starts_at: billing_system_unit_prices.starts_at,
+        ends_at: billing_system_unit_prices.ends_at,
+      }).from(billing_system_unit_prices).where(and(
+        eq(billing_system_unit_prices.unit_id, input.unit_id),
+        lte(billing_system_unit_prices.starts_at, now),
+        or(isNull(billing_system_unit_prices.ends_at), gte(billing_system_unit_prices.ends_at, now)),
+      )).orderBy(desc(billing_system_unit_prices.starts_at)).limit(1);
+      const legacy = await db.select({ default_system_price: units.default_system_price }).from(units).where(eq(units.id, input.unit_id)).limit(1);
+      const cycle = await resolveFinancialCycle(db, input.unit_id, now);
+      return {
+        price_per_event: active[0] ? toMoney(active[0].price_per_report) : toMoney(legacy[0]?.default_system_price),
+        configured: Boolean(active[0]),
+        starts_at: active[0]?.starts_at ?? null,
+        next_change_at: active[0] ? cycle.endDate : now,
+      };
+    }),
+
+  /**
+   * Taxa LAUDS só pode mudar em uma nova abertura de ciclo quando já existe
+   * vigência ativa. A anterior é encerrada, nunca sobrescrita.
+   */
+  setUnitSystemRate: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().int(),
+      price_per_event: z.number().min(0).max(99999999.99),
+      starts_at: z.string().datetime(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin_master") throw new TRPCError({ code: "FORBIDDEN", message: "Somente o administrador geral pode publicar a taxa LAUDS." });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const startsAt = new Date(input.starts_at);
+      const now = new Date();
+      const current = await db.select({ id: billing_system_unit_prices.id }).from(billing_system_unit_prices).where(and(
+        eq(billing_system_unit_prices.unit_id, input.unit_id),
+        lte(billing_system_unit_prices.starts_at, now),
+        or(isNull(billing_system_unit_prices.ends_at), gte(billing_system_unit_prices.ends_at, now)),
+      )).orderBy(desc(billing_system_unit_prices.starts_at)).limit(1);
+      await assertCycleAlignedPriceStart(db, input.unit_id, startsAt, Boolean(current[0]));
+      const responsible = await getActiveResponsibleForUnit(input.unit_id);
+      if (!responsible) throw new TRPCError({ code: "BAD_REQUEST", message: "Defina um responsável financeiro ativo para a unidade antes de publicar a taxa LAUDS." });
+      if (current[0]) {
+        await db.update(billing_system_unit_prices).set({ ends_at: new Date(startsAt.getTime() - 1000) }).where(eq(billing_system_unit_prices.id, current[0].id));
+      }
+      const result = await db.insert(billing_system_unit_prices).values({
+        financial_responsible_id: responsible.financial_responsible_id,
+        unit_id: input.unit_id,
+        price_per_report: input.price_per_event.toFixed(2),
+        starts_at: startsAt,
+        ends_at: null,
+        created_by: ctx.user.id,
+      });
+      return { id: Number(result[0].insertId), starts_at: startsAt };
     }),
 
   /**
@@ -1880,7 +2051,11 @@ export const financeSimpleRouter = router({
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         await assertCanManageFinancialPrices(db, ctx.user, input.unitId, input.financialResponsibleId);
-        const startsAt = new Date(input.startsAt);
+        const requestedStart = new Date(input.startsAt);
+        if (Number.isNaN(requestedStart.getTime())) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Início de vigência inválido.' });
+        }
+        const now = new Date();
         const activeRows = await db.select({ id: billing_doctor_modality_prices.id })
           .from(billing_doctor_modality_prices)
           .where(and(
@@ -1888,9 +2063,14 @@ export const financeSimpleRouter = router({
             eq(billing_doctor_modality_prices.unit_id, input.unitId),
             eq(billing_doctor_modality_prices.doctor_user_id, input.doctorUserId),
             eq(billing_doctor_modality_prices.modality, input.modality.trim().toUpperCase()),
-            lte(billing_doctor_modality_prices.starts_at, new Date()),
-            or(isNull(billing_doctor_modality_prices.ends_at), gte(billing_doctor_modality_prices.ends_at, new Date())),
+            lte(billing_doctor_modality_prices.starts_at, now),
+            or(isNull(billing_doctor_modality_prices.ends_at), gte(billing_doctor_modality_prices.ends_at, now)),
           )).limit(1);
+        let startsAt = requestedStart;
+        if (activeRows[0]) {
+          const currentCycle = await resolveFinancialCycle(db, input.unitId, now);
+          if (startsAt.getTime() < currentCycle.endDate.getTime()) startsAt = currentCycle.endDate;
+        }
         await assertCycleAlignedPriceStart(db, input.unitId, startsAt, activeRows.length > 0);
         if (activeRows[0]) {
           await db.update(billing_doctor_modality_prices)
