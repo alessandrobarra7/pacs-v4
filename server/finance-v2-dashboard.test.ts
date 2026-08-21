@@ -4,12 +4,20 @@ import { resolve } from "node:path";
 
 const dashboard = readFileSync(resolve(process.cwd(), "client/src/pages/finance/FinanceDashboard.tsx"), "utf8");
 const app = readFileSync(resolve(process.cwd(), "client/src/App.tsx"), "utf8");
+const pacsQuery = readFileSync(resolve(process.cwd(), "client/src/pages/PacsQueryPage.tsx"), "utf8");
 
 describe("Financeiro v2 visual", () => {
   it("inicia o admin no catálogo financeiro por unidade", () => {
     expect(app).toContain("navigate('/financeiro/dashboard', { replace: true })");
+    expect(app).toContain('allowedRoles={[\'admin_master\', \'unit_admin\', \'medico\', \'responsavel_financeiro\']}');
+    expect(app).toContain("Abrindo financeiro...");
     expect(dashboard).toContain("Financeiro por unidade");
     expect(dashboard).toContain("Abrir financeiro");
+  });
+
+  it("leva o botão Financeiro do cabeçalho PACS para o catálogo novo", () => {
+    expect(pacsQuery).toContain("navigate('/financeiro');");
+    expect(pacsQuery).not.toContain("navigate('/financeiro/pagamentos');");
   });
 
   it("mantém separados taxa LAUDS, eventos, soma do sistema e repasses médicos", () => {

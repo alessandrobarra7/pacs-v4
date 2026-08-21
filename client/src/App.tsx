@@ -77,10 +77,15 @@ function ProtectedRoute({ component: Component, allowedRoles, ...rest }: { compo
 // Redirect inteligente por role para /financeiro
 // Evita que médico caia em tela de "Acesso Restrito" ao acessar /financeiro
 function FinanceRedirect() {
-  const { user } = useAuth();
+  const { user, loading, isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
 
   useEffect(() => {
+    if (loading) return;
+    if (!isAuthenticated) {
+      navigate('/login', { replace: true });
+      return;
+    }
     if (!user) return;
     if (user.role === 'medico') {
       navigate('/financeiro/meu-financeiro', { replace: true });
@@ -90,9 +95,16 @@ function FinanceRedirect() {
       // admin_master e unit_admin iniciam no catálogo financeiro por unidade.
       navigate('/financeiro/dashboard', { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, loading, isAuthenticated, navigate]);
 
-  return null;
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-9 w-9 border-b-2 border-primary mx-auto" />
+        <p className="mt-3 text-sm text-muted-foreground">Abrindo financeiro...</p>
+      </div>
+    </div>
+  );
 }
 
 function Router() {
@@ -121,7 +133,7 @@ function Router() {
 
       {/* Financeiro — módulo unificado sob /financeiro */}
       {/* Redirect inteligente por role ao entrar em /financeiro */}
-      <Route path="/financeiro" component={() => <FinanceRedirect />} />
+      <Route path="/financeiro" component={() => <ProtectedRoute component={FinanceRedirect} allowedRoles={['admin_master', 'unit_admin', 'medico', 'responsavel_financeiro']} />} />
       <Route path="/financeiro/pagamentos" component={() => <ProtectedRoute component={FinancePagamentos} allowedRoles={['admin_master', 'unit_admin']} />} />
       {/* FIX ANALISE_FINANCEIRO_PERMISSOES BUG2: admin_master removido — não tem laudos assinados,
            myFinanceiro retornaria summary=[] e events=[], exibindo tela vazia e confusa.

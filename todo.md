@@ -2510,3 +2510,13 @@
 - [x] Implementar a tela de detalhe por unidade com taxa LAUDS por evento, eventos do ciclo, soma para o sistema, preços por modalidade e tabela de médicos.
 - [x] Preservar temporariamente as regras e os dados existentes, sem migração de banco nem mudança de cálculo nesta fase visual.
 - [x] Validar o fluxo no sandbox com testes e build antes de apresentar para revisão.
+
+## CORREÇÃO — ROTA FINANCEIRA EM BRANCO
+
+- [x] Garantir que a rota /financeiro aguarde a autenticação e redirecione para login ou catálogo, sem página vazia.
+- [x] Revalidar a navegação do sandbox até o Financeiro v2 após a correção.
+
+## CORREÇÃO — BOTÃO PRINCIPAL FINANCEIRO
+
+- [x] Redirecionar todos os botões Financeiro do cabeçalho principal para o catálogo financeiro por unidade, sem encaminhar ao ambiente legado de pagamentos.
+- [x] Validar no sandbox que o clique no botão Financeiro abre o Financeiro v2 para admin_master e unit_admin.
