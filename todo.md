@@ -2483,3 +2483,10 @@
 - [x] Revisar as rotas, telas e permissões que permitem criar, editar ou excluir Modelos de Laudo.
 - [x] Tornar a administração dos modelos exclusiva do admin_master e remover a permissão configurável de outros perfis.
 - [x] Preservar integralmente a edição, assinatura e retificação clínica de laudos pelos médicos autorizados.
+
+## REFORMULAÇÃO — MÓDULO FINANCEIRO E LEGENDAS
+
+- [x] Inventariar os dados, regras, rotas e telas financeiras atuais antes de qualquer substituição.
+- [x] Mapear como as legendas canônicas, documentos clínicos, eventos financeiros e preços se relacionam hoje.
+- [x] Definir uma arquitetura financeira nova, orientada a eventos, preservando laudos e histórico existentes.
+- [ ] Implementar a reformulação somente após aprovação explícita do novo fluxo e do plano de migração.
