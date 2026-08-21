@@ -21,6 +21,7 @@ import {
   Edit3,
   FileText,
   Loader2,
+  ScrollText,
   Settings2,
   Stethoscope,
 } from "lucide-react";
@@ -94,7 +95,7 @@ function UnitModalityPrices({ unitId, canManage }: { unitId: number; canManage: 
     onError: (error) => toast.error(error.message),
   });
   const byModality = new Map(prices.map((price) => [price.modality, price]));
-  return <div className="grid grid-cols-2 gap-3 p-5 md:grid-cols-4">{MODALITIES.map((modality) => {
+  return <><div className="grid grid-cols-2 gap-3 p-5 md:grid-cols-4">{MODALITIES.map((modality) => {
     const price = byModality.get(modality);
     const current = Number(price?.price_per_event ?? 0);
     const draft = drafts[modality];
@@ -106,7 +107,7 @@ function UnitModalityPrices({ unitId, canManage }: { unitId: number; canManage: 
       save.mutate({ unit_id: unitId, modality, price_per_event: nextValue });
     };
     return <div key={modality} className="rounded-xl border border-slate-100 bg-slate-50 p-4"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-slate-500">{MODALITY_LABEL[modality]}</p>{price?.configured && <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Vigente</span>}</div>{canManage ? <Input aria-label={`Valor padrão vigente ${MODALITY_LABEL[modality]}`} className="mt-2 h-9 border-slate-200 bg-white px-2 text-sm font-bold tabular-nums text-slate-900" type="number" min="0" step="0.01" value={draft ?? current.toFixed(2)} onChange={(event) => setDrafts((previous) => ({ ...previous, [modality]: event.target.value }))} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} disabled={isLoading || save.isPending} /> : <p className="mt-2 text-lg font-bold text-slate-900">{fmtBRL(current)}</p>}<p className="mt-2 text-[11px] text-slate-500">Fallback para médico sem valor individual</p></div>;
-  })}</div>;
+  })}</div><div className="flex justify-end border-t border-slate-100 px-5 py-3"><AuditTrailLauncher unitId={unitId} referenceDate={new Date().toISOString()} /></div></>;
 }
 
 function DoctorModalityCells({ unitId, doctorId, responsibleId, fallbacks, canManage }: { unitId: number; doctorId: number; responsibleId: number | null; fallbacks: Map<string, number>; canManage: boolean }) {
@@ -134,6 +135,36 @@ function DoctorModalityCells({ unitId, doctorId, responsibleId, fallbacks, canMa
     };
     return <td key={modality} className="px-2 py-2 text-center">{canManage && responsibleId !== null ? <Input aria-label={`Preço de médico ${MODALITY_LABEL[modality]}`} className="h-8 min-w-20 border-slate-200 bg-white px-2 text-center text-xs tabular-nums" type="number" min="0" step="0.01" placeholder={fallback.toFixed(2)} value={draft ?? (configured === undefined ? "" : configured.toFixed(2))} onChange={(event) => setDrafts((previous) => ({ ...previous, [modality]: event.target.value }))} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} disabled={save.isPending} /> : <span className="text-xs font-medium text-slate-700">{configured === undefined ? <span className="text-slate-400">Padrão {fmtBRL(fallback)}</span> : fmtBRL(configured)}</span>}</td>;
   })}</>;
+}
+
+type AuditEvent = {
+  id: string;
+  source: "legacy" | "catalog";
+  patient_name: string | null;
+  study_date: Date | string | null;
+  study_description: string | null;
+  modality: string | null;
+  clinical_label: string | null;
+  doctor_name: string | null;
+  signed_at: Date | string | null;
+  doctor_amount_due: string | number | null;
+  system_amount_due: string | number | null;
+  doctor_received_at: Date | string | null;
+  system_paid_at: Date | string | null;
+  pricing_status: string | null;
+};
+
+function auditDate(value: Date | string | null) {
+  return value ? new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
+}
+
+function AuditTrailLauncher({ unitId, referenceDate }: { unitId: number; referenceDate: string }) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const { data, isLoading } = trpc.financeSimple.auditEventsByUnit.useQuery({ unit_id: unitId, reference_date: referenceDate }, { enabled: open });
+  const normalized = filter.trim().toLocaleLowerCase("pt-BR");
+  const events = useMemo(() => ((data?.events ?? []) as AuditEvent[]).filter((event) => !normalized || [event.patient_name, event.study_description, event.clinical_label, event.doctor_name, event.modality, event.source].filter(Boolean).join(" ").toLocaleLowerCase("pt-BR").includes(normalized)), [data?.events, normalized]);
+  return <><Button variant="outline" size="sm" className="h-8 border-cyan-200 text-xs text-cyan-800 hover:bg-cyan-50" onClick={() => setOpen(true)}><ScrollText className="mr-1.5 h-3.5 w-3.5" />Ver log do ciclo</Button><Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-h-[88vh] max-w-6xl overflow-hidden p-0"><DialogHeader className="border-b border-slate-100 px-6 py-5"><DialogTitle className="flex items-center gap-2"><ScrollText className="h-5 w-5 text-cyan-700" /> Log auditável dos eventos financeiros</DialogTitle><p className="mt-1 text-sm font-normal text-slate-500">Cada linha explica a origem do evento que compõe o ciclo: paciente, estudo, médico que laudou, valores e situação de pagamento.</p></DialogHeader><div className="border-b border-slate-100 px-6 py-3"><Input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Buscar por paciente, médico, modalidade ou exame" className="h-9 max-w-md text-sm" /></div><div className="max-h-[60vh] overflow-auto"><table className="min-w-[1080px] w-full text-sm"><thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-[0.1em] text-slate-500"><tr><th className="px-5 py-3 text-left">Data e evento</th><th className="px-5 py-3 text-left">Paciente e estudo</th><th className="px-5 py-3 text-left">Médico que laudou</th><th className="px-4 py-3 text-left">Origem</th><th className="px-5 py-3 text-right">Médico</th><th className="px-5 py-3 text-right">LAUDS</th><th className="px-5 py-3 text-left">Situação</th></tr></thead><tbody className="divide-y divide-slate-100">{isLoading ? <tr><td colSpan={7} className="py-12 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin text-cyan-700" /></td></tr> : events.length === 0 ? <tr><td colSpan={7} className="py-12 text-center text-slate-500">{filter ? "Nenhum evento encontrado." : "Não há eventos no ciclo consultado."}</td></tr> : events.map((event) => <tr key={event.id} className="align-top hover:bg-slate-50"><td className="px-5 py-3"><p className="font-medium text-slate-800">{auditDate(event.signed_at)}</p><p className="mt-0.5 text-xs text-slate-400">{event.modality ?? "—"} · {event.clinical_label ?? event.study_description ?? "Evento financeiro"}</p></td><td className="px-5 py-3"><p className="font-semibold text-slate-900">{event.patient_name?.replace(/\^/g, " ") ?? "Paciente não disponível"}</p><p className="mt-0.5 text-xs text-slate-500">Estudo: {auditDate(event.study_date)}{event.study_description ? ` · ${event.study_description}` : ""}</p></td><td className="px-5 py-3 text-slate-700">{event.doctor_name ?? "Médico não disponível"}</td><td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${event.source === "catalog" ? "bg-cyan-50 text-cyan-700" : "bg-slate-100 text-slate-600"}`}>{event.source === "catalog" ? "Catálogo" : "Legado"}</span></td><td className="px-5 py-3 text-right font-semibold text-slate-800">{fmtBRL(asMoney(event.doctor_amount_due))}<p className={`mt-1 text-[10px] font-semibold uppercase ${event.doctor_received_at ? "text-emerald-700" : "text-amber-700"}`}>{event.doctor_received_at ? "Pago" : "Pendente"}</p></td><td className="px-5 py-3 text-right font-semibold text-slate-800">{fmtBRL(asMoney(event.system_amount_due))}<p className={`mt-1 text-[10px] font-semibold uppercase ${event.system_paid_at ? "text-emerald-700" : "text-amber-700"}`}>{event.system_paid_at ? "Quitado" : "Pendente"}</p></td><td className="px-5 py-3 text-xs text-slate-600">{event.pricing_status === "ok" ? "Preço aplicado" : event.pricing_status?.replace(/_/g, " ") ?? "Sem status"}</td></tr>)}</tbody></table></div></DialogContent></Dialog></>;
 }
 
 function UnitFinancialDetail({ unit, year, month, onBack }: { unit: UnitSummary; year: number; month: number; onBack: () => void }) {

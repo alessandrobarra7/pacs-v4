@@ -2591,3 +2591,14 @@
 - [x] Conferir outras interfaces que listam eventos de catálogo para não manter linhas sem identificação clínica.
 - [x] Substituir conversões `as any` pela tipagem explícita de origem do evento nas interfaces financeiras.
 - [x] Cobrir a identificação do paciente no catálogo com teste comportamental e publicar auditoria da correção antes de produção.
+
+## FINANCEIRO V2 — ATUALIZAÇÃO REAL 0054 E 0055
+- [x] Fazer backup e aplicar as migrações aditivas 0054 e 0055 na VM2, confirmando todas as novas colunas de evento de catálogo.
+- [x] Validar o commit 5529dc1 em worktree isolada e atualizar a VM1 com build, reinicialização do PM2 e verificação HTTP.
+- [ ] Confirmar em produção a identificação do paciente no catálogo e a baixa dos eventos por médico e LAUDS.
+
+## FINANCEIRO V2 — TRILHA AUDITÁVEL DE EVENTOS
+- [x] Criar consulta unificada de eventos do ciclo por unidade, com paciente, estudo, médico assinante, data, modalidade, legenda, origem e valores.
+- [x] Exibir no detalhe da unidade um log pesquisável e ordenado dos eventos que compõem os indicadores do ciclo.
+- [x] Permitir que admin_master, responsável financeiro e unit_admin consultem apenas eventos das unidades autorizadas.
+- [x] Cobrir a trilha de eventos com testes comportamentais, auditoria técnica e publicação no repositório antes de produção.

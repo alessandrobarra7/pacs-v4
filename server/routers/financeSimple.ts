@@ -791,6 +791,113 @@ export const financeSimpleRouter = router({
     }),
 
   /**
+   * Trilha auditável dos eventos que formam os indicadores financeiros de uma unidade.
+   * Não recalcula nem altera eventos: somente expõe sua origem clínica, valores e baixas.
+   */
+  auditEventsByUnit: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().int(),
+      reference_date: z.string().datetime().optional(),
+    }))
+    .query(async ({ input, ctx }) => {
+      assertAdmin(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const authorizedUnitIds = await getAuthorizedFinancialUnitIds(db, ctx.user);
+      if (authorizedUnitIds && !authorizedUnitIds.includes(input.unit_id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem acesso financeiro a esta unidade." });
+      }
+
+      const [unit] = await db
+        .select({ id: units.id, billing_cycle_start_day: units.billing_cycle_start_day, billing_cycle_end_day: units.billing_cycle_end_day })
+        .from(units)
+        .where(eq(units.id, input.unit_id))
+        .limit(1);
+      if (!unit) throw new TRPCError({ code: "NOT_FOUND", message: "Unidade não encontrada." });
+
+      const referenceDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      const { cycleStart, cycleEnd, label: cycle_label } = calcCycleDates(
+        unit.billing_cycle_start_day,
+        unit.billing_cycle_end_day,
+        referenceDate,
+      );
+
+      const [legacyRows, catalogRows] = await Promise.all([
+        db
+          .select({
+            event_id: billing_visit_events.id,
+            study_instance_uid: billing_visit_events.study_instance_uid,
+            report_id: billing_visit_events.report_id,
+            patient_name: studies_cache.patient_name,
+            study_date: studies_cache.study_date,
+            study_description: studies_cache.description,
+            modality: billing_visit_events.modality_snapshot,
+            clinical_label: sql<string | null>`NULL`,
+            doctor_name: users.name,
+            signed_at: billing_visit_events.signed_at,
+            doctor_amount_due: billing_visit_events.doctor_amount_due,
+            system_amount_due: billing_visit_events.system_amount_due,
+            doctor_received_at: billing_visit_events.doctor_received_at,
+            system_paid_at: billing_visit_events.system_paid_at,
+            pricing_status: billing_visit_events.financial_status,
+          })
+          .from(billing_visit_events)
+          .leftJoin(users, eq(users.id, billing_visit_events.doctor_user_id))
+          .leftJoin(studies_cache, and(
+            eq(studies_cache.study_instance_uid, billing_visit_events.study_instance_uid),
+            eq(studies_cache.unit_id, billing_visit_events.unit_id),
+          ))
+          .where(and(
+            eq(billing_visit_events.unit_id, input.unit_id),
+            sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
+            sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+            ne(billing_visit_events.financial_status, "cancelled"),
+          )),
+        db
+          .select({
+            event_id: billing_catalog_study_events.id,
+            study_instance_uid: study_exam_legend_selections.study_instance_uid,
+            report_id: sql<number | null>`NULL`,
+            patient_name: studies_cache.patient_name,
+            study_date: studies_cache.study_date,
+            study_description: studies_cache.description,
+            modality: billing_catalog_study_events.modality_snapshot,
+            clinical_label: billing_catalog_study_events.exam_name_snapshot,
+            doctor_name: users.name,
+            signed_at: billing_catalog_study_events.signed_at,
+            doctor_amount_due: billing_catalog_study_events.price_applied,
+            system_amount_due: billing_catalog_study_events.system_amount_due,
+            doctor_received_at: billing_catalog_study_events.doctor_received_at,
+            system_paid_at: billing_catalog_study_events.system_paid_at,
+            pricing_status: billing_catalog_study_events.pricing_status,
+          })
+          .from(billing_catalog_study_events)
+          .innerJoin(study_exam_legend_selections, eq(
+            study_exam_legend_selections.id,
+            billing_catalog_study_events.study_selection_id,
+          ))
+          .leftJoin(users, eq(users.id, billing_catalog_study_events.doctor_user_id))
+          .leftJoin(studies_cache, and(
+            eq(studies_cache.study_instance_uid, study_exam_legend_selections.study_instance_uid),
+            eq(studies_cache.unit_id, billing_catalog_study_events.unit_id),
+          ))
+          .where(and(
+            eq(billing_catalog_study_events.unit_id, input.unit_id),
+            sql`${billing_catalog_study_events.signed_at} >= ${cycleStart}`,
+            sql`${billing_catalog_study_events.signed_at} < ${cycleEnd}`,
+          )),
+      ]);
+
+      const events = [
+        ...legacyRows.map((event) => ({ ...event, id: `legacy-${event.event_id}`, source: "legacy" as const })),
+        ...catalogRows.map((event) => ({ ...event, id: `catalog-${event.event_id}`, source: "catalog" as const })),
+      ].sort((a, b) => new Date(b.signed_at ?? 0).getTime() - new Date(a.signed_at ?? 0).getTime());
+
+      return { cycle_label, cycle_start_date: cycleStart, cycle_end_date: cycleEnd, events };
+    }),
+
+  /**
    * Marcar pagamento ao médico como realizado (em lote por unidade+médico+mês)
    */
   markDoctorPaid: protectedProcedure
