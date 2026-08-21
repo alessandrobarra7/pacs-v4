@@ -278,7 +278,7 @@ describe("E4 — reports.getByStudyUid: médico sem unidade retorna null", () =>
     const mockDb = {
       select: vi.fn().mockReturnThis(),
       from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockResolvedValue([{ id: 50, unit_id: 4, study_instance_uid: "1.2.840.10008.1", status: "signed" }]),
+      where: vi.fn().mockResolvedValue([{ id: 50, unit_id: 4, study_instance_uid: "1.2.840.10008.1", document_key: "primary", status: "signed" }]),
     };
     vi.mocked(dbModule.getDb).mockResolvedValue(mockDb as any);
 

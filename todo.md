@@ -2427,3 +2427,10 @@
 - [x] Corrigir qualquer divergência entre editor, listagem e autoria da assinatura, preservando trilha de auditoria.
 - [x] Apresentar claramente o médico responsável pela assinatura quando o estudo estiver concluído, em desktop e mobile.
 - [x] Cobrir cenários de regressão, validar build e versionar antes de atualizar a VM1.
+
+## CORREÇÃO — RECONHECIMENTO DE LAUDO NO EDITOR
+
+- [x] Auditar como o estudo selecionado transmite unidade e documento ao editor de laudo.
+- [x] Fazer o editor reconhecer o laudo assinado existente e exibir Retificar/Apagar conforme autorização do médico e do admin_master.
+- [x] Preservar exclusão auditada, motivo obrigatório do admin_master e bloqueios de permissão existentes.
+- [x] Cobrir cenários de regressão, validar build e versionar antes de atualizar a VM1.

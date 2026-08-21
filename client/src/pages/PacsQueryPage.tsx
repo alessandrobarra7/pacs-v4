@@ -1220,7 +1220,8 @@ const isAdminMaster = user?.role === 'admin_master';
       documentKey,
       documentLabel,
     }));
-    navigate(`/reports/create/${uid}?document=${encodeURIComponent(documentKey)}&documentLabel=${encodeURIComponent(documentLabel)}`);
+    const unitQuery = effectiveUnitId ? `&unitId=${encodeURIComponent(String(effectiveUnitId))}` : '';
+    navigate(`/reports/create/${uid}?document=${encodeURIComponent(documentKey)}&documentLabel=${encodeURIComponent(documentLabel)}${unitQuery}`);
   };
 
   const handleReport = async (study: any) => {

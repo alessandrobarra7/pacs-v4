@@ -187,6 +187,7 @@ export default function ReportEditorPage() {
   const reportSearch = new URLSearchParams(window.location.search);
   const documentKey = reportSearch.get("document") || "primary";
   const documentLabelFromRoute = reportSearch.get("documentLabel") || "";
+  const unitIdFromRoute = Number(reportSearch.get("unitId")) || 0;
 
   // Info do estudo (vinda do sessionStorage)
   const [studyInfo, setStudyInfo] = useState<StudyInfo | null>(null);
@@ -237,7 +238,7 @@ export default function ReportEditorPage() {
   // FIX BUG-2: imagens inline no contentEditable (sem overlay arrastável)
 
   // Dados médicos (assinatura, logo, CRM)
-  const unitId = studyInfo?.unitId ?? 0;
+  const unitId = studyInfo?.unitId ?? unitIdFromRoute;
   const { data: medCtx } = trpc.medicalData.getReportContext.useQuery(
     { unitId },
     { enabled: unitId > 0 }

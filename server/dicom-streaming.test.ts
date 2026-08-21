@@ -244,7 +244,7 @@ describe('PacsQueryPage unified visualize/download gate', () => {
     expect(reportSection).toContain('O editor de laudos também depende do estudo completo no cache');
     expect(reportSection).toContain('Baixe o estudo antes de laudar');
     expect(reportSection).toContain('openReportDocument(study, documents[0])');
-    expect(content).toContain('navigate(`/reports/create/${uid}?document=${encodeURIComponent(documentKey)}&documentLabel=${encodeURIComponent(documentLabel)}`)');
+    expect(content).toContain('navigate(`/reports/create/${uid}?document=${encodeURIComponent(documentKey)}&documentLabel=${encodeURIComponent(documentLabel)}${unitQuery}`)');
   });
 });
 

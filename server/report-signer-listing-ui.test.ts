@@ -22,4 +22,9 @@ describe("Assinatura na listagem PACS", () => {
     expect(pacsSource).toContain("Assinado por ${signerNames[0]}");
     expect(pacsSource).toContain("reportSignerLabel");
   });
+
+  it("mantém compatibilidade com um único documento histórico primary sem misturar estudos compostos", () => {
+    expect(reportsSource).toContain("rows.find((row) => row.document_key === input.documentKey)");
+    expect(reportsSource).toContain("rows.length === 1 && rows[0].document_key === 'primary'");
+  });
 });

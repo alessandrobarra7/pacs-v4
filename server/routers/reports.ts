@@ -57,14 +57,12 @@ export const reportsRouter = router({
          ? { unitId: input.unit_id, unitIds: undefined }
          : await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
        if (unitIds !== undefined && unitIds.length === 0) return null; // sem acesso
-        const conditions: any[] = [
-          eq(reports.study_instance_uid, input.studyInstanceUid),
-          eq(reports.document_key, input.documentKey),
-        ];
+        const conditions: any[] = [eq(reports.study_instance_uid, input.studyInstanceUid)];
        if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
         else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
         const rows = await db.select().from(reports).where(and(...conditions));
-        const report = rows[0] ?? null;
+        const report = rows.find((row) => row.document_key === input.documentKey)
+          ?? (rows.length === 1 && rows[0].document_key === 'primary' ? rows[0] : null);
         if (report && report.unit_id) {
           const canView = await canAccessUnit(ctx.user, report.unit_id, 'view_studies');
           if (!canView) return null;
@@ -87,14 +85,12 @@ export const reportsRouter = router({
          ? { unitId: input.unit_id, unitIds: undefined }
          : await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
        if (unitIds !== undefined && unitIds.length === 0) return null; // sem acesso
-        const conditions: any[] = [
-          eq(reports.study_instance_uid, input.studyInstanceUid),
-          eq(reports.document_key, input.documentKey),
-        ];
+        const conditions: any[] = [eq(reports.study_instance_uid, input.studyInstanceUid)];
        if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
         else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
         const rows = await db.select().from(reports).where(and(...conditions));
-        const report = rows[0] ?? null;
+        const report = rows.find((row) => row.document_key === input.documentKey)
+          ?? (rows.length === 1 && rows[0].document_key === 'primary' ? rows[0] : null);
         if (!report) return null;
         // Validar permissão view_studies via camada central
         if (report.unit_id) {

@@ -100,4 +100,10 @@ describe("ReportEditorPage — experiência mobile", () => {
     expect(editorSource).toContain('signedDoctorSignatureUrl');
     expect(editorSource).not.toContain('isSigned && medCtx?.doctorName');
   });
+
+  it("mantém a unidade na rota e reconhece o documento histórico primary quando ele é o único do estudo", () => {
+    expect(editorSource).toContain('const unitIdFromRoute = Number(reportSearch.get("unitId")) || 0;');
+    expect(editorSource).toContain('const unitId = studyInfo?.unitId ?? unitIdFromRoute;');
+    expect(pacsSource).toContain('&unitId=${encodeURIComponent(String(effectiveUnitId))}');
+  });
 });
