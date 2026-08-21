@@ -136,12 +136,34 @@ export function DicomViewerPage() {
   // BUG-1 FIX: refs para batch de setStack (evita O(n²) durante streaming de TC)
   const pendingIdsRef = useRef<string[]>([]);
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamingProgressRef = useRef({ received: 0, total: 0 });
+  const streamingProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ─── Séries DICOM ──────────────────────────────────────────────────────────
   const [series, setSeries] = useState<DicomSeries[]>([]);
   const [activeSeries, setActiveSeries] = useState<string | null>(null);
   const [seriesLoaded, setSeriesLoaded] = useState(false);
   const seriesLoadedRef = useRef(false); // FIX P4: ref para evitar closure stale no guard de loadSeries
+
+  const flushStreamingProgress = useCallback(() => {
+    streamingProgressTimerRef.current = null;
+    const { received, total } = streamingProgressRef.current;
+    setReceivedCount(received);
+    if (total > 0) setTotalCount(total);
+    const pct = total > 0
+      ? Math.min(85, 10 + Math.round((received / total) * 75))
+      : Math.min(85, 10 + received * 2);
+    setProgressPercent(pct);
+    setDownloadProgress(total > 0
+      ? `Recebendo: ${received} / ${total} imagens`
+      : `Recebendo: ${received} imagem(ns)...`);
+  }, []);
+
+  const scheduleStreamingProgress = useCallback((received: number, total: number) => {
+    streamingProgressRef.current = { received, total };
+    if (streamingProgressTimerRef.current) return;
+    streamingProgressTimerRef.current = setTimeout(flushStreamingProgress, 150);
+  }, [flushStreamingProgress]);
 
   // ─── Anamnese ──────────────────────────────────────────────────────────────
   const [showAnamnesisPanel, setShowAnamnesisPanel] = useState(false);
@@ -380,8 +402,8 @@ export function DicomViewerPage() {
   }, [studyUid, ensureCornerstoneInit, setViewerPhase]);
 
   // ─── Adiciona imagens ao stack progressivamente (batch para evitar O(n²)) ─────────────
-  // BUG-1 FIX: agrupa imagens em janelas de 300ms e chama setStack uma única vez
-  // Em vez de 300 chamadas para TC com 300 imagens, haverá ~5 chamadas (~98% de redução)
+  // Agrupa imagens em janelas maiores para reduzir a reconstrução repetida da pilha
+  // durante a chegada de estudos grandes, sem atrasar a primeira imagem.
   const addImageToStack = useCallback((filename: string) => {
     const newId = `wadouri:${window.location.origin}/api/dicom-files/${studyUid}/${filename}`;
     // FIX P3: checagem O(1) via Set em vez de includes() O(n)
@@ -407,7 +429,7 @@ export function DicomViewerPage() {
         const currentIdx = vp.getCurrentImageIdIndex?.() ?? 0;
         await vp.setStack(updatedIds, currentIdx);
       } catch (_) {}
-    }, 300); // agrupa imagens recebidas em janelas de 300ms
+    }, 750);
   }, [studyUid]);
 
   // ─── Carrega metadados do primeiro arquivo ────────────────────────────────
@@ -484,6 +506,11 @@ export function DicomViewerPage() {
     setDownloadProgress("Conectando ao PACS...");
     imageIdsRef.current = [];
     imageIdsSetRef.current.clear(); // FIX P3: limpar Set ao reiniciar o viewer
+    streamingProgressRef.current = { received: 0, total: 0 };
+    if (streamingProgressTimerRef.current) {
+      clearTimeout(streamingProgressTimerRef.current);
+      streamingProgressTimerRef.current = null;
+    }
     setImageIds([]);
     setImageCount(0);
     cornerstoneInitRef.current = false;
@@ -538,24 +565,11 @@ export function DicomViewerPage() {
           localTotal = total;
           setTotalCount(total);
         }
-        setReceivedCount(localReceived);
-
-        const pct = localTotal > 0
-          ? Math.min(85, 10 + Math.round((localReceived / localTotal) * 75))
-          : Math.min(85, 10 + localReceived * 2);
-        setProgressPercent(pct);
-        setDownloadProgress(
-          localTotal > 0
-            ? `Recebendo: ${localReceived} / ${localTotal} imagens`
-            : `Recebendo: ${localReceived} imagem(ns)...`
-        );
+        scheduleStreamingProgress(localReceived, localTotal);
 
         if (!firstFileReceived) {
           firstFileReceived = true;
           firstImageRender = renderFirstImage(filename);
-          firstImageRender.then(() => {
-            loadMetadata();
-          });
         } else {
           addImageToStack(filename);
         }
@@ -576,6 +590,11 @@ export function DicomViewerPage() {
 
         setProgressPercent(100);
         setDownloadProgress(`${data.total} imagem(ns) carregada(s)`);
+        streamingProgressRef.current = { received: data.total, total: data.total };
+        if (streamingProgressTimerRef.current) {
+          clearTimeout(streamingProgressTimerRef.current);
+        }
+        flushStreamingProgress();
 
         setTimeout(async () => {
           try {
@@ -633,7 +652,7 @@ export function DicomViewerPage() {
       sse.close();
       sseRef.current = null;
     });
-  }, [studyUid, renderFirstImage, addImageToStack, loadMetadata, setViewerPhase]);
+  }, [studyUid, renderFirstImage, addImageToStack, scheduleStreamingProgress, flushStreamingProgress, setViewerPhase]);
   // BUG-4 FIX: removido `phase` das dependências — usar phaseRef.current dentro
   // do callback (já é uma ref e não causa recriação). A recriação por mudança de
   // phase causava closures stale nos event listeners do SSE durante o streaming.
@@ -679,6 +698,10 @@ export function DicomViewerPage() {
         clearTimeout(batchTimerRef.current);
         batchTimerRef.current = null;
       }
+      if (streamingProgressTimerRef.current) {
+        clearTimeout(streamingProgressTimerRef.current);
+        streamingProgressTimerRef.current = null;
+      }
       // BUG-3 FIX: cancelAnimationFrame em vez de clearInterval (cine migrou para RAF)
       if (cineIntervalRef.current !== null) {
         cancelAnimationFrame(cineIntervalRef.current);
@@ -687,12 +710,13 @@ export function DicomViewerPage() {
     };
   }, [studyUid]);
 
-  // ─── Carrega séries e anotações quando o viewer fica pronto ────────────────────────
+  // Séries completas só são lidas após o C-GET terminar. Ler cabeçalhos enquanto o
+  // PACS ainda grava milhares de arquivos disputa I/O e deixa o navegador travado.
   useEffect(() => {
-    if (phase === "ready") {
+    if (phase === "ready" && totalCount > 0 && imageCount >= totalCount) {
       loadSeries();
     }
-  }, [phase, loadSeries]);
+  }, [phase, totalCount, imageCount, loadSeries]);
 
   // ─── Restaura anotações salvas no Cornerstone ────────────────────────────────────
   useEffect(() => {

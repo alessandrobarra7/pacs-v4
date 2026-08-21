@@ -2338,10 +2338,24 @@
 - [x] Executar diagnóstico e backup consistente na VM2 antes da migração 0051.
 - [x] Aplicar e verificar a migração 0051 na VM2 antes de qualquer atualização da VM1.
 - [x] Atualizar a VM1 para o commit 0b495d7 somente após a confirmação da VM2.
-- [ ] Validar o serviço da VM1 e a composição de duas legendas em estudo controlado após a implantação.
+- [x] Validar serviço da VM1 após a implantação (commit dee1f65, PM2 online, HTTP local 200 e logs aprovados).
+- [ ] Validar a composição de duas legendas em estudo clínico controlado após a implantação.
 
 ## CORREÇÃO — INDICADOR VISUAL DE NOME DO PACIENTE
 
 - [x] Diagnosticar a divergência entre nomes padrão e nomes com aparência de edição na listagem PACS.
 - [x] Uniformizar cor, tipografia e ícone do nome do paciente conforme o estado real de correção persistida.
 - [x] Adicionar regressão de interface, validar no sandbox e versionar a correção antes de atualizar a VM1.
+
+## DIAGNÓSTICO — LENTIDÃO GERAL DO PORTAL EM PRODUÇÃO
+
+- [x] Coletar métricas somente leitura da VM1, PM2, Node, Nginx e latência HTTP durante a lentidão reportada.
+- [x] Correlacionar os sinais com conexões e espera do banco/PACS sem reiniciar ou alterar serviços.
+- [ ] Classificar a causa provável e propor a próxima ação segura com evidências.
+
+## OTIMIZAÇÃO — RENDERIZAÇÃO DE ESTUDOS DICOM GRANDES
+
+- [x] Mapear a preparação de imagens, cache, ordenação e abertura do visualizador após C-GET.
+- [x] Eliminar trabalho repetitivo e bloqueio do fluxo principal ao preparar estudos com muitas imagens.
+- [x] Implementar carregamento progressivo seguro, sem alterar arquivos DICOM, série clínica ou integrações externas.
+- [x] Criar regressões de desempenho, validar build e versionar a otimização antes de atualizar a VM1.

@@ -1121,8 +1121,8 @@ async function startServer() {
         const dcmFiles = orderedRecords.map(record => record.fileName);
         if (dcmFiles.length > 0) {
           sendEvent('status', { phase: 'cached', message: `Cache encontrado: ${dcmFiles.length} imagens`, total: dcmFiles.length, pacsAeTitle: unit.pacs_ae_title });
-          for (const f of dcmFiles) {
-            sendEvent('file', { filename: f, index: dcmFiles.indexOf(f) + 1, total: dcmFiles.length });
+          for (let index = 0; index < dcmFiles.length; index += 1) {
+            sendEvent('file', { filename: dcmFiles[index], index: index + 1, total: dcmFiles.length });
           }
           sendEvent('complete', { total: dcmFiles.length, fromCache: true });
           return res.end();
