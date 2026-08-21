@@ -2581,3 +2581,7 @@
 - [x] Substituir as regressões críticas de preços, trava de legenda e baixa operacional por testes comportamentais executáveis.
 - [x] Corrigir a documentação financeira que ainda descreve uma limitação já resolvida na apuração por médico.
 - [x] Produzir relatório de auditoria da baixa operacional do catálogo antes de qualquer atualização de produção.
+
+## FINANCEIRO V2 — VERIFICAÇÃO DE PUBLICAÇÃO REMOTA
+- [x] Confirmar o commit e os arquivos efetivamente visíveis na branch `main` do GitHub após o checkpoint auditado.
+- [x] Reconciliar e publicar a versão auditada porque a ponta remota não continha a baixa operacional nem a migração 0055; versão final em `c5c7b8f`.
