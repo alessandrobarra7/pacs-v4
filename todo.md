@@ -2585,3 +2585,9 @@
 ## FINANCEIRO V2 — VERIFICAÇÃO DE PUBLICAÇÃO REMOTA
 - [x] Confirmar o commit e os arquivos efetivamente visíveis na branch `main` do GitHub após o checkpoint auditado.
 - [x] Reconciliar e publicar a versão auditada porque a ponta remota não continha a baixa operacional nem a migração 0055; versão final em `c5c7b8f`.
+
+## FINANCEIRO V2 — IDENTIFICAÇÃO CLÍNICA NO CATÁLOGO
+- [x] Retornar nome do paciente e data do estudo para eventos de catálogo no drill-down financeiro, usando a seleção clínica e o cache do estudo.
+- [x] Conferir outras interfaces que listam eventos de catálogo para não manter linhas sem identificação clínica.
+- [x] Substituir conversões `as any` pela tipagem explícita de origem do evento nas interfaces financeiras.
+- [x] Cobrir a identificação do paciente no catálogo com teste comportamental e publicar auditoria da correção antes de produção.

@@ -11,6 +11,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
+type FinanceEventOrigin = "legacy" | "catalog";
+type FinanceEventRow = {
+  id: number | string;
+  patient_name: string | null;
+  modality_snapshot: string | null;
+  study_date: Date | string | null;
+  signed_at: Date | string | null;
+  doctor_amount_due: string | null;
+  doctor_received_at: Date | string | null;
+  source: FinanceEventOrigin;
+};
+
 export const MONTHS = [
   "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
   "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
@@ -73,14 +85,14 @@ export function LaudosModal({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/30">
-                {data.map((ev) => (
+                {(data as FinanceEventRow[]).map((ev) => (
                   <tr key={ev.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="px-6 py-3 text-white truncate max-w-[180px]">{ev.patient_name ?? "—"}<span className={`ml-1.5 text-[10px] font-semibold uppercase ${(ev as any).source === "catalog" ? "text-cyan-400" : "text-slate-500"}`}>{(ev as any).source === "catalog" ? "Catálogo" : "Legado"}</span></td>
+                    <td className="px-6 py-3 text-white truncate max-w-[180px]">{ev.patient_name ?? "—"}<span className={`ml-1.5 text-[10px] font-semibold uppercase ${ev.source === "catalog" ? "text-cyan-400" : "text-slate-500"}`}>{ev.source === "catalog" ? "Catálogo" : "Legado"}</span></td>
                     <td className="px-4 py-3 text-slate-400 text-xs">
-                      {(ev as any).modality_snapshot ?? "—"}
+                      {ev.modality_snapshot ?? "—"}
                     </td>
                     <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
-                      {fmtDate((ev as any).study_date ?? (ev as any).signed_at)}
+                      {fmtDate(ev.study_date ?? ev.signed_at)}
                     </td>
                     <td className="px-4 py-3 text-amber-400 text-right font-medium">
                       {ev.doctor_amount_due ? fmtBRL(Number(ev.doctor_amount_due)) : "—"}

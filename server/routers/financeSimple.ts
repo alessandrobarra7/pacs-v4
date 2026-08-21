@@ -29,6 +29,7 @@ import {
   billing_catalog_study_events,
   exam_legends,
   study_exam_legend_selections,
+  studies_cache,
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, ne, sql, sql as sqlFn, desc, inArray, gte, lte, or, SQL } from "drizzle-orm";
 import {
@@ -750,6 +751,8 @@ export const financeSimpleRouter = router({
         db
           .select({
             id: billing_catalog_study_events.id,
+            patient_name: studies_cache.patient_name,
+            study_date: studies_cache.study_date,
             modality_snapshot: billing_catalog_study_events.modality_snapshot,
             exam_name_snapshot: billing_catalog_study_events.exam_name_snapshot,
             system_amount_due: billing_catalog_study_events.system_amount_due,
@@ -759,6 +762,14 @@ export const financeSimpleRouter = router({
             signed_at: billing_catalog_study_events.signed_at,
           })
           .from(billing_catalog_study_events)
+          .innerJoin(study_exam_legend_selections, eq(
+            study_exam_legend_selections.id,
+            billing_catalog_study_events.study_selection_id,
+          ))
+          .leftJoin(studies_cache, and(
+            eq(studies_cache.study_instance_uid, study_exam_legend_selections.study_instance_uid),
+            eq(studies_cache.unit_id, billing_catalog_study_events.unit_id),
+          ))
           .where(and(
             eq(billing_catalog_study_events.unit_id, input.unit_id),
             eq(billing_catalog_study_events.doctor_user_id, input.doctor_user_id),
@@ -774,8 +785,6 @@ export const financeSimpleRouter = router({
           ...event,
           id: `catalog-${event.id}`,
           report_id: null,
-          patient_name: null,
-          study_date: null,
           source: "catalog" as const,
         })),
       ].sort((a, b) => new Date(b.signed_at ?? 0).getTime() - new Date(a.signed_at ?? 0).getTime());
@@ -1097,6 +1106,8 @@ export const financeSimpleRouter = router({
               id: billing_catalog_study_events.id,
               unit_id: billing_catalog_study_events.unit_id,
               unit_name: units.name,
+              patient_name: studies_cache.patient_name,
+              study_date: studies_cache.study_date,
               modality_snapshot: study_exam_legend_selections.modality_snapshot,
               exam_name_snapshot: billing_catalog_study_events.exam_name_snapshot,
               doctor_amount_due: billing_catalog_study_events.price_applied,
@@ -1110,6 +1121,10 @@ export const financeSimpleRouter = router({
             .innerJoin(study_exam_legend_selections, eq(
               study_exam_legend_selections.id,
               billing_catalog_study_events.study_selection_id,
+            ))
+            .leftJoin(studies_cache, and(
+              eq(studies_cache.study_instance_uid, study_exam_legend_selections.study_instance_uid),
+              eq(studies_cache.unit_id, billing_catalog_study_events.unit_id),
             ))
             .leftJoin(units, eq(units.id, billing_catalog_study_events.unit_id))
             .where(and(
@@ -1126,7 +1141,6 @@ export const financeSimpleRouter = router({
         ...catalogEventsPerUnit.flat().map((event) => ({
           ...event,
           id: `catalog-${event.id}`,
-          study_date: null,
           source: "catalog" as const,
         })),
       ].sort((a, b) =>
