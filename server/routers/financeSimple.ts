@@ -485,7 +485,8 @@ export const financeSimpleRouter = router({
       const perUnitRows = await Promise.all(
         unitsInScope.map(async (u) => {
           const { cycleStart, cycleEnd, label: cycle_label } = calcCycleDates(u.s, u.e, refDate);
-          const r = await db
+          const [legacyRows, catalogRows] = await Promise.all([
+            db
             .select({
               total_laudos: sql<number>`COALESCE(COUNT(${billing_visit_events.id}), 0)`,
               system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
@@ -501,14 +502,36 @@ export const financeSimpleRouter = router({
               sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
               sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
               ne(billing_visit_events.financial_status, 'cancelled'), // P8D
-            ));
+            )),
+            db
+              .select({
+                total_laudos: sql<number>`COALESCE(COUNT(${billing_catalog_study_events.id}), 0)`,
+                system_total: sql<number>`COALESCE(SUM(${billing_catalog_study_events.system_amount_due}), 0)`,
+                doctor_total: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
+                pending_count: sql<number>`COALESCE(COUNT(${billing_catalog_study_events.id}), 0)`,
+              })
+              .from(billing_catalog_study_events)
+              .where(and(
+                eq(billing_catalog_study_events.unit_id, u.id),
+                sql`${billing_catalog_study_events.signed_at} >= ${cycleStart}`,
+                sql`${billing_catalog_study_events.signed_at} < ${cycleEnd}`,
+              )),
+          ]);
+          const legacy = legacyRows[0];
+          const catalog = catalogRows[0];
           return {
             unit_id: u.id,
             unit_name: u.name ?? "Unidade",
             cycle_label,
             cycle_start_date: cycleStart.toISOString(),
             cycle_end_date: cycleEnd.toISOString(),
-            ...r[0],
+            total_laudos: Number(legacy?.total_laudos ?? 0) + Number(catalog?.total_laudos ?? 0),
+            system_total: toMoney(legacy?.system_total) + toMoney(catalog?.system_total),
+            doctor_total: toMoney(legacy?.doctor_total) + toMoney(catalog?.doctor_total),
+            system_paid: legacy?.system_paid ?? 0,
+            doctor_paid: legacy?.doctor_paid ?? 0,
+            system_pending_count: Number(legacy?.system_pending_count ?? 0) + Number(catalog?.pending_count ?? 0),
+            doctor_pending_count: Number(legacy?.doctor_pending_count ?? 0) + Number(catalog?.pending_count ?? 0),
           };
         })
       );
@@ -554,7 +577,8 @@ export const financeSimpleRouter = router({
       const { cycleStart: startDate, cycleEnd: endDate, label: cycle_label } =
         calcCycleDates(unitRow[0]?.s, unitRow[0]?.e, refDate);
 
-      const rows = await db
+      const [legacyRows, catalogRows] = await Promise.all([
+        db
         .select({
           doctor_user_id: billing_visit_events.doctor_user_id,
           doctor_name: users.name,
@@ -575,7 +599,60 @@ export const financeSimpleRouter = router({
           )
         )
         .groupBy(billing_visit_events.doctor_user_id, users.name)
-        .orderBy(users.name);
+        .orderBy(users.name),
+        db
+          .select({
+            doctor_user_id: billing_catalog_study_events.doctor_user_id,
+            doctor_name: users.name,
+            total_laudos: sql<number>`COUNT(*)`,
+            doctor_total: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
+          })
+          .from(billing_catalog_study_events)
+          .leftJoin(users, eq(users.id, billing_catalog_study_events.doctor_user_id))
+          .where(and(
+            eq(billing_catalog_study_events.unit_id, input.unit_id),
+            sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
+            sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
+          ))
+          .groupBy(billing_catalog_study_events.doctor_user_id, users.name)
+          .orderBy(users.name),
+      ]);
+      const summaryByDoctor = new Map<number, {
+        doctor_user_id: number;
+        doctor_name: string;
+        total_laudos: number;
+        doctor_total: number;
+        doctor_paid: number;
+        doctor_pending_count: number;
+        last_received_at: Date | null;
+      }>();
+      for (const row of legacyRows) {
+        if (row.doctor_user_id === null) continue;
+        summaryByDoctor.set(row.doctor_user_id, {
+          doctor_user_id: row.doctor_user_id,
+          doctor_name: row.doctor_name ?? "Médico",
+          total_laudos: Number(row.total_laudos),
+          doctor_total: toMoney(row.doctor_total),
+          doctor_paid: toMoney(row.doctor_paid),
+          doctor_pending_count: Number(row.doctor_pending_count),
+          last_received_at: row.last_received_at,
+        });
+      }
+      for (const row of catalogRows) {
+        if (row.doctor_user_id === null) continue;
+        const current = summaryByDoctor.get(row.doctor_user_id);
+        summaryByDoctor.set(row.doctor_user_id, {
+          doctor_user_id: row.doctor_user_id,
+          doctor_name: current?.doctor_name ?? row.doctor_name ?? "Médico",
+          total_laudos: (current?.total_laudos ?? 0) + Number(row.total_laudos),
+          doctor_total: (current?.doctor_total ?? 0) + toMoney(row.doctor_total),
+          doctor_paid: current?.doctor_paid ?? 0,
+          doctor_pending_count: (current?.doctor_pending_count ?? 0) + Number(row.total_laudos),
+          last_received_at: current?.last_received_at ?? null,
+        });
+      }
+      const rows = Array.from(summaryByDoctor.values())
+        .sort((a, b) => a.doctor_name.localeCompare(b.doctor_name, "pt-BR"));
 
       // Buscar preços configurados para cada médico nesta unidade
       const doctorIds = rows.map((r) => r.doctor_user_id).filter((id): id is number => id !== null);
@@ -605,7 +682,7 @@ export const financeSimpleRouter = router({
 
       return rows.map((r) => ({
         doctor_user_id: r.doctor_user_id,
-        doctor_name: r.doctor_name ?? "Médico",
+        doctor_name: r.doctor_name,
         total_laudos: Number(r.total_laudos),
         doctor_total: toMoney(r.doctor_total),
         doctor_paid: toMoney(r.doctor_paid),

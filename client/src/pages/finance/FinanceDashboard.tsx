@@ -62,7 +62,7 @@ function UnitCatalogCard({ unit, onOpen }: { unit: UnitSummary; onOpen: () => vo
   const { data: prices } = trpc.financeSimple.getUnitDefaultPrices.useQuery({ unit_id: unit.unit_id });
   const eventCount = Number(unit.total_laudos ?? 0);
   const systemRate = asMoney(prices?.default_system_price);
-  const systemCycleTotal = systemRate * eventCount;
+  const systemCycleTotal = asMoney(unit.system_total);
   return (
     <article className="group flex min-h-[218px] flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-cyan-300 hover:shadow-md">
       <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2"><Building2 className="h-4 w-4 shrink-0 text-cyan-700" /><h2 className="truncate text-sm font-bold uppercase tracking-tight text-slate-900">{unit.unit_name}</h2></div><p className="mt-1 text-xs text-slate-500">{unit.cycle_label}</p></div><span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">Ativa</span></div>
@@ -146,7 +146,7 @@ function UnitFinancialDetail({ unit, year, month, onBack }: { unit: UnitSummary;
   const { data: readiness } = trpc.financeSimple.unitFinancialReadiness.useQuery({ unit_id: unit.unit_id });
   const isAdminMaster = user?.role === "admin_master";
   const canManagePrices = isAdminMaster || user?.role === "responsavel_financeiro";
-  const systemCycleTotal = asMoney(defaultPrices?.default_system_price) * Number(unit.total_laudos ?? 0);
+  const systemCycleTotal = asMoney(unit.system_total);
   const fallbacks = new Map(unitModalityPrices.map((price) => [price.modality, Number(price.price_per_event ?? 0)]));
   const doctorById = new Map(doctors.filter((doctor) => doctor.doctor_user_id != null).map((doctor) => [doctor.doctor_user_id as number, doctor]));
   const rows = linkedDoctors.length ? linkedDoctors.map((doctor: any) => ({ id: doctor.doctor_user_id ?? doctor.id, name: doctor.doctor_name ?? doctor.name ?? "Médico", summary: doctorById.get(doctor.doctor_user_id ?? doctor.id) })) : doctors.map((doctor) => ({ id: doctor.doctor_user_id ?? 0, name: doctor.doctor_name ?? "Médico", summary: doctor }));

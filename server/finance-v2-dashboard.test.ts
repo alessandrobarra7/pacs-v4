@@ -57,4 +57,11 @@ describe("Financeiro v2 visual", () => {
     expect(financeRouter).toContain('if (startsAt.getTime() < currentCycle.endDate.getTime()) startsAt = currentCycle.endDate');
     expect(financeRouter).toContain('ends_at: new Date(now.getTime() - 1000)');
   });
+
+  it("inclui eventos de catálogo nas métricas da unidade e usa o total auditável do sistema", () => {
+    expect(financeRouter).toContain('const [legacyRows, catalogRows] = await Promise.all([');
+    expect(financeRouter).toContain('billing_catalog_study_events.system_amount_due');
+    expect(financeRouter).toContain('billing_catalog_study_events.price_applied');
+    expect(dashboard).toContain('const systemCycleTotal = asMoney(unit.system_total);');
+  });
 });

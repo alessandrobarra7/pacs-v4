@@ -1034,8 +1034,15 @@ export const billing_catalog_study_events = mysqlTable("billing_catalog_study_ev
   doctor_user_id: int("doctor_user_id").notNull(),
   exam_legend_id: int("exam_legend_id").notNull(),
   exam_name_snapshot: varchar("exam_name_snapshot", { length: 255 }).notNull(),
+  /** Modalidade da seleção no instante da criação — base da precificação auditável. */
+  modality_snapshot: varchar("modality_snapshot", { length: 20 }).notNull().default(""),
+  /** Valor médico aplicado: individual por modalidade ou fallback vigente da unidade. */
   price_applied: decimal("price_applied", { precision: 10, scale: 2 }),
-  pricing_status: mysqlEnum("pricing_status", ["ok", "pending_doctor_price"]).notNull().default("pending_doctor_price"),
+  doctor_price_source: varchar("doctor_price_source", { length: 40 }),
+  /** Taxa LAUDS vigente no instante da assinatura. */
+  system_price_applied: decimal("system_price_applied", { precision: 10, scale: 2 }),
+  system_amount_due: decimal("system_amount_due", { precision: 10, scale: 2 }),
+  pricing_status: mysqlEnum("pricing_status", ["ok", "pending_system_price", "pending_doctor_price", "pending_both"]).notNull().default("pending_both"),
   signed_at: timestamp("signed_at").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

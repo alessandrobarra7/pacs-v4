@@ -2526,3 +2526,48 @@
 - [x] Apontar o botão Financeiro para /financeiro/dashboard como entrada explícita do catálogo de unidades.
 - [x] Criar a rota /financeiro/dashboard/:unitSlug para abrir diretamente o detalhe financeiro da unidade escolhida.
 - [x] Validar URLs diretas, navegação de retorno e build antes de prosseguir com outras modificações do Financeiro v2.
+
+## FINANCEIRO V2 — DETALHE DA UNIDADE REVISADO
+- [x] Retirar do detalhe a referência a mês específico, margem atual, soma individual por médico e total de repasses médicos.
+- [x] Manter taxa LAUDS por evento com vigência de ciclo, eventos do ciclo e soma para o sistema em posição de destaque.
+- [x] Substituir preço da unidade por valor vigente por modalidade, iniciado em zero e editável como padrão para médicos sem preço individual.
+- [x] Redesenhar a tabela de médicos com edição direta por modalidade e métrica de total no ciclo por linha.
+- [x] Gerar propostas visuais revisadas antes de alterar a tela do sandbox.
+
+## FINANCEIRO V2 — CONFIGURAÇÃO VIGENTE POR UNIDADE
+- [x] Persistir taxa LAUDS por evento com início, término, status de ciclo e autoria auditável.
+- [x] Persistir valores padrão da unidade por modalidade, aplicáveis aos médicos sem valor individual, dentro da vigência do ciclo.
+- [x] Persistir valores individuais de médicos por modalidade, vinculados à unidade e à vigência ativa.
+- [ ] Criar modais para iniciar ciclo, encerrar ciclo e publicar uma nova configuração, sem sobrescrever valores vigentes.
+- [x] Aplicar a tela aprovada, com métricas do ciclo e edição em lote no sandbox.
+- [x] Criar migração aditiva, testes de autorização e validação completa antes de qualquer publicação externa.
+
+## FINANCEIRO V2 — MODAIS E VIGÊNCIA AUDITÁVEL
+- [ ] Criar os modais de iniciar ciclo, encerrar ciclo e publicar nova configuração, com confirmação explícita das datas e do impacto nos preços.
+- [ ] Bloquear alterações de taxa LAUDS, valores padrão e preços individuais quando houver ciclo financeiro aberto para a unidade.
+- [x] Registrar cada configuração por unidade, modalidade, médico, início de vigência, término e autoria, sem atualizações destrutivas.
+- [ ] Calcular no painel apenas métricas derivadas dos fatos geradores do ciclo e das vigências publicadas.
+- [x] Corrigir a edição direta de preço individual para publicar a alteração no próximo ciclo, evitando rejeição de valores já vigentes.
+
+## FINANCEIRO V2 — ATUALIZAÇÃO CONTROLADA DO AMBIENTE REAL
+- [x] Executar backup lógico e aplicar a migração aditiva 0053 na VM2, verificando a nova tabela e preservando todos os dados existentes.
+- [x] Validar o commit 39df0a5 em worktree isolada e atualizar a VM1 com build completo e reinicialização controlada do PM2.
+- [x] Confirmar saúde HTTP e PM2 após a atualização real; a verificação funcional autenticada permanece como validação operacional recomendada.
+- [x] Reexecutar a pré-verificação da VM2 com a correção de aspas no comando de consulta ao MySQL.
+- [x] Identificar o diretório ativo do portal na VM1 e corrigir o comando de atualização sem alterar a aplicação em execução.
+- [x] Repetir a validação isolada carregando somente no processo de teste as variáveis locais exigidas pela infraestrutura VM3 e pelos testes de autorização; a credencial MinIO rotacionada manteve um teste legado incompatível.
+- [x] Repetir a validação da VM1 com TypeScript, regressão específica do Financeiro v2 e build completo, registrando as três falhas globais externas à alteração publicada.
+
+## FINANCEIRO V2 — DIAGNÓSTICO PÓS-ASSINATURA
+- [x] Coletar logs somente leitura do portal após assinaturas recentes e identificar mensagens do fluxo de eventos financeiros.
+- [x] Conferir no banco o vínculo entre relatórios assinados, seleções de legenda e eventos financeiros, sem reprocessar dados.
+- [x] Documentar a causa confirmada e propor correção segura antes de qualquer alteração em produção.
+- [x] Adaptar as consultas do Financeiro v2 para contabilizar os eventos consolidados em `billing_catalog_study_events`, sem reprocessar os registros nem duplicar eventos legados.
+
+## FINANCEIRO V2 — CONSOLIDAÇÃO DE EVENTOS DE CATÁLOGO
+- [x] Substituir no novo fluxo a precificação por legenda pelo preço individual vigente por modalidade, com fallback no valor vigente da unidade.
+- [x] Registrar no evento de catálogo o preço efetivamente aplicado, a fonte do preço e a modalidade para auditoria.
+- [x] Fazer o dashboard contabilizar eventos de catálogo e legados sem soma duplicada, com cálculo consistente de eventos, total do sistema e total médico.
+- [x] Produzir relatório de auditoria da transição entre eventos legados e de catálogo, incluindo os limites para eventos históricos já criados.
+- [x] Cobrir a consolidação com testes de preço individual, fallback da unidade, ausência de preço e métricas de painel.
+- [x] Corrigir a aplicação aditiva da migração 0054 e os diagnósticos TypeScript surgidos durante a integração.
