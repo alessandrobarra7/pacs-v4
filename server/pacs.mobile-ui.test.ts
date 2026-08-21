@@ -132,6 +132,13 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(viewerSource).toContain("handleMobileVoiceReport");
     expect(viewerSource).toContain("Mobile: a anamnese ocupa a faixa superior e a única navegação fica à direita.");
     expect(viewerSource).toContain('aria-label="Navegar entre imagens pela lateral direita"');
+    expect(viewerSource).toContain("Ferramentas clínicas no rodapé mobile");
+    expect(viewerSource).toContain('aria-label="Contraste e brilho"');
+    expect(viewerSource).toContain('aria-label="Medir distância"');
+    expect(viewerSource).toContain('aria-label="Aumentar zoom"');
+    expect(viewerSource).toContain('aria-label="Resetar visualização"');
+    expect(viewerSource).toContain('pointer-events-none absolute left-3 right-12 top-3');
+    expect(viewerSource).not.toContain('rounded-lg border border-emerald-400/30 bg-slate-950/90');
     expect(viewerSource).not.toContain("Anamnese compacta no rodapé mobile");
     expect(viewerSource).not.toContain("Navegação mobile entre imagens");
     expect(viewerSource).toContain('h-[100dvh] flex-col overflow-hidden');

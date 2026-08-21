@@ -2388,3 +2388,10 @@
 - [x] Substituir a instrução de rolagem pelo resumo de anamnese, preservando o acesso clínico e evitando espaço excedente.
 - [x] Ajustar o enquadramento da imagem móvel para composição horizontal lateral, sem centralização artificial e sem cortar conteúdo diagnóstico.
 - [x] Criar regressões móveis, validar build e versionar antes de atualizar a VM1.
+
+## AJUSTE MÓVEL — FERRAMENTAS E ANAMNESE NO VISUALIZADOR
+
+- [x] Auditar as ferramentas existentes de contraste, zoom, pan, medida e manipulação para reaproveitá-las no rodapé móvel.
+- [x] Criar um rodapé móvel compacto e acessível com as ferramentas clínicas, sem recuperar rolagem vertical da página.
+- [x] Remover caixa, borda e fundo da anamnese móvel, preservando apenas ícone e texto legíveis sobre o canvas.
+- [x] Criar regressões, validar build e versionar a atualização antes de atualizar a VM1.

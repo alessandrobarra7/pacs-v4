@@ -1739,11 +1739,11 @@ export function DicomViewerPage() {
 
           {/* Mobile: a anamnese ocupa a faixa superior e a única navegação fica à direita. */}
           {cornerstoneReady && (
-            <div className="absolute left-2 right-12 top-2 z-10 flex items-center gap-2 rounded-lg border border-emerald-400/30 bg-slate-950/90 px-2.5 py-1.5 text-left shadow-lg backdrop-blur-sm md:hidden">
-              <ClipboardList className="h-4 w-4 shrink-0 text-emerald-400" />
+            <div className="pointer-events-none absolute left-3 right-12 top-3 z-10 flex items-start gap-2 text-left md:hidden">
+              <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-white" />
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-400">Anamnese</p>
-                <p className="truncate text-[11px] leading-tight text-slate-200">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-white">Anamnese</p>
+                <p className="line-clamp-2 text-[11px] leading-tight text-white/85">
                   {anamnesisQuery.isLoading
                     ? "Carregando anamnese..."
                     : anamnesisQuery.data?.manual_text || "Nenhuma anamnese registrada para este estudo."}
@@ -1843,6 +1843,70 @@ export function DicomViewerPage() {
             </button>
           </div>
         )}
+      </div>
+
+      {/* ── Ferramentas clínicas no rodapé mobile ───────────────────────────── */}
+      <div className="flex md:hidden flex-shrink-0 items-center justify-around border-t border-slate-700 bg-slate-900 px-2 py-1.5">
+        <button
+          type="button"
+          onClick={() => switchTool("WindowLevel")}
+          disabled={!cornerstoneReady}
+          className={`inline-flex h-9 w-10 items-center justify-center rounded-lg transition-colors disabled:opacity-30 ${activeTool === "WindowLevel" ? "bg-blue-600 text-white" : "text-slate-200 hover:bg-slate-800"}`}
+          title="Contraste e brilho"
+          aria-label="Contraste e brilho"
+        >
+          <SunMedium className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => switchTool("Zoom")}
+          disabled={!cornerstoneReady}
+          className={`inline-flex h-9 w-10 items-center justify-center rounded-lg transition-colors disabled:opacity-30 ${activeTool === "Zoom" ? "bg-blue-600 text-white" : "text-slate-200 hover:bg-slate-800"}`}
+          title="Ampliar e reduzir"
+          aria-label="Ampliar e reduzir"
+        >
+          <ZoomIn className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => switchTool("Pan")}
+          disabled={!cornerstoneReady}
+          className={`inline-flex h-9 w-10 items-center justify-center rounded-lg transition-colors disabled:opacity-30 ${activeTool === "Pan" ? "bg-blue-600 text-white" : "text-slate-200 hover:bg-slate-800"}`}
+          title="Mover imagem"
+          aria-label="Mover imagem"
+        >
+          <Move className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => switchTool("Length")}
+          disabled={!cornerstoneReady}
+          className={`inline-flex h-9 w-10 items-center justify-center rounded-lg transition-colors disabled:opacity-30 ${activeTool === "Length" ? "bg-blue-600 text-white" : "text-slate-200 hover:bg-slate-800"}`}
+          title="Medir distância"
+          aria-label="Medir distância"
+        >
+          <Ruler className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={handleZoomIn}
+          disabled={!cornerstoneReady}
+          className="inline-flex h-9 w-10 items-center justify-center rounded-lg text-slate-200 transition-colors hover:bg-slate-800 disabled:opacity-30"
+          title="Aumentar zoom"
+          aria-label="Aumentar zoom"
+        >
+          <ZoomIn className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={handleReset}
+          disabled={!cornerstoneReady}
+          className="inline-flex h-9 w-10 items-center justify-center rounded-lg text-slate-200 transition-colors hover:bg-slate-800 disabled:opacity-30"
+          title="Resetar visualização"
+          aria-label="Resetar visualização"
+        >
+          <RefreshCw className="h-5 w-5" />
+        </button>
       </div>
 
       {/* ── Faixa de miniaturas de séries ──────────────────────────────────────────────────────── */}
