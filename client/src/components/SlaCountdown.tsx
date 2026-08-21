@@ -14,7 +14,7 @@
  *  - vencido: ponto vermelho + tempo negativo
  *  - laudado no prazo: ponto azul + "✓"
  *  - laudado atrasado: ponto laranja + atraso
- *  - sem_sla configurado: ponto cinza
+ *  - sem_sla configurado: ponto cinza + estado pronto para laudar
  */
 import { useEffect, useState } from "react";
 
@@ -70,7 +70,14 @@ export default function SlaCountdown({ readiness, hasAnamnesis, compact = true }
 
   // Tem anamnese mas sem SLA configurado na unidade
   if (!readiness && hasAnamnesis) {
-    if (compact) return null; // na lista não mostrar nada
+    if (compact) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600" title="Anamnese confirmada — pronto para laudar; sem prazo de SLA registrado">
+          <Dot color="bg-emerald-500" />
+          <span>Pronto</span>
+        </span>
+      );
+    }
     return (
       <span className="inline-flex items-center gap-1 text-xs text-gray-400">
         <Dot color="bg-gray-300" />
@@ -135,7 +142,14 @@ export default function SlaCountdown({ readiness, hasAnamnesis, compact = true }
 
   // ── Pronto para laudo sem SLA (sem due_at) ─────────────────────────────────
   if (!readiness.due_at) {
-    if (compact) return null; // sem SLA, não poluir a lista
+    if (compact) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600" title="Anamnese confirmada — pronto para laudar; sem prazo histórico de SLA">
+          <Dot color="bg-emerald-500" />
+          <span>Pronto</span>
+        </span>
+      );
+    }
     return (
       <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
         <Dot color="bg-emerald-500" />

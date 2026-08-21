@@ -2322,6 +2322,14 @@
 - [x] Retornar o sandbox ao checkpoint estável anterior ao protótipo, preservando VM1 e VM2 sem alterações.
 - [ ] Retomar o redesenho somente após aprovação visual prévia de um mapa anatômico funcional, antes de qualquer integração clínica.
 
+## CORREÇÃO — SLA CLÍNICO APÓS ANAMNESE
+
+- [x] Mapear a regra existente: o prazo é exclusivo da configuração de SLA da unidade; Urgência e Prioridade máxima são apenas sinalizações clínicas e não alteram a contagem.
+- [x] Confirmar na VM2 que a anamnese válida inicia e persiste o SLA conforme a configuração vigente da unidade, sem alterar o questionário existente.
+- [x] Reposicionar o indicador de SLA para ficar ao lado da prioridade clínica, preservando o mesmo prazo da unidade e exibindo estado vencido inequívoco.
+- [x] Exibir um estado clínico discreto de pronto para laudar ao lado da prioridade quando houver anamnese sem prazo histórico de SLA.
+- [x] Cobrir o cálculo, a autorização e a interface com regressões antes de atualizar a VM1.
+
 ## AUDITORIA V11 — DIVERGÊNCIAS CLÍNICO-FINANCEIRAS
 
 - [x] Impedir que o reprocessamento financeiro legado crie cobrança duplicada para estudos já cobertos pelo catálogo clínico-financeiro.

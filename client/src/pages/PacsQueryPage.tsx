@@ -1,4 +1,5 @@
 import { Fragment, useState, useEffect, useMemo, useRef } from "react";
+import type { ReactNode } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Search, Eye, FileText, Printer, Paperclip,
@@ -216,6 +217,7 @@ function StudyPriorityControls({
   canMark,
   isSaving,
   onSelect,
+  indicator,
 }: {
   priority?: StudyPriorityValue;
   markedByUserId?: number;
@@ -224,6 +226,7 @@ function StudyPriorityControls({
   canMark: boolean;
   isSaving: boolean;
   onSelect: (priority: StudyPriorityValue) => void;
+  indicator?: ReactNode;
 }) {
   const isOwnPriority = !priority || markedByUserId === currentUserId;
   const urgencyActive = priority === "urgencia";
@@ -231,11 +234,16 @@ function StudyPriorityControls({
 
   return (
     <div className="mt-1.5 flex flex-col items-center gap-1" onClick={(event) => event.stopPropagation()}>
-      {priority && (
-        <span title={markedByName ? `Sinalizado por ${markedByName}` : undefined} className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase leading-none ${urgencyActive ? "border-red-200 bg-red-50 text-red-700" : "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"}`}>
-          {urgencyActive ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <Siren className="h-3 w-3 shrink-0" />}
-          {urgencyActive ? "Urgência" : "Prioridade máxima"}
-        </span>
+      {(priority || indicator) && (
+        <div className="flex max-w-full flex-wrap items-center justify-center gap-1">
+          {priority && (
+            <span title={markedByName ? `Sinalizado por ${markedByName}` : undefined} className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase leading-none ${urgencyActive ? "border-red-200 bg-red-50 text-red-700" : "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"}`}>
+              {urgencyActive ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <Siren className="h-3 w-3 shrink-0" />}
+              {urgencyActive ? "Urgência" : "Prioridade máxima"}
+            </span>
+          )}
+          {indicator}
+        </div>
       )}
       {!priority && !canMark && (
         <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-semibold uppercase leading-none text-slate-500">
@@ -2054,6 +2062,7 @@ setSelectedStudy(study);
                 const { cls: statusCls } = statusConfig[status] || { cls: 'bg-gray-100 text-gray-600 border-gray-300' };
                 const hasAnamnesis = !!anamnesisStatusMap[study.studyInstanceUid];
                 const studyPriority = priorityByStudyUid.get(study.studyInstanceUid);
+                const slaReadiness = slaReadinessMap[study.studyInstanceUid];
                 const desktopPreDownload = preDownloadMap[study.studyInstanceUid];
                 const isDesktopDownloadActive = desktopPreDownload?.phase === 'connecting' || desktopPreDownload?.phase === 'downloading';
                 const desktopDownloadPercent = desktopPreDownload?.total
@@ -2090,7 +2099,7 @@ setSelectedStudy(study);
                           </button>
                         )}
                       </div>
-                      {(sex || studyPriority) && (
+                      {(sex || studyPriority || hasAnamnesis || slaReadiness) && (
                         <div className="mt-0.5 flex items-center gap-2">
                           {sex && <span className="text-xs text-gray-400">{sex}</span>}
                           {studyPriority && (
@@ -2102,6 +2111,11 @@ setSelectedStudy(study);
                               {studyPriority.priority === "urgencia" ? "Urgência" : "Prioridade máxima"}
                             </span>
                           )}
+                          <SlaCountdown
+                            readiness={slaReadiness}
+                            hasAnamnesis={hasAnamnesis}
+                            compact={true}
+                          />
                         </div>
                       )}
                       {meta?.notes && (
@@ -2273,18 +2287,13 @@ setSelectedStudy(study);
                         <span className="text-gray-300">—</span>
                       )}
                     </td>
-                    {/* Status & SLA */}
+                    {/* Status do laudo */}
                     <td className="px-4 py-3 text-center">
-                      <div className="flex flex-col items-center gap-1">
+                      <div className="flex flex-col items-center">
                         <span className={`text-xs font-medium px-2.5 py-1 rounded-full border whitespace-nowrap inline-flex items-center gap-1 ${statusCls}`}>
                           {status === 'Revisado' && <span title="Laudo retificado">&#9888;</span>}
                           {status}
                         </span>
-                        <SlaCountdown
-                          readiness={slaReadinessMap[study.studyInstanceUid]}
-                          hasAnamnesis={hasAnamnesis}
-                          compact={true}
-                        />
                       </div>
                     </td>
                   </tr>
@@ -2344,6 +2353,7 @@ setSelectedStudy(study);
                   : 'bg-gray-50 text-gray-500 border-gray-200';
                 const hasAnamnesis = !!anamnesisStatusMap[study.studyInstanceUid];
                 const studyPriority = priorityByStudyUid.get(study.studyInstanceUid);
+                const slaReadiness = slaReadinessMap[study.studyInstanceUid];
                 const mobilePreDownload = preDownloadMap[study.studyInstanceUid];
                 const isMobileDownloadActive = mobilePreDownload?.phase === 'connecting' || mobilePreDownload?.phase === 'downloading';
                 const mobileDownloadPercent = mobilePreDownload?.total
@@ -2533,11 +2543,6 @@ setSelectedStudy(study);
                         <span className={`inline-flex max-w-[92px] shrink-0 items-center rounded-full border px-2 py-1 text-[10px] font-medium leading-none ${mobileStatusCls}`}>
                           {status}
                         </span>
-                        <SlaCountdown
-                          readiness={slaReadinessMap[study.studyInstanceUid]}
-                          hasAnamnesis={hasAnamnesis}
-                          compact={true}
-                        />
                         <StudyPriorityControls
                           priority={studyPriority?.priority as StudyPriorityValue | undefined}
                           markedByUserId={studyPriority?.marked_by_user_id}
@@ -2545,6 +2550,13 @@ setSelectedStudy(study);
                           currentUserId={user?.id}
                           canMark={canMarkStudyPriority}
                           isSaving={setStudyPriority.isPending}
+                          indicator={
+                            <SlaCountdown
+                              readiness={slaReadiness}
+                              hasAnamnesis={hasAnamnesis}
+                              compact={true}
+                            />
+                          }
                           onSelect={(priority) => setStudyPriority.mutate({
                             studyInstanceUid: study.studyInstanceUid,
                             unit_id: effectiveUnitId || undefined,
