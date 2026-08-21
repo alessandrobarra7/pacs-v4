@@ -2316,6 +2316,12 @@
 
 - [x] Reorganizar a página de login móvel para eliminar a sobreposição entre marca, formulário, suporte e créditos.
 
+## SUSPENSÃO — PROTÓTIPO DE ANAMNESE E MAPA ANATÔMICO
+
+- [x] Suspender a implantação da migração 0052 e da anamnese estruturada experimental, pois o mapa corporal não atingiu o padrão visual solicitado.
+- [x] Retornar o sandbox ao checkpoint estável anterior ao protótipo, preservando VM1 e VM2 sem alterações.
+- [ ] Retomar o redesenho somente após aprovação visual prévia de um mapa anatômico funcional, antes de qualquer integração clínica.
+
 ## AUDITORIA V11 — DIVERGÊNCIAS CLÍNICO-FINANCEIRAS
 
 - [x] Impedir que o reprocessamento financeiro legado crie cobrança duplicada para estudos já cobertos pelo catálogo clínico-financeiro.
