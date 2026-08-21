@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
 import {
   Search, Eye, FileText, Printer, Paperclip,
   Clipboard, Settings, DollarSign,
-  ChevronLeft, ChevronRight, Clock, Pencil, Check, X,
+  ChevronLeft, ChevronRight, ChevronDown, Clock, Pencil, Check, X,
   Download, Loader2, CalendarDays, Mic, Volume2, AlertTriangle, Siren, CircleDotDashed,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
@@ -189,7 +189,7 @@ function FinancialSummaryLine({ tone, firstLabel, firstValue, secondLabel, secon
   const labelColor = tone === 'blue' ? 'text-blue-700' : 'text-emerald-700';
   return (
     <section className={`border-b ${palette}`}>
-      <div className="grid h-10 grid-cols-3 divide-x divide-current/15 px-1 sm:px-4 md:h-7 md:w-[395px] md:px-0">
+      <div className="grid h-5 grid-cols-3 divide-x divide-current/15 px-1 sm:px-4 md:h-7 md:w-[395px] md:px-0">
         <FinancialSummaryValue label={firstLabel} value={firstValue} labelColor={labelColor} />
         <FinancialSummaryValue label={secondLabel} value={secondValue} labelColor={labelColor} />
         <FinancialSummaryValue label={thirdLabel} value={thirdValue} labelColor={labelColor} />
@@ -201,8 +201,8 @@ function FinancialSummaryLine({ tone, firstLabel, firstValue, secondLabel, secon
 function FinancialSummaryValue({ label, value, labelColor }: { label: string; value: string; labelColor: string }) {
   return (
     <div className="flex min-w-0 items-center justify-center gap-1 px-1 text-center first:pl-0 last:pr-0">
-      <span className={`truncate text-[9px] font-semibold uppercase leading-none tracking-[0.02em] md:text-[8px] ${labelColor}`} title={label}>{label}:</span>
-      <span className="truncate text-[12px] font-bold leading-none tracking-tight md:text-[10px]">{value}</span>
+      <span className={`truncate text-[8px] font-semibold uppercase leading-none tracking-[0.02em] md:text-[8px] ${labelColor}`} title={label}>{label}:</span>
+      <span className="truncate text-[11px] font-bold leading-none tracking-tight md:text-[10px]">{value}</span>
     </div>
   );
 }
@@ -1828,6 +1828,23 @@ setSelectedStudy(study);
           )
         }
         mobileUnitLabel={unitName}
+        mobileUnitSlot={
+          canSelectUnit && allUnits.length > 1 ? (
+            <div className="flex min-w-0 items-center justify-end gap-1">
+              <select
+                value={selectedUnitId || ''}
+                onChange={(e) => handleSelectUnit(Number(e.target.value))}
+                className="h-6 min-w-0 flex-1 appearance-none bg-transparent px-0 text-right text-[13px] font-semibold text-white/90 drop-shadow focus:outline-none"
+                aria-label="Trocar unidade de atendimento"
+              >
+                {allUnits.map((u) => (
+                  <option key={u.id} value={u.id} style={{ color: '#000' }}>{u.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-white/75" aria-hidden="true" />
+            </div>
+          ) : undefined
+        }
         nav={
           <>
             <button className="px-4 py-1.5 rounded text-sm font-semibold bg-amber-700 text-white">

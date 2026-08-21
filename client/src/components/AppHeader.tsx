@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { LogOut, Menu, X } from "lucide-react";
+import { ChevronDown, LogOut, Menu, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCallback, useState } from "react";
 
@@ -18,9 +18,11 @@ interface AppHeaderProps {
   unitSlot?: React.ReactNode;
   /** Texto simplificado da unidade exibido no cabeçalho móvel */
   mobileUnitLabel?: string;
+  /** Seletor de unidade exibido no cabeçalho móvel para usuários multiunidade */
+  mobileUnitSlot?: React.ReactNode;
 }
 
-export function AppHeader({ nav, rightSlot, unitSlot, mobileUnitLabel }: AppHeaderProps) {
+export function AppHeader({ nav, rightSlot, unitSlot, mobileUnitLabel, mobileUnitSlot }: AppHeaderProps) {
   const [, navigate] = useLocation();
   const { data: user } = trpc.auth.me.useQuery();
   const utils = trpc.useUtils();
@@ -121,9 +123,13 @@ export function AppHeader({ nav, rightSlot, unitSlot, mobileUnitLabel }: AppHead
           <span className="w-[34%] shrink-0 truncate text-sm font-semibold text-white/65 drop-shadow">
             {user?.name || "Usuário"}
           </span>
-          <span className="min-w-0 flex-1 truncate text-left text-[13px] font-semibold text-white/75 drop-shadow">
-            {mobileUnitLabel || "Unidade Local"}
-          </span>
+          {mobileUnitSlot ? (
+            <div className="min-w-0 flex-1">{mobileUnitSlot}</div>
+          ) : (
+            <span className="min-w-0 flex-1 truncate text-right text-[13px] font-semibold text-white/75 drop-shadow">
+              {mobileUnitLabel || "Unidade Local"}
+            </span>
+          )}
         </div>
 
         {/* ── Menu móvel: navegação desktop fica recolhida em um painel ── */}

@@ -41,8 +41,12 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(headerSource).toContain("md:hidden absolute bottom-6");
     expect(headerSource).toContain('right-14 flex items-center gap-2');
     expect(headerSource).toContain('w-[34%] shrink-0 truncate');
-    expect(headerSource).toContain('min-w-0 flex-1 truncate text-left text-[13px]');
-    expect(headerSource).not.toContain('max-w-[42%] truncate text-right text-sm');
+    expect(headerSource).toContain('min-w-0 flex-1 truncate text-right text-[13px]');
+    expect(headerSource).toContain('mobileUnitSlot?: React.ReactNode');
+    expect(headerSource).toContain('{mobileUnitSlot ? (');
+    expect(pageSource).toContain('aria-label="Trocar unidade de atendimento"');
+    expect(pageSource).toContain('canSelectUnit && allUnits.length > 1');
+    expect(pageSource).not.toContain('max-w-[42%] truncate text-right text-sm');
   });
 
   it("keeps the date picker wired to both responsive triggers and the PACS query", () => {

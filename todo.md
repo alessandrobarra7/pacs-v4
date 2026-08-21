@@ -2401,3 +2401,10 @@
 - [x] Auditar o espaço reservado à unidade e ao menu no cabeçalho móvel.
 - [x] Reposicionar e ampliar a área de exibição do nome da unidade, preservando o acesso ao menu.
 - [x] Cobrir a apresentação de nomes longos, validar build e versionar antes de atualizar a VM1.
+
+## AJUSTE MÓVEL — CABEÇALHO, UNIDADES E RESUMO FINANCEIRO
+
+- [x] Ajustar o alinhamento do nome da unidade para leitura da direita para a esquerda, sem centralização visual.
+- [x] Auditar e habilitar a troca de unidade para médicos vinculados a mais de uma unidade, mantendo as restrições de acesso por vínculo.
+- [x] Reduzir em aproximadamente 50% a altura do resumo móvel de Ciclo, Assinados e Receber, sem comprometer a legibilidade.
+- [x] Adicionar regressões de interface e autorização, validar build e versionar antes de atualizar a VM1.
