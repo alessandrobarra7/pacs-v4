@@ -2414,3 +2414,9 @@
 - [x] Substituir a terminologia exibida de Prioridade máxima por Alerta Crítico, preservando o valor interno e as permissões atuais.
 - [x] Adicionar um indicador visual discreto e pulsante próximo ao nome do paciente apenas para estudos em Alerta Crítico.
 - [x] Cobrir desktop e mobile com regressões de interface e validar build antes de atualizar a VM1.
+
+## CORREÇÃO — SINALIZAÇÃO DE ANAMNESE PREENCHIDA
+
+- [x] Auditar a consulta e o mapa de status de anamnese usados pela listagem por unidade.
+- [x] Fazer o ícone de anamnese preenchida ficar verde de modo consistente no desktop e no mobile, para todos os perfis autorizados.
+- [x] Cobrir o caso de regressão, validar build e versionar antes de atualizar a VM1.

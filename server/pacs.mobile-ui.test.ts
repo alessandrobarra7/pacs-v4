@@ -46,6 +46,7 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(headerSource).toContain('{mobileUnitSlot ? (');
     expect(pageSource).toContain('aria-label="Trocar unidade de atendimento"');
     expect(pageSource).toContain('canSelectUnit && allUnits.length > 1');
+    expect(pageSource).toContain('{ studyInstanceUids: studyUids, unitId: effectiveUnitId ?? undefined }');
     expect(pageSource).not.toContain('max-w-[42%] truncate text-right text-sm');
   });
 

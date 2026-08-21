@@ -14,7 +14,9 @@ describe("segurança do status em lote de anamnese", () => {
     const batchRoute = source.slice(routeStart, routeEnd);
 
     expect(batchRoute).toContain("getStudyUnitId(studyInstanceUid)");
-    expect(batchRoute).toContain('canAccessUnit(ctx.user, studyUnitId, "view_anamnesis")');
+    expect(batchRoute).toContain("unitId: z.number().int().positive().optional()");
+    expect(batchRoute).toContain("const accessUnitId = studyUnitId ?? input.unitId");
+    expect(batchRoute).toContain('canAccessUnit(ctx.user, accessUnitId, "view_anamnesis")');
     expect(batchRoute).toContain("const allowedStudyUids");
     expect(batchRoute).toContain("inArray(anamnesis_simple.study_instance_uid, allowedStudyUids)");
     expect(batchRoute).not.toContain("inArray(anamnesis_simple.study_instance_uid, input.studyInstanceUids)");

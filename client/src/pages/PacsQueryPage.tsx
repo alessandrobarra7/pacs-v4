@@ -962,8 +962,8 @@ const isAdminMaster = user?.role === 'admin_master';
 
   // Mapa de has_anamnesis independente de study_metadata (funciona mesmo sem linha de metadados)
   const { data: anamnesisStatusData, refetch: refetchAnamnesisStatus } = trpc.anamnesisSimple.getStatusBatch.useQuery(
-    { studyInstanceUids: studyUids },
-    { enabled: studyUids.length > 0 }
+    { studyInstanceUids: studyUids, unitId: effectiveUnitId ?? undefined },
+    { enabled: studyUids.length > 0 && !!effectiveUnitId }
   );
   const anamnesisStatusMap = useMemo(() => anamnesisStatusData ?? {} as Record<string, boolean>, [anamnesisStatusData]);
 

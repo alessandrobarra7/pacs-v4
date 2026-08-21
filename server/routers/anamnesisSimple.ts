@@ -70,9 +70,12 @@ export const anamnesisSimpleRouter = router({
         return { success: true, readiness };
       }),
 
-    /** Retorna quais UIDs têm anamnese registrada (independente de unit_id) */
+    /** Retorna quais UIDs têm anamnese registrada na unidade acessível ao usuário. */
     getStatusBatch: protectedProcedure
-      .input(z.object({ studyInstanceUids: z.array(z.string()) }))
+      .input(z.object({
+        studyInstanceUids: z.array(z.string()),
+        unitId: z.number().int().positive().optional(),
+      }))
       .query(async ({ input, ctx }) => {
         if (!input.studyInstanceUids.length) return {} as Record<string, boolean>;
         const result: Record<string, boolean> = {};
@@ -81,8 +84,11 @@ export const anamnesisSimpleRouter = router({
         const access = await Promise.all(input.studyInstanceUids.map(async (studyInstanceUid) => {
           try {
             const studyUnitId = await getStudyUnitId(studyInstanceUid);
-            if (!studyUnitId) return null;
-            return await canAccessUnit(ctx.user, studyUnitId, "view_anamnesis") ? studyInstanceUid : null;
+            // Estudos legados podem não ter vínculo registrado na tabela de origem.
+            // Nesse caso, usa a unidade selecionada no Portal e ainda valida a permissão nela.
+            const accessUnitId = studyUnitId ?? input.unitId ?? await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+            if (!accessUnitId) return null;
+            return await canAccessUnit(ctx.user, accessUnitId, "view_anamnesis") ? studyInstanceUid : null;
           } catch {
             return null;
           }

@@ -72,6 +72,7 @@ export function AnamnesisModal({
     onSuccess: () => {
       toast.success("Anamnese salva com sucesso");
       utils.anamnesisSimple.getByStudy.invalidate({ studyInstanceUid });
+      utils.anamnesisSimple.getStatusBatch.invalidate();
       onSave?.({ presets: selected, manual });
       onClose();
     },
