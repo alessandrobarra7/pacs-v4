@@ -2395,3 +2395,9 @@
 - [x] Criar um rodapé móvel compacto e acessível com as ferramentas clínicas, sem recuperar rolagem vertical da página.
 - [x] Remover caixa, borda e fundo da anamnese móvel, preservando apenas ícone e texto legíveis sobre o canvas.
 - [x] Criar regressões, validar build e versionar a atualização antes de atualizar a VM1.
+
+## AJUSTE MÓVEL — NOME DA UNIDADE NO CABEÇALHO
+
+- [x] Auditar o espaço reservado à unidade e ao menu no cabeçalho móvel.
+- [x] Reposicionar e ampliar a área de exibição do nome da unidade, preservando o acesso ao menu.
+- [x] Cobrir a apresentação de nomes longos, validar build e versionar antes de atualizar a VM1.

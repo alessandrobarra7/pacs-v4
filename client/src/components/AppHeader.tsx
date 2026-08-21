@@ -117,11 +117,11 @@ export function AppHeader({ nav, rightSlot, unitSlot, mobileUnitLabel }: AppHead
         </div>
 
         {/* ── Identificação móvel, posicionada na base do cabeçalho ── */}
-        <div className="md:hidden absolute bottom-6 left-0 right-0 flex items-center justify-between px-1">
-          <span className="max-w-[52%] truncate text-sm font-semibold text-white/65 drop-shadow">
+        <div className="md:hidden absolute bottom-6 left-0 right-14 flex items-center gap-2 px-1">
+          <span className="w-[34%] shrink-0 truncate text-sm font-semibold text-white/65 drop-shadow">
             {user?.name || "Usuário"}
           </span>
-          <span className="max-w-[42%] truncate text-right text-sm font-semibold text-white/65 drop-shadow">
+          <span className="min-w-0 flex-1 truncate text-left text-[13px] font-semibold text-white/75 drop-shadow">
             {mobileUnitLabel || "Unidade Local"}
           </span>
         </div>

@@ -39,6 +39,10 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(headerSource).toContain("mobileUnitLabel");
     expect(headerSource).toContain("Abrir menu");
     expect(headerSource).toContain("md:hidden absolute bottom-6");
+    expect(headerSource).toContain('right-14 flex items-center gap-2');
+    expect(headerSource).toContain('w-[34%] shrink-0 truncate');
+    expect(headerSource).toContain('min-w-0 flex-1 truncate text-left text-[13px]');
+    expect(headerSource).not.toContain('max-w-[42%] truncate text-right text-sm');
   });
 
   it("keeps the date picker wired to both responsive triggers and the PACS query", () => {
