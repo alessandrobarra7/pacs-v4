@@ -31,7 +31,17 @@ describe("navegação administrativa do catálogo de exames", () => {
   it("permite ao administrador definir eventos financeiros independentemente dos documentos clínicos", () => {
     expect(catalog).toContain('financial_event_count: 1');
     expect(catalog).toContain('label="Eventos"');
-    expect(catalog).toContain('número de documentos e o número de eventos são regras independentes');
-    expect(catalog).toContain('eventos financeiros');
+    expect(catalog).toContain('Eventos são gerados somente após todas as assinaturas clínicas exigidas');
+    expect(catalog).toContain('A quantidade de eventos é independente da quantidade de documentos');
+  });
+
+  it("organiza o formulário em cartões e retira a Ordem da configuração manual", () => {
+    expect(catalog).toContain('1. Identificação clínica');
+    expect(catalog).toContain('2. Regra de eventos');
+    expect(catalog).toContain('3. Disponibilidade por unidade');
+    expect(catalog).toContain('4. Documentos clínicos');
+    expect(catalog).toContain('5. Mapeamentos PACS');
+    expect(catalog).not.toContain('Field label="Ordem"');
+    expect(catalog).toContain('A ordem de exibição é automática por modalidade e nome');
   });
 });

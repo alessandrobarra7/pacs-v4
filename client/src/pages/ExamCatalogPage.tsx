@@ -208,71 +208,76 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
       </section>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto border-slate-700 bg-slate-950 text-slate-100 sm:max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="max-h-[92vh] overflow-y-auto border-slate-700 bg-slate-950 text-slate-100 sm:max-w-5xl">
+          <DialogHeader className="border-b border-slate-800 pb-4">
             <DialogTitle>{draft.id ? "Editar exame canônico" : "Novo exame canônico"}</DialogTitle>
-            <DialogDescription className="text-slate-400">A alteração afeta somente futuros documentos e mapeamentos; assinaturas anteriores preservam seus snapshots.</DialogDescription>
+            <DialogDescription className="text-slate-400">Organize a regra clínica em blocos independentes. Alterações valem para documentos e mapeamentos futuros; assinaturas anteriores preservam seus snapshots.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-6 py-2">
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_110px_120px_100px]">
-              <Field label="Legenda canônica"><Input value={draft.exam_name} onChange={(event) => setDraft({ ...draft, exam_name: event.target.value })} className="border-slate-700 bg-slate-900" placeholder="Ex.: Tomografia de Abdômen Total" /></Field>
-              <Field label="Modalidade"><select value={draft.modality} onChange={(event) => setDraft({ ...draft, modality: event.target.value })} className="h-9 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-sm">{modalities.map((modality) => <option key={modality}>{modality}</option>)}</select></Field>
-              <Field label="Eventos"><Input type="number" min="1" max="20" value={draft.financial_event_count} onChange={(event) => setDraft({ ...draft, financial_event_count: Number(event.target.value) || 1 })} className="border-slate-700 bg-slate-900" title="Eventos criados após todas as assinaturas" /></Field>
-              <Field label="Ordem"><Input type="number" min="0" value={draft.sort_order} onChange={(event) => setDraft({ ...draft, sort_order: Number(event.target.value) })} className="border-slate-700 bg-slate-900" /></Field>
-            </div>
-            <p className="-mt-2 text-xs text-slate-400">Defina quantos eventos financeiros esta legenda gera após todos os documentos clínicos serem assinados. O número de documentos e o número de eventos são regras independentes.</p>
-            <div className="flex flex-wrap gap-6 rounded-lg border border-slate-800 p-3">
-              <ToggleField label="Exame bilateral" checked={draft.bilateral} onChange={(checked) => setDraft({ ...draft, bilateral: checked })} />
-              <ToggleField label="Disponível para novos mapeamentos" checked={draft.is_active} onChange={(checked) => setDraft({ ...draft, is_active: checked })} />
+
+          <div className="space-y-4 py-2">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
+              <section className="rounded-xl border border-cyan-900/70 bg-cyan-950/20 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-300">1. Identificação clínica</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_130px]">
+                  <Field label="Legenda canônica"><Input value={draft.exam_name} onChange={(event) => setDraft({ ...draft, exam_name: event.target.value })} className="border-slate-700 bg-slate-900" placeholder="Ex.: Tomografia de Abdômen Total" /></Field>
+                  <Field label="Modalidade"><select value={draft.modality} onChange={(event) => setDraft({ ...draft, modality: event.target.value })} className="h-9 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-sm">{modalities.map((modality) => <option key={modality}>{modality}</option>)}</select></Field>
+                </div>
+                <div className="mt-4 border-t border-cyan-900/50 pt-4"><ToggleField label="Exame bilateral" checked={draft.bilateral} onChange={(checked) => setDraft({ ...draft, bilateral: checked })} /></div>
+              </section>
+
+              <section className="rounded-xl border border-violet-900/70 bg-violet-950/20 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-300">2. Regra de eventos</p>
+                <div className="mt-3 grid grid-cols-[112px_minmax(0,1fr)] items-end gap-3">
+                  <Field label="Eventos"><Input type="number" min="1" max="20" value={draft.financial_event_count} onChange={(event) => setDraft({ ...draft, financial_event_count: Number(event.target.value) || 1 })} className="border-slate-700 bg-slate-900" title="Eventos criados após todas as assinaturas" /></Field>
+                  <p className="pb-2 text-xs leading-relaxed text-slate-400">Eventos são gerados somente após todas as assinaturas clínicas exigidas. A quantidade de eventos é independente da quantidade de documentos.</p>
+                </div>
+                <div className="mt-4 border-t border-violet-900/50 pt-4"><ToggleField label="Disponível para novos mapeamentos" checked={draft.is_active} onChange={(checked) => setDraft({ ...draft, is_active: checked })} /></div>
+              </section>
             </div>
 
-            <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <h3 className="font-medium text-white">Disponibilidade por unidade</h3>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-400">Por padrão, a legenda fica disponível para todas as unidades. Desative somente as unidades que não devem vê-la no modal clínico.</p>
-                </div>
-                <Button type="button" size="sm" variant="outline" className="border-slate-700 bg-transparent text-slate-200 hover:bg-slate-800 hover:text-white" onClick={() => setDraft({ ...draft, unavailableUnitIds: [] })}>Autorizar todas</Button>
+            <section className="rounded-xl border border-emerald-900/70 bg-emerald-950/20 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-300">3. Disponibilidade por unidade</p><p className="mt-1 text-xs leading-relaxed text-slate-400">A legenda inicia disponível para todas as unidades. Desative apenas as unidades que não devem visualizá-la no modal clínico.</p></div>
+                <Button type="button" size="sm" variant="outline" className="border-emerald-800 bg-transparent text-emerald-100 hover:bg-emerald-950 hover:text-white" onClick={() => setDraft({ ...draft, unavailableUnitIds: [] })}>Autorizar todas</Button>
               </div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {catalogUnits.map((unit) => {
                   const available = !draft.unavailableUnitIds.includes(unit.id);
                   return <label key={unit.id} className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2.5 transition-colors ${available ? "border-emerald-900/70 bg-emerald-950/30" : "border-slate-800 bg-slate-950/60"}`}>
                     <span className="min-w-0"><span className="block truncate text-sm font-medium text-slate-100">{unit.name}</span><span className={`block text-xs ${unit.isActive ? "text-slate-400" : "text-amber-300"}`}>{unit.isActive ? "Disponível no Portal" : "Unidade inativa"}</span></span>
-                    <Switch checked={available} onCheckedChange={(checked) => setDraft({
-                      ...draft,
-                      unavailableUnitIds: checked
-                        ? draft.unavailableUnitIds.filter((unitId) => unitId !== unit.id)
-                        : [...draft.unavailableUnitIds, unit.id],
-                    })} />
+                    <Switch checked={available} onCheckedChange={(checked) => setDraft({ ...draft, unavailableUnitIds: checked ? draft.unavailableUnitIds.filter((unitId) => unitId !== unit.id) : [...draft.unavailableUnitIds, unit.id] })} />
                   </label>;
                 })}
               </div>
               {!catalogUnits.length && <p className="mt-4 text-xs text-amber-300">Nenhuma unidade está disponível para configurar no momento.</p>}
             </section>
 
-            <SectionHeader title="Documentos clínicos" description="Cada linha representa um documento e uma assinatura independentes." onAdd={() => setDraft({ ...draft, documents: [...draft.documents, { document_key: `documento_${draft.documents.length + 1}`, document_label: "", sort_order: draft.documents.length }] })} />
-            <div className="space-y-2">
-              {draft.documents.map((document, index) => <div key={`${document.document_key}-${index}`} className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto] gap-2">
-                <Input value={document.document_key} onChange={(event) => setDraft({ ...draft, documents: draft.documents.map((current, currentIndex) => currentIndex === index ? { ...current, document_key: event.target.value } : current) })} className="border-slate-700 bg-slate-900" placeholder="chave" />
-                <Input value={document.document_label} onChange={(event) => setDraft({ ...draft, documents: draft.documents.map((current, currentIndex) => currentIndex === index ? { ...current, document_label: event.target.value } : current) })} className="border-slate-700 bg-slate-900" placeholder="Título do documento" />
-                <Button variant="ghost" size="icon" className="text-rose-300 hover:bg-rose-500/10 hover:text-rose-200" disabled={draft.documents.length === 1} onClick={() => setDraft({ ...draft, documents: draft.documents.filter((_, currentIndex) => currentIndex !== index) })}><Trash2 className="h-4 w-4" /></Button>
-              </div>)}
-            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                <SectionHeader title="4. Documentos clínicos" description="Cada item representa um laudo e uma assinatura independentes." onAdd={() => setDraft({ ...draft, documents: [...draft.documents, { document_key: `documento_${draft.documents.length + 1}`, document_label: "", sort_order: draft.documents.length }] })} />
+                <div className="mt-4 space-y-2">
+                  {draft.documents.map((document, index) => <div key={`${document.document_key}-${index}`} className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto] gap-2 rounded-lg border border-slate-800 bg-slate-950/50 p-2">
+                    <Input value={document.document_key} onChange={(event) => setDraft({ ...draft, documents: draft.documents.map((current, currentIndex) => currentIndex === index ? { ...current, document_key: event.target.value } : current) })} className="border-slate-700 bg-slate-900" placeholder="chave" />
+                    <Input value={document.document_label} onChange={(event) => setDraft({ ...draft, documents: draft.documents.map((current, currentIndex) => currentIndex === index ? { ...current, document_label: event.target.value } : current) })} className="border-slate-700 bg-slate-900" placeholder="Título do documento" />
+                    <Button variant="ghost" size="icon" className="text-rose-300 hover:bg-rose-500/10 hover:text-rose-200" disabled={draft.documents.length === 1} onClick={() => setDraft({ ...draft, documents: draft.documents.filter((_, currentIndex) => currentIndex !== index) })}><Trash2 className="h-4 w-4" /></Button>
+                  </div>)}
+                </div>
+              </section>
 
-            <SectionHeader title="Descrições recebidas do PACS" description="Use a descrição exata e a modalidade recebidas pelo PACS para vincular a legenda canônica." onAdd={() => setDraft({ ...draft, pacsMappings: [...draft.pacsMappings, { pacs_description: "", modality: draft.modality }] })} />
-            <div className="space-y-2">
-              {draft.pacsMappings.map((mapping, index) => <div key={`${mapping.id ?? "new"}-${index}`} className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2">
-                <Input value={mapping.modality} onChange={(event) => setDraft({ ...draft, pacsMappings: draft.pacsMappings.map((current, currentIndex) => currentIndex === index ? { ...current, modality: event.target.value.toUpperCase() } : current) })} className="border-slate-700 bg-slate-900" placeholder="CT" />
-                <Input value={mapping.pacs_description} onChange={(event) => setDraft({ ...draft, pacsMappings: draft.pacsMappings.map((current, currentIndex) => currentIndex === index ? { ...current, pacs_description: event.target.value } : current) })} className="border-slate-700 bg-slate-900" placeholder="Descrição original PACS" />
-                <Button variant="ghost" size="icon" className="text-rose-300 hover:bg-rose-500/10 hover:text-rose-200" onClick={() => {
-                  if (mapping.id) removeMapping.mutate({ id: mapping.id });
-                  setDraft({ ...draft, pacsMappings: draft.pacsMappings.filter((_, currentIndex) => currentIndex !== index) });
-                }}><Trash2 className="h-4 w-4" /></Button>
-              </div>)}
+              <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                <SectionHeader title="5. Mapeamentos PACS" description="Vincule as descrições exatamente como são recebidas pelo PACS." onAdd={() => setDraft({ ...draft, pacsMappings: [...draft.pacsMappings, { pacs_description: "", modality: draft.modality }] })} />
+                <div className="mt-4 space-y-2">
+                  {draft.pacsMappings.length ? draft.pacsMappings.map((mapping, index) => <div key={`${mapping.id ?? "new"}-${index}`} className="grid grid-cols-[94px_minmax(0,1fr)_auto] gap-2 rounded-lg border border-slate-800 bg-slate-950/50 p-2">
+                    <Input value={mapping.modality} onChange={(event) => setDraft({ ...draft, pacsMappings: draft.pacsMappings.map((current, currentIndex) => currentIndex === index ? { ...current, modality: event.target.value.toUpperCase() } : current) })} className="border-slate-700 bg-slate-900" placeholder="CT" />
+                    <Input value={mapping.pacs_description} onChange={(event) => setDraft({ ...draft, pacsMappings: draft.pacsMappings.map((current, currentIndex) => currentIndex === index ? { ...current, pacs_description: event.target.value } : current) })} className="border-slate-700 bg-slate-900" placeholder="Descrição original PACS" />
+                    <Button variant="ghost" size="icon" className="text-rose-300 hover:bg-rose-500/10 hover:text-rose-200" onClick={() => { if (mapping.id) removeMapping.mutate({ id: mapping.id }); setDraft({ ...draft, pacsMappings: draft.pacsMappings.filter((_, currentIndex) => currentIndex !== index) }); }}><Trash2 className="h-4 w-4" /></Button>
+                  </div>) : <p className="rounded-lg border border-dashed border-slate-700 px-3 py-5 text-center text-xs text-slate-500">Nenhuma descrição PACS vinculada. Sem mapeamento, o Portal conserva a descrição original recebida.</p>}
+                </div>
+              </section>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="sticky bottom-0 border-t border-slate-800 bg-slate-950 pt-4">
+            <p className="mr-auto hidden text-xs text-slate-500 sm:block">A ordem de exibição é automática por modalidade e nome; não requer configuração manual.</p>
             <Button variant="ghost" className="text-slate-300" onClick={() => setOpen(false)}>Cancelar</Button>
             <Button className="bg-cyan-600 hover:bg-cyan-500" disabled={save.isPending} onClick={saveDraft}>{save.isPending ? "Salvando…" : "Salvar catálogo"}</Button>
           </DialogFooter>

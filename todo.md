@@ -2442,3 +2442,9 @@
 - [x] Simplificar o cadastro de Unidade para dados cadastrais, operacionais e clínicos, removendo moeda e todos os campos financeiros da interface.
 - [x] Manter a aba Médicos limitada ao vínculo e à autorização clínica por unidade, sem preços ou custos profissionais.
 - [ ] Criar no Financeiro a configuração por unidade para valores de eventos e custos dos médicos vinculados, preservando regras de vigência e auditoria.
+
+## CATÁLOGO CLÍNICO — ORGANIZAÇÃO DO FORMULÁRIO
+
+- [x] Reorganizar o formulário de cadastro e edição de legenda canônica em cartões menores, preservando documentos, eventos, disponibilidade por unidade e mapeamentos PACS.
+- [x] Remover o campo Ordem da interface; manter a ordenação automática por modalidade e nome, preservando o valor legado no banco sem migração destrutiva.
+- [x] Cobrir a nova organização com testes de regressão e validar o build antes de publicar.
