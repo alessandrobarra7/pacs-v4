@@ -124,14 +124,18 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(attachmentsModalSource).not.toContain("Fotografe com a câmera do dispositivo ou envie múltiplos arquivos");
   });
 
-  it("organiza o viewer mobile com cabeçalho, ações principais e rodapé de anamnese", () => {
+  it("organiza o viewer mobile com cabeçalho, ações principais, anamnese no canvas e navegação lateral única", () => {
     expect(viewerSource).toContain("Cabeçalho mobile: paciente/exame + ações principais");
     expect(viewerSource).toContain("Laudo falado");
     expect(viewerSource).toContain("Requisição");
     expect(viewerSource).toContain("handleOpenReportFromMobile");
     expect(viewerSource).toContain("handleMobileVoiceReport");
-    expect(viewerSource).toContain("Anamnese compacta no rodapé mobile");
-    expect(viewerSource).toContain("Navegação mobile entre imagens");
+    expect(viewerSource).toContain("Mobile: a anamnese ocupa a faixa superior e a única navegação fica à direita.");
+    expect(viewerSource).toContain('aria-label="Navegar entre imagens pela lateral direita"');
+    expect(viewerSource).not.toContain("Anamnese compacta no rodapé mobile");
+    expect(viewerSource).not.toContain("Navegação mobile entre imagens");
+    expect(viewerSource).toContain('h-[100dvh] flex-col overflow-hidden');
+    expect(viewerSource).toContain('w-[calc(100%-2.75rem)] min-h-0 md:w-full md:min-h-[400px]');
     expect(viewerSource).toContain('hidden md:flex items-center justify-between px-3 py-1.5');
     expect(viewerSource).toContain('hidden md:flex flex-col gap-0.5');
     expect(viewerSource).toContain("mobileViewerError");

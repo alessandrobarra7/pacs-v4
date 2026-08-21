@@ -1194,7 +1194,7 @@ export function DicomViewerPage() {
   };
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-gray-950 text-white select-none">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-gray-950 text-white select-none">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="hidden md:flex items-center justify-between px-3 py-1.5 bg-gray-900 border-b border-gray-800 flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -1613,7 +1613,7 @@ export function DicomViewerPage() {
         </div>
 
         {/* ── Área principal do viewer ─────────────────────────────────────── */}
-        <div className="flex-1 relative bg-black">
+        <div className="relative flex-1 bg-black">
           {/* Loading overlay */}
           {isLoading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 gap-4">
@@ -1675,9 +1675,8 @@ export function DicomViewerPage() {
           {/* Canvas Cornerstone */}
           <div
             ref={viewerRef}
-            className="w-full h-full"
+            className="h-full w-[calc(100%-2.75rem)] min-h-0 md:w-full md:min-h-[400px]"
             style={{
-              minHeight: "400px",
               cursor: cornerstoneReady ? toolCursor[activeTool] : "default",
             }}
           />
@@ -1690,7 +1689,7 @@ export function DicomViewerPage() {
                 size="icon"
                 onClick={handlePrevImage}
                 disabled={currentIndex === 0}
-                className="absolute left-2 top-1/2 -translate-y-1/2 h-9 w-9 bg-black/50 text-white hover:bg-black/80 rounded-full border border-gray-700 disabled:opacity-20"
+                className="absolute left-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 rounded-full border border-gray-700 bg-black/50 text-white hover:bg-black/80 disabled:opacity-20 md:inline-flex"
               >
                 <ChevronLeft className="h-5 w-5" />
               </Button>
@@ -1699,25 +1698,25 @@ export function DicomViewerPage() {
                 size="icon"
                 onClick={handleNextImage}
                 disabled={currentIndex >= imageCount - 1}
-                className="absolute right-14 top-1/2 -translate-y-1/2 h-9 w-9 bg-black/50 text-white hover:bg-black/80 rounded-full border border-gray-700 disabled:opacity-20"
+                className="absolute right-14 top-1/2 hidden h-9 w-9 -translate-y-1/2 rounded-full border border-gray-700 bg-black/50 text-white hover:bg-black/80 disabled:opacity-20 md:inline-flex"
               >
                 <ChevronRight className="h-5 w-5" />
               </Button>
             </>
           )}
 
-          {/* Badge da ferramenta ativa */}
+          {/* Desktop: badge da ferramenta ativa */}
           {cornerstoneReady && (
-            <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-gray-900/90 border border-gray-700 text-gray-300 text-xs px-3 py-0.5 rounded-full pointer-events-none">
+            <div className="absolute top-2 left-1/2 hidden -translate-x-1/2 rounded-full border border-gray-700 bg-gray-900/90 px-3 py-0.5 text-xs text-gray-300 pointer-events-none md:block">
               {activeTool === "StackScroll"
                 ? "⬆⬇ Scroll de Slices — arraste ou use scroll do mouse"
                 : `Ferramenta: ${toolLabel[activeTool]}`}
             </div>
           )}
 
-          {/* Barra de progresso de slices clicável na parte inferior */}
+          {/* Desktop: barra horizontal de progresso de slices */}
           {cornerstoneReady && imageCount > 1 && (
-            <div className="absolute bottom-0 left-0 right-14 h-6 flex items-center px-2 gap-2 bg-black/60">
+            <div className="absolute bottom-0 left-0 right-14 hidden h-6 items-center gap-2 bg-black/60 px-2 md:flex">
               <span className="text-[10px] text-gray-500 tabular-nums w-12 text-right shrink-0">
                 {currentIndex + 1}/{imageCount}
               </span>
@@ -1735,6 +1734,45 @@ export function DicomViewerPage() {
                   +{totalCount - imageCount}
                 </span>
               )}
+            </div>
+          )}
+
+          {/* Mobile: a anamnese ocupa a faixa superior e a única navegação fica à direita. */}
+          {cornerstoneReady && (
+            <div className="absolute left-2 right-12 top-2 z-10 flex items-center gap-2 rounded-lg border border-emerald-400/30 bg-slate-950/90 px-2.5 py-1.5 text-left shadow-lg backdrop-blur-sm md:hidden">
+              <ClipboardList className="h-4 w-4 shrink-0 text-emerald-400" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-400">Anamnese</p>
+                <p className="truncate text-[11px] leading-tight text-slate-200">
+                  {anamnesisQuery.isLoading
+                    ? "Carregando anamnese..."
+                    : anamnesisQuery.data?.manual_text || "Nenhuma anamnese registrada para este estudo."}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {cornerstoneReady && imageCount > 1 && (
+            <div className="absolute bottom-2 right-1 top-2 z-10 flex w-9 flex-col items-center rounded-lg border border-slate-700 bg-slate-950/90 py-2 shadow-lg backdrop-blur-sm md:hidden">
+              <span className="mb-1 text-[10px] font-semibold tabular-nums text-blue-300">{currentIndex + 1}</span>
+              <input
+                type="range"
+                min={0}
+                max={imageCount - 1}
+                value={currentIndex}
+                onChange={(event) => goToSlice(parseInt(event.target.value, 10))}
+                className="flex-1 cursor-pointer"
+                style={{
+                  writingMode: "vertical-lr" as any,
+                  direction: "rtl" as any,
+                  appearance: "slider-vertical" as any,
+                  WebkitAppearance: "slider-vertical" as any,
+                  width: 20,
+                  accentColor: "#3b82f6",
+                }}
+                aria-label="Navegar entre imagens pela lateral direita"
+              />
+              <span className="mt-1 text-[10px] tabular-nums text-slate-400">/{imageCount}</span>
             </div>
           )}
         </div>
@@ -1805,61 +1843,6 @@ export function DicomViewerPage() {
             </button>
           </div>
         )}
-      </div>
-
-      {/* ── Anamnese compacta no rodapé mobile ───────────────────────────────── */}
-      <div className="flex md:hidden flex-shrink-0 flex-col gap-1 border-t border-slate-700 bg-slate-900 px-3 py-2">
-        <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-emerald-400">
-          <ClipboardList className="h-4 w-4" />
-          <span>Anamnese</span>
-          {hasAnamnesis && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
-        </div>
-        <p className="line-clamp-2 text-[12px] leading-snug text-slate-200">
-          {anamnesisQuery.isLoading
-            ? "Carregando anamnese..."
-            : anamnesisQuery.data?.manual_text || "Nenhuma anamnese registrada para este estudo."}
-        </p>
-      </div>
-
-      {/* ── Navegação mobile entre imagens ───────────────────────────────────── */}
-      <div className="flex md:hidden items-center gap-2 bg-slate-900 px-3 py-2 border-t border-slate-800 flex-shrink-0">
-        <button
-          onClick={handleFirstImage}
-          disabled={!cornerstoneReady || imageCount <= 1}
-          className="p-1 text-slate-500 disabled:opacity-30"
-          aria-label="Primeira imagem"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <input
-          type="range"
-          min={0}
-          max={Math.max(imageCount - 1, 0)}
-          value={imageCount > 0 ? currentIndex : 0}
-          onChange={(event) => goToSlice(parseInt(event.target.value, 10))}
-          disabled={!cornerstoneReady || imageCount <= 1}
-          className="h-1.5 flex-1 accent-blue-500 disabled:opacity-30"
-          aria-label="Navegar entre imagens"
-        />
-        <span className="min-w-[48px] rounded-md bg-slate-800 px-2 py-1 text-center text-[12px] tabular-nums text-slate-200">
-          {imageCount > 0 ? `${currentIndex + 1}/${imageCount}` : "0/0"}
-        </span>
-        <button
-          onClick={handleLastImage}
-          disabled={!cornerstoneReady || imageCount <= 1}
-          className="p-1 text-slate-500 disabled:opacity-30"
-          aria-label="Última imagem"
-        >
-          <ChevronRight className="h-5 w-5" />
-        </button>
-        <button
-          onClick={toggleCine}
-          disabled={!cornerstoneReady || imageCount <= 1}
-          className={`p-1 ${isCinePlaying ? "text-yellow-400" : "text-emerald-400"} disabled:opacity-30`}
-          aria-label={isCinePlaying ? "Pausar cine" : "Iniciar cine"}
-        >
-          {isCinePlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
-        </button>
       </div>
 
       {/* ── Faixa de miniaturas de séries ──────────────────────────────────────────────────────── */}

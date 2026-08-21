@@ -2380,3 +2380,11 @@
 - [x] Separar no mobile os indicadores clínicos, o estado do laudo e os controles de prioridade para evitar sobreposição e quebra de texto.
 - [x] Preservar no desktop a tabela completa, com informações clínicas alinhadas e sem alterar permissões por perfil.
 - [x] Adicionar regressões de interface para os dois breakpoints e validar build antes de atualizar a VM1.
+
+## REVISÃO MÓVEL — VISUALIZADOR DICOM
+
+- [x] Auditar os contêineres e controles que geram rolagem vertical ou navegação duplicada no visualizador móvel.
+- [x] Manter apenas uma navegação de imagens, posicionada na lateral direita e independente da rolagem da página.
+- [x] Substituir a instrução de rolagem pelo resumo de anamnese, preservando o acesso clínico e evitando espaço excedente.
+- [x] Ajustar o enquadramento da imagem móvel para composição horizontal lateral, sem centralização artificial e sem cortar conteúdo diagnóstico.
+- [x] Criar regressões móveis, validar build e versionar antes de atualizar a VM1.
