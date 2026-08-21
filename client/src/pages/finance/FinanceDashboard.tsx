@@ -7,7 +7,7 @@
  * financeiro legado nem criar novas regras de cálculo.
  */
 import { useMemo, useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { AppHeader } from "@/components/AppHeader";
@@ -36,6 +36,15 @@ import { toast } from "sonner";
 import { fmtBRL, MONTHS } from "./FinanceModals";
 
 const MODALITIES = ["CT", "CR", "MR", "US"] as const;
+
+function unitSlug(unitName: string) {
+  return unitName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
 
 type UnitSummary = {
   unit_id: number;
@@ -257,15 +266,16 @@ function UnitFinancialDetail({ unit, year, month, onBack }: { unit: UnitSummary;
 
 export default function FinanceDashboard() {
   const [, navigate] = useLocation();
+  const [isUnitRoute, routeParams] = useRoute("/financeiro/dashboard/:unitSlug");
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
   const referenceDate = useMemo(() => monthReference(year, month), [year, month]);
   const { data: units = [], isLoading } = trpc.financeSimple.unitSummary.useQuery({ reference_date: referenceDate });
-  const selectedUnit = units.find((unit) => unit.unit_id === selectedUnitId) as UnitSummary | undefined;
+  const selectedUnit = isUnitRoute
+    ? units.find((unit) => unitSlug(unit.unit_name) === routeParams?.unitSlug) as UnitSummary | undefined
+    : undefined;
   const changeMonth = (direction: -1 | 1) => {
-    setSelectedUnitId(null);
     if (direction === -1) {
       if (month === 1) { setMonth(12); setYear((value) => value - 1); } else setMonth((value) => value - 1);
     } else if (month === 12) { setMonth(1); setYear((value) => value + 1); } else setMonth((value) => value + 1);
@@ -276,14 +286,14 @@ export default function FinanceDashboard() {
   return (
     <div className="min-h-screen bg-[#f6f8fb] text-slate-900">
       <AppHeader nav={nav} />
-      {selectedUnit ? <UnitFinancialDetail unit={selectedUnit} year={year} month={month} onBack={() => setSelectedUnitId(null)} /> : (
+      {selectedUnit ? <UnitFinancialDetail unit={selectedUnit} year={year} month={month} onBack={() => navigate("/financeiro/dashboard")} /> : (
         <main className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6 md:py-8">
           <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-end md:justify-between">
             <div><p className="text-xs font-bold uppercase tracking-[0.15em] text-cyan-700">Administração financeira</p><h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">Financeiro por unidade</h1><p className="mt-1 text-sm text-slate-500">Selecione uma unidade para configurar preços e acompanhar o ciclo financeiro.</p></div>
             <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-1 shadow-sm"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => changeMonth(-1)}><ChevronLeft className="h-4 w-4" /></Button><span className="min-w-40 text-center text-sm font-semibold text-slate-800"><CalendarDays className="mr-1.5 inline h-4 w-4 text-cyan-700" />{MONTHS[month - 1]} {year}</span><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => changeMonth(1)}><ChevronRight className="h-4 w-4" /></Button></div>
           </div>
           <div className="mt-6 rounded-xl border border-cyan-100 bg-cyan-50/70 px-4 py-3 text-sm text-cyan-950"><FileText className="mr-2 inline h-4 w-4 text-cyan-700" />A legenda define a composição clínica e a quantidade de eventos. Os valores são configurados por unidade, modalidade e médico.</div>
-          {isLoading ? <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{[1,2,3,4,5,6].map((key) => <div key={key} className="h-60 animate-pulse rounded-2xl bg-slate-200" />)}</div> : units.length === 0 ? <div className="mt-12 rounded-2xl border border-dashed border-slate-300 bg-white py-16 text-center"><Building2 className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-4 text-base font-semibold text-slate-800">Nenhuma unidade com eventos no ciclo</h2><p className="mt-1 text-sm text-slate-500">Quando houver eventos financeiros, as unidades aparecerão aqui.</p></div> : <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{(units as UnitSummary[]).map((unit) => <UnitCatalogCard key={unit.unit_id} unit={unit} referenceDate={referenceDate} onOpen={() => setSelectedUnitId(unit.unit_id)} />)}</div>}
+          {isLoading ? <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{[1,2,3,4,5,6].map((key) => <div key={key} className="h-60 animate-pulse rounded-2xl bg-slate-200" />)}</div> : units.length === 0 ? <div className="mt-12 rounded-2xl border border-dashed border-slate-300 bg-white py-16 text-center"><Building2 className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-4 text-base font-semibold text-slate-800">Nenhuma unidade com eventos no ciclo</h2><p className="mt-1 text-sm text-slate-500">Quando houver eventos financeiros, as unidades aparecerão aqui.</p></div> : <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{(units as UnitSummary[]).map((unit) => <UnitCatalogCard key={unit.unit_id} unit={unit} referenceDate={referenceDate} onOpen={() => navigate(`/financeiro/dashboard/${unitSlug(unit.unit_name)}`)} />)}</div>}
         </main>
       )}
     </div>

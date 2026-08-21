@@ -2520,3 +2520,9 @@
 
 - [x] Redirecionar todos os botões Financeiro do cabeçalho principal para o catálogo financeiro por unidade, sem encaminhar ao ambiente legado de pagamentos.
 - [x] Validar no sandbox que o clique no botão Financeiro abre o Financeiro v2 para admin_master e unit_admin.
+
+## FINANCEIRO V2 — ROTAS POR UNIDADE
+
+- [x] Apontar o botão Financeiro para /financeiro/dashboard como entrada explícita do catálogo de unidades.
+- [x] Criar a rota /financeiro/dashboard/:unitSlug para abrir diretamente o detalhe financeiro da unidade escolhida.
+- [x] Validar URLs diretas, navegação de retorno e build antes de prosseguir com outras modificações do Financeiro v2.

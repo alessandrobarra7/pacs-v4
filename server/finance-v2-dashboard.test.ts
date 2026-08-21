@@ -16,8 +16,14 @@ describe("Financeiro v2 visual", () => {
   });
 
   it("leva o botão Financeiro do cabeçalho PACS para o catálogo novo", () => {
-    expect(pacsQuery).toContain("navigate('/financeiro');");
+    expect(pacsQuery).toContain("navigate('/financeiro/dashboard');");
     expect(pacsQuery).not.toContain("navigate('/financeiro/pagamentos');");
+  });
+
+  it("expõe uma rota financeira estável para cada unidade", () => {
+    expect(app).toContain('path="/financeiro/dashboard/:unitSlug"');
+    expect(dashboard).toContain('useRoute("/financeiro/dashboard/:unitSlug")');
+    expect(dashboard).toContain('navigate(`/financeiro/dashboard/${unitSlug(unit.unit_name)}`)');
   });
 
   it("mantém separados taxa LAUDS, eventos, soma do sistema e repasses médicos", () => {

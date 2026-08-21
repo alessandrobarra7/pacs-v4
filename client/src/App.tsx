@@ -140,6 +140,7 @@ function Router() {
            Admin usa /financeiro/pagamentos (com filtro por médico) para ver dados de qualquer médico. */}
       <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro} allowedRoles={['medico']} />} />
       <Route path="/financeiro/responsavel" component={() => <ProtectedRoute component={FinanceMeuResponsavel} allowedRoles={['responsavel_financeiro', 'admin_master']} />} />
+      <Route path="/financeiro/dashboard/:unitSlug" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin']} />} />
       <Route path="/financeiro/dashboard" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin']} />} />
       <Route path="/financeiro/configuracao" component={() => <ProtectedRoute component={FinanceConfiguracao} allowedRoles={['admin_master', 'responsavel_financeiro']} />} />
 

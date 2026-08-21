@@ -32,7 +32,7 @@ const ALL_MENU_ITEMS = [
   { icon: FileText, label: "Templates", path: "/templates", roles: ['admin_master', 'unit_admin', 'medico'] },
   { icon: Building2, label: "Unidades", path: "/units", roles: ['admin_master'] },
   { icon: Users, label: "Administração", path: "/admin", roles: ['admin_master', 'unit_admin'] },
-  { icon: DollarSign, label: "Módulo Financeiro", path: "/financeiro", roles: ['admin_master'] },
+  { icon: DollarSign, label: "Módulo Financeiro", path: "/financeiro/dashboard", roles: ['admin_master'] },
   { icon: DollarSign, label: "Financeiro (Unidade)", path: "/financeiro/responsavel", roles: ['unit_admin'] },
   { icon: DollarSign, label: "Meu Financeiro", path: "/financeiro/meu-financeiro", roles: ['medico'] },
 ];

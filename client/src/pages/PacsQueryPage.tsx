@@ -1890,7 +1890,7 @@ setSelectedStudy(study);
             {canViewFinancial && (
               <button
                 onClick={() => {
-                  if (isAdminMaster || userRole === 'unit_admin') navigate('/financeiro');
+                  if (isAdminMaster || userRole === 'unit_admin') navigate('/financeiro/dashboard');
                   else if (userRole === 'responsavel_financeiro') navigate('/financeiro/responsavel');
                   else navigate('/financeiro/meu-financeiro');
                 }}
