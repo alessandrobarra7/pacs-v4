@@ -233,7 +233,7 @@ function StudyPriorityControls({
   const maximumActive = priority === "prioridade_maxima";
 
   return (
-    <div className="mt-1.5 flex flex-col items-center gap-1" onClick={(event) => event.stopPropagation()}>
+    <div className="mt-2 flex w-full flex-col items-stretch gap-1.5 border-t border-gray-100 pt-2" aria-label="Sinalização clínica e prazo de laudo" onClick={(event) => event.stopPropagation()}>
       {(priority || indicator) && (
         <div className="flex max-w-full flex-wrap items-center justify-center gap-1">
           {priority && (
@@ -246,18 +246,18 @@ function StudyPriorityControls({
         </div>
       )}
       {!priority && !canMark && (
-        <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-semibold uppercase leading-none text-slate-500">
+        <span className="mx-auto inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-semibold uppercase leading-none text-slate-500">
           <CircleDotDashed className="h-3 w-3 shrink-0" />
           Sem prioridade clínica
         </span>
       )}
       {canMark && isOwnPriority && (
-        <div className="flex items-center justify-center gap-1">
+        <div className="flex w-full flex-wrap items-center justify-center gap-1">
           <button type="button" disabled={isSaving} onClick={() => onSelect("urgencia")} className={`rounded-full border px-2 py-1 text-[9px] font-semibold leading-none transition-colors disabled:cursor-wait disabled:opacity-60 ${urgencyActive ? "border-red-300 bg-red-600 text-white" : "border-red-200 bg-white text-red-700 hover:bg-red-50"}`}>Urgência</button>
           <button type="button" disabled={isSaving} onClick={() => onSelect("prioridade_maxima")} className={`rounded-full border px-2 py-1 text-[9px] font-semibold leading-none transition-colors disabled:cursor-wait disabled:opacity-60 ${maximumActive ? "border-fuchsia-300 bg-fuchsia-600 text-white" : "border-fuchsia-200 bg-white text-fuchsia-700 hover:bg-fuchsia-50"}`}>Prioridade máxima</button>
         </div>
       )}
-      {priority && canMark && !isOwnPriority && <span className="max-w-[130px] text-center text-[9px] leading-tight text-gray-500">Sinalizado por {markedByName || "outro usuário"}</span>}
+      {priority && canMark && !isOwnPriority && <span className="mx-auto max-w-[130px] text-center text-[9px] leading-tight text-gray-500">Sinalizado por {markedByName || "outro usuário"}</span>}
     </div>
   );
 }
@@ -2394,7 +2394,7 @@ setSelectedStudy(study);
                           </div>
                         </StudyLegendPicker>
                       </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
+                      <div className="grid shrink-0 grid-flow-col auto-cols-8 justify-end gap-1.5">
                         {/* 1. Anexo de imagens (condicional) */}
                         {(() => {
                           const hasAttachments = !!attachmentsStatusMap[study.studyInstanceUid];
@@ -2543,28 +2543,28 @@ setSelectedStudy(study);
                         <span className={`inline-flex max-w-[92px] shrink-0 items-center rounded-full border px-2 py-1 text-[10px] font-medium leading-none ${mobileStatusCls}`}>
                           {status}
                         </span>
-                        <StudyPriorityControls
-                          priority={studyPriority?.priority as StudyPriorityValue | undefined}
-                          markedByUserId={studyPriority?.marked_by_user_id}
-                          markedByName={studyPriority?.marked_by_name}
-                          currentUserId={user?.id}
-                          canMark={canMarkStudyPriority}
-                          isSaving={setStudyPriority.isPending}
-                          indicator={
-                            <SlaCountdown
-                              readiness={slaReadiness}
-                              hasAnamnesis={hasAnamnesis}
-                              compact={true}
-                            />
-                          }
-                          onSelect={(priority) => setStudyPriority.mutate({
-                            studyInstanceUid: study.studyInstanceUid,
-                            unit_id: effectiveUnitId || undefined,
-                            priority: studyPriority?.priority === priority ? null : priority,
-                          })}
-                        />
                       </div>
                     </div>
+                    <StudyPriorityControls
+                      priority={studyPriority?.priority as StudyPriorityValue | undefined}
+                      markedByUserId={studyPriority?.marked_by_user_id}
+                      markedByName={studyPriority?.marked_by_name}
+                      currentUserId={user?.id}
+                      canMark={canMarkStudyPriority}
+                      isSaving={setStudyPriority.isPending}
+                      indicator={
+                        <SlaCountdown
+                          readiness={slaReadiness}
+                          hasAnamnesis={hasAnamnesis}
+                          compact={true}
+                        />
+                      }
+                      onSelect={(priority) => setStudyPriority.mutate({
+                        studyInstanceUid: study.studyInstanceUid,
+                        unit_id: effectiveUnitId || undefined,
+                        priority: studyPriority?.priority === priority ? null : priority,
+                      })}
+                    />
                   </article>
                 );
               })

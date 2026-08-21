@@ -2373,3 +2373,10 @@
 - [x] Eliminar trabalho repetitivo e bloqueio do fluxo principal ao preparar estudos com muitas imagens.
 - [x] Implementar carregamento progressivo seguro, sem alterar arquivos DICOM, série clínica ou integrações externas.
 - [x] Criar regressões de desempenho, validar build e versionar a otimização antes de atualizar a VM1.
+
+## REVISÃO RESPONSIVA — LISTAGEM PACS POR PERFIL
+
+- [x] Auditar a composição dos cartões móveis e da tabela desktop para operador, atendente, médico e visualizador.
+- [x] Separar no mobile os indicadores clínicos, o estado do laudo e os controles de prioridade para evitar sobreposição e quebra de texto.
+- [x] Preservar no desktop a tabela completa, com informações clínicas alinhadas e sem alterar permissões por perfil.
+- [x] Adicionar regressões de interface para os dois breakpoints e validar build antes de atualizar a VM1.

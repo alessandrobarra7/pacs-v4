@@ -67,6 +67,14 @@ describe("PacsQueryPage mobile study list contract", () => {
     expect(pageSource).toContain("handlePrintReport(study)");
   });
 
+  it("separa ações, status e prioridade clínica para acomodar todos os perfis em telas estreitas", () => {
+    expect(pageSource).toContain('className="grid shrink-0 grid-flow-col auto-cols-8 justify-end gap-1.5"');
+    expect(pageSource).toContain('aria-label="Sinalização clínica e prazo de laudo"');
+    expect(pageSource).toContain('className="mt-2 flex w-full flex-col items-stretch gap-1.5 border-t border-gray-100 pt-2"');
+    expect(pageSource).toContain('className="flex w-full flex-wrap items-center justify-center gap-1"');
+    expect(pageSource).toContain('const canMarkStudyPriority = user?.role === "operador" || user?.role === "atendente"');
+  });
+
   it("mantém a seleção de legenda canônica disponível no cartão móvel sem abrir o visualizador", () => {
     expect(pageSource).toContain("<StudyLegendPicker");
     expect(pageSource).toContain("selections={legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? []}");
