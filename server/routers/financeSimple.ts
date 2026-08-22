@@ -166,7 +166,12 @@ type UnitCycleFinancialEvent = {
   doctor_received_at: Date | null;
   system_paid_at: Date | null;
   pricing_status: string | null;
+  financial_status: "active" | "cancelled";
 };
+
+function normalizeFinancialStatus(status: unknown): "active" | "cancelled" {
+  return status === "cancelled" || status === "reversed" ? "cancelled" : "active";
+}
 
 async function listUnitCycleFinancialEvents(
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
@@ -190,13 +195,13 @@ async function listUnitCycleFinancialEvents(
         doctor_received_at: billing_visit_events.doctor_received_at,
         system_paid_at: billing_visit_events.system_paid_at,
         pricing_status: billing_visit_events.financial_status,
+        financial_status: billing_visit_events.financial_status,
       })
       .from(billing_visit_events)
       .where(and(
         eq(billing_visit_events.unit_id, unitId),
         sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
         sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
-        ne(billing_visit_events.financial_status, "cancelled"),
       )),
     db
       .select({
@@ -212,6 +217,7 @@ async function listUnitCycleFinancialEvents(
         doctor_received_at: billing_catalog_study_events.doctor_received_at,
         system_paid_at: billing_catalog_study_events.system_paid_at,
         pricing_status: billing_catalog_study_events.pricing_status,
+        financial_status: billing_catalog_study_events.financial_status,
       })
       .from(billing_catalog_study_events)
       .where(and(
@@ -245,6 +251,7 @@ async function listUnitCycleFinancialEvents(
       doctor_received_at: event.doctor_received_at,
       system_paid_at: event.system_paid_at,
       pricing_status: event.pricing_status,
+      financial_status: normalizeFinancialStatus(event.financial_status),
     })).sort((a, b) => new Date(b.signed_at ?? 0).getTime() - new Date(a.signed_at ?? 0).getTime());
   }
 
@@ -292,6 +299,7 @@ async function listUnitCycleFinancialEvents(
       doctor_received_at: event.doctor_received_at,
       system_paid_at: event.system_paid_at,
       pricing_status: event.pricing_status,
+      financial_status: normalizeFinancialStatus(event.financial_status),
     };
   });
   return events.sort((a, b) => new Date(b.signed_at ?? 0).getTime() - new Date(a.signed_at ?? 0).getTime());
@@ -636,19 +644,20 @@ export const financeSimpleRouter = router({
         unitsInScope.map(async (u) => {
           const { cycleStart, cycleEnd, label: cycle_label } = calcCycleDates(u.s, u.e, refDate);
           const events = await listUnitCycleFinancialEvents(db, u.id, cycleStart, cycleEnd, false);
+          const activeEvents = events.filter((event) => event.financial_status === 'active');
           return {
             unit_id: u.id,
             unit_name: u.name ?? "Unidade",
             cycle_label,
             cycle_start_date: cycleStart.toISOString(),
             cycle_end_date: cycleEnd.toISOString(),
-            total_laudos: events.length,
-            system_total: toMoney(events.reduce((total, event) => total + toMoney(event.system_amount_due), 0)),
-            doctor_total: toMoney(events.reduce((total, event) => total + toMoney(event.doctor_amount_due), 0)),
-            system_paid: toMoney(events.filter((event) => event.system_paid_at).reduce((total, event) => total + toMoney(event.system_amount_due), 0)),
-            doctor_paid: toMoney(events.filter((event) => event.doctor_received_at).reduce((total, event) => total + toMoney(event.doctor_amount_due), 0)),
-            system_pending_count: events.filter((event) => !event.system_paid_at && (event.source === "legacy" || event.system_amount_due !== null)).length,
-            doctor_pending_count: events.filter((event) => !event.doctor_received_at && (event.source === "legacy" || event.doctor_amount_due !== null)).length,
+            total_laudos: activeEvents.length,
+            system_total: toMoney(activeEvents.reduce((total, event) => total + toMoney(event.system_amount_due), 0)),
+            doctor_total: toMoney(activeEvents.reduce((total, event) => total + toMoney(event.doctor_amount_due), 0)),
+            system_paid: toMoney(activeEvents.filter((event) => event.system_paid_at).reduce((total, event) => total + toMoney(event.system_amount_due), 0)),
+            doctor_paid: toMoney(activeEvents.filter((event) => event.doctor_received_at).reduce((total, event) => total + toMoney(event.doctor_amount_due), 0)),
+            system_pending_count: activeEvents.filter((event) => !event.system_paid_at && (event.source === "legacy" || event.system_amount_due !== null)).length,
+            doctor_pending_count: activeEvents.filter((event) => !event.doctor_received_at && (event.source === "legacy" || event.doctor_amount_due !== null)).length,
           };
         })
       );
@@ -733,6 +742,7 @@ export const financeSimpleRouter = router({
             eq(billing_catalog_study_events.unit_id, input.unit_id),
             sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
             sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
+            eq(billing_catalog_study_events.financial_status, 'active'),
           ))
           .groupBy(billing_catalog_study_events.doctor_user_id, users.name)
           .orderBy(users.name),
@@ -888,6 +898,7 @@ export const financeSimpleRouter = router({
             eq(billing_catalog_study_events.doctor_user_id, input.doctor_user_id),
             sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
             sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
+            eq(billing_catalog_study_events.financial_status, 'active'),
           ))
           .orderBy(desc(billing_catalog_study_events.signed_at)),
       ]);
@@ -971,6 +982,7 @@ export const financeSimpleRouter = router({
             sql`${billing_visit_events.signed_at} >= ${startDate}`,
             sql`${billing_visit_events.signed_at} < ${endDate}`,
             isNull(billing_visit_events.doctor_received_at),
+            eq(billing_visit_events.financial_status, 'active'),
           )
           ),
         db
@@ -983,6 +995,7 @@ export const financeSimpleRouter = router({
             sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
             isNotNull(billing_catalog_study_events.price_applied),
             isNull(billing_catalog_study_events.doctor_received_at),
+            eq(billing_catalog_study_events.financial_status, 'active'),
           )),
       ]);
 
@@ -1020,6 +1033,7 @@ export const financeSimpleRouter = router({
             sql`${billing_visit_events.signed_at} >= ${startDate}`,
             sql`${billing_visit_events.signed_at} < ${endDate}`,
             isNull(billing_visit_events.system_paid_at),
+            eq(billing_visit_events.financial_status, 'active'),
           )
           ),
         db
@@ -1031,6 +1045,7 @@ export const financeSimpleRouter = router({
             sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
             isNotNull(billing_catalog_study_events.system_amount_due),
             isNull(billing_catalog_study_events.system_paid_at),
+            eq(billing_catalog_study_events.financial_status, 'active'),
           )),
       ]);
 
@@ -1193,6 +1208,7 @@ export const financeSimpleRouter = router({
                 eq(billing_catalog_study_events.unit_id, u.id),
                 sql`${billing_catalog_study_events.signed_at} >= ${cycleStart}`,
                 sql`${billing_catalog_study_events.signed_at} < ${cycleEnd}`,
+                eq(billing_catalog_study_events.financial_status, 'active'),
               )),
           ]);
           const legacy = legacyRows[0];
@@ -1283,6 +1299,7 @@ export const financeSimpleRouter = router({
               eq(billing_catalog_study_events.unit_id, u.id),
               sql`${billing_catalog_study_events.signed_at} >= ${cycleStart}`,
               sql`${billing_catalog_study_events.signed_at} < ${cycleEnd}`,
+              eq(billing_catalog_study_events.financial_status, 'active'),
             ))
             .orderBy(desc(billing_catalog_study_events.signed_at));
         })

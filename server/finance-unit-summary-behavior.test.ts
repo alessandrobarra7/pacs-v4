@@ -68,4 +68,34 @@ describe("Resumo financeiro unificado por unidade", () => {
       doctor_pending_count: 1,
     });
   });
+
+  it("exclui evento cancelado dos totais e das pendências do ciclo", async () => {
+    state.responses = [
+      [{ id: 12, name: "Unidade A", s: 1, e: 31 }],
+      [
+        { event_id: 1, study_instance_uid: "1.2.3", report_id: 1, modality: "CR", clinical_label: "CRÂNIO", signed_at: new Date("2026-08-10T10:00:00.000Z"), doctor_amount_due: "10.00", system_amount_due: "3.50", doctor_received_at: null, system_paid_at: null, pricing_status: "ok", financial_status: "active" },
+      ],
+      [
+        { event_id: 2, study_selection_id: 7, modality: "CR", clinical_label: "TÓRAX", signed_at: new Date("2026-08-11T10:00:00.000Z"), doctor_amount_due: "18.00", system_amount_due: "3.50", doctor_received_at: null, system_paid_at: null, pricing_status: "ok", financial_status: "cancelled" },
+      ],
+    ];
+
+    const caller = financeSimpleRouter.createCaller({
+      user: { id: 1, role: "admin_master" },
+      req: {} as never,
+      res: {} as never,
+    });
+    const [summary] = await caller.unitSummary({
+      reference_date: "2026-08-21T12:00:00.000Z",
+    });
+
+    expect(summary).toMatchObject({
+      unit_id: 12,
+      total_laudos: 1,
+      system_total: 3.5,
+      doctor_total: 10,
+      system_pending_count: 1,
+      doctor_pending_count: 1,
+    });
+  });
 });

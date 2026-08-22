@@ -13,6 +13,7 @@ import { closeReadinessOnReport, ensureReadinessExists } from "./sla";
 import { createCatalogEventsWhenComplete } from "../catalogFinancial";
 import {
   reports, report_versions, billing_report_items, billing_visit_events as billing_visit_events_table,
+  billing_catalog_study_events, study_exam_legend_selections, audit_log,
 } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import sanitizeHtml from "sanitize-html";
@@ -211,6 +212,12 @@ export const reportsRouter = router({
         }
         // Bug fix B1: bloquear atualização direta de laudos assinados ou retificados.
         // Laudos nesse estado só podem ser alterados via reports.revise (com histórico e motivo).
+        if (report.status === 'cancelled') {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Laudo cancelado não pode ser editado.',
+          });
+        }
         if (report.status === 'signed' || report.status === 'revised') {
           throw new TRPCError({
             code: 'BAD_REQUEST',
@@ -263,6 +270,9 @@ export const reportsRouter = router({
         if (report.unit_id) {
           const canEdit = await canAccessUnit(ctx.user, report.unit_id, 'edit_reports');
           if (!canEdit) throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para assinar laudos nesta unidade' });
+        }
+        if (report.status === 'cancelled') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Laudo cancelado não pode ser assinado novamente.' });
         }
         const signedAt = new Date();
         
@@ -494,11 +504,11 @@ export const reportsRouter = router({
         return { success: true };
       }),
 
-    // Apagar laudo (rascunho ou assinado)
+    // Apagar rascunho ou cancelar laudo assinado com seus eventos financeiros.
     delete: protectedProcedure
       .input(z.object({
         id: z.number(),
-        // LOG-01: motivo obrigatório para admin_master apagar laudos assinados/retificados
+        // LOG-01: motivo obrigatório para admin_master cancelar laudos assinados/retificados
         reason: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -506,6 +516,9 @@ export const reportsRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
         const report = await getReportById(input.id, undefined);
         if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
+        if (report.status === 'cancelled') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Laudo já cancelado não pode ser apagado fisicamente.' });
+        }
         // Validar edit_reports via camada central (trata admin_master e fallback legado)
         if (report.unit_id) {
           const canEdit = await canAccessUnit(ctx.user, report.unit_id, 'edit_reports');
@@ -516,7 +529,7 @@ export const reportsRouter = router({
           if (report.status === 'signed' || report.status === 'revised') {
             throw new TRPCError({
               code: 'FORBIDDEN',
-              message: 'Laudos assinados ou retificados só podem ser excluídos pelo administrador master.',
+              message: 'Laudos assinados ou retificados só podem ser cancelados pelo administrador master.',
             });
           }
         } else {
@@ -524,11 +537,81 @@ export const reportsRouter = router({
           if ((report.status === 'signed' || report.status === 'revised') && !input.reason?.trim()) {
             throw new TRPCError({
               code: 'BAD_REQUEST',
-              message: 'Informe o motivo para excluir um laudo assinado ou retificado.',
+              message: 'Informe o motivo para cancelar um laudo assinado ou retificado.',
             });
           }
         }
-        // Remover evento financeiro e decrementar consolidados de ciclo (se laudo estava assinado)
+        const effectiveUnitId = report.unit_id ?? ctx.user.unit_id;
+        const isSignedOrRevised = report.status === 'signed' || report.status === 'revised';
+        if (isSignedOrRevised) {
+          const reason = input.reason!.trim();
+          const cancelledAt = new Date();
+          const cancellation = await db.transaction(async (tx) => {
+            const selections = report.study_instance_uid && report.unit_id
+              ? await tx.select({
+                id: study_exam_legend_selections.id,
+                documents_snapshot: study_exam_legend_selections.documents_snapshot,
+              }).from(study_exam_legend_selections).where(and(
+                eq(study_exam_legend_selections.study_instance_uid, report.study_instance_uid),
+                eq(study_exam_legend_selections.unit_id, report.unit_id),
+              ))
+              : [];
+            const selectionIds = selections
+              .filter((selection) => selection.documents_snapshot.some((document) => document.key === report.document_key))
+              .map((selection) => selection.id);
+            const [legacyEvents, catalogEvents] = await Promise.all([
+              tx.select({ id: billing_visit_events_table.id, doctor_received_at: billing_visit_events_table.doctor_received_at, system_paid_at: billing_visit_events_table.system_paid_at })
+                .from(billing_visit_events_table)
+                .where(and(eq(billing_visit_events_table.report_id, report.id), eq(billing_visit_events_table.financial_status, 'active'))),
+              selectionIds.length > 0
+                ? tx.select({ id: billing_catalog_study_events.id, doctor_received_at: billing_catalog_study_events.doctor_received_at, system_paid_at: billing_catalog_study_events.system_paid_at })
+                  .from(billing_catalog_study_events)
+                  .where(and(inArray(billing_catalog_study_events.study_selection_id, selectionIds), eq(billing_catalog_study_events.financial_status, 'active')))
+                : Promise.resolve([]),
+            ]);
+            if ([...legacyEvents, ...catalogEvents].some((event) => event.doctor_received_at || event.system_paid_at)) {
+              throw new TRPCError({ code: 'CONFLICT', message: 'Não é possível cancelar um laudo com evento financeiro já baixado. Registre um ajuste financeiro auditável.' });
+            }
+            await tx.insert(report_versions).values({
+              report_id: report.id,
+              version: report.version ?? 1,
+              body: report.body,
+              status: report.status === 'signed' ? 'signed' : 'revised',
+              reason: `Cancelamento: ${reason}`,
+              saved_by_user_id: ctx.user.id,
+            });
+            await tx.update(reports).set({ status: 'cancelled' }).where(eq(reports.id, report.id));
+            await tx.update(billing_visit_events_table).set({ financial_status: 'cancelled' }).where(and(
+              eq(billing_visit_events_table.report_id, report.id),
+              eq(billing_visit_events_table.financial_status, 'active'),
+            ));
+            if (selectionIds.length > 0) {
+              await tx.update(billing_catalog_study_events).set({
+                financial_status: 'cancelled',
+                cancelled_at: cancelledAt,
+                cancelled_by_user_id: ctx.user.id,
+                cancellation_reason: reason,
+                cancellation_report_id: report.id,
+              }).where(and(
+                inArray(billing_catalog_study_events.study_selection_id, selectionIds),
+                eq(billing_catalog_study_events.financial_status, 'active'),
+              ));
+            }
+            await tx.insert(audit_log).values({
+              user_id: ctx.user.id,
+              unit_id: effectiveUnitId,
+              action: 'CANCEL_REPORT',
+              target_type: 'REPORT',
+              target_id: String(report.id),
+              ip_address: ctx.req.ip,
+              user_agent: ctx.req.headers['user-agent'],
+              metadata: { reason, previousStatus: report.status, cancelledAt, cancelledLegacyEvents: legacyEvents.map((event) => event.id), cancelledCatalogEvents: catalogEvents.map((event) => event.id) },
+            });
+            return { legacy: legacyEvents.length, catalog: catalogEvents.length };
+          });
+          return { success: true, cancelled: true, cancelled_events: cancellation.legacy + cancellation.catalog };
+        }
+        // Remover evento financeiro e decrementar consolidados de ciclo de rascunho.
         // PRG-05: removeVisitEventForReport e report_versions importados estaticamente no topo
         await removeVisitEventForReport(input.id);
         // Apagar versões históricas primeiro (FK)
@@ -536,7 +619,6 @@ export const reportsRouter = router({
         // Apagar o laudo
         await db.delete(reports).where(eq(reports.id, input.id));
         // PRG-06: usar report.unit_id como fonte de verdade (não ctx.user.unit_id legado)
-        const effectiveUnitId = report.unit_id ?? ctx.user.unit_id;
         await createAuditLog({
           user_id: ctx.user.id,
           unit_id: effectiveUnitId,

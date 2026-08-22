@@ -2668,3 +2668,25 @@
 - [x] Remover a dependência de agrupamento implícito da consulta compartilhada de eventos financeiros.
 - [x] Validar a consulta compartilhada em ambiente MySQL com `ONLY_FULL_GROUP_BY` ativo.
 - [x] Garantir que falhas de `unitSummary` também sejam apresentadas como erro explícito, sem catálogo vazio silencioso.
+
+## ATUALIZAÇÃO CORRETIVA — RECUPERAÇÃO DO CATÁLOGO FINANCEIRO
+- [x] Validar o commit 6bf2540 em worktree isolada e atualizar a VM1 após testes financeiros e build completos.
+- [x] Confirmar o retorno da unidade Hospital da Criança e dos dois eventos no ciclo após a atualização.
+
+## INCIDENTE DE INTEGRIDADE — EVENTO SEM LAUDO CLÍNICO APARENTE
+- [x] Preservar a evidência dos eventos de Lenilson dos Santos Vidal e Antonia de Souza Batista exibidos no log sem laudo concluído na listagem clínica.
+- [x] Reconciliar em modo somente leitura os eventos financeiros, seleções de legenda, documentos de laudo e estados clínicos dos dois estudos.
+- [x] Definir a correção para impedir que um evento financeiro seja elegível sem o fato clínico assinável correspondente.
+
+## FALHA CONFIRMADA — EXCLUSÃO DE LAUDO ASSINADO
+- [x] Completar a trilha do laudo 50 e verificar sua exclusão posterior na auditoria.
+- [x] Bloquear a exclusão física de laudo assinado com evento financeiro ativo ou cancelar o evento de forma auditável conforme a regra aprovada.
+- [x] Exigir lastro de documento assinado e elegível para que eventos de catálogo componham totais financeiros.
+
+## CANCELAMENTO AUDITÁVEL APROVADO — LAUDO E EVENTO FINANCEIRO
+- [x] Criar campos aditivos de cancelamento para eventos financeiros de catálogo e seus responsáveis auditáveis.
+- [x] Implementar transação de cancelamento de laudo assinado, evento financeiro e trilha de auditoria.
+- [x] Manter exclusão física restrita a rascunhos sem evento financeiro e expor a ação de cancelamento para laudos assinados.
+- [x] Excluir eventos cancelados de totais, cobranças e repasses, mantendo-os visíveis no log como cancelados.
+- [x] Cobrir cancelamento, bloqueio de exclusão física e manutenção de histórico em regressões comportamentais.
+- [ ] Publicar a correção e preparar a migração aditiva da VM2 antes de atualizar a VM1.

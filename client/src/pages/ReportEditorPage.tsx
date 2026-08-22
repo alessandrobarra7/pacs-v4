@@ -305,7 +305,8 @@ export default function ReportEditorPage() {
   const [deleteReason, setDeleteReason] = useState("");
 
   const isSigned = existingReport?.status === 'signed' || existingReport?.status === 'revised';
-  const isEditable = !isSigned || isRevising;
+  const isCancelled = existingReport?.status === 'cancelled';
+  const isEditable = (!isSigned && !isCancelled) || isRevising;
   const signedDoctorName = isSigned ? (signedReportWithDoctor?.doctorName || "Assinante não identificado") : (medCtx?.doctorName || "");
   const signedDoctorCrm = isSigned ? (signedReportWithDoctor?.doctorCrm || "") : (medCtx?.crm || "");
   const signedDoctorSignatureUrl = isSigned ? (signedReportWithDoctor?.doctorSignatureUrl || null) : (medCtx?.signatureUrl || null);
@@ -642,18 +643,18 @@ export default function ReportEditorPage() {
   // ── Apagar laudo ───────────────────────────────────────────────────────────────────────────────────────
   const handleDelete = useCallback(async () => {
     if (!existingReport?.id) return;
-    // LOG-01: admin_master deve informar motivo ao apagar laudo assinado/retificado
+    // Laudos assinados passam por cancelamento auditável e exigem motivo.
     const needsReason = isAdminMaster && (existingReport.status === 'signed' || existingReport.status === 'revised');
     if (needsReason && !deleteReason.trim()) {
-      toast.error('Informe o motivo para excluir um laudo assinado ou retificado.');
+      toast.error('Informe o motivo para cancelar um laudo assinado ou retificado.');
       return;
     }
     try {
-      await deleteReport.mutateAsync({
+      const result = await deleteReport.mutateAsync({
         id: existingReport.id,
         reason: deleteReason.trim() || undefined,
       });
-      toast.success("Laudo apagado com sucesso!");
+      toast.success(result.cancelled ? "Laudo e eventos financeiros cancelados com sucesso!" : "Rascunho apagado com sucesso!");
       setShowDeleteModal(false);
       setDeleteReason("");
       navigate("/");
@@ -2127,7 +2128,7 @@ export default function ReportEditorPage() {
         </div>
       )}
 
-      {/* Modal de confirmação de exclusão */}
+      {/* Modal de confirmação de exclusão ou cancelamento auditável */}
       {showDeleteModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: '#fff', borderRadius: 12, padding: 28, width: 420, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
@@ -2136,23 +2137,25 @@ export default function ReportEditorPage() {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
               </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1a1a1a' }}>Apagar laudo</h3>
-                <p style={{ margin: 0, fontSize: 13, color: '#666' }}>Esta ação não pode ser desfeita.</p>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1a1a1a' }}>{isSigned ? 'Cancelar laudo assinado' : 'Apagar rascunho'}</h3>
+                <p style={{ margin: 0, fontSize: 13, color: '#666' }}>{isSigned ? 'O histórico clínico e financeiro será preservado para auditoria.' : 'Esta ação não pode ser desfeita.'}</p>
               </div>
             </div>
             <p style={{ margin: '0 0 16px', fontSize: 13, color: '#374151', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px' }}>
-              O laudo de <strong>{patientName}</strong> será permanentemente excluído, incluindo todo o histórico de versões.
+              {isSigned
+                ? <>O laudo de <strong>{patientName}</strong> será cancelado. Os eventos financeiros vinculados serão cancelados e mantidos apenas para auditoria.</>
+                : <>O rascunho de <strong>{patientName}</strong> será permanentemente excluído, incluindo seu histórico de versões.</>}
             </p>
             {/* LOG-01: campo de motivo obrigatório para admin_master apagar laudo assinado/retificado */}
             {isAdminMaster && isSigned && (
               <div style={{ marginBottom: 16 }}>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Motivo da exclusão <span style={{ color: '#dc2626' }}>*</span>
+                  Motivo do cancelamento <span style={{ color: '#dc2626' }}>*</span>
                 </label>
                 <textarea
                   value={deleteReason}
                   onChange={e => setDeleteReason(e.target.value)}
-                  placeholder="Informe o motivo para excluir este laudo assinado..."
+                  placeholder="Informe o motivo para cancelar este laudo assinado..."
                   rows={3}
                   style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }}
                 />
