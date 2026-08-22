@@ -2762,4 +2762,4 @@
 ## RELATÓRIO DE AUDITORIA — DIVERGÊNCIA ENTRE LAUDO E LOG FINANCEIRO
 - [x] Consolidar a evidência de estudo em andamento exibido com identificação de assinatura anterior no log financeiro.
 - [x] Redigir relatório TXT sanitizado com fatos, riscos, hipóteses e escopo obrigatório de auditoria.
-- [ ] Versionar e publicar o relatório TXT no GitHub.
+- [x] Versionar e publicar o relatório TXT no GitHub (b93f6e4).
