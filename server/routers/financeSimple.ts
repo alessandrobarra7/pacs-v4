@@ -833,7 +833,7 @@ export const financeSimpleRouter = router({
             study_date: studies_cache.study_date,
             study_description: studies_cache.description,
             modality: billing_visit_events.modality_snapshot,
-            clinical_label: sql<string | null>`NULL`,
+            clinical_label: billing_visit_events.exam_name_snapshot,
             doctor_name: users.name,
             signed_at: billing_visit_events.signed_at,
             doctor_amount_due: billing_visit_events.doctor_amount_due,

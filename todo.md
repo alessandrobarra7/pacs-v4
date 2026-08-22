@@ -2602,3 +2602,13 @@
 - [x] Exibir no detalhe da unidade um log pesquisável e ordenado dos eventos que compõem os indicadores do ciclo.
 - [x] Permitir que admin_master, responsável financeiro e unit_admin consultem apenas eventos das unidades autorizadas.
 - [x] Cobrir a trilha de eventos com testes comportamentais, auditoria técnica e publicação no repositório antes de produção.
+
+## FINANCEIRO V2 — CORREÇÃO DE VISIBILIDADE DO LOG
+- [x] Verificar por que o acesso ao log não aparece no detalhe da unidade no sandbox; ele somente é exibido após abrir a unidade pelo botão Abrir financeiro.
+- [x] Manter o acesso ao log em área evidente, abaixo de Valor vigente por modalidade, como botão Ver log do ciclo.
+- [x] Validar visualmente o acesso e a abertura do log antes de nova publicação.
+
+## FINANCEIRO V2 — SNAPSHOT DE EXAME NO LOG LEGADO
+- [x] Retornar `billing_visit_events.exam_name_snapshot` como descrição clínica dos eventos legados no log auditável.
+- [x] Cobrir o fallback do snapshot legado com teste comportamental, validando que o cache do estudo não é a única fonte de descrição.
+- [x] Documentar e publicar a correção auditada antes de produção.
