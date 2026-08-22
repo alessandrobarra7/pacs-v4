@@ -2867,9 +2867,9 @@
 - [x] Definir e executar procedimento de conclusão sem migração: build, reinício do PM2, novo PID, status online e HTTP local 200 em `322fe3e`; sem tocar na VM2 ou nos arquivos locais não rastreados.
 
 ## AUDITORIA SOMENTE LEITURA — DIVERGÊNCIA ENTRE PREÇO VIGENTE E REPASSE
-- [ ] Confrontar o valor imutável aplicado ao evento do laudo com a vigência da configuração de preço individual e de modalidade da unidade.
-- [ ] Confirmar se a diferença visual decorre de alteração posterior de configuração ou de erro de precedência/vigência, sem alterar eventos, preços ou documentos.
-- [ ] Documentar o resultado sanitizado e propor ajuste de transparência na interface somente após confirmação da causa.
+- [x] Confrontar o valor imutável aplicado ao evento do laudo com a vigência da configuração de preço individual e de modalidade da unidade.
+- [x] Confirmar que a diferença visual decorre de alteração posterior de configuração: o evento preserva R$ 10,00 aplicado na assinatura e a configuração vigente passou a R$ 10,01, sem alteração de dados.
+- [x] Documentar o resultado sanitizado e propor ajuste de transparência na interface somente após confirmação da causa.
 
 ## PROPOSTA — REINÍCIO CONTROLADO DE DADOS PARA NOVO CICLO
 - [ ] Delimitar com o responsável os dados operacionais que podem ser removidos e os cadastros/configurações que devem ser preservados.
