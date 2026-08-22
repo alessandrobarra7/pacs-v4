@@ -70,11 +70,13 @@ describe("página financeira individual do médico", () => {
     expect(renderer.root.findAllByType("button").some((node) => String(node.props.className).includes("w-full"))).toBe(true);
   });
 
-  it("filtra os próprios laudos localmente e abre somente o modo financeiro de download", () => {
+  it("filtra os próprios laudos localmente e baixa pelo modo financeiro sem abrir nova aba", () => {
     const setItem = vi.fn();
-    const open = vi.fn();
+    const setAttribute = vi.fn();
+    const appendChild = vi.fn();
+    const downloadFrame = { setAttribute, tabIndex: 0, style: {}, src: "" };
     vi.stubGlobal("sessionStorage", { setItem });
-    vi.stubGlobal("window", { open });
+    vi.stubGlobal("document", { createElement: vi.fn(() => downloadFrame), body: { appendChild } });
     act(() => { renderer = create(<FinanceMeuFinanceiro />); });
 
     const search = renderer.root.findByType("input");
@@ -87,7 +89,10 @@ describe("página financeira individual do médico", () => {
     act(() => printButton?.props.onClick());
 
     expect(setItem).toHaveBeenCalledWith("study_1.2.3", expect.stringContaining("ANA^SILVA"));
-    expect(open).toHaveBeenCalledWith(expect.stringContaining("financialView=1"), "_blank", "noopener,noreferrer");
-    expect(open).not.toHaveBeenCalledWith(expect.stringContaining("print=1"), "_blank", "noopener,noreferrer");
+    expect(document.createElement).toHaveBeenCalledWith("iframe");
+    expect(appendChild).toHaveBeenCalledWith(downloadFrame);
+    expect(downloadFrame.src).toContain("financialView=1");
+    expect(downloadFrame.src).toContain("download=1");
+    expect(downloadFrame.src).not.toContain("print=1");
   });
 });

@@ -15,13 +15,17 @@ O botão agora se chama **Baixar PDF** e abre o documento com o parâmetro restr
 
 O único comando disponível é **Baixar PDF**. A geração captura cada folha configurada e cria o arquivo PDF no navegador. O retorno volta para `/financeiro/meu-financeiro`.
 
+## Download direto sem aba
+
+O fluxo foi refinado para não abrir uma nova aba ou apresentar uma visualização intermediária. A página financeira cria um *iframe* invisível e temporário com o alvo já autorizado. Esse contexto executa o mesmo gerador de PDF configurado e dispara o download do navegador; depois é removido. Assim, o médico permanece em **Meu financeiro** e recebe apenas o arquivo baixado.
+
 ## Segurança e autorização
 
 O acesso continua dependente do alvo de impressão já filtrado no servidor: unidade solicitada, autoria ou assinatura do médico, `view_studies` e `print_reports`. O novo parâmetro controla a interface de consulta, não amplia permissões e não expõe URL direta do arquivo.
 
 ## Validação
 
-Foram atualizadas regressões para verificar o parâmetro `financialView=1`, a ausência de ações clínicas, o bloqueio de ferramentas móveis e a presença do download configurado. Validação aprovada no sandbox: TypeScript, 82 arquivos Vitest com 378 testes aprovados e 1 ignorado, além de build de produção concluído.
+Foram atualizadas regressões para verificar o parâmetro `financialView=1`, a ausência de ações clínicas, o bloqueio de ferramentas móveis, o carregamento invisível e a ausência de `window.open`. Validação aprovada no sandbox: TypeScript, 82 arquivos Vitest com 378 testes aprovados e 1 ignorado, além de build de produção concluído.
 
 ## Atualização operacional
 

@@ -35,8 +35,12 @@ describe("visão financeira individual do médico", () => {
 
   it("abre a conferência financeira sem as ações clínicas do editor", () => {
     expect(pageSource).toContain('financialView: "1"');
+    expect(pageSource).toContain('download: "1"');
+    expect(pageSource).toContain('document.createElement("iframe")');
+    expect(pageSource).not.toContain("window.open(");
     expect(pageSource).not.toContain('print: "1"');
     expect(editorSource).toContain('const financialDocumentView = reportSearch.get("financialView") === "1"');
+    expect(editorSource).toContain('const downloadOnOpen = reportSearch.get("download") === "1"');
     expect(editorSource).toContain("Baixar PDF");
     expect(editorSource).toContain("handleFinancialPdfDownload");
     expect(editorSource).toContain("!financialDocumentView && existingReport?.id");

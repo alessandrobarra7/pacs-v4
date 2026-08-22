@@ -94,8 +94,14 @@ export default function FinanceMeuFinanceiro() {
       documentKey: target.document_key,
       documentLabel: target.document_label,
     }));
-    const params = new URLSearchParams({ document: target.document_key, documentLabel: target.document_label, unitId: String(target.unit_id), financialView: "1" });
-    window.open(`/reports/create/${encodeURIComponent(target.study_instance_uid)}?${params.toString()}`, "_blank", "noopener,noreferrer");
+    const params = new URLSearchParams({ document: target.document_key, documentLabel: target.document_label, unitId: String(target.unit_id), financialView: "1", download: "1" });
+    const downloadFrame = document.createElement("iframe");
+    downloadFrame.setAttribute("aria-hidden", "true");
+    downloadFrame.setAttribute("allow", "downloads");
+    downloadFrame.tabIndex = -1;
+    downloadFrame.style.display = "none";
+    downloadFrame.src = `/reports/create/${encodeURIComponent(target.study_instance_uid)}?${params.toString()}`;
+    document.body.appendChild(downloadFrame);
   };
 
   return (

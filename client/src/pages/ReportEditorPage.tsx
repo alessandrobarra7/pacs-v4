@@ -192,7 +192,9 @@ export default function ReportEditorPage() {
   const unitIdFromRoute = Number(reportSearch.get("unitId")) || 0;
   const printOnOpen = reportSearch.get("print") === "1";
   const financialDocumentView = reportSearch.get("financialView") === "1";
+  const downloadOnOpen = reportSearch.get("download") === "1";
   const autoPrintTriggered = useRef(false);
+  const autoDownloadTriggered = useRef(false);
 
   // Info do estudo (vinda do sessionStorage)
   const [studyInfo, setStudyInfo] = useState<StudyInfo | null>(null);
@@ -1170,6 +1172,16 @@ export default function ReportEditorPage() {
       toast.error("Não foi possível gerar o PDF. Tente novamente.", { id: "financial-pdf-download" });
     }
   }, [patientName]);
+
+  useEffect(() => {
+    if (!downloadOnOpen || !financialDocumentView || autoDownloadTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
+    autoDownloadTriggered.current = true;
+    void handleFinancialPdfDownload().finally(() => {
+      if (window.parent !== window && window.frameElement instanceof HTMLIFrameElement) {
+        window.setTimeout(() => window.frameElement?.remove(), 1000);
+      }
+    });
+  }, [downloadOnOpen, financialDocumentView, studyInfo, existingReport?.id, isSigned, handleFinancialPdfDownload]);
 
   // FIX BUG-2: inserir imagem inline no contentEditable
   // A imagem faz parte do documento, é salva no laudo e arrastável pelo browser nativamente.

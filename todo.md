@@ -2886,3 +2886,8 @@
 - [x] Disponibilizar somente visualização final e download do PDF configurado, preservando logos e layout da unidade.
 - [x] Cobrir a ausência de ações clínicas e a autorização do documento com testes de regressão antes de publicação.
 - [x] Atualizar a VM1 de `322fe3e` para `4a3e260` sem migração, com novo PID do PM2, status online e HTTP local 200; sem ação na VM2.
+
+## CORREÇÃO — DOWNLOAD DIRETO DO PDF FINANCEIRO
+- [x] Impedir a abertura de nova aba, editor ou visualização intermediária ao baixar um PDF na visão financeira médica.
+- [x] Gerar e baixar diretamente o documento final configurado, preservando layout, logos, assinatura e autorização existente.
+- [x] Cobrir a ausência de `window.open` e validar o download direto antes de publicação.
