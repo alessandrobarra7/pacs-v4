@@ -2751,3 +2751,7 @@
 - [x] Confirmar em leitura que o report 51 foi cancelado em 22/08/2026 às 11:57:33 e que o evento histórico 2 passou para cancelled sem baixa financeira.
 - [x] Completar a leitura da auditoria do caso com collation explícita, sem executar qualquer alteração.
 - [x] Versionar e publicar a decisão administrativa de manter o evento histórico 2 cancelado (d420380).
+
+## ENCERRAMENTO DA ETAPA — OCORRÊNCIAS FINANCEIRAS
+- [x] Encerrar a etapa por decisão do administrador e deixar os testes funcionais manuais sob responsabilidade do usuário.
+- [x] Sincronizar a VM1 com a versão documental atual do repositório, sem nova migração ou alteração de dados (7c47e9a, HTTP 200, PM2 online).
