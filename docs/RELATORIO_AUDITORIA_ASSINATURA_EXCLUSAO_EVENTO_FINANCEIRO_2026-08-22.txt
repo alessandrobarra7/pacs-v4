@@ -1,0 +1,132 @@
+RELATÓRIO DE AUDITORIA — ASSINATURA, EXCLUSÃO CLÍNICA E EVENTO FINANCEIRO
+Data: 22/08/2026
+Escopo: Financeiro v2, laudos de catálogo e eventos históricos da unidade 20.
+Classificação: técnico-operacional; sem credenciais, tokens, UIDs completos ou dados clínicos identificáveis.
+
+1. OBJETIVO
+
+Registrar as evidências recolhidas na investigação de eventos financeiros do catálogo e confrontar o comportamento atual do código com a regra operacional confirmada pelo administrador:
+
+  - A assinatura final de um laudo representa trabalho realizado e gera um evento financeiro.
+  - Impressão, reimpressão, consulta e edição não devem gerar novo evento.
+  - A remoção clínica de um laudo já assinado não deve apagar nem cancelar sua cobrança.
+  - Se houver uma nova laudagem, com nova assinatura final de novo laudo, deve existir nova cobrança.
+
+Este relatório não autoriza alteração, exclusão, baixa, cancelamento, reprocessamento ou recálculo de eventos históricos.
+
+2. AMBIENTE E LINHA DO TEMPO
+
+2.1. A VM1 foi atualizada para o commit c2b3ba0, com serviço pacs-portal online e HTTP local 200.
+
+2.2. Imediatamente após a atualização, o painel "Financeiro por unidade" ficou vazio. A causa foi incompatibilidade entre código e schema: o commit consulta billing_catalog_study_events.financial_status, mas a migração 0056 ainda não existia na VM2.
+
+2.3. A migração aditiva 0056 foi aplicada na VM2 somente depois de:
+  - pré-condições confirmarem ausência das cinco colunas novas;
+  - backup lógico consistente;
+  - fotografia antes/depois dos eventos históricos 1 e 2;
+  - diff vazio entre as fotografias antes/depois.
+
+2.4. Backup gerado na VM2:
+  /var/backups/pacs-portal/pacs_portal_before_0056_20260822_102743.sql.gz
+
+2.5. A migração incluiu financial_status e campos de cancelamento em billing_catalog_study_events, além dos valores cancelled e CANCEL_REPORT nos enums de reports e audit_log. Nenhum evento financeiro foi modificado por essa migração estrutural.
+
+3. EVIDÊNCIA OPERACIONAL OBSERVADA
+
+3.1. No ciclo financeiro exibido para a unidade 20, a interface apresentou:
+  - 2 eventos no ciclo;
+  - taxa LAUDS vigente de R$ 300,00 por evento;
+  - soma para o sistema de R$ 0,00;
+  - log auditável com duas linhas de eventos de catálogo;
+  - total de médico de R$ 0,00 para as linhas afetadas.
+
+3.2. A fotografia de segurança dos eventos 1 e 2, antes e depois da migração 0056, apresentou em ambos:
+
+  id | unit_id | price_applied | system_amount_due | doctor_received_at | system_paid_at
+  1  | 20      | NULL          | NULL              | NULL               | NULL
+  2  | 20      | NULL          | NULL              | NULL               | NULL
+
+3.3. Portanto, esses eventos existem e estão visíveis no log, mas não possuem snapshot histórico de preço médico nem de taxa do sistema. A configuração atual da unidade não é prova de que esse valor foi aplicado quando a assinatura ocorreu.
+
+3.4. A tela clínica exibiu estados atuais diferentes para os dois estudos relacionados:
+  - Caso A: laudo atualmente exibido como assinado.
+  - Caso B: laudo atualmente exibido como pendente.
+
+3.5. Essa diferença não permite concluir, por si só, que um evento do log é inválido. O log registra um ato de assinatura passado; a worklist apresenta o estado clínico atual. É necessário vincular cada cobrança à assinatura específica que a gerou.
+
+4. INCOERÊNCIA DE APRESENTAÇÃO IDENTIFICADA
+
+O dashboard mostra "Taxa LAUDS por evento" como configuração vigente e, ao lado, descreve "Soma para o sistema" como "Taxa LAUDS × eventos do ciclo". Essa descrição é incorreta para os eventos 1 e 2, porque system_amount_due é NULL em ambos.
+
+O resumo atual conta os dois eventos ativos, mas a soma converte valor NULL em zero. O resultado visual é a combinação "2 eventos + taxa vigente R$ 300,00 + soma R$ 0,00". A taxa exibida é uma configuração presente; ela não é um snapshot financeiro retroativo.
+
+Consequência: o painel deve separar eventos identificados de valores financeiros confirmados e deve sinalizar explicitamente eventos sem snapshot de preço. Não deve calcular ou atribuir automaticamente R$ 300,00 a fatos anteriores.
+
+5. AUDITORIA DO CÓDIGO ATUAL
+
+5.1. server/routers/reports.ts chama createCatalogEventsWhenComplete após a assinatura de um laudo de catálogo.
+
+5.2. server/catalogFinancial.ts cria os eventos somente quando todos os documentos obrigatórios da seleção estão assinados. A função usa a seleção clínica como unidade de unicidade.
+
+5.3. Depois de encontrar um evento já existente para study_selection_id, a função retorna sem criar novos eventos. Em termos práticos, uma nova assinatura posterior para a mesma seleção não gera nova cobrança.
+
+5.4. drizzle/schema.ts define a chave única uq_catalog_selection_event sobre:
+
+  study_selection_id + event_index
+
+Essa chave permite apenas o conjunto original de eventos de cada seleção. Ela não identifica uma ocorrência de assinatura, um novo laudo ou uma nova execução clínica.
+
+5.5. O código de cancelamento auditável introduzido anteriormente altera financial_status para cancelled em eventos relacionados ao cancelamento de laudo. Esse comportamento conflita com a regra operacional confirmada neste relatório, segundo a qual o serviço já assinado continua cobrável mesmo quando o documento clínico é removido/cancelado posteriormente.
+
+6. CONCLUSÃO TÉCNICA
+
+O código atual NÃO implementa integralmente a regra aprovada para nova assinatura:
+
+  - A primeira assinatura pode criar um evento financeiro de catálogo.
+  - Reimpressão não cria evento adicional, o que é correto.
+  - Revisão do mesmo laudo não cria evento adicional, o que é coerente enquanto não representar nova laudagem.
+  - Exclusão/cancelamento de laudo assinado atualmente pode cancelar o evento, o que contraria a regra aprovada.
+  - Nova assinatura de novo laudo após exclusão/cancelamento pode não criar novo evento, porque já existe um evento associado à seleção. Isso também contraria a regra aprovada.
+
+7. REGRA DE NEGÓCIO A SER IMPLEMENTADA APÓS CONFIRMAÇÃO FORMAL
+
+7.1. Um evento financeiro deve nascer no instante de uma assinatura final cobravel, com valor médico e taxa LAUDS congelados nesse instante.
+
+7.2. Cada evento deve ter vínculo auditável com a assinatura clínica específica que o originou. O vínculo não pode depender somente de study_selection_id.
+
+7.3. Reimpressão, visualização, download, abertura de visualizador e revisão do mesmo documento não geram novo evento.
+
+7.4. Remoção, cancelamento ou substituição posterior do documento clínico não apaga nem cancela automaticamente a cobrança já gerada.
+
+7.5. A assinatura final de um novo laudo, após a remoção/cancelamento do anterior, gera uma nova ocorrência de cobrança. Os dois eventos permanecem rastreáveis e independentes.
+
+7.6. Uma reversão financeira excepcional deve ser uma ação administrativa separada, com dupla confirmação, motivo obrigatório, auditoria e bloqueio quando houver baixa. Ela não pode ser consequência automática da exclusão clínica.
+
+8. PROPOSTA TÉCNICA DE IMPLEMENTAÇÃO
+
+8.1. Criar uma entidade ou chave de "ocorrência de assinatura faturável". Cada ocorrência deve apontar para o report/version/assinatura que originou a cobrança.
+
+8.2. Alterar a unicidade de billing_catalog_study_events para permitir múltiplas ocorrências por study_selection_id, mantendo event_index apenas como posição dentro de cada ocorrência.
+
+8.3. Armazenar report_id, versão/assinatura de origem e identificador de ocorrência no evento financeiro. Esses campos permitirão mostrar no log se a cobrança veio de uma assinatura histórica, do laudo atual ou de uma nova laudagem.
+
+8.4. Separar o cancelamento clínico da reversão financeira. O laudo pode receber estado clínico cancelado/removido, mas o evento financeiro permanece ativo salvo reversão financeira administrativa expressa.
+
+8.5. Para eventos históricos sem snapshot de preço, manter visibilidade e cobrar somente após definição administrativa explícita de preço histórico, com auditoria. Não aplicar preço vigente retroativamente de forma automática.
+
+9. TESTES DE ACEITE OBRIGATÓRIOS
+
+  A. Assinar o primeiro laudo de uma seleção cria exatamente os eventos configurados.
+  B. Reimprimir o laudo não cria evento adicional.
+  C. Revisar o mesmo laudo sem nova laudagem não cria evento adicional.
+  D. Cancelar/remover clinicamente um laudo assinado preserva seu evento financeiro ativo.
+  E. Criar e assinar novo laudo depois do cancelamento cria uma segunda ocorrência financeira, sem alterar a primeira.
+  F. O log identifica as duas assinaturas e seus respectivos valores congelados.
+  G. Uma reversão financeira administrativa não apaga registros e exige motivo/auditoria.
+  H. Evento sem snapshot financeiro histórico aparece como "valor histórico pendente de definição", sem receber preço atual automaticamente.
+
+10. LIMITE OPERACIONAL
+
+Os eventos históricos 1 e 2 foram preservados. Este relatório não recomenda cancelá-los, apagá-los, reprocessá-los nem atribuir valores automaticamente. Qualquer regularização desses eventos deve ocorrer em fluxo administrativo específico, após aprovação expressa e backup.
+
+FIM DO RELATÓRIO
