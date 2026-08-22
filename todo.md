@@ -2612,3 +2612,13 @@
 - [x] Retornar `billing_visit_events.exam_name_snapshot` como descrição clínica dos eventos legados no log auditável.
 - [x] Cobrir o fallback do snapshot legado com teste comportamental, validando que o cache do estudo não é a única fonte de descrição.
 - [x] Documentar e publicar a correção auditada antes de produção.
+
+## FINANCEIRO V2 — ATUALIZAÇÃO REAL DO LOG AUDITÁVEL
+- [x] Validar o commit ce83cad em worktree isolada e atualizar a VM1 com build, reinicialização do PM2 e verificação HTTP.
+- [ ] Confirmar em produção o botão Ver log do ciclo e a descrição permanente do exame nos eventos legados.
+
+## FINANCEIRO V2 — DIVERGÊNCIA ENTRE INDICADOR E LOG
+- [x] Identificar o critério que faz o painel mostrar eventos do ciclo enquanto o log retorna vazio.
+- [x] Alinhar o log aos mesmos eventos e ao mesmo intervalo temporal usados nos indicadores da unidade.
+- [x] Criar regressão comportamental que exige igualdade entre a contagem exibida e as linhas do log para um ciclo.
+- [ ] Auditar, validar e publicar a correção antes de nova atualização da VM1.

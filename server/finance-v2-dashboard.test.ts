@@ -64,4 +64,11 @@ describe("Financeiro v2 visual", () => {
     expect(financeRouter).toContain('billing_catalog_study_events.price_applied');
     expect(dashboard).toContain('const systemCycleTotal = asMoney(unit.system_total);');
   });
+
+  it("usa a mesma referência mensal no painel e no log auditável", () => {
+    expect(dashboard).toContain('function UnitModalityPrices({ unitId, referenceDate, canManage }');
+    expect(dashboard).toContain('<UnitModalityPrices unitId={unit.unit_id} referenceDate={referenceDate} canManage={canManagePrices} />');
+    expect(dashboard).toContain('<AuditTrailLauncher unitId={unitId} referenceDate={referenceDate} />');
+    expect(dashboard).not.toContain('<AuditTrailLauncher unitId={unitId} referenceDate={new Date().toISOString()} />');
+  });
 });
