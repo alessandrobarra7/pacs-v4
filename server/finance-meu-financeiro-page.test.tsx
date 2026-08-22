@@ -57,7 +57,7 @@ describe("página financeira individual do médico", () => {
     expect(hasText(renderer.root, "01/08/2026 a 31/08/2026")).toBe(true);
     expect(hasText(renderer.root, "ANA SILVA")).toBe(true);
     expect(renderer.root.findAllByType("input").some((node) => node.props.placeholder === "Buscar paciente ou exame")).toBe(true);
-    expect(hasText(renderer.root, "Imprimir ou baixar PDF")).toBe(true);
+    expect(hasText(renderer.root, "Baixar PDF")).toBe(true);
     expect(hasText(renderer.root, "Valores definidos pelo administrador")).toBe(true);
     const header = renderer.root.findAllByType("header")[0];
     expect(hasText(header, "Estudos")).toBe(true);
@@ -66,11 +66,11 @@ describe("página financeira individual do médico", () => {
     expect(hasText(header, "Minha configuração")).toBe(false);
     expect(state.financeInputs.some((input) => input.unit_id === 8)).toBe(true);
 
-    expect(renderer.root.findAllByType("button").some((node) => node.children.some((child) => typeof child === "string" && child.includes("Imprimir ou baixar PDF")))).toBe(true);
+    expect(renderer.root.findAllByType("button").some((node) => node.children.some((child) => typeof child === "string" && child.includes("Baixar PDF")))).toBe(true);
     expect(renderer.root.findAllByType("button").some((node) => String(node.props.className).includes("w-full"))).toBe(true);
   });
 
-  it("filtra os próprios laudos localmente e abre apenas o fluxo de impressão configurada", () => {
+  it("filtra os próprios laudos localmente e abre somente o modo financeiro de download", () => {
     const setItem = vi.fn();
     const open = vi.fn();
     vi.stubGlobal("sessionStorage", { setItem });
@@ -82,11 +82,12 @@ describe("página financeira individual do médico", () => {
     expect(hasText(renderer.root, "Nenhum laudo encontrado para a busca.")).toBe(true);
 
     act(() => renderer.root.findByType("input").props.onChange({ target: { value: "ANA" } }));
-    const printButton = renderer.root.findAllByType("button").find((node) => node.children.some((child) => typeof child === "string" && child.includes("Imprimir ou baixar PDF")));
+    const printButton = renderer.root.findAllByType("button").find((node) => node.children.some((child) => typeof child === "string" && child.includes("Baixar PDF")));
     expect(printButton).toBeDefined();
     act(() => printButton?.props.onClick());
 
     expect(setItem).toHaveBeenCalledWith("study_1.2.3", expect.stringContaining("ANA^SILVA"));
-    expect(open).toHaveBeenCalledWith(expect.stringContaining("print=1"), "_blank", "noopener,noreferrer");
+    expect(open).toHaveBeenCalledWith(expect.stringContaining("financialView=1"), "_blank", "noopener,noreferrer");
+    expect(open).not.toHaveBeenCalledWith(expect.stringContaining("print=1"), "_blank", "noopener,noreferrer");
   });
 });

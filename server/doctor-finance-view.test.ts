@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 const routerSource = readFileSync(resolve(process.cwd(), "server/routers/financeSimple.ts"), "utf8");
 const pageSource = readFileSync(resolve(process.cwd(), "client/src/pages/finance/FinanceMeuFinanceiro.tsx"), "utf8");
+const editorSource = readFileSync(resolve(process.cwd(), "client/src/pages/ReportEditorPage.tsx"), "utf8");
 
 describe("visão financeira individual do médico", () => {
   it("separa a lista clínica de laudos dos eventos que calculam os repasses", () => {
@@ -27,8 +28,18 @@ describe("visão financeira individual do médico", () => {
     expect(pageSource).toContain("Laudos entregues");
     expect(pageSource).toContain("Paciente");
     expect(pageSource).toContain("Buscar paciente ou exame");
-    expect(pageSource).toContain("Imprimir ou baixar PDF");
+    expect(pageSource).toContain("Baixar PDF");
     expect(pageSource).toContain("Repasses gerados no ciclo");
     expect(pageSource).toContain("Alterações futuras não recalculam");
+  });
+
+  it("abre a conferência financeira sem as ações clínicas do editor", () => {
+    expect(pageSource).toContain('financialView: "1"');
+    expect(pageSource).not.toContain('print: "1"');
+    expect(editorSource).toContain('const financialDocumentView = reportSearch.get("financialView") === "1"');
+    expect(editorSource).toContain("Baixar PDF");
+    expect(editorSource).toContain("handleFinancialPdfDownload");
+    expect(editorSource).toContain("!financialDocumentView && existingReport?.id");
+    expect(editorSource).toContain("!financialDocumentView && (isCancelled");
   });
 });

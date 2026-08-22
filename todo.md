@@ -2878,5 +2878,10 @@
 
 ## AUDITORIA SOMENTE LEITURA — PAINEL FINANCEIRO DO MÉDICO NA VM2
 - [x] Consultar eventos financeiros ativos, preços aplicados e configurações vigentes da unidade e da médica sem expor dados clínicos identificáveis.
-- [x] Confrontar a vigência no momento da assinatura com a configuração atual apresentada pelo painel. Confirmado: CT aplicou R$ 10,00 pelo fallback da unidade na assinatura; a configuração atual é R$ 10,01.
+- [x] Confrontar a vigência no momento da assinatura com a configuração atual apresentada pelo painel.
 - [x] Documentar a causa da divergência e aguardar autorização antes de qualquer alteração de interface ou dado.
+
+## CORREÇÃO — DOCUMENTO FINAL NA VISÃO FINANCEIRA MÉDICA
+- [x] Impedir que a ação de conferência financeira abra o editor de laudo com opções de imprimir, apagar ou retificar.
+- [x] Disponibilizar somente visualização final e download do PDF configurado, preservando logos e layout da unidade.
+- [x] Cobrir a ausência de ações clínicas e a autorização do documento com testes de regressão antes de publicação.

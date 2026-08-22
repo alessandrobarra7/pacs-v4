@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import DOMPurify from 'dompurify';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import type { LayoutPreferences, LayoutSnapshot } from '../../../shared/types';
 import { SharedReportBodyGuide, SharedReportSheet } from "@/components/SharedReportSheet";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
@@ -13,7 +15,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, Printer, CheckCircle, Search, ChevronDown, ChevronRight,
   Plus, Trash2, Star, StarOff, GripVertical, Image as ImageIcon, FileText,
-  MessageSquare, Layers, X, Edit2, Check, Copy,
+  MessageSquare, Layers, X, Edit2, Check, Copy, FileDown,
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight,
   Undo2, Redo2, Eye, EyeOff, BookOpen, Upload, Highlighter,
 } from "lucide-react";
@@ -189,6 +191,7 @@ export default function ReportEditorPage() {
   const documentLabelFromRoute = reportSearch.get("documentLabel") || "";
   const unitIdFromRoute = Number(reportSearch.get("unitId")) || 0;
   const printOnOpen = reportSearch.get("print") === "1";
+  const financialDocumentView = reportSearch.get("financialView") === "1";
   const autoPrintTriggered = useRef(false);
 
   // Info do estudo (vinda do sessionStorage)
@@ -309,7 +312,7 @@ export default function ReportEditorPage() {
 
   const isSigned = existingReport?.status === 'signed' || existingReport?.status === 'revised';
   const isCancelled = existingReport?.status === 'cancelled';
-  const isEditable = (!isSigned && !isCancelled) || isRevising;
+  const isEditable = ((!isSigned && !isCancelled) || isRevising) && !financialDocumentView;
   const cancellationPreview = trpc.reports.cancelPreview.useQuery(
     { id: existingReport?.id ?? 0 },
     { enabled: showDeleteModal && isSigned && isAdminMaster && Boolean(existingReport?.id) },
@@ -1138,6 +1141,36 @@ export default function ReportEditorPage() {
     void handlePrint(true);
   }, [printOnOpen, studyInfo, existingReport?.id, isSigned, handlePrint]);
 
+  const handleFinancialPdfDownload = useCallback(async () => {
+    const pages = Array.from(document.querySelectorAll<HTMLElement>(".report-page"));
+    if (pages.length === 0) {
+      toast.error("O documento final ainda não está pronto para download.");
+      return;
+    }
+
+    toast.loading("Gerando PDF configurado...", { id: "financial-pdf-download" });
+    try {
+      const pdf = new jsPDF("p", "mm", "a4");
+      for (let index = 0; index < pages.length; index += 1) {
+        const canvas = await html2canvas(pages[index], {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: "#ffffff",
+        });
+        const imageData = canvas.toDataURL("image/png");
+        const width = pdf.internal.pageSize.getWidth();
+        const height = (canvas.height * width) / canvas.width;
+        if (index > 0) pdf.addPage();
+        pdf.addImage(imageData, "PNG", 0, 0, width, height);
+      }
+      pdf.save(`Laudo_${(patientName || "assinado").replace(/\s+/g, "_")}.pdf`);
+      toast.success("PDF baixado com sucesso!", { id: "financial-pdf-download" });
+    } catch {
+      toast.error("Não foi possível gerar o PDF. Tente novamente.", { id: "financial-pdf-download" });
+    }
+  }, [patientName]);
+
   // FIX BUG-2: inserir imagem inline no contentEditable
   // A imagem faz parte do documento, é salva no laudo e arrastável pelo browser nativamente.
   const addInlineImage = useCallback((src: string | null, label: string) => {
@@ -1225,7 +1258,7 @@ export default function ReportEditorPage() {
       {/* ── HEADER DESKTOP ─────────────────────────────────────────────────────────── */}
       <header className="hidden md:flex items-center gap-3 px-4 py-2 border-b border-gray-200 bg-white shrink-0 print:hidden">
         <button
-          onClick={() => navigate("/")}
+          onClick={() => navigate(financialDocumentView ? "/financeiro/meu-financeiro" : "/")}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -1237,17 +1270,19 @@ export default function ReportEditorPage() {
           {examDesc && <p className="text-xs text-gray-500 truncate">{examDesc}</p>}
         </div>
         <div className="flex items-center gap-2 ml-auto">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handlePrint()}
-            className="gap-1.5 text-xs"
-          >
-            <Printer className="h-3.5 w-3.5" />
-            Imprimir
-          </Button>
+          {financialDocumentView ? (
+            <Button variant="outline" size="sm" onClick={() => void handleFinancialPdfDownload()} className="gap-1.5 text-xs">
+              <FileDown className="h-3.5 w-3.5" />
+              Baixar PDF
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => void handlePrint()} className="gap-1.5 text-xs">
+              <Printer className="h-3.5 w-3.5" />
+              Imprimir
+            </Button>
+          )}
           {/* Botão Apagar — sempre visível quando há laudo salvo */}
-          {existingReport?.id && !isCancelled && (
+          {!financialDocumentView && existingReport?.id && !isCancelled && (
             <Button
               variant="outline"
               size="sm"
@@ -1260,7 +1295,7 @@ export default function ReportEditorPage() {
             </Button>
           )}
 
-          {isCancelled ? (
+          {!financialDocumentView && (isCancelled ? (
             <Button
               size="sm"
               onClick={handleNewOccurrence}
@@ -1330,14 +1365,14 @@ export default function ReportEditorPage() {
                 {(signReport.isPending || createReport.isPending || updateReport.isPending) ? "Assinando..." : "Assinar"}
               </Button>
             </>
-          )}
+          ))}
         </div>
       </header>
 
       {/* ── HEADER MOBILE ─────────────────────────────────────────────────────────── */}
       <header className="flex md:hidden items-center gap-2 px-3 py-2 border-b border-gray-200 bg-white shrink-0 print:hidden">
         <button
-          onClick={() => navigate("/")}
+          onClick={() => navigate(financialDocumentView ? "/financeiro/meu-financeiro" : "/")}
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-600 hover:bg-gray-100"
           aria-label="Voltar para os estudos"
         >
@@ -1348,13 +1383,13 @@ export default function ReportEditorPage() {
           <p className="truncate text-[11px] uppercase text-gray-500">{examDesc || "Laudo radiológico"}</p>
         </div>
         <button
-          onClick={() => void handlePrint()}
+          onClick={() => financialDocumentView ? void handleFinancialPdfDownload() : void handlePrint()}
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
-          aria-label="Imprimir laudo"
+          aria-label={financialDocumentView ? "Baixar PDF do laudo" : "Imprimir laudo"}
         >
-          <Printer className="h-4 w-4" />
+          {financialDocumentView ? <FileDown className="h-4 w-4" /> : <Printer className="h-4 w-4" />}
         </button>
-        {isCancelled ? (
+        {!financialDocumentView && (isCancelled ? (
           <button
             onClick={handleNewOccurrence}
             disabled={createReport.isPending}
@@ -1394,13 +1429,13 @@ export default function ReportEditorPage() {
             <CheckCircle className="h-4 w-4" />
             Assinar
           </button>
-        )}
+        ))}
       </header>
 
       {/* ── CORPO DESKTOP ─────────────────────────────────────────────────────────── */}
       <div className="hidden md:flex flex-1 overflow-hidden print:block">
         {/* ── SIDEBAR ──────────────────────────────────────────────────── */}
-        <aside className="hidden md:flex w-[340px] shrink-0 border-r border-gray-200 bg-gray-50 flex-col overflow-hidden print:hidden">
+        {!financialDocumentView && <aside className="hidden md:flex w-[340px] shrink-0 border-r border-gray-200 bg-gray-50 flex-col overflow-hidden print:hidden">
           {/* Abas */}
           <div className="flex border-b border-gray-200 bg-white">
             {([
@@ -1476,12 +1511,12 @@ export default function ReportEditorPage() {
               </Button>
             </div>
           )}
-        </aside>
+        </aside>}
 
         {/* ── ÁREA DO DOCUMENTO ────────────────────────────────────────── */}
         <div className="flex-1 flex flex-col overflow-hidden">
         {/* MOD 8 — Campo de seleção de exame compacto acima do editor */}
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-gray-50/50 print:hidden">
+        {!financialDocumentView && <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-gray-50/50 print:hidden">
           <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
           <input
             value={examTitle}
@@ -1494,7 +1529,7 @@ export default function ReportEditorPage() {
               <X className="h-3.5 w-3.5" />
             </button>
           )}
-        </div>
+        </div>}
         {/* ── TOOLBAR DE FORMATAÇÃO ─────────────────────────────────────────── */}
         {isEditable && (
           <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-100 bg-white print:hidden flex-wrap">
@@ -1595,7 +1630,7 @@ export default function ReportEditorPage() {
                       }
                       body={
                         <>
-                          {i === 0 && isSigned && !isRevising && (
+                          {i === 0 && isSigned && !isRevising && !financialDocumentView && (
                             <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                               <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
                               <span>Laudo <strong>{existingReport?.status === "revised" ? "retificado" : "assinado"}</strong> — clique em <strong>Retificar</strong> para editar.</span>
@@ -1690,6 +1725,7 @@ export default function ReportEditorPage() {
             ) : (
               /* MODO PÁGINA Única: mesma folha A4 compartilhada com o LayoutEditorPage */
               <SharedReportSheet
+                className="report-page"
                 positions={layoutBlockPos}
                 logos={layoutLogos}
                 backgroundUrl={layoutBgUrl}
@@ -1712,7 +1748,7 @@ export default function ReportEditorPage() {
                 }
                 title={
                   examTitle ? (
-                    editingTitle ? (
+                    editingTitle && !financialDocumentView ? (
                       <input
                         ref={titleInputRef}
                         value={examTitle}
@@ -1723,16 +1759,16 @@ export default function ReportEditorPage() {
                         style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "Arial, Helvetica, sans-serif", border: "2px solid #1a6b8a", borderRadius: 4, padding: "4px 8px", outline: "none", background: "#f0f8fb", boxSizing: "border-box", color: "#111" }}
                       />
                     ) : (
-                      <div onClick={() => setEditingTitle(true)} title="Clique para editar o título" style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", cursor: "pointer", color: "#111", position: "relative", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
+                      <div onClick={() => { if (!financialDocumentView) setEditingTitle(true); }} title={financialDocumentView ? undefined : "Clique para editar o título"} style={{ width: "100%", textAlign: "center", fontWeight: "bold", fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", cursor: financialDocumentView ? "default" : "pointer", color: "#111", position: "relative", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
                         {examTitle}
-                        <span style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", fontSize: "9pt", color: "#1a6b8a", opacity: 0.4 }}>✏</span>
+                        {!financialDocumentView && <span style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", fontSize: "9pt", color: "#1a6b8a", opacity: 0.4 }}>✏</span>}
                       </div>
                     )
                   ) : <div style={{ width: "100%", textAlign: "center", color: "#aaa", fontStyle: "italic" }}>Selecione o tipo de exame na barra lateral</div>
                 }
                 body={
                   <>
-                    {isSigned && !isRevising && (
+                    {isSigned && !isRevising && !financialDocumentView && (
                       <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexShrink: 0 }}>
                         <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
                         <span>Laudo <strong>{existingReport?.status === "revised" ? "retificado" : "assinado"}</strong> — clique em <strong>Retificar</strong> para editar.</span>
@@ -1974,7 +2010,7 @@ export default function ReportEditorPage() {
           </div>
         </main>
 
-        <div className="absolute inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t border-gray-200 bg-white/95 px-3 py-2 shadow-[0_-4px_14px_rgba(15,23,42,0.08)] backdrop-blur print:hidden">
+        {!financialDocumentView && <div className="absolute inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t border-gray-200 bg-white/95 px-3 py-2 shadow-[0_-4px_14px_rgba(15,23,42,0.08)] backdrop-blur print:hidden">
           {isEditable && (
             <button
               type="button"
@@ -1993,9 +2029,9 @@ export default function ReportEditorPage() {
             <BookOpen className="h-4 w-4" />
             Ferramentas
           </button>
-        </div>
+        </div>}
 
-        {showMobileTools && (
+        {!financialDocumentView && showMobileTools && (
           <div className="absolute inset-x-0 bottom-0 z-50 flex max-h-[78dvh] flex-col rounded-t-2xl border-t border-gray-200 bg-white shadow-[0_-10px_30px_rgba(15,23,42,0.2)]">
             <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
               <div>

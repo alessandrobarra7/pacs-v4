@@ -27,7 +27,7 @@ describe("ReportEditorPage — experiência mobile", () => {
   });
 
   it("preserva as ações essenciais e ferramentas do laudo no celular", () => {
-    expect(editorSource).toContain('aria-label="Imprimir laudo"');
+    expect(editorSource).toContain('aria-label={financialDocumentView ? "Baixar PDF do laudo" : "Imprimir laudo"}');
     expect(editorSource).toContain("onClick={handleSign}");
     expect(editorSource).toContain("Salvar rascunho");
     expect(editorSource).toContain("Ferramentas do laudo");
@@ -35,6 +35,13 @@ describe("ReportEditorPage — experiência mobile", () => {
     expect(editorSource).toContain("ModelosTab");
     expect(editorSource).toContain("FrasesTab");
     expect(editorSource).toContain("CarimboTab");
+  });
+
+  it("oculta comandos de edição na abertura financeira e oferece somente download", () => {
+    expect(editorSource).toContain('const financialDocumentView = reportSearch.get("financialView") === "1"');
+    expect(editorSource).toContain("handleFinancialPdfDownload");
+    expect(editorSource).toContain("!financialDocumentView && showMobileTools");
+    expect(editorSource).toContain("!financialDocumentView && <aside");
   });
 
   it("usa documento fluido no mobile e preserva a folha compartilhada no desktop", () => {
