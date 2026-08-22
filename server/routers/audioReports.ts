@@ -50,7 +50,6 @@ export const audioReportsRouter = router({
   getStatusBatch: protectedProcedure
     .input(z.object({ studyInstanceUids: z.array(z.string()) }))
     .query(async ({ input, ctx }) => {
-      assertClinicalMediaViewer(ctx.user.role);
       if (!input.studyInstanceUids.length) return {} as Record<string, boolean>;
       const result: Record<string, boolean> = {};
       for (const uid of input.studyInstanceUids) result[uid] = false;

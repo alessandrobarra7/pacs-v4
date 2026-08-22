@@ -33,8 +33,8 @@ describe("Trilha auditável de eventos financeiros por unidade", () => {
     const signedAt = new Date("2026-08-21T12:00:00.000Z");
     state.responses = [
       [{ id: 12, billing_cycle_start_day: 1, billing_cycle_end_day: 31 }],
-      [{ event_id: 5, study_instance_uid: "1.2.3", report_id: 41, modality: "CR", clinical_label: "CRÂNIO – CONTROLE", doctor_user_id: 1, signed_at: signedAt, doctor_amount_due: "18.00", system_amount_due: "3.50", doctor_received_at: null, system_paid_at: null, pricing_status: "ok" }],
-      [{ event_id: 6, study_selection_id: 21, report_id: null, modality: "CR", clinical_label: "TÓRAX", doctor_user_id: 2, signed_at: new Date("2026-08-21T13:00:00.000Z"), doctor_amount_due: "20.00", system_amount_due: "3.50", doctor_received_at: signedAt, system_paid_at: null, pricing_status: "ok" }],
+      [{ event_id: 5, billing_occurrence: null, source_report_id: null, study_instance_uid: "1.2.3", report_id: 41, modality: "CR", clinical_label: "CRÂNIO – CONTROLE", doctor_user_id: 1, signed_at: signedAt, doctor_amount_due: "18.00", system_amount_due: "3.50", doctor_received_at: null, system_paid_at: null, pricing_status: "ok" }],
+      [{ event_id: 6, study_selection_id: 21, billing_occurrence: 2, source_report_id: 73, report_id: null, modality: "CR", clinical_label: "TÓRAX", doctor_user_id: 2, signed_at: new Date("2026-08-21T13:00:00.000Z"), doctor_amount_due: "20.00", system_amount_due: "3.50", doctor_received_at: signedAt, system_paid_at: null, pricing_status: "ok" }],
       [{ id: 1, name: "Dra Ana" }, { id: 2, name: "Dr Bruno" }],
       [{ id: 21, study_instance_uid: "1.2.4" }],
       [{ study_instance_uid: "1.2.3", patient_name: "ANA^SILVA", study_date: studyDate, study_description: null }, { study_instance_uid: "1.2.4", patient_name: "BRUNO^SOUZA", study_date: studyDate, study_description: "TÓRAX" }],
@@ -43,8 +43,8 @@ describe("Trilha auditável de eventos financeiros por unidade", () => {
     const result = await caller.auditEventsByUnit({ unit_id: 12, reference_date: "2026-08-21T12:00:00.000Z" });
 
     expect(result.events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "legacy-5", source: "legacy", patient_name: "ANA^SILVA", study_description: null, clinical_label: "CRÂNIO – CONTROLE", doctor_name: "Dra Ana", doctor_amount_due: "18.00" }),
-      expect.objectContaining({ id: "catalog-6", source: "catalog", patient_name: "BRUNO^SOUZA", clinical_label: "TÓRAX", doctor_name: "Dr Bruno", doctor_received_at: signedAt }),
+      expect.objectContaining({ id: "legacy-5", source: "legacy", billing_occurrence: null, source_report_id: null, patient_name: "ANA^SILVA", study_description: null, clinical_label: "CRÂNIO – CONTROLE", doctor_name: "Dra Ana", doctor_amount_due: "18.00" }),
+      expect.objectContaining({ id: "catalog-6", source: "catalog", billing_occurrence: 2, source_report_id: 73, patient_name: "BRUNO^SOUZA", clinical_label: "TÓRAX", doctor_name: "Dr Bruno", doctor_received_at: signedAt }),
     ]));
   });
 });

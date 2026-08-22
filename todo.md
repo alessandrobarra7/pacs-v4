@@ -2763,3 +2763,10 @@
 - [x] Consolidar a evidência de estudo em andamento exibido com identificação de assinatura anterior no log financeiro.
 - [x] Redigir relatório TXT sanitizado com fatos, riscos, hipóteses e escopo obrigatório de auditoria.
 - [x] Versionar e publicar o relatório TXT no GitHub (b93f6e4).
+
+## RESPOSTA À AUDITORIA — OCORRÊNCIA E AUTORIZAÇÃO DE ÁUDIO
+- [x] Validar que billing_occurrence e source_report_id ainda não chegam ao tipo e às consultas financeiras unificadas.
+- [x] Exibir no log financeiro a ocorrência e a origem da assinatura, distinguindo evento histórico/cancelado do laudo clínico atual.
+- [x] Revisar a autorização de audioReports.getStatusBatch para eliminar o 403 indevido de admin_master sem ampliar acesso fora da unidade.
+- [x] Cobrir as correções com regressões e validar no sandbox: TypeScript, 77 arquivos Vitest (362 aprovados, 1 ignorado) e build.
+- [ ] Documentar e publicar a correção antes de atualização de produção.

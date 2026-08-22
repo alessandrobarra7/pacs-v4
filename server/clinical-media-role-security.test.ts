@@ -9,14 +9,18 @@ const attachmentPath = path.resolve(__dirname, "routers", "annotations.ts");
 const clientPath = path.resolve(__dirname, "..", "client", "src");
 
 describe("política clínica de áudio e anexos", () => {
-  it("mantém o áudio restrito a médico e operador, mas permite consultar anexos a qualquer usuário com acesso ao estudo", async () => {
+  it("mantém a leitura de áudio restrita, mas libera o indicador de áudio por acesso à unidade", async () => {
     const [audioSource, attachmentSource] = await Promise.all([
       fs.readFile(audioPath, "utf8"),
       fs.readFile(attachmentPath, "utf8"),
     ]);
 
     expect(audioSource).toContain('role !== "medico" && role !== "operador"');
-    expect(audioSource).toContain("assertClinicalMediaViewer(ctx.user.role)");
+    const listSection = audioSource.slice(audioSource.indexOf("list: protectedProcedure"), audioSource.indexOf("getStatusBatch: protectedProcedure"));
+    const statusSection = audioSource.slice(audioSource.indexOf("getStatusBatch: protectedProcedure"));
+    expect(listSection).toContain("assertClinicalMediaViewer(ctx.user.role)");
+    expect(statusSection).not.toContain("assertClinicalMediaViewer(ctx.user.role)");
+    expect(statusSection).toContain('await assertDicomFileAccess(ctx.user, studyUid, "view_studies")');
     expect(attachmentSource).not.toContain("assertClinicalMediaViewer");
     expect(attachmentSource).toContain('await assertDicomFileAccess(ctx.user, input.study_instance_uid, "view_studies")');
     expect(attachmentSource).toContain('await assertDicomFileAccess(ctx.user, studyUid, "view_studies")');

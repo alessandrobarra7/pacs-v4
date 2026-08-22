@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   unitSummaryInputs: [] as Array<{ reference_date: string }>,
   auditInputs: [] as Array<{ input: { unit_id: number; reference_date: string }; enabled: boolean | undefined }>,
   auditError: null as string | null,
+  auditEvents: [] as Array<Record<string, unknown>>,
   auditRefetch: vi.fn(),
 }));
 
@@ -102,7 +103,7 @@ vi.mock("@/lib/trpc", () => ({
           });
           return state.auditError
             ? { data: undefined, isLoading: false, isError: true, error: new Error(state.auditError), refetch: state.auditRefetch }
-            : { data: { events: [] }, isLoading: false, isError: false, error: null, refetch: state.auditRefetch };
+            : { data: { events: state.auditEvents }, isLoading: false, isError: false, error: null, refetch: state.auditRefetch };
         },
       },
       listDoctorModalityPrices: Query({ data: [] }),
@@ -126,6 +127,7 @@ describe("Painel Financeiro v2", () => {
     state.unitSummaryInputs = [];
     state.auditInputs = [];
     state.auditError = null;
+    state.auditEvents = [];
     state.auditRefetch.mockReset();
   });
 
@@ -186,5 +188,39 @@ describe("Painel Financeiro v2", () => {
       retryButton?.props.onClick();
     });
     expect(state.auditRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("qualifica ocorrência histórica cancelada sem confundi-la com o laudo atual", () => {
+    state.auditEvents = [{
+      id: "catalog-2",
+      source: "catalog",
+      billing_occurrence: 1,
+      source_report_id: 51,
+      patient_name: "PACIENTE^TESTE",
+      study_date: new Date("2026-08-20T00:00:00.000Z"),
+      study_description: "ABDOME",
+      modality: "CT",
+      clinical_label: "ABDOME TOTAL",
+      doctor_name: "Dra. Histórica",
+      signed_at: new Date("2026-08-21T17:05:00.000Z"),
+      doctor_amount_due: "0.00",
+      system_amount_due: "0.00",
+      doctor_received_at: null,
+      system_paid_at: null,
+      pricing_status: "pending",
+      financial_status: "cancelled",
+    }];
+    act(() => {
+      renderer = create(<FinanceDashboard />);
+    });
+    const logButton = renderer.root.findAllByType("button").find((button: ReactTestInstance) => button.children.includes("Ver log do ciclo"));
+    act(() => {
+      logButton?.props.onClick();
+    });
+
+    expect(hasText(renderer.root, "Médico da assinatura")).toBe(true);
+    expect(hasText(renderer.root, "Assinatura histórica cancelada")).toBe(true);
+    expect(hasText(renderer.root, "Ocorrência 1; laudo de origem #51")).toBe(true);
+    expect(hasText(renderer.root, "Evento cancelado; fora dos totais")).toBe(true);
   });
 });

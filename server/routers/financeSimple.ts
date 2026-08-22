@@ -152,6 +152,8 @@ type UnitCycleFinancialEvent = {
   id: string;
   source: "legacy" | "catalog";
   event_id: number;
+  billing_occurrence: number | null;
+  source_report_id: number | null;
   doctor_user_id: number | null;
   study_instance_uid: string | null;
   report_id: number | null;
@@ -185,6 +187,8 @@ async function listUnitCycleFinancialEvents(
     db
       .select({
         event_id: billing_visit_events.id,
+        billing_occurrence: sql<number | null>`NULL`,
+        source_report_id: sql<number | null>`NULL`,
         study_instance_uid: billing_visit_events.study_instance_uid,
         report_id: billing_visit_events.report_id,
         modality: billing_visit_events.modality_snapshot,
@@ -208,6 +212,8 @@ async function listUnitCycleFinancialEvents(
       .select({
         event_id: billing_catalog_study_events.id,
         study_selection_id: billing_catalog_study_events.study_selection_id,
+        billing_occurrence: billing_catalog_study_events.billing_occurrence,
+        source_report_id: billing_catalog_study_events.source_report_id,
         report_id: sql<number | null>`NULL`,
         modality: billing_catalog_study_events.modality_snapshot,
         clinical_label: billing_catalog_study_events.exam_name_snapshot,
@@ -238,6 +244,8 @@ async function listUnitCycleFinancialEvents(
       id: event.id,
       source: event.source,
       event_id: event.event_id,
+      billing_occurrence: event.billing_occurrence,
+      source_report_id: event.source_report_id,
       doctor_user_id: event.doctor_user_id,
       study_instance_uid: event.study_instance_uid ?? null,
       report_id: event.report_id,
@@ -287,6 +295,8 @@ async function listUnitCycleFinancialEvents(
       id: event.id,
       source: event.source,
       event_id: event.event_id,
+      billing_occurrence: event.billing_occurrence,
+      source_report_id: event.source_report_id,
       doctor_user_id: event.doctor_user_id,
       study_instance_uid: studyUid ?? null,
       report_id: event.report_id,
