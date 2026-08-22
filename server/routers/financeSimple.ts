@@ -30,6 +30,7 @@ import {
   exam_legends,
   study_exam_legend_selections,
   studies_cache,
+  reports,
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, ne, sql, sql as sqlFn, desc, inArray, gte, lte, or, SQL } from "drizzle-orm";
 import {
@@ -146,6 +147,10 @@ function calcCycleDates(
       };
     }
   }
+}
+
+function formatCycleCalendarDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }
 
 type UnitCycleFinancialEvent = {
@@ -1187,6 +1192,8 @@ export const financeSimpleRouter = router({
             cycle_label,
             cycle_start_date: cycleStart.toISOString(),
             cycle_end_date: cycleEnd.toISOString(),
+            cycle_start_display: formatCycleCalendarDate(cycleStart),
+            cycle_end_display: formatCycleCalendarDate(new Date(cycleEnd.getTime() - 1)),
             total_laudos: Number(legacy?.total_laudos ?? 0) + Number(catalog?.total_eventos ?? 0),
             doctor_total: Number(legacy?.doctor_total ?? 0) + Number(catalog?.doctor_total ?? 0),
             doctor_paid: toMoney(legacy?.doctor_paid) + toMoney(catalog?.doctor_paid),
@@ -1281,6 +1288,74 @@ export const financeSimpleRouter = router({
         new Date(b.signed_at ?? 0).getTime() - new Date(a.signed_at ?? 0).getTime()
       );
 
+      const canViewOwnReports = await canAccessUnit(ctx.user, input.unit_id, "view_studies");
+      const canDownloadOwnReports = canViewOwnReports
+        && await canAccessUnit(ctx.user, input.unit_id, "print_reports");
+
+      // Documentos clínicos entregues pelo próprio médico. Esta lista não usa
+      // eventos financeiros como substituto do laudo: um exame composto pode
+      // ter vários documentos e uma única ocorrência de cobrança. A leitura é
+      // limitada à unidade selecionada, ao médico logado e ao ciclo consultado.
+      const deliveredReports = canViewOwnReports ? (await Promise.all(
+        scopedUnitRows.map(async (u) => {
+          const { cycleStart, cycleEnd } = calcCycleDates(u.s, u.e, refDate);
+          return db
+            .select({
+              id: reports.id,
+              unit_id: reports.unit_id,
+              unit_name: units.name,
+              study_instance_uid: reports.study_instance_uid,
+              document_key: reports.document_key,
+              patient_name: studies_cache.patient_name,
+              modality: studies_cache.modality,
+              study_description: studies_cache.description,
+              document_label: reports.document_label_snapshot,
+              status: reports.status,
+              signed_at: reports.signedAt,
+              export_file_url: reports.export_file_url,
+              author_user_id: reports.author_user_id,
+              signed_by: reports.signedBy,
+            })
+            .from(reports)
+            .leftJoin(studies_cache, and(
+              eq(studies_cache.study_instance_uid, reports.study_instance_uid),
+              eq(studies_cache.unit_id, reports.unit_id),
+            ))
+            .leftJoin(units, eq(units.id, reports.unit_id))
+            .where(and(
+              eq(reports.unit_id, u.id),
+              or(
+                eq(reports.author_user_id, ctx.user.id),
+                eq(reports.signedBy, ctx.user.id),
+              ),
+              isNotNull(reports.signedAt),
+              sql`${reports.signedAt} >= ${cycleStart}`,
+              sql`${reports.signedAt} < ${cycleEnd}`,
+              inArray(reports.status, ["signed", "revised", "cancelled"]),
+            ))
+            .orderBy(desc(reports.signedAt));
+        })
+      )).flat() : [];
+
+      // A URL só é exposta quando o documento pertence ao próprio médico. A
+      // mesma regra é aplicada no filtro SQL acima; esta verificação defensiva
+      // impede expor um arquivo caso a integridade histórica esteja incompleta.
+      const safeDeliveredReports = deliveredReports.map((report) => ({
+        ...report,
+        download_url: canDownloadOwnReports && (report.author_user_id === ctx.user.id || report.signed_by === ctx.user.id)
+          ? report.export_file_url
+          : null,
+      }));
+      const signedReportCountByUnit = new Map<number, number>();
+      for (const report of safeDeliveredReports) {
+        if (report.status === "signed" || report.status === "revised") {
+          signedReportCountByUnit.set(
+            report.unit_id,
+            (signedReportCountByUnit.get(report.unit_id) ?? 0) + 1,
+          );
+        }
+      }
+
       // FIX ANALISE_FINANCEIRO_PERMISSOES BUG1: unificar fonte de price_per_report
       // O billing event usa billing_doctor_modality_prices para calcular doctor_amount_due.
       // Antes, o resumo buscava de billing_doctor_unit_prices (tabela diferente), causando
@@ -1342,14 +1417,18 @@ export const financeSimpleRouter = router({
           cycle_label: r.cycle_label,
           cycle_start_date: r.cycle_start_date,
           cycle_end_date: r.cycle_end_date,
+          cycle_start_display: r.cycle_start_display,
+          cycle_end_display: r.cycle_end_display,
           total_laudos: Number(r.total_laudos),
           doctor_total: toMoney(r.doctor_total),
           doctor_paid: toMoney(r.doctor_paid ?? 0),
           doctor_pending: subMoney(r.doctor_total, r.doctor_paid ?? 0),
           last_received_at: r.last_received_at,
           price_per_report: priceByUnit.get(r.unit_id) ?? null,
+          signed_report_count: signedReportCountByUnit.get(r.unit_id) ?? 0,
         })),
         events,
+        delivered_reports: safeDeliveredReports,
       };
     }),
   /**

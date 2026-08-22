@@ -34,12 +34,13 @@ describe('Governança de preço por assinatura', () => {
     expect(finance).toContain('.set({ ends_at: new Date(startsAt.getTime() - 1000) })');
   });
 
-  it('mantém o painel do médico separado por unidade e exibe preço pendente', async () => {
+  it('mantém o painel do médico separado por unidade e apresenta valores vigentes em consulta', async () => {
     const page = await fs.readFile(path.resolve(__dirname, '..', 'client', 'src', 'pages', 'finance', 'FinanceMeuFinanceiro.tsx'), 'utf-8');
-    expect(page).toContain('Dados exclusivos de');
-    expect(page).toContain('Nenhum valor de outra unidade é somado nesta tela.');
+    expect(page).toContain('Dados da unidade:');
+    expect(page).toContain('Unidade vinculada:');
     expect(page).toContain('unit_id: unitId ?? 0');
-    expect(page).toContain('Preço pendente');
+    expect(page).toContain('Valor por modalidade');
+    expect(page).toContain('Valores definidos pelo administrador');
   });
 
   it('permite ao responsável financeiro abrir a gestão de preços sem administrar ciclos ou vínculos', async () => {

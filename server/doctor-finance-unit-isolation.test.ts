@@ -19,9 +19,9 @@ describe("financeiro do médico por unidade", () => {
   });
 
   it("mostra no cliente um seletor unitário e não consolida valores de hospitais distintos", () => {
-    expect(pageSource).toContain("Dados exclusivos de");
-    expect(pageSource).toContain("Nenhum valor de outra unidade é somado nesta tela.");
+    expect(pageSource).toContain("Dados da unidade:");
+    expect(pageSource).toContain("Unidade vinculada:");
     expect(pageSource).toContain("unit_id: unitId ?? 0");
-    expect(pageSource).toContain("Preço por modalidade");
+    expect(pageSource).toContain("Valor por modalidade");
   });
 });
