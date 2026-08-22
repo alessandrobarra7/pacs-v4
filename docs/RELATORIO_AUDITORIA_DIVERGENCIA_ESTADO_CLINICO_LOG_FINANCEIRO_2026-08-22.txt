@@ -1,0 +1,90 @@
+RELATÓRIO PARA AUDITORIA EXTERNA
+DIVERGÊNCIA ENTRE ESTADO CLÍNICO ATUAL E LOG FINANCEIRO
+Data: 22/08/2026
+Escopo: caso histórico sanitizado da unidade Hospital da Criança
+
+1. FINALIDADE
+
+Este relatório solicita auditoria independente sobre uma divergência de entendimento e rastreabilidade entre a worklist clínica, o editor de laudos e o Financeiro v2. Não apresenta credenciais, tokens, cookies, conteúdo de laudo, StudyInstanceUID completo nem identificação nominal de paciente.
+
+2. EVIDÊNCIA OBSERVADA
+
+Em produção, o Estudo A foi exibido na worklist como "Em Andamento" e o editor apresentou a ação de apagar um rascunho. No mesmo ciclo financeiro, o log auditável exibiu uma linha histórica atribuída a outro usuário médico como responsável pela assinatura/realização.
+
+Na tela financeira da unidade, o contador de eventos ativos exibiu 1 evento, enquanto o modal de log exibiu duas linhas históricas. A composição visual não distinguiu, de forma suficiente, qual linha estava cancelada, qual era histórica e qual se relacionava ao estado clínico atual. Para o administrador, isso sugere indevidamente que um estudo atualmente em andamento foi laudado por outro profissional ou que há duplicidade de cobrança.
+
+3. FATOS RECONCILIADOS EM LEITURA
+
+3.1 O evento histórico 2 foi criado antes da implantação do vínculo de ocorrência e, por isso, não possui source_report_id nem valores financeiros congelados.
+
+3.2 Em 22/08/2026 houve criação e assinatura de um report administrativo novo para o Estudo A. Em seguida, esse report foi cancelado por admin_master. A versão assinada foi preservada e a auditoria registrou a ação CANCEL_REPORT.
+
+3.3 O cancelamento marcou o evento histórico 2 como cancelled, sem baixa médica, sem baixa do sistema, sem preço médico aplicado e sem valor de sistema aplicado. Por decisão administrativa explícita, o evento 2 permanecerá cancelado e não será reativado, recalculado, precificado, baixado ou recriado.
+
+3.4 Nenhuma ocorrência 2 de laudo ficou persistida. O estado clínico "Em Andamento" observado corresponde ao contexto de rascunho aberto no fluxo de nova laudagem; não deve ser usado para inferir a autoria da assinatura histórica mostrada no Financeiro.
+
+3.5 O log financeiro preserva eventos cancelados por exigência de auditabilidade, enquanto o resumo financeiro conta somente eventos ativos. Esse desenho é válido, mas a tela não deixa essa diferença explícita o suficiente.
+
+4. PROBLEMAS IDENTIFICADOS
+
+P1. AMBIGUIDADE ENTRE ESTADO ATUAL E HISTÓRICO
+O log financeiro mostra o médico associado ao evento/assinatura histórica, porém a worklist mostra o estado da ocorrência clínica atual. Sem ocorrência, status financeiro e origem visíveis na mesma linha, o usuário interpreta os dois dados como se fossem do mesmo laudo atual.
+
+P2. EVENTOS HISTÓRICOS SEM VÍNCULO DIRETO DE ORIGEM
+Eventos anteriores à migração 0057 podem ter source_report_id nulo. Nesses casos, o sistema depende de snapshots e auditoria histórica para explicar a origem; a tela precisa declarar essa limitação em vez de apresentar associação aparente como se fosse vínculo atual verificável.
+
+P3. CONTADOR E LOG NÃO EXPLICAM A DIFERENÇA DE CONJUNTOS
+O indicador "Eventos no ciclo" contabiliza eventos ativos. O log também preserva cancelados. Quando ambos aparecem sem legenda de estado e sem subtotal por status, a contagem 1 versus duas linhas do log parece inconsistência financeira.
+
+P4. IDENTIFICAÇÃO DE MÉDICO NÃO ESTÁ QUALIFICADA
+O rótulo de médico do log deve informar se é "médico da assinatura histórica", "médico do laudo atual" ou "usuário administrativo que cancelou". A ausência dessa qualificação pode atribuir a um médico atual um ato de ocorrência anterior, ou sugerir assinatura atual inexistente.
+
+P5. RISCO OPERACIONAL
+O administrador pode concluir erroneamente que existe laudo ativo assinado por profissional incorreto, evento duplicado ou cobrança ainda válida. O risco é aumentar tentativas manuais de cancelamento, reativação ou baixa de eventos históricos sem lastro financeiro congelado.
+
+5. HIPÓTESE TÉCNICA PRINCIPAL
+
+O comportamento visual é consistente com a combinação de três fontes de verdade diferentes:
+
+- a worklist resolve a ocorrência clínica mais recente e mostra seu estado atual;
+- o evento financeiro histórico preserva o médico e a data capturados no momento da assinatura anterior;
+- o resumo exclui financial_status=cancelled, enquanto o log inclui eventos cancelados por auditoria.
+
+Isso não prova que a regra financeira esteja incorreta, mas prova que a representação atual é insuficiente para explicar a linha financeira ao usuário final.
+
+6. ESCOPO OBRIGATÓRIO DA AUDITORIA
+
+A auditoria deve revisar, sem alterar dados:
+
+A. A construção de listUnitCycleFinancialEvents, unitSummary, auditEventsByUnit e eventsByDoctorUnit, verificando se cada linha do log contém status financeiro, billing_occurrence, source_report_id e referência de assinatura de forma coerente.
+
+B. O mapeamento entre reports, study_exam_legend_selections, billing_catalog_study_events e audit_log para eventos antigos sem source_report_id.
+
+C. A regra de ordenação e seleção do laudo atual na worklist/editor quando há report cancelled e rascunho/nova ocorrência.
+
+D. A nomenclatura do médico no log: deve identificar explicitamente médico da assinatura histórica, e não sugerir autoria do estado clínico atual.
+
+E. A apresentação do contador e do log: incluir contadores ou filtros explícitos para active, cancelled e histórico sem preço, de modo que o usuário consiga reconciliar cada linha com o total.
+
+F. A autorização dos endpoints observados no navegador. Havia respostas 403 em chamadas auxiliares; a auditoria deve verificar se elas afetam somente recursos periféricos ou podem ocultar contexto clínico/financeiro.
+
+7. CRITÉRIOS DE ACEITE PARA CORREÇÃO FUTURA
+
+1. Uma linha financeira deve expor seu status (ativo/cancelado), ocorrência, origem e papel do usuário exibido.
+2. O usuário deve poder diferenciar assinatura histórica, laudo atual e cancelamento administrativo sem consultar banco.
+3. O resumo deve explicar visualmente por que o número de eventos ativos pode ser menor que o total de linhas auditáveis.
+4. Eventos históricos sem source_report_id ou preço aplicado devem ser classificados como históricos, sem associação clínica atual implícita.
+5. A correção não pode reativar, apagar, recalcular, precificar ou baixar os eventos históricos 1 e 2.
+6. A validação deve usar estudo de teste separado; o caso histórico permanece somente leitura.
+
+8. AÇÃO SOLICITADA
+
+Solicita-se parecer técnico independente sobre a coerência dos joins, snapshots, filtros de status e nomenclatura exibida. Antes de qualquer alteração de regra, deve ser apresentado plano de correção com regressões para:
+
+- evento histórico cancelado visível no log e excluído do resumo;
+- estudo com rascunho atual e evento histórico atribuído a assinatura anterior;
+- evento sem source_report_id;
+- ocorrência clínica pós-cancelamento;
+- contagem reconciliável entre cartões, log e detalhe de pagamentos.
+
+Nenhuma mudança de dados é autorizada por este relatório.

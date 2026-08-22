@@ -2758,3 +2758,8 @@
 
 ## SINCRONIZAÇÃO DOCUMENTAL FINAL DA VM1
 - [x] Sincronizar a VM1 do commit 7c47e9a para 361d2c7, sem migração, build ou reinício de serviço (HTTP 200, PM2 online).
+
+## RELATÓRIO DE AUDITORIA — DIVERGÊNCIA ENTRE LAUDO E LOG FINANCEIRO
+- [x] Consolidar a evidência de estudo em andamento exibido com identificação de assinatura anterior no log financeiro.
+- [x] Redigir relatório TXT sanitizado com fatos, riscos, hipóteses e escopo obrigatório de auditoria.
+- [ ] Versionar e publicar o relatório TXT no GitHub.
