@@ -2777,3 +2777,17 @@
 - [x] Exibir a prévia no modal e exigir confirmação explícita do admin_master sem enviar qualquer mutação durante a consulta.
 - [x] Cobrir o fluxo com regressões de interface e backend: TypeScript, 77 arquivos Vitest (363 aprovados, 1 ignorado) e build.
 - [x] Documentar e publicar a prévia antes de atualização de produção (d220437).
+
+## ATUALIZAÇÃO REAL — PRÉVIA SOMENTE LEITURA DE CASCATA
+- [x] Validar isoladamente e atualizar a VM1 do commit 361d2c7 para 8acc488, sem migração de banco. Concluído em 22/08/2026: PM2 online e HTTP local 200.
+- [ ] Confirmar manualmente a abertura da prévia no modal de cancelamento, apenas em estudo de teste composto.
+
+## MONITORAMENTO SOMENTE LEITURA — TESTE DE LAUDAGEM E CANCELAMENTO
+- [x] Executar monitor de rotas, respostas HTTP e falhas da VM1 durante a laudagem e a tentativa de cancelamento de um estudo de teste. A saída foi recebida em 22/08/2026.
+- [x] Revisar a saída: o primeiro monitor classificou incorretamente o tamanho de resposta como status HTTP e preservou identificadores no caminho; a versão revisada deve ler o status correto e normalizar caminhos clínicos antes da exibição.
+
+## CORREÇÃO — ESTADO CLÍNICO APÓS CANCELAMENTO DE LAUDO
+- [x] Investigar o retorno de `reports.statusByStudyUids`: a worklist apresentava “Em andamento” depois do cancelamento de laudo assinado porque o resolvedor agrupava `cancelled` com estados ainda não concluídos.
+- [x] Ajustar o contrato e a UI para comunicar explicitamente “Laudo cancelado — nova laudagem necessária”, sem alterar o laudo, a auditoria ou eventos financeiros históricos. Incluída distinção de cancelamento parcial.
+- [x] Corrigir o desenho do monitor sanitizado de Nginx: a versão revisada lê o campo de status HTTP e normaliza caminhos clínicos antes da exibição.
+- [x] Cobrir e validar regressões: TypeScript, 78 arquivos Vitest (366 aprovados, 1 ignorado) e build de produção aprovados.

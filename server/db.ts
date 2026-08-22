@@ -473,9 +473,47 @@ export async function createAuditLog(log: InsertAuditLog) {
 
 export type StudyReportStatus = {
   label: string;
+  detail: string | null;
   signerNames: string[];
   signedAt: Date | null;
 };
+
+/** Traduz os estados clínicos atuais dos documentos em uma mensagem não ambígua para a worklist. */
+export function getStudyReportStatusPresentation(statuses: readonly string[]): Pick<StudyReportStatus, "label" | "detail"> {
+  const total = statuses.length;
+  const completed = statuses.filter((status) => status === "signed" || status === "revised").length;
+  const cancelled = statuses.filter((status) => status === "cancelled").length;
+
+  if (total > 0 && cancelled === total) {
+    return {
+      label: "Laudo cancelado",
+      detail: "Assinatura cancelada — nova laudagem necessária",
+    };
+  }
+
+  if (cancelled > 0) {
+    return {
+      label: "Cancelamento parcial",
+      detail: `${cancelled} de ${total} documento${total === 1 ? "" : "s"} cancelado${cancelled === 1 ? "" : "s"}`,
+    };
+  }
+
+  if (completed === total) {
+    return {
+      label: statuses.some((status) => status === "revised") ? "Revisado" : "Assinado",
+      detail: null,
+    };
+  }
+
+  if (total > 1 && completed > 0) {
+    return {
+      label: `${completed}/${total} assinados`,
+      detail: null,
+    };
+  }
+
+  return { label: "Em Andamento", detail: null };
+}
 
 /** Retorna status agregado e profissionais que assinaram os documentos de cada estudo. */
 export async function getReportStatusByStudyUids(
@@ -536,12 +574,7 @@ export async function getReportStatusByStudyUids(
   const map: Record<string, StudyReportStatus> = {};
   for (const [uid, reportRows] of Object.entries(statusByStudy)) {
     const completedRows = reportRows.filter((row) => row.status === "signed" || row.status === "revised");
-    const completed = completedRows.length;
-    const label = completed === reportRows.length
-      ? (reportRows.some((row) => row.status === "revised") ? "Revisado" : "Assinado")
-      : reportRows.length > 1 && completed > 0
-        ? `${completed}/${reportRows.length} assinados`
-        : "Em Andamento";
+    const presentation = getStudyReportStatusPresentation(reportRows.map((row) => row.status));
     const signerNames = Array.from(new Set(completedRows
       .map((row) => signerNameById.get(row.signedBy ?? row.authorUserId))
       .filter((name): name is string => !!name)));
@@ -549,7 +582,7 @@ export async function getReportStatusByStudyUids(
       .map((row) => row.signedAt)
       .filter((value): value is Date => value instanceof Date)
       .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
-    map[uid] = { label, signerNames, signedAt };
+    map[uid] = { ...presentation, signerNames, signedAt };
   }
   return map;
 }

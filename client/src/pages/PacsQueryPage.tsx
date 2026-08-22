@@ -737,7 +737,7 @@ const isAdminMaster = user?.role === 'admin_master';
   const [reportDocumentOptions, setReportDocumentOptions] = useState<Array<{ document_key: string; document_label: string; examLegendId: number; examName: string }>>([]);
   const [isReportDocumentsModalOpen, setIsReportDocumentsModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [reportStatusMap, setReportStatusMap] = useState<Record<string, { label: string; signerNames: string[]; signedAt: Date | null }>>({});
+  const [reportStatusMap, setReportStatusMap] = useState<Record<string, { label: string; detail: string | null; signerNames: string[]; signedAt: Date | null }>>({});
   // Pré-download automático: configuração por unidade
   const autoDownloadKey = `pacs_auto_download_unit_${effectiveUnitId || 'none'}`;
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState<boolean>(() => {
@@ -1795,6 +1795,8 @@ setSelectedStudy(study);
     return reportStatusMap[study.studyInstanceUid]?.label || "Pendente";
   };
 
+  const getReportStatusDetail = (study: any) => reportStatusMap[study.studyInstanceUid]?.detail ?? null;
+
   const getReportSignerLabel = (study: any) => {
     const signerNames = reportStatusMap[study.studyInstanceUid]?.signerNames ?? [];
     if (signerNames.length === 1) return `Assinado por ${signerNames[0]}`;
@@ -1807,6 +1809,8 @@ setSelectedStudy(study);
     "Rascunho":     { cls: "bg-stone-100 text-stone-600 border-stone-300" },
     "Assinado":     { cls: "bg-emerald-100 text-emerald-700 border-emerald-300" },
     "Em Andamento": { cls: "bg-sky-100 text-sky-700 border-sky-300" },
+    "Laudo cancelado": { cls: "bg-rose-100 text-rose-800 border-rose-300" },
+    "Cancelamento parcial": { cls: "bg-rose-50 text-rose-700 border-rose-200" },
     "Concluído":    { cls: "bg-emerald-100 text-emerald-700 border-emerald-300" },
     "Revisado":     { cls: "bg-amber-100 text-amber-800 border-amber-400" },
   };
@@ -2104,6 +2108,7 @@ setSelectedStudy(study);
                 const modality = (study.modality || '-').toUpperCase();
                 const modalityCls = modalityColor[modality] || 'bg-gray-100 text-gray-700';
                 const status = getReportStatus(study);
+                const reportStatusDetail = getReportStatusDetail(study);
                 const reportSignerLabel = getReportSignerLabel(study);
                 const { cls: statusCls } = statusConfig[status] || { cls: 'bg-gray-100 text-gray-600 border-gray-300' };
                 const hasAnamnesis = !!anamnesisStatusMap[study.studyInstanceUid];
@@ -2338,10 +2343,11 @@ setSelectedStudy(study);
                     {/* Status do laudo */}
                     <td className="px-4 py-3 text-center">
                       <div className="flex flex-col items-center">
-                        <span className={`text-xs font-medium px-2.5 py-1 rounded-full border whitespace-nowrap inline-flex items-center gap-1 ${statusCls}`}>
+                        <span className={`text-xs font-medium px-2.5 py-1 rounded-full border whitespace-nowrap inline-flex items-center gap-1 ${statusCls}`} title={reportStatusDetail ?? undefined}>
                           {status === 'Revisado' && <span title="Laudo retificado">&#9888;</span>}
                           {status}
                         </span>
+                        {reportStatusDetail && <span className="mt-1 max-w-48 text-center text-[10px] leading-tight text-rose-700" title={reportStatusDetail}>{reportStatusDetail}</span>}
                         {reportSignerLabel && <span className="mt-1 max-w-40 truncate text-[10px] leading-tight text-slate-500" title={reportSignerLabel}>{reportSignerLabel}</span>}
                       </div>
                     </td>
@@ -2397,9 +2403,12 @@ setSelectedStudy(study);
                   ? `${imageCount} ${imageCount === 1 ? 'imagem' : 'imagens'}`
                   : 'Imagens não informadas';
                 const status = getReportStatus(study);
+                const reportStatusDetail = getReportStatusDetail(study);
                 const reportSignerLabel = getReportSignerLabel(study);
                 const mobileStatusCls = status === 'Assinado' || status === 'Concluído' || status === 'Revisado'
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                  : status === 'Laudo cancelado' || status === 'Cancelamento parcial'
+                    ? 'bg-rose-50 text-rose-700 border-rose-200'
                   : 'bg-gray-50 text-gray-500 border-gray-200';
                 const hasAnamnesis = !!anamnesisStatusMap[study.studyInstanceUid];
                 const studyPriority = priorityByStudyUid.get(study.studyInstanceUid);
@@ -2597,6 +2606,7 @@ setSelectedStudy(study);
                         <span className={`inline-flex max-w-[92px] shrink-0 items-center rounded-full border px-2 py-1 text-[10px] font-medium leading-none ${mobileStatusCls}`}>
                           {status}
                         </span>
+                        {reportStatusDetail && <span className="max-w-[116px] text-right text-[9px] leading-tight text-rose-700">{reportStatusDetail}</span>}
                         {reportSignerLabel && <span className="max-w-[116px] truncate text-right text-[9px] leading-tight text-slate-500" title={reportSignerLabel}>{reportSignerLabel}</span>}
                       </div>
                     </div>
