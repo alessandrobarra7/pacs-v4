@@ -2910,3 +2910,4 @@
 - [x] Mapear e reutilizar a estratégia comprovada **Baixar em PDF** da página principal no Financeiro, substituindo a renderização React que falhava em cores não suportadas.
 - [x] Preservar a autorização de documento próprio, a configuração da unidade e o download sem nova aba.
 - [x] Cobrir a integração compartilhada e validar o comportamento antes de publicar outra atualização.
+- [x] Atualizar a VM1 de `9e55c9f` para `e57d2d9` sem migração, com novo PID do PM2, status online e HTTP local 200; sem ação na VM2.
