@@ -2769,4 +2769,4 @@
 - [x] Exibir no log financeiro a ocorrência e a origem da assinatura, distinguindo evento histórico/cancelado do laudo clínico atual.
 - [x] Revisar a autorização de audioReports.getStatusBatch para eliminar o 403 indevido de admin_master sem ampliar acesso fora da unidade.
 - [x] Cobrir as correções com regressões e validar no sandbox: TypeScript, 77 arquivos Vitest (362 aprovados, 1 ignorado) e build.
-- [ ] Documentar e publicar a correção antes de atualização de produção.
+- [x] Documentar e publicar a correção antes de atualização de produção (0aaecda).
