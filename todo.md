@@ -2755,3 +2755,6 @@
 ## ENCERRAMENTO DA ETAPA — OCORRÊNCIAS FINANCEIRAS
 - [x] Encerrar a etapa por decisão do administrador e deixar os testes funcionais manuais sob responsabilidade do usuário.
 - [x] Sincronizar a VM1 com a versão documental atual do repositório, sem nova migração ou alteração de dados (7c47e9a, HTTP 200, PM2 online).
+
+## SINCRONIZAÇÃO DOCUMENTAL FINAL DA VM1
+- [x] Sincronizar a VM1 do commit 7c47e9a para 361d2c7, sem migração, build ou reinício de serviço (HTTP 200, PM2 online).
