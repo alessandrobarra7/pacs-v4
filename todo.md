@@ -2791,3 +2791,7 @@
 - [x] Ajustar o contrato e a UI para comunicar explicitamente “Laudo cancelado — nova laudagem necessária”, sem alterar o laudo, a auditoria ou eventos financeiros históricos. Incluída distinção de cancelamento parcial.
 - [x] Corrigir o desenho do monitor sanitizado de Nginx: a versão revisada lê o campo de status HTTP e normaliza caminhos clínicos antes da exibição.
 - [x] Cobrir e validar regressões: TypeScript, 78 arquivos Vitest (366 aprovados, 1 ignorado) e build de produção aprovados.
+
+## ATUALIZAÇÃO REAL — ESTADO CLÍNICO DE LAUDO CANCELADO
+- [x] Validar isoladamente e atualizar a VM1 do commit 8acc488 para bf67d37, sem migração de banco. Concluído em 22/08/2026: PM2 online e HTTP local 200.
+- [x] Confirmar manualmente em produção a exibição de “Laudo cancelado” e da orientação de nova laudagem no estudo cancelado, sem alteração de dados históricos.
