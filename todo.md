@@ -2653,4 +2653,4 @@
 - [x] Preservar a linha do evento financeiro quando a seleção clínica ou o estudo não estiverem disponíveis.
 - [x] Exibir erro explícito e permitir nova tentativa quando a consulta do log falhar.
 - [x] Criar regressões para paridade, evento sem vínculo clínico e estado de erro da consulta.
-- [ ] Validar, documentar e publicar a correção antes de qualquer atualização da VM1.
+- [x] Validar, documentar e publicar a correção antes de qualquer atualização da VM1.
