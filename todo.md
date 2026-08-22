@@ -2865,3 +2865,18 @@
 - [x] Diagnosticar de modo sanitizado as variáveis de ambiente ausentes na execução de testes da VM1, sem revelar valores sensíveis. Confirmado: configurações do MinIO presentes no arquivo de ambiente, mas não carregadas integralmente pela suíte de testes da VM1.
 - [x] Confirmar o estado operacional da VM1 após a interrupção: código em `322fe3e`, serviço sem reinício e endpoint local preservado antes da conclusão controlada.
 - [x] Definir e executar procedimento de conclusão sem migração: build, reinício do PM2, novo PID, status online e HTTP local 200 em `322fe3e`; sem tocar na VM2 ou nos arquivos locais não rastreados.
+
+## AUDITORIA SOMENTE LEITURA — DIVERGÊNCIA ENTRE PREÇO VIGENTE E REPASSE
+- [ ] Confrontar o valor imutável aplicado ao evento do laudo com a vigência da configuração de preço individual e de modalidade da unidade.
+- [ ] Confirmar se a diferença visual decorre de alteração posterior de configuração ou de erro de precedência/vigência, sem alterar eventos, preços ou documentos.
+- [ ] Documentar o resultado sanitizado e propor ajuste de transparência na interface somente após confirmação da causa.
+
+## PROPOSTA — REINÍCIO CONTROLADO DE DADOS PARA NOVO CICLO
+- [ ] Delimitar com o responsável os dados operacionais que podem ser removidos e os cadastros/configurações que devem ser preservados.
+- [ ] Inventariar dependências e gerar backup verificável antes de qualquer ação destrutiva.
+- [ ] Executar limpeza somente após confirmação explícita do escopo, preservando a infraestrutura e registrando a linha de base do novo ciclo.
+
+## AUDITORIA SOMENTE LEITURA — PAINEL FINANCEIRO DO MÉDICO NA VM2
+- [x] Consultar eventos financeiros ativos, preços aplicados e configurações vigentes da unidade e da médica sem expor dados clínicos identificáveis.
+- [x] Confrontar a vigência no momento da assinatura com a configuração atual apresentada pelo painel. Confirmado: CT aplicou R$ 10,00 pelo fallback da unidade na assinatura; a configuração atual é R$ 10,01.
+- [x] Documentar a causa da divergência e aguardar autorização antes de qualquer alteração de interface ou dado.
