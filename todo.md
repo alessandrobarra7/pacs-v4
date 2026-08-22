@@ -2737,4 +2737,4 @@
 - [x] Suspender a implantação da migração 0057 e da atualização da VM1 até definir a política de cancelamento parcial para seleções compostas.
 - [x] Aprovar o cancelamento em cascata da seleção inteira quando qualquer documento composto for cancelado.
 - [x] Corrigir o fluxo escolhido, alinhar o nome do índice no schema e criar regressão que reproduza o cancelamento parcial real.
-- [ ] Versionar e publicar a correção do cancelamento em cascata antes de preparar a implantação.
+- [x] Versionar e publicar a correção do cancelamento em cascata antes de preparar a implantação (744a3b9).
