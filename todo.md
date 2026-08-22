@@ -2891,3 +2891,4 @@
 - [x] Impedir a abertura de nova aba, editor ou visualização intermediária ao baixar um PDF na visão financeira médica.
 - [x] Gerar e baixar diretamente o documento final configurado, preservando layout, logos, assinatura e autorização existente.
 - [x] Cobrir a ausência de `window.open` e validar o download direto antes de publicação.
+- [x] Atualizar a VM1 de `4a3e260` para `79b7931` sem migração, com novo PID do PM2, status online e HTTP local 200; sem ação na VM2.

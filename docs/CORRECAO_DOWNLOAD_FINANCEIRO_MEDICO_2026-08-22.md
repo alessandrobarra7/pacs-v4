@@ -30,3 +30,5 @@ Foram atualizadas regressões para verificar o parâmetro `financialView=1`, a a
 ## Atualização operacional
 
 A VM1 foi atualizada de `322fe3e` para `4a3e260` sem migração. O processo `pacs-portal` foi reiniciado com novo PID, permaneceu `online` e respondeu HTTP local `200`. Nenhuma ação foi executada na VM2.
+
+O refinamento de download direto foi atualizado posteriormente na VM1, de `4a3e260` para `79b7931`, também sem migração. O processo foi reiniciado com novo PID, permaneceu `online` e respondeu HTTP local `200`. Nenhuma ação foi executada na VM2.
