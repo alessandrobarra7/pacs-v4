@@ -2621,4 +2621,4 @@
 - [x] Identificar o critério que faz o painel mostrar eventos do ciclo enquanto o log retorna vazio.
 - [x] Alinhar o log aos mesmos eventos e ao mesmo intervalo temporal usados nos indicadores da unidade.
 - [x] Criar regressão comportamental que exige igualdade entre a contagem exibida e as linhas do log para um ciclo.
-- [ ] Auditar, validar e publicar a correção antes de nova atualização da VM1.
+- [x] Auditar, validar e publicar a correção antes de nova atualização da VM1.
