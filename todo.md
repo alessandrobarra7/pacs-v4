@@ -2738,3 +2738,16 @@
 - [x] Aprovar o cancelamento em cascata da seleção inteira quando qualquer documento composto for cancelado.
 - [x] Corrigir o fluxo escolhido, alinhar o nome do índice no schema e criar regressão que reproduza o cancelamento parcial real.
 - [x] Versionar e publicar a correção do cancelamento em cascata antes de preparar a implantação (744a3b9).
+
+## IMPLANTAÇÃO REAL — OCORRÊNCIAS FINANCEIRAS E EXAME COMPOSTO
+- [x] Aplicar a migração aditiva 0057 na VM2 com backup lógico, pré-condições e verificação de preservação dos eventos históricos.
+- [x] Validar isoladamente e atualizar a VM1 para o commit e3f8762.
+- [ ] Confirmar em produção o painel financeiro e o cancelamento composto sem alterar eventos históricos existentes.
+
+## RECONCILIAÇÃO URGENTE — POSSÍVEL NOVA OCORRÊNCIA EM CASO HISTÓRICO
+- [x] Preservar as evidências visuais e interromper novas ações no caso histórico de Lenilson.
+- [x] Reconciliar somente leitura os laudos, a seleção, os eventos financeiros e a auditoria do estudo exibido.
+- [x] Decidir administrativamente manter o evento histórico 2 cancelado, sem reativação, recálculo, preço, baixa ou substituição.
+- [x] Confirmar em leitura que o report 51 foi cancelado em 22/08/2026 às 11:57:33 e que o evento histórico 2 passou para cancelled sem baixa financeira.
+- [x] Completar a leitura da auditoria do caso com collation explícita, sem executar qualquer alteração.
+- [ ] Versionar e publicar a decisão administrativa de manter o evento histórico 2 cancelado.
