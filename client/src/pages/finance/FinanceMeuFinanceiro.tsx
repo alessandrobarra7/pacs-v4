@@ -7,6 +7,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
+import { downloadFinancialReportPdf } from "@/lib/financialReportPdfDownload";
 import { toast } from "sonner";
 import {
   AlertCircle, Building2, CalendarDays, CheckCircle2, CircleDollarSign,
@@ -178,7 +179,7 @@ export default function FinanceMeuFinanceiro() {
         study_instance_uid: target.study_instance_uid,
         document_key: target.document_key,
       });
-      await downloadFinancialPdf(documentData);
+      await downloadFinancialReportPdf(documentData);
       toast.success("PDF baixado com sucesso.", { id: loadingToast });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível baixar o PDF.", { id: loadingToast });

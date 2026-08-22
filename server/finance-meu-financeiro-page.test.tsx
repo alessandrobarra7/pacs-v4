@@ -72,7 +72,7 @@ describe("página financeira individual do médico", () => {
     expect(renderer.root.findAllByType("button").some((node) => String(node.props.className).includes("w-full"))).toBe(true);
   });
 
-  it("filtra os próprios laudos localmente e busca o PDF autorizado sem abrir aba ou iframe", async () => {
+  it("filtra os próprios laudos localmente e envia o documento autorizado ao download compartilhado", async () => {
     const setAttribute = vi.fn();
     const appendChild = vi.fn();
     const staging = { setAttribute, style: {}, innerHTML: "", querySelectorAll: vi.fn(() => []), remove: vi.fn() };
@@ -90,7 +90,7 @@ describe("página financeira individual do médico", () => {
     await act(async () => { await printButton?.props.onClick(); });
 
     expect(state.directDownloadFetch).toHaveBeenCalledWith({ unit_id: 8, study_instance_uid: "1.2.3", document_key: "primary" });
-    expect(document.createElement).toHaveBeenCalledWith("div");
+    expect(state.directDownloadFetch).toHaveBeenCalledTimes(1);
     expect(appendChild).toHaveBeenCalledWith(staging);
   });
 });

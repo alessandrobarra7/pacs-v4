@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 const routerSource = readFileSync(resolve(process.cwd(), "server/routers/financeSimple.ts"), "utf8");
 const pageSource = readFileSync(resolve(process.cwd(), "client/src/pages/finance/FinanceMeuFinanceiro.tsx"), "utf8");
 const editorSource = readFileSync(resolve(process.cwd(), "client/src/pages/ReportEditorPage.tsx"), "utf8");
+const downloadSource = readFileSync(resolve(process.cwd(), "client/src/lib/financialReportPdfDownload.ts"), "utf8");
 
 describe("visão financeira individual do médico", () => {
   it("separa a lista clínica de laudos dos eventos que calculam os repasses", () => {
@@ -33,12 +34,13 @@ describe("visão financeira individual do médico", () => {
     expect(pageSource).toContain("Alterações futuras não recalculam");
   });
 
-  it("baixa o PDF financeiro diretamente sem abrir o editor clínico", () => {
+  it("usa a mesma estratégia de download oculto da página principal sem abrir o editor clínico", () => {
     expect(pageSource).toContain("financeSimple.myReportDownload.fetch");
-    expect(pageSource).toContain('document.createElement("div")');
-    expect(pageSource).toContain('querySelectorAll<HTMLElement>("[data-shared-report-sheet]")');
-    expect(pageSource).not.toContain('document.createElement("iframe")');
+    expect(pageSource).toContain("downloadFinancialReportPdf(documentData)");
     expect(pageSource).not.toContain("window.open(");
+    expect(downloadSource).toContain('document.createElement("iframe")');
+    expect(downloadSource).toContain("pdf.save(");
+    expect(downloadSource).not.toContain("window.open(");
     expect(routerSource).toContain("myReportDownload:");
     expect(routerSource).toContain("Sem permissão para baixar este documento.");
     expect(editorSource).toContain("financialDocumentView");

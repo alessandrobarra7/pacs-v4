@@ -31,6 +31,10 @@ Na primeira execução do gerador direto, o documento autorizado era obtido corr
 
 Essa correção foi atualizada na VM1 de `7b9e341` para `9e55c9f`, sem migração. O processo foi reiniciado com novo PID, permaneceu `online` e respondeu HTTP local `200`. Nenhuma ação foi executada na VM2.
 
+## Reutilização da estratégia da página principal
+
+A validação em produção mostrou um segundo limite da renderização React: a captura encontrou uma cor de função não suportada pelo conversor de canvas. A estratégia foi alinhada ao fluxo já comprovado em **Baixar em PDF** da página principal. O Financeiro passa a montar um documento HTML autocontido em *iframe* oculto, com imagens convertidas para dados locais, CSS de impressão controlado e captura de cada página antes de chamar o download do navegador. O *iframe* é removido ao final e nenhuma aba é aberta.
+
 ## Segurança e autorização
 
 O acesso continua dependente do alvo de impressão já filtrado no servidor: unidade solicitada, autoria ou assinatura do médico, `view_studies` e `print_reports`. O novo parâmetro controla a interface de consulta, não amplia permissões e não expõe URL direta do arquivo.

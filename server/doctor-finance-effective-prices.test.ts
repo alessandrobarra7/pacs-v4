@@ -23,7 +23,7 @@ describe("configuração efetiva e impressão no financeiro médico", () => {
     expect(routerSource).toContain("myReportDownload:");
     expect(routerSource).toContain("Somente documentos finalizados podem ser baixados.");
     expect(pageSource).toContain("financeSimple.myReportDownload.fetch");
-    expect(pageSource).toContain("downloadFinancialPdf");
+    expect(pageSource).toContain("downloadFinancialReportPdf");
     expect(pageSource).not.toContain('financialView: "1"');
     expect(pageSource).toContain("Baixar PDF");
     expect(pageSource).not.toContain("window.open(");
