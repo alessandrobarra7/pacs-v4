@@ -25,6 +25,7 @@ import {
   billing_cycle_configs,
   billing_cycles,
   billing_visit_events,
+  billing_catalog_study_events,
   billing_cycle_doctor_summary,
   billing_cycle_system_summary,
   user_unit_permissions,
@@ -2590,6 +2591,15 @@ export async function getResponsibleCycleSummary(financialResponsibleId: number)
  * Retorna info financeira discreta para o seletor de unidades:
  * valor/laudo do médico e acumulado no ciclo atual.
  */
+export function combineDoctorCycleEventTotals(
+  legacy: { events: number | string | null | undefined; amount: number | string | null | undefined },
+  catalog: { events: number | string | null | undefined; amount: number | string | null | undefined },
+) {
+  const events = Number(legacy.events ?? 0) + Number(catalog.events ?? 0);
+  const amount = Number(legacy.amount ?? 0) + Number(catalog.amount ?? 0);
+  return { events, amount: Math.round(amount * 100) / 100 };
+}
+
 export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: number) {
   const db = await getDb();
   if (!db) return null;
@@ -2641,23 +2651,41 @@ export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: n
         const cycle = activeCycle[0];
         cycle_period = { starts_at: cycle.starts_at, ends_at: cycle.ends_at };
 
-        // BUG FIX: billing_cycle_doctor_summary é uma tabela desnormalizada que não é
-        // atualizada automaticamente após novos laudos. Calculamos diretamente dos
-        // billing_visit_events dentro do intervalo do ciclo aberto.
-        const liveRows = await db.select({
-          total_laudos: drizzleSql2<number>`COUNT(*)`,
-          total_amount: drizzleSql2<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
-        }).from(billing_visit_events).where(
-          and(
-            eq(billing_visit_events.doctor_cycle_id, cycle.id),
+        // O banner precisa usar as duas fontes de eventos vigentes. O fluxo legado
+        // grava billing_visit_events e o fluxo de catálogo grava
+        // billing_catalog_study_events. Contar apenas a fonte legada faz um laudo
+        // assinado aparecer na worklist, mas zerado no resumo do médico.
+        const cycleEndExclusive = drizzleSql2`DATE_ADD(${cycle.ends_at}, INTERVAL 1 DAY)`;
+        const [legacyRows, catalogRows] = await Promise.all([
+          db.select({
+            events: drizzleSql2<number>`COUNT(*)`,
+            amount: drizzleSql2<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
+          }).from(billing_visit_events).where(and(
             eq(billing_visit_events.unit_id, unitId),
             eq(billing_visit_events.doctor_user_id, doctorUserId),
             ne(billing_visit_events.financial_status, 'cancelled'),
-          )
-        );
+            ne(billing_visit_events.financial_status, 'reversed'),
+            drizzleSql2`${billing_visit_events.signed_at} >= ${cycle.starts_at}`,
+            drizzleSql2`${billing_visit_events.signed_at} < ${cycleEndExclusive}`,
+          )),
+          db.select({
+            events: drizzleSql2<number>`COUNT(*)`,
+            amount: drizzleSql2<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
+          }).from(billing_catalog_study_events).where(and(
+            eq(billing_catalog_study_events.unit_id, unitId),
+            eq(billing_catalog_study_events.doctor_user_id, doctorUserId),
+            ne(billing_catalog_study_events.financial_status, 'cancelled'),
+            drizzleSql2`${billing_catalog_study_events.signed_at} >= ${cycle.starts_at}`,
+            drizzleSql2`${billing_catalog_study_events.signed_at} < ${cycleEndExclusive}`,
+          )),
+        ]);
 
-        cycle_visits = Number(liveRows[0]?.total_laudos ?? 0);
-        cycle_amount = Number(liveRows[0]?.total_amount ?? 0).toFixed(2);
+        const totals = combineDoctorCycleEventTotals(
+          legacyRows[0] ?? { events: 0, amount: 0 },
+          catalogRows[0] ?? { events: 0, amount: 0 },
+        );
+        cycle_visits = totals.events;
+        cycle_amount = totals.amount.toFixed(2);
       }
     } catch (cycleErr) {
       console.error('[getDoctorUnitFinancialInfo] Erro ao buscar ciclo:', cycleErr);
