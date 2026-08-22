@@ -41,17 +41,23 @@ describe("Identificação clínica dos eventos de catálogo", () => {
       [{ s: 1, e: 31 }],
       [],
       [{
-        id: 71,
-        patient_name: "MARIA DE SOUZA",
-        study_date: studyDate,
-        modality_snapshot: "CR",
-        exam_name_snapshot: "CRÂNIO",
+        event_id: 71,
+        study_selection_id: 15,
+        report_id: null,
+        modality: "CR",
+        clinical_label: "CRÂNIO",
+        doctor_user_id: 31,
         system_amount_due: "3.50",
         doctor_amount_due: "18.00",
         doctor_received_at: null,
         system_paid_at: null,
         signed_at: new Date("2026-08-21T12:00:00.000Z"),
+        pricing_status: "ok",
+        financial_status: "active",
       }],
+      [{ id: 31, name: "Dra. Ana" }],
+      [{ id: 15, study_instance_uid: "1.2.3" }],
+      [{ study_instance_uid: "1.2.3", patient_name: "MARIA DE SOUZA", study_date: studyDate, study_description: "CRÂNIO" }],
     ];
 
     const caller = financeSimpleRouter.createCaller({

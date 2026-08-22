@@ -152,6 +152,7 @@ type UnitCycleFinancialEvent = {
   id: string;
   source: "legacy" | "catalog";
   event_id: number;
+  doctor_user_id: number | null;
   study_instance_uid: string | null;
   report_id: number | null;
   patient_name: string | null;
@@ -237,6 +238,7 @@ async function listUnitCycleFinancialEvents(
       id: event.id,
       source: event.source,
       event_id: event.event_id,
+      doctor_user_id: event.doctor_user_id,
       study_instance_uid: event.study_instance_uid ?? null,
       report_id: event.report_id,
       patient_name: null,
@@ -285,6 +287,7 @@ async function listUnitCycleFinancialEvents(
       id: event.id,
       source: event.source,
       event_id: event.event_id,
+      doctor_user_id: event.doctor_user_id,
       study_instance_uid: studyUid ?? null,
       report_id: event.report_id,
       patient_name: study?.patient_name ?? null,
@@ -848,70 +851,23 @@ export const financeSimpleRouter = router({
       const { cycleStart: startDate, cycleEnd: endDate } =
         calcCycleDates(unitRow[0]?.s, unitRow[0]?.e, refDate);
 
-      const [legacyRows, catalogRows] = await Promise.all([
-        db
-          .select({
-            id: billing_visit_events.id,
-            report_id: billing_visit_events.report_id,
-            patient_name: billing_visit_events.patient_name,
-            study_date: billing_visit_events.study_date,
-            modality_snapshot: billing_visit_events.modality_snapshot,
-            exam_name_snapshot: billing_visit_events.exam_name_snapshot,
-            system_amount_due: billing_visit_events.system_amount_due,
-            doctor_amount_due: billing_visit_events.doctor_amount_due,
-            doctor_received_at: billing_visit_events.doctor_received_at,
-            system_paid_at: billing_visit_events.system_paid_at,
-            signed_at: billing_visit_events.signed_at,
-          })
-          .from(billing_visit_events)
-          .where(and(
-            eq(billing_visit_events.unit_id, input.unit_id),
-            eq(billing_visit_events.doctor_user_id, input.doctor_user_id),
-            sql`${billing_visit_events.signed_at} >= ${startDate}`,
-            sql`${billing_visit_events.signed_at} < ${endDate}`,
-          ))
-          .orderBy(desc(billing_visit_events.signed_at)),
-        db
-          .select({
-            id: billing_catalog_study_events.id,
-            patient_name: studies_cache.patient_name,
-            study_date: studies_cache.study_date,
-            modality_snapshot: billing_catalog_study_events.modality_snapshot,
-            exam_name_snapshot: billing_catalog_study_events.exam_name_snapshot,
-            system_amount_due: billing_catalog_study_events.system_amount_due,
-            doctor_amount_due: billing_catalog_study_events.price_applied,
-            doctor_received_at: billing_catalog_study_events.doctor_received_at,
-            system_paid_at: billing_catalog_study_events.system_paid_at,
-            signed_at: billing_catalog_study_events.signed_at,
-          })
-          .from(billing_catalog_study_events)
-          .innerJoin(study_exam_legend_selections, eq(
-            study_exam_legend_selections.id,
-            billing_catalog_study_events.study_selection_id,
-          ))
-          .leftJoin(studies_cache, and(
-            eq(studies_cache.study_instance_uid, study_exam_legend_selections.study_instance_uid),
-            eq(studies_cache.unit_id, billing_catalog_study_events.unit_id),
-          ))
-          .where(and(
-            eq(billing_catalog_study_events.unit_id, input.unit_id),
-            eq(billing_catalog_study_events.doctor_user_id, input.doctor_user_id),
-            sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
-            sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
-            eq(billing_catalog_study_events.financial_status, 'active'),
-          ))
-          .orderBy(desc(billing_catalog_study_events.signed_at)),
-      ]);
-
-      return [
-        ...legacyRows.map((event) => ({ ...event, source: "legacy" as const })),
-        ...catalogRows.map((event) => ({
-          ...event,
-          id: `catalog-${event.id}`,
-          report_id: null,
-          source: "catalog" as const,
-        })),
-      ].sort((a, b) => new Date(b.signed_at ?? 0).getTime() - new Date(a.signed_at ?? 0).getTime());
+      const events = await listUnitCycleFinancialEvents(db, input.unit_id, startDate, endDate, true);
+      return events
+        .filter((event) => event.doctor_user_id === input.doctor_user_id && event.financial_status === "active")
+        .map((event) => ({
+          id: event.id,
+          report_id: event.report_id,
+          patient_name: event.patient_name,
+          study_date: event.study_date,
+          modality_snapshot: event.modality,
+          exam_name_snapshot: event.clinical_label,
+          system_amount_due: event.system_amount_due,
+          doctor_amount_due: event.doctor_amount_due,
+          doctor_received_at: event.doctor_received_at,
+          system_paid_at: event.system_paid_at,
+          signed_at: event.signed_at,
+          source: event.source,
+        }));
     }),
 
   /**

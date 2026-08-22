@@ -2690,3 +2690,10 @@
 - [x] Excluir eventos cancelados de totais, cobranças e repasses, mantendo-os visíveis no log como cancelados.
 - [x] Cobrir cancelamento, bloqueio de exclusão física e manutenção de histórico em regressões comportamentais.
 - [x] Publicar a correção e preparar a migração aditiva da VM2 antes de atualizar a VM1.
+
+## INTEGRIDADE DA TELA DE PAGAMENTOS
+- [x] Substituir a consulta duplicada `eventsByDoctorUnit` por fonte compartilhada que preserve eventos sem vínculo clínico.
+- [x] Exibir erro explícito e nova tentativa no detalhe de laudos usado para pagamentos.
+- [x] Garantir que eventos cancelados não possam ser selecionados ou baixados no fluxo de pagamentos.
+- [x] Criar regressões de vínculo clínico ausente, erro da consulta e cancelamento no detalhe de pagamentos.
+- [ ] Documentar e publicar a correção da tela de Pagamentos antes de atualização de produção.

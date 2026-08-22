@@ -3,7 +3,7 @@
  * LaudosModal e DoctorRow usados por FinanceDashboard e FinancePagamentos
  * Desenvolvimento StudioBarra7
  */
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { CheckCircle2, Clock, X } from "lucide-react";
@@ -47,7 +47,7 @@ export function LaudosModal({
   doctorName: string;
   onClose: () => void;
 }) {
-  const { data, isLoading } = trpc.financeSimple.eventsByDoctorUnit.useQuery({
+  const { data, isLoading, isError, error, refetch } = trpc.financeSimple.eventsByDoctorUnit.useQuery({
     doctor_user_id: doctorUserId,
     unit_id: unitId,
     reference_date: referenceDate,
@@ -70,6 +70,12 @@ export function LaudosModal({
           {isLoading ? (
             <div className="p-6 space-y-2">
               {[1,2,3].map(i => <div key={i} className="h-10 bg-slate-800 rounded animate-pulse" />)}
+            </div>
+          ) : isError ? (
+            <div className="p-8 text-center text-rose-300 text-sm">
+              <p className="font-semibold text-rose-200">Falha ao carregar os eventos financeiros.</p>
+              <p className="mt-1 text-xs text-rose-300">{error instanceof Error ? error.message : "Não foi possível consultar o detalhe de pagamentos."}</p>
+              <Button type="button" variant="outline" size="sm" className="mt-4 border-rose-400/50 text-rose-100 hover:bg-rose-500/10" onClick={() => void refetch()}>Tentar novamente</Button>
             </div>
           ) : !data?.length ? (
             <div className="p-8 text-center text-slate-500 text-sm">Nenhum laudo encontrado.</div>
