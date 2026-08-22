@@ -303,10 +303,15 @@ export default function ReportEditorPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   // LOG-01: motivo obrigatório para admin_master apagar laudo assinado/retificado
   const [deleteReason, setDeleteReason] = useState("");
+  const [cascadeAcknowledged, setCascadeAcknowledged] = useState(false);
 
   const isSigned = existingReport?.status === 'signed' || existingReport?.status === 'revised';
   const isCancelled = existingReport?.status === 'cancelled';
   const isEditable = (!isSigned && !isCancelled) || isRevising;
+  const cancellationPreview = trpc.reports.cancelPreview.useQuery(
+    { id: existingReport?.id ?? 0 },
+    { enabled: showDeleteModal && isSigned && isAdminMaster && Boolean(existingReport?.id) },
+  );
   const signedDoctorName = isSigned ? (signedReportWithDoctor?.doctorName || "Assinante não identificado") : (medCtx?.doctorName || "");
   const signedDoctorCrm = isSigned ? (signedReportWithDoctor?.doctorCrm || "") : (medCtx?.crm || "");
   const signedDoctorSignatureUrl = isSigned ? (signedReportWithDoctor?.doctorSignatureUrl || null) : (medCtx?.signatureUrl || null);
@@ -1238,7 +1243,7 @@ export default function ReportEditorPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowDeleteModal(true)}
+                onClick={() => { setCascadeAcknowledged(false); setShowDeleteModal(true); }}
               disabled={deleteReport.isPending}
               className="gap-1.5 text-xs border-red-300 text-red-600 hover:bg-red-50"
             >
@@ -2168,7 +2173,7 @@ export default function ReportEditorPage() {
       {/* Modal de confirmação de exclusão ou cancelamento auditável */}
       {showDeleteModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 12, padding: 28, width: 420, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, width: 520, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
@@ -2183,6 +2188,22 @@ export default function ReportEditorPage() {
                 ? <>O laudo de <strong>{patientName}</strong> será cancelado. Os eventos financeiros vinculados serão cancelados e mantidos apenas para auditoria.</>
                 : <>O rascunho de <strong>{patientName}</strong> será permanentemente excluído, incluindo seu histórico de versões.</>}
             </p>
+            {isAdminMaster && isSigned && (
+              <div style={{ margin: '0 0 16px', padding: '12px 14px', border: '1px solid #fbbf24', borderRadius: 8, background: '#fffbeb' }}>
+                <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#92400e' }}>Prévia somente leitura do cancelamento em cascata</p>
+                {cancellationPreview.isLoading ? <p style={{ margin: 0, fontSize: 12, color: '#92400e' }}>Consultando documentos e eventos afetados...</p> : cancellationPreview.isError ? <p style={{ margin: 0, fontSize: 12, color: '#b91c1c' }}>Não foi possível consultar a prévia. O cancelamento permanece bloqueado até que os impactos sejam exibidos.</p> : <>
+                  <p style={{ margin: '0 0 8px', fontSize: 12, color: '#78350f' }}>Além deste laudo, os documentos abaixo também serão cancelados se ainda estiverem assinados ou retificados.</p>
+                  <ul style={{ margin: '0 0 8px', paddingLeft: 18, fontSize: 12, color: '#78350f' }}>
+                    {cancellationPreview.data?.reports.map((item) => <li key={item.id}><strong>{item.document_label}</strong>{item.is_origin ? ' (laudo selecionado)' : ''} — {item.status === 'revised' ? 'retificado' : 'assinado'} por {item.doctor_name}{item.signed_at ? ` em ${new Date(item.signed_at).toLocaleString('pt-BR')}` : ''}</li>)}
+                  </ul>
+                  <p style={{ margin: 0, fontSize: 12, color: '#78350f' }}>Eventos financeiros ativos atingidos: {cancellationPreview.data?.active_events.legacy ?? 0} legado(s) e {cancellationPreview.data?.active_events.catalog ?? 0} de catálogo.</p>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 10, fontSize: 12, color: '#78350f', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={cascadeAcknowledged} onChange={(event) => setCascadeAcknowledged(event.target.checked)} style={{ marginTop: 2 }} />
+                    Li e confirmo que os documentos e eventos financeiros listados serão cancelados em cascata.
+                  </label>
+                </>}
+              </div>
+            )}
             {/* LOG-01: campo de motivo obrigatório para admin_master apagar laudo assinado/retificado */}
             {isAdminMaster && isSigned && (
               <div style={{ marginBottom: 16 }}>
@@ -2200,15 +2221,15 @@ export default function ReportEditorPage() {
             )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
-                onClick={() => { setShowDeleteModal(false); setDeleteReason(""); }}
+                onClick={() => { setShowDeleteModal(false); setDeleteReason(""); setCascadeAcknowledged(false); }}
                 style={{ padding: '8px 18px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}
               >
                 Cancelar
               </button>
               <button
                 onClick={handleDelete}
-                disabled={deleteReport.isPending}
-                style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: '#dc2626', color: '#fff', cursor: deleteReport.isPending ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: deleteReport.isPending ? 0.7 : 1 }}
+                disabled={deleteReport.isPending || (isAdminMaster && isSigned && (cancellationPreview.isLoading || cancellationPreview.isError || !cascadeAcknowledged))}
+                style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: '#dc2626', color: '#fff', cursor: deleteReport.isPending ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: deleteReport.isPending || (isAdminMaster && isSigned && (cancellationPreview.isLoading || cancellationPreview.isError || !cascadeAcknowledged)) ? 0.7 : 1 }}
               >
                 {deleteReport.isPending ? 'Apagando...' : 'Confirmar Exclusão'}
               </button>

@@ -531,6 +531,81 @@ export const reportsRouter = router({
         return { success: true };
       }),
 
+    // Prévia somente leitura do cancelamento em cascata para informar o administrador antes da mutação.
+    cancelPreview: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        const report = await getReportById(input.id, undefined);
+        if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Laudo não encontrado' });
+        if (report.status !== 'signed' && report.status !== 'revised') {
+          return { applies: false, reports: [], active_events: { legacy: 0, catalog: 0 } };
+        }
+        if (ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'A prévia de cancelamento de laudo assinado é exclusiva do administrador master.' });
+        }
+        if (!await canAccessUnit(ctx.user, report.unit_id, 'edit_reports')) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem permissão para cancelar laudos nesta unidade' });
+        }
+        const selections = await db.select({
+          id: study_exam_legend_selections.id,
+          documents_snapshot: study_exam_legend_selections.documents_snapshot,
+        }).from(study_exam_legend_selections).where(and(
+          eq(study_exam_legend_selections.study_instance_uid, report.study_instance_uid!),
+          eq(study_exam_legend_selections.unit_id, report.unit_id),
+        ));
+        const selectionIds = selections
+          .filter((selection) => selection.documents_snapshot.some((document) => document.key === report.document_key))
+          .map((selection) => selection.id);
+        const cascadeDocumentKeys = Array.from(new Set(selections
+          .filter((selection) => selectionIds.includes(selection.id))
+          .flatMap((selection) => selection.documents_snapshot.map((document) => document.key))));
+        const cascadeReports = cascadeDocumentKeys.length > 0
+          ? await db.select({
+            id: reports.id,
+            document_key: reports.document_key,
+            document_label_snapshot: reports.document_label_snapshot,
+            status: reports.status,
+            signedAt: reports.signedAt,
+            signedBy: reports.signedBy,
+          }).from(reports).where(and(
+            eq(reports.study_instance_uid, report.study_instance_uid!),
+            eq(reports.unit_id, report.unit_id),
+            inArray(reports.document_key, cascadeDocumentKeys),
+            inArray(reports.status, ['signed', 'revised']),
+          ))
+          : [report];
+        const signerIds = Array.from(new Set(cascadeReports.map((item) => item.signedBy).filter((id): id is number => Boolean(id))));
+        const signers = await Promise.all(signerIds.map(async (id) => [id, await getUserById(id)] as const));
+        const signerNames = new Map(signers.map(([id, user]) => [id, user?.name ?? 'Médico não disponível']));
+        const [legacyEvents, catalogEvents] = await Promise.all([
+          db.select({ id: billing_visit_events_table.id }).from(billing_visit_events_table).where(and(
+            inArray(billing_visit_events_table.report_id, cascadeReports.map((item) => item.id)),
+            eq(billing_visit_events_table.financial_status, 'active'),
+          )),
+          selectionIds.length > 0
+            ? db.select({ id: billing_catalog_study_events.id }).from(billing_catalog_study_events).where(and(
+              inArray(billing_catalog_study_events.study_selection_id, selectionIds),
+              eq(billing_catalog_study_events.financial_status, 'active'),
+            ))
+            : Promise.resolve([]),
+        ]);
+        return {
+          applies: true,
+          reports: cascadeReports.map((item) => ({
+            id: item.id,
+            document_key: item.document_key,
+            document_label: item.document_label_snapshot ?? item.document_key,
+            status: item.status,
+            signed_at: item.signedAt,
+            doctor_name: item.signedBy ? signerNames.get(item.signedBy) ?? 'Médico não disponível' : 'Médico não disponível',
+            is_origin: item.id === report.id,
+          })),
+          active_events: { legacy: legacyEvents.length, catalog: catalogEvents.length },
+        };
+      }),
+
     // Apagar rascunho ou cancelar laudo assinado com seus eventos financeiros.
     delete: protectedProcedure
       .input(z.object({

@@ -20,10 +20,11 @@ vi.mock("./db", async (importOriginal) => {
     createReport: vi.fn(),
     removeVisitEventForReport: vi.fn(),
     createAuditLog: vi.fn(),
+    getUserById: vi.fn(),
   };
 });
 
-import { createReport, getDb, getReportById } from "./db";
+import { createReport, getDb, getReportById, getUserById } from "./db";
 
 function context(): TrpcContext {
   return {
@@ -151,6 +152,34 @@ describe("cancelamento auditável de laudo assinado", () => {
     expect(auditBatch).toHaveLength(2);
     expect(auditBatch.map((entry) => entry.target_id).sort()).toEqual(["50", "51"]);
     expect(auditBatch[0].metadata.cancelledReportIds).toEqual([50, 51]);
+  });
+
+  it("pré-visualiza em leitura os documentos e eventos que seriam cancelados em cascata", async () => {
+    const database = {
+      select: vi.fn()
+        .mockReturnValueOnce(chain([{ id: 5, documents_snapshot: [{ key: "cervical" }, { key: "lombar" }] }]))
+        .mockReturnValueOnce(chain([
+          { id: 50, document_key: "cervical", document_label_snapshot: "Coluna cervical", status: "signed", signedAt: new Date("2026-08-22T10:00:00.000Z"), signedBy: 7 },
+          { id: 51, document_key: "lombar", document_label_snapshot: "Coluna lombar", status: "revised", signedAt: new Date("2026-08-22T10:10:00.000Z"), signedBy: 8 },
+        ]))
+        .mockReturnValueOnce(chain([{ id: 13 }]))
+        .mockReturnValueOnce(chain([{ id: 14 }])),
+    };
+    vi.mocked(getDb).mockResolvedValue(database as any);
+    vi.mocked(getReportById).mockResolvedValue({ ...signedCatalogReport(), document_key: "cervical" });
+    vi.mocked(getUserById).mockImplementation(async (id: number) => ({ id, name: id === 7 ? "Dra. Cervical" : "Dr. Lombar" } as any));
+
+    const result = await appRouter.createCaller(context()).reports.cancelPreview({ id: 50 });
+
+    expect(result).toMatchObject({
+      applies: true,
+      active_events: { legacy: 1, catalog: 1 },
+      reports: expect.arrayContaining([
+        expect.objectContaining({ id: 50, document_label: "Coluna cervical", doctor_name: "Dra. Cervical", is_origin: true }),
+        expect.objectContaining({ id: 51, document_label: "Coluna lombar", doctor_name: "Dr. Lombar", is_origin: false }),
+      ]),
+    });
+    expect((database as any).transaction).toBeUndefined();
   });
 
   it("cria a ocorrência dois somente depois de um cancelamento auditável", async () => {

@@ -2770,3 +2770,10 @@
 - [x] Revisar a autorização de audioReports.getStatusBatch para eliminar o 403 indevido de admin_master sem ampliar acesso fora da unidade.
 - [x] Cobrir as correções com regressões e validar no sandbox: TypeScript, 77 arquivos Vitest (362 aprovados, 1 ignorado) e build.
 - [x] Documentar e publicar a correção antes de atualização de produção (0aaecda).
+
+## CONFIRMAÇÃO INFORMADA — CANCELAMENTO EM CASCATA
+- [x] Confirmar a lacuna de interface: o backend cancela a seleção composta em cascata, mas o modal atual não antecipa os outros documentos afetados.
+- [x] Implementar uma consulta estritamente de leitura que mostre documentos, assinaturas e eventos afetados pela cascata.
+- [x] Exibir a prévia no modal e exigir confirmação explícita do admin_master sem enviar qualquer mutação durante a consulta.
+- [x] Cobrir o fluxo com regressões de interface e backend: TypeScript, 77 arquivos Vitest (363 aprovados, 1 ignorado) e build.
+- [ ] Documentar e publicar a prévia antes de atualização de produção.
