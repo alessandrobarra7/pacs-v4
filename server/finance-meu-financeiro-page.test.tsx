@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   financeInputs: [] as Array<{ unit_id: number; reference_date: string }>,
+  directDownloadFetch: vi.fn(),
 }));
 
 vi.mock("wouter", () => ({ useLocation: () => ["/financeiro/meu-financeiro", vi.fn()] }));
@@ -29,6 +30,7 @@ vi.mock("@/lib/trpc", () => ({
       } },
       myModalityPrices: { useQuery: () => ({ data: [{ modality: "CT", price_per_report: 90, source: "individual", source_label: "Valor individual definido para você" }], isLoading: false, isError: false, refetch: vi.fn() }) },
     },
+    useUtils: () => ({ financeSimple: { myReportDownload: { fetch: state.directDownloadFetch } } }),
   },
 }));
 
@@ -70,13 +72,12 @@ describe("página financeira individual do médico", () => {
     expect(renderer.root.findAllByType("button").some((node) => String(node.props.className).includes("w-full"))).toBe(true);
   });
 
-  it("filtra os próprios laudos localmente e baixa pelo modo financeiro sem abrir nova aba", () => {
-    const setItem = vi.fn();
+  it("filtra os próprios laudos localmente e busca o PDF autorizado sem abrir aba ou iframe", async () => {
     const setAttribute = vi.fn();
     const appendChild = vi.fn();
-    const downloadFrame = { setAttribute, tabIndex: 0, style: {}, src: "" };
-    vi.stubGlobal("sessionStorage", { setItem });
-    vi.stubGlobal("document", { createElement: vi.fn(() => downloadFrame), body: { appendChild } });
+    const staging = { setAttribute, style: {}, innerHTML: "", querySelectorAll: vi.fn(() => []), remove: vi.fn() };
+    state.directDownloadFetch.mockResolvedValue({ report: { body: "<p>Conclusão</p>", patient_name: "ANA^SILVA", status: "signed", document_label: "Tórax" }, layout: null, signer: {} });
+    vi.stubGlobal("document", { createElement: vi.fn(() => staging), body: { appendChild } });
     act(() => { renderer = create(<FinanceMeuFinanceiro />); });
 
     const search = renderer.root.findByType("input");
@@ -86,13 +87,10 @@ describe("página financeira individual do médico", () => {
     act(() => renderer.root.findByType("input").props.onChange({ target: { value: "ANA" } }));
     const printButton = renderer.root.findAllByType("button").find((node) => node.children.some((child) => typeof child === "string" && child.includes("Baixar PDF")));
     expect(printButton).toBeDefined();
-    act(() => printButton?.props.onClick());
+    await act(async () => { await printButton?.props.onClick(); });
 
-    expect(setItem).toHaveBeenCalledWith("study_1.2.3", expect.stringContaining("ANA^SILVA"));
-    expect(document.createElement).toHaveBeenCalledWith("iframe");
-    expect(appendChild).toHaveBeenCalledWith(downloadFrame);
-    expect(downloadFrame.src).toContain("financialView=1");
-    expect(downloadFrame.src).toContain("download=1");
-    expect(downloadFrame.src).not.toContain("print=1");
+    expect(state.directDownloadFetch).toHaveBeenCalledWith({ unit_id: 8, study_instance_uid: "1.2.3", document_key: "primary" });
+    expect(document.createElement).toHaveBeenCalledWith("div");
+    expect(appendChild).toHaveBeenCalledWith(staging);
   });
 });

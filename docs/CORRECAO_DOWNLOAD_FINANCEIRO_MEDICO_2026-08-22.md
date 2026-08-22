@@ -19,13 +19,19 @@ O único comando disponível é **Baixar PDF**. A geração captura cada folha c
 
 O fluxo foi refinado para não abrir uma nova aba ou apresentar uma visualização intermediária. A página financeira cria um *iframe* invisível e temporário com o alvo já autorizado. Esse contexto executa o mesmo gerador de PDF configurado e dispara o download do navegador; depois é removido. Assim, o médico permanece em **Meu financeiro** e recebe apenas o arquivo baixado.
 
+## Revisão do download direto
+
+O carregamento invisível não disparou o download de modo confiável em navegadores reais, embora carregasse recursos da rota. Ele foi removido. Agora a página financeira solicita um objeto de documento específico, protegido por unidade, permissões de visualização e impressão, autoria ou assinatura do médico e estado finalizado do laudo. A própria página monta as folhas configuradas, aguarda logos, assinatura e carimbo, rasteriza o resultado e aciona o arquivo PDF diretamente no clique.
+
+O botão passa a mostrar **Preparando PDF** durante a operação e informa falha de forma explícita. Não há nova aba, navegação para o editor, URL direta de arquivo ou visualização intermediária.
+
 ## Segurança e autorização
 
 O acesso continua dependente do alvo de impressão já filtrado no servidor: unidade solicitada, autoria ou assinatura do médico, `view_studies` e `print_reports`. O novo parâmetro controla a interface de consulta, não amplia permissões e não expõe URL direta do arquivo.
 
 ## Validação
 
-Foram atualizadas regressões para verificar o parâmetro `financialView=1`, a ausência de ações clínicas, o bloqueio de ferramentas móveis, o carregamento invisível e a ausência de `window.open`. Validação aprovada no sandbox: TypeScript, 82 arquivos Vitest com 378 testes aprovados e 1 ignorado, além de build de produção concluído.
+Foram atualizadas regressões para verificar a consulta direta autorizada, a ausência de nova aba e de *iframe*, o feedback de preparo e a preservação do botão de download. Validação aprovada no sandbox: TypeScript, 82 arquivos Vitest com 378 testes aprovados e 1 ignorado, além de build de produção concluído.
 
 ## Atualização operacional
 

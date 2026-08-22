@@ -31,6 +31,7 @@ import {
   study_exam_legend_selections,
   studies_cache,
   reports,
+  model_layouts,
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, ne, sql, sql as sqlFn, desc, inArray, gte, lte, or, SQL } from "drizzle-orm";
 import {
@@ -82,6 +83,7 @@ import {
   getUserUnitPermissions,
 } from "../db";
 import { canAccessUnit } from "../authorization";
+import { storageGetUrl } from "../storage";
 
 // ─── helpers monetários ─────────────────────────────────────────────────────
 
@@ -1483,6 +1485,87 @@ export const financeSimpleRouter = router({
         })),
         events,
         delivered_reports: safeDeliveredReports,
+      };
+    }),
+
+  /** Documento final do próprio médico para download financeiro direto, sem URL de arquivo exposta. */
+  myReportDownload: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().int().positive(),
+      study_instance_uid: z.string().trim().min(1).max(128),
+      document_key: z.string().trim().min(1).max(80).default("primary"),
+    }))
+    .query(async ({ input, ctx }) => {
+      assertMedico(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [canView, canPrint] = await Promise.all([
+        canAccessUnit(ctx.user, input.unit_id, "view_studies"),
+        canAccessUnit(ctx.user, input.unit_id, "print_reports"),
+      ]);
+      if (!canView || !canPrint) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para baixar este documento." });
+      }
+
+      const rows = await db
+        .select({
+          id: reports.id,
+          unit_id: reports.unit_id,
+          study_instance_uid: reports.study_instance_uid,
+          document_key: reports.document_key,
+          document_label: reports.document_label_snapshot,
+          body: reports.body,
+          status: reports.status,
+          signed_at: reports.signedAt,
+          signed_by: reports.signedBy,
+          author_user_id: reports.author_user_id,
+          layout_snapshot: reports.layout_snapshot,
+          patient_name: studies_cache.patient_name,
+          study_date: studies_cache.study_date,
+          modality: studies_cache.modality,
+          study_description: studies_cache.description,
+        })
+        .from(reports)
+        .leftJoin(studies_cache, and(
+          eq(studies_cache.study_instance_uid, reports.study_instance_uid),
+          eq(studies_cache.unit_id, reports.unit_id),
+        ))
+        .where(and(
+          eq(reports.unit_id, input.unit_id),
+          eq(reports.study_instance_uid, input.study_instance_uid),
+        ));
+      rows.sort((a, b) => b.id - a.id);
+      const report = rows.find(row => row.document_key === input.document_key)
+        ?? (rows.length === 1 && rows[0]?.document_key === "primary" ? rows[0] : null);
+      if (!report || (report.author_user_id !== ctx.user.id && report.signed_by !== ctx.user.id)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Documento não disponível para download." });
+      }
+      if (report.status !== "signed" && report.status !== "revised") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Somente documentos finalizados podem ser baixados." });
+      }
+
+      const [layout] = await db.select().from(model_layouts)
+        .where(eq(model_layouts.unit_id, input.unit_id)).limit(1);
+      const signer = await getUserById(report.signed_by ?? report.author_user_id);
+      const resolveMedia = async (reference: string | null | undefined) => {
+        if (!reference) return null;
+        try { return await storageGetUrl(reference); } catch { return null; }
+      };
+      const [signature_url, stamp_url] = await Promise.all([
+        resolveMedia(signer?.signature_url),
+        resolveMedia(signer?.stamp_url),
+      ]);
+
+      return {
+        report,
+        layout: layout ?? null,
+        signer: {
+          name: signer?.name ?? "",
+          crm: signer?.crm ?? "",
+          signature_url,
+          stamp_url,
+        },
       };
     }),
   /**

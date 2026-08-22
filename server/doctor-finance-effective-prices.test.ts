@@ -16,15 +16,17 @@ describe("configuração efetiva e impressão no financeiro médico", () => {
     expect(pageSource).toContain("Preço padrão da unidade");
   });
 
-  it("abre o download configurado do próprio documento sem expor o editor clínico", () => {
+  it("gera o download configurado do próprio documento diretamente na página financeira", () => {
     expect(routerSource).toContain("print_target:");
     expect(routerSource).not.toContain("download_url:");
     expect(routerSource).toContain("export_file_url: _exportFileUrl");
-    expect(pageSource).toContain('financialView: "1"');
-    expect(pageSource).not.toContain('print: "1"');
+    expect(routerSource).toContain("myReportDownload:");
+    expect(routerSource).toContain("Somente documentos finalizados podem ser baixados.");
+    expect(pageSource).toContain("financeSimple.myReportDownload.fetch");
+    expect(pageSource).toContain("downloadFinancialPdf");
+    expect(pageSource).not.toContain('financialView: "1"');
     expect(pageSource).toContain("Baixar PDF");
+    expect(pageSource).not.toContain("window.open(");
     expect(editorSource).toContain("financialDocumentView");
-    expect(editorSource).toContain("handleFinancialPdfDownload");
-    expect(editorSource).toContain("Baixar PDF");
   });
 });
