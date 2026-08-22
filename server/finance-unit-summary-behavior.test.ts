@@ -19,7 +19,7 @@ vi.mock("./db", async (importOriginal) => {
       select: vi.fn(() => {
         const chain: Record<string, unknown> = {};
         chain.from = vi.fn(() => chain);
-        chain.leftJoin = vi.fn(() => chain);
+        chain.leftJoin = vi.fn(() => { throw new Error("O resumo financeiro não pode depender de junções clínicas."); });
         chain.where = vi.fn(() => resultQuery(state.responses.shift() ?? []));
         return chain;
       }),

@@ -2654,3 +2654,17 @@
 - [x] Exibir erro explícito e permitir nova tentativa quando a consulta do log falhar.
 - [x] Criar regressões para paridade, evento sem vínculo clínico e estado de erro da consulta.
 - [x] Validar, documentar e publicar a correção antes de qualquer atualização da VM1.
+
+## ATUALIZAÇÃO REAL — CORREÇÃO DE INTEGRIDADE FINANCEIRA
+- [x] Validar o commit 556de62 em worktree isolada e atualizar a VM1 após testes financeiros e build completos.
+- [ ] Confirmar o commit ativo, a saúde HTTP e as duas linhas do log da unidade Hospital da Criança após a atualização.
+
+## INCIDENTE DE REGRESSÃO — CATÁLOGO FINANCEIRO VAZIO
+- [x] Preservar a evidência da interface após o commit 556de62 e confirmar que os dados financeiros da VM2 permanecem intactos.
+- [x] Diagnosticar em modo somente leitura por que `unitSummary` retorna catálogo vazio após a centralização da consulta.
+- [ ] Corrigir a regressão e publicar somente após o catálogo e o log retornarem os dois eventos da unidade Hospital da Criança.
+
+## CORREÇÃO DE COMPATIBILIDADE — ONLY_FULL_GROUP_BY
+- [x] Remover a dependência de agrupamento implícito da consulta compartilhada de eventos financeiros.
+- [x] Validar a consulta compartilhada em ambiente MySQL com `ONLY_FULL_GROUP_BY` ativo.
+- [x] Garantir que falhas de `unitSummary` também sejam apresentadas como erro explícito, sem catálogo vazio silencioso.

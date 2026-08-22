@@ -173,6 +173,7 @@ async function listUnitCycleFinancialEvents(
   unitId: number,
   cycleStart: Date,
   cycleEnd: Date,
+  includeClinicalContext = true,
 ): Promise<UnitCycleFinancialEvent[]> {
   const [legacyRows, catalogRows] = await Promise.all([
     db
@@ -180,12 +181,9 @@ async function listUnitCycleFinancialEvents(
         event_id: billing_visit_events.id,
         study_instance_uid: billing_visit_events.study_instance_uid,
         report_id: billing_visit_events.report_id,
-        patient_name: studies_cache.patient_name,
-        study_date: studies_cache.study_date,
-        study_description: studies_cache.description,
         modality: billing_visit_events.modality_snapshot,
         clinical_label: billing_visit_events.exam_name_snapshot,
-        doctor_name: users.name,
+        doctor_user_id: billing_visit_events.doctor_user_id,
         signed_at: billing_visit_events.signed_at,
         doctor_amount_due: billing_visit_events.doctor_amount_due,
         system_amount_due: billing_visit_events.system_amount_due,
@@ -194,11 +192,6 @@ async function listUnitCycleFinancialEvents(
         pricing_status: billing_visit_events.financial_status,
       })
       .from(billing_visit_events)
-      .leftJoin(users, eq(users.id, billing_visit_events.doctor_user_id))
-      .leftJoin(studies_cache, and(
-        eq(studies_cache.study_instance_uid, billing_visit_events.study_instance_uid),
-        eq(studies_cache.unit_id, billing_visit_events.unit_id),
-      ))
       .where(and(
         eq(billing_visit_events.unit_id, unitId),
         sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
@@ -208,14 +201,11 @@ async function listUnitCycleFinancialEvents(
     db
       .select({
         event_id: billing_catalog_study_events.id,
-        study_instance_uid: study_exam_legend_selections.study_instance_uid,
+        study_selection_id: billing_catalog_study_events.study_selection_id,
         report_id: sql<number | null>`NULL`,
-        patient_name: studies_cache.patient_name,
-        study_date: studies_cache.study_date,
-        study_description: studies_cache.description,
         modality: billing_catalog_study_events.modality_snapshot,
         clinical_label: billing_catalog_study_events.exam_name_snapshot,
-        doctor_name: users.name,
+        doctor_user_id: billing_catalog_study_events.doctor_user_id,
         signed_at: billing_catalog_study_events.signed_at,
         doctor_amount_due: billing_catalog_study_events.price_applied,
         system_amount_due: billing_catalog_study_events.system_amount_due,
@@ -224,15 +214,6 @@ async function listUnitCycleFinancialEvents(
         pricing_status: billing_catalog_study_events.pricing_status,
       })
       .from(billing_catalog_study_events)
-      .leftJoin(study_exam_legend_selections, eq(
-        study_exam_legend_selections.id,
-        billing_catalog_study_events.study_selection_id,
-      ))
-      .leftJoin(users, eq(users.id, billing_catalog_study_events.doctor_user_id))
-      .leftJoin(studies_cache, and(
-        eq(studies_cache.study_instance_uid, study_exam_legend_selections.study_instance_uid),
-        eq(studies_cache.unit_id, billing_catalog_study_events.unit_id),
-      ))
       .where(and(
         eq(billing_catalog_study_events.unit_id, unitId),
         sql`${billing_catalog_study_events.signed_at} >= ${cycleStart}`,
@@ -240,10 +221,79 @@ async function listUnitCycleFinancialEvents(
       )),
   ]);
 
-  const events: UnitCycleFinancialEvent[] = [
-    ...legacyRows.map((event) => ({ ...event, id: `legacy-${event.event_id}`, source: "legacy" as const })),
-    ...catalogRows.map((event) => ({ ...event, id: `catalog-${event.event_id}`, source: "catalog" as const })),
+  const baseEvents = [
+    ...legacyRows.map((event) => ({ ...event, id: `legacy-${event.event_id}`, source: "legacy" as const, catalog_study_instance_uid: null as string | null })),
+    ...catalogRows.map((event) => ({ ...event, id: `catalog-${event.event_id}`, source: "catalog" as const, study_instance_uid: null as string | null })),
   ];
+
+  if (!includeClinicalContext) {
+    return baseEvents.map((event) => ({
+      id: event.id,
+      source: event.source,
+      event_id: event.event_id,
+      study_instance_uid: event.study_instance_uid ?? null,
+      report_id: event.report_id,
+      patient_name: null,
+      study_date: null,
+      study_description: null,
+      modality: event.modality,
+      clinical_label: event.clinical_label,
+      doctor_name: null,
+      signed_at: event.signed_at,
+      doctor_amount_due: event.doctor_amount_due,
+      system_amount_due: event.system_amount_due,
+      doctor_received_at: event.doctor_received_at,
+      system_paid_at: event.system_paid_at,
+      pricing_status: event.pricing_status,
+    })).sort((a, b) => new Date(b.signed_at ?? 0).getTime() - new Date(a.signed_at ?? 0).getTime());
+  }
+
+  const doctorIds = Array.from(new Set(baseEvents.map((event) => event.doctor_user_id).filter((id): id is number => id !== null)));
+  const selectionIds = Array.from(new Set(catalogRows.map((event) => event.study_selection_id)));
+  const [doctorRows, selectionRows] = await Promise.all([
+    doctorIds.length > 0
+      ? db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, doctorIds))
+      : Promise.resolve([]),
+    selectionIds.length > 0
+      ? db.select({ id: study_exam_legend_selections.id, study_instance_uid: study_exam_legend_selections.study_instance_uid }).from(study_exam_legend_selections).where(inArray(study_exam_legend_selections.id, selectionIds))
+      : Promise.resolve([]),
+  ]);
+  const doctorNameById = new Map(doctorRows.map((row) => [row.id, row.name]));
+  const studyUidBySelectionId = new Map(selectionRows.map((row) => [row.id, row.study_instance_uid]));
+  const studyUids = Array.from(new Set([
+    ...legacyRows.map((event) => event.study_instance_uid),
+    ...selectionRows.map((row) => row.study_instance_uid),
+  ].filter((uid): uid is string => !!uid)));
+  const studyRows = studyUids.length > 0
+    ? await db.select({ study_instance_uid: studies_cache.study_instance_uid, patient_name: studies_cache.patient_name, study_date: studies_cache.study_date, study_description: studies_cache.description }).from(studies_cache).where(and(eq(studies_cache.unit_id, unitId), inArray(studies_cache.study_instance_uid, studyUids)))
+    : [];
+  const studyByUid = new Map(studyRows.map((row) => [row.study_instance_uid, row]));
+
+  const events: UnitCycleFinancialEvent[] = baseEvents.map((event) => {
+    const studyUid = event.source === "catalog"
+      ? studyUidBySelectionId.get(event.study_selection_id)
+      : event.study_instance_uid;
+    const study = studyUid ? studyByUid.get(studyUid) : undefined;
+    return {
+      id: event.id,
+      source: event.source,
+      event_id: event.event_id,
+      study_instance_uid: studyUid ?? null,
+      report_id: event.report_id,
+      patient_name: study?.patient_name ?? null,
+      study_date: study?.study_date ?? null,
+      study_description: study?.study_description ?? null,
+      modality: event.modality,
+      clinical_label: event.clinical_label,
+      doctor_name: doctorNameById.get(event.doctor_user_id) ?? null,
+      signed_at: event.signed_at,
+      doctor_amount_due: event.doctor_amount_due,
+      system_amount_due: event.system_amount_due,
+      doctor_received_at: event.doctor_received_at,
+      system_paid_at: event.system_paid_at,
+      pricing_status: event.pricing_status,
+    };
+  });
   return events.sort((a, b) => new Date(b.signed_at ?? 0).getTime() - new Date(a.signed_at ?? 0).getTime());
 }
 
@@ -585,7 +635,7 @@ export const financeSimpleRouter = router({
       const perUnitRows = await Promise.all(
         unitsInScope.map(async (u) => {
           const { cycleStart, cycleEnd, label: cycle_label } = calcCycleDates(u.s, u.e, refDate);
-          const events = await listUnitCycleFinancialEvents(db, u.id, cycleStart, cycleEnd);
+          const events = await listUnitCycleFinancialEvents(db, u.id, cycleStart, cycleEnd, false);
           return {
             unit_id: u.id,
             unit_name: u.name ?? "Unidade",
