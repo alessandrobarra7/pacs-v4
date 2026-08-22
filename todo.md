@@ -2696,4 +2696,4 @@
 - [x] Exibir erro explícito e nova tentativa no detalhe de laudos usado para pagamentos.
 - [x] Garantir que eventos cancelados não possam ser selecionados ou baixados no fluxo de pagamentos.
 - [x] Criar regressões de vínculo clínico ausente, erro da consulta e cancelamento no detalhe de pagamentos.
-- [ ] Documentar e publicar a correção da tela de Pagamentos antes de atualização de produção.
+- [x] Documentar e publicar a correção da tela de Pagamentos antes de atualização de produção.
