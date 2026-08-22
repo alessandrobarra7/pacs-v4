@@ -1,0 +1,172 @@
+SOLICITAÇÃO DE AUDITORIA INDEPENDENTE
+INCIDENTE DE RECONCILIAÇÃO FINANCEIRA — PORTAL PACS
+Data de referência: 22/08/2026
+Classificação: Integridade financeira / rastreabilidade de eventos
+
+1. OBJETIVO DA AUDITORIA
+
+Auditar o fluxo completo que forma e exibe os eventos financeiros por unidade, desde o banco de dados até a resposta tRPC e a tabela React do log auditável. O objetivo é determinar por que uma unidade pode exibir uma contagem positiva de eventos no ciclo enquanto o modal “Log auditável dos eventos financeiros” mostra zero linhas.
+
+O resultado esperado é uma causa raiz reproduzível, uma correção mínima e uma prova automatizada de que a contagem do indicador e as linhas do log não podem divergir.
+
+2. IMPACTO E REGRA DE NEGÓCIO
+
+O módulo financeiro é orientado a eventos. Cada evento pode representar uma obrigação da unidade com o sistema e/ou um valor devido ao médico. Portanto, um evento contado no resumo financeiro deve necessariamente aparecer no log auditável do mesmo ciclo.
+
+Regra obrigatória de aceite:
+
+    quantidade de eventos no indicador do ciclo = quantidade de linhas retornadas pelo log auditável do mesmo ciclo
+
+Uma diferença, mesmo quando os valores financeiros forem zero ou estiverem pendentes de preço, invalida a rastreabilidade operacional e impede o uso seguro do painel para cobrança, conferência ou quitação.
+
+3. EVIDÊNCIA VISUAL DO INCIDENTE
+
+Na tela Financeiro > Hospital da Criança, em 22/08/2026, foram observados simultaneamente:
+
+    Indicador “Eventos no ciclo”: 2
+    Modal “Log auditável dos eventos financeiros”: tabela sem linhas
+
+O modal exibiu cabeçalhos de tabela sem registros. A evidência visual foi preservada no histórico da solicitação. Não foram incluídos nesta documentação dados de sessão, cookies, tokens ou identificadores clínicos completos.
+
+4. AMBIENTE ALCANÇADO
+
+VM1 — Portal
+    Papel: aplicação React, Express e tRPC, executada por PM2
+    Diretório de implantação: /var/www/pacs-portal
+    Commit ativo durante o incidente: 2c71524
+    Estado pós-atualização: PM2 online e HTTP local 200
+
+VM2 — Banco de dados
+    Papel: MySQL exclusivo do Portal PACS
+    Banco consultado: pacs_portal
+    Acesso utilizado nesta investigação: SQL somente leitura
+    Nenhuma migration, INSERT, UPDATE, DELETE, alteração de esquema ou reprocessamento foi executado.
+
+VM3 — Storage
+    Papel: MinIO/armazenamento. Não participa da apuração nem da exibição dos dois eventos deste incidente.
+
+5. EVIDÊNCIAS CONFIRMADAS NA VM2
+
+Unidade investigada
+    Identificador interno da unidade: 20
+    Nome operacional: Hospital da Criança
+    Referência da consulta: 2026-08-22
+    Início calculado do ciclo: 2026-07-24
+    Fim exclusivo calculado do ciclo: 2026-08-24
+
+Reconciliação por origem no ciclo acima
+
+    Eventos legados válidos: 0
+    Eventos de catálogo contados: 2
+    Eventos de catálogo que possuem seleção clínica válida: 2
+    Eventos de catálogo sem seleção clínica: 0
+
+Eventos de catálogo confirmados, com dados clínicos minimizados
+
+    Evento financeiro 1
+        Identificador do evento: 1
+        Identificador interno da seleção clínica: 5
+        Assinado em: 2026-08-21 09:02:40
+        Legenda financeira preservada: CRÂNIO
+        Situação de precificação: pending_doctor_price
+        Valor do médico: nulo
+        Valor do sistema: nulo
+        Seleção clínica encontrada: sim
+
+    Evento financeiro 2
+        Identificador do evento: 2
+        Identificador interno da seleção clínica: 2
+        Assinado em: 2026-08-21 20:05:37
+        Legenda financeira preservada: ABDOMEN TOTAL
+        Situação de precificação: pending_doctor_price
+        Valor do médico: nulo
+        Valor do sistema: nulo
+        Seleção clínica encontrada: sim
+
+Conclusão factual da consulta à VM2:
+
+Os dois eventos existem, pertencem ao ciclo exibido, possuem seleção clínica válida e não estão cancelados por uma regra de cancelamento equivalente. Não há evidência de perda de registros nem de evento órfão por ausência de seleção clínica.
+
+6. HIPÓTESES INVESTIGADAS E RESULTADOS
+
+Hipótese A — O log consultava um mês diferente do indicador
+    Situação: parcialmente corrigida anteriormente.
+    Evidência: o componente passou a encaminhar a referência mensal usada pelo detalhe da unidade ao lançador do log, em vez de usar a data do clique.
+    Resultado: o incidente continuou a ocorrer após a atualização para o commit 2c71524. Esta hipótese não explica isoladamente o caso atual.
+
+Hipótese B — Os eventos de catálogo não tinham seleção clínica e eram removidos por INNER JOIN
+    Situação: descartada para os dois eventos investigados.
+    Evidência: a VM2 confirmou catalogo_contador = 2, catalogo_visivel_no_log = 2 e catalogo_sem_selecao = 0.
+    Resultado: ambos os eventos passam pelo vínculo clínico usado pela consulta do log.
+
+Hipótese C — Erro explícito no procedimento auditEventsByUnit registrado pelo PM2
+    Situação: não confirmado.
+    Evidência: a inspeção recente dos logs do PM2 não retornou falha associada a auditEventsByUnit, financeSimple ou tRPC.
+    Resultado: permanece necessário capturar a resposta HTTP/tRPC efetivamente recebida pelo navegador.
+
+7. TRECHO ARQUITETURAL RELEVANTE
+
+O resumo unitSummary e o log auditEventsByUnit ainda executam consultas independentes para formar suas respostas. Embora os filtros aparentem equivalentes no caso investigado, essa arquitetura permite divergência por join, serialização, cache, condição futura ou tratamento assimétrico de erro.
+
+O resumo conta diretamente linhas de billing_catalog_study_events por unidade e intervalo de signed_at. O log executa outra consulta, adicionando dados clínicos e preparando a resposta para a tabela. Uma auditoria deve avaliar se ambas as rotas realmente compartilham as mesmas chaves de consulta, os mesmos limites temporais, a mesma timezone, o mesmo escopo de autorização e o mesmo tratamento de dados nulos.
+
+8. ESCOPO EXIGIDO DA AUDITORIA DE CÓDIGO
+
+8.1 Backend financeiro
+    a) Revisar financeSimple.unitSummary.
+    b) Revisar financeSimple.auditEventsByUnit.
+    c) Revisar calcCycleDates e a serialização de reference_date em todos os chamadores.
+    d) Confirmar timezone do processo Node, driver MySQL e colunas signed_at.
+    e) Confirmar que eventos com preço nulo e pricing_status pending_doctor_price são retornados pelo log.
+    f) Confirmar que nenhuma regra de RBAC reduz o log sem produzir erro explícito ao cliente.
+
+8.2 Cliente React e transporte tRPC
+    a) Revisar FinanceDashboard.tsx, em especial AuditTrailLauncher e UnitFinancialDetail.
+    b) Verificar a chave efetiva da query tRPC/React Query, incluindo unit_id, reference_date e enabled.
+    c) Inspecionar a resposta transportada pelo endpoint financeSimple.auditEventsByUnit em uma sessão autenticada de administrador.
+    d) Verificar se Date, undefined, null, erro de serialização ou cache anterior transformam uma resposta com duas linhas em um array vazio na interface.
+    e) Verificar se isError e error são tratados. Uma falha de consulta nunca pode ser exibida como “Não há eventos no ciclo consultado”.
+
+8.3 Contrato de integridade
+    a) Recomendar uma fonte única de eventos por unidade e ciclo, reutilizada pelo resumo e pelo log.
+    b) Exigir que a API retorne event_count e event_ids do mesmo conjunto usado nos totais, quando tecnicamente adequado.
+    c) Exigir que o cliente compare a quantidade esperada com as linhas recebidas e mostre alerta de reconciliação em vez de uma tabela vazia silenciosa.
+    d) Proibir que dados clínicos auxiliares removam um evento financeiro já confirmado; campos ausentes devem aparecer como “indisponível”, não eliminar a linha.
+
+9. TESTES QUE A AUDITORIA DEVE EXIGIR
+
+    1) Ciclo que atravessa meses: referência em 22/08, ciclo de 24/07 inclusive a 24/08 exclusivo.
+    2) Dois eventos de catálogo com price_applied e system_amount_due nulos, pricing_status pending_doctor_price e seleção clínica válida.
+    3) O resumo retorna total_laudos = 2.
+    4) O log retorna exatamente duas linhas com os mesmos IDs de evento.
+    5) Evento sem seleção clínica ainda aparece no log, com referência clínica indisponível.
+    6) Erro tRPC é apresentado como erro, jamais convertido em lista vazia.
+    7) Mudança de mês e retorno à unidade invalidam cache e preservam a referência do ciclo.
+    8) Teste ponta a ponta autenticado, quando a infraestrutura de teste suportar, valida a resposta tRPC e a renderização das duas linhas.
+
+10. CRITÉRIOS DE ACEITE PARA A CORREÇÃO
+
+    a) Para o caso reproduzido, o card da unidade e o modal mostram dois eventos.
+    b) Os IDs retornados pelo log podem ser reconciliados com os IDs 1 e 2 preservados na VM2.
+    c) A contagem no resumo é derivada da mesma coleção de eventos que compõe o log ou possui verificação de paridade obrigatória equivalente.
+    d) Se a consulta do log falhar, a interface mostra mensagem de falha e ação de repetição, não um estado vazio.
+    e) A correção tem testes comportamentais de backend e interface, build e validação em worktree antes de qualquer atualização da VM1.
+    f) A auditoria não recomenda reprocessar, apagar, recriar ou alterar os dois eventos existentes sem evidência adicional e backup aprovado.
+
+11. MATERIAL DISPONÍVEL PARA O AUDITOR
+
+    Código atual no repositório PACS, branch main, commit de produção 2c71524.
+    Consulta SQL somente leitura e saída sanitizada da VM2 descritas neste documento.
+    Evidência visual do modal vazio com indicador igual a 2.
+    Logs recentes da VM1 sem erro explícito do procedimento financeiro.
+    Arquivos principais: server/routers/financeSimple.ts e client/src/pages/finance/FinanceDashboard.tsx.
+
+12. RESTRIÇÕES DE SEGURANÇA
+
+Não incluir, solicitar ou publicar no relatório:
+
+    Senhas, tokens, cookies, cabeçalhos Authorization, URLs assinadas, chaves MinIO ou credenciais MySQL.
+    Identificadores completos de paciente, StudyInstanceUIDs completos, documentos clínicos ou conteúdo de laudos.
+    Alterações diretas na VM2 antes de um diagnóstico reproduzível, revisão de impacto e backup aprovado.
+
+FIM DA SOLICITAÇÃO

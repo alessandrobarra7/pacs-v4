@@ -2627,3 +2627,18 @@
 - [x] Substituir a verificação estática de código do painel por teste comportamental da referência mensal encaminhada ao log.
 - [x] Preservar somente testes estruturais que não possam ser expressos por comportamento observável.
 - [x] Validar, documentar e publicar a conversão da cobertura antes de qualquer atualização da VM1.
+
+## FINANCEIRO V2 — ATUALIZAÇÃO REAL DA PARIDADE E COBERTURA
+- [x] Validar o commit 2c71524 em worktree isolada e atualizar a VM1 após os testes financeiros e o build completos.
+- [ ] Confirmar o commit ativo, a saúde HTTP e a listagem de eventos do ciclo após a atualização da VM1.
+
+## INCIDENTE FINANCEIRO — CONTADOR SEM LINHAS AUDITÁVEIS
+- [x] Preservar a evidência da unidade Hospital da Criança com 2 eventos no ciclo e log vazio, classificando o indicador como não conciliado.
+- [x] Reconciliar em modo somente leitura os dois eventos reais, o intervalo efetivo do ciclo e os filtros do resumo e do log.
+- [ ] Unificar a fonte de eventos do contador e do log para que seja impossível exibir contagem sem linhas correspondentes.
+- [ ] Criar regressão com o caso real de ciclo atravessando meses e publicar somente após reconciliação comprovada.
+
+## AUDITORIA EXTERNA — INCIDENTE DE RECONCILIAÇÃO FINANCEIRA
+- [ ] Elaborar arquivo TXT com evidências, impacto, hipóteses descartadas e escopo objetivo para auditoria independente do código.
+- [ ] Incluir no arquivo TXT o inventário sanitizado da VM2, o ciclo calculado e os dois eventos de catálogo confirmados no diagnóstico somente leitura.
+- [ ] Versionar o pedido de auditoria no repositório sem publicar dados de sessão, credenciais ou informações clínicas desnecessárias.
