@@ -2689,4 +2689,4 @@
 - [x] Manter exclusão física restrita a rascunhos sem evento financeiro e expor a ação de cancelamento para laudos assinados.
 - [x] Excluir eventos cancelados de totais, cobranças e repasses, mantendo-os visíveis no log como cancelados.
 - [x] Cobrir cancelamento, bloqueio de exclusão física e manutenção de histórico em regressões comportamentais.
-- [ ] Publicar a correção e preparar a migração aditiva da VM2 antes de atualizar a VM1.
+- [x] Publicar a correção e preparar a migração aditiva da VM2 antes de atualizar a VM1.
