@@ -2635,8 +2635,8 @@
 ## INCIDENTE FINANCEIRO — CONTADOR SEM LINHAS AUDITÁVEIS
 - [x] Preservar a evidência da unidade Hospital da Criança com 2 eventos no ciclo e log vazio, classificando o indicador como não conciliado.
 - [x] Reconciliar em modo somente leitura os dois eventos reais, o intervalo efetivo do ciclo e os filtros do resumo e do log.
-- [ ] Unificar a fonte de eventos do contador e do log para que seja impossível exibir contagem sem linhas correspondentes.
-- [ ] Criar regressão com o caso real de ciclo atravessando meses e publicar somente após reconciliação comprovada.
+- [x] Unificar a fonte de eventos do contador e do log para que seja impossível exibir contagem sem linhas correspondentes.
+- [x] Criar regressão com o caso real de ciclo atravessando meses e publicar somente após reconciliação comprovada.
 
 ## AUDITORIA EXTERNA — INCIDENTE DE RECONCILIAÇÃO FINANCEIRA
 - [x] Elaborar arquivo TXT com evidências, impacto, hipóteses descartadas e escopo objetivo para auditoria independente do código.
@@ -2644,8 +2644,8 @@
 - [x] Versionar o pedido de auditoria no repositório sem publicar dados de sessão, credenciais ou informações clínicas desnecessárias.
 
 ## REVISÃO DA AUDITORIA INDEPENDENTE — INTEGRIDADE DO LOG
-- [ ] Arquivar a auditoria independente recebida e confrontar seus achados com as evidências já obtidas da VM1 e da VM2.
-- [ ] Executar a consulta adicional somente leitura sugerida contra os eventos 1 e 2 na VM2 e registrar o resultado.
+- [x] Arquivar a auditoria independente recebida e confrontar seus achados com as evidências já obtidas da VM1 e da VM2.
+- [x] Executar a consulta adicional somente leitura sugerida contra os eventos 1 e 2 na VM2 e registrar o resultado.
 - [x] Submeter o desenho de fonte única, tratamento explícito de erro e preservação de eventos sem vínculo clínico para aprovação antes de alterar código.
 
 ## CORREÇÃO APROVADA — INTEGRIDADE DO LOG FINANCEIRO
