@@ -31,7 +31,7 @@ Foram adicionados dois controles automatizados.
 
 | Teste | Garantia |
 |---|---|
-| `server/finance-v2-dashboard.test.ts` | Confirma que a referência mensal é propagada do detalhe da unidade ao lançador do log e impede o retorno à data corrente no clique. |
+| `server/finance-v2-dashboard.test.tsx` | Renderiza o detalhe financeiro com o React real, usa respostas controladas de tRPC e aciona o botão do log para confirmar que a referência mensal do indicador é encaminhada à consulta auditável. |
 | `server/finance-audit-parity.test.ts` | Simula um evento legado e um evento de catálogo no mesmo ciclo, exige contador unificado igual a 2 e exige duas linhas correspondentes no log. |
 
 ## Critério de aceite

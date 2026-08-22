@@ -3,7 +3,7 @@
  * Catálogo de unidades e detalhe financeiro por rota. Preços por modalidade
  * preservam vigências; a tela não sobrescreve valores históricos.
  */
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";

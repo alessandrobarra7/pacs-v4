@@ -2622,3 +2622,8 @@
 - [x] Alinhar o log aos mesmos eventos e ao mesmo intervalo temporal usados nos indicadores da unidade.
 - [x] Criar regressão comportamental que exige igualdade entre a contagem exibida e as linhas do log para um ciclo.
 - [x] Auditar, validar e publicar a correção antes de nova atualização da VM1.
+
+## FINANCEIRO V2 — CONVERSÃO DA REGRESSÃO DO PAINEL
+- [x] Substituir a verificação estática de código do painel por teste comportamental da referência mensal encaminhada ao log.
+- [x] Preservar somente testes estruturais que não possam ser expressos por comportamento observável.
+- [ ] Validar, documentar e publicar a conversão da cobertura antes de qualquer atualização da VM1.
