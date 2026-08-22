@@ -2898,3 +2898,4 @@
 - [x] Buscar o documento e a configuração autorizados na própria página financeira e gerar o PDF diretamente no clique.
 - [x] Exibir andamento e erro de download, sem abrir aba, editor ou visualização intermediária.
 - [x] Cobrir o fluxo direto e validar em sandbox antes de publicação.
+- [x] Atualizar a VM1 de `79b7931` para `7b9e341` sem migração, com novo PID do PM2, status online e HTTP local 200; sem ação na VM2.
