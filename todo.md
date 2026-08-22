@@ -2697,3 +2697,37 @@
 - [x] Garantir que eventos cancelados não possam ser selecionados ou baixados no fluxo de pagamentos.
 - [x] Criar regressões de vínculo clínico ausente, erro da consulta e cancelamento no detalhe de pagamentos.
 - [x] Documentar e publicar a correção da tela de Pagamentos antes de atualização de produção.
+
+## ATUALIZAÇÃO REAL — INTEGRIDADE DA TELA DE PAGAMENTOS
+- [x] Validar o commit c2b3ba0 em worktree isolada e atualizar a VM1 após testes financeiros e build completos.
+- [ ] Confirmar o detalhe de pagamentos e a saúde HTTP após a atualização.
+
+## INCIDENTE — PAINEL FINANCEIRO VAZIO APÓS ATUALIZAÇÃO C2B3BA0
+- [x] Coletar evidências somente leitura da VM1 para identificar a falha das consultas financeiras em produção.
+- [x] Confirmar que o código c2b3ba0 consulta billing_catalog_study_events.financial_status, campo que depende da migração 0056 ainda ausente na VM2.
+- [x] Aplicar a migração aditiva 0056 na VM2 com backup lógico e pré-condições aprovadas, preservando os eventos históricos 1 e 2.
+- [x] Reproduzir a falha no sandbox e corrigir sem modificar eventos financeiros históricos.
+- [ ] Cobrir a causa com regressão, validar e atualizar produção somente após aprovação.
+
+## REGULARIZAÇÃO VISUAL — EVENTOS HISTÓRICOS SEM LASTRO CLÍNICO
+- [x] Registrar que os eventos 1 e 2 aparecem no log financeiro enquanto os estudos atuais estão pendentes, pois os laudos assinados originais foram removidos antes da regra de cancelamento auditável.
+- [x] Registrar que a taxa LAUDS vigente não pode ser apresentada como valor aplicado aos eventos históricos cujo snapshot system_amount_due é nulo.
+- [ ] Auditar os campos de preço, status, vínculo de seleção e laudo dos eventos históricos 1 e 2 somente leitura.
+- [ ] Sinalizar no Financeiro eventos históricos sem preço ou laudo vigente como pendentes de regularização, excluídos de cobrança, repasse e baixa.
+- [ ] Adicionar regressões que impeçam apresentação de taxa vigente como valor histórico aplicado sem snapshot financeiro.
+
+## AUDITORIA — NOVA ASSINATURA E UNICIDADE DE COBRANÇA
+- [ ] Confrontar cada evento financeiro do caso histórico com a assinatura clínica correspondente, sem presumir o estado atual do estudo.
+- [ ] Auditar se uma nova assinatura de novo laudo cria novo evento, enquanto revisão e reimpressão preservam o evento existente.
+- [ ] Definir e testar a unicidade da cobrança por assinatura final de cada documento clínico.
+- [x] Redigir relatório TXT sanitizado sobre as evidências, o comportamento atual e a regra aprovada para nova assinatura.
+- [x] Versionar e publicar o relatório TXT de auditoria no GitHub (c5d314c).
+
+## DECISÃO FORMAL — CANCELAMENTO DE LAUDO E NOVA COBRANÇA
+- [x] Registrar que somente admin_master cancela laudo signed/revised, preservando o laudo e a auditoria, e cancela o evento financeiro relacionado.
+- [x] Permitir nova ocorrência financeira quando uma nova laudagem completa for assinada após evento anterior cancelado, sem reativar ou alterar o evento cancelado.
+- [x] Corrigir a chave de unicidade de eventos de catálogo para suportar múltiplas ocorrências financeiras por seleção, mantendo event_index dentro de cada ocorrência.
+- [x] Corrigir a legenda do dashboard para descrever soma de valores efetivamente registrados nos eventos do ciclo.
+- [x] Criar regressões para cancelamento por admin_master, nova assinatura pós-cancelamento, revisão sem nova cobrança e legenda do total do sistema.
+- [x] Documentar a decisão formal e a implementação com a migração 0057 e os critérios de aceite.
+- [ ] Publicar a decisão formal e a implementação no GitHub.

@@ -544,6 +544,24 @@ export default function ReportEditorPage() {
     }
   }, [existingReport, studyUid, examTitle, studyInfo, updateReport, createReport, collectBody]);
 
+  const handleNewOccurrence = useCallback(async () => {
+    if (!existingReport || !isCancelled) return;
+    try {
+      await createReport.mutateAsync({
+        study_instance_uid: studyUid,
+        body: existingReport.body || "",
+        unit_id: studyInfo?.unitId ?? undefined,
+        document_key: documentKey,
+        document_label_snapshot: documentLabelFromRoute || examTitle || studyInfo?.studyDescription || undefined,
+        new_occurrence: true,
+      });
+      await utils.reports.getByStudyUid.invalidate({ studyInstanceUid: studyUid, documentKey, unit_id: unitId || undefined });
+      toast.success("Nova ocorrência de laudagem iniciada. O laudo e os eventos cancelados foram preservados na auditoria.");
+    } catch (e: any) {
+      toast.error(e.message || "Não foi possível iniciar nova laudagem");
+    }
+  }, [existingReport, isCancelled, createReport, studyUid, studyInfo, documentKey, documentLabelFromRoute, examTitle, utils, unitId]);
+
   // ── Assinar ──────────────────────────────────────────────────────────────
   // Salva o laudo automaticamente (se necessário) e depois assina em um único clique
   const handleSign = useCallback(async () => {
@@ -1216,7 +1234,7 @@ export default function ReportEditorPage() {
             Imprimir
           </Button>
           {/* Botão Apagar — sempre visível quando há laudo salvo */}
-          {existingReport?.id && (
+          {existingReport?.id && !isCancelled && (
             <Button
               variant="outline"
               size="sm"
@@ -1229,7 +1247,17 @@ export default function ReportEditorPage() {
             </Button>
           )}
 
-          {isSigned ? (
+          {isCancelled ? (
+            <Button
+              size="sm"
+              onClick={handleNewOccurrence}
+              disabled={createReport.isPending}
+              className="gap-1.5 text-xs bg-cyan-700 hover:bg-cyan-800 text-white disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {createReport.isPending ? "Iniciando..." : "Nova laudagem"}
+            </Button>
+          ) : isSigned ? (
             isRevising ? (
               <>
                 <Button
@@ -1313,7 +1341,16 @@ export default function ReportEditorPage() {
         >
           <Printer className="h-4 w-4" />
         </button>
-        {isSigned ? (
+        {isCancelled ? (
+          <button
+            onClick={handleNewOccurrence}
+            disabled={createReport.isPending}
+            className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-cyan-700 px-2.5 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            <Plus className="h-4 w-4" />
+            Novo
+          </button>
+        ) : isSigned ? (
           isRevising ? (
             <button
               onClick={() => {

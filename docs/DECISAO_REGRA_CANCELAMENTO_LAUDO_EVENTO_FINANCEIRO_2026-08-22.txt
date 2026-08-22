@@ -1,0 +1,118 @@
+===============================================================================
+DECISÃO REGISTRADA — CANCELAMENTO DE LAUDO E EVENTO FINANCEIRO
+===============================================================================
+Este documento registra uma decisão sua, para constar como referência
+oficial em conversas futuras — inclusive se este ponto voltar a ser
+levantado por qualquer auditoria ou relatório técnico externo ao sistema.
+
+===============================================================================
+CONTEXTO
+===============================================================================
+Depois da versão 20, um relatório (RELATORIO_AUDITORIA_ASSINATURA_
+EXCLUSAO_EVENTO_FINANCEIRO_20260822.txt) propôs REVERTER a regra que
+tínhamos acabado de implementar e confirmar: que cancelar um laudo
+assinado também cancela o evento financeiro ligado a ele. O relatório
+argumentava que o evento deveria sobreviver ao cancelamento do laudo,
+porque representa trabalho já realizado.
+
+Discutimos as duas opções e você decidiu.
+
+===============================================================================
+REGRA CONFIRMADA POR VOCÊ (esta é a regra vigente)
+===============================================================================
+"A regra deve ser: somente o administrador do sistema pode apagar um
+laudo de todo o sistema. Ao cancelar o laudo, ele subtrai o evento
+financeiro também. Nenhum outro usuário pode fazer o cancelamento e
+apagar o laudo."
+
+Ou seja: mantém-se a regra já implementada nas versões 20/21. A proposta
+do relatório (evento financeiro sobreviver ao cancelamento) NÃO será
+implementada. Se esse relatório ou qualquer outro voltar a sugerir essa
+mudança no futuro, a resposta já está definida aqui.
+
+===============================================================================
+O QUE JÁ ESTÁ CORRETO NO CÓDIGO ATUAL (confirmei, nenhuma ação necessária)
+===============================================================================
+- Só admin_master pode cancelar/apagar um laudo assinado ou retificado
+  (server/routers/reports.ts, função "delete") — qualquer outro papel
+  recebe erro FORBIDDEN.
+- Cancelar um laudo assinado sempre cancela (nunca apaga fisicamente) o
+  laudo e os eventos financeiros ligados a ele (legado e catálogo), com
+  motivo obrigatório e registro em audit_log.
+- A retificação de laudo (server/routers/reports.ts, função "revise") é
+  um caminho separado e continua disponível para quem tem permissão de
+  editar laudos na unidade (não é exclusiva do admin_master) — ela NÃO
+  mexe em nenhum evento financeiro, só corrige o texto do laudo mantendo
+  histórico e motivo. Isso já cobre o caso de "corrigir um erro sem
+  perder a cobrança", sem precisar de nenhuma mudança na regra de
+  cancelamento.
+
+===============================================================================
+PONTO NOVO ENCONTRADO — AINDA VÁLIDO INDEPENDENTE DA DECISÃO ACIMA
+===============================================================================
+Ao verificar o relatório, notei uma coisa que continua sendo um problema
+real mesmo com a regra que você escolheu manter — na verdade, ela fica
+mais importante justamente por causa dessa escolha.
+
+Onde: server/catalogFinancial.ts, linha 48:
+
+    const existing = await db.select({ id: billing_catalog_study_events.id })
+      .from(billing_catalog_study_events)
+      .where(eq(billing_catalog_study_events.study_selection_id, selection.id));
+    if (existing.length) return { handled: true, created: 0 };
+
+O que está: essa consulta verifica se JÁ EXISTE qualquer evento para
+aquela seleção clínica — sem checar se esse evento está ativo ou
+cancelado. Ou seja: depois que um laudo é cancelado (e o evento financeiro
+dele cancelado junto, como você decidiu que deve acontecer), se um médico
+fizer um NOVO laudo, corrigido, para o mesmo estudo e a mesma legenda, e
+assinar todos os documentos exigidos de novo — o sistema NÃO vai gerar um
+novo evento financeiro. Ele encontra o evento antigo (cancelado) já
+existente para aquela seleção e simplesmente não cria nada.
+
+Por que isso importa com a regra que você escolheu: se cancelar realmente
+deve "zerar" a cobrança quando o laudo é anulado, faz sentido que um novo
+laudo, feito e assinado corretamente depois, gere uma cobrança nova — o
+trabalho foi refeito de verdade. Do jeito que está hoje, uma vez cancelado
+um evento daquela seleção, ela fica permanentemente impossibilitada de
+gerar cobrança de novo, mesmo que o exame seja relaudado corretamente.
+Isso pode fazer a unidade perder faturamento de forma definitiva por um
+exame que efetivamente foi refeito e entregue.
+
+O QUE FAZER: ajustar essa checagem para considerar apenas eventos ATIVOS
+(financial_status = 'active') ao decidir se já existe cobrança para
+aquela seleção — assim um evento cancelado não impede que uma nova
+laudagem completa e correta gere uma cobrança nova.
+
+===============================================================================
+PONTO MENOR DO RELATÓRIO — AINDA VÁLIDO, INDEPENDENTE DA DECISÃO DE POLÍTICA
+===============================================================================
+O relatório também apontou (seção 4) um problema de apresentação que
+confirmei ser real e que não tem relação com a discussão sobre cancelar
+ou não o evento: no painel da unidade, o texto abaixo de "Soma para o
+sistema" diz "Taxa LAUDS × eventos do ciclo" — mas o valor mostrado não é
+essa multiplicação, é a soma dos valores realmente registrados em cada
+evento (que pode ser R$ 0,00 quando os eventos não têm preço aplicado,
+mesmo com uma taxa vigente configurada, como aconteceu com os dois eventos
+históricos da unidade 20). Confirmei o texto "Taxa LAUDS × eventos do
+ciclo" fixo no código (client/src/pages/finance/FinanceDashboard.tsx).
+
+O QUE FAZER: trocar essa legenda por um texto que descreva o que
+realmente é mostrado (soma dos valores registrados nos eventos do ciclo),
+para não sugerir uma conta que não é a que está sendo feita.
+
+===============================================================================
+RESUMO DO QUE PRECISA DE AÇÃO
+===============================================================================
+  1. Ajustar a checagem de evento existente em createCatalogEventsWhenComplete
+     para ignorar eventos cancelados — permitindo cobrança nova após uma
+     laudagem correta e completa refeita depois de um cancelamento.
+  2. Corrigir a legenda "Taxa LAUDS × eventos do ciclo" para refletir o
+     cálculo real (soma dos valores registrados, não uma multiplicação).
+
+A regra de cancelamento em si (item principal do relatório) está decidida
+e não precisa de nenhuma alteração de código — o que já está implementado
+nas versões 20/21 é o que deve continuar valendo.
+===============================================================================
+FIM DO DOCUMENTO
+===============================================================================

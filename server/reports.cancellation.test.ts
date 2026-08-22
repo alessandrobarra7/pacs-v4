@@ -17,12 +17,13 @@ vi.mock("./db", async (importOriginal) => {
     ...original,
     getDb: vi.fn(),
     getReportById: vi.fn(),
+    createReport: vi.fn(),
     removeVisitEventForReport: vi.fn(),
     createAuditLog: vi.fn(),
   };
 });
 
-import { getDb, getReportById } from "./db";
+import { createReport, getDb, getReportById } from "./db";
 
 function context(): TrpcContext {
   return {
@@ -121,5 +122,30 @@ describe("cancelamento auditável de laudo assinado", () => {
     await expect(
       appRouter.createCaller(context()).reports.delete({ id: 50, reason: "Laudo clínico invalidado" }),
     ).rejects.toThrow("evento financeiro já baixado");
+  });
+
+  it("cria a ocorrência dois somente depois de um cancelamento auditável", async () => {
+    vi.mocked(getDb).mockResolvedValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: async () => [{ status: "cancelled", billing_occurrence: 1 }],
+        })),
+      })),
+    } as any);
+    vi.mocked(createReport).mockResolvedValue(91);
+
+    const result = await appRouter.createCaller(context()).reports.create({
+      study_instance_uid: "1.2.3.4",
+      unit_id: 10,
+      document_key: "primary",
+      body: "<p>Novo laudo</p>",
+      new_occurrence: true,
+    });
+
+    expect(result).toEqual({ id: 91 });
+    expect(createReport).toHaveBeenCalledWith(expect.objectContaining({
+      status: "draft",
+      billing_occurrence: 2,
+    }));
   });
 });

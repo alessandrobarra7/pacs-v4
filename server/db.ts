@@ -496,6 +496,8 @@ export async function getReportStatusByStudyUids(
     .select({
       uid: reports.study_instance_uid,
       status: reports.status,
+      documentKey: reports.document_key,
+      billingOccurrence: reports.billing_occurrence,
       signedBy: reports.signedBy,
       authorUserId: reports.author_user_id,
       signedAt: reports.signedAt,
@@ -503,14 +505,21 @@ export async function getReportStatusByStudyUids(
     .from(reports)
     .where(and(...conditions));
 
-  const statusByStudy: Record<string, typeof rows> = {};
+  const latestByStudyDocument: Record<string, Map<string, typeof rows[number]>> = {};
   const signerIds = new Set<number>();
   for (const row of rows) {
     if (row.uid) {
-      (statusByStudy[row.uid] ??= []).push(row);
-      if (row.status === "signed" || row.status === "revised") {
-        signerIds.add(row.signedBy ?? row.authorUserId);
-      }
+      const byDocument = latestByStudyDocument[row.uid] ??= new Map();
+      const previous = byDocument.get(row.documentKey);
+      if (!previous || row.billingOccurrence > previous.billingOccurrence) byDocument.set(row.documentKey, row);
+    }
+  }
+  const statusByStudy: Record<string, typeof rows> = Object.fromEntries(
+    Object.entries(latestByStudyDocument).map(([uid, byDocument]) => [uid, Array.from(byDocument.values())]),
+  );
+  for (const reportRows of Object.values(statusByStudy)) {
+    for (const row of reportRows) {
+      if (row.status === "signed" || row.status === "revised") signerIds.add(row.signedBy ?? row.authorUserId);
     }
   }
   const signerNameById = new Map<number, string>();

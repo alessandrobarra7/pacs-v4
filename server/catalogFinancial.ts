@@ -16,9 +16,9 @@ function normalizeModality(modality: string | null | undefined) {
 
 /**
  * Bloqueia a legenda na primeira assinatura e cria eventos financeiros somente
- * quando todos os documentos selecionados tiverem sido assinados.
+ * quando todos os documentos selecionados da mesma ocorrência tiverem sido assinados.
  */
-export async function createCatalogEventsWhenComplete(input: { studyUid: string; unitId: number; doctorUserId: number; documentKey: string; signedAt: Date }) {
+export async function createCatalogEventsWhenComplete(input: { studyUid: string; unitId: number; doctorUserId: number; documentKey: string; reportId: number; billingOccurrence: number; signedAt: Date }) {
   const db = await getDb();
   if (!db) return { handled: false, created: 0 };
   const candidates = await db.select().from(study_exam_legend_selections).where(and(
@@ -42,10 +42,15 @@ export async function createCatalogEventsWhenComplete(input: { studyUid: string;
   const signed = await db.select({ document_key: reports.document_key }).from(reports).where(and(
     eq(reports.study_instance_uid, input.studyUid), eq(reports.unit_id, input.unitId),
     inArray(reports.document_key, documents.map((item) => item.key)),
+    eq(reports.billing_occurrence, input.billingOccurrence),
     inArray(reports.status, ["signed", "revised"]),
   ));
   if (new Set(signed.map((item) => item.document_key)).size < documents.length) return { handled: true, created: 0 };
-  const existing = await db.select({ id: billing_catalog_study_events.id }).from(billing_catalog_study_events).where(eq(billing_catalog_study_events.study_selection_id, selection.id));
+  const existing = await db.select({ id: billing_catalog_study_events.id }).from(billing_catalog_study_events).where(and(
+    eq(billing_catalog_study_events.study_selection_id, selection.id),
+    eq(billing_catalog_study_events.billing_occurrence, input.billingOccurrence),
+    eq(billing_catalog_study_events.financial_status, "active"),
+  ));
   if (existing.length) return { handled: true, created: 0 };
   const modality = normalizeModality(selection.modality_snapshot);
   const [doctorModalityRows, unitModalityRows, systemPriceRows] = await Promise.all([
@@ -86,7 +91,7 @@ export async function createCatalogEventsWhenComplete(input: { studyUid: string;
         ? "pending_system_price" as const
         : "pending_both" as const;
   await db.insert(billing_catalog_study_events).values(Array.from({ length: selection.financial_event_count }, (_, event_index) => ({
-    study_selection_id: selection.id, event_index: event_index + 1, unit_id: input.unitId, doctor_user_id: input.doctorUserId,
+    study_selection_id: selection.id, billing_occurrence: input.billingOccurrence, event_index: event_index + 1, unit_id: input.unitId, doctor_user_id: input.doctorUserId, source_report_id: input.reportId,
     exam_legend_id: selection.exam_legend_id, exam_name_snapshot: selection.exam_name_snapshot,
     modality_snapshot: modality,
     price_applied: doctorAmount !== null ? String(doctorAmount) : null,

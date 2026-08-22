@@ -58,10 +58,11 @@ export const reportsRouter = router({
          ? { unitId: input.unit_id, unitIds: undefined }
          : await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
        if (unitIds !== undefined && unitIds.length === 0) return null; // sem acesso
-        const conditions: any[] = [eq(reports.study_instance_uid, input.studyInstanceUid)];
+       const conditions: any[] = [eq(reports.study_instance_uid, input.studyInstanceUid)];
        if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
         else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
         const rows = await db.select().from(reports).where(and(...conditions));
+        rows.sort((a, b) => b.billing_occurrence - a.billing_occurrence);
         const report = rows.find((row) => row.document_key === input.documentKey)
           ?? (rows.length === 1 && rows[0].document_key === 'primary' ? rows[0] : null);
         if (report && report.unit_id) {
@@ -86,10 +87,11 @@ export const reportsRouter = router({
          ? { unitId: input.unit_id, unitIds: undefined }
          : await resolveUnitFilter(ctx.user.role, ctx.user.id, ctx.user.unit_id);
        if (unitIds !== undefined && unitIds.length === 0) return null; // sem acesso
-        const conditions: any[] = [eq(reports.study_instance_uid, input.studyInstanceUid)];
+       const conditions: any[] = [eq(reports.study_instance_uid, input.studyInstanceUid)];
        if (unitId !== undefined) conditions.push(eq(reports.unit_id, unitId));
         else if (unitIds !== undefined && unitIds.length > 0) conditions.push(inArray(reports.unit_id, unitIds));
         const rows = await db.select().from(reports).where(and(...conditions));
+        rows.sort((a, b) => b.billing_occurrence - a.billing_occurrence);
         const report = rows.find((row) => row.document_key === input.documentKey)
           ?? (rows.length === 1 && rows[0].document_key === 'primary' ? rows[0] : null);
         if (!report) return null;
@@ -130,13 +132,14 @@ export const reportsRouter = router({
           document_key: reports.document_key,
           document_label_snapshot: reports.document_label_snapshot,
           status: reports.status,
+          billing_occurrence: reports.billing_occurrence,
           author_user_id: reports.author_user_id,
           signedAt: reports.signedAt,
           signedBy: reports.signedBy,
         }).from(reports).where(and(
           eq(reports.study_instance_uid, input.studyInstanceUid),
           eq(reports.unit_id, unitId),
-        )).orderBy(reports.document_key);
+        )).orderBy(reports.document_key, desc(reports.billing_occurrence));
       }),
     
     create: protectedProcedure
@@ -149,6 +152,7 @@ export const reportsRouter = router({
         template_id: z.number().optional(),
         body: z.string(),
         unit_id: z.number().optional(), // multi-unidade: médico passa a unidade selecionada
+        new_occurrence: z.boolean().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         // Resolver unit_id efetivo: campo legado > input.unit_id via permissões > primeira unidade
@@ -168,7 +172,29 @@ export const reportsRouter = router({
           }
         }
         
-        const { unit_id: _unitInput, ...restInput } = input;
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
+        let billingOccurrence = 1;
+        if (input.study_instance_uid) {
+          const existingOccurrences = await db.select({
+            status: reports.status,
+            billing_occurrence: reports.billing_occurrence,
+          }).from(reports).where(and(
+            eq(reports.study_instance_uid, input.study_instance_uid),
+            eq(reports.unit_id, effectiveUnitId),
+            eq(reports.document_key, input.document_key),
+          ));
+          if (existingOccurrences.length) {
+            const latest = existingOccurrences.sort((a, b) => b.billing_occurrence - a.billing_occurrence)[0]!;
+            if (!input.new_occurrence || latest.status !== 'cancelled') {
+              throw new TRPCError({ code: 'CONFLICT', message: 'Já existe um laudo ativo ou histórico para este documento. Uma nova ocorrência só pode ser criada após cancelamento auditável.' });
+            }
+            billingOccurrence = latest.billing_occurrence + 1;
+          } else if (input.new_occurrence) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'Não existe laudo cancelado para iniciar uma nova ocorrência.' });
+          }
+        }
+        const { unit_id: _unitInput, new_occurrence: _newOccurrence, ...restInput } = input;
         // F1-3: Sanitizar HTML do body antes de persistir (previne XSS armazenado)
         const safeBody = sanitizeHtml(restInput.body, REPORT_SANITIZE_OPTIONS);
         const id = await createReport({
@@ -177,6 +203,7 @@ export const reportsRouter = router({
           unit_id: effectiveUnitId,
           author_user_id: ctx.user.id,
           status: 'draft',
+          billing_occurrence: billingOccurrence,
         });
         
         await createAuditLog({
@@ -341,7 +368,7 @@ export const reportsRouter = router({
 
         // Catálogo clínico-financeiro: aguarda todas as assinaturas obrigatórias antes de criar eventos.
         const catalogBilling = effectiveUnitId && studyUid
-          ? await createCatalogEventsWhenComplete({ studyUid, unitId: effectiveUnitId, doctorUserId: report.author_user_id ?? ctx.user.id, documentKey: report.document_key, signedAt })
+          ? await createCatalogEventsWhenComplete({ studyUid, unitId: effectiveUnitId, doctorUserId: report.author_user_id ?? ctx.user.id, documentKey: report.document_key, reportId: report.id, billingOccurrence: report.billing_occurrence, signedAt })
           : { handled: false, created: 0 };
         // Fluxo legado: um evento por laudo apenas quando o estudo ainda não usa catálogo selecionado.
         let doctor_amount_due: string | null = null;

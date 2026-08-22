@@ -147,6 +147,8 @@ export const reports = mysqlTable("reports", {
   exam_legend_id: int("exam_legend_id"),
   /** Chave estável do documento dentro de um exame composto. */
   document_key: varchar("document_key", { length: 80 }).notNull().default("primary"),
+  /** Ocorrência clínica sequencial do mesmo documento após cancelamento auditável. */
+  billing_occurrence: int("billing_occurrence").notNull().default(1),
   /** Título clínico preservado do documento no instante de sua criação. */
   document_label_snapshot: varchar("document_label_snapshot", { length: 255 }),
   template_id: int("template_id"),
@@ -169,6 +171,7 @@ export const reports = mysqlTable("reports", {
     table.study_instance_uid,
     table.unit_id,
     table.document_key,
+    table.billing_occurrence,
   ),
 }));
 
@@ -1029,9 +1032,13 @@ export type BillingDoctorExamLegendPrice = typeof billing_doctor_exam_legend_pri
 export const billing_catalog_study_events = mysqlTable("billing_catalog_study_events", {
   id: int("id").autoincrement().primaryKey(),
   study_selection_id: int("study_selection_id").notNull(),
+  /** Ocorrência faturável sequencial da mesma seleção após cancelamento do laudo. */
+  billing_occurrence: int("billing_occurrence").notNull().default(1),
   event_index: int("event_index").notNull(),
   unit_id: int("unit_id").notNull(),
   doctor_user_id: int("doctor_user_id").notNull(),
+  /** Laudo cuja assinatura final disparou a criação desta ocorrência. */
+  source_report_id: int("source_report_id"),
   exam_legend_id: int("exam_legend_id").notNull(),
   exam_name_snapshot: varchar("exam_name_snapshot", { length: 255 }).notNull(),
   /** Modalidade da seleção no instante da criação — base da precificação auditável. */
@@ -1060,7 +1067,7 @@ export const billing_catalog_study_events = mysqlTable("billing_catalog_study_ev
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({
-  uqCatalogSelectionEvent: uniqueIndex("uq_catalog_selection_event").on(t.study_selection_id, t.event_index),
+  uqCatalogSelectionOccurrenceEvent: uniqueIndex("uq_catalog_selection_occurrence_event").on(t.study_selection_id, t.billing_occurrence, t.event_index),
 }));
 export type BillingCatalogStudyEvent = typeof billing_catalog_study_events.$inferSelect;
 

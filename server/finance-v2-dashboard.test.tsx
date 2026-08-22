@@ -143,6 +143,8 @@ describe("Painel Financeiro v2", () => {
     expect(hasText(renderer.root, "Hospital da Criança")).toBe(true);
     expect(hasText(renderer.root, "Eventos no ciclo")).toBe(true);
     expect(hasText(renderer.root, "Soma para o sistema")).toBe(true);
+    expect(hasText(renderer.root, "Soma dos valores registrados nos eventos do ciclo")).toBe(true);
+    expect(hasText(renderer.root, "Taxa LAUDS × eventos do ciclo")).toBe(false);
     expect(hasText(renderer.root, "Margem atual")).toBe(false);
     expect(hasText(renderer.root, "Total de repasses médicos")).toBe(false);
   });
