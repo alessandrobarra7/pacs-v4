@@ -132,7 +132,40 @@ export default function FinanceMeuFinanceiro() {
                     </div>
                     {financeQuery.isFetching && <span className="text-xs font-medium text-cyan-700">Atualizando…</span>}
                   </div>
-                  <div className="overflow-x-auto">
+                  <div className="space-y-3 p-4 md:hidden">
+                    {financeQuery.isLoading ? (
+                      <p className="py-8 text-center text-sm text-slate-500">Carregando laudos entregues…</p>
+                    ) : reports.length === 0 ? (
+                      <p className="py-8 text-center text-sm text-slate-500">Nenhum laudo entregue neste ciclo para esta unidade.</p>
+                    ) : reports.map((report) => {
+                      const status = report.status === "cancelled" ? "Laudo cancelado" : report.status === "revised" ? "Retificado" : "Entregue";
+                      const statusClass = report.status === "cancelled" ? "bg-rose-50 text-rose-700 ring-rose-200" : report.status === "revised" ? "bg-violet-50 text-violet-700 ring-violet-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200";
+                      const modality = MODALITY_META[report.modality ?? ""] ?? { label: report.modality ?? "—", className: "bg-slate-600" };
+                      return (
+                        <article key={report.id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-slate-950">{displayPatient(report.patient_name)}</p>
+                              <p className="mt-1 text-xs text-slate-500">Assinado em {fmtDate(report.signed_at)}</p>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusClass}`}>{status}</span>
+                          </div>
+                          <div className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+                            <span className={`rounded-md px-2 py-1 text-xs font-bold text-white ${modality.className}`}>{modality.label}</span>
+                            <span className="min-w-0 truncate">{report.document_label ?? report.study_description ?? "Laudo entregue"}</span>
+                          </div>
+                          {report.download_url ? (
+                            <a href={report.download_url} target="_blank" rel="noreferrer" className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-violet-300 bg-white px-3 py-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-50">
+                              <Download className="h-4 w-4" /> Baixar laudo
+                            </a>
+                          ) : (
+                            <span className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-3 text-sm font-medium text-slate-400"><FileText className="h-4 w-4" /> PDF indisponível</span>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                  <div className="hidden overflow-x-auto md:block">
                     <table className="min-w-[830px] w-full text-sm">
                       <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                         <tr>

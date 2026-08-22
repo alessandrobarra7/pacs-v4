@@ -64,5 +64,6 @@ describe("página financeira individual do médico", () => {
 
     const link = renderer.root.findAllByType("a").find((node) => node.children.some((child) => typeof child === "string" && child.includes("Baixar laudo")));
     expect(link?.props.href).toBe("https://example.test/report-17.pdf");
+    expect(renderer.root.findAllByType("a").some((node) => String(node.props.className).includes("w-full"))).toBe(true);
   });
 });

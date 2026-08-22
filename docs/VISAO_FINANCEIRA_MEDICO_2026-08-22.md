@@ -25,3 +25,7 @@ A consulta exige acesso financeiro à unidade. A lista de documentos exige `view
 ## Validação
 
 Foram executados TypeScript, regressões específicas da visão médica, suíte completa Vitest e build de produção. Não há migração de banco nem alteração de dados clínicos ou financeiros nesta entrega.
+
+## Experiência móvel
+
+Em telas abaixo do breakpoint `md`, a relação de laudos entregues deixa de depender de uma tabela larga: cada documento é apresentado em cartão com paciente, assinatura, modalidade, situação, descrição e ação de download em largura total. A tabela detalhada permanece disponível no desktop. A validação visual final deve ser feita por um médico autorizado em dispositivo móvel após a atualização de produção.
