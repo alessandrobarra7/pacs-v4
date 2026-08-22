@@ -2750,4 +2750,4 @@
 - [x] Decidir administrativamente manter o evento histórico 2 cancelado, sem reativação, recálculo, preço, baixa ou substituição.
 - [x] Confirmar em leitura que o report 51 foi cancelado em 22/08/2026 às 11:57:33 e que o evento histórico 2 passou para cancelled sem baixa financeira.
 - [x] Completar a leitura da auditoria do caso com collation explícita, sem executar qualquer alteração.
-- [ ] Versionar e publicar a decisão administrativa de manter o evento histórico 2 cancelado.
+- [x] Versionar e publicar a decisão administrativa de manter o evento histórico 2 cancelado (d420380).
