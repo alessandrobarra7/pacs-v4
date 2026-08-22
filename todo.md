@@ -2730,4 +2730,4 @@
 - [x] Corrigir a legenda do dashboard para descrever soma de valores efetivamente registrados nos eventos do ciclo.
 - [x] Criar regressões para cancelamento por admin_master, nova assinatura pós-cancelamento, revisão sem nova cobrança e legenda do total do sistema.
 - [x] Documentar a decisão formal e a implementação com a migração 0057 e os critérios de aceite.
-- [ ] Publicar a decisão formal e a implementação no GitHub.
+- [x] Publicar a decisão formal e a implementação no GitHub (821a01b).
