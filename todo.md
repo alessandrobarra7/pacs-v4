@@ -2642,3 +2642,15 @@
 - [x] Elaborar arquivo TXT com evidências, impacto, hipóteses descartadas e escopo objetivo para auditoria independente do código.
 - [x] Incluir no arquivo TXT o inventário sanitizado da VM2, o ciclo calculado e os dois eventos de catálogo confirmados no diagnóstico somente leitura.
 - [x] Versionar o pedido de auditoria no repositório sem publicar dados de sessão, credenciais ou informações clínicas desnecessárias.
+
+## REVISÃO DA AUDITORIA INDEPENDENTE — INTEGRIDADE DO LOG
+- [ ] Arquivar a auditoria independente recebida e confrontar seus achados com as evidências já obtidas da VM1 e da VM2.
+- [ ] Executar a consulta adicional somente leitura sugerida contra os eventos 1 e 2 na VM2 e registrar o resultado.
+- [x] Submeter o desenho de fonte única, tratamento explícito de erro e preservação de eventos sem vínculo clínico para aprovação antes de alterar código.
+
+## CORREÇÃO APROVADA — INTEGRIDADE DO LOG FINANCEIRO
+- [x] Centralizar a recuperação de eventos do ciclo em uma única fonte reutilizada pelo resumo e pelo log auditável.
+- [x] Preservar a linha do evento financeiro quando a seleção clínica ou o estudo não estiverem disponíveis.
+- [x] Exibir erro explícito e permitir nova tentativa quando a consulta do log falhar.
+- [x] Criar regressões para paridade, evento sem vínculo clínico e estado de erro da consulta.
+- [ ] Validar, documentar e publicar a correção antes de qualquer atualização da VM1.

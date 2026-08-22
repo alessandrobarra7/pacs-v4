@@ -16,11 +16,13 @@ vi.mock("./db", async (importOriginal) => {
   return {
     ...original,
     getDb: vi.fn(async () => ({
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => resultQuery(state.responses.shift() ?? [])),
-        })),
-      })),
+      select: vi.fn(() => {
+        const chain: Record<string, unknown> = {};
+        chain.from = vi.fn(() => chain);
+        chain.leftJoin = vi.fn(() => chain);
+        chain.where = vi.fn(() => resultQuery(state.responses.shift() ?? []));
+        return chain;
+      }),
     })),
   };
 });
@@ -35,24 +37,13 @@ describe("Resumo financeiro unificado por unidade", () => {
   it("agrega valores e baixas do legado e do catálogo sem considerar o catálogo já pago como pendente", async () => {
     state.responses = [
       [{ id: 12, name: "Unidade A", s: 1, e: 31 }],
-      [{
-        total_laudos: 2,
-        system_total: "7.00",
-        doctor_total: "20.00",
-        system_paid: "3.50",
-        doctor_paid: "10.00",
-        system_pending_count: 1,
-        doctor_pending_count: 1,
-      }],
-      [{
-        total_laudos: 1,
-        system_total: "3.50",
-        doctor_total: "18.00",
-        system_paid: "3.50",
-        doctor_paid: "18.00",
-        system_pending_count: 0,
-        doctor_pending_count: 0,
-      }],
+      [
+        { event_id: 1, study_instance_uid: "1.2.3", report_id: 1, patient_name: "ANA", study_date: null, study_description: null, modality: "CR", clinical_label: "CRÂNIO", doctor_name: "Dra Ana", signed_at: new Date("2026-08-10T10:00:00.000Z"), doctor_amount_due: "10.00", system_amount_due: "3.50", doctor_received_at: null, system_paid_at: null, pricing_status: "ok" },
+        { event_id: 2, study_instance_uid: "1.2.4", report_id: 2, patient_name: "ANA", study_date: null, study_description: null, modality: "CR", clinical_label: "TÓRAX", doctor_name: "Dra Ana", signed_at: new Date("2026-08-11T10:00:00.000Z"), doctor_amount_due: "10.00", system_amount_due: "3.50", doctor_received_at: new Date("2026-08-12T10:00:00.000Z"), system_paid_at: new Date("2026-08-12T10:00:00.000Z"), pricing_status: "ok" },
+      ],
+      [
+        { event_id: 3, study_instance_uid: "1.2.5", report_id: null, patient_name: "BRUNO", study_date: null, study_description: null, modality: "CR", clinical_label: "TÓRAX", doctor_name: "Dr Bruno", signed_at: new Date("2026-08-13T10:00:00.000Z"), doctor_amount_due: "18.00", system_amount_due: "3.50", doctor_received_at: new Date("2026-08-14T10:00:00.000Z"), system_paid_at: new Date("2026-08-14T10:00:00.000Z"), pricing_status: "ok" },
+      ],
     ];
 
     const caller = financeSimpleRouter.createCaller({

@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   unitSummaryInputs: [] as Array<{ reference_date: string }>,
   auditInputs: [] as Array<{ input: { unit_id: number; reference_date: string }; enabled: boolean | undefined }>,
+  auditError: null as string | null,
+  auditRefetch: vi.fn(),
 }));
 
 function Query<T>({ data, onQuery }: { data: T; onQuery?: (input: unknown, options: unknown) => void }) {
@@ -92,13 +94,17 @@ vi.mock("@/lib/trpc", () => ({
       doctorSummaryByUnit: Query({ data: [] }),
       listDoctorsForUnit: Query({ data: [] }),
       unitFinancialReadiness: Query({ data: { responsible_id: null } }),
-      auditEventsByUnit: Query({
-        data: { events: [] },
-        onQuery: (input, options) => state.auditInputs.push({
-          input: input as { unit_id: number; reference_date: string },
-          enabled: (options as { enabled?: boolean } | undefined)?.enabled,
-        }),
-      }),
+      auditEventsByUnit: {
+        useQuery: (input?: unknown, options?: unknown) => {
+          state.auditInputs.push({
+            input: input as { unit_id: number; reference_date: string },
+            enabled: (options as { enabled?: boolean } | undefined)?.enabled,
+          });
+          return state.auditError
+            ? { data: undefined, isLoading: false, isError: true, error: new Error(state.auditError), refetch: state.auditRefetch }
+            : { data: { events: [] }, isLoading: false, isError: false, error: null, refetch: state.auditRefetch };
+        },
+      },
       listDoctorModalityPrices: Query({ data: [] }),
       setUnitSystemRate: Mutation(),
       setUnitModalityPrice: Mutation(),
@@ -119,6 +125,8 @@ describe("Painel Financeiro v2", () => {
   beforeEach(() => {
     state.unitSummaryInputs = [];
     state.auditInputs = [];
+    state.auditError = null;
+    state.auditRefetch.mockReset();
   });
 
   afterEach(() => {
@@ -157,5 +165,24 @@ describe("Painel Financeiro v2", () => {
       input: { unit_id: 42, reference_date: panelReference },
       enabled: true,
     });
+  });
+
+  it("apresenta falha e permite nova tentativa em vez de ocultar o erro como lista vazia", () => {
+    state.auditError = "Consulta financeira indisponível";
+    act(() => {
+      renderer = create(<FinanceDashboard />);
+    });
+    const logButton = renderer.root.findAllByType("button").find((button: ReactTestInstance) => button.children.includes("Ver log do ciclo"));
+    act(() => {
+      logButton?.props.onClick();
+    });
+
+    expect(hasText(renderer.root, "Falha ao carregar o log auditável.")).toBe(true);
+    expect(hasText(renderer.root, "Consulta financeira indisponível")).toBe(true);
+    const retryButton = renderer.root.findAllByType("button").find((button: ReactTestInstance) => button.children.includes("Tentar novamente"));
+    act(() => {
+      retryButton?.props.onClick();
+    });
+    expect(state.auditRefetch).toHaveBeenCalledTimes(1);
   });
 });
