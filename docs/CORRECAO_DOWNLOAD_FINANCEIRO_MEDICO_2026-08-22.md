@@ -37,6 +37,10 @@ A validação em produção mostrou um segundo limite da renderização React: a
 
 Esse alinhamento foi atualizado na VM1 de `9e55c9f` para `e57d2d9`, sem migração. O processo foi reiniciado com novo PID, permaneceu `online` e respondeu HTTP local `200`. Nenhuma ação foi executada na VM2.
 
+## Proporção visual do documento
+
+A análise do PDF baixado confirmou uma distribuição vertical excessivamente dispersa: o cabeçalho e os dados clínicos ficavam concentrados no topo, enquanto a assinatura surgia isolada no meio da folha. A composição foi ajustada para reduzir a margem superior, reservar margem inferior para o rodapé, tornar o corpo flexível e posicionar o bloco de assinatura no rodapé útil da página. Isso melhora a leitura de laudos curtos sem alterar texto, dados clínicos, assinatura, logos, autorização ou layout institucional configurado.
+
 ## Segurança e autorização
 
 O acesso continua dependente do alvo de impressão já filtrado no servidor: unidade solicitada, autoria ou assinatura do médico, `view_studies` e `print_reports`. O novo parâmetro controla a interface de consulta, não amplia permissões e não expõe URL direta do arquivo.

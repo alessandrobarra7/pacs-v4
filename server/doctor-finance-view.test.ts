@@ -41,6 +41,8 @@ describe("visão financeira individual do médico", () => {
     expect(downloadSource).toContain('document.createElement("iframe")');
     expect(downloadSource).toContain("pdf.save(");
     expect(downloadSource).not.toContain("window.open(");
+    expect(downloadSource).toContain("display:flex;flex-direction:column");
+    expect(downloadSource).toContain(".doctor-footer { text-align:center;margin:auto auto 3mm");
     expect(routerSource).toContain("myReportDownload:");
     expect(routerSource).toContain("Sem permissão para baixar este documento.");
     expect(editorSource).toContain("financialDocumentView");

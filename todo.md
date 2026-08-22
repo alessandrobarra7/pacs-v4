@@ -2911,3 +2911,8 @@
 - [x] Preservar a autorização de documento próprio, a configuração da unidade e o download sem nova aba.
 - [x] Cobrir a integração compartilhada e validar o comportamento antes de publicar outra atualização.
 - [x] Atualizar a VM1 de `9e55c9f` para `e57d2d9` sem migração, com novo PID do PM2, status online e HTTP local 200; sem ação na VM2.
+
+## AJUSTE — PROPORÇÃO VISUAL DO PDF FINANCEIRO
+- [x] Analisar o PDF baixado para identificar escalas, margens e distribuição que precisam de ajuste.
+- [x] Ajustar a composição do PDF sem alterar conteúdo clínico, assinatura, autorização ou configuração institucional.
+- [x] Validar o PDF ajustado e publicar somente após confirmação visual em sandbox.

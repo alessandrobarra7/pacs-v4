@@ -87,10 +87,10 @@ export async function downloadFinancialReportPdf(documentData: any) {
     doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>
       @page { size: ${pageSize} portrait; margin: 0; }
       * { box-sizing:border-box; } html,body { margin:0;padding:0;background:#fff;color:#111;font-family:${fontFamily},Arial,sans-serif; }
-      .print-page { width:${paperWidth};height:${paperHeight};position:relative;overflow:hidden;padding:18mm 18mm 28mm;background:#fff center/cover no-repeat;page-break-after:always;font-size:${fontSize}pt;line-height:${lineHeight}; }
+      .print-page { width:${paperWidth};height:${paperHeight};position:relative;overflow:hidden;padding:16mm 18mm 30mm;background:#fff center/cover no-repeat;page-break-after:always;font-size:${fontSize}pt;line-height:${lineHeight};display:flex;flex-direction:column; }
       .print-page:last-child { page-break-after:auto; } header { display:flex;align-items:center;gap:8px;min-height:18mm;border-bottom:1px solid #d0d0d0;padding-bottom:4mm; } header img { max-height:15mm;max-width:45mm;object-fit:contain; } .header-spacer { flex:1; }
-      .patient { font-size:9.5pt;line-height:1.7;margin:6mm 0; } h1 { font-size:12pt;text-align:center;text-transform:uppercase;letter-spacing:.04em;margin:6mm 0 8mm; } .report-body { overflow-wrap:anywhere; } .report-body p,.report-body div { margin-bottom:3pt; }
-      .doctor-footer { text-align:center;margin:12mm auto 0;max-width:65mm;page-break-inside:avoid;font-size:9pt; } .doctor-footer span { display:block;margin-top:2pt;color:#444; } .signature,.stamp { display:block;object-fit:contain;margin:0 auto 2mm; } .signature { max-width:45mm;max-height:13mm; } .stamp { max-width:53mm;max-height:24mm; } .signature-line { border-top:1px solid #333;width:45mm;margin:0 auto 2mm; }
+      .patient { font-size:9.5pt;line-height:1.7;margin:5mm 0; } h1 { font-size:12pt;text-align:center;text-transform:uppercase;letter-spacing:.04em;margin:4mm 0 7mm; } .report-body { flex:1;min-height:0;overflow-wrap:anywhere; } .report-body p,.report-body div { margin-bottom:3pt; }
+      .doctor-footer { text-align:center;margin:auto auto 3mm;max-width:65mm;page-break-inside:avoid;font-size:9pt; } .doctor-footer span { display:block;margin-top:2pt;color:#444; } .signature,.stamp { display:block;object-fit:contain;margin:0 auto 2mm; } .signature { max-width:45mm;max-height:13mm; } .stamp { max-width:53mm;max-height:24mm; } .signature-line { border-top:1px solid #333;width:45mm;margin:0 auto 2mm; }
       .unit-footer { position:absolute;bottom:0;left:0;width:100%;max-height:28mm;object-fit:contain; }
     </style></head><body>${pages}</body></html>`);
     doc.close();
