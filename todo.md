@@ -2860,3 +2860,8 @@
 - [x] Fazer o download abrir o mesmo documento de impressão configurado, incluindo layout e logos da unidade.
 - [x] Corrigir “Minha configuração vigente” para mostrar os preços efetivamente aplicáveis por modalidade, incluindo preço individual e *fallbacks* cadastrados pelo administrador.
 - [x] Proteger busca, documento configurado e preços contra acesso a dados de outros médicos ou unidades.
+
+## BLOQUEIO DE PRÉ-VALIDAÇÃO — ATUALIZAÇÃO VM1 322FE3E
+- [x] Diagnosticar de modo sanitizado as variáveis de ambiente ausentes na execução de testes da VM1, sem revelar valores sensíveis. Confirmado: configurações do MinIO presentes no arquivo de ambiente, mas não carregadas integralmente pela suíte de testes da VM1.
+- [x] Confirmar o estado operacional da VM1 após a interrupção: código em `322fe3e`, serviço sem reinício e endpoint local preservado antes da conclusão controlada.
+- [x] Definir e executar procedimento de conclusão sem migração: build, reinício do PM2, novo PID, status online e HTTP local 200 em `322fe3e`; sem tocar na VM2 ou nos arquivos locais não rastreados.
