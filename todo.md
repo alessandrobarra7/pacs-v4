@@ -2662,7 +2662,7 @@
 ## INCIDENTE DE REGRESSÃO — CATÁLOGO FINANCEIRO VAZIO
 - [x] Preservar a evidência da interface após o commit 556de62 e confirmar que os dados financeiros da VM2 permanecem intactos.
 - [x] Diagnosticar em modo somente leitura por que `unitSummary` retorna catálogo vazio após a centralização da consulta.
-- [ ] Corrigir a regressão e publicar somente após o catálogo e o log retornarem os dois eventos da unidade Hospital da Criança.
+- [x] Corrigir a regressão e publicar somente após o catálogo e o log retornarem os dois eventos da unidade Hospital da Criança.
 
 ## CORREÇÃO DE COMPATIBILIDADE — ONLY_FULL_GROUP_BY
 - [x] Remover a dependência de agrupamento implícito da consulta compartilhada de eventos financeiros.
