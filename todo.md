@@ -2776,4 +2776,4 @@
 - [x] Implementar uma consulta estritamente de leitura que mostre documentos, assinaturas e eventos afetados pela cascata.
 - [x] Exibir a prévia no modal e exigir confirmação explícita do admin_master sem enviar qualquer mutação durante a consulta.
 - [x] Cobrir o fluxo com regressões de interface e backend: TypeScript, 77 arquivos Vitest (363 aprovados, 1 ignorado) e build.
-- [ ] Documentar e publicar a prévia antes de atualização de produção.
+- [x] Documentar e publicar a prévia antes de atualização de produção (d220437).
