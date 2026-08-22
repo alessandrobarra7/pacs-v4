@@ -22,3 +22,7 @@ O acesso continua dependente do alvo de impressão já filtrado no servidor: uni
 ## Validação
 
 Foram atualizadas regressões para verificar o parâmetro `financialView=1`, a ausência de ações clínicas, o bloqueio de ferramentas móveis e a presença do download configurado. Validação aprovada no sandbox: TypeScript, 82 arquivos Vitest com 378 testes aprovados e 1 ignorado, além de build de produção concluído.
+
+## Atualização operacional
+
+A VM1 foi atualizada de `322fe3e` para `4a3e260` sem migração. O processo `pacs-portal` foi reiniciado com novo PID, permaneceu `online` e respondeu HTTP local `200`. Nenhuma ação foi executada na VM2.
