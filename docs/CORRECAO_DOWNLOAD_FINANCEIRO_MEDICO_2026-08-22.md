@@ -29,6 +29,8 @@ O botão passa a mostrar **Preparando PDF** durante a operação e informa falha
 
 Na primeira execução do gerador direto, o documento autorizado era obtido corretamente, mas o cliente procurava uma classe interna inexistente. O componente canônico marca cada folha com o atributo `data-shared-report-sheet`; a captura passou a usar essa marcação real. Assim, cada folha preparada pelo mesmo componente de impressão compartilhado é adicionada ao PDF antes do download.
 
+Essa correção foi atualizada na VM1 de `7b9e341` para `9e55c9f`, sem migração. O processo foi reiniciado com novo PID, permaneceu `online` e respondeu HTTP local `200`. Nenhuma ação foi executada na VM2.
+
 ## Segurança e autorização
 
 O acesso continua dependente do alvo de impressão já filtrado no servidor: unidade solicitada, autoria ou assinatura do médico, `view_studies` e `print_reports`. O novo parâmetro controla a interface de consulta, não amplia permissões e não expõe URL direta do arquivo.
