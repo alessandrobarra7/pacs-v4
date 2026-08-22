@@ -43,7 +43,7 @@ describe("página financeira individual do médico", () => {
 
   afterEach(() => act(() => renderer?.unmount()));
 
-  it("mostra somente o resumo da unidade, o paciente e o download do próprio laudo", () => {
+  it("mostra somente a navegação essencial, o resumo da unidade, o paciente e o download do próprio laudo", () => {
     state.financeInputs = [];
     act(() => { renderer = create(<FinanceMeuFinanceiro />); });
 
@@ -55,6 +55,11 @@ describe("página financeira individual do médico", () => {
     expect(hasText(renderer.root, "ANA SILVA")).toBe(true);
     expect(hasText(renderer.root, "Baixar laudo")).toBe(true);
     expect(hasText(renderer.root, "Valores definidos pelo administrador")).toBe(true);
+    const header = renderer.root.findAllByType("header")[0];
+    expect(hasText(header, "Estudos")).toBe(true);
+    expect(hasText(header, "Financeiro")).toBe(true);
+    expect(hasText(header, "Meus laudos")).toBe(false);
+    expect(hasText(header, "Minha configuração")).toBe(false);
     expect(state.financeInputs.some((input) => input.unit_id === 8)).toBe(true);
 
     const link = renderer.root.findAllByType("a").find((node) => node.children.some((child) => typeof child === "string" && child.includes("Baixar laudo")));

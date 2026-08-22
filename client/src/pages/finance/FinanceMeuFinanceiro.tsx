@@ -81,8 +81,6 @@ export default function FinanceMeuFinanceiro() {
         nav={
           <>
             <button onClick={() => navigate("/")} className="rounded-md px-3 py-2 text-sm font-medium text-white/75 transition hover:bg-white/10 hover:text-white">Estudos</button>
-            <button onClick={() => document.getElementById("laudos-entregues")?.scrollIntoView({ behavior: "smooth" })} className="rounded-md px-3 py-2 text-sm font-medium text-white/75 transition hover:bg-white/10 hover:text-white">Meus laudos</button>
-            <button onClick={() => document.getElementById("configuracao-vigente")?.scrollIntoView({ behavior: "smooth" })} className="rounded-md px-3 py-2 text-sm font-medium text-white/75 transition hover:bg-white/10 hover:text-white">Minha configuração</button>
             <span className="rounded-md border-b-2 border-amber-400 px-3 py-2 text-sm font-semibold text-amber-300">Financeiro</span>
           </>
         }
