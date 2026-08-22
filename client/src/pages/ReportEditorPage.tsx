@@ -188,6 +188,8 @@ export default function ReportEditorPage() {
   const documentKey = reportSearch.get("document") || "primary";
   const documentLabelFromRoute = reportSearch.get("documentLabel") || "";
   const unitIdFromRoute = Number(reportSearch.get("unitId")) || 0;
+  const printOnOpen = reportSearch.get("print") === "1";
+  const autoPrintTriggered = useRef(false);
 
   // Info do estudo (vinda do sessionStorage)
   const [studyInfo, setStudyInfo] = useState<StudyInfo | null>(null);
@@ -726,7 +728,7 @@ export default function ReportEditorPage() {
   // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
   const patientName = formatPatientName(studyInfo?.patientName || "");
 
-  const handlePrint = useCallback(async () => {
+  const handlePrint = useCallback(async (renderInCurrentWindow = false) => {
     const birthDate = studyInfo?.birthDate || '';
     const studyDateFormatted = studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : '';
     const sexFormatted = studyInfo?.sex ? (studyInfo.sex.toUpperCase() === 'M' ? 'Masculino' : studyInfo.sex.toUpperCase() === 'F' ? 'Feminino' : studyInfo.sex) : '';
@@ -1121,7 +1123,7 @@ export default function ReportEditorPage() {
   };
 <\/script>
 </body></html>`;
-    const win = window.open('', '_blank', 'width=850,height=1100');
+    const win = renderInCurrentWindow ? window : window.open('', '_blank', 'width=850,height=1100');
     if (!win) {
       toast.error('Bloqueador de pop-up impediu a abertura da janela de impressão. Por favor, permita pop-ups para este site.');
       return;
@@ -1129,6 +1131,12 @@ export default function ReportEditorPage() {
     win.document.write(html);
     win.document.close();
   }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
+
+  useEffect(() => {
+    if (!printOnOpen || autoPrintTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
+    autoPrintTriggered.current = true;
+    void handlePrint(true);
+  }, [printOnOpen, studyInfo, existingReport?.id, isSigned, handlePrint]);
 
   // FIX BUG-2: inserir imagem inline no contentEditable
   // A imagem faz parte do documento, é salva no laudo e arrastável pelo browser nativamente.
@@ -1232,7 +1240,7 @@ export default function ReportEditorPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={handlePrint}
+            onClick={() => void handlePrint()}
             className="gap-1.5 text-xs"
           >
             <Printer className="h-3.5 w-3.5" />
@@ -1340,7 +1348,7 @@ export default function ReportEditorPage() {
           <p className="truncate text-[11px] uppercase text-gray-500">{examDesc || "Laudo radiológico"}</p>
         </div>
         <button
-          onClick={handlePrint}
+          onClick={() => void handlePrint()}
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
           aria-label="Imprimir laudo"
         >

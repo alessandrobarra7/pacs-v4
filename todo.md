@@ -2795,3 +2795,68 @@
 ## ATUALIZAÇÃO REAL — ESTADO CLÍNICO DE LAUDO CANCELADO
 - [x] Validar isoladamente e atualizar a VM1 do commit 8acc488 para bf67d37, sem migração de banco. Concluído em 22/08/2026: PM2 online e HTTP local 200.
 - [x] Confirmar manualmente em produção a exibição de “Laudo cancelado” e da orientação de nova laudagem no estudo cancelado, sem alteração de dados históricos.
+
+## FASE 2 — VISUALIZAÇÃO DO MÉDICO
+- [x] Criar imagem conceitual da tela do médico, combinando fila clínica, indicadores de trabalho e as configurações financeiras vigentes para o usuário logado.
+- [x] Explicitar na proposta que preços e regras são definidos pelo administrador, apresentados ao médico apenas como consulta e transparência.
+
+## REVISÃO DA PROPOSTA — VISUALIZAÇÃO DO MÉDICO
+- [x] Remover da proposta os indicadores de laudos pendentes e a fila para laudar.
+- [x] Exibir o ciclo identificado por data, a quantidade de laudos assinados e os repasses gerados a partir dos eventos assinados e valores aplicados pelo administrador.
+- [x] Substituir a fila por lista de laudos entregues com ação de download para conferência.
+- [x] Mostrar apenas início e término do ciclo, além da configuração vigente por modalidade em consulta.
+
+## AJUSTE DA PROPOSTA — PACIENTE E UNIDADE
+- [x] Incluir nome do paciente na lista de laudos entregues, usando somente nomes fictícios na imagem conceitual.
+- [x] Tornar a unidade explícita no cabeçalho e em todos os resumos de ciclo, repasse e configuração vigentes.
+
+## IMPLEMENTAÇÃO — FINANCEIRO DO MÉDICO
+- [x] Criar página financeira acessível pelo médico ao clicar em Financeiro, limitada à unidade selecionada e ao próprio usuário.
+- [x] Exibir período de ciclo, total de laudos assinados, repasses gerados com valores aplicados aos eventos e configuração vigente por modalidade em modo somente leitura.
+- [x] Listar os laudos entregues pelo médico com paciente, modalidade, assinatura, situação e download autorizado do próprio documento.
+- [x] Proteger a consulta contra acesso a configurações, valores e documentos de outros médicos ou unidades, exigindo permissões clínicas de visualização e impressão para a lista e o download.
+- [x] Validar a implementação: TypeScript, 80 arquivos Vitest (370 aprovados, 1 ignorado) e build de produção aprovados.
+- [x] Documentar e publicar a implementação no GitHub: `c5634c3`.
+
+## ATUALIZAÇÃO REAL — FINANCEIRO DO MÉDICO
+- [x] Validar isoladamente e atualizar a VM1 do commit bf67d37 para c5634c3, sem migração de banco. A VM1 avançou posteriormente para debbf02, que inclui esta implementação.
+- [x] Confirmar a navegação do perfil médico para `/financeiro/meu-financeiro` em unidade autorizada por validação visual; a VM1 está saudável no commit posterior debbf02.
+
+## CORREÇÃO — NAVEGAÇÃO FINANCEIRA DO MÉDICO
+- [x] Remover os itens “Meus laudos” e “Minha configuração” do cabeçalho financeiro do médico por não fazerem parte do escopo solicitado.
+- [x] Manter somente “Estudos” como retorno ao portal e “Financeiro” como item ativo, com regressão de navegação. Validação: TypeScript, 80 arquivos Vitest (370 aprovados, 1 ignorado) e build de produção.
+- [x] Publicar a correção no GitHub: `debbf02`.
+
+## ATUALIZAÇÃO REAL — NAVEGAÇÃO FINANCEIRA SIMPLIFICADA
+- [x] Confirmar a VM1 no commit debbf02, sem migração de banco. Diagnóstico em 22/08/2026: HTTP local 200 e PM2 online.
+- [ ] Confirmar visualmente o cabeçalho do Financeiro com somente “Estudos” e “Financeiro” após atualizar a página no navegador.
+
+## RESPONSIVIDADE — FINANCEIRO DO MÉDICO
+- [x] Inspecionar a página `/financeiro/meu-financeiro` em viewport móvel. O preview sem sessão médica confirmou apenas o bloqueio de acesso esperado; a inspeção de estrutura identificou que a tabela exigia rolagem horizontal em smartphones.
+- [x] Ajustar cards, configuração vigente, lista de laudos e download para uso confortável em tela móvel. A lista passa a exibir cartões abaixo de `md`, com ação de download em largura total e tabela preservada para desktop.
+- [x] Validar a implementação: TypeScript, 80 arquivos Vitest (370 aprovados, 1 ignorado) e build de produção aprovados.
+- [x] Documentar e publicar a adaptação móvel no GitHub: `efcddc6`.
+- [ ] Confirmar manualmente a experiência móvel com usuário médico autorizado após atualização de produção.
+
+## ATUALIZAÇÃO REAL — RESPONSIVIDADE FINANCEIRA DO MÉDICO
+- [x] Validar isoladamente e atualizar a VM1 do commit debbf02 para efcddc6, sem migração de banco. Concluído em 22/08/2026: PM2 online e HTTP local 200.
+- [ ] Confirmar manualmente a apresentação em cartões de laudos entregues no celular para médico autorizado.
+
+## DIAGNÓSTICO SOMENTE LEITURA — MOSTRADOR FINANCEIRO DO MÉDICO
+- [x] Investigar a divergência observada: laudo aparece assinado na worklist, mas o mostrador financeiro abaixo do cabeçalho exibe zero assinados e R$ 0,00.
+- [x] Confrontar em modo somente leitura o período de ciclo, o médico, a unidade, o laudo, o evento financeiro e os filtros do resumo. Confirmado: 1 evento de catálogo ativo e nenhum evento legado no ciclo.
+- [x] Preservar os eventos: nenhuma reativação, recriação, precificação, recálculo, baixa ou alteração histórica ocorreu durante o diagnóstico.
+- [x] Corrigir o mostrador para somar eventos ativos legados e de catálogo no ciclo, sem mutar eventos existentes.
+- [x] Cobrir a correção com regressões de evento de catálogo, evento legado, cancelamento e limites do ciclo. Validação: TypeScript, 81 arquivos Vitest (373 aprovados, 1 ignorado) e build de produção.
+- [x] Documentar e publicar a correção no GitHub: `11dc029`.
+
+## ATUALIZAÇÃO REAL — MOSTRADOR FINANCEIRO CORRIGIDO
+- [x] Validar isoladamente e atualizar a VM1 do commit efcddc6 para 11dc029, sem migração de banco. Concluído em 22/08/2026: PM2 online e HTTP local 200.
+- [ ] Confirmar visualmente a exibição de 1 assinado e R$ 10,00 no ciclo da médica após atualizar a worklist.
+
+## APRIMORAMENTOS — FINANCEIRO DO MÉDICO
+- [x] Compactar os indicadores, período e painel de configuração para liberar espaço útil para consulta de laudos.
+- [x] Transformar “Laudos entregues” em consulta de eventos do médico com busca por nome do paciente, mantendo escopo da unidade e do usuário logado.
+- [x] Fazer o download abrir o mesmo documento de impressão configurado, incluindo layout e logos da unidade.
+- [x] Corrigir “Minha configuração vigente” para mostrar os preços efetivamente aplicáveis por modalidade, incluindo preço individual e *fallbacks* cadastrados pelo administrador.
+- [x] Proteger busca, documento configurado e preços contra acesso a dados de outros médicos ou unidades.

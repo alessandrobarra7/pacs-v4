@@ -36,10 +36,9 @@ describe('Governança de preço por assinatura', () => {
 
   it('mantém o painel do médico separado por unidade e apresenta valores vigentes em consulta', async () => {
     const page = await fs.readFile(path.resolve(__dirname, '..', 'client', 'src', 'pages', 'finance', 'FinanceMeuFinanceiro.tsx'), 'utf-8');
-    expect(page).toContain('Dados da unidade:');
-    expect(page).toContain('Unidade vinculada:');
+    expect(page).toContain('Unidade:');
     expect(page).toContain('unit_id: unitId ?? 0');
-    expect(page).toContain('Valor por modalidade');
+    expect(page).toContain('Valor efetivo por modalidade');
     expect(page).toContain('Valores definidos pelo administrador');
   });
 

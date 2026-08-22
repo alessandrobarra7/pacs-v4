@@ -1074,23 +1074,68 @@ export const financeSimpleRouter = router({
       }
 
       const referenceDate = input.reference_date ? new Date(input.reference_date) : new Date();
-      return db
-        .select({
-          modality: billing_doctor_modality_prices.modality,
-          price_per_report: billing_doctor_modality_prices.price_per_report,
-          starts_at: billing_doctor_modality_prices.starts_at,
-        })
-        .from(billing_doctor_modality_prices)
-        .where(and(
-          eq(billing_doctor_modality_prices.doctor_user_id, ctx.user.id),
-          eq(billing_doctor_modality_prices.unit_id, input.unit_id),
-          lte(billing_doctor_modality_prices.starts_at, referenceDate),
-          or(
-            isNull(billing_doctor_modality_prices.ends_at),
-            gte(billing_doctor_modality_prices.ends_at, referenceDate),
-          ),
-        ))
-        .orderBy(billing_doctor_modality_prices.modality);
+      const [doctorRows, unitRows] = await Promise.all([
+        db
+          .select({
+            modality: billing_doctor_modality_prices.modality,
+            price_per_report: billing_doctor_modality_prices.price_per_report,
+            starts_at: billing_doctor_modality_prices.starts_at,
+            ends_at: billing_doctor_modality_prices.ends_at,
+          })
+          .from(billing_doctor_modality_prices)
+          .where(and(
+            eq(billing_doctor_modality_prices.doctor_user_id, ctx.user.id),
+            eq(billing_doctor_modality_prices.unit_id, input.unit_id),
+            lte(billing_doctor_modality_prices.starts_at, referenceDate),
+            or(
+              isNull(billing_doctor_modality_prices.ends_at),
+              gte(billing_doctor_modality_prices.ends_at, referenceDate),
+            ),
+          ))
+          .orderBy(desc(billing_doctor_modality_prices.starts_at)),
+        db
+          .select({
+            modality: billing_unit_modality_prices.modality,
+            price_per_event: billing_unit_modality_prices.price_per_event,
+            starts_at: billing_unit_modality_prices.starts_at,
+            ends_at: billing_unit_modality_prices.ends_at,
+          })
+          .from(billing_unit_modality_prices)
+          .where(and(
+            eq(billing_unit_modality_prices.unit_id, input.unit_id),
+            lte(billing_unit_modality_prices.starts_at, referenceDate),
+            or(
+              isNull(billing_unit_modality_prices.ends_at),
+              gte(billing_unit_modality_prices.ends_at, referenceDate),
+            ),
+          ))
+          .orderBy(desc(billing_unit_modality_prices.starts_at)),
+      ]);
+      const normalizeModality = (modality: string) => {
+        const normalized = modality.trim().toUpperCase();
+        return normalized === "RM" ? "MR" : normalized;
+      };
+      const doctorByModality = new Map<string, typeof doctorRows[number]>();
+      const unitByModality = new Map<string, typeof unitRows[number]>();
+      for (const row of doctorRows) {
+        const modality = normalizeModality(row.modality);
+        if (!doctorByModality.has(modality)) doctorByModality.set(modality, row);
+      }
+      for (const row of unitRows) {
+        const modality = normalizeModality(row.modality);
+        if (!unitByModality.has(modality)) unitByModality.set(modality, row);
+      }
+      return ["CT", "CR", "MR", "US"].map((modality) => {
+        const individual = doctorByModality.get(modality);
+        const fallback = unitByModality.get(modality);
+        if (individual) {
+          return { modality, price_per_report: toMoney(individual.price_per_report), source: "individual" as const, source_label: "Valor individual definido para você", starts_at: individual.starts_at, ends_at: individual.ends_at };
+        }
+        if (fallback) {
+          return { modality, price_per_report: toMoney(fallback.price_per_event), source: "unit_modality_fallback" as const, source_label: "Valor padrão da unidade", starts_at: fallback.starts_at, ends_at: fallback.ends_at };
+        }
+        return { modality, price_per_report: null, source: "unconfigured" as const, source_label: "Sem valor configurado", starts_at: null, ends_at: null };
+      });
     }),
 
   /**
@@ -1337,13 +1382,22 @@ export const financeSimpleRouter = router({
         })
       )).flat() : [];
 
-      // A URL só é exposta quando o documento pertence ao próprio médico. A
-      // mesma regra é aplicada no filtro SQL acima; esta verificação defensiva
-      // impede expor um arquivo caso a integridade histórica esteja incompleta.
-      const safeDeliveredReports = deliveredReports.map((report) => ({
+      // A resposta entrega somente o alvo mínimo para a impressão configurada
+      // quando o documento pertence ao próprio médico. A mesma regra é aplicada
+      // no filtro SQL acima; esta verificação defensiva evita expor o arquivo
+      // direto caso a integridade histórica esteja incompleta.
+      const safeDeliveredReports = deliveredReports.map(({ export_file_url: _exportFileUrl, ...report }) => ({
         ...report,
-        download_url: canDownloadOwnReports && (report.author_user_id === ctx.user.id || report.signed_by === ctx.user.id)
-          ? report.export_file_url
+        print_target: canDownloadOwnReports && (report.author_user_id === ctx.user.id || report.signed_by === ctx.user.id)
+          ? {
+              unit_id: report.unit_id,
+              study_instance_uid: report.study_instance_uid,
+              document_key: report.document_key ?? "primary",
+              document_label: report.document_label ?? report.study_description ?? "Laudo entregue",
+              patient_name: report.patient_name,
+              modality: report.modality,
+              study_description: report.study_description,
+            }
           : null,
       }));
       const signedReportCountByUnit = new Map<number, number>();

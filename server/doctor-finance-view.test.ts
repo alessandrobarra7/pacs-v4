@@ -14,20 +14,21 @@ describe("visão financeira individual do médico", () => {
     expect(routerSource).toContain('inArray(reports.status, ["signed", "revised", "cancelled"])');
   });
 
-  it("limita documentos e download ao médico logado e à unidade solicitada", () => {
+  it("limita documentos e impressão ao médico logado e à unidade solicitada", () => {
     expect(routerSource).toContain("eq(reports.unit_id, u.id)");
     expect(routerSource).toContain("eq(reports.author_user_id, ctx.user.id)");
     expect(routerSource).toContain("eq(reports.signedBy, ctx.user.id)");
     expect(routerSource).toContain('canAccessUnit(ctx.user, input.unit_id, "view_studies")');
     expect(routerSource).toContain('canAccessUnit(ctx.user, input.unit_id, "print_reports")');
-    expect(routerSource).toContain("download_url:");
+    expect(routerSource).toContain("print_target:");
   });
 
-  it("apresenta paciente, período, valor aplicado e ação de baixar laudo", () => {
+  it("apresenta paciente, período, valor aplicado, busca e ação de impressão", () => {
     expect(pageSource).toContain("Laudos entregues");
     expect(pageSource).toContain("Paciente");
-    expect(pageSource).toContain("Baixar laudo");
+    expect(pageSource).toContain("Buscar paciente ou exame");
+    expect(pageSource).toContain("Imprimir ou baixar PDF");
     expect(pageSource).toContain("Repasses gerados no ciclo");
-    expect(pageSource).toContain("Alterações futuras de configuração não recalculam");
+    expect(pageSource).toContain("Alterações futuras não recalculam");
   });
 });
