@@ -2639,6 +2639,6 @@
 - [ ] Criar regressão com o caso real de ciclo atravessando meses e publicar somente após reconciliação comprovada.
 
 ## AUDITORIA EXTERNA — INCIDENTE DE RECONCILIAÇÃO FINANCEIRA
-- [ ] Elaborar arquivo TXT com evidências, impacto, hipóteses descartadas e escopo objetivo para auditoria independente do código.
-- [ ] Incluir no arquivo TXT o inventário sanitizado da VM2, o ciclo calculado e os dois eventos de catálogo confirmados no diagnóstico somente leitura.
-- [ ] Versionar o pedido de auditoria no repositório sem publicar dados de sessão, credenciais ou informações clínicas desnecessárias.
+- [x] Elaborar arquivo TXT com evidências, impacto, hipóteses descartadas e escopo objetivo para auditoria independente do código.
+- [x] Incluir no arquivo TXT o inventário sanitizado da VM2, o ciclo calculado e os dois eventos de catálogo confirmados no diagnóstico somente leitura.
+- [x] Versionar o pedido de auditoria no repositório sem publicar dados de sessão, credenciais ou informações clínicas desnecessárias.
