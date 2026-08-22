@@ -2899,3 +2899,8 @@
 - [x] Exibir andamento e erro de download, sem abrir aba, editor ou visualização intermediária.
 - [x] Cobrir o fluxo direto e validar em sandbox antes de publicação.
 - [x] Atualizar a VM1 de `79b7931` para `7b9e341` sem migração, com novo PID do PM2, status online e HTTP local 200; sem ação na VM2.
+
+## CORREÇÃO — FOLHAS DO GERADOR DIRETO DE PDF
+- [x] Corrigir o seletor de folhas do documento configurado, que impede a captura mesmo após a consulta autorizada concluir.
+- [x] Garantir que cada folha renderizada pelo componente compartilhado seja capturada e adicionada ao PDF.
+- [x] Cobrir a marcação real das páginas em teste e validar o download antes de nova publicação.

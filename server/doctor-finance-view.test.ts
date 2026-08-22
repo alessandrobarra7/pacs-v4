@@ -36,6 +36,7 @@ describe("visão financeira individual do médico", () => {
   it("baixa o PDF financeiro diretamente sem abrir o editor clínico", () => {
     expect(pageSource).toContain("financeSimple.myReportDownload.fetch");
     expect(pageSource).toContain('document.createElement("div")');
+    expect(pageSource).toContain('querySelectorAll<HTMLElement>("[data-shared-report-sheet]")');
     expect(pageSource).not.toContain('document.createElement("iframe")');
     expect(pageSource).not.toContain("window.open(");
     expect(routerSource).toContain("myReportDownload:");

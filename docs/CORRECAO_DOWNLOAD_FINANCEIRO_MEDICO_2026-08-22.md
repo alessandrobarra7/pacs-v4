@@ -25,6 +25,10 @@ O carregamento invisível não disparou o download de modo confiável em navegad
 
 O botão passa a mostrar **Preparando PDF** durante a operação e informa falha de forma explícita. Não há nova aba, navegação para o editor, URL direta de arquivo ou visualização intermediária.
 
+## Correção da captura de folhas
+
+Na primeira execução do gerador direto, o documento autorizado era obtido corretamente, mas o cliente procurava uma classe interna inexistente. O componente canônico marca cada folha com o atributo `data-shared-report-sheet`; a captura passou a usar essa marcação real. Assim, cada folha preparada pelo mesmo componente de impressão compartilhado é adicionada ao PDF antes do download.
+
 ## Segurança e autorização
 
 O acesso continua dependente do alvo de impressão já filtrado no servidor: unidade solicitada, autoria ou assinatura do médico, `view_studies` e `print_reports`. O novo parâmetro controla a interface de consulta, não amplia permissões e não expõe URL direta do arquivo.

@@ -101,7 +101,7 @@ async function downloadFinancialPdf(documentData: any) {
   document.body.appendChild(staging);
   try {
     await waitForReportImages(staging);
-    const pages = Array.from(staging.querySelectorAll<HTMLElement>(".print-shared-sheet"));
+    const pages = Array.from(staging.querySelectorAll<HTMLElement>("[data-shared-report-sheet]"));
     if (pages.length === 0) throw new Error("Não foi possível preparar as páginas do documento.");
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     for (let index = 0; index < pages.length; index += 1) {
