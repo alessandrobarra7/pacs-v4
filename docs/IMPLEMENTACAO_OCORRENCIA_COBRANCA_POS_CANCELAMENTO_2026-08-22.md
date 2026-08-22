@@ -31,10 +31,18 @@ No editor, um laudo cancelado é imutável. Em vez de reativá-lo, o usuário au
 
 O subtítulo de **Soma para o sistema** passou de “Taxa LAUDS × eventos do ciclo” para **“Soma dos valores registrados nos eventos do ciclo”**. A alteração evita sugerir aplicação retroativa da taxa vigente quando um evento histórico não contém `system_amount_due` congelado.
 
+## Exames compostos e cancelamento em cascata
+
+Para uma seleção que exige mais de um documento, todos os documentos compõem uma única ocorrência clínica e um conjunto único de eventos financeiros. Se o `admin_master` cancelar qualquer laudo `signed` ou `revised` dessa seleção, a transação agora localiza todos os documentos exigidos da seleção que ainda estejam assinados ou retificados e os marca como `cancelled` com o mesmo motivo.
+
+O mesmo cancelamento bloqueia caso qualquer evento ativo da seleção ou de seus documentos já tenha baixa. Quando permitido, registra uma versão de cada laudo afetado, cancela os eventos ativos e cria uma entrada de auditoria por laudo, com o identificador do laudo de origem, os documentos cancelados e as seleções atingidas. Portanto, uma nova ocorrência só fica financeiramente completa quando todos os documentos do exame composto forem novamente criados e assinados na mesma ocorrência.
+
+Essa regra não mistura laudos de ocorrências diferentes nem reativa registros cancelados. Ela também não altera eventos históricos anteriores à implantação.
+
 ## Migração e segurança
 
 A migração 0057 foi aplicada apenas ao banco de desenvolvimento. Ela é estrutural: não atualiza, recria, precifica, cancela ou dá baixa em eventos existentes. Antes de qualquer aplicação na VM2, será obrigatório diagnóstico de índices/colunas, backup lógico e comparação preservando os eventos históricos.
 
 ## Regressões executadas
 
-As regressões cobrem o cancelamento auditável existente, a criação de ocorrência `2` no catálogo, a captura de `source_report_id` e da ocorrência no evento, a precificação de catálogo e a legenda correta do resumo financeiro.
+As regressões cobrem o cancelamento auditável existente, o cancelamento em cascata de seleção composta, a criação de ocorrência `2` no catálogo, a captura de `source_report_id` e da ocorrência no evento, a precificação de catálogo e a legenda correta do resumo financeiro.

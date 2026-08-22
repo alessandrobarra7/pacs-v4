@@ -167,7 +167,7 @@ export const reports = mysqlTable("reports", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   // Um documento de cada definição por estudo/unidade, permitindo exames compostos.
-  uidUnitDocumentIdx: uniqueIndex("reports_uid_unit_document_idx").on(
+  uidUnitDocumentOccurrenceIdx: uniqueIndex("reports_uid_unit_document_occurrence_idx").on(
     table.study_instance_uid,
     table.unit_id,
     table.document_key,

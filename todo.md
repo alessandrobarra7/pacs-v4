@@ -2731,3 +2731,10 @@
 - [x] Criar regressões para cancelamento por admin_master, nova assinatura pós-cancelamento, revisão sem nova cobrança e legenda do total do sistema.
 - [x] Documentar a decisão formal e a implementação com a migração 0057 e os critérios de aceite.
 - [x] Publicar a decisão formal e a implementação no GitHub (821a01b).
+
+## BLOQUEIO DE IMPLANTAÇÃO — EXAME COMPOSTO E CANCELAMENTO PARCIAL
+- [x] Registrar que a ocorrência por documento pode desalinhá-los em seleção composta após cancelamento parcial e bloquear nova cobrança.
+- [x] Suspender a implantação da migração 0057 e da atualização da VM1 até definir a política de cancelamento parcial para seleções compostas.
+- [x] Aprovar o cancelamento em cascata da seleção inteira quando qualquer documento composto for cancelado.
+- [x] Corrigir o fluxo escolhido, alinhar o nome do índice no schema e criar regressão que reproduza o cancelamento parcial real.
+- [ ] Versionar e publicar a correção do cancelamento em cascata antes de preparar a implantação.

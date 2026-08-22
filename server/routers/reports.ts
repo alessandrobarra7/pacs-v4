@@ -586,10 +586,28 @@ export const reportsRouter = router({
             const selectionIds = selections
               .filter((selection) => selection.documents_snapshot.some((document) => document.key === report.document_key))
               .map((selection) => selection.id);
+            const cascadeDocumentKeys = Array.from(new Set(selections
+              .filter((selection) => selectionIds.includes(selection.id))
+              .flatMap((selection) => selection.documents_snapshot.map((document) => document.key))));
+            const cascadeReports = report.study_instance_uid && report.unit_id && cascadeDocumentKeys.length > 0
+              ? await tx.select({
+                id: reports.id,
+                document_key: reports.document_key,
+                status: reports.status,
+                version: reports.version,
+                body: reports.body,
+              }).from(reports).where(and(
+                eq(reports.study_instance_uid, report.study_instance_uid),
+                eq(reports.unit_id, report.unit_id),
+                inArray(reports.document_key, cascadeDocumentKeys),
+                inArray(reports.status, ['signed', 'revised']),
+              ))
+              : [report];
+            const cascadeReportIds = cascadeReports.map((item) => item.id);
             const [legacyEvents, catalogEvents] = await Promise.all([
               tx.select({ id: billing_visit_events_table.id, doctor_received_at: billing_visit_events_table.doctor_received_at, system_paid_at: billing_visit_events_table.system_paid_at })
                 .from(billing_visit_events_table)
-                .where(and(eq(billing_visit_events_table.report_id, report.id), eq(billing_visit_events_table.financial_status, 'active'))),
+                .where(and(inArray(billing_visit_events_table.report_id, cascadeReportIds), eq(billing_visit_events_table.financial_status, 'active'))),
               selectionIds.length > 0
                 ? tx.select({ id: billing_catalog_study_events.id, doctor_received_at: billing_catalog_study_events.doctor_received_at, system_paid_at: billing_catalog_study_events.system_paid_at })
                   .from(billing_catalog_study_events)
@@ -599,17 +617,17 @@ export const reportsRouter = router({
             if ([...legacyEvents, ...catalogEvents].some((event) => event.doctor_received_at || event.system_paid_at)) {
               throw new TRPCError({ code: 'CONFLICT', message: 'Não é possível cancelar um laudo com evento financeiro já baixado. Registre um ajuste financeiro auditável.' });
             }
-            await tx.insert(report_versions).values({
-              report_id: report.id,
-              version: report.version ?? 1,
-              body: report.body,
-              status: report.status === 'signed' ? 'signed' : 'revised',
-              reason: `Cancelamento: ${reason}`,
+            await tx.insert(report_versions).values(cascadeReports.map((item) => ({
+              report_id: item.id,
+              version: item.version ?? 1,
+              body: item.body,
+              status: item.status === 'signed' ? 'signed' as const : 'revised' as const,
+              reason: `Cancelamento em cascata: ${reason}`,
               saved_by_user_id: ctx.user.id,
-            });
-            await tx.update(reports).set({ status: 'cancelled' }).where(eq(reports.id, report.id));
+            })));
+            await tx.update(reports).set({ status: 'cancelled' }).where(inArray(reports.id, cascadeReportIds));
             await tx.update(billing_visit_events_table).set({ financial_status: 'cancelled' }).where(and(
-              eq(billing_visit_events_table.report_id, report.id),
+              inArray(billing_visit_events_table.report_id, cascadeReportIds),
               eq(billing_visit_events_table.financial_status, 'active'),
             ));
             if (selectionIds.length > 0) {
@@ -624,19 +642,28 @@ export const reportsRouter = router({
                 eq(billing_catalog_study_events.financial_status, 'active'),
               ));
             }
-            await tx.insert(audit_log).values({
+            await tx.insert(audit_log).values(cascadeReports.map((item) => ({
               user_id: ctx.user.id,
               unit_id: effectiveUnitId,
-              action: 'CANCEL_REPORT',
+              action: 'CANCEL_REPORT' as const,
               target_type: 'REPORT',
-              target_id: String(report.id),
+              target_id: String(item.id),
               ip_address: ctx.req.ip,
               user_agent: ctx.req.headers['user-agent'],
-              metadata: { reason, previousStatus: report.status, cancelledAt, cancelledLegacyEvents: legacyEvents.map((event) => event.id), cancelledCatalogEvents: catalogEvents.map((event) => event.id) },
-            });
-            return { legacy: legacyEvents.length, catalog: catalogEvents.length };
+              metadata: {
+                reason,
+                previousStatus: item.status,
+                cancelledAt,
+                cascadeOriginReportId: report.id,
+                cascadeSelectionIds: selectionIds,
+                cancelledReportIds: cascadeReportIds,
+                cancelledLegacyEvents: legacyEvents.map((event) => event.id),
+                cancelledCatalogEvents: catalogEvents.map((event) => event.id),
+              },
+            })));
+            return { legacy: legacyEvents.length, catalog: catalogEvents.length, reports: cascadeReports.length };
           });
-          return { success: true, cancelled: true, cancelled_events: cancellation.legacy + cancellation.catalog };
+          return { success: true, cancelled: true, cancelled_events: cancellation.legacy + cancellation.catalog, cancelled_reports: cancellation.reports };
         }
         // Remover evento financeiro e decrementar consolidados de ciclo de rascunho.
         // PRG-05: removeVisitEventForReport e report_versions importados estaticamente no topo

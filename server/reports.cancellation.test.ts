@@ -85,6 +85,7 @@ describe("cancelamento auditável de laudo assinado", () => {
     const tx = {
       select: vi.fn()
         .mockReturnValueOnce(chain([{ id: 5, documents_snapshot: [{ key: "primary", label: "Principal", sort_order: 1 }] }]))
+        .mockReturnValueOnce(chain([{ id: 50, document_key: "primary", status: "signed", version: 1, body: "<p>Laudo assinado</p>" }]))
         .mockReturnValueOnce(chain([]))
         .mockReturnValueOnce(chain([{ id: 9, doctor_received_at: null, system_paid_at: null }])),
       insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
@@ -98,7 +99,7 @@ describe("cancelamento auditável de laudo assinado", () => {
 
     const result = await appRouter.createCaller(context()).reports.delete({ id: 50, reason: "Laudo clínico invalidado" });
 
-    expect(result).toMatchObject({ success: true, cancelled: true, cancelled_events: 1 });
+    expect(result).toMatchObject({ success: true, cancelled: true, cancelled_events: 1, cancelled_reports: 1 });
     expect(updateSets).toContainEqual({ status: "cancelled" });
     expect(updateSets).toContainEqual(expect.objectContaining({
       financial_status: "cancelled",
@@ -111,6 +112,7 @@ describe("cancelamento auditável de laudo assinado", () => {
     const tx = {
       select: vi.fn()
         .mockReturnValueOnce(chain([{ id: 5, documents_snapshot: [{ key: "primary", label: "Principal", sort_order: 1 }] }]))
+        .mockReturnValueOnce(chain([{ id: 50, document_key: "primary", status: "signed", version: 1, body: "<p>Laudo assinado</p>" }]))
         .mockReturnValueOnce(chain([]))
         .mockReturnValueOnce(chain([{ id: 9, doctor_received_at: new Date(), system_paid_at: null }])),
       insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
@@ -122,6 +124,33 @@ describe("cancelamento auditável de laudo assinado", () => {
     await expect(
       appRouter.createCaller(context()).reports.delete({ id: 50, reason: "Laudo clínico invalidado" }),
     ).rejects.toThrow("evento financeiro já baixado");
+  });
+
+  it("cancela todos os documentos assinados da seleção composta e o evento único", async () => {
+    const auditEntries: unknown[] = [];
+    const tx = {
+      select: vi.fn()
+        .mockReturnValueOnce(chain([{ id: 5, documents_snapshot: [{ key: "cervical" }, { key: "lombar" }] }]))
+        .mockReturnValueOnce(chain([
+          { id: 50, document_key: "cervical", status: "signed", version: 1, body: "<p>Cervical</p>" },
+          { id: 51, document_key: "lombar", status: "revised", version: 2, body: "<p>Lombar</p>" },
+        ]))
+        .mockReturnValueOnce(chain([]))
+        .mockReturnValueOnce(chain([{ id: 9, doctor_received_at: null, system_paid_at: null }])),
+      insert: vi.fn(() => ({ values: vi.fn(async (values: unknown) => { auditEntries.push(values); }) })),
+      update: vi.fn(() => ({ set: () => ({ where: async () => undefined }) })),
+    };
+    vi.mocked(getDb).mockResolvedValue({ transaction: async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx) } as any);
+    vi.mocked(getReportById).mockResolvedValue({ ...signedCatalogReport(), document_key: "cervical" });
+
+    const result = await appRouter.createCaller(context()).reports.delete({ id: 50, reason: "Inconsistência em exame composto" });
+
+    expect(result).toMatchObject({ success: true, cancelled: true, cancelled_reports: 2, cancelled_events: 1 });
+    expect(auditEntries.some((entry) => Array.isArray(entry))).toBe(true);
+    const auditBatch = auditEntries.at(-1) as Array<{ target_id: string; metadata: { cancelledReportIds: number[] } }>;
+    expect(auditBatch).toHaveLength(2);
+    expect(auditBatch.map((entry) => entry.target_id).sort()).toEqual(["50", "51"]);
+    expect(auditBatch[0].metadata.cancelledReportIds).toEqual([50, 51]);
   });
 
   it("cria a ocorrência dois somente depois de um cancelamento auditável", async () => {

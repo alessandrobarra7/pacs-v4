@@ -33,10 +33,11 @@ describe('Catálogo central de exames e documentos independentes', () => {
     expect(list).not.toContain('ExamPickerModal');
   });
 
-  it('modela unicidade por estudo, unidade e documento sem destruir os laudos legados', async () => {
+  it('modela unicidade por estudo, unidade, documento e ocorrência sem destruir os laudos legados', async () => {
     const schema = await fs.readFile(path.resolve(__dirname, '..', 'drizzle', 'schema.ts'), 'utf-8');
     expect(schema).toContain('document_key: varchar("document_key", { length: 80 }).notNull().default("primary")');
-    expect(schema).toContain('reports_uid_unit_document_idx');
+    expect(schema).toContain('billing_occurrence: int("billing_occurrence").notNull().default(1)');
+    expect(schema).toContain('reports_uid_unit_document_occurrence_idx');
     expect(schema).toContain('exam_legend_documents');
     expect(schema).toContain('exam_legend_pacs_mappings');
 
