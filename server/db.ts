@@ -56,6 +56,7 @@ import {
   exam_legend_documents,
   exam_legend_pacs_mappings,
   exam_legend_unit_availability,
+  study_exam_legend_selections,
   ExamLegend,
   ExamLegendDocument,
   ExamLegendPacsMapping,
@@ -946,8 +947,8 @@ export async function removeExamCatalogPacsMapping(mappingId: number): Promise<v
     .where(eq(exam_legend_pacs_mappings.id, mappingId));
 }
 
-/** Retorna somente mapeamentos aprovados; ausência de chave mantém a descrição original do PACS. */
-export async function getActivePacsExamMappings(): Promise<Map<string, { id: number; exam_name: string }>> {
+/** Retorna os mapeamentos ativos e disponíveis para a unidade consultada. */
+export async function getActivePacsExamMappings(unitId: number): Promise<Map<string, { id: number; exam_name: string }>> {
   const db = await getDb();
   if (!db) return new Map();
   const rows = await db.select({
@@ -957,11 +958,88 @@ export async function getActivePacsExamMappings(): Promise<Map<string, { id: num
     exam_name: exam_legends.exam_name,
   }).from(exam_legend_pacs_mappings)
     .innerJoin(exam_legends, eq(exam_legends.id, exam_legend_pacs_mappings.exam_legend_id))
-    .where(eq(exam_legends.is_active, true));
+    .leftJoin(exam_legend_unit_availability, and(
+      eq(exam_legend_unit_availability.exam_legend_id, exam_legends.id),
+      eq(exam_legend_unit_availability.unit_id, unitId),
+    ))
+    .where(and(
+      eq(exam_legends.is_active, true),
+      or(isNull(exam_legend_unit_availability.id), eq(exam_legend_unit_availability.is_available, true)),
+    ));
   return new Map(rows.map((row) => [
     `${row.modality.trim().toUpperCase()}\u0000${row.pacs_description.trim().toUpperCase()}`,
     { id: row.id, exam_name: row.exam_name },
   ]));
+}
+
+/**
+ * Cria a seleção canônica sugerida pelo PACS somente em estudos ainda sem
+ * composição clínica. Qualquer seleção manual ou bloqueada é preservada.
+ */
+export async function applyPacsMappedExamLegendIfUnselected(input: {
+  studyInstanceUid: string;
+  unitId: number;
+  examLegendId: number;
+  selectedBy: number;
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+
+  const existingSelections = await db.select({ id: study_exam_legend_selections.id })
+    .from(study_exam_legend_selections)
+    .where(and(
+      eq(study_exam_legend_selections.study_instance_uid, input.studyInstanceUid),
+      eq(study_exam_legend_selections.unit_id, input.unitId),
+    ));
+  if (existingSelections.length) return false;
+
+  const existingReports = await db.select({ id: reports.id })
+    .from(reports)
+    .where(and(
+      eq(reports.study_instance_uid, input.studyInstanceUid),
+      eq(reports.unit_id, input.unitId),
+    ));
+  if (existingReports.length) return false;
+
+  const legendRows = await db.select({ legend: exam_legends })
+    .from(exam_legends)
+    .leftJoin(exam_legend_unit_availability, and(
+      eq(exam_legend_unit_availability.exam_legend_id, exam_legends.id),
+      eq(exam_legend_unit_availability.unit_id, input.unitId),
+    ))
+    .where(and(
+      eq(exam_legends.id, input.examLegendId),
+      eq(exam_legends.is_active, true),
+      or(isNull(exam_legend_unit_availability.id), eq(exam_legend_unit_availability.is_available, true)),
+    ));
+  const legend = (legendRows[0] as { legend?: typeof exam_legends.$inferSelect } | undefined)?.legend;
+  if (!legend) return false;
+
+  const documents = await db.select({
+    id: exam_legend_documents.id,
+    label: exam_legend_documents.document_label,
+    sortOrder: exam_legend_documents.sort_order,
+  }).from(exam_legend_documents).where(and(
+    eq(exam_legend_documents.exam_legend_id, legend.id),
+    eq(exam_legend_documents.is_active, true),
+  )).orderBy(asc(exam_legend_documents.sort_order), asc(exam_legend_documents.document_label));
+  if (!documents.length) return false;
+
+  await db.insert(study_exam_legend_selections).values({
+    study_instance_uid: input.studyInstanceUid,
+    unit_id: input.unitId,
+    exam_legend_id: legend.id,
+    exam_name_snapshot: legend.exam_name,
+    modality_snapshot: legend.modality,
+    documents_snapshot: documents.map((document) => ({
+      key: `legend_${legend.id}_document_${document.id}`,
+      label: document.label,
+      sort_order: document.sortOrder,
+    })),
+    financial_event_count: legend.financial_event_count,
+    selected_by: input.selectedBy,
+  });
+  return true;
 }
 
 // ─── User-Unit Permissions ────────────────────────────────────────────────────
