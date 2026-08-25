@@ -2938,6 +2938,7 @@
 - [x] Aplicar a estrutura de disponibilidade de legendas no banco de desenvolvimento para validar o mapeamento automático
 - [x] Diagnosticar por que a produção ainda mostra “Sem descrição” após a ativação do mapeamento automático
 - [x] Invalidar e recarregar as seleções de legenda após a consulta PACS para refletir o mapeamento automático
+- [x] Elaborar relatório de solicitação de auditoria especializada sobre a falha persistente do mapeamento automático PACS
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação

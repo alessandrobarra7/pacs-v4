@@ -1,0 +1,153 @@
+SOLICITAÇÃO DE AUDITORIA TÉCNICA ESPECIALIZADA
+Falha persistente no mapeamento automático de legenda PACS
+
+Data: 25/08/2026
+Sistema: LAUDS — Portal PACS / Laudos
+Ambiente afetado: Produção, VM1 (aplicação) com MySQL na VM2
+Prioridade: Alta para fluxo operacional de classificação de exames
+
+1. OBJETIVO DESTA SOLICITAÇÃO
+
+Solicita-se auditoria técnica independente do fluxo que deveria transformar automaticamente a descrição recebida do PACS em uma legenda canônica cadastrada no Portal LAUDS.
+
+O equipamento PACS envia estudos de modalidade CR com a descrição “Sem descrição”. No catálogo administrativo foi configurado um mapeamento explícito para modalidade CR + descrição “Sem descrição”, associado a uma legenda canônica e disponibilizado para a unidade Hospital da Criança.
+
+Apesar da configuração e de duas correções já implantadas, a worklist continua exibindo “Sem descrição” para a maior parte dos estudos. É necessário determinar a causa real antes de novas alterações no mecanismo automático.
+
+2. COMPORTAMENTO ESPERADO
+
+Para cada estudo novo recebido do PACS, o Portal deve:
+
+1. Normalizar a modalidade e a descrição DICOM recebidas.
+2. Localizar um mapeamento ativo e disponível para a unidade atual.
+3. Criar uma seleção de legenda canônica quando o estudo não possuir escolha manual, bloqueio ou documento clínico prévio.
+4. Exibir imediatamente a legenda canônica na worklist, no fluxo de laudo e no fluxo financeiro.
+5. Nunca sobrescrever seleção manual, laudo existente ou dado clínico já consolidado.
+
+3. EVIDÊNCIAS OBSERVADAS NAS TELAS
+
+3.1. Tela de catálogo
+
+O exame canônico editado apresenta:
+
+- Legenda canônica: “SELECIONE OS LAUDOS NECESSÁRIOS”.
+- Modalidade: CR.
+- Disponibilidade ativa para a unidade Hospital da Criança.
+- Mapeamento PACS cadastrado: modalidade CR e descrição “Sem descrição”.
+- Documento clínico ativo: chave “primary”, rótulo “Laudo principal”.
+
+3.2. Tela de worklist
+
+Após a atualização da produção, a lista continua exibindo “Sem descrição” em numerosos estudos CR da unidade Hospital da Criança.
+
+Há pelo menos um estudo exibindo uma legenda canônica (“COLUNA LOMBAR”), o que demonstra que a camada visual consegue mostrar seleções canônicas quando elas existem. O problema, portanto, pode estar na criação, na recuperação ou na elegibilidade da seleção automática para os demais estudos.
+
+4. ALTERAÇÕES JÁ TENTADAS
+
+4.1. Implantação de seleção automática no backend
+
+Foi criado um fluxo que, durante a consulta PACS, procura o mapeamento pelo par normalizado:
+
+  MODALITY + STUDY_DESCRIPTION
+
+Quando encontra uma legenda candidata, o fluxo tenta inserir uma seleção em study_exam_legend_selections.
+
+Proteções introduzidas:
+
+- Não aplicar se já houver seleção de legenda para o estudo/unidade.
+- Não aplicar se já existir qualquer documento/laudo para o estudo/unidade.
+- Não aplicar se a legenda estiver inativa, indisponível na unidade ou sem documento clínico ativo.
+- Respeitar a disponibilidade por unidade em exam_legend_unit_availability.
+
+4.2. Implantação de recarga da worklist
+
+Foi adicionada invalidação da consulta de seleções de legenda após a resposta de pacs.query, para evitar que a tela mantenha dados anteriores em cache.
+
+4.3. Estado de validação
+
+As alterações compilaram sem erro de TypeScript, passaram em testes direcionados e produziram build de produção. A VM1 está no commit 85810b6 e respondeu HTTP 200 após o restart.
+
+IMPORTANTE: os testes aplicados são principalmente de estrutura e regressão de fluxo; eles não provaram o ciclo completo com os dados reais do PACS e do banco de produção. A evidência visual posterior mostra que a falha continua para a maioria dos estudos.
+
+5. PROBLEMA TÉCNICO A SER AUDITADO
+
+É necessário identificar, com evidência de logs e consultas SQL somente-leitura, em qual ponto o fluxo deixa de produzir a seleção canônica:
+
+A. O C-FIND retorna a modalidade ou descrição diferente do valor configurado?
+B. Existe diferença invisível no texto, como espaços, quebra de linha, caractere não separável, acento, encoding DICOM ou valor nulo?
+C. O mapeamento ativo não é encontrado por filtro de unidade, modalidade, texto ou estado da legenda?
+D. O mapeamento é encontrado, mas a seleção é bloqueada por já haver linhas em study_exam_legend_selections?
+E. O mapeamento é encontrado, mas a seleção é bloqueada porque já existem linhas em reports, inclusive rascunhos ou registros legados?
+F. A inserção em study_exam_legend_selections falha por índice único, transação, integridade, permissão ou documento associado?
+G. A seleção é criada corretamente, mas studyExamLegend.getBatch consulta unidade, UID ou cache diferentes dos usados na worklist?
+H. A aplicação de efeito colateral durante uma consulta C-FIND é arquiteturalmente inadequada para este caso?
+
+6. MATERIAL QUE A AUDITORIA DEVE REVISAR
+
+Código principal:
+
+- server/routers/pacs.ts
+- server/db.ts
+- server/routers/studyExamLegend.ts
+- client/src/pages/PacsQueryPage.tsx
+- drizzle/schema.ts
+- drizzle/0048_exam_catalog_documents.sql
+- drizzle/0050_catalog_clinical_financial.sql
+- drizzle/0051_multi_legend_selection_unit_availability.sql
+
+Tabelas principais:
+
+- exam_legends
+- exam_legend_pacs_mappings
+- exam_legend_unit_availability
+- exam_legend_documents
+- study_exam_legend_selections
+- reports
+- study_metadata
+
+7. PROCEDIMENTO DE AUDITORIA RECOMENDADO
+
+1. Escolher dois ou três Study Instance UIDs reais que ainda exibem “Sem descrição”.
+2. Registrar em log, sem dados sensíveis de paciente, os valores brutos e normalizados de modalidade e descrição retornados pelo C-FIND.
+3. Executar consultas SQL somente-leitura para o UID e a unidade:
+
+   - mapeamento existente;
+   - disponibilidade da legenda;
+   - documentos clínicos ativos;
+   - seleções existentes;
+   - relatórios existentes;
+   - eventual exceção de inserção.
+
+4. Comparar o mesmo fluxo com o estudo que aparece como “COLUNA LOMBAR”.
+5. Definir, com base na evidência, se a regra deve ocorrer:
+
+   - na consulta PACS;
+   - na ingestão/caching do estudo;
+   - em ação explícita de confirmação pelo operador;
+   - ou em uma camada de resolução apenas visual, seguida de persistência controlada.
+
+8. OPINIÃO ESPECIALIZADA SOLICITADA
+
+Solicita-se parecer sobre os seguintes pontos:
+
+1. Qual é o ponto arquitetural mais seguro para aplicar o mapeamento automático, considerando integridade clínica, auditoria e faturamento?
+2. A existência de qualquer registro em reports deve bloquear a automação, ou somente documentos assinados/revisados?
+3. Como distinguir seleção manual de seleção automática de forma auditável e reversível?
+4. A comparação de descrição PACS deve usar igualdade normalizada, aliases, regras por equipamento ou expressão configurável?
+5. Qual é o desenho recomendado para garantir idempotência e evitar duplicidade em consultas concorrentes?
+6. Quais logs de decisão devem ser persistidos para cada estudo: mapeado, não mapeado, bloqueado ou falho?
+7. Como aplicar uma correção retroativa aos estudos já recebidos sem alterar exames com laudo ou seleção clínica manual?
+
+9. CRITÉRIO DE ACEITE PARA A CORREÇÃO DEFINITIVA
+
+A solução será considerada aceita quando, para um estudo CR novo recebido com descrição equivalente a “Sem descrição”:
+
+- a legenda canônica correta aparecer na worklist sem ação manual;
+- a seleção for auditável e associada à unidade correta;
+- o documento clínico correspondente estiver disponível para laudar;
+- o mapeamento não sobrescrever seleção manual, estudo bloqueado ou laudo existente;
+- o comportamento for coberto por teste automatizado e validado com dados reais em produção.
+
+10. OBSERVAÇÃO FINAL
+
+Não se recomenda executar novas alterações de regra ou atualizações massivas de dados antes da auditoria. A falha persiste após duas intervenções e envolve classificação clínica, documentos e potencial faturamento; a próxima decisão deve ser baseada em rastreio verificável de dados reais.
