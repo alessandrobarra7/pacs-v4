@@ -2943,6 +2943,7 @@
 - [x] Adicionar migração não destrutiva para o sinalizador de descrição PACS vazia e origem de seleção automática
 - [x] Adicionar controle explícito de descrição PACS vazia ao cadastro de mapeamentos no catálogo
 - [x] Isolar falhas de aplicação automática por estudo sem interromper a consulta PACS
+- [x] Preservar e atualizar corretamente mapeamentos PACS existentes ao editar o catálogo
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação

@@ -18,6 +18,7 @@ const documentSchema = z.object({
 });
 
 const mappingSchema = z.object({
+  id: z.number().int().positive().optional(),
   pacs_description: z.string().trim().max(255),
   matches_empty_description: z.boolean().default(false),
   modality: z.string().trim().max(20).default(""),
@@ -122,6 +123,7 @@ export const examCatalogRouter = router({
     await replaceExamLegendUnitAvailability(examLegendId, input.unavailableUnitIds, ctx.user.id);
     for (const mapping of input.pacsMappings) {
       await saveExamCatalogPacsMapping({
+        id: mapping.id,
         pacs_description: mapping.matches_empty_description ? "" : mapping.pacs_description.trim(),
         matches_empty_description: mapping.matches_empty_description,
         modality: mapping.modality.trim().toUpperCase(),

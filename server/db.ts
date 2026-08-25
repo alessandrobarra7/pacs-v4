@@ -929,6 +929,7 @@ export async function replaceExamLegendUnitAvailability(
 
 /** Cria ou atualiza um mapeamento explícito PACS → exame canônico. */
 export async function saveExamCatalogPacsMapping(data: {
+  id?: number;
   pacs_description: string;
   matches_empty_description: boolean;
   modality: string;
@@ -937,6 +938,16 @@ export async function saveExamCatalogPacsMapping(data: {
 }): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  if (data.id) {
+    await db.update(exam_legend_pacs_mappings).set({
+      pacs_description: data.pacs_description,
+      matches_empty_description: data.matches_empty_description,
+      modality: data.modality,
+      exam_legend_id: data.exam_legend_id,
+      created_by: data.created_by,
+    }).where(eq(exam_legend_pacs_mappings.id, data.id));
+    return;
+  }
   await db.insert(exam_legend_pacs_mappings).values(data).onDuplicateKeyUpdate({
     set: {
       exam_legend_id: data.exam_legend_id,

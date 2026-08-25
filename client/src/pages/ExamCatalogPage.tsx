@@ -107,6 +107,7 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
         sort_order: index,
       })),
       pacsMappings: draft.pacsMappings.filter((mapping) => mapping.matches_empty_description || mapping.pacs_description.trim()).map((mapping) => ({
+        id: mapping.id,
         pacs_description: mapping.matches_empty_description ? "" : mapping.pacs_description.trim(),
         matches_empty_description: mapping.matches_empty_description,
         modality: mapping.modality.trim().toUpperCase(),

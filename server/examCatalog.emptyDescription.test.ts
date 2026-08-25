@@ -16,4 +16,10 @@ describe("catálogo — mapeamento para descrição PACS vazia", () => {
     expect(pageSource).toContain('pacs_description: mapping.matches_empty_description ? "" : mapping.pacs_description.trim()');
     expect(pageSource).toContain("Descrição vazia no PACS");
   });
+
+  it("preserva o identificador de um mapeamento existente ao salvar sua alteração", () => {
+    expect(catalogSource).toContain("id: z.number().int().positive().optional()");
+    expect(catalogSource).toContain("id: mapping.id");
+    expect(pageSource).toContain("id: mapping.id");
+  });
 });
