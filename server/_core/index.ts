@@ -1,24 +1,18 @@
-import { config } from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import { loadEnvironmentFiles } from "./envLoader";
 const __dirname_env = path.dirname(fileURLToPath(import.meta.url));
-// Carrega .env com override:true para garantir que variáveis sejam lidas mesmo
-// quando o PM2 já injetou valores vazios de sessões anteriores.
-// Tenta múltiplos caminhos para cobrir execução via dist/ e via cwd.
+// Carrega todos os arquivos de ambiente conhecidos, do menor para o maior nível
+// de prioridade. Isso permite manter credenciais operacionais em /opt e ajustes
+// específicos do projeto em sua raiz.
 const envPaths = [
-  path.resolve(__dirname_env, ".env"),       // dist/.env
-  path.resolve(__dirname_env, "../.env"),    // raiz do projeto (dist/../.env)
-  path.resolve(process.cwd(), ".env"),       // cwd/.env
-  "/opt/pacs-portal/.env",                   // caminho absoluto na VM1
+  "/opt/pacs-portal/.env",
+  path.resolve(__dirname_env, ".env"),
+  path.resolve(__dirname_env, "../.env"),
+  path.resolve(process.cwd(), ".env"),
 ];
-for (const envPath of envPaths) {
-  const result = config({ path: envPath, override: true });
-  if (!result.error) {
-    console.log(`[dotenv] Loaded ${Object.keys(result.parsed ?? {}).length} vars from ${envPath}`);
-    break;
-  }
-}
+loadEnvironmentFiles(envPaths);
 import express from "express";
 import { createServer } from "http";
 import net from "net";
