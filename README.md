@@ -29,6 +29,7 @@ Sistema web completo para gestão de laudos radiológicos com integração DICOM
 17. [Atualização do Sistema](#17-atualização-do-sistema)
 18. [Solução de Problemas Comuns](#18-solução-de-problemas-comuns)
 19. [Guia operacional: descrição DICOM vazia](docs/GUIA_MAPEAMENTO_PACS_DESCRICAO_DICOM_VAZIA.md)
+20. [Guia operacional: snapshot da data de realização](docs/GUIA_SNAPSHOT_DATA_REALIZACAO_LAUDOS.md)
 
 ---
 
