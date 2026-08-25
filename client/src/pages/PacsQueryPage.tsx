@@ -265,6 +265,12 @@ function StudyPriorityControls({
   );
 }
 
+function isInteractiveMobileCardTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(
+    target.closest("button, a, input, textarea, select, [data-card-interactive='true'], [role='dialog']"),
+  );
+}
+
 /** LED discreto para chamar atenção em estudos marcados como Alerta Crítico. */
 function CriticalAlertLed() {
   return (
@@ -477,7 +483,7 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
     onError: (error) => toast.error("Não foi possível confirmar as legendas.", { description: error.message }),
   });
   const selectedNames = selections.map((selection) => selection.exam_name_snapshot).join(" + ");
-  if (!canSelect) return <>{children ?? <span className="text-xs font-medium text-cyan-700">{selectedNames || study.studyDescription}</span>}</>;
+  if (!canSelect) return <div data-card-interactive="true">{children ?? <span className="text-xs font-medium text-cyan-700">{selectedNames || study.studyDescription}</span>}</div>;
   const legendsForModality = selectedModality
     ? legends.filter((legend) => legend.modality === selectedModality && legend.exam_name.toLocaleLowerCase("pt-BR").includes(search.trim().toLocaleLowerCase("pt-BR")))
     : [];
@@ -493,13 +499,13 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
   const removeFromDraft = (legendId: number) => setDraftLegendIds((currentIds) => currentIds.filter((id) => id !== legendId));
   return (
     <>
-      <button type="button" onClick={openModal} className="group w-full rounded-md text-left outline-none transition-colors hover:bg-cyan-50 focus-visible:ring-2 focus-visible:ring-cyan-500" title="Clique para compor um ou mais exames cadastrados">
+      <button type="button" data-card-interactive="true" onClick={openModal} className="group w-full rounded-md text-left outline-none transition-colors hover:bg-cyan-50 focus-visible:ring-2 focus-visible:ring-cyan-500" title="Clique para compor um ou mais exames cadastrados">
         {children ?? <span className="px-1 text-xs font-medium text-slate-700">{selectedNames || study.studyDescription}</span>}
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" onMouseDown={closeModal}>
-          <div role="dialog" aria-modal="true" aria-labelledby={`legend-modal-title-${study.studyInstanceUid}`} className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" onMouseDown={closeModal} onClick={(event) => event.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby={`legend-modal-title-${study.studyInstanceUid}`} className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
               <div className="flex items-start gap-2">
                 {selectedModality && <button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} className="mt-0.5 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Voltar para modalidades"><ChevronLeft className="h-5 w-5" /></button>}
@@ -2432,8 +2438,12 @@ setSelectedStudy(study);
                     key={`${study.studyInstanceUid || 'study'}-mobile-${idx}`}
                     role={canViewer ? 'button' : undefined}
                     tabIndex={canViewer ? 0 : undefined}
-                    onClick={() => { if (canViewer) handleVisualize(study, true); }}
+                    onClick={(event) => {
+                      if (isInteractiveMobileCardTarget(event.target)) return;
+                      if (canViewer) handleVisualize(study, true);
+                    }}
                     onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
                       if (canViewer && (event.key === 'Enter' || event.key === ' ')) {
                         event.preventDefault();
                         handleVisualize(study, true);
