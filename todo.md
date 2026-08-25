@@ -2923,8 +2923,8 @@
 - [x] Internalizar logo e imagem de cabeçalho, criar favicon Lauds e padronizar textos da identidade visual
 - [x] Remover rota OAuth da Manus e código Forge morto, mantendo somente a autenticação e sessão local
 - [x] Validar autenticação local, build, testes e ausência de referências Manus antes da publicação
-- [ ] Atualizar a VM1 de `d583444` para `0544d4a` sem migração, preservando variáveis PACS/MinIO, validando TypeScript, build, PM2 e HTTP local
-- [ ] Preservar a pasta local não rastreada `uploads/stamps/` durante a atualização controlada da VM1
+- [x] Atualizar a VM1 de `d583444` para `531142a` sem migração, preservando variáveis PACS/MinIO, validando TypeScript, build, PM2 e HTTP local
+- [x] Preservar a pasta local não rastreada `uploads/stamps/` durante a atualização controlada da VM1
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação
