@@ -1030,6 +1030,9 @@ const isAdminMaster = user?.role === 'admin_master';
     onSuccess: (data: any) => {
       setQueryResults(data.studies || []);
       setCurrentPage(1);
+      // A consulta PACS pode criar seleções canônicas automaticamente. Invalida
+      // a leitura em cache para que a mesma resposta já mostre a legenda nova.
+      void trpcUtils.studyExamLegend.getBatch.invalidate();
       // Bug fix A2: não usar data.studies.length (bruto) — aguardar filteredResults via useEffect
       const type = data.timedOut ? 'timeout' : data.truncated ? 'warning' : 'success';
       setPendingToastType(type);
