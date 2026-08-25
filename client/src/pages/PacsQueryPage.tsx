@@ -218,6 +218,7 @@ function StudyPriorityControls({
   isSaving,
   onSelect,
   indicator,
+  variant,
 }: {
   priority?: StudyPriorityValue;
   markedByUserId?: number;
@@ -227,15 +228,17 @@ function StudyPriorityControls({
   isSaving: boolean;
   onSelect: (priority: StudyPriorityValue) => void;
   indicator?: ReactNode;
+  variant?: "mobile" | "desktop";
 }) {
   const isOwnPriority = !priority || markedByUserId === currentUserId;
   const urgencyActive = priority === "urgencia";
   const maximumActive = priority === "prioridade_maxima";
+  const isDesktop = variant === "desktop";
 
   return (
-    <div className="mt-2 flex w-full flex-col items-stretch gap-1.5 border-t border-gray-100 pt-2" aria-label="Sinalização clínica e prazo de laudo" onClick={(event) => event.stopPropagation()}>
+    <div className={isDesktop ? "flex min-w-[168px] flex-col gap-1.5" : "mt-2 flex w-full flex-col items-stretch gap-1.5 border-t border-gray-100 pt-2"} aria-label="Sinalização clínica e prazo de laudo" onClick={(event) => event.stopPropagation()}>
       {(priority || indicator) && (
-        <div className="flex max-w-full flex-wrap items-center justify-center gap-1">
+        <div className={`flex max-w-full flex-wrap items-center gap-1 ${isDesktop ? "justify-start" : "justify-center"}`}>
           {priority && (
             <span title={markedByName ? `Sinalizado por ${markedByName}` : undefined} className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase leading-none ${urgencyActive ? "border-red-200 bg-red-50 text-red-700" : "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"}`}>
               {urgencyActive ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <Siren className="h-3 w-3 shrink-0" />}
@@ -246,18 +249,18 @@ function StudyPriorityControls({
         </div>
       )}
       {!priority && !canMark && (
-        <span className="mx-auto inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-semibold uppercase leading-none text-slate-500">
+        <span className={`${isDesktop ? "self-start" : "mx-auto"} inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-semibold uppercase leading-none text-slate-500`}>
           <CircleDotDashed className="h-3 w-3 shrink-0" />
           Sem prioridade clínica
         </span>
       )}
       {canMark && isOwnPriority && (
-        <div className="flex w-full flex-wrap items-center justify-center gap-1">
+        <div className={`flex w-full flex-wrap items-center gap-1 ${isDesktop ? "justify-start" : "justify-center"}`}>
           <button type="button" disabled={isSaving} onClick={() => onSelect("urgencia")} className={`rounded-full border px-2 py-1 text-[9px] font-semibold leading-none transition-colors disabled:cursor-wait disabled:opacity-60 ${urgencyActive ? "border-red-300 bg-red-600 text-white" : "border-red-200 bg-white text-red-700 hover:bg-red-50"}`}>Urgência</button>
           <button type="button" disabled={isSaving} onClick={() => onSelect("prioridade_maxima")} className={`rounded-full border px-2 py-1 text-[9px] font-semibold leading-none transition-colors disabled:cursor-wait disabled:opacity-60 ${maximumActive ? "border-fuchsia-300 bg-fuchsia-600 text-white" : "border-fuchsia-200 bg-white text-fuchsia-700 hover:bg-fuchsia-50"}`}>Alerta Crítico</button>
         </div>
       )}
-      {priority && canMark && !isOwnPriority && <span className="mx-auto max-w-[130px] text-center text-[9px] leading-tight text-gray-500">Sinalizado por {markedByName || "outro usuário"}</span>}
+      {priority && canMark && !isOwnPriority && <span className={`${isDesktop ? "self-start text-left" : "mx-auto text-center"} max-w-[130px] text-[9px] leading-tight text-gray-500`}>Sinalizado por {markedByName || "outro usuário"}</span>}
     </div>
   );
 }
@@ -2078,6 +2081,7 @@ setSelectedStudy(study);
               >
                 <th className="px-4 py-2.5 text-left font-semibold w-28">Data</th>
                 <th className="px-4 py-2.5 text-left font-semibold">Paciente</th>
+                <th className="px-4 py-2.5 text-left font-semibold w-44">Prioridade clínica</th>
                 <th className="px-4 py-2.5 text-left font-semibold w-16">Idade</th>
                 <th className="px-4 py-2.5 text-left font-semibold">Exame</th>
                 <th className="px-4 py-2.5 text-center font-semibold w-10" title="Visualizar DICOM">Visualizar</th>
@@ -2152,30 +2156,30 @@ setSelectedStudy(study);
                           </button>
                         )}
                       </div>
-                      {(sex || studyPriority || hasAnamnesis || slaReadiness) && (
-                        <div className="mt-0.5 flex items-center gap-2">
-                          {sex && <span className="text-xs text-gray-400">{sex}</span>}
-                          {studyPriority && (
-                            <span
-                              title={studyPriority.marked_by_name ? `Sinalizado por ${studyPriority.marked_by_name}` : undefined}
-                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase leading-none ${studyPriority.priority === "urgencia" ? "border-red-200 bg-red-50 text-red-700" : "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"}`}
-                            >
-                              {studyPriority.priority === "urgencia" ? <AlertTriangle className="h-3 w-3" /> : <Siren className="h-3 w-3" />}
-                              {studyPriority.priority === "urgencia" ? "Urgência" : "Alerta Crítico"}
-                            </span>
-                          )}
-                          <SlaCountdown
-                            readiness={slaReadiness}
-                            hasAnamnesis={hasAnamnesis}
-                            compact={true}
-                          />
-                        </div>
-                      )}
+                      {sex && <div className="mt-0.5 text-xs text-gray-400">{sex}</div>}
                       {meta?.notes && (
                         <div className="text-xs text-blue-600 mt-0.5 truncate max-w-[160px]" title={meta.notes}>
                           📝 {meta.notes}
                         </div>
                       )}
+                    </td>
+
+                    <td className="px-4 py-3 align-middle">
+                      <StudyPriorityControls
+                        priority={studyPriority?.priority as StudyPriorityValue | undefined}
+                        markedByUserId={studyPriority?.marked_by_user_id}
+                        markedByName={studyPriority?.marked_by_name}
+                        currentUserId={user?.id}
+                        canMark={canMarkStudyPriority}
+                        isSaving={setStudyPriority.isPending}
+                        indicator={<SlaCountdown readiness={slaReadiness} hasAnamnesis={hasAnamnesis} compact={true} />}
+                        onSelect={(priority) => setStudyPriority.mutate({
+                          studyInstanceUid: study.studyInstanceUid,
+                          unit_id: effectiveUnitId || undefined,
+                          priority: studyPriority?.priority === priority ? null : priority,
+                        })}
+                        variant="desktop"
+                      />
                     </td>
 
                     {/* Idade */}
@@ -2354,7 +2358,7 @@ setSelectedStudy(study);
                   </tr>
                   {isDesktopDownloadActive && (
                     <tr className="bg-emerald-50/80">
-                      <td colSpan={11} className="px-4 pb-3 pt-0">
+                      <td colSpan={12} className="px-4 pb-3 pt-0">
                         <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-white px-3 py-2" aria-live="polite">
                           <div className="min-w-[180px] text-xs font-medium text-emerald-800">
                             <span className="font-semibold">{desktopPreDownload?.phase === 'connecting' ? 'Preparando imagens...' : 'Baixando imagens'}</span>
@@ -2372,7 +2376,7 @@ setSelectedStudy(study);
                   )}
                   {desktopPreDownload?.phase === 'error' && (
                     <tr className="bg-red-50/70">
-                      <td colSpan={11} className="px-4 pb-3 pt-0 text-xs text-red-700">Não foi possível concluir o download. Clique em Visualizar para tentar novamente.</td>
+                      <td colSpan={12} className="px-4 pb-3 pt-0 text-xs text-red-700">Não foi possível concluir o download. Clique em Visualizar para tentar novamente.</td>
                     </tr>
                   )}
                   </Fragment>

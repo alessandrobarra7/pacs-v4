@@ -2929,6 +2929,8 @@
 - [x] Remover os componentes inativos `ManusDialog.tsx` e `Map.tsx` que ainda contêm referências à infraestrutura Manus/Forge
 - [x] Restaurar no login local a mensagem orientativa para o erro `PASSWORD_NOT_SET`
 - [x] Remover comentários legados de OAuth/SDK que contradizem a autenticação local atual
+- [x] Verificar e alinhar a exibição de sinalização de urgência e alerta crítico entre worklist desktop e mobile
+- [x] Adicionar controles de urgência e alerta crítico à tabela desktop com as mesmas permissões do mobile
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação
