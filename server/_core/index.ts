@@ -1,24 +1,14 @@
 import path from "path";
-import { fileURLToPath } from "url";
 import fs from "fs";
-import { loadEnvironmentFiles } from "./envLoader";
-const __dirname_env = path.dirname(fileURLToPath(import.meta.url));
-// Carrega todos os arquivos de ambiente conhecidos, do menor para o maior nível
-// de prioridade. Isso permite manter credenciais operacionais em /opt e ajustes
-// específicos do projeto em sua raiz.
-const envPaths = [
-  "/opt/pacs-portal/.env",
-  path.resolve(__dirname_env, ".env"),
-  path.resolve(__dirname_env, "../.env"),
-  path.resolve(process.cwd(), ".env"),
-];
-loadEnvironmentFiles(envPaths);
+import "./envBootstrap";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
 import crypto from "crypto";
 import { Readable } from "node:stream";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { storageKeyFromReference, storageUsesMinio } from "../storage";
@@ -27,8 +17,6 @@ import { assertCachedDicomFileAccess, assertDicomFileAccess } from "../authoriza
 import { createRadiantAssistantTokenStore, RADIANT_ASSISTANT_SCHEME } from "../radiantAssistant";
 import { streamRadiantInstaller } from "../radiantInstaller";
 import { serveStatic, setupVite } from "./vite";
-import rateLimit from "express-rate-limit";
-import helmet from "helmet";
 
 // CRÍTICO 3: Rate limiting para prevenir brute force no login
 const loginRateLimiter = rateLimit({

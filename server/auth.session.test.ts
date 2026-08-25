@@ -3,7 +3,7 @@
  * Cobre: SESSION_DURATION via ENV (N6), AuthService.hashPassword
  * PRG-01: testes de buildSessionCookie e createSession removidos — métodos eram código morto
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -11,6 +11,16 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sessionPath = path.resolve(__dirname, "_core", "session.ts");
 const routersPath = path.resolve(__dirname, "routers.ts");
+const originalJwtSecret = process.env.JWT_SECRET;
+
+afterEach(() => {
+  if (originalJwtSecret === undefined) {
+    delete process.env.JWT_SECRET;
+  } else {
+    process.env.JWT_SECRET = originalJwtSecret;
+  }
+  vi.resetModules();
+});
 
 // ─── Testes: SESSION_DURATION via env (N6) ────────────────────────────────────
 describe("SESSION_DURATION via ENV (N6)", () => {
@@ -53,7 +63,10 @@ describe("SESSION_DURATION via ENV (N6)", () => {
   });
 
   it("assina e valida uma sessão local sem depender de OAuth externo", async () => {
+    delete process.env.JWT_SECRET;
+    vi.resetModules();
     const { signSession, verifySession } = await import("./_core/session");
+    process.env.JWT_SECRET = "test-local-session-secret";
     const token = await signSession(
       { openId: "local:teste", name: "Usuário de teste" },
       { expiresInMs: 60_000 },
