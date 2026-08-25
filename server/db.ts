@@ -57,6 +57,7 @@ import {
   exam_legend_pacs_mappings,
   exam_legend_unit_availability,
   study_exam_legend_selections,
+  pacs_mapping_decisions,
   ExamLegend,
   ExamLegendDocument,
   ExamLegendPacsMapping,
@@ -929,6 +930,7 @@ export async function replaceExamLegendUnitAvailability(
 /** Cria ou atualiza um mapeamento explícito PACS → exame canônico. */
 export async function saveExamCatalogPacsMapping(data: {
   pacs_description: string;
+  matches_empty_description: boolean;
   modality: string;
   exam_legend_id: number;
   created_by: number;
@@ -936,7 +938,11 @@ export async function saveExamCatalogPacsMapping(data: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.insert(exam_legend_pacs_mappings).values(data).onDuplicateKeyUpdate({
-    set: { exam_legend_id: data.exam_legend_id, created_by: data.created_by },
+    set: {
+      exam_legend_id: data.exam_legend_id,
+      matches_empty_description: data.matches_empty_description,
+      created_by: data.created_by,
+    },
   });
 }
 
@@ -947,12 +953,20 @@ export async function removeExamCatalogPacsMapping(mappingId: number): Promise<v
     .where(eq(exam_legend_pacs_mappings.id, mappingId));
 }
 
-/** Retorna os mapeamentos ativos e disponíveis para a unidade consultada. */
-export async function getActivePacsExamMappings(unitId: number): Promise<Map<string, { id: number; exam_name: string }>> {
+export type ActivePacsExamMapping = { id: number; exam_name: string; exam_legend_id: number };
+export type ActivePacsExamMappings = {
+  exact: Map<string, ActivePacsExamMapping>;
+  emptyDescription: Map<string, ActivePacsExamMapping>;
+};
+
+/** Retorna mapeamentos textuais e de descrição vazia ativos para a unidade. */
+export async function getActivePacsExamMappings(unitId: number): Promise<ActivePacsExamMappings> {
   const db = await getDb();
-  if (!db) return new Map();
+  if (!db) return { exact: new Map(), emptyDescription: new Map() };
   const rows = await db.select({
+    mapping_id: exam_legend_pacs_mappings.id,
     pacs_description: exam_legend_pacs_mappings.pacs_description,
+    matches_empty_description: exam_legend_pacs_mappings.matches_empty_description,
     modality: exam_legend_pacs_mappings.modality,
     id: exam_legends.id,
     exam_name: exam_legends.exam_name,
@@ -966,10 +980,57 @@ export async function getActivePacsExamMappings(unitId: number): Promise<Map<str
       eq(exam_legends.is_active, true),
       or(isNull(exam_legend_unit_availability.id), eq(exam_legend_unit_availability.is_available, true)),
     ));
-  return new Map(rows.map((row) => [
-    `${row.modality.trim().toUpperCase()}\u0000${row.pacs_description.trim().toUpperCase()}`,
-    { id: row.id, exam_name: row.exam_name },
-  ]));
+  const exact = new Map<string, ActivePacsExamMapping>();
+  const emptyDescription = new Map<string, ActivePacsExamMapping>();
+  for (const row of rows) {
+    const candidate = { id: row.mapping_id, exam_name: row.exam_name, exam_legend_id: row.id };
+    const modality = row.modality.trim().toUpperCase();
+    if (row.matches_empty_description) {
+      emptyDescription.set(modality, candidate);
+      continue;
+    }
+    exact.set(`${modality}\u0000${row.pacs_description.trim().toUpperCase()}`, candidate);
+  }
+  return { exact, emptyDescription };
+}
+
+export type PacsMappingApplicationStatus =
+  | "applied"
+  | "blocked_selection"
+  | "blocked_report"
+  | "blocked_unavailable"
+  | "blocked_no_documents";
+
+async function recordPacsMappingDecision(input: {
+  studyInstanceUid: string;
+  unitId: number;
+  mappingId: number;
+  examLegendId: number;
+  rawDescription: string;
+  decision: PacsMappingApplicationStatus | "failed";
+  reason: string;
+  decidedBy: number;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(pacs_mapping_decisions).values({
+    study_instance_uid: input.studyInstanceUid,
+    unit_id: input.unitId,
+    mapping_id: input.mappingId,
+    exam_legend_id: input.examLegendId,
+    raw_description: input.rawDescription.slice(0, 255),
+    decision: input.decision,
+    reason: input.reason.slice(0, 500),
+    decided_by: input.decidedBy,
+  }).onDuplicateKeyUpdate({
+    set: {
+      decision: input.decision,
+      reason: input.reason.slice(0, 500),
+      raw_description: input.rawDescription.slice(0, 255),
+      exam_legend_id: input.examLegendId,
+      decided_by: input.decidedBy,
+    },
+  });
 }
 
 /**
@@ -979,11 +1040,23 @@ export async function getActivePacsExamMappings(unitId: number): Promise<Map<str
 export async function applyPacsMappedExamLegendIfUnselected(input: {
   studyInstanceUid: string;
   unitId: number;
+  mappingId: number;
   examLegendId: number;
+  rawDescription: string;
   selectedBy: number;
-}): Promise<boolean> {
+}): Promise<PacsMappingApplicationStatus> {
   const db = await getDb();
-  if (!db) return false;
+  if (!db) throw new Error("Database not available");
+
+  const decide = async (decision: PacsMappingApplicationStatus, reason: string) => {
+    await recordPacsMappingDecision({
+      ...input,
+      decision,
+      reason,
+      decidedBy: input.selectedBy,
+    });
+    return decision;
+  };
 
   const existingSelections = await db.select({ id: study_exam_legend_selections.id })
     .from(study_exam_legend_selections)
@@ -991,7 +1064,7 @@ export async function applyPacsMappedExamLegendIfUnselected(input: {
       eq(study_exam_legend_selections.study_instance_uid, input.studyInstanceUid),
       eq(study_exam_legend_selections.unit_id, input.unitId),
     ));
-  if (existingSelections.length) return false;
+  if (existingSelections.length) return decide("blocked_selection", "O estudo já possui seleção de legenda.");
 
   const existingReports = await db.select({ id: reports.id })
     .from(reports)
@@ -999,7 +1072,7 @@ export async function applyPacsMappedExamLegendIfUnselected(input: {
       eq(reports.study_instance_uid, input.studyInstanceUid),
       eq(reports.unit_id, input.unitId),
     ));
-  if (existingReports.length) return false;
+  if (existingReports.length) return decide("blocked_report", "O estudo já possui documento clínico.");
 
   const legendRows = await db.select({ legend: exam_legends })
     .from(exam_legends)
@@ -1011,9 +1084,9 @@ export async function applyPacsMappedExamLegendIfUnselected(input: {
       eq(exam_legends.id, input.examLegendId),
       eq(exam_legends.is_active, true),
       or(isNull(exam_legend_unit_availability.id), eq(exam_legend_unit_availability.is_available, true)),
-    ));
+  ));
   const legend = (legendRows[0] as { legend?: typeof exam_legends.$inferSelect } | undefined)?.legend;
-  if (!legend) return false;
+  if (!legend) return decide("blocked_unavailable", "A legenda está inativa ou indisponível para a unidade.");
 
   const documents = await db.select({
     id: exam_legend_documents.id,
@@ -1023,7 +1096,7 @@ export async function applyPacsMappedExamLegendIfUnselected(input: {
     eq(exam_legend_documents.exam_legend_id, legend.id),
     eq(exam_legend_documents.is_active, true),
   )).orderBy(asc(exam_legend_documents.sort_order), asc(exam_legend_documents.document_label));
-  if (!documents.length) return false;
+  if (!documents.length) return decide("blocked_no_documents", "A legenda não possui documento clínico ativo.");
 
   await db.insert(study_exam_legend_selections).values({
     study_instance_uid: input.studyInstanceUid,
@@ -1038,8 +1111,9 @@ export async function applyPacsMappedExamLegendIfUnselected(input: {
     })),
     financial_event_count: legend.financial_event_count,
     selected_by: input.selectedBy,
+    selection_source: "pacs_auto",
   });
-  return true;
+  return decide("applied", "Legenda canônica aplicada automaticamente pelo mapeamento PACS.");
 }
 
 // ─── User-Unit Permissions ────────────────────────────────────────────────────

@@ -986,6 +986,8 @@ export const study_exam_legend_selections = mysqlTable("study_exam_legend_select
   documents_snapshot: json("documents_snapshot").$type<Array<{ key: string; label: string; sort_order: number }>>().notNull(),
   financial_event_count: int("financial_event_count").notNull().default(1),
   selected_by: int("selected_by").notNull(),
+  /** Identifica seleção humana ou classificação automática do PACS. */
+  selection_source: mysqlEnum("selection_source", ["manual", "pacs_auto"]).notNull().default("manual"),
   selectedAt: timestamp("selectedAt").defaultNow().notNull(),
   lockedAt: timestamp("lockedAt"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -1100,6 +1102,8 @@ export type InsertExamLegendDocument = typeof exam_legend_documents.$inferInsert
 export const exam_legend_pacs_mappings = mysqlTable("exam_legend_pacs_mappings", {
   id: int("id").autoincrement().primaryKey(),
   pacs_description: varchar("pacs_description", { length: 255 }).notNull(),
+  /** Quando ativo, a regra corresponde exclusivamente a StudyDescription vazio. */
+  matches_empty_description: boolean("matches_empty_description").notNull().default(false),
   modality: varchar("modality", { length: 20 }).notNull().default(""),
   exam_legend_id: int("exam_legend_id").notNull(),
   created_by: int("created_by").notNull(),
@@ -1110,6 +1114,25 @@ export const exam_legend_pacs_mappings = mysqlTable("exam_legend_pacs_mappings",
 }));
 export type ExamLegendPacsMapping = typeof exam_legend_pacs_mappings.$inferSelect;
 export type InsertExamLegendPacsMapping = typeof exam_legend_pacs_mappings.$inferInsert;
+
+/** Rastreia decisões automáticas sem registrar nome ou identificador do paciente. */
+export const pacs_mapping_decisions = mysqlTable("pacs_mapping_decisions", {
+  id: int("id").autoincrement().primaryKey(),
+  study_instance_uid: varchar("study_instance_uid", { length: 128 }).notNull(),
+  unit_id: int("unit_id").notNull(),
+  mapping_id: int("mapping_id").notNull(),
+  exam_legend_id: int("exam_legend_id").notNull(),
+  raw_description: varchar("raw_description", { length: 255 }).notNull().default(""),
+  decision: mysqlEnum("decision", ["applied", "blocked_selection", "blocked_report", "blocked_unavailable", "blocked_no_documents", "failed"]).notNull(),
+  reason: varchar("reason", { length: 500 }),
+  decided_by: int("decided_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uqStudyUnitMappingDecision: uniqueIndex("uq_pacs_mapping_decision_study_unit_mapping").on(t.study_instance_uid, t.unit_id, t.mapping_id),
+  unitDecisionIdx: index("idx_pacs_mapping_decisions_unit_decision").on(t.unit_id, t.decision),
+}));
+export type PacsMappingDecision = typeof pacs_mapping_decisions.$inferSelect;
 
 /**
  * Unit Exam Prices — tabela de preços de exames por unidade

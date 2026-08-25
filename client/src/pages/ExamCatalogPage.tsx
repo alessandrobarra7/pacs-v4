@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner";
 
 type CatalogDocument = { id?: number; document_key: string; document_label: string; sort_order: number };
-type CatalogMapping = { id?: number; pacs_description: string; modality: string };
+type CatalogMapping = { id?: number; pacs_description: string; modality: string; matches_empty_description: boolean };
 type CatalogEntry = {
   id: number;
   exam_name: string;
@@ -82,7 +82,7 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
     setDraft({
       ...entry,
       documents: entry.documents.length ? entry.documents.map(({ document_key, document_label, sort_order }) => ({ document_key, document_label, sort_order })) : [emptyDraft().documents[0]],
-      pacsMappings: entry.pacsMappings.map(({ id, pacs_description, modality }) => ({ id, pacs_description, modality })),
+      pacsMappings: entry.pacsMappings.map(({ id, pacs_description, modality, matches_empty_description }) => ({ id, pacs_description, modality, matches_empty_description: Boolean(matches_empty_description) })),
       unavailableUnitIds: entry.unavailableUnitIds ?? [],
     });
     setOpen(true);
@@ -106,8 +106,9 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
         document_label: document.document_label.trim(),
         sort_order: index,
       })),
-      pacsMappings: draft.pacsMappings.filter((mapping) => mapping.pacs_description.trim()).map((mapping) => ({
-        pacs_description: mapping.pacs_description.trim(),
+      pacsMappings: draft.pacsMappings.filter((mapping) => mapping.matches_empty_description || mapping.pacs_description.trim()).map((mapping) => ({
+        pacs_description: mapping.matches_empty_description ? "" : mapping.pacs_description.trim(),
+        matches_empty_description: mapping.matches_empty_description,
         modality: mapping.modality.trim().toUpperCase(),
       })),
       unavailableUnitIds: draft.unavailableUnitIds,
@@ -255,11 +256,11 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
               </section>
 
               <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                <SectionHeader title="5. Mapeamentos PACS" description="Vincule as descrições exatamente como são recebidas pelo PACS." onAdd={() => setDraft({ ...draft, pacsMappings: [...draft.pacsMappings, { pacs_description: "", modality: draft.modality }] })} />
+                <SectionHeader title="5. Mapeamentos PACS" description="Vincule textos reais ou marque explicitamente quando o PACS não envia descrição." onAdd={() => setDraft({ ...draft, pacsMappings: [...draft.pacsMappings, { pacs_description: "", modality: draft.modality, matches_empty_description: false }] })} />
                 <div className="mt-4 space-y-2">
                   {draft.pacsMappings.length ? draft.pacsMappings.map((mapping, index) => <div key={`${mapping.id ?? "new"}-${index}`} className="grid grid-cols-[94px_minmax(0,1fr)_auto] gap-2 rounded-lg border border-slate-800 bg-slate-950/50 p-2">
                     <Input value={mapping.modality} onChange={(event) => setDraft({ ...draft, pacsMappings: draft.pacsMappings.map((current, currentIndex) => currentIndex === index ? { ...current, modality: event.target.value.toUpperCase() } : current) })} className="border-slate-700 bg-slate-900" placeholder="CT" />
-                    <Input value={mapping.pacs_description} onChange={(event) => setDraft({ ...draft, pacsMappings: draft.pacsMappings.map((current, currentIndex) => currentIndex === index ? { ...current, pacs_description: event.target.value } : current) })} className="border-slate-700 bg-slate-900" placeholder="Descrição original PACS" />
+                    <div className="space-y-2"><Input value={mapping.pacs_description} disabled={mapping.matches_empty_description} onChange={(event) => setDraft({ ...draft, pacsMappings: draft.pacsMappings.map((current, currentIndex) => currentIndex === index ? { ...current, pacs_description: event.target.value } : current) })} className="border-slate-700 bg-slate-900 disabled:opacity-50" placeholder={mapping.matches_empty_description ? "Descrição vazia no PACS" : "Descrição original PACS"} /><ToggleField label="Aplicar quando a descrição PACS vier vazia" checked={mapping.matches_empty_description} onChange={(checked) => setDraft({ ...draft, pacsMappings: draft.pacsMappings.map((current, currentIndex) => currentIndex === index ? { ...current, matches_empty_description: checked, pacs_description: checked ? "" : current.pacs_description } : current) })} /></div>
                     <Button variant="ghost" size="icon" className="text-rose-300 hover:bg-rose-500/10 hover:text-rose-200" onClick={() => { if (mapping.id) removeMapping.mutate({ id: mapping.id }); setDraft({ ...draft, pacsMappings: draft.pacsMappings.filter((_, currentIndex) => currentIndex !== index) }); }}><Trash2 className="h-4 w-4" /></Button>
                   </div>) : <p className="rounded-lg border border-dashed border-slate-700 px-3 py-5 text-center text-xs text-slate-500">Nenhuma descrição PACS vinculada. Sem mapeamento, o Portal conserva a descrição original recebida.</p>}
                 </div>

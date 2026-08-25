@@ -12,15 +12,26 @@ describe("mapeamento automático de legenda PACS", () => {
   });
 
   it("preserva seleções existentes e só cria a seleção automática quando houver documentos ativos", () => {
-    expect(dbSource).toContain("if (existingSelections.length) return false;");
-    expect(dbSource).toContain("if (existingReports.length) return false;");
-    expect(dbSource).toContain("if (!documents.length) return false;");
+    expect(dbSource).toContain('return decide("blocked_selection"');
+    expect(dbSource).toContain('return decide("blocked_report"');
+    expect(dbSource).toContain('return decide("blocked_no_documents"');
+    expect(dbSource).toContain('selection_source: "pacs_auto"');
     expect(dbSource).toContain("applyPacsMappedExamLegendIfUnselected");
   });
 
-  it("aplica a sugestão mapeada durante a consulta PACS", () => {
+  it("trata descrição vazia como uma regra explícita, separada do texto de tela", () => {
+    expect(dbSource).toContain("matches_empty_description");
+    expect(dbSource).toContain("emptyDescription: Map<string, ActivePacsExamMapping>");
+    expect(pacsRouterSource).toContain("pacsExamMappings.emptyDescription.get(normalizedModality)");
+    expect(pacsRouterSource).toContain("suggestedPacsMappingId");
+  });
+
+  it("aplica a sugestão mapeada sem permitir que uma falha isolada derrube a consulta", () => {
     expect(pacsRouterSource).toContain("getActivePacsExamMappings(unit.id)");
     expect(pacsRouterSource).toContain("applyPacsMappedExamLegendIfUnselected");
     expect(pacsRouterSource).toContain("examLegendId: study.suggestedExamLegendId");
+    expect(pacsRouterSource).toContain("mappingId: study.suggestedPacsMappingId");
+    expect(pacsRouterSource).toContain("Promise.allSettled");
+    expect(pacsRouterSource).toContain("Falha isolada ao aplicar mapeamento de legenda");
   });
 });

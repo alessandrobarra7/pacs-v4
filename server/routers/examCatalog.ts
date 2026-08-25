@@ -18,8 +18,13 @@ const documentSchema = z.object({
 });
 
 const mappingSchema = z.object({
-  pacs_description: z.string().trim().min(1).max(255),
+  pacs_description: z.string().trim().max(255),
+  matches_empty_description: z.boolean().default(false),
   modality: z.string().trim().max(20).default(""),
+}).superRefine((mapping, ctx) => {
+  if (!mapping.matches_empty_description && !mapping.pacs_description) {
+    ctx.addIssue({ code: "custom", message: "Informe a descrição PACS ou marque descrição vazia.", path: ["pacs_description"] });
+  }
 });
 
 const catalogSchema = z.object({
@@ -35,8 +40,9 @@ const catalogSchema = z.object({
   unavailableUnitIds: z.array(z.number().int().positive()).max(500).default([]),
 });
 
-function mappingKey(mapping: { pacs_description: string; modality: string }) {
-  return `${mapping.modality.trim().toUpperCase()}\u0000${mapping.pacs_description.trim()}`;
+function mappingKey(mapping: { pacs_description: string; modality: string; matches_empty_description: boolean }) {
+  const descriptionKey = mapping.matches_empty_description ? "__EMPTY_DESCRIPTION__" : mapping.pacs_description.trim();
+  return `${mapping.modality.trim().toUpperCase()}\u0000${descriptionKey}`;
 }
 
 function canonicalNameKey(name: string) {
@@ -116,7 +122,8 @@ export const examCatalogRouter = router({
     await replaceExamLegendUnitAvailability(examLegendId, input.unavailableUnitIds, ctx.user.id);
     for (const mapping of input.pacsMappings) {
       await saveExamCatalogPacsMapping({
-        pacs_description: mapping.pacs_description.trim(),
+        pacs_description: mapping.matches_empty_description ? "" : mapping.pacs_description.trim(),
+        matches_empty_description: mapping.matches_empty_description,
         modality: mapping.modality.trim().toUpperCase(),
         exam_legend_id: examLegendId,
         created_by: ctx.user.id,

@@ -181,8 +181,11 @@ export const pacsRouter = router({
               ? meta.patient_name_override.trim()
               : rawName;
             const rawDesc = (s.studyDescription || '').trim();
-            const mappingKey = `${String(s.modality || '').trim().toUpperCase()}\u0000${rawDesc.toUpperCase()}`;
-            const mappedExam = pacsExamMappings.get(mappingKey);
+            const normalizedModality = String(s.modality || '').trim().toUpperCase();
+            const mappingKey = `${normalizedModality}\u0000${rawDesc.toUpperCase()}`;
+            const mappedExam = rawDesc
+              ? pacsExamMappings.exact.get(mappingKey)
+              : pacsExamMappings.emptyDescription.get(normalizedModality);
             const studyDescription = rawDesc;
 
             return {
@@ -195,8 +198,9 @@ export const pacsRouter = router({
               studyTime: s.studyTime || '',
               modality: s.modality || '',
               studyDescription,
-              suggestedExamLegendId: mappedExam?.id ?? null,
+              suggestedExamLegendId: mappedExam?.exam_legend_id ?? null,
               suggestedExamLegendName: mappedExam?.exam_name ?? null,
+              suggestedPacsMappingId: mappedExam?.id ?? null,
               accessionNumber: s.accessionNumber || '',
               numberOfSeries: s.numberOfSeries || 0,
               numberOfInstances: s.numberOfInstances || 0,
@@ -207,15 +211,22 @@ export const pacsRouter = router({
             };
           });
 
-          await Promise.all(studies.map((study: any) => {
-            if (!study.studyInstanceUid || !study.suggestedExamLegendId) return Promise.resolve(false);
+          const mappingResults = await Promise.allSettled(studies.map((study: any) => {
+            if (!study.studyInstanceUid || !study.suggestedExamLegendId || !study.suggestedPacsMappingId) return Promise.resolve(null);
             return applyPacsMappedExamLegendIfUnselected({
               studyInstanceUid: study.studyInstanceUid,
               unitId: unit.id,
+              mappingId: study.suggestedPacsMappingId,
               examLegendId: study.suggestedExamLegendId,
+              rawDescription: study.studyDescription || '',
               selectedBy: ctx.user.id,
             });
           }));
+          for (const result of mappingResults) {
+            if (result.status === "rejected") {
+              console.warn("[PACS Query] Falha isolada ao aplicar mapeamento de legenda:", result.reason);
+            }
+          }
           
           // Persiste estudos no cache local para que modality_snapshot fique disponível na assinatura
           if (studies.length > 0) {
