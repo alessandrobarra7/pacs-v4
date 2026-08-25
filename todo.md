@@ -2916,3 +2916,6 @@
 - [x] Analisar o PDF baixado para identificar escalas, margens e distribuição que precisam de ajuste.
 - [x] Ajustar a composição do PDF sem alterar conteúdo clínico, assinatura, autorização ou configuração institucional.
 - [x] Validar o PDF ajustado e publicar somente após confirmação visual em sandbox.
+
+- [x] Sincronizar o preview do sandbox com o repositório GitHub pacs-v4 no commit d583444 e validar a visualização
+- [ ] Corrigir o carregamento infinito da consulta PACS no preview quando o endpoint externo não conclui
