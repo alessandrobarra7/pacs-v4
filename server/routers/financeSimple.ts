@@ -1522,7 +1522,7 @@ export const financeSimpleRouter = router({
           author_user_id: reports.author_user_id,
           layout_snapshot: reports.layout_snapshot,
           patient_name: studies_cache.patient_name,
-          study_date: studies_cache.study_date,
+          study_date: sql<Date | null>`COALESCE(${reports.study_date_snapshot}, ${studies_cache.study_date})`,
           modality: studies_cache.modality,
           study_description: studies_cache.description,
         })

@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/mysql2";
 import { or, and, eq, like, inArray, SQL, ne, gte, lte, isNull, desc, asc, sql as drizzleSql2, count as drizzleCount, or as _or, and as _and, eq as _eq, lte as _lte, gte as _gte, ne as _ne, inArray as _inArray, isNull as isNullFn, desc as _desc } from "drizzle-orm";
+import { normalizeStudyDate, studyDateToUtcDate } from "./studyDate";
 import { 
   InsertUser, 
   users, 
@@ -2418,7 +2419,7 @@ export async function createBillingVisitEvent(data: {
   const reportKey = `report_${data.report_id}`;
   const normalizedName = (data.patient_name ?? "UNKNOWN")
     .replace(/\^/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
-  const studyDate = data.study_date ?? data.signed_at.toISOString().slice(0, 10);
+  const studyDate = normalizeStudyDate(data.study_date) ?? data.signed_at.toISOString().slice(0, 10);
 
   // Busca ciclos ativos de forma NÃO-BLOQUEANTE.
   // O evento financeiro DEVE ser criado mesmo quando não há ciclo configurado.
@@ -2506,7 +2507,7 @@ export async function createBillingVisitEvent(data: {
     financial_responsible_id: responsibleId,
     report_key: reportKey,
     patient_name: normalizedName,
-    study_date: studyDate ? new Date(studyDate + 'T00:00:00Z') : null,
+    study_date: studyDateToUtcDate(studyDate),
     doctor_cycle_id: doctorCycleId,
     system_cycle_id: systemCycleId,
     system_price_applied: systemAmt !== null ? String(systemAmt) : null,

@@ -2945,6 +2945,9 @@
 - [x] Isolar falhas de aplicação automática por estudo sem interromper a consulta PACS
 - [x] Preservar e atualizar corretamente mapeamentos PACS existentes ao editar o catálogo
 - [x] Documentar o fluxo de mapeamento PACS para descrição DICOM vazia como guia de conhecimento do repositório
+- [x] Investigar a divergência da data de realização exibida após a assinatura no fluxo financeiro e no PDF do laudo
+- [x] Persistir snapshot da data de realização no laudo assinado e usá-lo como fonte primária do PDF financeiro
+- [x] Adicionar migração não destrutiva e fallback seguro para a data de realização em laudos existentes
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação

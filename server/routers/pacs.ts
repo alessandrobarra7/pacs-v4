@@ -250,10 +250,15 @@ export const pacsRouter = router({
                 description: s.studyDescription || null,
               });
             });
-            // Fire-and-forget: não bloqueia resposta ao frontend
-            Promise.all(upsertPromises).catch(err =>
-              console.warn('[PACS Query] upsertStudyCache batch falhou:', err)
-            );
+            // A assinatura usa este cache como fallback para a data clínica.
+            // Aguarda a persistência para não permitir que um laudo seja assinado
+            // antes de o StudyDate da mesma consulta estar disponível.
+            const cacheResults = await Promise.allSettled(upsertPromises);
+            for (const result of cacheResults) {
+              if (result.status === 'rejected') {
+                console.warn('[PACS Query] Falha isolada ao atualizar studies_cache:', result.reason);
+              }
+            }
           }
 
           // Log audit

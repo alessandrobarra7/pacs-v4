@@ -157,6 +157,8 @@ export const reports = mysqlTable("reports", {
   status: mysqlEnum("status", ["draft", "signed", "revised", "cancelled"]).default("draft").notNull(),
   version: int("version").default(1).notNull(),
   previousVersionId: int("previousVersionId"),
+  /** Data de realização clínica preservada no momento da assinatura. */
+  study_date_snapshot: date("study_date_snapshot"),
   signedAt: timestamp("signedAt"),
   signedBy: int("signedBy"),
   export_file_key: varchar("export_file_key", { length: 500 }),

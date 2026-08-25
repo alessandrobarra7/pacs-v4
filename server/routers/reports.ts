@@ -19,6 +19,7 @@ import { eq } from "drizzle-orm";
 import sanitizeHtml from "sanitize-html";
 import { REPORT_SANITIZE_OPTIONS } from "../reportSanitize";
 import { storageGetUrl } from "../storage";
+import { normalizeStudyDate, studyDateToUtcDate } from "../studyDate";
 
 async function resolveReportMedia(reference: string | null | undefined): Promise<string | null> {
   if (!reference) return null;
@@ -343,10 +344,33 @@ export const reportsRouter = router({
           console.error("[Reports] Falha ao exportar laudo assinado para a VM3 (MinIO):", exportErr instanceof Error ? exportErr.message : "erro desconhecido");
         }
 
+        // O PDF financeiro não pode depender exclusivamente do cache PACS, que é
+        // transitório. Congela a data clínica no laudo assinado e busca o cache
+        // apenas quando o editor ainda não recebeu a data do estudo.
+        const effectiveUnitId = report.unit_id ?? ctx.user.unit_id;
+        const studyUid = input.study_instance_uid ?? report.study_instance_uid;
+        let studyDateSnapshot = normalizeStudyDate(input.study_date);
+        if (!studyDateSnapshot && effectiveUnitId && studyUid) {
+          try {
+            const db = await getDb();
+            if (db) {
+              const { studies_cache: sc } = await import('../../drizzle/schema');
+              const cachedStudy = await db.select({ study_date: sc.study_date })
+                .from(sc)
+                .where(and(eq(sc.unit_id, effectiveUnitId), eq(sc.study_instance_uid, studyUid)))
+                .limit(1);
+              studyDateSnapshot = normalizeStudyDate(cachedStudy[0]?.study_date);
+            }
+          } catch (dateLookupErr) {
+            console.warn('[sign] Não foi possível recuperar a data clínica do cache:', dateLookupErr);
+          }
+        }
+
         await updateReport(input.id, {
           status: 'signed',
           signedAt,
           signedBy: ctx.user.id,
+          study_date_snapshot: studyDateToUtcDate(studyDateSnapshot),
           export_file_key: exportKey,
           export_file_url: exportUrl,
           layout_snapshot: input.layout_snapshot ?? null,  // FIX GAP-1: persistir snapshot do layout
@@ -354,8 +378,6 @@ export const reportsRouter = router({
         
         // P2: Usar sempre report.unit_id como fonte de verdade para audit log e evento financeiro
         // input.unit_id é apenas hint de contexto de UI — não deve influenciar dados financeiros
-        const effectiveUnitId = report.unit_id ?? ctx.user.unit_id;
-        const studyUid = input.study_instance_uid ?? report.study_instance_uid;
         await createAuditLog({
           user_id: ctx.user.id,
           unit_id: effectiveUnitId,
@@ -402,7 +424,7 @@ export const reportsRouter = router({
               doctor_user_id: report.author_user_id ?? ctx.user.id,
               patient_name: input.patient_name ?? undefined,
               exam_name_snapshot: input.exam_name ?? undefined,  // FIX ANALISE_GERACAO_DADOS P2
-              study_date: input.study_date ?? undefined,
+              study_date: studyDateSnapshot ?? undefined,
               signed_at: signedAt,
               modality_snapshot: studyModality,
             });
