@@ -9,7 +9,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const oauthPath = path.resolve(__dirname, "_core", "oauth.ts");
+const sessionPath = path.resolve(__dirname, "_core", "session.ts");
+const routersPath = path.resolve(__dirname, "routers.ts");
 
 // ─── Testes: SESSION_DURATION via env (N6) ────────────────────────────────────
 describe("SESSION_DURATION via ENV (N6)", () => {
@@ -40,13 +41,28 @@ describe("SESSION_DURATION via ENV (N6)", () => {
     expect(result).toBe(8);
   });
 
-  it("aplica a mesma duração configurada no JWT e no cookie do callback OAuth", async () => {
-    const source = await fs.readFile(oauthPath, "utf8");
+  it("aplica a duração configurada na sessão local de usuário e senha", async () => {
+    const [sessionSource, routersSource] = await Promise.all([
+      fs.readFile(sessionPath, "utf8"),
+      fs.readFile(routersPath, "utf8"),
+    ]);
 
-    expect(source).toContain("const sessionDurationMs = ENV.sessionDurationHours * 60 * 60 * 1000");
-    expect(source).toContain("expiresInMs: sessionDurationMs");
-    expect(source).toContain("maxAge: sessionDurationMs");
-    expect(source).not.toContain("ONE_YEAR_MS");
+    expect(sessionSource).toContain("export async function signSession");
+    expect(routersSource).toContain("expiresInMs: ENV.sessionDurationHours * 60 * 60 * 1000");
+    expect(routersSource).not.toContain("OAUTH_SERVER_URL");
+  });
+
+  it("assina e valida uma sessão local sem depender de OAuth externo", async () => {
+    const { signSession, verifySession } = await import("./_core/session");
+    const token = await signSession(
+      { openId: "local:teste", name: "Usuário de teste" },
+      { expiresInMs: 60_000 },
+    );
+
+    await expect(verifySession(token)).resolves.toEqual({
+      openId: "local:teste",
+      name: "Usuário de teste",
+    });
   });
 });
 

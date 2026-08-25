@@ -3,11 +3,8 @@ import { ChevronDown, LogOut, Menu, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCallback, useState } from "react";
 
-const LOGO_URL =
-  "https://d2xsxph8kpxj0f.cloudfront.net/310419663028509564/cTdrattvNQ95XCgX9zeyNM/lauds_logo_branco_final_c960f283.png";
-
-const HEADER_BG_URL =
-  "https://d2xsxph8kpxj0f.cloudfront.net/310419663028509564/cTdrattvNQ95XCgX9zeyNM/pacs-header-bg-EmQ3eizgZnzDZaH8fi95eC.webp";
+const LOGO_URL = "/lauds-logo.png";
+const HEADER_BG_URL = "/pacs-header-bg.webp";
 
 interface AppHeaderProps {
   /** Slot de navegação central (botões de abas, etc.) */
@@ -86,10 +83,10 @@ export function AppHeader({ nav, rightSlot, unitSlot, mobileUnitLabel, mobileUni
           />
           <div className="hidden md:flex flex-col">
             <span className="text-white font-semibold text-base tracking-wide leading-tight drop-shadow">
-              Gestão de Laudos Radiológicos
+              Lauds - Sistema de Laudos
             </span>
             <span className="text-cyan-300/80 text-xs tracking-widest uppercase mt-0.5">
-              Sistema PACS
+              Plataforma PACS
             </span>
           </div>
         </button>

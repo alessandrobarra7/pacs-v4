@@ -42,8 +42,6 @@ export function useAuth(options?: UseAuthOptions) {
       }
     } finally {
       utils.auth.me.setData(undefined, null);
-      // SEC-02: limpar qualquer dado residual do usuário no localStorage ao fazer logout
-      localStorage.removeItem("manus-runtime-user-info");
       await utils.auth.me.invalidate();
       // Forçar reload completo para limpar todo o estado React em memória
       window.location.href = "/login";

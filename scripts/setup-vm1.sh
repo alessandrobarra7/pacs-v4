@@ -28,22 +28,11 @@ DATABASE_URL=mysql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}
 # Segredo JWT para sessões (altere para uma string aleatória segura em produção)
 JWT_SECRET=$(openssl rand -hex 32)
 
-# OAuth Manus (não usado em produção local, mas necessário para compilar)
-VITE_APP_ID=local
-OAUTH_SERVER_URL=http://localhost
-VITE_OAUTH_PORTAL_URL=http://localhost
-OWNER_OPEN_ID=local_admin
-OWNER_NAME=Administrador
-
-# Forge API (não usado em produção local)
-BUILT_IN_FORGE_API_URL=http://localhost
-BUILT_IN_FORGE_API_KEY=local
-VITE_FRONTEND_FORGE_API_KEY=local
-VITE_FRONTEND_FORGE_API_URL=http://localhost
-
 # App
 NODE_ENV=production
 PORT=${APP_PORT}
+SESSION_DURATION_HOURS=24
+APP_TIME_ZONE=America/Fortaleza
 EOF
 echo "   ✅ .env criado"
 

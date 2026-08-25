@@ -5,12 +5,12 @@
  */
 import { getSessionCookieOptions } from "./_core/cookies";
 import { COOKIE_NAME } from "@shared/const";
-import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router, protectedProcedure, adminProcedure } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { sdk } from "./_core/sdk";
+import { signSession } from "./_core/session";
+import { ENV } from "./_core/env";
 import { AuthService } from "./auth.service";
 import {
   createAuditLog,
@@ -42,7 +42,6 @@ import { studyPriorityRouter } from "./routers/studyPriority";
 import { studyExamLegendRouter } from "./routers/studyExamLegend";
 
 export const appRouter = router({
-  system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -61,11 +60,10 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         try {
           const user = await AuthService.validateCredentials(input.login, input.password);
-          const token = await sdk.signSession({
-            openId: user.openId,
-            appId: process.env.VITE_APP_ID ?? 'pacs-local',
+          const token = await signSession({
+            openId: user.openId ?? `local:${user.username}`,
             name: user.name ?? user.username ?? 'Usuário',
-          });
+          }, { expiresInMs: ENV.sessionDurationHours * 60 * 60 * 1000 });
           const cookieOptions = getSessionCookieOptions(ctx.req);
           ctx.res.cookie(COOKIE_NAME, token, cookieOptions);
           const sanitizedUser = AuthService.sanitizeUser(user);

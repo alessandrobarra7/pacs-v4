@@ -2919,3 +2919,7 @@
 
 - [x] Sincronizar o preview do sandbox com o repositório GitHub pacs-v4 no commit d583444 e validar a visualização
 - [ ] Corrigir o carregamento infinito da consulta PACS no preview quando o endpoint externo não conclui
+- [x] Remover runtime, telemetria, plugins de build e resíduos públicos vinculados à Manus
+- [x] Internalizar logo e imagem de cabeçalho, criar favicon Lauds e padronizar textos da identidade visual
+- [x] Remover rota OAuth da Manus e código Forge morto, mantendo somente a autenticação e sessão local
+- [x] Validar autenticação local, build, testes e ausência de referências Manus antes da publicação

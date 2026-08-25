@@ -19,25 +19,6 @@ Copie para `.env` na VM1 e preencha os valores correspondentes.
 > **Bug fix N6:** `SESSION_DURATION_HOURS` foi adicionado para evitar o valor hardcoded de 24h.
 > Defina `SESSION_DURATION_HOURS=8` no `.env` para sessões de 8 horas.
 
-## Manus OAuth
-
-| Variável | Obrigatória | Descrição |
-|----------|-------------|-----------|
-| `VITE_APP_ID` | Sim | ID do aplicativo Manus OAuth |
-| `OAUTH_SERVER_URL` | Sim | URL base do servidor OAuth Manus |
-| `VITE_OAUTH_PORTAL_URL` | Sim | URL do portal de login Manus |
-| `OWNER_OPEN_ID` | Sim | OpenID do proprietário do projeto |
-| `OWNER_NAME` | Não | Nome do proprietário |
-
-## Manus Forge API
-
-| Variável | Obrigatória | Descrição |
-|----------|-------------|-----------|
-| `BUILT_IN_FORGE_API_URL` | Sim | URL da API Forge (server-side) |
-| `BUILT_IN_FORGE_API_KEY` | Sim | Bearer token para API Forge (server-side) |
-| `VITE_FRONTEND_FORGE_API_KEY` | Sim | Bearer token para API Forge (frontend) |
-| `VITE_FRONTEND_FORGE_API_URL` | Sim | URL da API Forge (frontend) |
-
 ## Analytics
 
 | Variável | Obrigatória | Descrição |

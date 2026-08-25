@@ -137,9 +137,7 @@ export default function Login() {
             </svg>
           </div>
           <p className="mt-3 text-[0.7rem] font-medium uppercase leading-5 tracking-[0.28em] text-sky-400">
-            Sistema de Laudos
-            <br />
-            Radiológicos
+            Lauds - Sistema de Laudos
           </p>
         </header>
 

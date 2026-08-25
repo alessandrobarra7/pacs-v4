@@ -175,17 +175,10 @@ Criar o arquivo `.env` na raiz do projeto (`/var/www/pacs-portal/.env`):
 ```
 DATABASE_URL=mysql://pacs_user:SUA_SENHA@172.16.3.101:3306/pacs_portal
 JWT_SECRET=GERAR_STRING_ALEATORIA_64_CHARS
-VITE_APP_ID=local
-OAUTH_SERVER_URL=http://localhost
-VITE_OAUTH_PORTAL_URL=
-OWNER_OPEN_ID=local_admin
-OWNER_NAME=Administrador
-BUILT_IN_FORGE_API_URL=http://localhost
-BUILT_IN_FORGE_API_KEY=local
-VITE_FRONTEND_FORGE_API_KEY=local
-VITE_FRONTEND_FORGE_API_URL=http://localhost
 NODE_ENV=production
 PORT=3000
+SESSION_DURATION_HOURS=24
+APP_TIME_ZONE=America/Fortaleza
 ```
 
 Gerar o JWT_SECRET com: `openssl rand -hex 32`

@@ -25,7 +25,6 @@ import net from "net";
 import crypto from "crypto";
 import { Readable } from "node:stream";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { storageKeyFromReference, storageUsesMinio } from "../storage";
@@ -318,7 +317,6 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
-  registerOAuthRoutes(app);
 
   app.get('/api/radiant-assistant-installer', requireAuth, async (_req, res) => {
     await streamRadiantInstaller(res);
