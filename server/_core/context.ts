@@ -23,8 +23,7 @@ export async function createContext(
     const token = cookies[COOKIE_NAME];
 
     if (token) {
-      // 2. Verificar JWT com a mesma chave usada em signSession
-      //    (jose library — mesma usada pelo SDK internamente)
+      // 2. Verificar JWT com a mesma chave usada em signSession local.
       const secretKey = new TextEncoder().encode(ENV.cookieSecret);
       const { payload } = await jwtVerify(token, secretKey, {
         algorithms: ["HS256"],
@@ -32,12 +31,12 @@ export async function createContext(
       const openId = payload.openId as string | undefined;
 
       if (openId) {
-        // 3a. Usuários OAuth: openId real no banco
+        // 3a. Usuários já vinculados por openId no banco.
         const found = await getUserByOpenId(openId);
         if (found) {
           user = found;
         }
-        // 3b. Usuários locais: openId = 'local:<username>' (fallback do auth.ts)
+        // 3b. Usuários locais: openId = 'local:<username>'.
         else if (openId.startsWith("local:")) {
           const username = openId.slice(6); // remove prefixo 'local:'
           const localUser = await getUserByUsernameOrEmail(username);

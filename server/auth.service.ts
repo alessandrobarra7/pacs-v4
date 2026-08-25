@@ -81,11 +81,6 @@ export class AuthService {
     return user;
   }
 
-  // PRG-01: createSession removido — código morto (não chamado em nenhum lugar)
-  // PRG-01: buildSessionCookie removido — código morto (não chamado em nenhum lugar)
-  // PRG-01: verifySession removido — código morto (usa jsonwebtoken, incompatível com sdk.verifySession que usa jose)
-  // A criação/verificação de sessão é feita via sdk em server/_core/context.ts
-
   static sanitizeUser(user: any): AuthResponse {
     return {
       id: user.id,

@@ -12,6 +12,7 @@ import bcrypt from "bcryptjs";
 import { signSession } from "./_core/session";
 import { ENV } from "./_core/env";
 import { AuthService } from "./auth.service";
+import { getLoginErrorMessage } from "./loginErrorMessage";
 import {
   createAuditLog,
   createLocalUser,
@@ -78,13 +79,7 @@ export const appRouter = router({
           });
           return { success: true, user: sanitizedUser };
         } catch (error: any) {
-          const message = error.message === 'USER_NOT_FOUND' || error.message === 'INVALID_PASSWORD'
-            ? 'Credenciais inválidas'
-            : error.message === 'USER_INACTIVE'
-              ? 'Usuário inativo'
-              : error.message === 'ACCOUNT_EXPIRED'
-                ? 'Conta expirada. Entre em contato com o administrador.'
-                : 'Erro ao fazer login';
+          const message = getLoginErrorMessage(error);
           throw new TRPCError({ code: 'UNAUTHORIZED', message });
         }
       }),
