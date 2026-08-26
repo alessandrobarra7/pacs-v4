@@ -1,7 +1,7 @@
 # Guia de Conhecimento — Mapeamento PACS para Descrição DICOM Vazia
 
-**Escopo:** catálogo clínico, worklist PACS e auditoria de seleção automática.  
-**Status:** fluxo ativo a partir da migração `0058_pacs_empty_description_mapping_audit.sql`.  
+**Escopo:** catálogo clínico, worklist PACS e auditoria de seleção automática.
+**Status:** fluxo ativo a partir da migração `0058_pacs_empty_description_mapping_audit.sql`.
 **Público:** administradores raiz, equipe de implantação e desenvolvimento.
 
 ---
