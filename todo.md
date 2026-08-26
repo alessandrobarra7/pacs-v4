@@ -2954,6 +2954,8 @@
 - [x] Corrigir o rótulo de ciclos que cruzam meses e anos sem recalcular valores históricos
 - [x] Reestruturar a tela principal para mostrar apenas o ciclo financeiro atual e seu rendimento operacional
 - [x] Mover a consulta de ciclos anteriores para uma área histórica separada do painel atual
+- [x] Exibir no histórico o fechamento do sistema com eventos, valor total e situação de pagamento
+- [x] Exibir por médico exames, valor devido, situação de pagamento e exportação CSV dos laudos do período
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação

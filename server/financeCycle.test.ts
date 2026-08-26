@@ -38,5 +38,9 @@ describe("ciclo financeiro e valores históricos", () => {
     expect(financeDashboardSource).toContain("Rendimento atual do ciclo");
     expect(financeDashboardSource).toContain("Ciclo atual");
     expect(financeDashboardSource).toContain("Consulta histórica");
+    expect(financeDashboardSource).toContain("Fechamento histórico do período");
+    expect(financeDashboardSource).toContain("Fechamento por médico");
+    expect(financeDashboardSource).toContain("Sistema · eventos");
+    expect(financeDashboardSource).toContain("Exportar CSV");
   });
 });
