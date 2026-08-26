@@ -33,8 +33,10 @@ describe("ciclo financeiro e valores históricos", () => {
   it("transporta a taxa aplicada no evento e a expõe como composição histórica", () => {
     expect(financeRouterSource).toContain("system_rate_applied: billing_catalog_study_events.system_price_applied");
     expect(financeRouterSource).toContain("historical_system_rates");
-    expect(financeDashboardSource).toContain("Taxa para novas assinaturas");
-    expect(financeDashboardSource).toContain("Total histórico do ciclo");
-    expect(financeDashboardSource).toContain("Taxas aplicadas no ciclo");
+    expect(financeDashboardSource).toContain("Valor configurado por evento");
+    expect(financeDashboardSource).toContain("Eventos do ciclo atual");
+    expect(financeDashboardSource).toContain("Rendimento atual do ciclo");
+    expect(financeDashboardSource).toContain("Ciclo atual");
+    expect(financeDashboardSource).toContain("Consulta histórica");
   });
 });
