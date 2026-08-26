@@ -84,6 +84,7 @@ import {
 } from "../db";
 import { canAccessUnit } from "../authorization";
 import { storageGetUrl } from "../storage";
+import { calculateFinancialCycleDates } from "../financeCycle";
 
 // ─── helpers monetários ─────────────────────────────────────────────────────
 
@@ -120,35 +121,7 @@ function calcCycleDates(
   endDay: number | null | undefined,
   refDate: Date
 ): { cycleStart: Date; cycleEnd: Date; label: string } {
-  const sd = startDay ?? 1;
-  const ed = endDay ?? 31;
-  const d = refDate.getDate();
-  const m = refDate.getMonth();
-  const y = refDate.getFullYear();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  if (sd <= ed) {
-    // Ciclo dentro do mesmo mês (ex: 1→31 ou 5→25)
-    return {
-      cycleStart: new Date(y, m, sd),
-      cycleEnd:   new Date(y, m, ed + 1),
-      label: `${pad(sd)}/${pad(m + 1)} – ${pad(ed)}/${pad(m + 1)}`,
-    };
-  } else {
-    // Ciclo cruza meses (ex: 15→14)
-    if (d >= sd) {
-      return {
-        cycleStart: new Date(y, m, sd),
-        cycleEnd:   new Date(y, m + 1, ed + 1),
-        label: `${pad(sd)}/${pad(m + 1)} – ${pad(ed)}/${pad(m + 2)}`,
-      };
-    } else {
-      return {
-        cycleStart: new Date(y, m - 1, sd),
-        cycleEnd:   new Date(y, m, ed + 1),
-        label: `${pad(sd)}/${pad(m)} – ${pad(ed)}/${pad(m + 1)}`,
-      };
-    }
-  }
+  return calculateFinancialCycleDates(startDay, endDay, refDate);
 }
 
 function formatCycleCalendarDate(value: Date): string {
@@ -171,6 +144,7 @@ type UnitCycleFinancialEvent = {
   clinical_label: string | null;
   doctor_name: string | null;
   signed_at: Date | null;
+  system_rate_applied: number | string | null;
   doctor_amount_due: number | string | null;
   system_amount_due: number | string | null;
   doctor_received_at: Date | null;
@@ -202,6 +176,7 @@ async function listUnitCycleFinancialEvents(
         clinical_label: billing_visit_events.exam_name_snapshot,
         doctor_user_id: billing_visit_events.doctor_user_id,
         signed_at: billing_visit_events.signed_at,
+        system_rate_applied: billing_visit_events.system_price_applied,
         doctor_amount_due: billing_visit_events.doctor_amount_due,
         system_amount_due: billing_visit_events.system_amount_due,
         doctor_received_at: billing_visit_events.doctor_received_at,
@@ -226,6 +201,7 @@ async function listUnitCycleFinancialEvents(
         clinical_label: billing_catalog_study_events.exam_name_snapshot,
         doctor_user_id: billing_catalog_study_events.doctor_user_id,
         signed_at: billing_catalog_study_events.signed_at,
+        system_rate_applied: billing_catalog_study_events.system_price_applied,
         doctor_amount_due: billing_catalog_study_events.price_applied,
         system_amount_due: billing_catalog_study_events.system_amount_due,
         doctor_received_at: billing_catalog_study_events.doctor_received_at,
@@ -263,6 +239,7 @@ async function listUnitCycleFinancialEvents(
       clinical_label: event.clinical_label,
       doctor_name: null,
       signed_at: event.signed_at,
+      system_rate_applied: event.system_rate_applied,
       doctor_amount_due: event.doctor_amount_due,
       system_amount_due: event.system_amount_due,
       doctor_received_at: event.doctor_received_at,
@@ -314,6 +291,7 @@ async function listUnitCycleFinancialEvents(
       clinical_label: event.clinical_label,
       doctor_name: doctorNameById.get(event.doctor_user_id) ?? null,
       signed_at: event.signed_at,
+      system_rate_applied: event.system_rate_applied,
       doctor_amount_due: event.doctor_amount_due,
       system_amount_due: event.system_amount_due,
       doctor_received_at: event.doctor_received_at,
@@ -665,12 +643,23 @@ export const financeSimpleRouter = router({
           const { cycleStart, cycleEnd, label: cycle_label } = calcCycleDates(u.s, u.e, refDate);
           const events = await listUnitCycleFinancialEvents(db, u.id, cycleStart, cycleEnd, false);
           const activeEvents = events.filter((event) => event.financial_status === 'active');
+          const historicalRateCounts = new Map<number, number>();
+          for (const event of activeEvents) {
+            if (event.system_rate_applied === null || event.system_rate_applied === undefined) continue;
+            const rate = toMoney(event.system_rate_applied);
+            historicalRateCounts.set(rate, (historicalRateCounts.get(rate) ?? 0) + 1);
+          }
+          const historical_system_rates = Array.from(historicalRateCounts.entries())
+            .sort(([left], [right]) => left - right)
+            .map(([rate, event_count]) => ({ rate, event_count }));
           return {
             unit_id: u.id,
             unit_name: u.name ?? "Unidade",
             cycle_label,
             cycle_start_date: cycleStart.toISOString(),
             cycle_end_date: cycleEnd.toISOString(),
+            historical_system_rates,
+            has_multiple_system_rates: historical_system_rates.length > 1,
             total_laudos: activeEvents.length,
             system_total: toMoney(activeEvents.reduce((total, event) => total + toMoney(event.system_amount_due), 0)),
             doctor_total: toMoney(activeEvents.reduce((total, event) => total + toMoney(event.doctor_amount_due), 0)),
@@ -688,6 +677,8 @@ export const financeSimpleRouter = router({
         cycle_label: r.cycle_label,
         cycle_start_date: r.cycle_start_date,
         cycle_end_date: r.cycle_end_date,
+        historical_system_rates: r.historical_system_rates,
+        has_multiple_system_rates: r.has_multiple_system_rates,
         total_laudos: Number(r.total_laudos),
         system_total: toMoney(r.system_total),
         doctor_total: toMoney(r.doctor_total),

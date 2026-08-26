@@ -2949,6 +2949,9 @@
 - [x] Persistir snapshot da data de realização no laudo assinado e usá-lo como fonte primária do PDF financeiro
 - [x] Adicionar migração não destrutiva e fallback seguro para a data de realização em laudos existentes
 - [x] Remover whitespace residual da documentação que bloqueou a validação `git diff --check` na VM1
+- [x] Investigar a discrepância visual entre a taxa vigente da unidade e a soma histórica do ciclo financeiro
+- [x] Exibir período exato do ciclo, taxa para novas assinaturas e composição histórica do total financeiro
+- [x] Corrigir o rótulo de ciclos que cruzam meses e anos sem recalcular valores históricos
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação
