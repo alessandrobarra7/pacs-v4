@@ -1,8 +1,8 @@
 # Runbook de Migração para Infraestrutura Maior
 
-**Sistema:** PACS Portal / LAUDS  
-**Repositório de origem:** `https://github.com/alessandrobarra7/pacs-v4.git`  
-**Objetivo:** transferir o ambiente de produção para servidores com maior capacidade, preservando aplicação, banco de dados, arquivos clínicos, configurações e operação.  
+**Sistema:** PACS Portal / LAUDS
+**Repositório de origem:** `https://github.com/alessandrobarra7/pacs-v4.git`
+**Objetivo:** transferir o ambiente de produção para servidores com maior capacidade, preservando aplicação, banco de dados, arquivos clínicos, configurações e operação.
 **Atualizado em:** 26/08/2026
 
 > Este documento é um roteiro de continuidade operacional. Ele não deve ser executado integralmente sem preencher os valores marcados com `<...>` e sem validar cada etapa no ambiente de destino. **Nunca** registrar senhas, chaves JWT ou chaves MinIO neste arquivo, no Git ou em conversas.
@@ -242,7 +242,7 @@ Crie os arquivos de ambiente com permissão `600` e proprietário do usuário qu
 |---|---|
 | Banco e sessão | `DATABASE_URL`, `JWT_SECRET` |
 | Object storage | `MINIO_ENDPOINT`, `MINIO_PORT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET` |
-| PACS/DICOM | Configurações PACS por unidade e dependências Python | 
+| PACS/DICOM | Configurações PACS por unidade e dependências Python |
 | Aplicação | `NODE_ENV`, endereço/porta interna e origem pública autorizada |
 
 Mantenha a ordem de leitura compatível com o bootstrap atual: arquivo operacional em `/opt/pacs-portal/.env` antes do `.env` localizado na raiz efetiva da aplicação. Se optar por consolidar ambos em um único cofre/arquivo, faça isso em uma alteração separada, testada antes da migração.[2]
@@ -329,8 +329,8 @@ Alguns documentos e scripts antigos descrevem OAuth Manus, `pacs_app`, caminhos 
 
 Este runbook consolida a estratégia de movimentação de infraestrutura. Para decisões específicas, use as fontes abaixo; se houver conflito sobre schema ou comportamento, o código do commit aprovado prevalece.[4]
 
-[1] [Arquitetura operacional de três VMs](ARQUITETURA_3_VMS_PACS.md)  
-[2] [Bootstrap cumulativo de variáveis de ambiente](../server/_core/envBootstrap.ts)  
-[3] [Scripts de execução e build](../package.json)  
-[4] [Guia canônico da VM2 e migrations](GUIA_VM2_BANCO_MESTRE.md)  
+[1] [Arquitetura operacional de três VMs](ARQUITETURA_3_VMS_PACS.md)
+[2] [Bootstrap cumulativo de variáveis de ambiente](../server/_core/envBootstrap.ts)
+[3] [Scripts de execução e build](../package.json)
+[4] [Guia canônico da VM2 e migrations](GUIA_VM2_BANCO_MESTRE.md)
 [5] [Camada atual de storage](../server/storage.ts)
