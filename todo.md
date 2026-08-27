@@ -2956,6 +2956,8 @@
 - [x] Mover a consulta de ciclos anteriores para uma área histórica separada do painel atual
 - [x] Exibir no histórico o fechamento do sistema com eventos, valor total e situação de pagamento
 - [x] Exibir por médico exames, valor devido, situação de pagamento e exportação CSV dos laudos do período
+- [ ] Catalogar e documentar arquitetura, funcionalidades, dados, fluxos e operação atual do PACS Portal
+- [x] Documentar passo a passo a migração do PACS Portal para uma infraestrutura maior, com virada e reversão seguras
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação
