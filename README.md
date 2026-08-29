@@ -31,6 +31,7 @@ Sistema web completo para gestão de laudos radiológicos com integração DICOM
 19. [Guia operacional: descrição DICOM vazia](docs/GUIA_MAPEAMENTO_PACS_DESCRICAO_DICOM_VAZIA.md)
 20. [Guia operacional: snapshot da data de realização](docs/GUIA_SNAPSHOT_DATA_REALIZACAO_LAUDOS.md)
 21. [Runbook: migração para infraestrutura maior](docs/RUNBOOK_MIGRACAO_INFRAESTRUTURA_MAIOR.md)
+22. [Registro de prontidão: integração PACS Mobile](docs/REGISTRO_PRONTIDAO_INTEGRACAO_PACS_MOBILE.md)
 
 ---
 
