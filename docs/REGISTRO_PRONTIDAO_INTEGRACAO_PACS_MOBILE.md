@@ -76,15 +76,35 @@ O Portal mantém o Orthanc e o MinIO fora do alcance direto do frontend. A rota 
 | Viewer | **Disponível no Portal web** | Para v1, recomendar consulta/preview e controles básicos; ferramentas diagnósticas avançadas exigem escopo próprio |
 | Armazenamento offline | **Não aprovado/definido** | Manter sem persistência de DICOM ou laudos completos offline até decisão formal de privacidade |
 
-## 6. Decisões necessárias antes de desenvolver o aplicativo
+## 6. Decisões de pré-desenvolvimento registradas em 29/08/2026
 
-1. Criar ou indicar uma homologação com banco separado e estudos anonimizados/sintéticos.
-2. Definir o escopo da primeira versão: somente consulta, ou também laudos, anamnese, prioridade, áudio, download e compartilhamento.
-3. Definir os perfis iniciais e uma conta de teste por perfil, fornecida somente por canal seguro quando for necessária.
-4. Autorizar formalmente a extensão de autenticação móvel: token curto, refresh/reautenticação, revogação e auditoria.
-5. Aprovar a política de privacidade para acesso móvel e a decisão de não armazenar conteúdo clínico offline na primeira versão.
-6. Fixar limites de paginação, intervalo de datas, tamanho de mídia e timeout de consulta PACS.
-7. Definir responsável pela homologação, janela de publicação e procedimento de rollback.
+O checklist fornecido pelo responsável operacional definiu o escopo inicial e os limites abaixo. Estas decisões orientam o planejamento técnico, mas não substituem uma autorização explícita para implantar a extensão de autenticação móvel no ambiente real.
+
+| Tema | Decisão registrada |
+|---|---|
+| Escopo da versão 1 | Consulta de estudos, laudos, anamnese e prioridade clínica |
+| Perfis inicialmente considerados | `medico`, `unit_admin`, `viewer` e `operador` |
+| Conteúdo offline | Nenhum dado clínico offline; somente a sessão móvel no cofre seguro do aparelho |
+| Estudos por página | Padrão 20; limite máximo planejado de 50 |
+| Pesquisa por data | Intervalo máximo planejado de 31 dias |
+| Resultados sem refinamento | Máximo planejado de 200 antes de exigir filtro adicional |
+| Timeout C-FIND | Deve ser definido separadamente do timeout C-GET; valor ainda pendente de aprovação operacional |
+| Homologação, publicação e rollback | Alessandro é o responsável designado |
+
+### 6.1 Pré-requisitos que ainda bloqueiam testes contra ambiente real
+
+1. Criar ou indicar uma homologação com banco separado de produção.
+2. Disponibilizar estudo DICOM sintético ou anonimizado para testar consulta, séries, miniaturas e preview sem expor dados clínicos.
+3. Criar contas de teste por canal seguro quando a homologação estiver disponível.
+
+### 6.2 Confirmações necessárias antes da publicação controlada
+
+1. Reconfirmar na VM1 o commit em produção, versões de Node.js e pnpm e o estado PM2.
+2. Confirmar se Nginx força HTTP para HTTPS e se existe WAF, VPN ou proxy corporativo que afete chamadas externas de dispositivos móveis.
+3. Confirmar que o domínio público pode ser alcançado fora da rede das unidades no comportamento esperado do aplicativo.
+4. Definir o valor nominal de timeout C-FIND, limites de mídia e quais modalidades integrar no piloto.
+5. Formalizar a autorização da nova camada de token móvel: acesso curto, renovação/reautenticação, revogação por dispositivo e auditoria.
+6. Aprovar as regras de privacidade para laudo, anamnese e prioridade no dispositivo móvel.
 
 ## 7. Ordem segura de implementação futura
 
