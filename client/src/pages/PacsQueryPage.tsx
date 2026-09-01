@@ -451,12 +451,17 @@ function ExamName({ value }: { value: string }) {
   );
 }
 
-const LEGEND_MODAL_MODALITIES = ["CT", "RM", "CR", "US"] as const;
+const LEGEND_MODAL_MODALITIES = [
+  { value: "CT", label: "CT" },
+  { value: "MR", label: "RM" },
+  { value: "CR", label: "CR" },
+  { value: "US", label: "US" },
+] as const;
 
 function StudyLegendPicker({ study, selections, canSelect, children }: { study: any; selections: any[]; canSelect: boolean; children?: React.ReactNode }) {
   const utils = trpc.useUtils();
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedModality, setSelectedModality] = useState<(typeof LEGEND_MODAL_MODALITIES)[number] | null>(null);
+  const [selectedModality, setSelectedModality] = useState<(typeof LEGEND_MODAL_MODALITIES)[number]["value"] | null>(null);
   const [search, setSearch] = useState("");
   const [draftLegendIds, setDraftLegendIds] = useState<number[]>([]);
   const { data: legends = [] } = trpc.studyExamLegend.listForStudy.useQuery(
@@ -487,6 +492,9 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
   const legendsForModality = selectedModality
     ? legends.filter((legend) => legend.modality === selectedModality && legend.exam_name.toLocaleLowerCase("pt-BR").includes(search.trim().toLocaleLowerCase("pt-BR")))
     : [];
+  const selectedModalityLabel = selectedModality
+    ? LEGEND_MODAL_MODALITIES.find((modality) => modality.value === selectedModality)?.label ?? selectedModality
+    : "";
   const selectedLegendItems = draftLegendIds.map((legendId) => {
     const selection = selections.find((item) => item.exam_legend_id === legendId);
     const legend = legends.find((item) => item.id === legendId);
@@ -510,7 +518,7 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
               <div className="flex items-start gap-2">
                 {selectedModality && <button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} className="mt-0.5 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Voltar para modalidades"><ChevronLeft className="h-5 w-5" /></button>}
                 <div>
-                  <h2 id={`legend-modal-title-${study.studyInstanceUid}`} className="text-base font-semibold text-slate-900">{selectedModality ? `Exames cadastrados · ${selectedModality}` : "Compor exames do estudo"}</h2>
+                  <h2 id={`legend-modal-title-${study.studyInstanceUid}`} className="text-base font-semibold text-slate-900">{selectedModality ? `Exames cadastrados · ${selectedModalityLabel}` : "Compor exames do estudo"}</h2>
                   <p className="mt-0.5 text-xs text-slate-500">{selectedModality ? "Marque um ou mais exames. Cada legenda terá seus laudos e eventos próprios." : "Escolha CT, RM, CR ou US para montar a composição clínica deste estudo."}</p>
                 </div>
               </div>
@@ -521,20 +529,20 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
 
             {selectedModality ? (
               <>
-                <div className="border-b border-slate-100 px-5 py-3"><div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Buscar exame ${selectedModality}...`} autoFocus className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></div></div>
+                <div className="border-b border-slate-100 px-5 py-3"><div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Buscar exame ${selectedModalityLabel}...`} autoFocus className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></div></div>
                 <div className="flex-1 overflow-y-auto px-5 py-4">
                   {legendsForModality.length ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{legendsForModality.map((legend) => {
                     const current = selections.find((selection) => selection.exam_legend_id === legend.id);
                     const selected = draftLegendIds.includes(legend.id);
                     const locked = Boolean(current?.lockedAt);
                     return <button type="button" key={legend.id} disabled={confirmSelections.isPending || (locked && selected)} onClick={() => setDraftLegendIds((currentIds) => selected ? currentIds.filter((id) => id !== legend.id) : [...currentIds, legend.id])} className={`flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${selected ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-700 hover:border-cyan-300 hover:bg-cyan-50"} ${locked ? "cursor-not-allowed opacity-80" : ""}`}><span>{legend.exam_name}</span><span className="flex items-center gap-1">{locked && <span className="text-[10px] text-slate-500">Bloqueada</span>}{selected && <Check className="h-4 w-4 shrink-0 text-cyan-600" />}</span></button>;
-                  })}</div> : <div className="py-10 text-center text-sm text-slate-500">Nenhum exame {selectedModality} está disponível para esta unidade.</div>}
+                  })}</div> : <div className="py-10 text-center text-sm text-slate-500">Nenhum exame {selectedModalityLabel} está disponível para esta unidade.</div>}
                 </div>
               </>
             ) : (
               <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">{LEGEND_MODAL_MODALITIES.map((modality) => {
-                const availableCount = legends.filter((legend) => legend.modality === modality).length;
-                return <button type="button" key={modality} onClick={() => setSelectedModality(modality)} className="flex min-h-28 flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-4 text-center transition-colors hover:border-cyan-400 hover:bg-cyan-50 focus-visible:ring-2 focus-visible:ring-cyan-500"><span className="text-2xl font-bold tracking-tight text-slate-900">{modality}</span><span className="mt-2 text-xs text-slate-500">{availableCount} exame{availableCount === 1 ? "" : "s"} disponível{availableCount === 1 ? "" : "is"}</span></button>;
+                const availableCount = legends.filter((legend) => legend.modality === modality.value).length;
+                return <button type="button" key={modality.value} onClick={() => setSelectedModality(modality.value)} className="flex min-h-28 flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-4 text-center transition-colors hover:border-cyan-400 hover:bg-cyan-50 focus-visible:ring-2 focus-visible:ring-cyan-500"><span className="text-2xl font-bold tracking-tight text-slate-900">{modality.label}</span><span className="mt-2 text-xs text-slate-500">{availableCount} exame{availableCount === 1 ? "" : "s"} disponível{availableCount === 1 ? "" : "is"}</span></button>;
               })}</div>
             )}
 

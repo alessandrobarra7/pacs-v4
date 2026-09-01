@@ -2961,6 +2961,8 @@
 - [x] Avaliar e registrar quais dados, contratos e lacunas existem para integrar um cliente PACS Mobile ao ambiente atual
 - [x] Preencher e registrar o formulário de coleta técnica PACS Mobile sem expor segredos ou dados clínicos reais
 - [x] Registrar o escopo aprovado do PACS Mobile v1 e os pré-requisitos pendentes de homologação e estudo anonimizado
+- [x] Analisar o patch de autenticação móvel e documentar as mudanças necessárias sem aplicá-lo ao código original
+- [x] Corrigir o seletor de legendas para filtrar ressonância pelo código DICOM MR e exibir o rótulo RM
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação

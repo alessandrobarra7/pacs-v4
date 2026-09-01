@@ -12,9 +12,13 @@ describe("modal visual de legenda canônica", () => {
   });
 
   it("abre primeiro as modalidades e depois permite marcar e confirmar vários exames do administrador", () => {
-    expect(pageSource).toContain('const LEGEND_MODAL_MODALITIES = ["CT", "RM", "CR", "US"] as const');
+    expect(pageSource).toContain('{ value: "MR", label: "RM" }');
+    expect(pageSource).toContain('setSelectedModality(modality.value)');
+    expect(pageSource).toContain('legend.modality === modality.value');
+    expect(pageSource).toContain('const selectedModalityLabel = selectedModality');
     expect(pageSource).toContain("const legendsForModality = selectedModality");
-    expect(pageSource).toContain("Buscar exame ${selectedModality}...");
+    expect(pageSource).toContain("Buscar exame ${selectedModalityLabel}...");
+    expect(pageSource).toContain("Nenhum exame {selectedModalityLabel} está disponível para esta unidade.");
     expect(pageSource).toContain("legendsForModality.map((legend)");
     expect(pageSource).toContain("confirmSelections.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendIds: draftLegendIds })");
     expect(pageSource).toContain("Confirmar seleção");
