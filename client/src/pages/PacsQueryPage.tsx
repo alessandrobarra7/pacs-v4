@@ -1,6 +1,7 @@
 import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import { trpc } from "@/lib/trpc";
+import { normalizeDicomModality } from "@shared/modality";
 import {
   Search, Eye, FileText, Printer, Paperclip,
   Clipboard, Settings, DollarSign,
@@ -465,7 +466,7 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
   const [search, setSearch] = useState("");
   const [draftLegendIds, setDraftLegendIds] = useState<number[]>([]);
   const { data: legends = [] } = trpc.studyExamLegend.listForStudy.useQuery(
-    { studyInstanceUid: study.studyInstanceUid, modality: study.modality || "OUTROS" },
+    { studyInstanceUid: study.studyInstanceUid },
     { enabled: Boolean(study.studyInstanceUid && canSelect), staleTime: 0, refetchOnMount: "always", refetchOnWindowFocus: true },
   );
   const closeModal = () => {
@@ -495,6 +496,8 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
   const selectedModalityLabel = selectedModality
     ? LEGEND_MODAL_MODALITIES.find((modality) => modality.value === selectedModality)?.label ?? selectedModality
     : "";
+  const studyModality = normalizeDicomModality(study.modality);
+  const allowedModalities = LEGEND_MODAL_MODALITIES.filter((modality) => modality.value === studyModality);
   const selectedLegendItems = draftLegendIds.map((legendId) => {
     const selection = selections.find((item) => item.exam_legend_id === legendId);
     const legend = legends.find((item) => item.id === legendId);
@@ -519,7 +522,7 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
                 {selectedModality && <button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} className="mt-0.5 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Voltar para modalidades"><ChevronLeft className="h-5 w-5" /></button>}
                 <div>
                   <h2 id={`legend-modal-title-${study.studyInstanceUid}`} className="text-base font-semibold text-slate-900">{selectedModality ? `Exames cadastrados · ${selectedModalityLabel}` : "Compor exames do estudo"}</h2>
-                  <p className="mt-0.5 text-xs text-slate-500">{selectedModality ? "Marque um ou mais exames. Cada legenda terá seus laudos e eventos próprios." : "Escolha CT, RM, CR ou US para montar a composição clínica deste estudo."}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{selectedModality ? "Marque um ou mais exames. Cada legenda terá seus laudos e eventos próprios." : "Escolha a modalidade informada pelo PACS para montar a composição clínica deste estudo."}</p>
                 </div>
               </div>
               <button type="button" onClick={closeModal} className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Fechar composição de exames"><X className="h-5 w-5" /></button>
@@ -540,10 +543,10 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
                 </div>
               </>
             ) : (
-              <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">{LEGEND_MODAL_MODALITIES.map((modality) => {
+              <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">{allowedModalities.map((modality) => {
                 const availableCount = legends.filter((legend) => legend.modality === modality.value).length;
                 return <button type="button" key={modality.value} onClick={() => setSelectedModality(modality.value)} className="flex min-h-28 flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-4 text-center transition-colors hover:border-cyan-400 hover:bg-cyan-50 focus-visible:ring-2 focus-visible:ring-cyan-500"><span className="text-2xl font-bold tracking-tight text-slate-900">{modality.label}</span><span className="mt-2 text-xs text-slate-500">{availableCount} exame{availableCount === 1 ? "" : "s"} disponível{availableCount === 1 ? "" : "is"}</span></button>;
-              })}</div>
+              })}{!allowedModalities.length && <div className="col-span-full py-8 text-center text-sm text-slate-500">A modalidade deste estudo não está disponível para composição clínica.</div>}</div>
             )}
 
             <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"><span className="text-xs text-slate-500">{draftLegendIds.length} legenda{draftLegendIds.length === 1 ? "" : "s"} na composição</span><div className="flex gap-2"><button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} disabled={!selectedModality} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:invisible">Voltar</button><button type="button" disabled={!draftLegendIds.length || confirmSelections.isPending} onClick={() => confirmSelections.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendIds: draftLegendIds })} className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-cyan-600 disabled:cursor-not-allowed disabled:opacity-50">{confirmSelections.isPending ? "Confirmando…" : "Confirmar seleção"}</button></div></div>

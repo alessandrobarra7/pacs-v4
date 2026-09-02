@@ -8,11 +8,7 @@ import {
   study_exam_legend_selections,
 } from "../drizzle/schema";
 import { getDb, selectActiveByVigency } from "./db";
-
-function normalizeModality(modality: string | null | undefined) {
-  const normalized = (modality ?? "").trim().toUpperCase();
-  return normalized === "RM" ? "MR" : normalized;
-}
+import { normalizeDicomModality } from "../shared/modality";
 
 /**
  * Bloqueia a legenda na primeira assinatura e cria eventos financeiros somente
@@ -52,7 +48,7 @@ export async function createCatalogEventsWhenComplete(input: { studyUid: string;
     eq(billing_catalog_study_events.financial_status, "active"),
   ));
   if (existing.length) return { handled: true, created: 0 };
-  const modality = normalizeModality(selection.modality_snapshot);
+  const modality = normalizeDicomModality(selection.modality_snapshot);
   const [doctorModalityRows, unitModalityRows, systemPriceRows] = await Promise.all([
     db.select().from(billing_doctor_modality_prices).where(and(
       eq(billing_doctor_modality_prices.unit_id, input.unitId),

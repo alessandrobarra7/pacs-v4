@@ -18,6 +18,10 @@ O ambiente de desenvolvimento não retornou estudos no momento da verificação,
 | TypeScript | `pnpm check` aprovado |
 | Build de produção | `pnpm build` aprovado |
 
+## Observação sobre o preview
+
+Durante a verificação posterior ao reinício automático do ambiente de desenvolvimento, a captura do preview permaneceu na tela transitória **Carregando**. Os logs indicaram reinício concluído do servidor e uma consulta C-FIND sem estudos retornados, sem erro novo associado à regra de modalidade. Como o sandbox não dispõe de um estudo compatível para abrir o modal, a confirmação visual da composição continua dependente do teste guiado em produção.
+
 ## Validação funcional pendente em produção
 
 Quando existir um estudo de modalidade `MR`, abrir **Compor exames do estudo**, selecionar a aba **RM** e confirmar que uma legenda cadastrada como `MR` aparece, pode ser selecionada e é preservada ao reabrir o estudo.

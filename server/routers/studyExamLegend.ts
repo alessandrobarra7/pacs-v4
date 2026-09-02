@@ -5,11 +5,13 @@ import {
   exam_legends,
   exam_legend_documents,
   exam_legend_unit_availability,
+  studies_cache,
   study_exam_legend_selections,
 } from "../../drizzle/schema";
 import { assertDicomFileAccess } from "../authorization";
 import { createAuditLog, getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { getSingleStudyModality, normalizeDicomModality } from "../../shared/modality";
 
 const selectableRoles = new Set(["operador", "atendente", "medico", "admin_master"]);
 type LegendRow = typeof exam_legends.$inferSelect;
@@ -45,12 +47,32 @@ function snapshotDocumentKey(legendId: number, documentId: number) {
   return `legend_${legendId}_document_${documentId}`;
 }
 
+/** A modalidade da composição é sempre resolvida no servidor, nunca recebida do cliente. */
+async function resolveStudyModality(db: any, studyInstanceUid: string, unitId: number): Promise<string> {
+  const rows = await db.select({ modality: studies_cache.modality })
+    .from(studies_cache)
+    .where(and(
+      eq(studies_cache.study_instance_uid, studyInstanceUid),
+      eq(studies_cache.unit_id, unitId),
+    ))
+    .limit(1);
+  const modality = getSingleStudyModality(rows[0]?.modality);
+  if (!modality) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A modalidade única do estudo não está disponível para composição clínica.",
+    });
+  }
+  return modality;
+}
+
 async function synchronizeSelections(input: {
   db: any;
   studyInstanceUid: string;
   unitId: number;
   examLegendIds: number[];
   selectedBy: number;
+  studyModality: string;
 }) {
   const examLegendIds = Array.from(new Set(input.examLegendIds));
   const existing: SelectionRow[] = await input.db.select().from(study_exam_legend_selections).where(and(
@@ -72,6 +94,13 @@ async function synchronizeSelections(input: {
     : [];
   if (legends.length !== mutableLegendIds.length) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Uma ou mais legendas não estão ativas ou não estão disponíveis para esta unidade." });
+  }
+  const incompatibleLegend = legends.find((legend) => normalizeDicomModality(legend.modality) !== input.studyModality);
+  if (incompatibleLegend) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `A legenda "${incompatibleLegend.exam_name}" é de modalidade ${incompatibleLegend.modality}, incompatível com a modalidade do estudo (${input.studyModality}).`,
+    });
   }
 
   const documents = mutableLegendIds.length
@@ -142,11 +171,12 @@ async function synchronizeSelections(input: {
 
 export const studyExamLegendRouter = router({
   listForStudy: protectedProcedure
-    .input(z.object({ studyInstanceUid: z.string().min(1), modality: z.string().trim().min(1) }))
+    .input(z.object({ studyInstanceUid: z.string().min(1) }))
     .query(async ({ input, ctx }) => {
       const unitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados indisponível." });
+      const studyModality = await resolveStudyModality(db, input.studyInstanceUid, unitId);
       return db.select({
         id: exam_legends.id,
         exam_name: exam_legends.exam_name,
@@ -160,6 +190,7 @@ export const studyExamLegendRouter = router({
         ))
         .where(and(
           eq(exam_legends.is_active, true),
+          eq(exam_legends.modality, studyModality),
           or(isNull(exam_legend_unit_availability.id), eq(exam_legend_unit_availability.is_available, true)),
         ))
         .orderBy(asc(exam_legends.modality), asc(exam_legends.sort_order), asc(exam_legends.exam_name));
@@ -187,12 +218,14 @@ export const studyExamLegendRouter = router({
       const unitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados indisponível." });
+      const studyModality = await resolveStudyModality(db, input.studyInstanceUid, unitId);
       const result = await synchronizeSelections({
         db,
         studyInstanceUid: input.studyInstanceUid,
         unitId,
         examLegendIds: input.examLegendIds,
         selectedBy: ctx.user.id,
+        studyModality,
       });
       await createAuditLog({ user_id: ctx.user.id, unit_id: unitId, action: "EDIT_STUDY_METADATA", target_type: "STUDY_EXAM_LEGEND", target_id: input.studyInstanceUid });
       return {
@@ -211,6 +244,7 @@ export const studyExamLegendRouter = router({
       const unitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados indisponível." });
+      const studyModality = await resolveStudyModality(db, input.studyInstanceUid, unitId);
       const existing = await db.select({ exam_legend_id: study_exam_legend_selections.exam_legend_id })
         .from(study_exam_legend_selections)
         .where(and(
@@ -223,6 +257,7 @@ export const studyExamLegendRouter = router({
         unitId,
         examLegendIds: [...existing.map((selection: { exam_legend_id: number }) => selection.exam_legend_id), input.examLegendId],
         selectedBy: ctx.user.id,
+        studyModality,
       });
       await createAuditLog({ user_id: ctx.user.id, unit_id: unitId, action: "EDIT_STUDY_METADATA", target_type: "STUDY_EXAM_LEGEND", target_id: input.studyInstanceUid });
       return { success: true, examLegendIds: result.examLegendIds };

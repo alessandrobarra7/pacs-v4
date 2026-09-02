@@ -24,11 +24,16 @@ describe("modal visual de legenda canônica", () => {
     expect(pageSource).toContain("Confirmar seleção");
   });
 
-  it("mantém o catálogo completo por modalidade no modal, sem restringir as opções à modalidade recebida do PACS", () => {
+  it("restringe a composição à modalidade única do estudo no cliente e no servidor", () => {
     const routerSource = readFileSync(resolve(process.cwd(), "server/routers/studyExamLegend.ts"), "utf8");
+    expect(pageSource).toContain('const allowedModalities = LEGEND_MODAL_MODALITIES.filter((modality) => modality.value === studyModality)');
+    expect(pageSource).toContain('{allowedModalities.map((modality) => {');
+    expect(pageSource).toContain('normalizeDicomModality(study.modality)');
+    expect(routerSource).toContain('async function resolveStudyModality');
+    expect(routerSource).toContain('eq(exam_legends.modality, studyModality)');
+    expect(routerSource).toContain('normalizeDicomModality(legend.modality) !== input.studyModality');
     expect(routerSource).toContain("eq(exam_legends.is_active, true)");
     expect(routerSource).toContain(".orderBy(asc(exam_legends.modality), asc(exam_legends.sort_order), asc(exam_legends.exam_name))");
-    expect(routerSource).not.toContain("eq(exam_legends.modality, input.modality.trim().toUpperCase())");
   });
 
   it("refaz a consulta de legendas ao retornar para a listagem após um novo cadastro administrativo", () => {

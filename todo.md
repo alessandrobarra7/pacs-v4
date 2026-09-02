@@ -2963,6 +2963,8 @@
 - [x] Registrar o escopo aprovado do PACS Mobile v1 e os pré-requisitos pendentes de homologação e estudo anonimizado
 - [x] Analisar o patch de autenticação móvel e documentar as mudanças necessárias sem aplicá-lo ao código original
 - [x] Corrigir o seletor de legendas para filtrar ressonância pelo código DICOM MR e exibir o rótulo RM
+- [x] Avaliar a regra de compatibilidade entre modalidade DICOM, legenda e preço antes de alterar a composição de estudos
+- [x] Impedir seleção de legenda incompatível, usando a modalidade única do estudo resolvida no servidor
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação
