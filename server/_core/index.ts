@@ -16,6 +16,7 @@ import { minioGetObject, minioStatObject } from "../minio";
 import { assertCachedDicomFileAccess, assertDicomFileAccess } from "../authorization";
 import { createRadiantAssistantTokenStore, RADIANT_ASSISTANT_SCHEME } from "../radiantAssistant";
 import { streamRadiantInstaller } from "../radiantInstaller";
+import { isValidStudyInstanceUid } from "../routerUtils";
 import { serveStatic, setupVite } from "./vite";
 
 // CRÍTICO 3: Rate limiting para prevenir brute force no login
@@ -617,7 +618,7 @@ async function startServer() {
   // ─────────────────────────────────────────────────────────────────────────────
   app.get('/api/dicom-cache-status/:studyUid', requireAuth, async (req, res) => {
     const { studyUid } = req.params;
-    if (!studyUid || studyUid.includes('..') || studyUid.includes('/')) {
+    if (!isValidStudyInstanceUid(studyUid)) {
       return res.status(400).json({ cached: false, count: 0 });
     }
     try {
@@ -642,7 +643,7 @@ async function startServer() {
   // Serve DICOM files from cache
   app.get('/api/dicom-files/:studyUid/:filename', requireAuth, async (req, res) => {
     const { studyUid, filename } = req.params;
-    if (filename.includes('..') || filename.includes('/') || studyUid.includes('..') || studyUid.includes('/')) {
+    if (!isValidStudyInstanceUid(studyUid) || filename.includes('..') || filename.includes('/')) {
       return res.status(400).send('Invalid path');
     }
     try {
@@ -661,7 +662,7 @@ async function startServer() {
   // Lista arquivos DICOM de um estudo no cache + extrai metadados do primeiro arquivo
   app.get('/api/dicom-files/:studyUid', requireAuth, async (req, res) => {
     const { studyUid } = req.params;
-    if (studyUid.includes('..') || studyUid.includes('/')) {
+    if (!isValidStudyInstanceUid(studyUid)) {
       return res.status(400).json({ success: false, error: 'Invalid studyUid' });
     }
     try {
@@ -730,7 +731,7 @@ async function startServer() {
   // Remove cache DICOM ao fechar o viewer
   app.delete('/api/dicom-files/:studyUid', requireAuth, async (req, res) => {
     const { studyUid } = req.params;
-    if (studyUid.includes('..') || studyUid.includes('/')) {
+    if (!isValidStudyInstanceUid(studyUid)) {
       return res.status(400).json({ success: false, error: 'Invalid studyUid' });
     }
     try {
@@ -754,7 +755,7 @@ async function startServer() {
   // Retorna: { series: [{ seriesUid, description, modality, files: string[], thumbnail: string }] }
   app.get('/api/dicom-series/:studyUid', requireAuth, async (req, res) => {
     const { studyUid } = req.params;
-    if (studyUid.includes('..') || studyUid.includes('/')) {
+    if (!isValidStudyInstanceUid(studyUid)) {
       return res.status(400).json({ success: false, error: 'Invalid studyUid' });
     }
     const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
@@ -810,7 +811,7 @@ async function startServer() {
   // de todos os formatos DICOM (MONOCHROME1/2, Window Center/Width como string, etc.)
   app.get('/api/dicom-thumbnail/:studyUid/:filename', requireAuth, async (req, res) => {
     const { studyUid, filename } = req.params;
-    if (studyUid.includes('..') || studyUid.includes('/') || filename.includes('..') || filename.includes('/')) {
+    if (!isValidStudyInstanceUid(studyUid) || filename.includes('..') || filename.includes('/')) {
       return res.status(400).json({ error: 'Invalid path' });
     }
     try {

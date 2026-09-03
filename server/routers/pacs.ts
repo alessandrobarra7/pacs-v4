@@ -6,7 +6,7 @@ import { cFind } from "../dicom.service";
 import type { CFindResult } from "../dicom.service";
 import { MAX_UPLOAD_BYTES } from "../../shared/const";
 import { getDicomWebUrl } from "../orthanc";
-import { inferExtension, isValidImageBuffer } from "../routerUtils";
+import { inferExtension, isValidImageBuffer, studyInstanceUidSchema } from "../routerUtils";
 import { units } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 // BUG-6 FIX: imports estáticos em vez de dinâmicos dentro dos procedures
@@ -308,7 +308,7 @@ export const pacsRouter = router({
     
     startViewer: protectedProcedure
       .input(z.object({
-        studyInstanceUid: z.string(),
+        studyInstanceUid: studyInstanceUidSchema,
         unit_id: z.number().optional(), // admin_master pode especificar a unidade
       }))
       .mutation(async ({ input, ctx }) => {
@@ -497,7 +497,7 @@ export const pacsRouter = router({
     
     getViewerUrl: protectedProcedure
       .input(z.object({
-        studyInstanceUid: z.string(),
+        studyInstanceUid: studyInstanceUidSchema,
         unit_id: z.number().optional(), // V12-4 FIX: aceitar unit_id para usuários multiunidade
       }))
       .query(async ({ input, ctx }) => {
@@ -569,7 +569,7 @@ export const pacsRouter = router({
 
     download: protectedProcedure
       .input(z.object({
-        studyInstanceUid: z.string(),
+        studyInstanceUid: studyInstanceUidSchema,
       }))
       // BUG-1 FIX: stub removido — não gravar audit log de operação que não ocorreu
       .mutation(async () => {

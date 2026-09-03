@@ -5,6 +5,7 @@ import { study_priority_flags } from "../../drizzle/schema";
 import { assertDicomFileAccess, canAccessUnit } from "../authorization";
 import { createAuditLog, getDb, resolveEffectiveUnitId } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { studyInstanceUidSchema } from "../routerUtils";
 
 const prioritySchema = z.enum(["urgencia", "prioridade_maxima"]);
 
@@ -20,7 +21,7 @@ function assertPriorityAuthorRole(role: string) {
 export const studyPriorityRouter = router({
   /** Retorna as sinalizações da unidade selecionada para os estudos já autorizados na tela. */
   getBatch: protectedProcedure
-    .input(z.object({ studyInstanceUids: z.array(z.string()).max(100), unit_id: z.number().optional() }))
+    .input(z.object({ studyInstanceUids: z.array(studyInstanceUidSchema).max(100), unit_id: z.number().optional() }))
     .query(async ({ input, ctx }) => {
       if (!input.studyInstanceUids.length) return [];
       const unitId = ctx.user.role === "admin_master"
@@ -42,7 +43,7 @@ export const studyPriorityRouter = router({
    */
   set: protectedProcedure
     .input(z.object({
-      studyInstanceUid: z.string().min(1),
+      studyInstanceUid: studyInstanceUidSchema,
       unit_id: z.number().optional(),
       priority: prioritySchema.nullable(),
     }))

@@ -9,6 +9,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
+import { studyInstanceUidSchema } from "../routerUtils";
 import {
   billing_visit_events,
   billing_cycles,
@@ -1483,7 +1484,7 @@ export const financeSimpleRouter = router({
   myReportDownload: protectedProcedure
     .input(z.object({
       unit_id: z.number().int().positive(),
-      study_instance_uid: z.string().trim().min(1).max(128),
+      study_instance_uid: studyInstanceUidSchema,
       document_key: z.string().trim().min(1).max(80).default("primary"),
     }))
     .query(async ({ input, ctx }) => {

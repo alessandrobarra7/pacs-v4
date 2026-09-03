@@ -7,7 +7,7 @@ import { storagePut, storageDelete } from "../storage";
 import { toProxyUrl } from "../mediaProxy";
 import { TRPCError } from "@trpc/server";
 import { assertDicomFileAccess } from "../authorization";
-import { detectAudioMimeType, extensionForMediaMimeType } from "../routerUtils";
+import { detectAudioMimeType, extensionForMediaMimeType, studyInstanceUidSchema } from "../routerUtils";
 
 async function resolveAudioUrl(reference: string | null): Promise<string | null> {
   if (!reference) return null;
@@ -29,7 +29,7 @@ function assertClinicalMediaDoctor(role: string) {
 export const audioReportsRouter = router({
   /** Lista áudios gravados de um estudo */
   list: protectedProcedure
-    .input(z.object({ study_instance_uid: z.string() }))
+    .input(z.object({ study_instance_uid: studyInstanceUidSchema }))
     .query(async ({ input, ctx }) => {
       assertClinicalMediaViewer(ctx.user.role);
       await assertDicomFileAccess(ctx.user, input.study_instance_uid, "view_studies");
@@ -48,7 +48,7 @@ export const audioReportsRouter = router({
 
   /** Retorna quais UIDs possuem áudios cadastrados (para listagem PACS) */
   getStatusBatch: protectedProcedure
-    .input(z.object({ studyInstanceUids: z.array(z.string()) }))
+    .input(z.object({ studyInstanceUids: z.array(studyInstanceUidSchema) }))
     .query(async ({ input, ctx }) => {
       if (!input.studyInstanceUids.length) return {} as Record<string, boolean>;
       const result: Record<string, boolean> = {};
@@ -81,7 +81,7 @@ export const audioReportsRouter = router({
   upload: protectedProcedure
     .input(
       z.object({
-        study_instance_uid: z.string(),
+        study_instance_uid: studyInstanceUidSchema,
         unit_id: z.number().optional(),
         file_data: z.string(),
         file_name: z.string(),

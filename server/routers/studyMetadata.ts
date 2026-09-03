@@ -2,11 +2,12 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getStudyMetadata, getStudyMetadataBatch, upsertStudyMetadata, createAuditLog, resolveEffectiveUnitId } from "../db";
+import { studyInstanceUidSchema } from "../routerUtils";
 
 export const studyMetadataRouter = router({
     /** Busca os metadados editados de um estudo para a unidade do usuário logado */
     get: protectedProcedure
-      .input(z.object({ studyInstanceUid: z.string(), unit_id: z.number().optional() }))
+      .input(z.object({ studyInstanceUid: studyInstanceUidSchema, unit_id: z.number().optional() }))
       .query(async ({ input, ctx }) => {
         // V14-P1 FIX: aceitar unit_id da tela (unidade selecionada)
         const unitId = ctx.user.role === 'admin_master'
@@ -18,7 +19,7 @@ export const studyMetadataRouter = router({
 
     /** Busca metadados de múltiplos estudos (batch) para a unidade do usuário */
     getBatch: protectedProcedure
-      .input(z.object({ studyInstanceUids: z.array(z.string()), unit_id: z.number().optional() }))
+      .input(z.object({ studyInstanceUids: z.array(studyInstanceUidSchema), unit_id: z.number().optional() }))
       .query(async ({ input, ctx }) => {
         // V14-P1 FIX: aceitar unit_id da tela (unidade selecionada)
         const unitId = ctx.user.role === 'admin_master'
@@ -31,7 +32,7 @@ export const studyMetadataRouter = router({
     /** Salva (cria ou atualiza) os metadados editados de um estudo */
     save: protectedProcedure
       .input(z.object({
-        studyInstanceUid: z.string(),
+        studyInstanceUid: studyInstanceUidSchema,
         unit_id: z.number().optional(),  // V14-P1 FIX: unidade selecionada na tela
         patientNameOverride: z.string().nullable().optional(),
         descriptionOverride: z.string().nullable().optional(),

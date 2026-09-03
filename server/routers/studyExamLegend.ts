@@ -12,6 +12,7 @@ import { assertDicomFileAccess } from "../authorization";
 import { createAuditLog, getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getSingleStudyModality, normalizeDicomModality } from "../../shared/modality";
+import { studyInstanceUidSchema } from "../routerUtils";
 
 const selectableRoles = new Set(["operador", "atendente", "medico", "admin_master"]);
 type LegendRow = typeof exam_legends.$inferSelect;
@@ -171,7 +172,7 @@ async function synchronizeSelections(input: {
 
 export const studyExamLegendRouter = router({
   listForStudy: protectedProcedure
-    .input(z.object({ studyInstanceUid: z.string().min(1) }))
+    .input(z.object({ studyInstanceUid: studyInstanceUidSchema }))
     .query(async ({ input, ctx }) => {
       const unitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
       const db = await getDb();
@@ -197,7 +198,7 @@ export const studyExamLegendRouter = router({
     }),
 
   getBatch: protectedProcedure
-    .input(z.object({ unit_id: z.number().int().positive(), studyInstanceUids: z.array(z.string().min(1)).max(100) }))
+    .input(z.object({ unit_id: z.number().int().positive(), studyInstanceUids: z.array(studyInstanceUidSchema).max(100) }))
     .query(async ({ input, ctx }) => {
       if (!input.studyInstanceUids.length) return [];
       const db = await getDb();
@@ -210,7 +211,7 @@ export const studyExamLegendRouter = router({
 
   confirmSelections: protectedProcedure
     .input(z.object({
-      studyInstanceUid: z.string().min(1),
+      studyInstanceUid: studyInstanceUidSchema,
       examLegendIds: z.array(z.number().int().positive()).min(1).max(20),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -238,7 +239,7 @@ export const studyExamLegendRouter = router({
 
   /** Compatibilidade transitória para clientes antigos: acrescenta uma legenda sem remover as existentes. */
   select: protectedProcedure
-    .input(z.object({ studyInstanceUid: z.string().min(1), examLegendId: z.number().int().positive() }))
+    .input(z.object({ studyInstanceUid: studyInstanceUidSchema, examLegendId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
       assertCanSelect(ctx.user.role);
       const unitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");

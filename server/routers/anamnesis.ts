@@ -2,12 +2,13 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb, createAuditLog, resolveEffectiveUnitId, getUserUnitPermission } from "../db";
+import { studyInstanceUidSchema } from "../routerUtils";
 
 export const anamnesisRouter = router({
     create: protectedProcedure
       .input(
         z.object({
-          study_instance_uid: z.string(),
+          study_instance_uid: studyInstanceUidSchema,
           unit_id: z.number(),
           exam_area: z.string().optional(),
           main_symptom: z.string().optional(),
@@ -87,7 +88,7 @@ export const anamnesisRouter = router({
       }),
 
     getByStudyId: protectedProcedure
-      .input(z.object({ study_instance_uid: z.string() }))
+      .input(z.object({ study_instance_uid: studyInstanceUidSchema }))
       .query(async ({ input, ctx }) => {
         // F1-6: Verificar permissão view_anamnesis antes de retornar dados sensíveis
         if (ctx.user.role !== 'admin_master') {

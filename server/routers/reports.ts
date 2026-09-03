@@ -20,6 +20,7 @@ import sanitizeHtml from "sanitize-html";
 import { REPORT_SANITIZE_OPTIONS } from "../reportSanitize";
 import { storageGetUrl } from "../storage";
 import { normalizeStudyDate, studyDateToUtcDate } from "../studyDate";
+import { studyInstanceUidSchema } from "../routerUtils";
 
 async function resolveReportMedia(reference: string | null | undefined): Promise<string | null> {
   if (!reference) return null;
@@ -46,7 +47,7 @@ export const reportsRouter = router({
       }),
 
    getByStudyUid: protectedProcedure
-     .input(z.object({ studyInstanceUid: z.string(), documentKey: z.string().trim().min(1).max(80).default('primary'), unit_id: z.number().int().positive().optional() }))
+     .input(z.object({ studyInstanceUid: studyInstanceUidSchema, documentKey: z.string().trim().min(1).max(80).default('primary'), unit_id: z.number().int().positive().optional() }))
      .query(async ({ input, ctx }) => {
        const db = await getDb();
        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
@@ -75,7 +76,7 @@ export const reportsRouter = router({
 
     // Retorna laudo + dados do médico assinante (para impressão com carimbo)
    getByStudyUidWithDoctor: protectedProcedure
-     .input(z.object({ studyInstanceUid: z.string(), documentKey: z.string().trim().min(1).max(80).default('primary'), unit_id: z.number().int().positive().optional() }))
+     .input(z.object({ studyInstanceUid: studyInstanceUidSchema, documentKey: z.string().trim().min(1).max(80).default('primary'), unit_id: z.number().int().positive().optional() }))
      .query(async ({ input, ctx }) => {
        const db = await getDb();
        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
@@ -120,7 +121,7 @@ export const reportsRouter = router({
 
     /** Lista documentos de laudo já criados para um estudo na unidade autorizada. */
     listByStudyUid: protectedProcedure
-      .input(z.object({ studyInstanceUid: z.string(), unit_id: z.number().optional() }))
+      .input(z.object({ studyInstanceUid: studyInstanceUidSchema, unit_id: z.number().optional() }))
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB not available' });
@@ -146,7 +147,7 @@ export const reportsRouter = router({
     create: protectedProcedure
       .input(z.object({
         study_id: z.number().optional(),
-        study_instance_uid: z.string().optional(),
+        study_instance_uid: studyInstanceUidSchema.optional(),
         exam_legend_id: z.number().int().positive().optional(),
         document_key: z.string().trim().min(1).max(80).default('primary'),
         document_label_snapshot: z.string().trim().min(1).max(255).optional(),
@@ -277,7 +278,7 @@ export const reportsRouter = router({
         id: z.number(),
         // Campos opcionais para registro financeiro atômico
         unit_id: z.number().optional(),
-        study_instance_uid: z.string().optional(),
+        study_instance_uid: studyInstanceUidSchema.optional(),
         patient_name: z.string().optional(),
         exam_name: z.string().optional(),  // FIX ANALISE_GERACAO_DADOS P2: snapshot do nome do exame para billing
         study_date: z.string().optional(),

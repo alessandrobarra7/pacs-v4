@@ -15,6 +15,7 @@ import { getDb } from "../db";
 import { unit_report_sla_configs, report_readiness, exam_legends } from "../../drizzle/schema";
 import { eq, inArray, and, asc } from "drizzle-orm";
 import { assertDicomFileAccess, canAccessUnit } from "../authorization";
+import { studyInstanceUidSchema } from "../routerUtils";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -277,7 +278,7 @@ export const slaRouter = router({
 
   /** Retorna o readiness de um estudo específico */
   getByStudy: protectedProcedure
-    .input(z.object({ studyInstanceUid: z.string(), unitId: z.number() }))
+    .input(z.object({ studyInstanceUid: studyInstanceUidSchema, unitId: z.number() }))
     .query(async ({ input, ctx }) => {
       const authorizedUnitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
       if (authorizedUnitId !== input.unitId) {
@@ -299,7 +300,7 @@ export const slaRouter = router({
   /** Retorna readiness de múltiplos estudos (batch) */
   getBatchStatus: protectedProcedure
     .input(z.object({
-      studyInstanceUids: z.array(z.string()).max(500),
+      studyInstanceUids: z.array(studyInstanceUidSchema).max(500),
       unitId: z.number(),
     }))
     .query(async ({ input, ctx }) => {
@@ -333,7 +334,7 @@ export const slaRouter = router({
   /** Invalida o readiness de um estudo (apenas admin_master) */
   invalidate: protectedProcedure
     .input(z.object({
-      studyInstanceUid: z.string(),
+      studyInstanceUid: studyInstanceUidSchema,
       unitId: z.number(),
       reason: z.string().optional(),
     }))

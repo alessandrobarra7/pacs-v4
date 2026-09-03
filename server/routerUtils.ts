@@ -1,3 +1,18 @@
+import { z } from "zod";
+
+/** UID DICOM numérico pontuado, limitado aos 64 caracteres previstos pelo padrão. */
+export const studyInstanceUidSchema = z.string()
+  .trim()
+  .min(1, "Identificador de estudo obrigatório.")
+  .max(64, "Identificador de estudo inválido.")
+  .regex(/^[0-9]+(?:\.[0-9]+)*$/, "Identificador de estudo inválido.");
+
+/** Validação não transformadora para parâmetros HTTP usados em caminhos locais. */
+export function isValidStudyInstanceUid(value: unknown): value is string {
+  const parsed = studyInstanceUidSchema.safeParse(value);
+  return parsed.success && parsed.data === value;
+}
+
 /**
  * Bug fix N1: Infere a extensão real do arquivo a partir do data URI.
  * Evita que WebP/JPEG/GIF sejam salvos com extensão .png incorreta.

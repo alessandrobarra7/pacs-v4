@@ -7,7 +7,7 @@ import { eq, inArray } from "drizzle-orm";
 import { storagePut, storageDelete } from "../storage";
 import { toProxyUrl } from "../mediaProxy";
 import { assertDicomFileAccess } from "../authorization";
-import { detectImageMimeType, extensionForMediaMimeType } from "../routerUtils";
+import { detectImageMimeType, extensionForMediaMimeType, studyInstanceUidSchema } from "../routerUtils";
 
 async function resolveAttachmentUrl(reference: string | null): Promise<string | null> {
   if (!reference) return null;
@@ -23,7 +23,7 @@ function assertClinicalMediaDoctor(role: string) {
 export const annotationsRouter = router({
   /** Busca anotações Cornerstone de um estudo (compatibilidade com viewer DICOM) */
   getByStudy: protectedProcedure
-    .input(z.object({ studyInstanceUid: z.string() }))
+    .input(z.object({ studyInstanceUid: studyInstanceUidSchema }))
     .query(async ({ input, ctx }) => {
       await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
       return getAnnotationsByStudy(input.studyInstanceUid, ctx.user.id);
@@ -33,7 +33,7 @@ export const annotationsRouter = router({
   save: protectedProcedure
     .input(
       z.object({
-        studyInstanceUid: z.string(),
+        studyInstanceUid: studyInstanceUidSchema,
         seriesInstanceUid: z.string().optional(),
         annotationUid: z.string(),
         toolName: z.string().default("Length"),
@@ -65,7 +65,7 @@ export const annotationsRouter = router({
 
   /** Lista todos os anexos de um estudo (fotos, documentos) */
   list: protectedProcedure
-    .input(z.object({ study_instance_uid: z.string() }))
+    .input(z.object({ study_instance_uid: studyInstanceUidSchema }))
     .query(async ({ input, ctx }) => {
       await assertDicomFileAccess(ctx.user, input.study_instance_uid, "view_studies");
       const db = await getDb();
@@ -82,7 +82,7 @@ export const annotationsRouter = router({
 
   /** Retorna quais UIDs possuem anexos cadastrados */
   getAttachmentsStatusBatch: protectedProcedure
-    .input(z.object({ studyInstanceUids: z.array(z.string()) }))
+    .input(z.object({ studyInstanceUids: z.array(studyInstanceUidSchema) }))
     .query(async ({ input, ctx }) => {
       if (!input.studyInstanceUids.length) return {} as Record<string, boolean>;
       const result: Record<string, boolean> = {};
@@ -115,7 +115,7 @@ export const annotationsRouter = router({
   upload: protectedProcedure
     .input(
       z.object({
-        study_instance_uid: z.string(),
+        study_instance_uid: studyInstanceUidSchema,
         unit_id: z.number().optional(),
         file_data: z.string(),
         file_name: z.string(),

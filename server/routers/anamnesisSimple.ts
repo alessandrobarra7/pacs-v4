@@ -6,11 +6,12 @@ import { evaluateAndUpsertReadiness } from "./sla";
 import { anamnesis_simple } from "../../drizzle/schema";
 import { inArray } from "drizzle-orm";
 import { canAccessUnit, getStudyUnitId } from "../authorization";
+import { studyInstanceUidSchema } from "../routerUtils";
 
 export const anamnesisSimpleRouter = router({
     /** Busca a anamnese de um estudo */
     getByStudy: protectedProcedure
-      .input(z.object({ studyInstanceUid: z.string() }))
+      .input(z.object({ studyInstanceUid: studyInstanceUidSchema }))
       .query(async ({ input, ctx }) => {
         // Validar permissão view_anamnesis na unidade real do estudo
         const studyUnitId = await getStudyUnitId(input.studyInstanceUid);
@@ -24,7 +25,7 @@ export const anamnesisSimpleRouter = router({
     /** Cria ou atualiza a anamnese de um estudo */
     save: protectedProcedure
       .input(z.object({
-        studyInstanceUid: z.string(),
+        studyInstanceUid: studyInstanceUidSchema,
         patientName: z.string().optional(),
         presets: z.array(z.string()),
         manualText: z.string().min(1, "O campo de indicação clínica é obrigatório"),
@@ -73,7 +74,7 @@ export const anamnesisSimpleRouter = router({
     /** Retorna quais UIDs têm anamnese registrada na unidade acessível ao usuário. */
     getStatusBatch: protectedProcedure
       .input(z.object({
-        studyInstanceUids: z.array(z.string()),
+        studyInstanceUids: z.array(studyInstanceUidSchema),
         unitId: z.number().int().positive().optional(),
       }))
       .query(async ({ input, ctx }) => {

@@ -23,6 +23,7 @@ import os
 import shutil
 import time
 import datetime
+import re
 from pynetdicom import AE, evt, build_role
 from pynetdicom.sop_class import (
     StudyRootQueryRetrieveInformationModelGet,
@@ -31,7 +32,8 @@ from pynetdicom.sop_class import (
 from pynetdicom import StoragePresentationContexts
 
 _logs = []
-_streaming = False  # modo streaming: emite JSON por linha a cada arquivo
+_streaming = False  # modo streaming: emite uma linha JSON por linha a cada arquivo
+_STUDY_INSTANCE_UID_PATTERN = re.compile(r"^[0-9]+(?:\.[0-9]+)*$")
 
 
 def log(level, message):
@@ -87,6 +89,9 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
       logs               (list[str])
       error              (str, apenas em falha)
     """
+    if not isinstance(study_instance_uid, str) or len(study_instance_uid) > 64 or not _STUDY_INSTANCE_UID_PATTERN.fullmatch(study_instance_uid):
+        raise ValueError("study_instance_uid em formato inválido")
+
     global _streaming
     _streaming = streaming
 
@@ -100,7 +105,14 @@ def c_get_study(pacs_ip, pacs_port, pacs_ae_title, local_ae_title, study_instanc
     log("INFO", f"Modo streaming   : {streaming}")
 
     os.makedirs(cache_dir, exist_ok=True)
-    study_cache_dir = os.path.join(cache_dir, study_instance_uid)
+    cache_dir_real = os.path.realpath(cache_dir)
+    study_cache_dir = os.path.realpath(os.path.join(cache_dir_real, study_instance_uid))
+    try:
+        path_is_within_cache = os.path.commonpath([cache_dir_real, study_cache_dir]) == cache_dir_real
+    except ValueError:
+        path_is_within_cache = False
+    if not path_is_within_cache or study_cache_dir == cache_dir_real:
+        raise ValueError("caminho de cache do estudo fora do diretório permitido")
 
     # Limpa cache anterior do mesmo estudo
     if os.path.exists(study_cache_dir):
