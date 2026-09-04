@@ -2967,6 +2967,8 @@
 - [x] Impedir seleção de legenda incompatível, usando a modalidade única do estudo resolvida no servidor
 - [x] Avaliar e conter a vulnerabilidade crítica de traversal no download DICOM sem testar exploração
 - [x] Validar Study Instance UID e impedir escape do diretório de cache DICOM antes de qualquer exclusão local
+- [ ] Avaliar e corrigir o erro 414 causado por batches tRPC extensos sem aplicar mudanças de proxy sem autorização
+- [x] Produzir parecer TXT detalhado com recomendações para corrigir o erro 414 sem alterar o código
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação
