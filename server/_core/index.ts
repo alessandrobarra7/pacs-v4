@@ -1479,6 +1479,7 @@ async function startServer() {
     createExpressMiddleware({
       router: appRouter,
       createContext,
+      allowMethodOverride: true,
     })
   );
   // development mode uses Vite, production mode uses static files

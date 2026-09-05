@@ -34,6 +34,7 @@ Sistema web completo para gestão de laudos radiológicos com integração DICOM
 22. [Registro de prontidão: integração PACS Mobile](docs/REGISTRO_PRONTIDAO_INTEGRACAO_PACS_MOBILE.md)
 23. [Formulário técnico preenchido: PACS Mobile](docs/FORMULARIO_COLETA_TECNICA_PACS_MOBILE_PREENCHIDO.md)
 24. [Segurança do UID DICOM e do cache local](docs/SEGURANCA_UID_DICOM_CACHE.md)
+25. [Correção do erro 414 em batches tRPC](docs/CORRECAO_414_TRPC_POST_NGINX.md)
 
 ---
 
