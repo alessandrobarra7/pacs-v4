@@ -1,6 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { storageKeyFromReference, storageUsesMinio } from "./storage";
 import { toProxyUrl } from "./mediaProxy";
+
+const minioEnvironmentKeys = [
+  "MINIO_ENDPOINT",
+  "MINIO_BUCKET",
+  "MINIO_ACCESS_KEY",
+  "MINIO_SECRET_KEY",
+] as const;
+const originalMinioEnvironment = Object.fromEntries(
+  minioEnvironmentKeys.map((key) => [key, process.env[key]]),
+);
+
+beforeEach(() => {
+  process.env.MINIO_ENDPOINT = "http://minio.test:9000";
+  process.env.MINIO_BUCKET = "pacs-test";
+  process.env.MINIO_ACCESS_KEY = "test-access-key";
+  process.env.MINIO_SECRET_KEY = "test-secret-key";
+});
+
+afterEach(() => {
+  for (const key of minioEnvironmentKeys) {
+    const original = originalMinioEnvironment[key];
+    if (original === undefined) delete process.env[key];
+    else process.env[key] = original;
+  }
+});
 
 describe("VM3 private storage references", () => {
   it("reconhece uma referência estável /api/media e extrai a chave", () => {
@@ -14,7 +39,7 @@ describe("VM3 private storage references", () => {
     expect(() => storageKeyFromReference("/api/media/logos/../../secrets.txt")).toThrow();
   });
 
-  it("indica MinIO configurado sem expor qualquer segredo", () => {
+  it("indica MinIO configurado com ambiente de teste sem depender de segredo real", () => {
     expect(storageUsesMinio()).toBe(true);
   });
 
