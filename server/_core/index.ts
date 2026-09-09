@@ -11,12 +11,13 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { storageKeyFromReference, storageUsesMinio } from "../storage";
+import { storageKeyFromReference, storageLegacyClinicalFilePath, storageUsesMinio } from "../storage";
 import { minioGetObject, minioStatObject } from "../minio";
 import { assertCachedDicomFileAccess, assertDicomFileAccess } from "../authorization";
 import { createRadiantAssistantTokenStore, RADIANT_ASSISTANT_SCHEME } from "../radiantAssistant";
 import { streamRadiantInstaller } from "../radiantInstaller";
 import { isValidStudyInstanceUid } from "../routerUtils";
+import { isPublicUploadPathAllowed } from "../uploadAccessPolicy";
 import { serveStatic, setupVite } from "./vite";
 
 // CRÍTICO 3: Rate limiting para prevenir brute force no login
@@ -523,7 +524,6 @@ async function startServer() {
   // externas nunca precisam alcançar o IP privado da VM3 diretamente.
   app.get('/api/media/*', requireAuth, async (req, res) => {
     try {
-      if (!storageUsesMinio()) return res.status(404).send('Storage privado não configurado');
       const wildcard = String((req.params as Record<string, string>)[0] ?? '');
       if (!wildcard || wildcard.includes('..')) return res.status(400).send('Referência inválida');
       const reference = `/api/media/${wildcard}`;
@@ -555,7 +555,29 @@ async function startServer() {
         return res.status(403).send('Acesso negado');
       }
 
-      const objectMetadata = await minioStatObject(key);
+      const legacyLocalFilePath = storageLegacyClinicalFilePath(key);
+      const serveLegacyLocalFile = () => {
+        if (!legacyLocalFilePath) return false;
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        res.setHeader('Content-Disposition', 'inline');
+        res.sendFile(legacyLocalFilePath, (sendError) => {
+          if (sendError && !res.headersSent) res.status(404).send('Mídia não encontrada');
+        });
+        return true;
+      };
+
+      if (!storageUsesMinio()) {
+        if (serveLegacyLocalFile()) return;
+        return res.status(404).send('Storage privado não configurado');
+      }
+
+      let objectMetadata;
+      try {
+        objectMetadata = await minioStatObject(key);
+      } catch (minioError) {
+        if (serveLegacyLocalFile()) return;
+        throw minioError;
+      }
       const totalSize = objectMetadata.size ?? 0;
       const rangeHeader = req.headers.range;
       let object;
@@ -1463,12 +1485,14 @@ async function startServer() {
   // N-03: Cobrir requisições batch tRPC que incluem auth.login
   app.use('/api/trpc', loginRateLimiterBatchAware);
 
-  // ── Arquivos estáticos de upload (logos, carimbos, assinaturas) ─────────
-  // Servidos diretamente da pasta local /uploads na VM1.
-  // Simples, rápido e sem dependência de serviços externos.
+  // ── Ativos locais explicitamente públicos ────────────────────────────────
+  // Dados clínicos usam /api/media e nunca passam pela rota estática.
   const uploadsDir = path.resolve(process.cwd(), 'uploads');
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-  app.use('/uploads', express.static(uploadsDir, {
+  app.use('/uploads', (req, res, next) => {
+    if (!isPublicUploadPathAllowed(req.path)) return res.status(403).send('Acesso negado.');
+    next();
+  }, express.static(uploadsDir, {
     maxAge: '1d',
     etag: true,
   }));

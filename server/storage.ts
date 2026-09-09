@@ -13,6 +13,7 @@ import {
   minioPresignedUrl,
   minioUpload,
 } from "./minio";
+import { isLegacyClinicalMediaKey } from "./uploadAccessPolicy";
 
 const UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
 const PRIVATE_MEDIA_PREFIX = "/api/media/";
@@ -106,6 +107,25 @@ function localFilePath(key: string): string {
 }
 
 /**
+ * Localiza exclusivamente mídia clínica legada para entrega pela rota autenticada.
+ * O caminho canônico é conferido novamente para impedir que um link simbólico saia
+ * do diretório de uploads.
+ */
+export function storageLegacyClinicalFilePath(key: string): string | null {
+  const safeKey = normalizeKey(key);
+  if (!isLegacyClinicalMediaKey(safeKey)) return null;
+
+  try {
+    const resolvedUploadsDir = fs.realpathSync(UPLOADS_DIR);
+    const resolvedFilePath = fs.realpathSync(localFilePath(safeKey));
+    if (!resolvedFilePath.startsWith(`${resolvedUploadsDir}${path.sep}`)) return null;
+    return fs.statSync(resolvedFilePath).isFile() ? resolvedFilePath : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Salva no MinIO VM3 ou, quando ele não estiver configurado, no storage local
  * de desenvolvimento. O URL de um objeto MinIO é uma referência estável da
  * aplicação; a rota /api/media gera a URL pré-assinada somente na leitura.
@@ -162,7 +182,11 @@ export async function storageGetUrl(
   expirySeconds = 900,
 ): Promise<string> {
   const value = urlOrKey.trim();
-  if (!isMinioConfigured() || value.startsWith("/uploads/")) return value;
+  if (value.startsWith("/uploads/")) {
+    const legacyKey = decodeMediaKey(value);
+    return legacyKey && isLegacyClinicalMediaKey(legacyKey) ? encodeMediaKey(legacyKey) : value;
+  }
+  if (!isMinioConfigured()) return value;
   const key = decodeMediaKey(value);
   if (!key) throw new Error("[Storage] Referência vazia.");
   const isLocalAsset = key.startsWith("logos/") || key.startsWith("signatures/") || key.startsWith("stamps/") || key.startsWith("avatars/") || key.startsWith("profiles/");
