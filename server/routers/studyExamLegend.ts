@@ -8,7 +8,7 @@ import {
   studies_cache,
   study_exam_legend_selections,
 } from "../../drizzle/schema";
-import { assertDicomFileAccess } from "../authorization";
+import { assertDicomFileAccess, canAccessUnit } from "../authorization";
 import { createAuditLog, getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getSingleStudyModality, normalizeDicomModality } from "../../shared/modality";
@@ -201,6 +201,17 @@ export const studyExamLegendRouter = router({
     .input(z.object({ unit_id: z.number().int().positive(), studyInstanceUids: z.array(studyInstanceUidSchema).max(100) }))
     .query(async ({ input, ctx }) => {
       if (!input.studyInstanceUids.length) return [];
+      // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria):
+      // unit_id vinha direto do cliente sem nenhuma checagem — diferente de
+      // listForStudy/confirmSelections/select, que sempre resolvem e validam a
+      // unidade via assertDicomFileAccess. Aqui a unidade é um parâmetro solto (a
+      // rota busca seleções de vários estudos de uma vez), então validamos com
+      // canAccessUnit na mesma permissão (view_studies) usada nos demais endpoints
+      // deste router, negando o lote inteiro se o usuário não tiver acesso à unidade.
+      const allowed = await canAccessUnit(ctx.user, input.unit_id, "view_studies");
+      if (!allowed) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para acessar esta unidade." });
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados indisponível." });
       return db.select().from(study_exam_legend_selections).where(and(
