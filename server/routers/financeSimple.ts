@@ -1921,24 +1921,62 @@ export const financeSimpleRouter = router({
       const unitIds = linkedUnits.map((u) => u.unit_id);
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
       // P1C: myResponsavelSummary usa ciclo real por unidade
+      //
+      // CORREÇÃO (auditoria claude/correcao-resumo-responsavel-financeiro):
+      // Esta consulta somava SÓ billing_visit_events, deixando de fora
+      // billing_catalog_study_events (eventos financeiros de laudos com
+      // múltiplos documentos/legendas, gerados pelo catálogo de exames).
+      // doctorSummaryByUnit (usado no mesmo painel, no modal "Ver médicos")
+      // e unitSummary (painel do admin_master) já somavam as duas tabelas —
+      // só o resumo principal do responsável financeiro ficava incompleto,
+      // podendo mostrar "Total Médicos"/"Total ao Sistema" menores do que
+      // a soma real (visível, por exemplo, ao abrir o drill-down de
+      // médicos da mesma unidade, que já contava certo). Agora as duas
+      // fontes são somadas, no mesmo padrão de doctorSummaryByUnit.
       const summaryPerUnit = await Promise.all(
         linkedUnits.map(async (lu) => {
           const { cycleStart, cycleEnd, label: cycle_label } = calcCycleDates(lu.cycle_start_day, lu.cycle_end_day, refDate);
-          const r = await db
-            .select({
-              total_laudos: sql<number>`COUNT(*)`,
-              system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
-              system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
-              doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
-              doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
-            })
-            .from(billing_visit_events)
-            .where(and(
-              eq(billing_visit_events.unit_id, lu.unit_id),
-              sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
-              sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
-            ));
-          return { unit_id: lu.unit_id, cycle_label, cycle_start_date: cycleStart.toISOString(), cycle_end_date: cycleEnd.toISOString(), ...r[0] };
+          const [legacy, catalog] = await Promise.all([
+            db
+              .select({
+                total_laudos: sql<number>`COUNT(*)`,
+                system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
+                system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
+                doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
+                doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
+              })
+              .from(billing_visit_events)
+              .where(and(
+                eq(billing_visit_events.unit_id, lu.unit_id),
+                sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
+                sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+              )),
+            db
+              .select({
+                total_laudos: sql<number>`COUNT(*)`,
+                system_total: sql<number>`COALESCE(SUM(${billing_catalog_study_events.system_amount_due}), 0)`,
+                system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.system_paid_at} IS NOT NULL THEN ${billing_catalog_study_events.system_amount_due} ELSE 0 END), 0)`,
+                doctor_total: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
+                doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.doctor_received_at} IS NOT NULL THEN ${billing_catalog_study_events.price_applied} ELSE 0 END), 0)`,
+              })
+              .from(billing_catalog_study_events)
+              .where(and(
+                eq(billing_catalog_study_events.unit_id, lu.unit_id),
+                eq(billing_catalog_study_events.financial_status, 'active'),
+                sql`${billing_catalog_study_events.signed_at} >= ${cycleStart}`,
+                sql`${billing_catalog_study_events.signed_at} < ${cycleEnd}`,
+              )),
+          ]);
+          const l = legacy[0];
+          const c = catalog[0];
+          const merged = {
+            total_laudos: Number(l.total_laudos) + Number(c.total_laudos),
+            system_total: Number(l.system_total) + Number(c.system_total),
+            system_paid: Number(l.system_paid) + Number(c.system_paid),
+            doctor_total: Number(l.doctor_total) + Number(c.doctor_total),
+            doctor_paid: Number(l.doctor_paid) + Number(c.doctor_paid),
+          };
+          return { unit_id: lu.unit_id, cycle_label, cycle_start_date: cycleStart.toISOString(), cycle_end_date: cycleEnd.toISOString(), ...merged };
         })
       );
       const summary = summaryPerUnit;
