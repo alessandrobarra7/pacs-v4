@@ -10,6 +10,20 @@ function formatCycleDate(value: Date): string {
   return `${day}/${month}/${value.getFullYear()}`;
 }
 
+function daysInMonth(year: number, monthIndex: number): number {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+function clampedDate(year: number, monthIndex: number, day: number): Date {
+  const clampedDay = Math.min(Math.max(day, 1), daysInMonth(year, monthIndex));
+  return new Date(year, monthIndex, clampedDay);
+}
+
+function dayAfterClamped(year: number, monthIndex: number, day: number): Date {
+  const clampedDay = Math.min(Math.max(day, 1), daysInMonth(year, monthIndex));
+  return new Date(year, monthIndex, clampedDay + 1);
+}
+
 /**
  * Retorna o ciclo que contém a data de referência. O fim é exclusivo para uso
  * em consultas SQL; o rótulo apresenta o último dia efetivo do intervalo.
@@ -28,14 +42,14 @@ export function calculateFinancialCycleDates(
   let cycleEnd: Date;
 
   if (sd <= ed) {
-    cycleStart = new Date(year, month, sd);
-    cycleEnd = new Date(year, month, ed + 1);
+    cycleStart = clampedDate(year, month, sd);
+    cycleEnd = dayAfterClamped(year, month, ed);
   } else if (day >= sd) {
-    cycleStart = new Date(year, month, sd);
-    cycleEnd = new Date(year, month + 1, ed + 1);
+    cycleStart = clampedDate(year, month, sd);
+    cycleEnd = dayAfterClamped(year, month + 1, ed);
   } else {
-    cycleStart = new Date(year, month - 1, sd);
-    cycleEnd = new Date(year, month, ed + 1);
+    cycleStart = clampedDate(year, month - 1, sd);
+    cycleEnd = dayAfterClamped(year, month, ed);
   }
 
   const inclusiveEnd = new Date(cycleEnd.getTime() - 1);

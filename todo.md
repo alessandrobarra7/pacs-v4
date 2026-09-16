@@ -2977,6 +2977,8 @@
 - [ ] Planejar a migração verificável dos uploads clínicos legados para MinIO sem remoção prematura
 - [x] Corrigir o teste MinIO dependente de ambiente que interrompeu a atualização segura da VM1
 - [x] Produzir guia TXT para colaboração com Claude via GitHub e atualização das VMs por commits revisados
+- [ ] Avaliar o arquivo técnico recebido e registrar impactos sem aplicar propostas automaticamente
+- [x] Corrigir o encerramento do ciclo financeiro em meses com menos de 31 dias
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação
