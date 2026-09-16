@@ -1,0 +1,362 @@
+RELATÓRIO TÉCNICO — CORREÇÕES SETORIAIS (AUDITORIA DE LÓGICA/SEGURANÇA)
+Projeto: PACS Portal / LAUDS (alessandrobarra7/pacs-v4)
+Branch dedicado: claude/correcoes-setoriais-auditoria
+Base: origin/main, commit 09a8c7f713cef674fa06c258b4f3d67bd1bcf8c1
+Data: 2026-09-16
+Executado por: Claude (Cowork), em clone local descartável, SEM acesso de push
+=============================================================================
+
+0. RESUMO EXECUTIVO
+-----------------------------------------------------------------------------
+A pedido do usuário ("quero todas as correções relatadas em um branch
+dedicado"), implementei localmente as 8 correções de lógica/segurança
+levantadas na leitura geral por setores desta conversa (excluindo o bug de
+financeCycle.ts, já corrigido e já mesclado em produção via commit
+09a8c7f). São 7 arquivos alterados, 6 commits, 129 inserções / 42 remoções.
+
+IMPORTANTE — ESCOPO E LIMITAÇÕES DESTE AMBIENTE:
+  - Este sandbox NÃO tem credenciais de push para o GitHub. As correções
+    existem apenas neste clone local descartável (branch
+    claude/correcoes-setoriais-auditoria) e nos arquivos .patch entregues
+    junto com este relatório. NADA foi enviado ao GitHub, à VM1, VM2 ou
+    VM3. NADA foi implantado em produção.
+  - NENHUMA migration de banco foi criada ou executada. Um dos achados
+    originais (rótulo de ação de auditoria em anamnesis.ts) EXIGIRIA uma
+    migration para ser corrigido de verdade (ver seção 2, item 2 e seção 5)
+    — não implementei essa mudança de schema; apenas documentei.
+  - Todas as correções foram validadas com pnpm check (tsc --noEmit),
+    pnpm test (vitest) e pnpm build nesta branch, a partir de um clone
+    limpo. Resultados na seção 4.
+
+-----------------------------------------------------------------------------
+1. COMO APLICAR ESTAS CORREÇÕES (você, fora deste sandbox)
+-----------------------------------------------------------------------------
+Você tem duas opções. As duas produzem o MESMO código-fonte final:
+
+OPÇÃO A — usando os patches anexados (recomendado se for revisar antes)
+  1. No seu checkout local do repositório, confirme que está em main
+     atualizado no commit 09a8c7f (mesma base usada aqui):
+       git fetch origin
+       git log --oneline -1 origin/main   # deve mostrar 09a8c7f ou um commit
+                                            # mais novo que o contenha
+
+  2. Crie o branch dedicado a partir de origin/main:
+       git checkout -b claude/correcoes-setoriais-auditoria origin/main
+
+  3. Aplique os patches NA ORDEM (cada um é um commit já com mensagem
+     descritiva):
+       git am 0001-fix-anamnesis-negar-acesso-por-padr-o-quando-o-estud.patch
+       git am 0002-fix-exam-legend-validar-permiss-o-em-getBatch.patch
+       git am 0003-fix-sla-validar-permiss-o-em-getUnitSla.patch
+       git am 0004-fix-pacs-corrigir-unit_id-em-audit-logs-e-validar-un.patch
+       git am 0005-fix-units-restringir-update-de-unidade-a-admin_maste.patch
+       git am 0006-fix-admin-corrigir-tipo-de-expiration_date-gravado-e.patch
+
+     Se algum "git am" falhar por conflito (não deveria, pois a base é
+     exatamente 09a8c7f), rode "git am --abort" e use a Opção B.
+
+  4. Valide antes de decidir sobre o merge (veja seção 4 para os números
+     de referência que obtive aqui):
+       pnpm install --frozen-lockfile
+       pnpm check
+       TZ=UTC pnpm test
+       pnpm build
+
+  5. Abra PR de claude/correcoes-setoriais-auditoria para main, revise o
+     diff você mesmo, e só então decida sobre merge/deploy — nenhuma
+     dessas correções foi pedida como urgente, e algumas mudam
+     comportamento de autorização (ver seção 3, "Avisos de mudança de
+     comportamento").
+
+OPÇÃO B — aplicando o diff consolidado direto
+  1. Mesmos passos 1-2 da Opção A.
+  2. Em vez de "git am" por arquivo, aplique tudo de uma vez:
+       git apply 0000-diff-completo-consolidado.diff
+     (isso aplica as mudanças nos arquivos, mas SEM criar os 6 commits
+     individuais — você teria que commitar manualmente. Prefira a Opção A
+     se quiser preservar o histórico granular, que ajuda em rollback
+     seletivo.)
+
+Nenhuma das duas opções toca em Nginx, MySQL (VM2), MinIO (VM3) ou exige
+reinício de serviço além do fluxo normal já usado para o fix de
+financeCycle.ts (install → check → test → build → pm2 restart → health
+check → pm2 save), documentado no guia de colaboração.
+
+-----------------------------------------------------------------------------
+2. O QUE FOI CORRIGIDO, ARQUIVO POR ARQUIVO
+-----------------------------------------------------------------------------
+
+COMMIT 1 — fix(anamnesis): negar acesso por padrão quando o estudo não tem
+unidade resolvida
+Arquivos: server/routers/anamnesisSimple.ts, server/routers/anamnesis.ts
+
+  Diagnóstico original (achado mais grave da leitura setorial):
+    - anamnesisSimple.getByStudy e .save: quando getStudyUnitId() não
+      encontrava a unidade do estudo (consulta só a study_metadata, tabela
+      povoada apenas em overrides manuais), a checagem de permissão
+      (view_anamnesis / edit_anamnesis) era pulada POR INTEIRO. Qualquer
+      usuário autenticado conseguia ler ou gravar anamnese de QUALQUER
+      estudo "órfão" (sem override manual registrado) — e a maioria dos
+      estudos nunca recebe um override manual, então isso não era caso
+      raro.
+    - anamnesis.getByStudyId: mesmo padrão — quando
+      resolveEffectiveUnitId() não resolvia unidade para o usuário, a
+      checagem de view_anamnesis era pulada E o filtro de unit_id na
+      query também era removido, retornando a anamnese de QUALQUER
+      unidade para esse usuário.
+
+  Correção aplicada:
+    - anamnesisSimple.ts: troquei getStudyUnitId + canAccessUnit (que
+      permitiam pular a checagem) por assertDicomFileAccess, a função
+      central de autorização do projeto (server/authorization.ts), que:
+        (a) consulta studies_cache ANTES de study_metadata — studies_cache
+            é povoada automaticamente toda vez que alguém consulta o PACS
+            (pacs.query), ou seja, antes do usuário conseguir abrir a tela
+            de anamnese de um estudo real; isso reduz bastante os casos
+            "órfão" em relação ao getStudyUnitId original;
+        (b) nega por padrão ("deny-by-default") se mesmo assim nenhuma
+            unidade for encontrada, lançando FORBIDDEN em vez de liberar
+            acesso.
+    - anamnesis.ts: reestruturei getByStudyId para, quando o usuário não é
+      admin_master, negar (FORBIDDEN) se resolveEffectiveUnitId não
+      resolver unidade nenhuma — em vez de pular a checagem e o filtro.
+      Confirmei que nenhum teste automatizado dependia do comportamento
+      antigo (bypass).
+    - anamnesis.ts também tem uma segunda questão, cosmética/de auditoria,
+      NÃO CORRIGIDA nesta branch (ver seção 5): o log de auditoria do
+      caminho de leitura usa action: 'CREATE_ANAMNESIS' para uma
+      visualização. Corrigir isso exigiria adicionar um novo valor ao
+      ENUM MySQL da coluna audit_log.action (drizzle/schema.ts linha
+      ~190), ou seja, uma migration real de banco — fora do escopo de uma
+      correção só de código, então mantive o rótulo como estava e deixei
+      um comentário explicando o porquê no próprio arquivo.
+
+COMMIT 2 — fix(exam-legend): validar permissão em getBatch
+Arquivo: server/routers/studyExamLegend.ts
+
+  Diagnóstico: getBatch aceitava unit_id diretamente do input do cliente,
+  sem NENHUMA checagem de permissão — diferente de listForStudy,
+  confirmSelections e select, no mesmo arquivo, que sempre resolvem e
+  validam a unidade via assertDicomFileAccess.
+
+  Correção: adicionei canAccessUnit(ctx.user, input.unit_id,
+  "view_studies") antes da consulta, mesma permissão usada nos outros
+  três endpoints do router.
+
+COMMIT 3 — fix(sla): validar permissão em getUnitSla
+Arquivo: server/routers/sla.ts
+
+  Diagnóstico: getUnitSla não tinha nenhuma checagem de permissão —
+  qualquer usuário autenticado lia o SLA configurado de qualquer unidade.
+  Severidade baixa (não é dado clínico), mas ainda um vazamento de
+  configuração interna entre unidades concorrentes/distintas.
+
+  Correção: mesmo padrão de setUnitSla, já existente no mesmo arquivo —
+  canAccessUnit(ctx.user, input.unitId, "view_studies").
+
+COMMIT 4 — fix(pacs): corrigir unit_id em audit logs e validar unidade no
+cache hit do C-GET
+Arquivo: server/routers/pacs.ts
+
+  Três problemas distintos neste arquivo:
+
+  4.1) pacs.query (linhas ~267 e ~293, sucesso e erro): o audit log
+  registrava unit_id: ctx.user.unit_id (a unidade "de origem"/legada do
+  usuário) em vez de unit.id (a unidade que foi de fato consultada).
+  Isso deixava a trilha de auditoria incorreta sempre que um admin_master
+  (ou qualquer usuário multiunidade) consultava uma unidade diferente da
+  sua própria. startViewer, no mesmo arquivo, já fazia isso certo com
+  targetUnitId — confirmando que era inconsistência pontual, não o padrão
+  do arquivo.
+
+  4.2) getViewerUrl (linha ~550): mesmo problema — registrava
+  ctx.user.unit_id em vez de targetUnitIdForViewer, a unidade
+  efetivamente usada para montar a URL do visualizador.
+
+  4.3) startViewer, fast path de cache HIT (achado mais sério deste
+  arquivo): quando os arquivos DICOM já estavam em
+  /tmp/dicom-cache/{studyInstanceUid}/, o código só validava que o
+  usuário tinha permissão geral (view_studies) na unidade solicitada —
+  mas NUNCA conferia se o studyInstanceUid pedido pertence de fato a essa
+  unidade. O diretório de cache em disco é indexado só pelo UID do
+  estudo, sem nenhuma associação a unidade. Ou seja: se QUALQUER unidade
+  já tivesse baixado aquele UID antes (por qualquer usuário, de qualquer
+  unidade), um usuário com acesso a QUALQUER OUTRA unidade podia informar
+  esse mesmo UID + sua própria unit_id e receber os metadados do cache —
+  um vazamento cross-unidade clássico (IDOR).
+
+  Correção 4.1/4.2: troquei ctx.user.unit_id pela variável já resolvida
+  (unit.id / targetUnitIdForViewer) em cada um dos três audit logs.
+
+  Correção 4.3: antes de confiar no cache em disco, chamo
+  getStudyByInstanceUid(input.studyInstanceUid, targetUnitId) — função já
+  existente em server/db.ts, com o comentário original "previne IDOR" —
+  e nego (FORBIDDEN) se o estudo não estiver registrado em studies_cache
+  para essa unidade especificamente.
+
+COMMIT 5 — fix(units): restringir update de unidade a admin_master/unit_admin
+Arquivo: server/routers/units.ts
+
+  Diagnóstico (escalonamento de privilégio): units.update, para qualquer
+  usuário que não fosse admin_master, delegava a checagem de permissão a
+  getAdminManagedUnitIds(ctx.user) — mas essa função (em
+  server/authorization.ts) devolve os unit_ids de QUALQUER linha que o
+  usuário tenha em user_unit_permissions, INDEPENDENTEMENTE do papel do
+  usuário ou de quais permissões específicas a linha concede. Na prática:
+  um médico, atendente, operador ou responsável financeiro com qualquer
+  vínculo na unidade (mesmo que só com view_studies concedido) passava
+  nessa checagem e conseguia alterar pacs_ip, pacs_port, pacs_ae_title,
+  name, slug e isActive da unidade — dados operacionais sensíveis (a
+  configuração de conexão com o próprio PACS/Orthanc da unidade).
+
+  Correção: adicionei uma checagem de papel ANTES da checagem por
+  unidade — só admin_master e unit_admin chegam a
+  getAdminManagedUnitIds; qualquer outro papel é negado de imediato,
+  independentemente de ter algum vínculo com a unidade-alvo.
+
+COMMIT 6 — fix(admin): corrigir tipo de expiration_date gravado em
+updateUser
+Arquivo: server/routers/admin.ts
+
+  Diagnóstico: drizzle/schema.ts declara expiration_date como
+  date("expiration_date") sem "mode" explícito — no drizzle-orm/mysql-
+  core isso equivale a mode: 'string': a coluna é lida (e deve ser
+  escrita) como string 'YYYY-MM-DD'. admin.updateUser, porém, gravava
+  d.getTime() — um número inteiro em milissegundos (BIGINT) — nessa
+  coluna DATE. Isso é inconsistente com o lado de leitura, em
+  server/auth.service.ts (AuthService.validateCredentials), que trata
+  expiration_date como string ao decidir se uma conta expirou no login.
+  Esse mismatch já estava documentado (não corrigido) em
+  docs/SECURITY_REVIEW_ANALYSIS.md como item F2-2.
+
+  Correção: mantive a validação de data (isNaN), mas agora persisto a
+  string 'YYYY-MM-DD' normalizada (a partir do Date parseado em UTC),
+  consistente com o schema e com auth.service.ts.
+
+-----------------------------------------------------------------------------
+3. AVISOS DE MUDANÇA DE COMPORTAMENTO (leia antes de decidir sobre o merge)
+-----------------------------------------------------------------------------
+Estas correções são, por natureza, mudanças de autorização — elas FECHAM
+acessos que hoje funcionam (mesmo que indevidamente). Antes de subir,
+avalie se algum fluxo real do seu time depende do comportamento antigo:
+
+  - anamnesisSimple.getByStudy/save agora nega (FORBIDDEN) para estudos
+    que não estão em studies_cache NEM em study_metadata para nenhuma
+    unidade. Na prática isso só deveria acontecer se alguém tentar abrir
+    anamnese de um estudo que nunca passou por uma consulta ao PACS
+    (pacs.query) nesta instalação — o que não deveria ocorrer no fluxo
+    normal (o usuário sempre lista/consulta o estudo antes de abrir a
+    anamnese). Se houver algum fluxo alternativo de criação de anamnese
+    que pule a consulta ao PACS, ele vai passar a falhar com FORBIDDEN
+    onde antes funcionava silenciosamente. Recomendo testar manualmente
+    o fluxo de anamnese em homologação antes do merge.
+
+  - units.update: se hoje, na prática, algum usuário não-admin (médico,
+    atendente etc.) depende de conseguir editar dados da unidade (mesmo
+    que isso fosse um bug), essa ação vai passar a retornar FORBIDDEN. Se
+    esperado for que só admin_master/unit_admin editem unidades (o que
+    parece claramente a intenção original, dado o nome dos campos:
+    pacs_ip, pacs_port etc.), este é o comportamento correto.
+
+  - As três correções de permissão restantes (exam-legend.getBatch,
+    sla.getUnitSla, pacs cache-hit) só afetam usuários tentando acessar
+    unidades às quais não têm vínculo — não deveriam afetar nenhum fluxo
+    legítimo.
+
+  - As correções de audit log (pacs.ts) e de tipo (admin.ts) não mudam
+    nenhum comportamento visível ao usuário final; só corrigem o que fica
+    registrado/persistido.
+
+-----------------------------------------------------------------------------
+4. VALIDAÇÃO EXECUTADA NESTE SANDBOX
+-----------------------------------------------------------------------------
+Ambiente: clone limpo de origin/main (09a8c7f), branch
+claude/correcoes-setoriais-auditoria criado a partir dele, pnpm 10.30.1,
+Node do sandbox, TZ=UTC nos testes (mesma ressalva já registrada
+anteriormente: o TZ padrão do sandbox, America/Sao_Paulo, causa falhas
+espúrias e não relacionadas em asserções antigas que hardcodam ISO em
+UTC; produção usa TZ=America/Fortaleza via ecosystem.config.cjs).
+
+  pnpm install --frozen-lockfile ............ OK
+  pnpm check (tsc --noEmit) .................. OK, 0 erros
+    (na primeira tentativa, o rótulo de auditoria 'VIEW_ANAMNESIS' em
+    anamnesis.ts quebrou o check porque audit_log.action é um ENUM fixo
+    no schema; revertido para manter 'CREATE_ANAMNESIS' — ver seção 2,
+    commit 1, e seção 5)
+  TZ=UTC pnpm test (vitest) .................. 407 passaram, 13 falharam,
+    1 pulado, de 421 testes em 95 arquivos
+  pnpm build .................................. OK (vite build + esbuild),
+    mesmo aviso pré-existente de chunk >500kB, não relacionado a esta
+    mudança
+
+  As 13 falhas são EXATAMENTE as mesmas 13 falhas pré-existentes já
+  documentadas em ORIENTACAO_DEPLOY_VM1_CORRECAO_CICLO_FINANCEIRO_2026-
+  09-16.txt (mesmos arquivos, mesmos nomes de teste, mesma causa-raiz já
+  investigada):
+    - exam-catalog-security.test.ts (1)
+    - finance-v2-dashboard.test.tsx (2)
+    - mediaProxy.test.ts (1)
+    - minio.credentials.test.ts (1)
+    - pacs-desktop-download-progress.test.ts (1)
+    - pacs.mobile-ui.test.ts (1)
+    - security.auth.test.ts (1) — especificamente verifiquei esta, por
+      tocar diretamente em anamnesis.getByStudyId (arquivo que alterei):
+      confirmei que o teste falha ANTES de chegar ao meu código, na
+      validação de input do Zod, porque o fixture do teste usa um UID
+      inválido ("1.2.3.4.5.NONEXISTENT", que não bate com o regex
+      studyInstanceUidSchema) — bug pré-existente no dado de teste, não
+      na minha correção.
+    - study-priority-ui.test.ts (4)
+    - units.test.ts (1) — verifiquei também: falha em "Database not
+      available" dentro de getUserUnitPermissions, chamada por
+      units.list (não é o procedure units.update que alterei); é uma
+      limitação de infraestrutura de teste deste sandbox, não uma
+      regressão.
+
+  Rodei adicionalmente, isolados, os arquivos de teste mais diretamente
+  relacionados às rotas alteradas (anamnesis-status-security.test.ts,
+  pacs.test.ts, pacs.query.test.ts, pacs-refactor.test.ts, units.test.ts,
+  security.auth.test.ts, sla-countdown-ui.test.ts,
+  catalog-multi-legend.test.ts, pacsAutoMapping.test.ts): 85 passaram, só
+  as 2 falhas pré-existentes já citadas acima.
+
+  Nenhuma falha nova foi introduzida por nenhuma das 8 correções.
+
+-----------------------------------------------------------------------------
+5. ITEM NÃO CORRIGIDO NESTA BRANCH (requer decisão + migration)
+-----------------------------------------------------------------------------
+anamnesis.ts, getByStudyId: o log de auditoria do caminho de VISUALIZAÇÃO
+usa action: 'CREATE_ANAMNESIS' (deveria ser algo como 'VIEW_ANAMNESIS').
+audit_log.action é um ENUM fixo do MySQL, definido em drizzle/schema.ts
+(linha ~190), com valores como LOGIN, LOGOUT, VIEW_STUDY, OPEN_VIEWER,
+CREATE_REPORT etc. Adicionar 'VIEW_ANAMNESIS' exige:
+  1. Uma migration real (ALTER TABLE audit_log MODIFY COLUMN action
+     ENUM(..., 'VIEW_ANAMNESIS')) rodada em produção (VM2/MySQL);
+  2. Atualizar drizzle/schema.ts para incluir o novo valor;
+  3. Só então trocar o 'CREATE_ANAMNESIS' por 'VIEW_ANAMNESIS' no código.
+
+Isso está fora do que você pediu ("mostrar como fica com sua
+intervenção" em código) e fora do padrão de mudança "só código, sem
+migration" que vínhamos seguindo. Deixei o comentário no próprio arquivo
+explicando a situação. Se quiser que eu prepare essa migration
+separadamente, meça o impacto e avise — é uma mudança de schema, então
+segue as mesmas regras de aprovação explícita que combinamos.
+
+-----------------------------------------------------------------------------
+6. ARQUIVOS ENTREGUES
+-----------------------------------------------------------------------------
+  0001-fix-anamnesis-negar-acesso-por-padr-o-quando-o-estud.patch
+  0002-fix-exam-legend-validar-permiss-o-em-getBatch.patch
+  0003-fix-sla-validar-permiss-o-em-getUnitSla.patch
+  0004-fix-pacs-corrigir-unit_id-em-audit-logs-e-validar-un.patch
+  0005-fix-units-restringir-update-de-unidade-a-admin_maste.patch
+  0006-fix-admin-corrigir-tipo-de-expiration_date-gravado-e.patch
+  0000-diff-completo-consolidado.diff (todas as mudanças em um único diff,
+    para revisão rápida; NÃO use para aplicar via git am, só para leitura
+    ou via git apply)
+  CORRECOES_SETORIAIS_AUDITORIA_LAUDS_2026-09-16.txt (este arquivo)
+
+Nada foi enviado ao GitHub, VM1, VM2 ou VM3. O branch
+claude/correcoes-setoriais-auditoria existe apenas neste sandbox
+descartável e será perdido ao final da sessão — os patches acima são a
+forma de você levar essas mudanças para o seu ambiente.
