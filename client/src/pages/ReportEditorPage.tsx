@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import DOMPurify from 'dompurify';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import type { LayoutPreferences, LayoutSnapshot } from '../../../shared/types';
+import { DEFAULT_LAYOUT_PREFERENCES, type LayoutPreferences, type LayoutSnapshot } from '../../../shared/types';
 import { SharedReportBodyGuide, SharedReportSheet } from "@/components/SharedReportSheet";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
@@ -799,20 +799,31 @@ export default function ReportEditorPage() {
       </div>
     ` : '';
 
+    // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf):
+    // Antes, cada campo de layoutPrefs tinha seu próprio fallback "?? valor"
+    // reimplementado à mão neste arquivo — e esses valores (20/20/18/18) NÃO
+    // batiam com DEFAULT_LAYOUT_PREFERENCES (20/25/25/25, em shared/types.ts),
+    // nem com PacsQueryPage.tsx (20/20/20/20), nem com o que o médico via na
+    // tela em ReportDocument.tsx (que já mesclava corretamente com
+    // DEFAULT_LAYOUT_PREFERENCES). Um mesmo laudo podia sair com margem
+    // esquerda/direita diferente dependendo de qual tela o gerou. Agora usamos
+    // o mesmo merge que ReportDocument.tsx já faz — uma única fonte de
+    // verdade para os valores padrão.
+    const effectivePrefs: LayoutPreferences = { ...DEFAULT_LAYOUT_PREFERENCES, ...(layoutPrefs ?? {}) };
     // P3: margens do @page a partir das preferências do layout
-    const lMT = layoutPrefs?.marginTop ?? 20;
+    const lMT = effectivePrefs.marginTop;
     // P5: reservar margem inferior para o rodapé (estimativa de 30mm se houver imagem)
     const footerReservedMm = layoutFooterUrl ? 30 : 0;
-    const lMB = (layoutPrefs?.marginBottom ?? 20) + footerReservedMm;
-    const lML = layoutPrefs?.marginLeft ?? 18;
-    const lMR = layoutPrefs?.marginRight ?? 18;
+    const lMB = effectivePrefs.marginBottom + footerReservedMm;
+    const lML = effectivePrefs.marginLeft;
+    const lMR = effectivePrefs.marginRight;
     // P8: usar stack de fontes com fallback seguro
-    const rawFont = layoutPrefs?.fontFamily || 'Arial';
+    const rawFont = effectivePrefs.fontFamily || 'Arial';
     const fontStack = SAFE_FONTS[rawFont] ?? `${rawFont}, Arial, sans-serif`;
-    const lSize = layoutPrefs?.fontSize || 11;
-    const lLine = layoutPrefs?.lineHeight ?? 1.6;
-    const lBorderColor = layoutPrefs?.headerBorderColor ?? '#1a6b8a';
-    const pageSize = (layoutPrefs as any)?.pageSize ?? 'A4';
+    const lSize = effectivePrefs.fontSize || 11;
+    const lLine = effectivePrefs.lineHeight ?? 1.6;
+    const lBorderColor = effectivePrefs.headerBorderColor ?? '#1a6b8a';
+    const pageSize = effectivePrefs.pageSize ?? 'A4';
     // OPÇÃO 1: dimensões físicas do papel (mm) — 100vw/100vh != A4 na janela popup
     const paperW = pageSize === 'Letter' ? '216mm' : '210mm';
     const paperH = pageSize === 'Letter' ? '279mm' : '297mm';
@@ -1152,7 +1163,15 @@ export default function ReportEditorPage() {
 
     toast.loading("Gerando PDF configurado...", { id: "financial-pdf-download" });
     try {
-      const pdf = new jsPDF("p", "mm", "a4");
+      // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf): o formato do PDF
+      // vinha hardcoded como "a4", ignorando por completo layoutPrefs.pageSize.
+      // Uma unidade configurada para "Letter" gerava um laudo Letter na
+      // impressão oficial (handlePrint) mas um PDF A4 neste download — o
+      // mesmo documento com tamanho de página diferente dependendo de qual
+      // botão o usuário clicasse. Agora lê o mesmo pageSize, com o mesmo
+      // default (DEFAULT_LAYOUT_PREFERENCES) usado em handlePrint.
+      const effectivePageSize = (layoutPrefs?.pageSize ?? DEFAULT_LAYOUT_PREFERENCES.pageSize) as "A4" | "Letter";
+      const pdf = new jsPDF("p", "mm", effectivePageSize.toLowerCase() as "a4" | "letter");
       for (let index = 0; index < pages.length; index += 1) {
         const canvas = await html2canvas(pages[index], {
           scale: 2,
@@ -1171,7 +1190,7 @@ export default function ReportEditorPage() {
     } catch {
       toast.error("Não foi possível gerar o PDF. Tente novamente.", { id: "financial-pdf-download" });
     }
-  }, [patientName]);
+  }, [patientName, layoutPrefs]);
 
   useEffect(() => {
     if (!downloadOnOpen || !financialDocumentView || autoDownloadTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
