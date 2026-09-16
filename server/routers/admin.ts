@@ -338,9 +338,25 @@ export const adminRouter = router({
         if (input.isActive !== undefined) updateData.isActive = input.isActive;
         if (input.expiration_date !== undefined) {
           if (input.expiration_date) {
-            // Converter "YYYY-MM-DD" para timestamp BIGINT em ms (fim do dia UTC)
-            const d = new Date(input.expiration_date + 'T23:59:59.000Z');
-            updateData.expiration_date = isNaN(d.getTime()) ? null : d.getTime();
+            // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria):
+            // drizzle/schema.ts declara expiration_date como date(...) sem "mode",
+            // que no drizzle-orm/mysql-core equivale a mode: 'string' — a coluna é
+            // lida e deve ser escrita como 'YYYY-MM-DD'. O código antigo gravava
+            // d.getTime() (um BIGINT em milissegundos) nessa coluna DATE, tipo
+            // incompatível tanto com o schema quanto com a leitura em
+            // auth.service.ts (AuthService.validateCredentials), que trata
+            // expiration_date como string 'YYYY-MM-DD' ao checar expiração no login.
+            // Mantemos a validação de data mas agora persistimos a string, não o
+            // timestamp.
+            const d = new Date(input.expiration_date + 'T00:00:00.000Z');
+            if (isNaN(d.getTime())) {
+              updateData.expiration_date = null;
+            } else {
+              const y = d.getUTCFullYear();
+              const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+              const day = String(d.getUTCDate()).padStart(2, '0');
+              updateData.expiration_date = `${y}-${m}-${day}`;
+            }
           } else {
             updateData.expiration_date = null;
           }
