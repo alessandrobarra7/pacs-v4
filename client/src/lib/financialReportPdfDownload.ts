@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { DEFAULT_LAYOUT_PREFERENCES } from "../../../shared/types";
 
 function absoluteUrl(value: string | null | undefined) {
   return value?.startsWith("/") ? `${window.location.origin}${value}` : value || "";
@@ -34,12 +35,26 @@ export async function downloadFinancialReportPdf(documentData: any) {
   const report = documentData.report;
   const layout = { ...(documentData.layout ?? {}), ...(report.layout_snapshot ?? {}) } as Record<string, any>;
   const preferences = (layout.preferences ?? {}) as Record<string, any>;
-  const pageSize = preferences.pageSize === "Letter" ? "Letter" : "A4";
+  // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf): este arquivo lia
+  // pageSize/fontFamily/fontSize/lineHeight das preferências, mas as margens
+  // do laudo (marginTop/marginBottom/marginLeft/marginRight) nunca eram
+  // lidas — o CSS abaixo usava "padding:16mm 18mm 30mm" fixo, sempre, para
+  // qualquer unidade, mesmo quando o administrador configurava margens
+  // diferentes no editor de layout. Agora todas as preferências (incluindo
+  // margens) vêm do mesmo merge com DEFAULT_LAYOUT_PREFERENCES usado em
+  // ReportDocument.tsx, ReportEditorPage.tsx e PacsQueryPage.tsx.
+  const effPrefs = { ...DEFAULT_LAYOUT_PREFERENCES, ...preferences };
+  const pageSize = effPrefs.pageSize === "Letter" ? "Letter" : "A4";
   const paperWidth = pageSize === "Letter" ? "216mm" : "210mm";
   const paperHeight = pageSize === "Letter" ? "279mm" : "297mm";
-  const fontFamily = preferences.fontFamily || "Arial";
-  const fontSize = Number(preferences.fontSize ?? 11);
-  const lineHeight = Number(preferences.lineHeight ?? 1.6);
+  const fontFamily = effPrefs.fontFamily || "Arial";
+  const fontSize = Number(effPrefs.fontSize ?? 11);
+  const lineHeight = Number(effPrefs.lineHeight ?? 1.6);
+  const footerReservedMm = layout.footer_image_url ? 30 : 0;
+  const marginTop = Number(effPrefs.marginTop);
+  const marginRight = Number(effPrefs.marginRight);
+  const marginBottom = Number(effPrefs.marginBottom) + footerReservedMm;
+  const marginLeft = Number(effPrefs.marginLeft);
   const logos = Array.isArray(layout.logos) ? layout.logos.filter((logo: any) => logo?.url).slice(0, 3) : [];
   const [background, footer, signature, stamp, ...logoUrls] = await Promise.all([
     fetchToBase64(absoluteUrl(layout.background_image_url)),
@@ -87,7 +102,7 @@ export async function downloadFinancialReportPdf(documentData: any) {
     doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>
       @page { size: ${pageSize} portrait; margin: 0; }
       * { box-sizing:border-box; } html,body { margin:0;padding:0;background:#fff;color:#111;font-family:${fontFamily},Arial,sans-serif; }
-      .print-page { width:${paperWidth};height:${paperHeight};position:relative;overflow:hidden;padding:16mm 18mm 30mm;background:#fff center/cover no-repeat;page-break-after:always;font-size:${fontSize}pt;line-height:${lineHeight};display:flex;flex-direction:column; }
+      .print-page { width:${paperWidth};height:${paperHeight};position:relative;overflow:hidden;padding:${marginTop}mm ${marginRight}mm ${marginBottom}mm ${marginLeft}mm;background:#fff center/cover no-repeat;page-break-after:always;font-size:${fontSize}pt;line-height:${lineHeight};display:flex;flex-direction:column; }
       .print-page:last-child { page-break-after:auto; } header { display:flex;align-items:center;gap:8px;min-height:18mm;border-bottom:1px solid #d0d0d0;padding-bottom:4mm; } header img { max-height:15mm;max-width:45mm;object-fit:contain; } .header-spacer { flex:1; }
       .patient { font-size:9.5pt;line-height:1.7;margin:5mm 0; } h1 { font-size:12pt;text-align:center;text-transform:uppercase;letter-spacing:.04em;margin:4mm 0 7mm; } .report-body { flex:1;min-height:0;overflow-wrap:anywhere; } .report-body p,.report-body div { margin-bottom:3pt; }
       .doctor-footer { text-align:center;margin:auto auto 3mm;max-width:65mm;page-break-inside:avoid;font-size:9pt; } .doctor-footer span { display:block;margin-top:2pt;color:#444; } .signature,.stamp { display:block;object-fit:contain;margin:0 auto 2mm; } .signature { max-width:45mm;max-height:13mm; } .stamp { max-width:53mm;max-height:24mm; } .signature-line { border-top:1px solid #333;width:45mm;margin:0 auto 2mm; }
