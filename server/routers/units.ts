@@ -162,7 +162,19 @@ export const unitsRouter = router({
         const { id, ...data } = input;
         
         // V13-P5 FIX: unit_admin multiunidade deve poder editar unidades que gerencia via user_unit_permissions
+        //
+        // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria): getAdminManagedUnitIds
+        // devolve os unit_ids de QUALQUER linha em user_unit_permissions do usuário,
+        // independentemente do papel ou das permissões concedidas nela — ou seja, um
+        // médico, atendente, operador etc. com qualquer vínculo (mesmo só view_studies)
+        // com a unidade passava nesta checagem e conseguia alterar pacs_ip/pacs_port/
+        // pacs_ae_title/name/slug/isActive da unidade. Agora só admin_master e
+        // unit_admin chegam a essa checagem por unidade; os demais papéis são negados
+        // de imediato, independentemente de terem algum vínculo com a unidade.
         if (ctx.user.role !== 'admin_master') {
+          if (ctx.user.role !== 'unit_admin') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas administradores podem editar unidades.' });
+          }
           const { getAdminManagedUnitIds } = await import('../authorization');
           const managedIds = await getAdminManagedUnitIds(ctx.user);
           const allowed = managedIds === null || (managedIds && managedIds.includes(id));
