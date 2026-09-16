@@ -1,0 +1,277 @@
+HANDOFF TÉCNICO — UNIFICAÇÃO DE PÁGINA/MARGENS DO LAUDO EM PDF
+Projeto: PACS Portal / LAUDS
+Repositório: https://github.com/alessandrobarra7/pacs-v4
+Branch com as correções: claude/correcao-paginas-laudo-pdf
+Base do branch: origin/main, commit 09a8c7f713cef674fa06c258b4f3d67bd1bcf8c1
+Topo do branch (commit mais recente): 56bc2a1461b8f49f99becea3959e180ead8fd492
+Gerado por: Claude (Cowork), a pedido de Alessandro (studiobarra7@gmail.com)
+Data: 2026-09-16
+
+DESTINATÁRIO DESTE DOCUMENTO: qualquer agente ou engenheiro com acesso de
+leitura/escrita ao repositório (nomeadamente, o agente identificado nos
+commits de produção como "Manus <dev-agent@manus.ai>"), para ler este
+arquivo, depois ir ao branch acima e conferir, no código real, se o estado
+final bate com a descrição de cada correção abaixo antes de mesclar.
+
+=============================================================================
+COMO CHEGAR NO CÓDIGO REAL (não confie só neste texto — confira no branch)
+=============================================================================
+  git fetch origin
+  git checkout claude/correcao-paginas-laudo-pdf
+  git log --oneline 09a8c7f..HEAD
+  git diff 09a8c7f..HEAD
+
+Os 3 commits, na ordem em que devem ser lidos:
+  1. 3981274  fix(report-editor): unificar margens/pageSize com
+              DEFAULT_LAYOUT_PREFERENCES
+  2. 1b569ec  fix(pacs-query): unificar margens do print rápido com
+              DEFAULT_LAYOUT_PREFERENCES
+  3. 56bc2a1  fix(finance-pdf): ler margens configuradas do layout em vez
+              de hardcoded
+
+=============================================================================
+CONTEXTO — O QUE FOI INVESTIGADO E POR QUÊ
+=============================================================================
+O usuário relatou suspeita de "inconsistências no setor de páginas de
+laudo, na configuração da página de PDF e nas exportações dos laudos".
+Antes de qualquer correção, foi feita uma leitura completa do setor,
+confirmando com evidência de código (não por suposição) que o sistema tem
+CINCO implementações independentes que produzem a mesma "folha" do laudo:
+
+  1. client/src/components/ReportDocument.tsx — o que o médico VÊ na tela
+     ao escrever/revisar (WYSIWYG). Único ponto que já fazia certo: usa
+     `{...DEFAULT_LAYOUT_PREFERENCES, ...preferences}` (importa a
+     constante canônica de shared/types.ts). NÃO ALTERADO nesta branch —
+     já estava correto, serviu de referência para as outras 4.
+
+  2. client/src/pages/ReportEditorPage.tsx → handlePrint() — impressão
+     oficial do laudo (o fluxo usado ao assinar/imprimir de verdade).
+     CORRIGIDO no commit 1.
+
+  3. client/src/pages/ReportEditorPage.tsx → handleFinancialPdfDownload()
+     — download de PDF ativado por `?financialView=1` (usado a partir do
+     módulo financeiro para o médico baixar cópia do próprio laudo
+     assinado). CORRIGIDO no commit 1 (mesmo arquivo do item 2).
+
+  4. client/src/pages/PacsQueryPage.tsx — impressão rápida a partir da
+     lista de exames (o código já tinha um comentário `/* SYNC
+     ReportEditorPage */`, evidenciando que era cópia manual do bloco do
+     item 2, tentando ficar sincronizado). CORRIGIDO no commit 2.
+
+  5. client/src/lib/financialReportPdfDownload.ts (usado em
+     client/src/pages/finance/FinanceMeuFinanceiro.tsx) — outro download
+     de PDF do módulo financeiro, para o "meu financeiro" do médico.
+     CORRIGIDO no commit 3.
+
+A fonte de verdade canônica é `shared/types.ts`:
+  export const DEFAULT_LAYOUT_PREFERENCES: LayoutPreferences = {
+    ...
+    marginTop: 20, marginRight: 25, marginBottom: 25, marginLeft: 25,
+    ...
+    pageSize: "A4",
+  };
+Com o comentário no próprio arquivo: "Valores padrão do layout — NÃO
+alterar sem atualizar ReportDocument.tsx ao mesmo tempo." — ou seja, o
+time já sabia que essa sincronização era manual e frágil. Antes desta
+branch, SÓ ReportDocument.tsx (item 1) realmente importava e usava essa
+constante; os itens 2, 3, 4 e 5 reimplementavam fallbacks numéricos à mão,
+e já tinham divergido entre si (ver evidência exata abaixo).
+
+Vale registrar o que JÁ estava bem-feito, para não dar a entender que tudo
+era duplicado: `client/src/components/SharedReportPrint.tsx`
+(`renderSharedReportSheetHtml`) é um componente genuinamente compartilhado
+— usado pelos itens 2 e 4 (e também por FinanceMeuFinanceiro.tsx para uma
+pré-visualização) — com teste próprio em
+server/shared-report-print.test.ts. Ele resolve o POSICIONAMENTO do
+conteúdo dentro da folha (logo, nome do paciente, corpo, assinatura como
+percentuais). O que NÃO estava unificado, e é o alvo desta correção, é a
+"casca" da folha em volta desse conteúdo: tamanho de página (pageSize) e
+margens (marginTop/Right/Bottom/Left) — exatamente onde estava a
+divergência.
+
+=============================================================================
+1. server/../client/src/pages/ReportEditorPage.tsx
+   fix(report-editor): unificar margens/pageSize com
+   DEFAULT_LAYOUT_PREFERENCES
+=============================================================================
+Duas correções distintas neste arquivo/commit:
+
+1.1) handlePrint() — ANTES:
+  const lMT = layoutPrefs?.marginTop ?? 20;
+  const lMB = (layoutPrefs?.marginBottom ?? 20) + footerReservedMm;
+  const lML = layoutPrefs?.marginLeft ?? 18;
+  const lMR = layoutPrefs?.marginRight ?? 18;
+  ...
+  const pageSize = (layoutPrefs as any)?.pageSize ?? 'A4';
+
+  MECANISMO DO PROBLEMA: os fallbacks (20/20/18/18) eram valores
+  inventados neste arquivo, diferentes do canônico em
+  DEFAULT_LAYOUT_PREFERENCES (20/25/25/25). Isso só se manifesta
+  visivelmente quando `layoutPrefs` está incompleto ou ausente — por
+  exemplo, uma unidade que nunca configurou layout próprio (getByUnit
+  retorna null nesse caso) ou um registro legado salvo antes de algum
+  campo existir no schema. Nesse cenário, o laudo que o médico via na
+  tela (ReportDocument.tsx, com margem esquerda/direita 25mm) saía
+  impresso com margem esquerda/direita 18mm — o documento impresso não
+  batia com o que foi revisado na tela antes de assinar.
+
+  MECANISMO DA CORREÇÃO: adicionado
+  `const effectivePrefs: LayoutPreferences = { ...DEFAULT_LAYOUT_PREFERENCES, ...(layoutPrefs ?? {}) };`
+  logo antes do bloco de margens, e todos os campos (lMT, lMB, lML, lMR,
+  rawFont, lSize, lLine, lBorderColor, pageSize) passaram a ler de
+  `effectivePrefs` em vez de repetir `layoutPrefs?.campo ?? valor` campo a
+  campo. `DEFAULT_LAYOUT_PREFERENCES` foi importado de shared/types.ts
+  (mesmo import que ReportDocument.tsx já usa).
+
+1.2) handleFinancialPdfDownload() — ANTES:
+  const pdf = new jsPDF("p", "mm", "a4");
+
+  MECANISMO DO PROBLEMA: formato fixo em "a4", sem NENHUMA leitura de
+  layoutPrefs.pageSize. Diferente do item 1.1 (que só falha em
+  layoutPrefs incompleto), este é INCONDICIONAL: mesmo com layoutPrefs
+  totalmente preenchido e pageSize="Letter" explícito, o PDF baixado por
+  este botão sempre saía A4 — o mesmo laudo, Letter na impressão oficial
+  (handlePrint) e A4 neste download.
+
+  MECANISMO DA CORREÇÃO:
+  const effectivePageSize = (layoutPrefs?.pageSize ?? DEFAULT_LAYOUT_PREFERENCES.pageSize) as "A4" | "Letter";
+  const pdf = new jsPDF("p", "mm", effectivePageSize.toLowerCase() as "a4" | "letter");
+  `layoutPrefs` foi adicionado às dependências do useCallback (antes só
+  tinha `[patientName]`).
+
+=============================================================================
+2. client/src/pages/PacsQueryPage.tsx
+   fix(pacs-query): unificar margens do print rápido com
+   DEFAULT_LAYOUT_PREFERENCES
+=============================================================================
+ANTES:
+  const lMT = lPrefs.marginTop ?? 20;
+  const lMB = (lPrefs.marginBottom ?? 20) + footerReservedMmQ;
+  const lML = lPrefs.marginLeft ?? 20;
+  const lMR = lPrefs.marginRight ?? 20;
+  const pageSizeQ = lPrefs.pageSize ?? 'A4';
+
+MECANISMO DO PROBLEMA: este bloco tem o comentário `/* SYNC
+ReportEditorPage: full-bleed... */` — ou seja, foi copiado manualmente do
+bloco do item 1.1 para manter os dois fluxos de impressão em sincronia.
+Só que, ANTES desta correção, os fallbacks já tinham divergido do próprio
+arquivo que deveriam espelhar: aqui marginLeft/marginRight caíam para 20
+quando ausentes, contra 18 no ReportEditorPage.tsx (antes do commit 1) e
+25 no canônico. Ou seja, EXISTIAM TRÊS valores de fallback diferentes
+(18, 20 e 25) para o mesmo campo, em três lugares que deveriam produzir o
+mesmo laudo.
+
+MECANISMO DA CORREÇÃO: adicionado
+`const effectivePrefsQ = { ...DEFAULT_LAYOUT_PREFERENCES, ...((unitLayout?.preferences as any) ?? {}) };`
+e todos os campos (lMT, lMB, lML, lMR, rawFontQ, lSize, lLine,
+lBorderColor, pageSizeQ) passaram a ler de `effectivePrefsQ`.
+`DEFAULT_LAYOUT_PREFERENCES` foi importado de "../../../shared/types" no
+topo do arquivo.
+
+OBSERVAÇÃO PARA QUEM REVISAR: este arquivo ainda tem um bloco de HTML/CSS
+praticamente duplicado do handlePrint em ReportEditorPage.tsx (o
+comentário "SYNC" é literal, não é força de expressão). Esta correção
+resolve a divergência de VALORES (agora os dois leem da mesma fonte), mas
+não resolve a duplicação de CÓDIGO em si — se no futuro alguém alterar a
+lógica de paginação, watermark ou rodapé em um dos dois lugares e
+esquecer do outro, a divergência pode voltar por um caminho diferente.
+Extrair esse bloco inteiro (o `@page`/CSS shell, não só os valores) para
+um componente ou função compartilhada — nos mesmos moldes de
+SharedReportPrint.tsx — é uma melhoria estrutural que NÃO foi feita
+nesta branch, por estar fora do escopo de "corrigir a divergência
+relatada" e por ser uma mudança bem maior (mexeria na estrutura de
+ambos os arquivos, não só nos valores). Fica registrado como sugestão
+para uma branch futura, se o usuário quiser.
+
+=============================================================================
+3. client/src/lib/financialReportPdfDownload.ts
+   fix(finance-pdf): ler margens configuradas do layout em vez de
+   hardcoded
+=============================================================================
+ANTES:
+  const pageSize = preferences.pageSize === "Letter" ? "Letter" : "A4";
+  ...
+  .print-page { ...padding:16mm 18mm 30mm...  }
+
+MECANISMO DO PROBLEMA: diferente dos outros dois arquivos, este nem
+tentava ler marginTop/marginBottom/marginLeft/marginRight das
+preferências — o CSS usava um padding fixo (`16mm 18mm 30mm` — top 16mm,
+laterais 18mm, bottom 30mm, na notação abreviada de 3 valores) para
+QUALQUER unidade, incondicionalmente. Se um administrador configurasse,
+por exemplo, marginTop=40mm (papel timbrado com cabeçalho grande), essa
+configuração era simplesmente ignorada aqui — o laudo baixado por este
+caminho sempre usava 16mm no topo, batendo o cabeçalho por cima do papel
+timbrado.
+
+MECANISMO DA CORREÇÃO:
+  const effPrefs = { ...DEFAULT_LAYOUT_PREFERENCES, ...preferences };
+  ...
+  const marginTop = Number(effPrefs.marginTop);
+  const marginRight = Number(effPrefs.marginRight);
+  const marginBottom = Number(effPrefs.marginBottom) + footerReservedMm; // +30mm se houver imagem de rodapé, mesmo padrão dos outros dois arquivos
+  const marginLeft = Number(effPrefs.marginLeft);
+  ...
+  .print-page { ...padding:${marginTop}mm ${marginRight}mm ${marginBottom}mm ${marginLeft}mm...  }
+`DEFAULT_LAYOUT_PREFERENCES` foi importado de "../../../shared/types".
+pageFontFamily/fontSize/lineHeight, que já eram lidos corretamente antes,
+passaram a vir do mesmo `effPrefs` por consistência (não havia bug nesses
+três campos, só reorganização para uma única fonte).
+
+=============================================================================
+VALIDAÇÃO JÁ EXECUTADA SOBRE ESTE BRANCH (antes de qualquer merge)
+=============================================================================
+Em clone limpo de origin/main (09a8c7f), branch criado a partir dele:
+  pnpm install --frozen-lockfile ....... OK
+  pnpm check (tsc --noEmit) ............ OK, 0 erros
+  TZ=UTC pnpm test (vitest) ............ 407 passaram, 13 falharam, 1
+    pulado, de 421 testes — EXATAMENTE as mesmas 13 falhas pré-existentes
+    já documentadas nas entregas anteriores (mesmos arquivos, mesma
+    causa-raiz, nenhuma nova). Rodados isoladamente, e confirmados
+    passando, os testes mais diretamente relacionados aos arquivos
+    alterados: shared-report-print.test.ts, report-editor-mobile-ui.
+    test.ts, report-signer-listing-ui.test.ts, layouts-security.test.ts —
+    14/14 passaram. pacs.mobile-ui.test.ts e study-priority-ui.test.ts
+    (que também tocam PacsQueryPage.tsx) continuam com as mesmas falhas
+    pré-existentes de sempre, não relacionadas a este branch.
+  pnpm build ............................ OK
+
+Nenhuma migration foi criada ou executada. Nenhum arquivo de servidor
+(server/**) foi tocado nesta branch — só client/src/pages/ReportEditorPage.tsx,
+client/src/pages/PacsQueryPage.tsx e client/src/lib/financialReportPdfDownload.ts.
+
+=============================================================================
+COMO TESTAR MANUALMENTE (recomendado antes do merge)
+=============================================================================
+Como esta correção não muda nenhuma validação de input nem regra de
+autorização — só valores de layout usados na hora de montar o HTML/PDF —
+o risco de regressão funcional é baixo, mas é uma mudança VISUAL, então
+vale conferir visualmente antes de aprovar:
+  1. Configure (ou confirme) um layout de unidade em
+     /financeiro/configuracao (ou onde o LayoutEditorPage estiver
+     montado) com pageSize="Letter" e margens não-padrão (ex.: marginTop
+     diferente de 20).
+  2. Abra um laudo assinado dessa unidade e compare lado a lado: a
+     impressão normal (handlePrint), o download financeiro a partir de
+     ReportEditorPage (?financialView=1) e o download a partir de
+     FinanceMeuFinanceiro.tsx — os três devem sair com o MESMO tamanho de
+     página e as MESMAS margens agora.
+  3. Repita com uma unidade SEM layout configurado (preferences null) —
+     os três devem cair nos mesmos valores de DEFAULT_LAYOUT_PREFERENCES
+     (20/25/25/25, A4).
+
+=============================================================================
+ESTADO ATUAL — O QUE AINDA NÃO ACONTECEU
+=============================================================================
+Este branch está publicado no GitHub, mas NÃO tem Pull Request aberto,
+NÃO foi mesclado em main, e NADA foi implantado em nenhuma VM.
+
+=============================================================================
+PENDÊNCIA REGISTRADA, NÃO CORRIGIDA NESTA BRANCH
+=============================================================================
+Ver "OBSERVAÇÃO PARA QUEM REVISAR" na seção 2 acima: a duplicação
+estrutural do bloco de CSS/HTML de impressão entre ReportEditorPage.tsx e
+PacsQueryPage.tsx continua existindo — esta branch corrige os VALORES
+usados por ambos (agora vêm da mesma fonte), mas não extrai o bloco em si
+para um componente compartilhado. Isso é uma melhoria arquitetural maior,
+fora do escopo desta correção pontual, e fica como sugestão para decisão
+futura do usuário.
