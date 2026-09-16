@@ -2976,6 +2976,7 @@
 - [x] Bloquear o acesso público a uploads clínicos legados e preservá-los por rota autenticada
 - [ ] Planejar a migração verificável dos uploads clínicos legados para MinIO sem remoção prematura
 - [x] Corrigir o teste MinIO dependente de ambiente que interrompeu a atualização segura da VM1
+- [x] Produzir guia TXT para colaboração com Claude via GitHub e atualização das VMs por commits revisados
 - [x] Confirmar sem revelar valores a origem de `JWT_SECRET` na VM1 antes de ativar a autenticação local
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação
