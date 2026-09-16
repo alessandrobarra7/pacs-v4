@@ -205,7 +205,14 @@ export const slaRouter = router({
   /** Retorna o SLA configurado para uma unidade */
   getUnitSla: protectedProcedure
     .input(z.object({ unitId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria):
+      // Não havia nenhuma checagem de permissão aqui — qualquer usuário autenticado
+      // podia ler o SLA configurado de qualquer unidade, bastando informar o unitId.
+      // Alinhado ao padrão já usado em setUnitSla/getByStudy neste mesmo router.
+      const canAccess = await canAccessUnit(ctx.user, input.unitId, "view_studies");
+      if (!canAccess) throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem acesso a esta unidade." });
+
       const db = await getDb();
       if (!db) return null;
       const rows = await db
