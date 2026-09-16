@@ -1,0 +1,207 @@
+HANDOFF TÉCNICO — LÓGICA DO RESPONSÁVEL FINANCEIRO (REPASSE MÉDICO + SISTEMA)
+Projeto: PACS Portal / LAUDS
+Repositório: https://github.com/alessandrobarra7/pacs-v4
+Branch com a correção aplicada: claude/correcao-resumo-responsavel-financeiro
+Base do branch: origin/main, commit 09a8c7f713cef674fa06c258b4f3d67bd1bcf8c1
+Topo do branch: d314c2bad30d3b1897b4e980c878b54a16fcf555
+Gerado por: Claude (Cowork), a pedido de Alessandro (studiobarra7@gmail.com)
+Data: 2026-09-16
+
+DESTINATÁRIO DESTE DOCUMENTO: qualquer agente ou engenheiro com acesso de
+leitura/escrita ao repositório (nomeadamente, o agente identificado nos
+commits de produção como "Manus <dev-agent@manus.ai>"). Este documento tem
+DUAS partes: (1) uma correção já aplicada e validada, pronta para revisão
+e merge; (2) uma investigação arquitetural mais profunda, com achados que
+NÃO foram corrigidos nesta branch porque exigem decisão de produto e
+possivelmente uma migration — registrados aqui para quem for continuar o
+redesenho do módulo pedir autorização explícita ao usuário antes de agir.
+
+=============================================================================
+CONTEXTO DE NEGÓCIO (como o usuário descreveu o modelo)
+=============================================================================
+O admin_master (dono do sistema/LAUDS) cobra por cada laudo emitido numa
+unidade — exemplo dado: R$2,00/laudo. O responsavel_financeiro daquela
+unidade é quem deve repassar esse valor ao dono do sistema. Ao mesmo
+tempo, o responsavel_financeiro é quem paga o médico que assinou o laudo
+— exemplo dado: R$30,00/laudo. Ou seja, por laudo, o responsavel_financeiro
+tem DUAS obrigações de pagamento distintas e simultâneas: R$30 ao médico,
+R$2 ao sistema. O usuário relatou que essa lógica "está quebrada e sem as
+funcionalidades necessárias" e que "não temos páginas e nem ambiente
+montado para o responsavel financeiro trabalhar com seus controles".
+
+=============================================================================
+PARTE 1 — CORREÇÃO APLICADA NESTA BRANCH (commit d314c2b)
+=============================================================================
+COMO CHEGAR NO CÓDIGO REAL:
+  git fetch origin
+  git checkout claude/correcao-resumo-responsavel-financeiro
+  git diff 09a8c7f..HEAD -- server/routers/financeSimple.ts
+
+ONDE: server/routers/financeSimple.ts, procedure myResponsavelSummary —
+é a query que alimenta os cards e a lista de unidades da tela
+/financeiro/responsavel (client/src/pages/finance/FinanceMeuResponsavel.tsx),
+a página principal que o responsavel_financeiro vê ao logar.
+
+MECANISMO DO PROBLEMA: o sistema tem DUAS tabelas de eventos financeiros
+por laudo, não uma só:
+  - billing_visit_events — 1 linha por laudo assinado (o caminho "normal").
+  - billing_catalog_study_events — eventos gerados quando um exame produz
+    múltiplos documentos/legendas faturáveis (feature de catálogo de
+    exames/legendas). Um mesmo laudo pode gerar várias linhas aqui.
+
+myResponsavelSummary somava SÓ billing_visit_events. Mas duas outras
+consultas do MESMO módulo já somavam as duas tabelas corretamente:
+  - doctorSummaryByUnit (linha ~698) — usada no modal "Ver médicos" da
+    MESMA tela /financeiro/responsavel.
+  - unitSummary (linha ~600) via listUnitCycleFinancialEvents (linha
+    ~161) — usada no painel do admin_master.
+
+Ou seja: dentro da própria tela do responsavel_financeiro, o card
+"Total Médicos" no topo (myResponsavelSummary, incompleto) podia mostrar
+um valor MENOR do que a soma que aparece ao clicar em "Ver médicos"
+(doctorSummaryByUnit, completo) — para a MESMA unidade, no MESMO período.
+Mesmo problema para "Total ao Sistema"/"Pago ao Sistema"/"Pendente ao
+Sistema". Isso é uma inconsistência matemática demonstrável, não uma
+opinião de design.
+
+MECANISMO DA CORREÇÃO: myResponsavelSummary agora roda duas consultas em
+paralelo por unidade — a original (billing_visit_events) e uma nova
+sobre billing_catalog_study_events (mesmo agrupamento por unit_id, mesma
+janela de ciclo calculada via calcCycleDates, mesmo filtro
+financial_status='active' que doctorSummaryByUnit já usa) — e soma os
+resultados em JS antes de devolver ao frontend. Os nomes de campo
+retornados ao cliente não mudaram (total_laudos, system_total,
+system_paid, doctor_total, doctor_paid), então NÃO é necessária nenhuma
+alteração no componente React.
+
+VALIDAÇÃO JÁ EXECUTADA:
+  pnpm install --frozen-lockfile ....... OK
+  pnpm check (tsc --noEmit) ............ OK, 0 erros
+  TZ=UTC pnpm test (vitest) ............ 407 passaram, 13 falharam
+    (exatamente as mesmas 13 falhas pré-existentes já documentadas nas
+    entregas anteriores desta auditoria — nenhuma nova). Não existe
+    nenhum teste automatizado cobrindo myResponsavelSummary hoje — vale
+    considerar adicionar um teste de integração que crie eventos nas
+    duas tabelas para o mesmo unit_id/período e confira que os totais
+    batem com doctorSummaryByUnit, para esta classe de bug não voltar
+    silenciosamente.
+  pnpm build ............................ OK
+
+ESTADO: branch publicado no GitHub, SEM Pull Request aberto, SEM merge,
+NADA implantado em VM.
+
+=============================================================================
+PARTE 2 — ACHADOS ARQUITETURAIS MAIS PROFUNDOS (NÃO CORRIGIDOS)
+=============================================================================
+Investigando a reclamação do usuário ("não temos ambiente montado para o
+responsavel financeiro trabalhar com seus controles"), foram encontradas
+três questões que vão além de um bug pontual — são decisões de produto/
+arquitetura que precisam de definição do usuário antes de qualquer código
+novo, incluídas aqui para quem for continuar não repetir a investigação:
+
+2.1) O repasse ao sistema (o lado "R$2,00") não tem NENHUMA ferramenta
+operacional para o responsavel_financeiro — só um número.
+  - markSystemPaid (server/routers/financeSimple.ts, linha ~973) só pode
+    ser chamado por admin_master (`if (ctx.user.role !== "admin_master")
+    throw FORBIDDEN`) — isto está correto do ponto de vista contábil: só
+    quem recebe o dinheiro deveria confirmar o recebimento.
+  - Mas a ÚNICA tela com o botão "Marcar sistema pago" é
+    /financeiro/pagamentos (client/src/pages/finance/FinancePagamentos.tsx),
+    e essa rota está registrada em client/src/App.tsx (linha ~137) com
+    `allowedRoles={['admin_master', 'unit_admin']}` — responsavel_financeiro
+    está EXCLUÍDO dessa rota, recebe 403/redirecionamento se tentar acessar.
+  - Na tela que o responsavel_financeiro PODE acessar
+    (FinanceMeuResponsavel.tsx), os três cards "Total/Pago/Pendente ao
+    Sistema" são só leitura — sem dados de conta/PIX para saber para onde
+    mandar o dinheiro, sem botão de "avisei que paguei, aguardando
+    confirmação", nada. Ele vê a dívida e não tem nenhuma ação disponível.
+  - PENDÊNCIA: dar ao responsavel_financeiro uma ação real aqui (ex.: um
+    botão "Informar pagamento enviado" que fica visível para o
+    admin_master como "aguardando confirmação", sem alterar quem pode
+    confirmar o recebimento de fato) exigiria uma coluna nova (algo como
+    system_payment_reported_at/by_user_id) em billing_visit_events e/ou
+    billing_catalog_study_events — ou seja, uma MIGRATION de banco. Não
+    foi feita nesta branch porque este projeto segue a regra de nunca
+    alterar schema sem autorização explícita do usuário, e porque a forma
+    exata desse fluxo (upload de comprovante? só um texto livre? um
+    campo de referência de transferência?) é uma decisão de produto que
+    só o usuário pode tomar — não deve ser inventada unilateralmente.
+
+2.2) markDoctorPaid é um pagamento em LOTE por médico+unidade+ciclo, não
+por laudo/paciente individual.
+  - O usuário descreveu o modelo como "pagar por aquele paciente 30,00" —
+    linguagem que sugere granularidade por laudo.
+  - O que existe (server/routers/financeSimple.ts, linha ~923) é
+    markDoctorPaid(unit_id, doctor_user_id, reference_date): marca TODOS
+    os laudos pendentes daquele médico, naquela unidade, dentro do ciclo
+    calculado a partir de reference_date, como pagos de uma vez — sem
+    opção de selecionar um laudo específico e deixar outro pendente.
+  - Isto PODE ser intencional (pagamento agregado por ciclo é comum em
+    faturamento médico) ou PODE ser uma lacuna real frente ao que o
+    usuário imagina. PENDÊNCIA: confirmar com o usuário se granularidade
+    por laudo é necessária; se for, é uma mudança de fluxo (nova UI de
+    seleção + nova assinatura de mutation), não um bug de uma linha.
+
+2.3) Existem DOIS mecanismos de "ciclo financeiro" e DOIS mecanismos de
+"pago" para o lado sistema, que não foram verificados como reconciliados
+entre si — achado mais estrutural e mais arriscado de todos:
+  - Mecanismo A ("ciclo calculado"): calcCycleDates()/resolveFinancialCycle(),
+    baseado em units.billing_cycle_start_day/billing_cycle_end_day (1-31).
+    Não gera nenhuma linha persistida de "ciclo" — é uma janela de datas
+    calculada na hora, para qualquer reference_date. "Pago" aqui é
+    puramente por evento: billing_visit_events.system_paid_at/
+    doctor_received_at, um timestamp por linha. É o mecanismo usado por
+    myResponsavelSummary, doctorSummaryByUnit, unitSummary — ou seja,
+    TUDO que o responsavel_financeiro e o admin_master veem hoje nos
+    painéis financeiro usa este mecanismo.
+  - Mecanismo B ("ciclo persistido"): tabela billing_cycles
+    (cycle_type: 'doctor' | 'system'), criada via getOrCreateActiveCycle
+    (server/db.ts, linha ~2332) a partir de billing_cycle_configs.
+    doctor_cycle_day/system_cycle_day (1-28) — uma tabela de CONFIGURAÇÃO
+    DE CICLO DIFERENTE de units.billing_cycle_start_day/end_day (mesmo
+    problema de duplicação já registrado antes nesta auditoria, na
+    inventário de riscos). Cada billing_visit_event tem FKs
+    doctor_cycle_id/system_cycle_id apontando para linhas desta tabela.
+    "Pago" aqui é por CICLO inteiro: billing_cycles.paid_status
+    ('pending'|'paid'), via as mutations markCyclePaid/unmarkCyclePaid
+    (linha ~3488), também admin_master-only, mas em uma ROTA/PÁGINA
+    DIFERENTE (aparentam ser as "Contas a Receber" administrativas —
+    não confirmado qual tela do frontend usa markCyclePaid; não foi
+    encontrado nenhum uso de markCyclePaid no client/src nesta
+    investigação, o que sugere que pode ser outra funcionalidade
+    parcialmente construída e não conectada a nenhuma tela, ou uma tela
+    que não foi localizada por falta de tempo de investigação).
+  - PENDÊNCIA CRÍTICA: não foi verificado se o Mecanismo A e o Mecanismo B
+    ficam sincronizados entre si (ex.: um ciclo marcado "paid" via
+    markCyclePaid deveria refletir em system_paid_at de todos os eventos
+    daquele billing_cycle_id? isso é feito automaticamente em algum
+    trigger/código, ou são dois estados independentes que podem
+    divergir?). Isto precisa ser investigado ANTES de qualquer nova
+    funcionalidade ser construída sobre qualquer um dos dois mecanismos,
+    porque construir em cima do mecanismo errado (ou dos dois ao mesmo
+    tempo sem reconciliação) só adicionaria uma terceira fonte de
+    verdade divergente ao problema que o usuário já identificou.
+
+=============================================================================
+ACHADO SECUNDÁRIO, MENOR — TABELAS SEM NENHUM USO NO CÓDIGO
+=============================================================================
+billing_monthly_system_by_unit e billing_monthly_doctor_by_unit
+(drizzle/schema.ts) são referenciadas em server/db.ts mas em NENHUM
+router (`grep` não encontrou uso em nenhum server/routers/*.ts) — parecem
+ser uma geração anterior de tabelas de consolidado mensal, substituída
+por billing_cycle_doctor_summary/billing_cycle_system_summary ou pelo
+próprio Mecanismo A acima, e nunca removida. Não corrigido nesta branch
+(não é um bug ativo, é dívida técnica de limpeza — remover tabelas exige
+migration e confirmação de que nada as lê em batch/relatório externo).
+
+=============================================================================
+RECOMENDAÇÃO DE PRÓXIMO PASSO
+=============================================================================
+Antes de desenhar qualquer tela nova para o responsavel_financeiro operar
+o repasse ao sistema (item 2.1), a recomendação é resolver o item 2.3
+primeiro: confirmar qual dos dois mecanismos de ciclo/pagamento
+(A: calculado + billing_visit_events, ou B: persistido + billing_cycles)
+é o que deve continuar existindo, e planejar a migração/desativação do
+outro. Construir uma nova funcionalidade sobre o mecanismo errado
+obrigaria a refazer o trabalho depois. Esta decisão é do usuário, não
+deve ser tomada unilateralmente por quem for implementar.
