@@ -90,28 +90,36 @@ export const anamnesisRouter = router({
     getByStudyId: protectedProcedure
       .input(z.object({ study_instance_uid: studyInstanceUidSchema }))
       .query(async ({ input, ctx }) => {
-        // F1-6: Verificar permissão view_anamnesis antes de retornar dados sensíveis
+        // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria):
+        // F1-6 original: quando resolveEffectiveUnitId não conseguia resolver uma
+        // unidade (ex.: usuário sem user_unit_permissions e sem users.unit_id legado),
+        // a checagem de view_anamnesis era pulada POR INTEIRO — e, mais abaixo, o
+        // whereClause também deixava de filtrar por unit_id, retornando a anamnese de
+        // QUALQUER unidade para esse usuário. Agora, para não-admin_master, a ausência
+        // de unidade resolvida nega o acesso (deny-by-default), em vez de liberá-lo.
+        const { getUserUnitPermission } = await import('../db');
+        const effectiveUnitId = ctx.user.role === 'admin_master'
+          ? undefined
+          : await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+
         if (ctx.user.role !== 'admin_master') {
-          const { getUserUnitPermission } = await import('../db');
-          const effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-          if (effectiveUnitId) {
-            const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
-            // Fallback para unit_id legado: se não tem perm mas tem unit_id legado, permite
-            if (perm && !perm.view_anamnesis) {
-              throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para visualizar anamnese' });
-            }
+          if (!effectiveUnitId) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Usuário sem unidade vinculada' });
+          }
+          const perm = await getUserUnitPermission(ctx.user.id, effectiveUnitId);
+          // Fallback para unit_id legado: se não tem perm mas tem unit_id legado, permite
+          if (perm && !perm.view_anamnesis) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para visualizar anamnese' });
           }
         }
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { anamnesis } = await import("../../drizzle/schema");
         const { eq, and: andOp } = await import("drizzle-orm");
-        
-        // F1-6: Filtrar por unit_id do usuário para evitar acesso cross-unidade
-        const effectiveUnitId = ctx.user.role === 'admin_master'
-          ? undefined
-          : await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-        
+
+        // F1-6: Filtrar por unit_id do usuário para evitar acesso cross-unidade.
+        // effectiveUnitId só fica undefined para admin_master (já tratado acima);
+        // para os demais papéis, a ausência de unidade já lançou FORBIDDEN.
         const whereClause = effectiveUnitId
           ? andOp(eq(anamnesis.study_instance_uid, input.study_instance_uid), eq(anamnesis.unit_id, effectiveUnitId))
           : eq(anamnesis.study_instance_uid, input.study_instance_uid);
@@ -123,6 +131,14 @@ export const anamnesisRouter = router({
           .limit(1);
         
         // F3-3: Registrar acesso à anamnese (dado sensível)
+        // NOTA (auditoria claude/correcoes-setoriais-auditoria): a ação registrada
+        // aqui é 'CREATE_ANAMNESIS' mesmo neste caminho de LEITURA — a auditoria fica
+        // com o rótulo "criação" para uma simples visualização (metadata.action='VIEW'
+        // é o único sinal correto). O valor correto seria um novo action tipo
+        // 'VIEW_ANAMNESIS', mas action é um MySQL ENUM fixo em drizzle/schema.ts
+        // (linha ~190) — adicioná-lo exige uma migration real no banco de produção,
+        // fora do escopo de uma correção só de código. Mantido como estava; reportado
+        // separadamente como item que precisa de migration aprovada.
         if (results[0]) {
           await createAuditLog({
             user_id: ctx.user.id,
