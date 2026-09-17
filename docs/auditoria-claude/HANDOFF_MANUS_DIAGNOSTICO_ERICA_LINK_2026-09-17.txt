@@ -1,0 +1,161 @@
+HANDOFF PARA MANUS — DIAGNÓSTICO DO ACESSO FINANCEIRO DA ERICA + CORREÇÃO DE CÓDIGO
+Data: 17/09/2026
+Projeto: PACS Portal / LAUDS
+Branch: claude/fix-listusersforresponsible-join
+Commit: a6074e6 (topo local, ainda não publicado no GitHub — ver seção 5)
+Base: main em dc0448c
+
+1. CONTEXTO
+
+Em resposta ao RELATO_DIAGNOSTICO_ACESSO_FINANCEIRO_2026-09-17.txt (erica com
+lista de unidades vazia em suas telas financeiras), foi feita uma inspeção
+ao vivo, somente leitura, direto na produção (lauds.com.br), logado como
+Administrador (admin_master), sem nenhuma alteração de dado. Nenhuma VM foi
+tocada e nenhum vínculo foi criado, editado ou removido durante o
+diagnóstico.
+
+2. O QUE FOI OBSERVADO (SOMENTE LEITURA, EM PRODUÇÃO)
+
+Em Financeiro → Configuração → Hospital da Criança:
+
+- Checklist de Implantação mostra "Responsável financeiro vinculado: erica"
+  e "Usuário vinculado ao responsável: Usuário vinculado" — ou seja, existe
+  um responsável financeiro chamado "erica" corretamente vinculado à
+  unidade Hospital da Criança, e esse responsável tem exatamente 1 usuário
+  vinculado (financial_responsible_users).
+
+- Ao abrir o painel "Usuários" desse responsável, a linha do usuário
+  vinculado aparecia em branco — sem nome nem e-mail, só o botão de
+  remover. Isso por si só já era um problema de exibição (ver seção 3).
+
+- O dado decisivo: o dropdown "— Adicionar usuário —" desse mesmo painel
+  ainda listava "erica (erica@lauds.com)" como opção disponível para
+  vincular. Esse dropdown filtra explicitamente quem já está vinculado
+  (client/src/pages/finance/FinanceConfiguracao.tsx, linha ~453:
+  `allUsers?.filter(u => !respUsers?.find(ru => ru.user_id === u.id))`).
+  Se a conta erica@lauds.com aparece como "disponível para adicionar",
+  o único usuário já vinculado a esse responsável NÃO é a conta atual da
+  erica — é outro user_id (possivelmente órfão, de uma conta anterior, de
+  teste, ou duplicada).
+
+CONCLUSÃO DO DIAGNÓSTICO: o cadastro não está incompleto (responsável e
+vínculo de unidade existem e estão corretos). O vínculo usuário↔responsável
+existe, mas aponta para um user_id que não é o da conta com a qual a erica
+efetivamente loga hoje. É por isso que getResponsibleIdForUser(id_dela)
+não encontra nada e as telas dela aparecem vazias.
+
+Isso reclassifica o caso: não é a Hipótese E genérica de "UX/fluxo
+incompleto" (a tela de vínculo existe e funciona — client/src/pages/
+finance/FinanceConfiguracao.tsx e client/src/pages/AdminPage.tsx, ambas
+com telas de gestão de responsável/vínculo, embora a de AdminPage.tsx
+esteja com o componente órfão — ver observação abaixo). É um vínculo de
+dado apontando para o usuário errado.
+
+Observação lateral (não é a causa do caso da erica, mas foi encontrada
+durante a investigação): client/src/pages/AdminPage.tsx define os
+componentes ResponsaveisPanel (linha 183) e BillingDiagnosticPanel (linha
+533), mas nenhum dos dois é referenciado em nenhuma aba renderizada — são
+código morto/inacessível pela UI. A tela realmente usada para gerenciar
+responsáveis é client/src/pages/finance/FinanceConfiguracao.tsx, acessível
+pelo menu lateral do módulo Financeiro ("Configuração"). Não mexi nesse
+código morto nesta correção — fica registrado para uma limpeza futura, se
+fizer sentido.
+
+3. CORREÇÃO DE CÓDIGO JÁ FEITA NESTA BRANCH
+
+server/db.ts — listUsersForResponsible fazia um select() bruto em
+financial_responsible_users, sem JOIN em users:
+
+  return db.select().from(financial_responsible_users).where(...)
+
+O retorno tinha só {id, financial_responsible_id, user_id, createdAt}. O
+front (FinanceConfiguracao.tsx) tenta renderizar `u.name || u.username` e
+`u.email`, que nunca existiam nesse retorno — por isso a linha vinculada
+sempre aparecia em branco, mascarando visualmente qual usuário estava de
+fato vinculado (isso atrasou o diagnóstico acima).
+
+Corrigido para:
+
+  return db.select({...}).from(financial_responsible_users)
+    .leftJoin(users, eq(users.id, financial_responsible_users.user_id))
+    .where(...)
+
+Usei leftJoin (não innerJoin) de propósito: se o user_id vinculado for
+órfão (não existir mais em users), a linha continua aparecendo — com
+name/username/email nulos — em vez de simplesmente sumir da lista. Isso
+por si só já vai deixar um vínculo órfão visualmente óbvio no futuro, sem
+precisar repetir esse diagnóstico manual.
+
+Teste de regressão: server/audit-fixes-repasse-preco-externo.test.ts,
+describe "listUsersForResponsible — deve trazer nome/e-mail via JOIN em
+users". Como a função chama getDb() internamente dentro do próprio
+server/db.ts (não recebe a conexão por parâmetro), mockar "./db" por fora
+não intercepta essa chamada interna — por isso o teste mocka uma camada
+abaixo, drizzle-orm/mysql2, com DATABASE_URL fake, e um fake db que só
+devolve name/username/email se .leftJoin() for de fato chamado. Provei que
+o teste pega a regressão: revertendo a correção manualmente, o teste falha
+exatamente em `expect(leftJoinCalled).toBe(true)`; com a correção de volta,
+passa. Depois restaurei o arquivo corrigido.
+
+4. VALIDAÇÃO NESTA BRANCH (sandbox)
+
+- pnpm check: aprovado, sem erro TypeScript.
+- TZ=UTC pnpm test: 438 aprovados, 9 falhos, 1 ignorado, 448 no total. Os 9
+  falhos são exatamente os mesmos 7 arquivos históricos já documentados em
+  revisões anteriores (finance-v2-dashboard, exam-catalog-security,
+  mediaProxy, pacs-desktop-download-progress, pacs.mobile-ui,
+  security.auth, study-priority-ui) — nenhuma falha nova.
+- server/audit-fixes-repasse-preco-externo.test.ts: 11 de 11 aprovados
+  (10 pré-existentes + 1 novo).
+- pnpm build: aprovado.
+- git diff --check main..HEAD: sem problema de whitespace.
+
+5. BLOQUEIO — BRANCH AINDA NÃO ESTÁ NO GITHUB
+
+Diferente das vezes anteriores nesta mesma auditoria, desta vez o sandbox
+não tinha credencial git configurada para push (`git push` falhou com
+"fatal: could not read Username for 'https://github.com': No such device
+or address" — sem GIT_ASKPASS, sem credential.helper, sem token em
+variável de ambiente). O commit a6074e6 existe localmente neste sandbox,
+em cima de main (dc0448c), mas não foi publicado. Avisei o Alessandro
+disso; não posso garantir quando/se será publicado nesta sessão. Se este
+handoff chegar até você sem o branch correspondente no GitHub, é esse o
+motivo — por favor não assuma que o código já está disponível para revisão
+até confirmar que claude/fix-listusersforresponsible-join existe no
+remoto.
+
+6. O QUE AINDA PRECISA SER FEITO EM PRODUÇÃO (NÃO FIZ — SÓ DIAGNOSTIQUEI)
+
+Depois de validar a correção de código acima no seu sandbox, o vínculo de
+dado errado da erica ainda precisa ser corrigido em produção. Sugestão de
+procedimento seguro:
+
+  1. Antes de qualquer alteração, confirmar com uma consulta somente
+     leitura qual é o user_id atualmente vinculado:
+       SELECT fru.id, fru.financial_responsible_id, fru.user_id
+       FROM financial_responsible_users fru
+       JOIN financial_responsible fr ON fr.id = fru.financial_responsible_id
+       WHERE fr.legal_name = 'erica' -- ou o nome exato cadastrado
+     e comparar com:
+       SELECT id, username, email FROM users WHERE username = 'erica';
+     Isso confirma, antes de mexer em qualquer coisa, que o user_id
+     vinculado realmente diverge do id atual da conta erica.
+
+  2. Se confirmado, a correção pode ser feita pela própria tela
+     /financeiro/configuracao (Hospital da Criança → Responsável
+     Financeiro → Usuários): remover o vínculo do user_id antigo/órfão e
+     adicionar erica (erica@lauds.com) pelo dropdown — a própria tela já
+     expõe essa opção hoje, então não é necessário UPDATE manual no banco.
+
+  3. Após relinkar, confirmar visualmente que /financeiro/responsavel
+     (login da própria erica, ou verificação equivalente) passa a listar
+     Hospital da Criança.
+
+Como de costume nesta auditoria: por favor não aplicar nada em VM antes de
+validar a correção de código no seu sandbox, e me avise se a consulta do
+passo 1 apontar para algo diferente do que descrevi aqui (por exemplo, se
+não houver nenhum user_id órfão e o problema estiver em outro lugar da
+cadeia) — não quero que o passo 2 seja executado com base numa hipótese
+que a sua própria checagem não confirmou.
+
+FIM DO HANDOFF
