@@ -37,7 +37,8 @@ import {
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, ne, sql, sql as sqlFn, desc, inArray, gte, lte, or, SQL } from "drizzle-orm";
 import {
-  getResponsibleIdForUser,
+  getResponsibleIdsForUser,
+  listResponsiblesForUser,
   createBillingVisitEvent,
   getResponsibleCycleSummary,
   getDoctorFinancialSummary,
@@ -368,14 +369,14 @@ async function assertCanAccessFinancialUnit(
   }
 
   if (user.role === 'responsavel_financeiro') {
-    const responsibleId = await getResponsibleIdForUser(user.id);
-    if (!responsibleId)
+    const responsibleIds = await getResponsibleIdsForUser(user.id);
+    if (!responsibleIds.length)
       throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem responsável financeiro vinculado.' });
     const link = await db
       .select({ id: financial_responsible_units.id })
       .from(financial_responsible_units)
       .where(and(
-        eq(financial_responsible_units.financial_responsible_id, responsibleId),
+        inArray(financial_responsible_units.financial_responsible_id, responsibleIds),
         eq(financial_responsible_units.unit_id, unitId),
         isNull(financial_responsible_units.ends_at),
       ))
@@ -416,14 +417,14 @@ async function assertCanManageExternalSalePrice(
   }
 
   if (user.role === 'responsavel_financeiro') {
-    const responsibleId = await getResponsibleIdForUser(user.id);
-    if (!responsibleId)
+    const responsibleIds = await getResponsibleIdsForUser(user.id);
+    if (!responsibleIds.length)
       throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem responsável financeiro vinculado.' });
     const link = await db
       .select({ id: financial_responsible_units.id })
       .from(financial_responsible_units)
       .where(and(
-        eq(financial_responsible_units.financial_responsible_id, responsibleId),
+        inArray(financial_responsible_units.financial_responsible_id, responsibleIds),
         eq(financial_responsible_units.unit_id, unitId),
         isNull(financial_responsible_units.ends_at),
       ))
@@ -448,11 +449,47 @@ async function assertCanManageFinancialPrices(
   if (user.role !== 'responsavel_financeiro') {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Somente o administrador raiz ou o responsável financeiro pode configurar preços.' });
   }
-  const ownResponsibleId = await getResponsibleIdForUser(user.id);
-  if (!ownResponsibleId || (financialResponsibleId !== undefined && ownResponsibleId !== financialResponsibleId)) {
+  const ownResponsibleIds = await getResponsibleIdsForUser(user.id);
+  if (!ownResponsibleIds.length || (financialResponsibleId !== undefined && !ownResponsibleIds.includes(financialResponsibleId))) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'O responsável financeiro não corresponde ao preço informado.' });
   }
   await assertCanAccessFinancialUnit(db, user, unitId);
+}
+
+/**
+ * Resolve QUAL responsável financeiro uma tela "minha visão" (sem unit_id no
+ * caminho) deve usar, agora que um usuário pode estar vinculado a mais de um
+ * (decisão de produto — suporte a múltiplos responsáveis, 2026-09-17).
+ *
+ *  - financialResponsibleId informado: precisa estar entre os vínculos do
+ *    usuário, senão FORBIDDEN — nunca confia num id vindo do cliente sem
+ *    checar contra o array real.
+ *  - não informado e o usuário tem exatamente 1 vínculo: usa esse (mantém o
+ *    comportamento de sempre para o caso comum, sem exigir seletor).
+ *  - não informado e o usuário tem 0 vínculos: retorna null (tela mostra
+ *    estado vazio, como já fazia antes).
+ *  - não informado e o usuário tem mais de 1 vínculo: erro explícito — o
+ *    frontend deve chamar listMyResponsibles antes e pedir a seleção. Nunca
+ *    escolhe implicitamente "o primeiro" aqui — foi exatamente esse tipo de
+ *    resolução implícita e não determinística que causou o caso da erica.
+ */
+async function resolveResponsibleContext(
+  user: { id: number },
+  financialResponsibleId: number | undefined | null,
+): Promise<number | null> {
+  const ownResponsibleIds = await getResponsibleIdsForUser(user.id);
+  if (financialResponsibleId !== undefined && financialResponsibleId !== null) {
+    if (!ownResponsibleIds.includes(financialResponsibleId)) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Este responsável financeiro não está vinculado à sua conta.' });
+    }
+    return financialResponsibleId;
+  }
+  if (ownResponsibleIds.length === 0) return null;
+  if (ownResponsibleIds.length === 1) return ownResponsibleIds[0];
+  throw new TRPCError({
+    code: 'BAD_REQUEST',
+    message: 'Sua conta tem mais de um responsável financeiro vinculado — selecione um antes de continuar.',
+  });
 }
 
 function isSameCalendarDay(left: Date, right: Date): boolean {
@@ -529,16 +566,16 @@ async function getAuthorizedFinancialUnitIds(
   }
 
   if (user.role === 'responsavel_financeiro') {
-    const responsibleId = await getResponsibleIdForUser(user.id);
-    if (!responsibleId) return [];
+    const responsibleIds = await getResponsibleIdsForUser(user.id);
+    if (!responsibleIds.length) return [];
     const links = await db
       .select({ unit_id: financial_responsible_units.unit_id })
       .from(financial_responsible_units)
       .where(and(
-        eq(financial_responsible_units.financial_responsible_id, responsibleId),
+        inArray(financial_responsible_units.financial_responsible_id, responsibleIds),
         isNull(financial_responsible_units.ends_at),
       ));
-    return links.map((link) => link.unit_id);
+    return Array.from(new Set(links.map((link) => link.unit_id)));
   }
 
   return [];
@@ -2309,6 +2346,7 @@ export const financeSimpleRouter = router({
   myResponsavelSummary: protectedProcedure
     .input(z.object({
       reference_date: z.string().datetime().optional(),
+      financialResponsibleId: z.number().optional(),
     }))
     .query(async ({ input, ctx }) => {
       if (ctx.user.role !== "responsavel_financeiro" && ctx.user.role !== "admin_master") {
@@ -2317,8 +2355,8 @@ export const financeSimpleRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Descobrir o ID do responsável vinculado ao usuário
-      const responsavelId = await getResponsibleIdForUser(ctx.user.id);
+      // Descobrir o responsável a usar (explícito, ou o único vínculo do usuário)
+      const responsavelId = await resolveResponsibleContext(ctx.user, input.financialResponsibleId);
       if (!responsavelId) {
         return { units: [], responsavelId: null };
       }
@@ -2763,8 +2801,8 @@ export const financeSimpleRouter = router({
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') {
           
-          const respId = await getResponsibleIdForUser(ctx.user.id);
-          if (respId !== input.id) throw new TRPCError({ code: 'FORBIDDEN' });
+          const respIds = await getResponsibleIdsForUser(ctx.user.id);
+          if (!respIds.includes(input.id)) throw new TRPCError({ code: 'FORBIDDEN' });
         }
         
         return await getFinancialResponsibleById(input.id);
@@ -2859,8 +2897,8 @@ export const financeSimpleRouter = router({
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') {
           
-          const respId = await getResponsibleIdForUser(ctx.user.id);
-          if (respId !== input.financialResponsibleId) throw new TRPCError({ code: 'FORBIDDEN' });
+          const respIds = await getResponsibleIdsForUser(ctx.user.id);
+          if (!respIds.includes(input.financialResponsibleId)) throw new TRPCError({ code: 'FORBIDDEN' });
         }
         
         return await listUnitsForResponsible(input.financialResponsibleId);
@@ -3173,8 +3211,8 @@ export const financeSimpleRouter = router({
         // medico: só seus próprios laudos
         if (ctx.user.role === 'responsavel_financeiro') {
           
-          const respId = await getResponsibleIdForUser(ctx.user.id);
-          if (!respId || (input.financialResponsibleId && respId !== input.financialResponsibleId)) {
+          const respId = await resolveResponsibleContext(ctx.user, input.financialResponsibleId);
+          if (!respId) {
             throw new TRPCError({ code: 'FORBIDDEN' });
           }
           input.financialResponsibleId = respId;
@@ -3205,11 +3243,12 @@ export const financeSimpleRouter = router({
       }),
 
     getResponsibleSummary: protectedProcedure
-      .query(async ({ ctx }) => {
+      .input(z.object({ financialResponsibleId: z.number().optional() }).optional())
+      .query(async ({ input, ctx }) => {
         const ALLOWED = ['responsavel_financeiro', 'unit_admin', 'admin_master'];
         if (!ALLOWED.includes(ctx.user.role)) throw new TRPCError({ code: 'FORBIDDEN' });
         
-        const respId = await getResponsibleIdForUser(ctx.user.id);
+        const respId = await resolveResponsibleContext(ctx.user, input?.financialResponsibleId);
         if (!respId) return { byUnit: [], byDoctor: [], totalSystem: '0.00', totalDoctors: '0.00', totalGeral: '0.00' };
         const { systemCycles, doctorCycles, totalSystem, totalDoctors, totalGeral } = await getResponsibleCycleSummary(respId);
         // Agregar por unidade
@@ -3260,11 +3299,23 @@ export const financeSimpleRouter = router({
         return { byResponsible, items };
       }),
     getMyResponsible: protectedProcedure
-      .query(async ({ ctx }) => {
+      .input(z.object({ financialResponsibleId: z.number().optional() }).optional())
+      .query(async ({ input, ctx }) => {
         
-        const respId = await getResponsibleIdForUser(ctx.user.id);
+        const respId = await resolveResponsibleContext(ctx.user, input?.financialResponsibleId);
         if (!respId) return null;
         return await getFinancialResponsibleById(respId) ?? null;
+      }),
+
+    /**
+     * Todos os responsáveis financeiros vinculados ao usuário logado, para o
+     * seletor de contexto no frontend (suporte a múltiplos responsáveis,
+     * decisão de produto — 2026-09-17). Quando length <= 1 o frontend não
+     * precisa mostrar seletor nenhum — mantém a experiência de sempre.
+     */
+    listMyResponsibles: protectedProcedure
+      .query(async ({ ctx }) => {
+        return await listResponsiblesForUser(ctx.user.id);
       }),
 
     // ─── V3 Operacional: Ciclos Financeiros ──────────────────────────────────
@@ -3346,12 +3397,13 @@ export const financeSimpleRouter = router({
       }),
 
     getResponsibleCycles: protectedProcedure
-      .query(async ({ ctx }) => {
+      .input(z.object({ financialResponsibleId: z.number().optional() }).optional())
+      .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'responsavel_financeiro' && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
         
-        const respId = await getResponsibleIdForUser(ctx.user.id);
+        const respId = await resolveResponsibleContext(ctx.user, input?.financialResponsibleId);
         if (!respId) return { systemCycles: [], doctorCycles: [] };
         return await getResponsibleCycleSummary(respId);
       }),
@@ -3742,8 +3794,8 @@ export const financeSimpleRouter = router({
         const allowed = ['admin_master', 'responsavel_financeiro'];
         if (!allowed.includes(ctx.user.role)) throw new TRPCError({ code: 'FORBIDDEN' });
         if (ctx.user.role === 'responsavel_financeiro') {
-          const ownResponsibleId = await getResponsibleIdForUser(ctx.user.id);
-          if (!ownResponsibleId || ownResponsibleId !== input.responsibleId) {
+          const ownResponsibleIds = await getResponsibleIdsForUser(ctx.user.id);
+          if (!ownResponsibleIds.includes(input.responsibleId)) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem acesso a este responsável financeiro.' });
           }
         }
@@ -3978,17 +4030,19 @@ export const financeSimpleRouter = router({
         let allowedUnitIds: number[] | undefined = undefined;
         if (isResp) {
           
-          const myRespId = await getResponsibleIdForUser(ctx.user.id);
-          if (!myRespId) return [];
+          // Relatório agregado: soma as unidades de TODOS os responsáveis do usuário
+          // (não precisa de contexto único, diferente das telas "meu resumo").
+          const myRespIds = await getResponsibleIdsForUser(ctx.user.id);
+          if (!myRespIds.length) return [];
           const now = new Date();
           const unitLinks = await db.select({ unit_id: financial_responsible_units.unit_id })
             .from(financial_responsible_units)
             .where(and(
-              eq(financial_responsible_units.financial_responsible_id, myRespId),
+              inArray(financial_responsible_units.financial_responsible_id, myRespIds),
               lte(financial_responsible_units.starts_at, now),
               or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at, now))
             ));
-          allowedUnitIds = unitLinks.map(u => u.unit_id);
+          allowedUnitIds = Array.from(new Set(unitLinks.map(u => u.unit_id)));
           if (allowedUnitIds.length === 0) return [];
         }
         const conditions: SQL[] = [];

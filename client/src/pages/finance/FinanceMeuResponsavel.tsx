@@ -309,8 +309,19 @@ export default function FinanceMeuResponsavel() {
   const [selectedUnit, setSelectedUnit] = useState<{ id: number; name: string } | null>(null);
   const [selectedProfitUnit, setSelectedProfitUnit] = useState<{ id: number; name: string } | null>(null);
 
+  // Suporte a múltiplos responsáveis financeiros por conta (decisão de produto,
+  // 2026-09-17): se a conta tiver mais de um vínculo, exige seleção explícita
+  // antes de abrir qualquer dado financeiro — nunca escolhe "o primeiro" de
+  // forma implícita. Com 0 ou 1 vínculo, comportamento idêntico ao de sempre.
+  const [selectedResponsibleId, setSelectedResponsibleId] = useState<number | null>(null);
+  const { data: myResponsibles } = trpc.financeSimple.listMyResponsibles.useQuery();
+  const needsResponsibleSelection = (myResponsibles?.length ?? 0) > 1 && selectedResponsibleId === null;
+
   const referenceDate = new Date(year, month - 1, 15).toISOString();
-  const { data, isLoading } = trpc.financeSimple.myResponsavelSummary.useQuery({ reference_date: referenceDate });
+  const { data, isLoading } = trpc.financeSimple.myResponsavelSummary.useQuery(
+    { reference_date: referenceDate, financialResponsibleId: selectedResponsibleId ?? undefined },
+    { enabled: myResponsibles !== undefined && !needsResponsibleSelection }
+  );
 
   function prevMonth() {
     if (month === 1) { setMonth(12); setYear((y) => y - 1); }
@@ -337,6 +348,18 @@ export default function FinanceMeuResponsavel() {
             <p className="text-slate-400 text-sm mt-0.5">Unidades sob sua responsabilidade</p>
           </div>
           <div className="flex items-center gap-2">
+            {myResponsibles && myResponsibles.length > 1 && (
+              <select
+                value={selectedResponsibleId ?? ""}
+                onChange={(e) => setSelectedResponsibleId(e.target.value ? Number(e.target.value) : null)}
+                className="bg-slate-800 border border-slate-600 text-white rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">— Selecione o responsável —</option>
+                {myResponsibles.map((r) => (
+                  <option key={r.id} value={r.id}>{r.trade_name || r.legal_name}</option>
+                ))}
+              </select>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -360,6 +383,14 @@ export default function FinanceMeuResponsavel() {
           </div>
         </div>
 
+        {needsResponsibleSelection ? (
+        <div className="bg-slate-800/40 rounded-xl p-12 text-center border border-slate-700/50">
+          <Building2 className="h-10 w-10 text-slate-600 mx-auto mb-3" />
+          <p className="text-slate-300 text-sm font-medium">Sua conta tem mais de um responsável financeiro vinculado.</p>
+          <p className="text-slate-500 text-xs mt-1">Selecione qual responsável você quer visualizar no menu acima antes de continuar.</p>
+        </div>
+        ) : (
+        <>
         {/* Cards de resumo */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
@@ -510,6 +541,8 @@ export default function FinanceMeuResponsavel() {
               </div>
             ))}
           </div>
+        )}
+        </>
         )}
       </div>
 

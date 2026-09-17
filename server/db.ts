@@ -1453,11 +1453,56 @@ export async function unlinkUserFromResponsible(financialResponsibleId: number, 
   await db.delete(financial_responsible_users).where(and(eq(financial_responsible_users.financial_responsible_id, financialResponsibleId), eq(financial_responsible_users.user_id, userId)));
 }
 
+/**
+ * @deprecated Um usuário pode estar vinculado a mais de um responsável financeiro
+ * (decisão de produto — suporte a múltiplos responsáveis, 2026-09-17). Esta função
+ * retorna só o primeiro vínculo encontrado (ordem do banco, não determinística) e
+ * NÃO deve ser usada para autorização ou para decidir "o" responsável do usuário —
+ * isso é exatamente o bug que motivou essa mudança. Use getResponsibleIdsForUser
+ * (array) e, quando a operação exigir um único contexto, receba o id explicitamente
+ * do chamador (input da procedure) e valide com .includes() contra o array.
+ * Mantida só por compatibilidade de leitura pontual onde múltiplos vínculos são
+ * estruturalmente impossíveis; não introduza novos usos.
+ */
 export async function getResponsibleIdForUser(userId: number): Promise<number | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const rows = await db.select({ id: financial_responsible_users.financial_responsible_id }).from(financial_responsible_users).where(eq(financial_responsible_users.user_id, userId)).limit(1);
   return rows[0]?.id;
+}
+
+/**
+ * Todos os financial_responsible_id vinculados a um usuário (suporte a múltiplos
+ * responsáveis — decisão de produto, 2026-09-17). Autorização e resolução de
+ * contexto devem usar esta função, nunca a versão singular.
+ */
+export async function getResponsibleIdsForUser(userId: number): Promise<number[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const rows = await db.select({ id: financial_responsible_users.financial_responsible_id }).from(financial_responsible_users).where(eq(financial_responsible_users.user_id, userId));
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Responsáveis financeiros vinculados a um usuário, com nome, para montar o
+ * seletor de contexto no frontend quando houver mais de um vínculo.
+ */
+export async function listResponsiblesForUser(userId: number): Promise<
+  { id: number; legal_name: string; trade_name: string | null; isActive: boolean }[]
+> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db
+    .select({
+      id: financial_responsibles.id,
+      legal_name: financial_responsibles.legal_name,
+      trade_name: financial_responsibles.trade_name,
+      isActive: financial_responsibles.isActive,
+    })
+    .from(financial_responsible_users)
+    .innerJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_users.financial_responsible_id))
+    .where(eq(financial_responsible_users.user_id, userId))
+    .orderBy(financial_responsibles.legal_name);
 }
 
 export type FinancialResponsibleUserWithName = FinancialResponsibleUser & {
