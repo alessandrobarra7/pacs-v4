@@ -4,6 +4,22 @@
 -- 2) Confirmação do médico sobre o repasse marcado como pago pela clínica, nas duas
 --    tabelas de evento financeiro (legado e catálogo), para que o médico deixe de
 --    depender só da palavra da clínica sobre o próprio repasse.
+--
+-- PRÉ-CONDIÇÕES ESTRUTURAIS (achado da revisão independente Manus, 2026-09-17):
+-- este arquivo pressupõe que as migrations do catálogo clínico-financeiro já foram
+-- aplicadas neste banco, em especial:
+--   - tabela `billing_catalog_study_events` (criada em 0050_catalog_clinical_financial.sql)
+--   - coluna `billing_catalog_study_events.doctor_payment_note` (criada em
+--     0055_finance_catalog_payment_tracking.sql)
+-- Em um ambiente sem essas migrations, este arquivo executa as 3 primeiras instruções
+-- (tabela billing_external_sale_prices + colunas em billing_visit_events) e falha na
+-- primeira ALTER TABLE de billing_catalog_study_events, deixando o banco num estado
+-- parcial. NÃO aplique este arquivo diretamente com `mysql < 0060_....sql`.
+--
+-- APLICAÇÃO OBRIGATÓRIA POR SCRIPT COM PREFLIGHT:
+--   DATABASE_URL=... node scripts/apply_migration_0060.mjs
+-- O script verifica as pré-condições acima via INFORMATION_SCHEMA antes de executar
+-- qualquer DDL, e valida os objetos criados depois de aplicar.
 
 CREATE TABLE `billing_external_sale_prices` (
   `id` int AUTO_INCREMENT NOT NULL,

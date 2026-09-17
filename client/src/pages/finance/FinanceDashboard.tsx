@@ -281,7 +281,11 @@ function UnitFinancialDetail({
       <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-start md:justify-between">
         <div><span className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-700">Financeiro / Unidades</span><h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{currentUnit.unit_name}</h1><p className="mt-1 text-sm text-slate-500">{activeView === "current" ? `Painel operacional do ciclo atual: ${currentUnit.cycle_label}.` : `Consulta histórica do período: ${historicalUnit.cycle_label}.`}</p></div>
         <div className="flex items-center gap-2">
-          {canManageExternalPrice && <Button type="button" size="sm" variant="outline" className="border-cyan-200 text-cyan-800" onClick={() => setShowProfitModal(true)}>Preço externo / Lucro</Button>}
+          {/* CORREÇÃO (revisão independente Manus, 2026-09-17): o ProfitModal sempre usa o
+              ciclo atual (não recebe reference_date); mostrar o botão também no modo
+              histórico induzia o usuário a achar que estava vendo o lucro do período
+              histórico selecionado. Só aparece no ciclo atual, que é o que ele de fato mostra. */}
+          {canManageExternalPrice && activeView === "current" && <Button type="button" size="sm" variant="outline" className="border-cyan-200 text-cyan-800" onClick={() => setShowProfitModal(true)}>Preço externo / Lucro</Button>}
           <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" /> Unidade ativa</span>
         </div>
       </div>

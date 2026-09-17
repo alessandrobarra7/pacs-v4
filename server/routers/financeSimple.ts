@@ -1067,14 +1067,24 @@ export const financeSimpleRouter = router({
       }
 
       const now = new Date();
-      await db
+      // CORREÇÃO (revisão independente Manus, 2026-09-17): a checagem acima (select +
+      // depois update) tinha uma janela de corrida — duas requisições concorrentes podiam
+      // ler doctor_confirmation_status nulo e a segunda sobrescrever a resposta definitiva
+      // da primeira. A condição de nulidade agora vai NO PRÓPRIO UPDATE, então só a
+      // requisição que efetivamente encontrar a linha ainda nula consegue gravar; a outra
+      // atualiza zero linhas e recebe erro explícito, sem sobrescrever status/data/nota.
+      const updateResult = await db
         .update(table)
         .set({
           doctor_confirmation_status: input.status,
           doctor_confirmed_at: now,
           doctor_confirmation_note: input.note ?? null,
         })
-        .where(eq(table.id, input.event_id));
+        .where(and(eq(table.id, input.event_id), isNull(table.doctor_confirmation_status)));
+
+      if ((updateResult[0] as { affectedRows: number }).affectedRows === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Este repasse já foi respondido." });
+      }
 
       await createAuditLog({
         user_id: ctx.user.id,
@@ -1200,6 +1210,18 @@ export const financeSimpleRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       await assertCanManageExternalSalePrice(db, ctx.user, input.unit_id);
 
+      // CORREÇÃO (revisão independente Manus, 2026-09-17): a interface só oferece legendas
+      // ativas, mas o endpoint aceitava qualquer exam_legend_id — uma chamada direta podia
+      // gravar preço para legenda inexistente/inativa, sem FK que impedisse o registro órfão.
+      // Mesmo padrão já usado em setDoctorLegendPrice.
+      const legend = await db.select({ id: exam_legends.id })
+        .from(exam_legends)
+        .where(and(eq(exam_legends.id, input.exam_legend_id), eq(exam_legends.is_active, true)))
+        .limit(1);
+      if (!legend[0]) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Legenda de exame ativa não encontrada." });
+      }
+
       const now = new Date();
       await db
         .update(billing_external_sale_prices)
@@ -1252,13 +1274,26 @@ export const financeSimpleRouter = router({
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
       const { startDate, endDate, label } = await resolveFinancialCycle(db, input.unit_id, refDate);
 
+      // CORREÇÃO (revisão independente Manus, 2026-09-17): a versão anterior buscava só o
+      // preço externo VIGENTE HOJE e aplicava esse único valor a todos os eventos do ciclo —
+      // se o preço mudasse no meio do ciclo, laudos já emitidos antes da mudança passavam a
+      // usar o novo valor retroativamente, o que não é auditável e contradiz o próprio
+      // propósito de guardar starts_at/ends_at. Decisão registrada no handoff (Opção A):
+      // cada evento usa o preço cuja vigência CONTÉM O signed_at DAQUELE EVENTO — igual ao
+      // que já acontece com system_amount_due/price_applied, que são travados no instante da
+      // assinatura. Por isso a query busca eventos individuais (não agregados por legenda) e
+      // TODAS as vigências de preço que tocam o ciclo, e a correspondência é feita aqui, por
+      // evento. Consequência esperada e correta: se o preço só foi configurado no meio do
+      // ciclo, a mesma legenda pode aparecer em `by_exam` (eventos assinados depois) e em
+      // `unconfigured_exams` (eventos assinados antes) ao mesmo tempo — isso é intencional,
+      // não um bug de agrupamento.
       const [eventRows, priceRows] = await Promise.all([
         db.select({
           exam_legend_id: billing_catalog_study_events.exam_legend_id,
           exam_name: billing_catalog_study_events.exam_name_snapshot,
-          units_sold: sql<number>`COUNT(*)`,
-          system_repasse: sql<number>`COALESCE(SUM(${billing_catalog_study_events.system_amount_due}), 0)`,
-          doctor_repasse: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
+          signed_at: billing_catalog_study_events.signed_at,
+          system_amount_due: billing_catalog_study_events.system_amount_due,
+          price_applied: billing_catalog_study_events.price_applied,
         })
           .from(billing_catalog_study_events)
           .where(and(
@@ -1266,45 +1301,77 @@ export const financeSimpleRouter = router({
             eq(billing_catalog_study_events.financial_status, "active"),
             sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
             sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
-          ))
-          .groupBy(billing_catalog_study_events.exam_legend_id, billing_catalog_study_events.exam_name_snapshot),
+          )),
+        // Todas as vigências que tocam o ciclo, não só a vigente agora — precisamos
+        // resolver o preço correto para cada signed_at individualmente, inclusive para
+        // eventos assinados antes de uma mudança de preço já ocorrida.
         db.select({
           exam_legend_id: billing_external_sale_prices.exam_legend_id,
           price_external: billing_external_sale_prices.price_external,
+          starts_at: billing_external_sale_prices.starts_at,
+          ends_at: billing_external_sale_prices.ends_at,
         })
           .from(billing_external_sale_prices)
           .where(and(
             eq(billing_external_sale_prices.unit_id, input.unit_id),
-            lte(billing_external_sale_prices.starts_at, refDate),
-            or(isNull(billing_external_sale_prices.ends_at), gte(billing_external_sale_prices.ends_at, refDate)),
+            sql`${billing_external_sale_prices.starts_at} < ${endDate}`,
+            or(isNull(billing_external_sale_prices.ends_at), sql`${billing_external_sale_prices.ends_at} >= ${startDate}`),
           )),
       ]);
 
-      const priceByLegend = new Map(priceRows.map((p) => [p.exam_legend_id, toMoney(p.price_external)]));
-      const configured: Array<{ exam_legend_id: number; exam_name: string; units_sold: number; price_external: number; cash_received: number; system_repasse: number; doctor_repasse: number; profit: number }> = [];
-      const unconfigured: Array<{ exam_legend_id: number; exam_name: string; units_sold: number }> = [];
+      const pricesByLegend = new Map<number, typeof priceRows>();
+      for (const price of priceRows) {
+        const list = pricesByLegend.get(price.exam_legend_id) ?? [];
+        list.push(price);
+        pricesByLegend.set(price.exam_legend_id, list);
+      }
+      function resolvePriceForSignedAt(examLegendId: number, signedAt: Date): number | undefined {
+        const candidates = pricesByLegend.get(examLegendId);
+        if (!candidates) return undefined;
+        const match = candidates.find((p) =>
+          p.starts_at <= signedAt && (p.ends_at === null || p.ends_at > signedAt)
+        );
+        return match ? toMoney(match.price_external) : undefined;
+      }
 
-      for (const row of eventRows) {
-        const priceExternal = priceByLegend.get(row.exam_legend_id);
-        const unitsSold = Number(row.units_sold ?? 0);
-        const systemRepasse = toMoney(row.system_repasse);
-        const doctorRepasse = toMoney(row.doctor_repasse);
+      type ConfiguredRow = { exam_legend_id: number; exam_name: string; units_sold: number; price_external: number; cash_received: number; system_repasse: number; doctor_repasse: number; profit: number };
+      const configuredByKey = new Map<string, ConfiguredRow>();
+      const unconfiguredByLegend = new Map<number, { exam_legend_id: number; exam_name: string; units_sold: number }>();
+
+      for (const event of eventRows) {
+        const priceExternal = resolvePriceForSignedAt(event.exam_legend_id, event.signed_at);
+        const systemRepasse = toMoney(event.system_amount_due);
+        const doctorRepasse = toMoney(event.price_applied);
         if (priceExternal === undefined) {
-          unconfigured.push({ exam_legend_id: row.exam_legend_id, exam_name: row.exam_name, units_sold: unitsSold });
+          const current = unconfiguredByLegend.get(event.exam_legend_id) ?? { exam_legend_id: event.exam_legend_id, exam_name: event.exam_name, units_sold: 0 };
+          current.units_sold += 1;
+          unconfiguredByLegend.set(event.exam_legend_id, current);
           continue;
         }
-        const cashReceived = subMoney(priceExternal * unitsSold, 0);
-        configured.push({
-          exam_legend_id: row.exam_legend_id,
-          exam_name: row.exam_name,
-          units_sold: unitsSold,
+        // A mesma legenda pode ter mais de um preço vigente dentro do ciclo (mudança
+        // intra-ciclo) — chave por legenda+preço para não misturar cash_received de
+        // vigências diferentes na mesma linha.
+        const key = `${event.exam_legend_id}:${priceExternal}`;
+        const current = configuredByKey.get(key) ?? {
+          exam_legend_id: event.exam_legend_id,
+          exam_name: event.exam_name,
+          units_sold: 0,
           price_external: priceExternal,
-          cash_received: cashReceived,
-          system_repasse: systemRepasse,
-          doctor_repasse: doctorRepasse,
-          profit: subMoney(subMoney(cashReceived, systemRepasse), doctorRepasse),
-        });
+          cash_received: 0,
+          system_repasse: 0,
+          doctor_repasse: 0,
+          profit: 0,
+        };
+        current.units_sold += 1;
+        current.cash_received = subMoney(current.cash_received + priceExternal, 0);
+        current.system_repasse = subMoney(current.system_repasse + systemRepasse, 0);
+        current.doctor_repasse = subMoney(current.doctor_repasse + doctorRepasse, 0);
+        current.profit = subMoney(subMoney(current.cash_received, current.system_repasse), current.doctor_repasse);
+        configuredByKey.set(key, current);
       }
+
+      const configured = Array.from(configuredByKey.values());
+      const unconfigured = Array.from(unconfiguredByLegend.values());
 
       const totals = configured.reduce((acc, row) => ({
         cash_received: acc.cash_received + row.cash_received,

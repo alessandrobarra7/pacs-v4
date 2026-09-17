@@ -148,7 +148,17 @@ export function ProfitModal({
     onError: (e) => toast.error(e.message),
   });
 
-  const profitByLegend = new Map((profitQuery.data?.by_exam ?? []).map((row) => [row.exam_legend_id, row]));
+  // CORREÇÃO (revisão independente Manus, 2026-09-17): by_exam agora pode ter mais de uma
+  // linha para a mesma legenda quando o preço externo mudou dentro do ciclo (cada linha usa
+  // o preço vigente no momento de cada laudo). Somamos aqui só para exibir um total por
+  // legenda nesta tabela; o valor exato por vigência continua correto na origem.
+  const profitByLegend = new Map<number, { units_sold: number; profit: number }>();
+  for (const row of profitQuery.data?.by_exam ?? []) {
+    const current = profitByLegend.get(row.exam_legend_id) ?? { units_sold: 0, profit: 0 };
+    current.units_sold += row.units_sold;
+    current.profit += row.profit;
+    profitByLegend.set(row.exam_legend_id, current);
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
