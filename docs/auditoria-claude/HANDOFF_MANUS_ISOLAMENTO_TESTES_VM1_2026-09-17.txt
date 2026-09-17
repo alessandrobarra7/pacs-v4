@@ -234,7 +234,7 @@ index c3ed758..188c87b 100644
  import { TRPCError } from "@trpc/server";
 @@ -46,18 +55,38 @@ function createCtx(overrides: Partial<AuthenticatedUser> & { unit_id?: number |
  }
- 
+
  describe("sla.getUnitSla — nega acesso sem vínculo com a unidade", () => {
 -  it("médico sem vínculo com a unidade recebe FORBIDDEN", async () => {
 +  it("médico sem vínculo com a unidade recebe FORBIDDEN (sem tocar banco)", async () => {
@@ -258,7 +258,7 @@ index c3ed758..188c87b 100644
 +    vi.resetModules();
    });
  });
- 
+
  describe("studyExamLegend.getBatch — nega acesso sem vínculo com a unidade", () => {
 -  it("médico sem vínculo com a unidade recebe FORBIDDEN para o lote inteiro", async () => {
 +  it("médico sem vínculo com a unidade recebe FORBIDDEN para o lote inteiro (sem tocar banco)", async () => {
@@ -281,7 +281,7 @@ index c3ed758..188c87b 100644
 +    vi.resetModules();
    });
  });
- 
+
 diff --git a/server/minio.credentials.test.ts b/server/minio.credentials.test.ts
 index dc0b0d9..330a6c7 100644
 --- a/server/minio.credentials.test.ts
@@ -302,9 +302,9 @@ index dc0b0d9..330a6c7 100644
  import { describe, expect, it } from "vitest";
 -import { minioClient } from "./minio";
 +import { minioClient, parseMinioConfig } from "./minio";
- 
+
  const runMinioIntegration = process.env.RUN_MINIO_INTEGRATION_TESTS === "1" ? it : it.skip;
- 
+
 -describe("MinIO VM3 credentials", () => {
 -  it("mantém a configuração mínima de produção sem expor a Secret Key", () => {
 -    expect(process.env.MINIO_ENDPOINT).toBe("http://172.16.3.102:9000");
@@ -360,7 +360,7 @@ index dc0b0d9..330a6c7 100644
 +  it("com todas as variáveis ausentes, devolve null", () => {
 +    expect(parseMinioConfig({})).toBeNull();
    });
- 
+
 +  it("nunca inclui a Secret Key na mensagem de erro quando a configuração está incompleta", () => {
 +    // A validação de "obrigatório" (requireConfig, em server/minio.ts) lança um erro
 +    // cujo texto lista os NOMES das variáveis faltantes, nunca um VALOR de segredo.
@@ -386,16 +386,16 @@ index 9d33ba8..d6f42bf 100644
 @@ -7,7 +7,7 @@
   */
  import * as Minio from "minio";
- 
+
 -type MinioRuntimeConfig = {
 +export type MinioRuntimeConfig = {
    endpoint: string;
    bucket: string;
    accessKey: string;
 @@ -48,16 +48,26 @@ export function createMinioBucketExistenceCache(
- 
+
  const bucketExistenceCache = createMinioBucketExistenceCache();
- 
+
 -function readConfig(): MinioRuntimeConfig | null {
 -  const endpoint = process.env.MINIO_ENDPOINT;
 -  const bucket = process.env.MINIO_BUCKET;
@@ -416,9 +416,9 @@ index 9d33ba8..d6f42bf 100644
 +  const bucket = env.MINIO_BUCKET;
 +  const accessKey = env.MINIO_ACCESS_KEY;
 +  const secretKey = env.MINIO_SECRET_KEY;
- 
+
    if (!endpoint || !bucket || !accessKey || !secretKey) return null;
- 
+
    const parsed = new URL(endpoint);
 -  const envUseSsl = process.env.MINIO_USE_SSL;
 +  const envUseSsl = env.MINIO_USE_SSL;
@@ -428,7 +428,7 @@ index 9d33ba8..d6f42bf 100644
 @@ -67,6 +77,10 @@ function readConfig(): MinioRuntimeConfig | null {
    };
  }
- 
+
 +function readConfig(): MinioRuntimeConfig | null {
 +  return parseMinioConfig(process.env);
 +}
@@ -459,9 +459,9 @@ index 642689c..383d7f6 100644
 + */
 +import { beforeEach, describe, expect, it, vi } from "vitest";
  import type { TrpcContext } from "./_core/context";
- 
+
  type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
- 
+
 -function createAdminContext(): TrpcContext {
 -  const user: AuthenticatedUser = {
 -    id: 1,
@@ -500,7 +500,7 @@ index 642689c..383d7f6 100644
 +    }),
    };
 +});
- 
+
 +// units.list resolve a logo de cada unidade via storage; nenhum fixture deste
 +// arquivo usa logo_url, mas mockamos assim mesmo para garantir que nenhum
 +// cenário futuro passe a chamar storage/rede de verdade sem que o teste avise.
@@ -523,7 +523,7 @@ index 642689c..383d7f6 100644
    };
 -}
 +});
- 
+
 -function createUnitUserContext(unitId: number): TrpcContext {
 +function createContext(overrides: Partial<AuthenticatedUser> & { unit_id?: number | null }): TrpcContext {
    const user: AuthenticatedUser = {
@@ -560,7 +560,7 @@ index 642689c..383d7f6 100644
 +    } as unknown as TrpcContext["res"],
    };
  }
- 
+
  describe("units router", () => {
 +  beforeEach(() => {
 +    state.allUnits = [];
@@ -593,13 +593,13 @@ index 642689c..383d7f6 100644
 +    const { appRouter } = await import("./routers");
 +    const ctx = createContext({ id: 2, role: "medico", unit_id: 1 });
      const caller = appRouter.createCaller(ctx);
- 
+
      const units = await caller.units.list();
 -    expect(Array.isArray(units)).toBe(true);
 +    expect(units).toHaveLength(1);
 +    expect(units[0]).toMatchObject({ id: 1, name: "Unidade A" });
    });
- 
+
 -  it("unit user can only see their own unit", async () => {
 -    const ctx = createUnitUserContext(1);
 +  it("unit user com permissões granulares vê exatamente as unidades vinculadas, não todas", async () => {
@@ -611,7 +611,7 @@ index 642689c..383d7f6 100644
 +    const { appRouter } = await import("./routers");
 +    const ctx = createContext({ id: 5, role: "medico", unit_id: 1 });
      const caller = appRouter.createCaller(ctx);
- 
+
      const units = await caller.units.list();
 -    expect(Array.isArray(units)).toBe(true);
 -    // Unit user should only see their unit or empty array if unit doesn't exist
@@ -641,7 +641,7 @@ index 642689c..383d7f6 100644
 +    expect(state.createAuditLogCalls).toHaveLength(1);
 +    expect(state.createAuditLogCalls[0]).toMatchObject({ action: "CREATE_UNIT", unit_id: 42 });
    });
- 
+
 -  it("only admin_master can create units", async () => {
 -    const adminCtx = createAdminContext();
 -    const adminCaller = appRouter.createCaller(adminCtx);
@@ -676,14 +676,14 @@ index 642689c..383d7f6 100644
 +    expect(state.createUnitCalls).toHaveLength(0);
    });
  });
- 
+
  describe("RBAC validation", () => {
    it("validates user roles correctly", () => {
 -    const adminUser = createAdminContext().user;
 -    const radiologistUser = createUnitUserContext(1).user;
 +    const adminUser = createContext({ id: 1, role: "admin_master", unit_id: null }).user;
 +    const unitUser = createContext({ id: 2, role: "medico", unit_id: 1 }).user;
- 
+
      expect(adminUser?.role).toBe("admin_master");
 -    expect(radiologistUser?.role).toBe("radiologist");
 -    expect(radiologistUser?.unit_id).toBe(1);
