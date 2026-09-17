@@ -127,6 +127,9 @@ describe("setExternalSalePrice / listExternalSalePrices / unitProfitCalculator �
           update: () => ({ set: () => ({ where: updateWhereSpy }) }),
           insert: () => ({ values: insertValuesSpy }),
         })),
+        // A mutation registra auditoria após a gravação. O teste valida o contrato da
+        // procedure e não deve tocar o banco real só para gravar esse efeito lateral.
+        createAuditLog: vi.fn(async () => undefined),
       };
     });
     const { appRouter } = await import("./routers");

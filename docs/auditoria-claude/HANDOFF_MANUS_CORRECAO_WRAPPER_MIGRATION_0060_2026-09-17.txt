@@ -1,0 +1,48 @@
+HANDOFF TÉCNICO — CORREÇÃO DO EXECUTOR SEGURO DA MIGRATION 0060
+Data: 17/09/2026
+Projeto: PACS Portal / LAUDS
+Branch de origem: claude/modulo-repasse-preco-externo (topo 00a9833)
+Branch corretiva: manus/correcao-wrapper-migration-0060
+
+1. CONTEXTO
+
+A revisão independente do módulo de repasse/preço externo encontrou que o wrapper scripts/apply_migration_0060.mjs fazia split manual do arquivo SQL pelo caractere ponto e vírgula e descartava blocos cujo início fosse um comentário SQL. Como a migration 0060 contém comentários antes do CREATE TABLE billing_external_sale_prices e antes do ALTER TABLE audit_log, esses dois comandos seriam descartados em um ambiente que passasse no preflight. As seis colunas de confirmação poderiam ser alteradas e a pós-validação falharia somente depois, recriando risco de estado parcial.
+
+2. CORREÇÃO IMPLEMENTADA
+
+O wrapper foi reestruturado para não interpretar nem dividir SQL manualmente. A conexão exclusiva usada pelo aplicador habilita multipleStatements e envia o conteúdo integral e versionado de drizzle/0060_external_sale_price_doctor_confirmation.sql em uma única chamada ao driver mysql2. Assim, comentários e todos os DDL subsequentes permanecem intactos.
+
+A lógica reutilizável foi extraída para scripts/lib/migration0060.mjs. Ela concentra as verificações de tabela, coluna, enum, preflight, pós-validação e execução integral.
+
+O preflight foi reforçado. Além das dependências de catálogo e da ausência da nova tabela, ele confirma que as seis colunas novas e os três valores de enum ainda não existem. Portanto, uma tentativa em banco parcialmente alterado é bloqueada antes de qualquer novo DDL. O script continua bloqueando quando as migrations de catálogo prévias não foram aplicadas.
+
+3. TESTES NOVOS
+
+Foi criado server/migration0060.test.ts, com quatro regressões independentes de banco real:
+
+- dependência de catálogo ausente reprova o preflight antes de qualquer chamada de DDL;
+- estado parcialmente aplicado reprova o preflight antes de qualquer nova tentativa;
+- o executor envia uma única vez o arquivo SQL integral, incluindo CREATE TABLE e ALTER TABLE audit_log precedidos por comentários;
+- a pós-validação só é aprovada quando existe a tabela nova, as seis colunas de confirmação e os três valores novos de audit_log.action.
+
+O teste existente server/audit-fixes-repasse-preco-externo.test.ts também recebeu mock explícito de createAuditLog no cenário que grava preço. Sem isso, o teste podia tentar inserir auditoria no banco configurado pelo ambiente e ficar dependente de a migration 0060 já estar aplicada. A regra de negócio continuou coberta, mas o teste agora é integralmente isolado.
+
+4. VALIDAÇÃO EXECUTADA
+
+- pnpm install --frozen-lockfile: aprovado.
+- pnpm check: aprovado.
+- server/migration0060.test.ts: 4 testes aprovados.
+- Suíte UTC: 437 aprovados, 9 falhos históricos e 1 ignorado. Os arquivos falhos são os mesmos sete da linha de base conhecida: exam-catalog-security, finance-v2-dashboard, mediaProxy, pacs-desktop-download-progress, pacs.mobile-ui, security.auth e study-priority-ui.
+- pnpm build: aprovado; somente warnings preexistentes de bundle grande.
+- Preflight real no banco de sandbox: bloqueado corretamente antes de DDL porque billing_catalog_study_events e doctor_payment_note não existem naquele ambiente. O preflight também confirmou que não há tabela, colunas ou valores de enum parciais da 0060.
+- git diff --check: aprovado.
+
+5. LIMITES OPERACIONAIS
+
+A migration 0060 ainda não foi aplicada em nenhum ambiente. O sandbox permanece sem as migrations de catálogo anteriores, portanto ele só pode comprovar o caminho de bloqueio seguro. A aplicação bem-sucedida deve ocorrer somente em ambiente homologado que tenha todas as dependências declaradas no preflight, após revisão e autorização de integração.
+
+Não houve merge em main, deploy, atualização de VM ou alteração de dados clínicos durante esta correção.
+
+6. PRÓXIMA REVISÃO
+
+A branch corretiva deve ser revisada como complemento da branch Claude de origem. Antes de integrar, confirmar que o commit corretivo está acima do topo 00a9833 e repetir, no mínimo: git diff --check, pnpm check, TZ=UTC pnpm test, teste direcionado server/audit-fixes-repasse-preco-externo.test.ts e server/migration0060.test.ts, pnpm build e preflight seguro da migration.
