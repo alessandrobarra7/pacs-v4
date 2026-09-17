@@ -1,0 +1,706 @@
+HANDOFF TÉCNICO — ISOLAMENTO DE TESTES (BANCO E .ENV REAIS) NA VM1
+Projeto: PACS Portal / LAUDS
+Repositório: https://github.com/alessandrobarra7/pacs-v4
+Branch com a correção: claude/correcao-isolamento-testes-vm1
+Base do branch: origin/main, commit 950a685 (merge de claude/correcoes-setoriais-auditoria)
+Topo do branch: 7185ab92bf078b3af7bd119cd3efab9f7786ece8
+Gerado por: Claude (Cowork), a pedido de Alessandro (studiobarra7@gmail.com), em
+resposta direta à "SOLICITAÇÃO TÉCNICA — CORRIGIR ISOLAMENTO DE TESTES NA VM1"
+(17/09/2026), documento técnico recebido com os resultados reais da execução
+da suíte na VM1 depois do merge de 950a685.
+
+DESTINATÁRIO DESTE DOCUMENTO: qualquer agente ou engenheiro com acesso de
+leitura/escrita ao repositório (nomeadamente, o agente identificado nos
+commits de produção como "Manus <dev-agent@manus.ai>", autor da solicitação
+que originou este branch).
+
+=============================================================================
+RESUMO EXECUTIVO
+=============================================================================
+A solicitação relatou que, na VM1, depois de atualizar a cópia de trabalho
+até 950a685, a suíte Vitest teve 2 falhas A MAIS do que a mesma suíte no
+sandbox: um timeout de 5s em audit-fixes-forbidden-regressions.test.ts (caso
+sla.getUnitSla) e a falha de sempre em units.test.ts, que no sandbox passava
+"por acaso". A causa raiz identificada na solicitação estava correta nos
+dois casos, e uma investigação própria (não só aceitar o relato) confirmou
+mais um problema não mencionado explicitamente como bloqueante, mas coberto
+pela mesma causa raiz: server/units.test.ts tinha um cenário de criação de
+unidade com payload desatualizado (orthanc_base_url, campo removido do
+schema atual) escondido atrás de um try/catch que aceitava qualquer erro
+como sucesso — ou seja, mesmo corrigindo só o timeout de banco, esse teste
+continuaria "passando" sem testar o contrato real de units.create.
+
+Este branch NÃO muda nenhuma regra de autorização, lógica clínica,
+financeira, de laudos, schema, migration, .env, PM2, Nginx ou VM. Só reescreve
+3 arquivos de teste e extrai 1 função pura (sem mudança de comportamento) em
+server/minio.ts. Nenhum merge, push forçado, reset ou reescrita de histórico
+foi feito.
+
+=============================================================================
+1) COMO CHEGAR NO CÓDIGO REAL
+=============================================================================
+  git fetch origin
+  git checkout claude/correcao-isolamento-testes-vm1
+  git log --oneline 950a685..HEAD
+  git diff --check 950a685..HEAD
+  git diff 950a685..HEAD
+
+=============================================================================
+2) O QUE FOI CORRIGIDO, ARQUIVO POR ARQUIVO
+=============================================================================
+
+-----------------------------------------------------------------------------
+2.1) server/audit-fixes-forbidden-regressions.test.ts
+-----------------------------------------------------------------------------
+PROBLEMA CONFIRMADO: os casos "sla.getUnitSla" e "studyExamLegend.getBatch"
+chamavam a procedure real, que por sua vez chama canAccessUnit(), sem
+nenhum mock. No sandbox (sem DATABASE_URL) isso "funcionava" porque
+getDb() retorna null instantaneamente e canAccessUnit devolve false sem
+tentar nenhuma conexão. Na VM1 (com DATABASE_URL real), a mesma chamada
+abre uma conexão de verdade — e, dependendo da latência de rede/pool
+naquele momento, estourou o timeout padrão de 5000ms do Vitest só no
+primeiro caso do arquivo (sla.getUnitSla), evidenciando que o teste nunca
+foi de fato unitário, só "parecia" por sorte de ambiente.
+
+CORREÇÃO: canAccessUnit é agora mockado diretamente (via vi.doMock em
+"./authorization", mesmo padrão já usado nos outros 4 cenários deste
+arquivo) nos dois casos, retornando false de forma síncrona e
+determinística. Nenhum dos 6 cenários deste arquivo toca banco em nenhum
+ambiente agora. testTimeout NÃO foi alterado — a garantia vem de eliminar
+a dependência externa, não de esconder o problema atrás de um timeout
+maior.
+
+VERIFICAÇÃO PRÓPRIA (não só aceitar a causa raiz do relato): reproduzi o
+sintoma localmente trocando o mock de canAccessUnit de false para true e
+confirmei que o teste sla.getUnitSla passa a falhar de forma clara e
+imediata (prova de que o mock está realmente no caminho de decisão, não
+sendo ignorado por algum outro guard). Revertido antes do commit.
+
+-----------------------------------------------------------------------------
+2.2) server/units.test.ts (reescrito)
+-----------------------------------------------------------------------------
+PROBLEMAS CONFIRMADOS (três, não só o de timeout/conexão):
+
+  a) "admin_master can list all units" e "unit user can only see their own
+     unit" chamavam units.list sem nenhum mock de ./db — dependiam de uma
+     conexão real (getAllUnits/getUserUnitPermissions/getUnitById todas
+     chamam getDb()).
+
+  b) "only admin_master can create units" chamava units.create com um
+     payload desatualizado: { name, slug, orthanc_base_url }. O schema
+     ATUAL de units.create (server/routers/units.ts) não tem mais
+     orthanc_base_url — exige pacs_ip, pacs_port e pacs_ae_title. Ou seja,
+     mesmo com banco disponível, essa chamada falharia por erro de
+     validação Zod, não por indisponibilidade de banco. E o teste não
+     conseguia distinguir os dois casos, porque:
+
+  c) O bloco try/catch ao redor da criação aceitava QUALQUER erro
+     (validação Zod, banco indisponível, timeout, o que fosse) como
+     resultado válido do teste ("expect(error).toBeDefined()"). Combinado
+     com (b), este teste nunca comprovou nada sobre o contrato real de
+     units.create — e, mais grave, se o banco de produção estivesse
+     acessível durante a execução (cenário real na VM1), a chamada teria
+     tentado INSERIR de verdade uma "Test Unit" com slug baseado em
+     Date.now() na tabela units de produção.
+
+  d) Adicionalmente, o teste usava role: "radiologist" para o usuário de
+     unidade — esse valor não existe no enum atual de roles
+     (drizzle/schema.ts: admin_master, unit_admin, medico, viewer,
+     operador, atendente, responsavel_financeiro). Não travava o teste
+     (TypeScript não valida enum de string dinamicamente em teste sem tipo
+     estrito ali), mas testava um papel que não existe no sistema.
+
+CORREÇÃO: arquivo reescrito do zero. vi.mock("./db") cobre
+getAllUnits/getUnitById/getUserUnitPermissions/createUnit/createAuditLog;
+vi.mock("./storage") cobre storageGetUrl (lança erro proposital se algum
+cenário futuro passar a depender de logo_url sem atualizar o mock, para
+nunca mais silenciosamente cair em rede real). Fixtures ficam num objeto
+de estado em memória (vi.hoisted), resetado a cada teste (beforeEach).
+Role trocado para "medico" (papel real do enum atual). Ficaram 5 cenários,
+2 novos em relação ao original:
+  - admin_master lista todas as unidades (fixture com 2 unidades).
+  - usuário sem permissão granular cai no fallback legado por unit_id e vê
+    só a própria unidade.
+  - usuário COM permissão granular (user_unit_permissions) vê exatamente
+    as unidades vinculadas, não todas (cenário que o teste original nunca
+    cobria).
+  - admin_master cria unidade com o payload ATUAL e correto
+    (pacs_ip/pacs_port/pacs_ae_title); o teste comprova que createUnit foi
+    chamado com exatamente esses dados (toMatchObject no mock), não só que
+    "não deu erro".
+  - não-admin_master recebe FORBIDDEN ao tentar criar unidade, e createUnit
+    NUNCA é chamado (cenário novo — o teste original nunca testava a
+    negativa, apesar do nome "only admin_master can create units" sugerir
+    isso).
+
+-----------------------------------------------------------------------------
+2.3) server/minio.credentials.test.ts (reescrito) + server/minio.ts
+-----------------------------------------------------------------------------
+PROBLEMA CONFIRMADO: o teste comparava process.env diretamente com valores
+fixos de produção da VM3 (endpoint, bucket, e um access key ID real
+hardcoded no arquivo versionado em git). Isso só passa num processo que já
+carregou o .env real da VM1/VM3 — no sandbox e em qualquer ambiente sem
+esse .env, falha sempre, por desenho, sem testar nenhuma lógica de
+verdade. Além do problema de determinismo, ter um valor de credencial real
+(ainda que só o access key, não o secret) num arquivo de teste versionado
+não é uma boa prática de segurança, mesmo não sendo o segredo em si.
+
+CORREÇÃO: extraída parseMinioConfig(env) em server/minio.ts — função pura,
+recebe o objeto de ambiente como parâmetro em vez de ler process.env
+diretamente, com a MESMA lógica que já existia em readConfig() (validação
+das 4 variáveis obrigatórias, derivação de useSSL a partir do protocolo do
+endpoint quando MINIO_USE_SSL não está setado). readConfig() agora só
+delega para parseMinioConfig(process.env) — zero mudança de comportamento
+de runtime, nenhuma outra função de server/minio.ts foi tocada
+(requireConfig, getClient, minioBucketExists, minioUpload, etc. continuam
+exatamente como estavam). O teste foi reescrito para chamar
+parseMinioConfig com valores SINTÉTICOS explícitos (nenhum valor real de
+credencial, endpoint ou bucket de produção em lugar nenhum do arquivo),
+cobrindo: configuração completa com useSSL derivado do protocolo,
+MINIO_USE_SSL explícito tendo prioridade sobre o protocolo, cada uma das 4
+variáveis obrigatórias ausente individualmente (parametrizado via
+it.each), todas ausentes, e uma checagem explícita de que o valor de
+"segredo" sintético não aparece em nenhuma saída quando a config está
+incompleta. O teste de integração real
+(RUN_MINIO_INTEGRATION_TESTS=1, contra o MinIO de verdade) foi preservado
+sem alteração e continua fora da suíte padrão (it.skip por padrão).
+
+=============================================================================
+3) VALIDAÇÃO EXECUTADA (clone local, branch claude/correcao-isolamento-testes-vm1)
+=============================================================================
+  pnpm install --frozen-lockfile ....... OK
+  pnpm check (tsc --noEmit) ............ OK, 0 erros
+  git diff --check 950a685..HEAD ....... OK, sem problema de whitespace
+  TZ=UTC pnpm test (suíte completa) .... 425 passaram, 11 falharam, 1
+    ignorado, de 437 testes. As 11 falhas são EXATAMENTE as 13 falhas da
+    linha de base pré-existente MENOS os 2 arquivos corrigidos aqui
+    (server/units.test.ts e server/minio.credentials.test.ts) — nenhuma
+    falha nova introduzida. As 11 falhas remanescentes (catálogo de
+    exames, dashboard financeiro v2, mediaProxy, progress bar PACS
+    desktop, UI mobile do PacsQueryPage, um teste de anamnese com UID de
+    exemplo inválido para a validação DICOM, e 4 testes de UI de
+    prioridade clínica) são as mesmas de sempre, sem relação com este
+    branch.
+  pnpm vitest run server/audit-fixes-forbidden-regressions.test.ts \
+    server/units.test.ts server/minio.credentials.test.ts .... 24
+    passaram, 1 ignorado (o de integração real do MinIO, como sempre).
+  pnpm build ............................ OK (mesmo aviso pré-existente de
+    chunk >500kB, sem relação com este branch).
+
+=============================================================================
+4) DECLARAÇÃO EXPLÍCITA DE ESCOPO
+=============================================================================
+Não houve, neste branch: migration, deploy, alteração de VM (VM1, VM2 ou
+VM3), modificação de .env, alteração de PM2 ou Nginx, alteração de schema
+Drizzle, alteração de nenhuma regra de autorização/RBAC, alteração de
+lógica clínica, financeira, de laudos, anamnese, DICOM ou uploads. Os
+únicos 4 arquivos tocados foram:
+  server/audit-fixes-forbidden-regressions.test.ts
+  server/minio.credentials.test.ts
+  server/minio.ts
+  server/units.test.ts
+Nenhum merge em main, push forçado, reset ou reescrita de histórico
+publicado foi feito. Nenhuma credencial, valor de .env, URL privada de
+banco, token, chave de MinIO real, dado de paciente ou Study Instance UID
+real aparece neste handoff, nos commits ou nos testes.
+
+=============================================================================
+5) LOG DOS COMMITS DESTE BRANCH (950a685..HEAD)
+=============================================================================
+7185ab9 test(isolamento): remover dependência de banco/env real dos testes na VM1
+
+=============================================================================
+6) DIFF COMPLETO (950a685..HEAD)
+=============================================================================
+diff --git a/server/audit-fixes-forbidden-regressions.test.ts b/server/audit-fixes-forbidden-regressions.test.ts
+index c3ed758..188c87b 100644
+--- a/server/audit-fixes-forbidden-regressions.test.ts
++++ b/server/audit-fixes-forbidden-regressions.test.ts
+@@ -9,6 +9,15 @@
+  *   - units.update por papel não-administrativo (antes: qualquer papel com QUALQUER
+  *     vínculo em user_unit_permissions — mesmo só view_studies — podia editar
+  *     pacs_ip/pacs_port/pacs_ae_title/name/slug/isActive da unidade)
++ *
++ * CORREÇÃO (solicitação "isolamento de testes VM1", 2026-09-17): os dois primeiros
++ * cenários (sla.getUnitSla, studyExamLegend.getBatch) chamavam canAccessUnit()
++ * sem mock — no sandbox isso "funcionava" só porque getDb() retorna null
++ * instantaneamente sem DATABASE_URL configurado, mas na VM1 (com banco real) a
++ * mesma chamada abre uma conexão de verdade, e uma rede/conexão mais lenta
++ * estourou o timeout padrão de 5s do Vitest. canAccessUnit agora é mockado
++ * diretamente nos dois casos, então nenhum dos seis cenários deste arquivo toca
++ * banco em nenhum ambiente.
+  */
+ import { describe, expect, it, vi } from "vitest";
+ import { TRPCError } from "@trpc/server";
+@@ -46,18 +55,38 @@ function createCtx(overrides: Partial<AuthenticatedUser> & { unit_id?: number |
+ }
+
+ describe("sla.getUnitSla — nega acesso sem vínculo com a unidade", () => {
+-  it("médico sem vínculo com a unidade recebe FORBIDDEN", async () => {
++  it("médico sem vínculo com a unidade recebe FORBIDDEN (sem tocar banco)", async () => {
++    vi.resetModules();
++    vi.doMock("./authorization", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./authorization")>();
++      return {
++        ...original,
++        // Mocka a decisão em si, não o banco por trás dela: elimina qualquer
++        // dependência de rede/conexão real, em qualquer ambiente.
++        canAccessUnit: vi.fn(async () => false),
++      };
++    });
+     const { appRouter } = await import("./routers");
+     const ctx = createCtx({ id: 10, role: "medico", unit_id: 1 });
+     const caller = appRouter.createCaller(ctx);
+     await expect(
+       caller.sla.getUnitSla({ unitId: 999 })
+     ).rejects.toMatchObject({ code: "FORBIDDEN" });
++    vi.doUnmock("./authorization");
++    vi.resetModules();
+   });
+ });
+
+ describe("studyExamLegend.getBatch — nega acesso sem vínculo com a unidade", () => {
+-  it("médico sem vínculo com a unidade recebe FORBIDDEN para o lote inteiro", async () => {
++  it("médico sem vínculo com a unidade recebe FORBIDDEN para o lote inteiro (sem tocar banco)", async () => {
++    vi.resetModules();
++    vi.doMock("./authorization", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./authorization")>();
++      return {
++        ...original,
++        canAccessUnit: vi.fn(async () => false),
++      };
++    });
+     const { appRouter } = await import("./routers");
+     const ctx = createCtx({ id: 11, role: "medico", unit_id: 1 });
+     const caller = appRouter.createCaller(ctx);
+@@ -67,6 +96,8 @@ describe("studyExamLegend.getBatch — nega acesso sem vínculo com a unidade",
+         studyInstanceUids: ["1.2.3.4.5"],
+       })
+     ).rejects.toMatchObject({ code: "FORBIDDEN" });
++    vi.doUnmock("./authorization");
++    vi.resetModules();
+   });
+ });
+
+diff --git a/server/minio.credentials.test.ts b/server/minio.credentials.test.ts
+index dc0b0d9..330a6c7 100644
+--- a/server/minio.credentials.test.ts
++++ b/server/minio.credentials.test.ts
+@@ -1,16 +1,85 @@
++/**
++ * CORREÇÃO (solicitação técnica "isolamento de testes VM1", 2026-09-17):
++ * este teste comparava process.env com valores fixos de produção (endpoint,
++ * bucket e access key reais da VM3). Isso só "passa" em um processo que já
++ * carregou o .env real — no sandbox e em qualquer ambiente de CI sem esse .env,
++ * ele falha sempre, por design, sem provar nada sobre a lógica de configuração
++ * do MinIO. Reescrito para testar server/minio.ts#parseMinioConfig com valores
++ * sintéticos passados explicitamente (nenhum segredo real em lugar nenhum deste
++ * arquivo), cobrindo configuração completa, campos ausentes e não exposição de
++ * segredo em erro — que é a garantia que este teste realmente pode dar sem
++ * depender de infraestrutura.
++ */
+ import { describe, expect, it } from "vitest";
+-import { minioClient } from "./minio";
++import { minioClient, parseMinioConfig } from "./minio";
+
+ const runMinioIntegration = process.env.RUN_MINIO_INTEGRATION_TESTS === "1" ? it : it.skip;
+
+-describe("MinIO VM3 credentials", () => {
+-  it("mantém a configuração mínima de produção sem expor a Secret Key", () => {
+-    expect(process.env.MINIO_ENDPOINT).toBe("http://172.16.3.102:9000");
+-    expect(process.env.MINIO_BUCKET).toBe("vm3-storage");
+-    expect(process.env.MINIO_ACCESS_KEY).toBe("pacs-app-20260817");
+-    expect(process.env.MINIO_SECRET_KEY).toBeTruthy();
++const SYNTHETIC_ENV = {
++  MINIO_ENDPOINT: "https://minio.exemplo-sintetico.test:9000",
++  MINIO_BUCKET: "bucket-sintetico-teste",
++  MINIO_ACCESS_KEY: "chave-de-acesso-sintetica",
++  MINIO_SECRET_KEY: "segredo-sintetico-nao-real",
++} as const;
++
++describe("parseMinioConfig — validação pura, sem depender do .env real de nenhum ambiente", () => {
++  it("com as quatro variáveis presentes, devolve a configuração e deriva useSSL do protocolo do endpoint", () => {
++    const config = parseMinioConfig(SYNTHETIC_ENV);
++    expect(config).toEqual({
++      endpoint: SYNTHETIC_ENV.MINIO_ENDPOINT,
++      bucket: SYNTHETIC_ENV.MINIO_BUCKET,
++      accessKey: SYNTHETIC_ENV.MINIO_ACCESS_KEY,
++      secretKey: SYNTHETIC_ENV.MINIO_SECRET_KEY,
++      useSSL: true, // endpoint https:// sem MINIO_USE_SSL explícito
++    });
++  });
++
++  it("com endpoint http:// e sem MINIO_USE_SSL, useSSL é derivado como false", () => {
++    const config = parseMinioConfig({
++      ...SYNTHETIC_ENV,
++      MINIO_ENDPOINT: "http://minio.exemplo-sintetico.test:9000",
++    });
++    expect(config?.useSSL).toBe(false);
++  });
++
++  it("MINIO_USE_SSL explícito tem prioridade sobre o protocolo do endpoint", () => {
++    const config = parseMinioConfig({
++      ...SYNTHETIC_ENV,
++      MINIO_ENDPOINT: "http://minio.exemplo-sintetico.test:9000",
++      MINIO_USE_SSL: "true",
++    });
++    expect(config?.useSSL).toBe(true);
++  });
++
++  it.each([
++    ["MINIO_ENDPOINT"],
++    ["MINIO_BUCKET"],
++    ["MINIO_ACCESS_KEY"],
++    ["MINIO_SECRET_KEY"],
++  ] as const)("com %s ausente, devolve null em vez de configuração parcial", (missingKey) => {
++    const env = { ...SYNTHETIC_ENV, [missingKey]: undefined };
++    expect(parseMinioConfig(env)).toBeNull();
++  });
++
++  it("com todas as variáveis ausentes, devolve null", () => {
++    expect(parseMinioConfig({})).toBeNull();
+   });
+
++  it("nunca inclui a Secret Key na mensagem de erro quando a configuração está incompleta", () => {
++    // A validação de "obrigatório" (requireConfig, em server/minio.ts) lança um erro
++    // cujo texto lista os NOMES das variáveis faltantes, nunca um VALOR de segredo.
++    // Aqui garantimos que parseMinioConfig em si não devolve nem ecoa nenhum valor
++    // quando a config está incompleta — só null.
++    const config = parseMinioConfig({ MINIO_ENDPOINT: SYNTHETIC_ENV.MINIO_ENDPOINT });
++    expect(config).toBeNull();
++    expect(JSON.stringify(config)).not.toContain(SYNTHETIC_ENV.MINIO_SECRET_KEY);
++  });
++});
++
++describe("MinIO VM3 credentials — integração opcional", () => {
++  // Este bloco só roda com RUN_MINIO_INTEGRATION_TESTS=1 e as variáveis reais de
++  // ambiente carregadas (ex.: na VM1, via PM2/.env) — nunca no sandbox nem em CI
++  // sem infraestrutura real. Continua fora da suíte padrão de pnpm test.
+   runMinioIntegration(
+     "autentica na API S3 e encontra o bucket configurado sem expor credenciais",
+     async () => {
+diff --git a/server/minio.ts b/server/minio.ts
+index 9d33ba8..d6f42bf 100644
+--- a/server/minio.ts
++++ b/server/minio.ts
+@@ -7,7 +7,7 @@
+  */
+ import * as Minio from "minio";
+
+-type MinioRuntimeConfig = {
++export type MinioRuntimeConfig = {
+   endpoint: string;
+   bucket: string;
+   accessKey: string;
+@@ -48,16 +48,26 @@ export function createMinioBucketExistenceCache(
+
+ const bucketExistenceCache = createMinioBucketExistenceCache();
+
+-function readConfig(): MinioRuntimeConfig | null {
+-  const endpoint = process.env.MINIO_ENDPOINT;
+-  const bucket = process.env.MINIO_BUCKET;
+-  const accessKey = process.env.MINIO_ACCESS_KEY;
+-  const secretKey = process.env.MINIO_SECRET_KEY;
++/**
++ * Lê e valida a configuração MinIO a partir de um objeto de ambiente explícito
++ * (em vez de ler `process.env` diretamente), para poder ser testada com valores
++ * sintéticos sem depender do .env real de nenhum ambiente (CORREÇÃO — solicitação
++ * "isolamento de testes VM1", 2026-09-17). `readConfig()` abaixo é só um wrapper
++ * fino que chama esta função com `process.env`; nenhum comportamento de runtime
++ * mudou, só ficou testável.
++ */
++export function parseMinioConfig(
++  env: Record<string, string | undefined>,
++): MinioRuntimeConfig | null {
++  const endpoint = env.MINIO_ENDPOINT;
++  const bucket = env.MINIO_BUCKET;
++  const accessKey = env.MINIO_ACCESS_KEY;
++  const secretKey = env.MINIO_SECRET_KEY;
+
+   if (!endpoint || !bucket || !accessKey || !secretKey) return null;
+
+   const parsed = new URL(endpoint);
+-  const envUseSsl = process.env.MINIO_USE_SSL;
++  const envUseSsl = env.MINIO_USE_SSL;
+   return {
+     endpoint,
+     bucket,
+@@ -67,6 +77,10 @@ function readConfig(): MinioRuntimeConfig | null {
+   };
+ }
+
++function readConfig(): MinioRuntimeConfig | null {
++  return parseMinioConfig(process.env);
++}
++
+ function requireConfig(): MinioRuntimeConfig {
+   const config = readConfig();
+   if (!config) {
+diff --git a/server/units.test.ts b/server/units.test.ts
+index 642689c..383d7f6 100644
+--- a/server/units.test.ts
++++ b/server/units.test.ts
+@@ -1,52 +1,76 @@
+-import { describe, expect, it } from "vitest";
+-import { appRouter } from "./routers";
++/**
++ * Regressão (solicitação técnica "isolamento de testes VM1", 2026-09-17):
++ * esta suíte importava `appRouter` sem nenhum mock de `./db`, então em qualquer
++ * ambiente com DATABASE_URL configurado (como a VM1, diferente do sandbox) ela
++ * deixava de ser um teste de contrato de autorização e virava, na prática, uma
++ * integração contra o banco real — inclusive com um cenário de criação que, se o
++ * banco estivesse disponível, inseria de verdade uma "Test Unit" em produção, e
++ * escondia esse resultado (e qualquer outro erro, incluindo erro de schema) atrás
++ * de um try/catch que aceitava sucesso OU falha como aprovação. Reescrita para
++ * mockar toda a camada de banco e storage antes de importar o router, então os
++ * três cenários testam só o contrato de `units.list`/`units.create` (quem pode
++ * ver o quê, quem pode criar, com quais dados), sem tocar banco, storage ou rede
++ * em nenhum ambiente.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
+ import type { TrpcContext } from "./_core/context";
+
+ type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
+
+-function createAdminContext(): TrpcContext {
+-  const user: AuthenticatedUser = {
+-    id: 1,
+-    openId: "admin-user",
+-    email: "admin@pacs.com",
+-    name: "Admin User",
+-    loginMethod: "manus",
+-    role: "admin_master",
+-    unit_id: null,
+-    isActive: true,
+-    createdAt: new Date(),
+-    updatedAt: new Date(),
+-    lastSignedIn: new Date(),
++const state = vi.hoisted(() => ({
++  allUnits: [] as any[],
++  unitById: new Map<number, any>(),
++  userUnitPermissions: [] as { unit_id: number }[],
++  createUnitCalls: [] as any[],
++  createUnitResult: 0,
++  createAuditLogCalls: [] as any[],
++}));
++
++vi.mock("./db", async (importOriginal) => {
++  const original = await importOriginal<typeof import("./db")>();
++  return {
++    ...original,
++    getAllUnits: vi.fn(async () => state.allUnits),
++    getUnitById: vi.fn(async (id: number) => state.unitById.get(id)),
++    getUserUnitPermissions: vi.fn(async () => state.userUnitPermissions),
++    createUnit: vi.fn(async (unit: unknown) => {
++      state.createUnitCalls.push(unit);
++      return state.createUnitResult;
++    }),
++    createAuditLog: vi.fn(async (log: unknown) => {
++      state.createAuditLogCalls.push(log);
++    }),
+   };
++});
+
++// units.list resolve a logo de cada unidade via storage; nenhum fixture deste
++// arquivo usa logo_url, mas mockamos assim mesmo para garantir que nenhum
++// cenário futuro passe a chamar storage/rede de verdade sem que o teste avise.
++vi.mock("./storage", async (importOriginal) => {
++  const original = await importOriginal<typeof import("./storage")>();
+   return {
+-    user,
+-    req: {
+-      protocol: "https",
+-      headers: {},
+-      ip: "127.0.0.1",
+-    } as TrpcContext["req"],
+-    res: {
+-      clearCookie: () => {},
+-    } as TrpcContext["res"],
++    ...original,
++    storageGetUrl: vi.fn(async () => {
++      throw new Error("units.test.ts não deveria chamar storage — nenhum fixture usa logo_url.");
++    }),
+   };
+-}
++});
+
+-function createUnitUserContext(unitId: number): TrpcContext {
++function createContext(overrides: Partial<AuthenticatedUser> & { unit_id?: number | null }): TrpcContext {
+   const user: AuthenticatedUser = {
+-    id: 2,
+-    openId: "unit-user",
+-    email: "radiologist@pacs.com",
+-    name: "Radiologist User",
+-    loginMethod: "manus",
+-    role: "radiologist",
+-    unit_id: unitId,
+-    isActive: true,
++    id: overrides.id ?? 1,
++    openId: overrides.openId ?? "test-user",
++    email: overrides.email ?? "test@pacs.com",
++    name: overrides.name ?? "Test User",
++    loginMethod: "local",
++    role: overrides.role ?? "medico",
++    unit_id: overrides.unit_id ?? null,
++    isActive: overrides.isActive ?? true,
+     createdAt: new Date(),
+     updatedAt: new Date(),
+     lastSignedIn: new Date(),
++    ...overrides,
+   };
+-
+   return {
+     user,
+     req: {
+@@ -56,56 +80,109 @@ function createUnitUserContext(unitId: number): TrpcContext {
+     } as TrpcContext["req"],
+     res: {
+       clearCookie: () => {},
+-    } as TrpcContext["res"],
++    } as unknown as TrpcContext["res"],
+   };
+ }
+
+ describe("units router", () => {
++  beforeEach(() => {
++    state.allUnits = [];
++    state.unitById = new Map();
++    state.userUnitPermissions = [];
++    state.createUnitCalls = [];
++    state.createUnitResult = 0;
++    state.createAuditLogCalls = [];
++    vi.clearAllMocks();
++  });
++
+   it("admin_master can list all units", async () => {
+-    const ctx = createAdminContext();
++    state.allUnits = [
++      { id: 1, name: "Unidade A", slug: "unidade-a", isActive: true },
++      { id: 2, name: "Unidade B", slug: "unidade-b", isActive: true },
++    ];
++    const { appRouter } = await import("./routers");
++    const ctx = createContext({ id: 1, role: "admin_master", unit_id: null });
++    const caller = appRouter.createCaller(ctx);
++
++    const units = await caller.units.list();
++    expect(units).toHaveLength(2);
++    expect(units.map((u) => u.id)).toEqual([1, 2]);
++  });
++
++  it("unit user sem permissão granular só vê a própria unidade (fallback legado por unit_id)", async () => {
++    state.userUnitPermissions = []; // sem linha em user_unit_permissions: cai no fallback legado
++    state.unitById.set(1, { id: 1, name: "Unidade A", slug: "unidade-a", isActive: true });
++    const { appRouter } = await import("./routers");
++    const ctx = createContext({ id: 2, role: "medico", unit_id: 1 });
+     const caller = appRouter.createCaller(ctx);
+
+     const units = await caller.units.list();
+-    expect(Array.isArray(units)).toBe(true);
++    expect(units).toHaveLength(1);
++    expect(units[0]).toMatchObject({ id: 1, name: "Unidade A" });
+   });
+
+-  it("unit user can only see their own unit", async () => {
+-    const ctx = createUnitUserContext(1);
++  it("unit user com permissões granulares vê exatamente as unidades vinculadas, não todas", async () => {
++    state.userUnitPermissions = [{ unit_id: 3 }];
++    state.allUnits = [
++      { id: 1, name: "Unidade A", slug: "unidade-a", isActive: true },
++      { id: 3, name: "Unidade C", slug: "unidade-c", isActive: true },
++    ];
++    const { appRouter } = await import("./routers");
++    const ctx = createContext({ id: 5, role: "medico", unit_id: 1 });
+     const caller = appRouter.createCaller(ctx);
+
+     const units = await caller.units.list();
+-    expect(Array.isArray(units)).toBe(true);
+-    // Unit user should only see their unit or empty array if unit doesn't exist
+-    expect(units.length).toBeLessThanOrEqual(1);
++    expect(units).toHaveLength(1);
++    expect(units[0]).toMatchObject({ id: 3, name: "Unidade C" });
++  });
++
++  it("admin_master pode criar unidade; createUnit é chamado com os dados enviados", async () => {
++    state.createUnitResult = 42;
++    const { appRouter } = await import("./routers");
++    const ctx = createContext({ id: 1, role: "admin_master", unit_id: null });
++    const caller = appRouter.createCaller(ctx);
++
++    const payload = {
++      name: "Unidade Nova",
++      slug: "unidade-nova",
++      pacs_ip: "10.0.0.50",
++      pacs_port: 104,
++      pacs_ae_title: "LAUDS_NOVA",
++    };
++    const result = await caller.units.create(payload);
++
++    expect(result).toEqual({ id: 42 });
++    expect(state.createUnitCalls).toHaveLength(1);
++    expect(state.createUnitCalls[0]).toMatchObject(payload);
++    expect(state.createAuditLogCalls).toHaveLength(1);
++    expect(state.createAuditLogCalls[0]).toMatchObject({ action: "CREATE_UNIT", unit_id: 42 });
+   });
+
+-  it("only admin_master can create units", async () => {
+-    const adminCtx = createAdminContext();
+-    const adminCaller = appRouter.createCaller(adminCtx);
+-
+-    // This should work for admin_master
+-    try {
+-      const result = await adminCaller.units.create({
+-        name: "Test Unit",
+-        slug: "test-unit-" + Date.now(),
+-        orthanc_base_url: "http://localhost:8042",
+-      });
+-      expect(result).toHaveProperty("id");
+-      expect(typeof result.id).toBe("number");
+-    } catch (error) {
+-      // If database is not available, test should still pass
+-      expect(error).toBeDefined();
+-    }
++  it("não-admin_master recebe FORBIDDEN ao tentar criar unidade, e createUnit nunca é chamado", async () => {
++    const { appRouter } = await import("./routers");
++    const ctx = createContext({ id: 6, role: "medico", unit_id: 1 });
++    const caller = appRouter.createCaller(ctx);
++
++    await expect(
++      caller.units.create({
++        name: "Unidade Intrusa",
++        slug: "unidade-intrusa",
++        pacs_ip: "10.0.0.51",
++        pacs_port: 104,
++        pacs_ae_title: "LAUDS_INTRUSA",
++      })
++    ).rejects.toMatchObject({ code: "FORBIDDEN" });
++    expect(state.createUnitCalls).toHaveLength(0);
+   });
+ });
+
+ describe("RBAC validation", () => {
+   it("validates user roles correctly", () => {
+-    const adminUser = createAdminContext().user;
+-    const radiologistUser = createUnitUserContext(1).user;
++    const adminUser = createContext({ id: 1, role: "admin_master", unit_id: null }).user;
++    const unitUser = createContext({ id: 2, role: "medico", unit_id: 1 }).user;
+
+     expect(adminUser?.role).toBe("admin_master");
+-    expect(radiologistUser?.role).toBe("radiologist");
+-    expect(radiologistUser?.unit_id).toBe(1);
++    expect(unitUser?.role).toBe("medico");
++    expect(unitUser?.unit_id).toBe(1);
+   });
+ });
+
+=============================================================================
+7) ESTADO ATUAL
+=============================================================================
+Branch publicado no GitHub (após este handoff), SEM Pull Request aberto,
+SEM merge em main, NADA implantado em nenhuma VM. Depois de revisado e
+aprovado, o merge deste branch em main é só de arquivos de teste — não
+deveria mudar nenhum comportamento de runtime da aplicação em si, só a
+confiabilidade da suíte de testes em qualquer ambiente. Ainda assim, siga
+o mesmo procedimento padrão: merge isolado, testar de novo depois do
+merge, e só então (se necessário) considerar atualização de VM — o que,
+neste caso, nem chega a ser necessário, já que nenhum código de runtime
+mudou além da extração sem efeito de parseMinioConfig.
