@@ -397,3 +397,85 @@ describe("unitProfitCalculator — preço externo não é aplicado retroativamen
     vi.resetModules();
   });
 });
+
+describe("listUsersForResponsible — deve trazer nome/e-mail via JOIN em users", () => {
+  it("resolve name/username/email do usuário vinculado (não só o user_id cru)", async () => {
+    // listUsersForResponsible vive em server/db.ts e chama getDb() internamente
+    // (não recebe a conexão por parâmetro), então mockar "./db" por fora não
+    // intercepta essa chamada interna — a função continua ligada ao getDb()
+    // real do próprio módulo. Por isso o ponto de mock aqui é uma camada abaixo:
+    // o driver "drizzle-orm/mysql2" que getDb() usa para abrir a conexão.
+    vi.resetModules();
+    const { financial_responsible_users, users } = await import("../drizzle/schema");
+
+    // Linha crua de vínculo (o que financial_responsible_users guarda sozinha, sem join).
+    const frRows = [
+      { id: 1, financial_responsible_id: 5, user_id: 42, createdAt: new Date("2026-01-01T00:00:00Z") },
+    ];
+    // Tabela users "real" que só entra no resultado se o código fizer o leftJoin.
+    const usersById = new Map([
+      [42, { name: "Erica Souza", username: "erica", email: "erica@lauds.com" }],
+      [99, { name: "Outro Usuário", username: "outro", email: "outro@lauds.com" }],
+    ]);
+
+    let leftJoinCalled = false;
+    let joinedTableSeen: unknown = null;
+
+    const fakeDb = {
+      select: () => ({
+        from: (table: unknown) => {
+          const baseRows = table === financial_responsible_users ? frRows : [];
+          const chain: any = {
+            leftJoin: (joinedTable: unknown) => {
+              leftJoinCalled = true;
+              joinedTableSeen = joinedTable;
+              return chain;
+            },
+            where: () => ({
+              then: (resolve: (v: unknown[]) => void) => {
+                // Simula o comportamento real do MySQL: só vem name/username/email
+                // se um JOIN com `users` de fato ocorreu. Sem join, MySQL nunca
+                // devolveria essas colunas — replicamos essa ausência aqui.
+                const result = leftJoinCalled
+                  ? baseRows.map((r: any) => {
+                      const u = usersById.get(r.user_id);
+                      return { ...r, name: u?.name ?? null, username: u?.username ?? null, email: u?.email ?? null };
+                    })
+                  : baseRows;
+                resolve(result);
+              },
+            }),
+          };
+          return chain;
+        },
+      }),
+    };
+
+    vi.doMock("drizzle-orm/mysql2", () => ({
+      drizzle: vi.fn(() => fakeDb),
+    }));
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = "mysql://test:test@localhost:3306/test";
+
+    const { appRouter } = await import("./routers");
+    const ctx = createCtx({ id: 1, role: "admin_master" });
+    const caller = appRouter.createCaller(ctx);
+
+    const result = await caller.financeSimple.listUsersForResponsible({ financialResponsibleId: 5 });
+
+    expect(leftJoinCalled).toBe(true);
+    expect(joinedTableSeen).toBe(users);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      user_id: 42,
+      name: "Erica Souza",
+      username: "erica",
+      email: "erica@lauds.com",
+    });
+
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+    vi.doUnmock("drizzle-orm/mysql2");
+    vi.resetModules();
+  });
+});
