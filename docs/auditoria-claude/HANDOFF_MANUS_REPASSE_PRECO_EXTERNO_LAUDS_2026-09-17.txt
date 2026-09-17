@@ -3,10 +3,666 @@ Projeto: PACS Portal / LAUDS
 Repositório: alessandrobarra7/pacs-v4
 Branch: claude/modulo-repasse-preco-externo
 Commit base: 942a893be9bb079a669df2abf009093f8ff484de (origin/main)
-Commit topo: 46b605ee825c2e386b4efafaa6ba5b4109f421a2
+Commit topo original: 46b605ee825c2e386b4efafaa6ba5b4109f421a2 (ver ADENDO abaixo para o topo atual)
 Destinatário: Manus (acesso real às VMs) e qualquer engenheiro/agente que dê
 continuidade a este branch.
 Data: 2026-09-17
+
+ADENDO (2026-09-17) — REVISÃO INDEPENDENTE DA MANUS E CORREÇÕES APLICADAS
+
+A Manus revisou de forma independente o commit 46b605e deste branch (relato
+RELATO_REVISAO_MODULO_REPASSE_PRECO_EXTERNO_2026-09-17.txt) e confirmou a
+parte TypeScript/build/testes, além de validar corretamente que a exclusão
+do admin_master do módulo de preço externo deve ser preservada. Encontrou,
+porém, 3 correções de código obrigatórias e 1 recomendação de UX, e um
+bloqueio estrutural na aplicação da migration 0060 no sandbox dela. Cada
+achado foi conferido no código real antes de qualquer correção — nenhum foi
+aceito só por confiança no relato.
+
+Achado 1 — setExternalSalePrice aceitava exam_legend_id inexistente ou
+inativo, sem FK que impedisse o registro órfão (a interface só oferece
+legendas ativas, mas o endpoint não validava numa chamada direta). Corrigido
+com o mesmo padrão já usado em setDoctorLegendPrice: consulta exam_legends
+com is_active = true antes de encerrar vigência anterior ou inserir; NOT_FOUND
+caso contrário.
+
+Achado 2 — confirmDoctorPayment tinha uma janela de corrida real: lia
+doctor_confirmation_status nulo e só depois fazia UPDATE filtrando por id.
+Duas requisições concorrentes podiam ambas passar pela leitura antes de a
+primeira gravar, e a segunda sobrescrevia a resposta definitiva da primeira.
+Corrigido: a condição de nulidade agora está no próprio UPDATE
+(WHERE id = ? AND doctor_confirmation_status IS NULL), e o código confere
+affectedRows — se 0, significa que outra requisição já respondeu, e a atual
+recebe BAD_REQUEST sem sobrescrever status, data ou observação.
+
+Achado 3 — unitProfitCalculator buscava o preço externo vigente HOJE
+(reference_date) e aplicava esse único valor a todos os eventos do ciclo.
+Se o preço mudasse no meio do ciclo, laudos já emitidos antes da mudança
+passavam a usar o novo valor retroativamente — inconsistente com o próprio
+propósito de starts_at/ends_at. Decisão tomada (Opção A das duas propostas
+pela Manus): cada evento usa o preço cuja vigência contém o signed_at DAQUELE
+evento específico, o mesmo princípio já aplicado a system_amount_due e
+price_applied (travados no instante da assinatura). A Opção B (só permitir
+troca de preço no início de um novo ciclo, via assertCycleAlignedPriceStart —
+mecanismo que já existe no arquivo para preço de médico por legenda) foi
+descartada porque o próprio Alessandro definiu, na coleta de requisitos, que
+o preço de venda externa precisa ser "de fácil acesso" e mudar "com
+frequência" — uma trava de alinhamento de ciclo contradiria esse requisito
+funcional. A query de unitProfitCalculator foi reescrita: em vez de agregar
+por legenda direto no SQL, busca eventos individuais com seu signed_at e
+todas as vigências de preço que tocam o ciclo, e resolve o preço aplicável
+por evento em memória. Consequência esperada e documentada no código: a
+mesma legenda pode aparecer tanto em by_exam (eventos cobertos por algum
+preço) quanto em unconfigured_exams (eventos sem preço vigente no momento em
+que foram assinados) dentro do mesmo ciclo — isso é intencional quando o
+preço só foi configurado no meio do ciclo, não um bug de agrupamento.
+
+Recomendação de UX — no FinanceDashboard, o botão "Preço externo / Lucro"
+ficava visível também durante a consulta de histórico, mas o ProfitModal
+sempre usa o ciclo atual (não recebe reference_date), o que podia levar o
+usuário a achar que via o lucro do período histórico selecionado. Corrigido
+ocultando o botão fora de activeView === "current" (opção mais simples das
+duas oferecidas pela Manus).
+
+Bloqueio estrutural — a migration 0060 pressupõe billing_catalog_study_events
+e sua coluna doctor_payment_note (criadas em migrations anteriores do
+catálogo clínico-financeiro, 0050 e 0055). O sandbox da Manus não tinha essas
+migrations aplicadas; a 0060, executada como script SQL solto, rodou as 3
+primeiras instruções (tabela billing_external_sale_prices + colunas em
+billing_visit_events) e falhou na primeira ALTER de
+billing_catalog_study_events, deixando o banco num estado parcial. A Manus
+diagnosticou e reverteu manualmente essas 3 alterações antes de reportar —
+nenhuma VM foi tocada, e o estado do sandbox dela foi confirmado como
+restaurado. Criado scripts/apply_migration_0060.mjs: valida via
+INFORMATION_SCHEMA que todas as dependências existem ANTES de executar
+qualquer DDL (abortando sem alterar nada se faltar algo), e depois de aplicar
+verifica os 7 objetos esperados (1 tabela nova + 6 colunas de confirmação +
+3 valores novos no enum audit_log.action). O cabeçalho do arquivo .sql agora
+documenta essas pré-condições e proíbe explicitamente a aplicação direta via
+`mysql < arquivo.sql`. A aplicação segura passa a ser obrigatoriamente:
+
+  DATABASE_URL=... node scripts/apply_migration_0060.mjs
+
+Testes novos (server/audit-fixes-repasse-preco-externo.test.ts, +3 casos,
+10/10 aprovados no total do arquivo): legenda inativa rejeitada sem chamar
+update/insert; segunda resposta a um repasse rejeitada quando o UPDATE
+atinge 0 linhas (simula a corrida); preço externo resolvido por vigência do
+evento (dois eventos no mesmo ciclo, preço muda entre os dois, cada evento
+aplica o preço correto para o próprio signed_at, provando que não há mais
+aplicação retroativa). As duas correções mais sensíveis (legenda ativa,
+vigência por evento) foram quebradas de propósito no código, confirmadas
+falhando, e só então revertidas para a versão correta.
+
+Validação após as correções: pnpm check aprovado; TZ=UTC pnpm test — 433
+aprovados, 9 falhos (exatamente os mesmos 7 arquivos da linha de base
+conhecida, nenhum arquivo novo), 1 ignorado; pnpm build aprovado; git diff
+--check 942a893..HEAD aprovado.
+
+Commit da correção: 1ae0303dc3f1bfddc2edcdc6e1c8e233e200d53f (não é amend do
+commit funcional original 46b605e — histórico preservado). Novo topo do
+branch após este adendo e o commit que o acompanha.
+
+GIT LOG (46b605e..HEAD, correções deste adendo)
+
+1ae0303 fix(financeiro): 4 achados da revisão independente Manus no módulo de repasse/preço externo
+
+GIT DIFF (46b605e..HEAD, exclui docs/auditoria-claude — só código/teste/script)
+
+diff --git a/client/src/pages/finance/FinanceDashboard.tsx b/client/src/pages/finance/FinanceDashboard.tsx
+index 382b73a..e3f0260 100644
+--- a/client/src/pages/finance/FinanceDashboard.tsx
++++ b/client/src/pages/finance/FinanceDashboard.tsx
+@@ -281,7 +281,11 @@ function UnitFinancialDetail({
+       <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-start md:justify-between">
+         <div><span className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-700">Financeiro / Unidades</span><h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{currentUnit.unit_name}</h1><p className="mt-1 text-sm text-slate-500">{activeView === "current" ? `Painel operacional do ciclo atual: ${currentUnit.cycle_label}.` : `Consulta histórica do período: ${historicalUnit.cycle_label}.`}</p></div>
+         <div className="flex items-center gap-2">
+-          {canManageExternalPrice && <Button type="button" size="sm" variant="outline" className="border-cyan-200 text-cyan-800" onClick={() => setShowProfitModal(true)}>Preço externo / Lucro</Button>}
++          {/* CORREÇÃO (revisão independente Manus, 2026-09-17): o ProfitModal sempre usa o
++              ciclo atual (não recebe reference_date); mostrar o botão também no modo
++              histórico induzia o usuário a achar que estava vendo o lucro do período
++              histórico selecionado. Só aparece no ciclo atual, que é o que ele de fato mostra. */}
++          {canManageExternalPrice && activeView === "current" && <Button type="button" size="sm" variant="outline" className="border-cyan-200 text-cyan-800" onClick={() => setShowProfitModal(true)}>Preço externo / Lucro</Button>}
+           <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" /> Unidade ativa</span>
+         </div>
+       </div>
+diff --git a/client/src/pages/finance/FinanceMeuResponsavel.tsx b/client/src/pages/finance/FinanceMeuResponsavel.tsx
+index 018c230..6f90dd9 100644
+--- a/client/src/pages/finance/FinanceMeuResponsavel.tsx
++++ b/client/src/pages/finance/FinanceMeuResponsavel.tsx
+@@ -148,7 +148,17 @@ export function ProfitModal({
+     onError: (e) => toast.error(e.message),
+   });
+
+-  const profitByLegend = new Map((profitQuery.data?.by_exam ?? []).map((row) => [row.exam_legend_id, row]));
++  // CORREÇÃO (revisão independente Manus, 2026-09-17): by_exam agora pode ter mais de uma
++  // linha para a mesma legenda quando o preço externo mudou dentro do ciclo (cada linha usa
++  // o preço vigente no momento de cada laudo). Somamos aqui só para exibir um total por
++  // legenda nesta tabela; o valor exato por vigência continua correto na origem.
++  const profitByLegend = new Map<number, { units_sold: number; profit: number }>();
++  for (const row of profitQuery.data?.by_exam ?? []) {
++    const current = profitByLegend.get(row.exam_legend_id) ?? { units_sold: 0, profit: 0 };
++    current.units_sold += row.units_sold;
++    current.profit += row.profit;
++    profitByLegend.set(row.exam_legend_id, current);
++  }
+
+   return (
+     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+diff --git a/drizzle/0060_external_sale_price_doctor_confirmation.sql b/drizzle/0060_external_sale_price_doctor_confirmation.sql
+index c9b93ba..805a6ae 100644
+--- a/drizzle/0060_external_sale_price_doctor_confirmation.sql
++++ b/drizzle/0060_external_sale_price_doctor_confirmation.sql
+@@ -4,6 +4,22 @@
+ -- 2) Confirmação do médico sobre o repasse marcado como pago pela clínica, nas duas
+ --    tabelas de evento financeiro (legado e catálogo), para que o médico deixe de
+ --    depender só da palavra da clínica sobre o próprio repasse.
++--
++-- PRÉ-CONDIÇÕES ESTRUTURAIS (achado da revisão independente Manus, 2026-09-17):
++-- este arquivo pressupõe que as migrations do catálogo clínico-financeiro já foram
++-- aplicadas neste banco, em especial:
++--   - tabela `billing_catalog_study_events` (criada em 0050_catalog_clinical_financial.sql)
++--   - coluna `billing_catalog_study_events.doctor_payment_note` (criada em
++--     0055_finance_catalog_payment_tracking.sql)
++-- Em um ambiente sem essas migrations, este arquivo executa as 3 primeiras instruções
++-- (tabela billing_external_sale_prices + colunas em billing_visit_events) e falha na
++-- primeira ALTER TABLE de billing_catalog_study_events, deixando o banco num estado
++-- parcial. NÃO aplique este arquivo diretamente com `mysql < 0060_....sql`.
++--
++-- APLICAÇÃO OBRIGATÓRIA POR SCRIPT COM PREFLIGHT:
++--   DATABASE_URL=... node scripts/apply_migration_0060.mjs
++-- O script verifica as pré-condições acima via INFORMATION_SCHEMA antes de executar
++-- qualquer DDL, e valida os objetos criados depois de aplicar.
+
+ CREATE TABLE `billing_external_sale_prices` (
+   `id` int AUTO_INCREMENT NOT NULL,
+diff --git a/scripts/apply_migration_0060.mjs b/scripts/apply_migration_0060.mjs
+new file mode 100644
+index 0000000..f6e1f12
+--- /dev/null
++++ b/scripts/apply_migration_0060.mjs
+@@ -0,0 +1,130 @@
++/**
++ * Aplicador da migration 0060 — preço de venda externa + confirmação do médico.
++ *
++ * CORREÇÃO (revisão independente Manus, 2026-09-17): a migration 0060 pressupõe que
++ * billing_catalog_study_events e sua coluna doctor_payment_note já existem (foram
++ * criadas por migrations anteriores do pipeline de catálogo clínico-financeiro). Um
++ * ambiente sem essas migrations aplicadas executa as primeiras instruções da 0060 com
++ * sucesso (billing_external_sale_prices, colunas em billing_visit_events) e só falha
++ * na primeira ALTER TABLE de billing_catalog_study_events — deixando o banco num
++ * estado parcial, nem antes nem depois da migration. Foi exatamente o que aconteceu
++ * no sandbox da Manus.
++ *
++ * Este script faz um PREFLIGHT via INFORMATION_SCHEMA antes de executar qualquer DDL:
++ * se as dependências não existirem, ele aborta com uma mensagem explícita e não altera
++ * nada. Só corre a migration se o preflight passar. No final, valida que os objetos
++ * esperados realmente existem (tabela nova, 6 colunas de confirmação, 3 valores de enum).
++ *
++ * Uso: DATABASE_URL=... node scripts/apply_migration_0060.mjs
++ */
++import mysql from 'mysql2/promise';
++import { readFileSync } from 'fs';
++import { fileURLToPath } from 'url';
++import { dirname, join } from 'path';
++
++const __dirname = dirname(fileURLToPath(import.meta.url));
++const sqlPath = join(__dirname, '../drizzle/0060_external_sale_price_doctor_confirmation.sql');
++const sql = readFileSync(sqlPath, 'utf8');
++
++if (!process.env.DATABASE_URL) {
++  console.error('✗ DATABASE_URL não definido. Abortando sem tocar no banco.');
++  process.exit(1);
++}
++
++const conn = await mysql.createConnection(process.env.DATABASE_URL);
++
++async function columnExists(table, column) {
++  const [rows] = await conn.execute(
++    `SELECT COUNT(*) AS n FROM INFORMATION_SCHEMA.COLUMNS
++       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
++    [table, column],
++  );
++  return rows[0].n > 0;
++}
++
++async function tableExists(table) {
++  const [rows] = await conn.execute(
++    `SELECT COUNT(*) AS n FROM INFORMATION_SCHEMA.TABLES
++       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
++    [table],
++  );
++  return rows[0].n > 0;
++}
++
++console.log('— Preflight: verificando dependências antes de qualquer DDL —');
++
++const preflightChecks = [
++  { label: 'tabela billing_catalog_study_events existe', ok: await tableExists('billing_catalog_study_events') },
++  { label: 'coluna billing_catalog_study_events.doctor_payment_note existe', ok: await columnExists('billing_catalog_study_events', 'doctor_payment_note') },
++  { label: 'tabela billing_visit_events existe', ok: await tableExists('billing_visit_events') },
++  { label: 'tabela audit_log existe', ok: await tableExists('audit_log') },
++  { label: 'tabela billing_external_sale_prices AINDA NÃO existe (idempotência)', ok: !(await tableExists('billing_external_sale_prices')) },
++];
++
++let preflightFailed = false;
++for (const check of preflightChecks) {
++  console.log(check.ok ? '  ✓' : '  ✗', check.label);
++  if (!check.ok) preflightFailed = true;
++}
++
++if (preflightFailed) {
++  console.error('\n✗ Preflight falhou. Nenhuma instrução DDL foi executada.');
++  console.error('  Este ambiente não tem as migrations do catálogo clínico-financeiro (0050-0059)');
++  console.error('  aplicadas, ou a migration 0060 já foi aplicada aqui antes. Aplique as migrations');
++  console.error('  pendentes na ordem correta (ver drizzle/MIGRATIONS_README.md) antes de tentar de novo,');
++  console.error('  ou confirme que este banco já está com a 0060 aplicada e pare aqui.');
++  await conn.end();
++  process.exit(1);
++}
++
++console.log('\n— Preflight aprovado. Aplicando migration 0060 —');
++
++const statements = sql.split(';').map((s) => s.trim()).filter((s) => s && !s.startsWith('--'));
++for (const stmt of statements) {
++  try {
++    await conn.execute(stmt);
++    console.log('✓', stmt.slice(0, 70).replace(/\n/g, ' '));
++  } catch (e) {
++    console.error('✗ ERRO:', e.message, '\n  SQL:', stmt.slice(0, 120));
++    console.error('\nAplicação interrompida. Revise o estado do banco manualmente antes de tentar de novo —');
++    console.error('o preflight passou, então este erro não é sobre pré-condição ausente.');
++    await conn.end();
++    process.exit(1);
++  }
++}
++
++console.log('\n— Validação pós-migration —');
++const postChecks = [
++  { label: 'tabela billing_external_sale_prices existe', ok: await tableExists('billing_external_sale_prices') },
++  { label: 'billing_visit_events.doctor_confirmation_status existe', ok: await columnExists('billing_visit_events', 'doctor_confirmation_status') },
++  { label: 'billing_visit_events.doctor_confirmed_at existe', ok: await columnExists('billing_visit_events', 'doctor_confirmed_at') },
++  { label: 'billing_visit_events.doctor_confirmation_note existe', ok: await columnExists('billing_visit_events', 'doctor_confirmation_note') },
++  { label: 'billing_catalog_study_events.doctor_confirmation_status existe', ok: await columnExists('billing_catalog_study_events', 'doctor_confirmation_status') },
++  { label: 'billing_catalog_study_events.doctor_confirmed_at existe', ok: await columnExists('billing_catalog_study_events', 'doctor_confirmed_at') },
++  { label: 'billing_catalog_study_events.doctor_confirmation_note existe', ok: await columnExists('billing_catalog_study_events', 'doctor_confirmation_note') },
++];
++const [enumRows] = await conn.execute(
++  `SELECT COLUMN_TYPE AS t FROM INFORMATION_SCHEMA.COLUMNS
++     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'audit_log' AND COLUMN_NAME = 'action'`,
++);
++const enumDef = enumRows[0]?.t ?? '';
++postChecks.push(
++  { label: "audit_log.action contém 'DOCTOR_PAYMENT_CONFIRMED'", ok: enumDef.includes('DOCTOR_PAYMENT_CONFIRMED') },
++  { label: "audit_log.action contém 'DOCTOR_PAYMENT_DISPUTED'", ok: enumDef.includes('DOCTOR_PAYMENT_DISPUTED') },
++  { label: "audit_log.action contém 'SET_EXTERNAL_SALE_PRICE'", ok: enumDef.includes('SET_EXTERNAL_SALE_PRICE') },
++);
++
++let postFailed = false;
++for (const check of postChecks) {
++  console.log(check.ok ? '  ✓' : '  ✗', check.label);
++  if (!check.ok) postFailed = true;
++}
++
++await conn.end();
++
++if (postFailed) {
++  console.error('\n✗ Validação pós-migration encontrou item ausente. Não considere esta aplicação concluída.');
++  process.exit(1);
++}
++
++console.log('\nMigration 0060 aplicada e validada com sucesso. Nenhum dado clínico foi lido ou alterado.');
+diff --git a/server/audit-fixes-repasse-preco-externo.test.ts b/server/audit-fixes-repasse-preco-externo.test.ts
+index 7fdfe12..1b86f15 100644
+--- a/server/audit-fixes-repasse-preco-externo.test.ts
++++ b/server/audit-fixes-repasse-preco-externo.test.ts
+@@ -237,3 +237,160 @@ describe("confirmDoctorPayment — só o próprio médico responde pelo próprio
+     vi.resetModules();
+   });
+ });
++
++// ─── Regressão (revisão independente Manus, 2026-09-17) ─────────────────────
++// Três achados da revisão: legenda inexistente/inativa aceita no setter,
++// confirmação de repasse com janela de corrida, e preço externo aplicado
++// retroativamente a eventos assinados antes de uma mudança de preço.
++
++describe("setExternalSalePrice — rejeita legenda inexistente ou inativa", () => {
++  it("legenda inativa é rejeitada com NOT_FOUND, sem encerrar vigência nem inserir", async () => {
++    vi.resetModules();
++    const updateWhereSpy = vi.fn();
++    const insertValuesSpy = vi.fn();
++    vi.doMock("./db", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./db")>();
++      return {
++        ...original,
++        getDb: vi.fn(async () => {
++          let call = 0;
++          return {
++            select: () => {
++              call += 1;
++              // 1ª chamada: checagem de vínculo unit_admin -> unidade (permitido).
++              // 2ª chamada: checagem de legenda ativa (não encontrada).
++              return selectChain(call === 1 ? [{ unit_id: 1 }] : []);
++            },
++            update: () => ({ set: () => ({ where: updateWhereSpy }) }),
++            insert: () => ({ values: insertValuesSpy }),
++          };
++        }),
++      };
++    });
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 2, role: "unit_admin" });
++    const caller = appRouter.createCaller(ctx);
++
++    await expect(
++      caller.financeSimple.setExternalSalePrice({ unit_id: 1, exam_legend_id: 999, price_external: 40 })
++    ).rejects.toMatchObject({ code: "NOT_FOUND" });
++    expect(updateWhereSpy).not.toHaveBeenCalled();
++    expect(insertValuesSpy).not.toHaveBeenCalled();
++
++    vi.doUnmock("./db");
++    vi.resetModules();
++  });
++});
++
++describe("confirmDoctorPayment — atômico, sem janela de corrida", () => {
++  it("quando outra requisição já respondeu (UPDATE atinge 0 linhas), recebe BAD_REQUEST e não sobrescreve", async () => {
++    vi.resetModules();
++    vi.doMock("./db", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./db")>();
++      return {
++        ...original,
++        getDb: vi.fn(async () => ({
++          select: () => selectChain([{
++            id: 1,
++            doctor_user_id: 5,
++            doctor_received_at: new Date(),
++            doctor_confirmation_status: null, // ainda nulo na leitura...
++          }]),
++          // ...mas o UPDATE condicional não encontra mais nenhuma linha nula: outra
++          // requisição já respondeu entre a leitura e a gravação desta.
++          update: () => ({ set: () => ({ where: () => [{ affectedRows: 0 }] }) }),
++        })),
++      };
++    });
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 5, role: "medico" });
++    const caller = appRouter.createCaller(ctx);
++
++    await expect(
++      caller.financeSimple.confirmDoctorPayment({ event_type: "legacy", event_id: 1, status: "confirmed" })
++    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
++
++    vi.doUnmock("./db");
++    vi.resetModules();
++  });
++});
++
++describe("unitProfitCalculator — preço externo não é aplicado retroativamente", () => {
++  it("evento assinado antes da mudança de preço usa o preço antigo; evento depois usa o novo", async () => {
++    vi.resetModules();
++    const { units, billing_catalog_study_events, billing_external_sale_prices, user_unit_permissions } =
++      await import("../drizzle/schema");
++
++    const unitsRows = [{ s: 1, e: 31 }];
++    const permissionRows = [{ unit_id: 1 }]; // unit_admin vinculado à unidade 1
++    const eventsRows = [
++      {
++        exam_legend_id: 7,
++        exam_name: "Tórax",
++        signed_at: new Date("2026-09-05T12:00:00Z"), // antes da mudança de preço
++        system_amount_due: "2.00",
++        price_applied: "10.00",
++      },
++      {
++        exam_legend_id: 7,
++        exam_name: "Tórax",
++        signed_at: new Date("2026-09-15T12:00:00Z"), // depois da mudança de preço
++        system_amount_due: "2.00",
++        price_applied: "10.00",
++      },
++    ];
++    const pricesRows = [
++      { exam_legend_id: 7, price_external: "30.00", starts_at: new Date("2026-08-01T00:00:00Z"), ends_at: new Date("2026-09-10T00:00:00Z") },
++      { exam_legend_id: 7, price_external: "50.00", starts_at: new Date("2026-09-10T00:00:00Z"), ends_at: null },
++    ];
++
++    const routes = new Map<unknown, unknown[]>([
++      [units, unitsRows],
++      [billing_catalog_study_events, eventsRows],
++      [billing_external_sale_prices, pricesRows],
++      [user_unit_permissions, permissionRows],
++    ]);
++
++    vi.doMock("./db", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./db")>();
++      return {
++        ...original,
++        getDb: vi.fn(async () => ({
++          select: () => ({
++            from: (table: unknown) => {
++              const rows = routes.get(table) ?? [];
++              const inner: any = {
++                where: () => inner,
++                limit: () => inner,
++                then: (resolve: (v: unknown[]) => void) => resolve(rows),
++              };
++              return inner;
++            },
++          }),
++        })),
++      };
++    });
++
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 2, role: "unit_admin" });
++    const caller = appRouter.createCaller(ctx);
++
++    const result = await caller.financeSimple.unitProfitCalculator({
++      unit_id: 1,
++      reference_date: "2026-09-17T00:00:00.000Z",
++    });
++
++    expect(result.by_exam).toHaveLength(2);
++    const oldPriceRow = result.by_exam.find((row) => row.price_external === 30);
++    const newPriceRow = result.by_exam.find((row) => row.price_external === 50);
++    expect(oldPriceRow).toMatchObject({ units_sold: 1, cash_received: 30 });
++    expect(newPriceRow).toMatchObject({ units_sold: 1, cash_received: 50 });
++    // Prova de que não houve aplicação retroativa: se o bug antigo estivesse presente,
++    // os dois eventos cairiam numa única linha usando o preço vigente hoje (50), com
++    // units_sold: 2 e cash_received: 100.
++    expect(result.by_exam.some((row) => row.units_sold === 2)).toBe(false);
++
++    vi.doUnmock("./db");
++    vi.resetModules();
++  });
++});
+diff --git a/server/routers/financeSimple.ts b/server/routers/financeSimple.ts
+index 8b0e003..3273b61 100644
+--- a/server/routers/financeSimple.ts
++++ b/server/routers/financeSimple.ts
+@@ -1067,14 +1067,24 @@ export const financeSimpleRouter = router({
+       }
+
+       const now = new Date();
+-      await db
++      // CORREÇÃO (revisão independente Manus, 2026-09-17): a checagem acima (select +
++      // depois update) tinha uma janela de corrida — duas requisições concorrentes podiam
++      // ler doctor_confirmation_status nulo e a segunda sobrescrever a resposta definitiva
++      // da primeira. A condição de nulidade agora vai NO PRÓPRIO UPDATE, então só a
++      // requisição que efetivamente encontrar a linha ainda nula consegue gravar; a outra
++      // atualiza zero linhas e recebe erro explícito, sem sobrescrever status/data/nota.
++      const updateResult = await db
+         .update(table)
+         .set({
+           doctor_confirmation_status: input.status,
+           doctor_confirmed_at: now,
+           doctor_confirmation_note: input.note ?? null,
+         })
+-        .where(eq(table.id, input.event_id));
++        .where(and(eq(table.id, input.event_id), isNull(table.doctor_confirmation_status)));
++
++      if ((updateResult[0] as { affectedRows: number }).affectedRows === 0) {
++        throw new TRPCError({ code: "BAD_REQUEST", message: "Este repasse já foi respondido." });
++      }
+
+       await createAuditLog({
+         user_id: ctx.user.id,
+@@ -1200,6 +1210,18 @@ export const financeSimpleRouter = router({
+       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+       await assertCanManageExternalSalePrice(db, ctx.user, input.unit_id);
+
++      // CORREÇÃO (revisão independente Manus, 2026-09-17): a interface só oferece legendas
++      // ativas, mas o endpoint aceitava qualquer exam_legend_id — uma chamada direta podia
++      // gravar preço para legenda inexistente/inativa, sem FK que impedisse o registro órfão.
++      // Mesmo padrão já usado em setDoctorLegendPrice.
++      const legend = await db.select({ id: exam_legends.id })
++        .from(exam_legends)
++        .where(and(eq(exam_legends.id, input.exam_legend_id), eq(exam_legends.is_active, true)))
++        .limit(1);
++      if (!legend[0]) {
++        throw new TRPCError({ code: "NOT_FOUND", message: "Legenda de exame ativa não encontrada." });
++      }
++
+       const now = new Date();
+       await db
+         .update(billing_external_sale_prices)
+@@ -1252,13 +1274,26 @@ export const financeSimpleRouter = router({
+       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+       const { startDate, endDate, label } = await resolveFinancialCycle(db, input.unit_id, refDate);
+
++      // CORREÇÃO (revisão independente Manus, 2026-09-17): a versão anterior buscava só o
++      // preço externo VIGENTE HOJE e aplicava esse único valor a todos os eventos do ciclo —
++      // se o preço mudasse no meio do ciclo, laudos já emitidos antes da mudança passavam a
++      // usar o novo valor retroativamente, o que não é auditável e contradiz o próprio
++      // propósito de guardar starts_at/ends_at. Decisão registrada no handoff (Opção A):
++      // cada evento usa o preço cuja vigência CONTÉM O signed_at DAQUELE EVENTO — igual ao
++      // que já acontece com system_amount_due/price_applied, que são travados no instante da
++      // assinatura. Por isso a query busca eventos individuais (não agregados por legenda) e
++      // TODAS as vigências de preço que tocam o ciclo, e a correspondência é feita aqui, por
++      // evento. Consequência esperada e correta: se o preço só foi configurado no meio do
++      // ciclo, a mesma legenda pode aparecer em `by_exam` (eventos assinados depois) e em
++      // `unconfigured_exams` (eventos assinados antes) ao mesmo tempo — isso é intencional,
++      // não um bug de agrupamento.
+       const [eventRows, priceRows] = await Promise.all([
+         db.select({
+           exam_legend_id: billing_catalog_study_events.exam_legend_id,
+           exam_name: billing_catalog_study_events.exam_name_snapshot,
+-          units_sold: sql<number>`COUNT(*)`,
+-          system_repasse: sql<number>`COALESCE(SUM(${billing_catalog_study_events.system_amount_due}), 0)`,
+-          doctor_repasse: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
++          signed_at: billing_catalog_study_events.signed_at,
++          system_amount_due: billing_catalog_study_events.system_amount_due,
++          price_applied: billing_catalog_study_events.price_applied,
+         })
+           .from(billing_catalog_study_events)
+           .where(and(
+@@ -1266,46 +1301,78 @@ export const financeSimpleRouter = router({
+             eq(billing_catalog_study_events.financial_status, "active"),
+             sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
+             sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
+-          ))
+-          .groupBy(billing_catalog_study_events.exam_legend_id, billing_catalog_study_events.exam_name_snapshot),
++          )),
++        // Todas as vigências que tocam o ciclo, não só a vigente agora — precisamos
++        // resolver o preço correto para cada signed_at individualmente, inclusive para
++        // eventos assinados antes de uma mudança de preço já ocorrida.
+         db.select({
+           exam_legend_id: billing_external_sale_prices.exam_legend_id,
+           price_external: billing_external_sale_prices.price_external,
++          starts_at: billing_external_sale_prices.starts_at,
++          ends_at: billing_external_sale_prices.ends_at,
+         })
+           .from(billing_external_sale_prices)
+           .where(and(
+             eq(billing_external_sale_prices.unit_id, input.unit_id),
+-            lte(billing_external_sale_prices.starts_at, refDate),
+-            or(isNull(billing_external_sale_prices.ends_at), gte(billing_external_sale_prices.ends_at, refDate)),
++            sql`${billing_external_sale_prices.starts_at} < ${endDate}`,
++            or(isNull(billing_external_sale_prices.ends_at), sql`${billing_external_sale_prices.ends_at} >= ${startDate}`),
+           )),
+       ]);
+
+-      const priceByLegend = new Map(priceRows.map((p) => [p.exam_legend_id, toMoney(p.price_external)]));
+-      const configured: Array<{ exam_legend_id: number; exam_name: string; units_sold: number; price_external: number; cash_received: number; system_repasse: number; doctor_repasse: number; profit: number }> = [];
+-      const unconfigured: Array<{ exam_legend_id: number; exam_name: string; units_sold: number }> = [];
++      const pricesByLegend = new Map<number, typeof priceRows>();
++      for (const price of priceRows) {
++        const list = pricesByLegend.get(price.exam_legend_id) ?? [];
++        list.push(price);
++        pricesByLegend.set(price.exam_legend_id, list);
++      }
++      function resolvePriceForSignedAt(examLegendId: number, signedAt: Date): number | undefined {
++        const candidates = pricesByLegend.get(examLegendId);
++        if (!candidates) return undefined;
++        const match = candidates.find((p) =>
++          p.starts_at <= signedAt && (p.ends_at === null || p.ends_at > signedAt)
++        );
++        return match ? toMoney(match.price_external) : undefined;
++      }
++
++      type ConfiguredRow = { exam_legend_id: number; exam_name: string; units_sold: number; price_external: number; cash_received: number; system_repasse: number; doctor_repasse: number; profit: number };
++      const configuredByKey = new Map<string, ConfiguredRow>();
++      const unconfiguredByLegend = new Map<number, { exam_legend_id: number; exam_name: string; units_sold: number }>();
+
+-      for (const row of eventRows) {
+-        const priceExternal = priceByLegend.get(row.exam_legend_id);
+-        const unitsSold = Number(row.units_sold ?? 0);
+-        const systemRepasse = toMoney(row.system_repasse);
+-        const doctorRepasse = toMoney(row.doctor_repasse);
++      for (const event of eventRows) {
++        const priceExternal = resolvePriceForSignedAt(event.exam_legend_id, event.signed_at);
++        const systemRepasse = toMoney(event.system_amount_due);
++        const doctorRepasse = toMoney(event.price_applied);
+         if (priceExternal === undefined) {
+-          unconfigured.push({ exam_legend_id: row.exam_legend_id, exam_name: row.exam_name, units_sold: unitsSold });
++          const current = unconfiguredByLegend.get(event.exam_legend_id) ?? { exam_legend_id: event.exam_legend_id, exam_name: event.exam_name, units_sold: 0 };
++          current.units_sold += 1;
++          unconfiguredByLegend.set(event.exam_legend_id, current);
+           continue;
+         }
+-        const cashReceived = subMoney(priceExternal * unitsSold, 0);
+-        configured.push({
+-          exam_legend_id: row.exam_legend_id,
+-          exam_name: row.exam_name,
+-          units_sold: unitsSold,
++        // A mesma legenda pode ter mais de um preço vigente dentro do ciclo (mudança
++        // intra-ciclo) — chave por legenda+preço para não misturar cash_received de
++        // vigências diferentes na mesma linha.
++        const key = `${event.exam_legend_id}:${priceExternal}`;
++        const current = configuredByKey.get(key) ?? {
++          exam_legend_id: event.exam_legend_id,
++          exam_name: event.exam_name,
++          units_sold: 0,
+           price_external: priceExternal,
+-          cash_received: cashReceived,
+-          system_repasse: systemRepasse,
+-          doctor_repasse: doctorRepasse,
+-          profit: subMoney(subMoney(cashReceived, systemRepasse), doctorRepasse),
+-        });
++          cash_received: 0,
++          system_repasse: 0,
++          doctor_repasse: 0,
++          profit: 0,
++        };
++        current.units_sold += 1;
++        current.cash_received = subMoney(current.cash_received + priceExternal, 0);
++        current.system_repasse = subMoney(current.system_repasse + systemRepasse, 0);
++        current.doctor_repasse = subMoney(current.doctor_repasse + doctorRepasse, 0);
++        current.profit = subMoney(subMoney(current.cash_received, current.system_repasse), current.doctor_repasse);
++        configuredByKey.set(key, current);
+       }
+
++      const configured = Array.from(configuredByKey.values());
++      const unconfigured = Array.from(unconfiguredByLegend.values());
++
+       const totals = configured.reduce((acc, row) => ({
+         cash_received: acc.cash_received + row.cash_received,
+         system_repasse: acc.system_repasse + row.system_repasse,
+
+Estado após este adendo: branch ainda sem PR, sem merge, sem deploy, sem
+alteração de VM. A migration 0060 continua não aplicada em nenhum ambiente.
+Aguardando nova revisão da Manus a partir deste topo antes de qualquer
+decisão de integração, conforme solicitado no relato original.
 
 1. COMO CHEGAR NO CÓDIGO REAL
 
