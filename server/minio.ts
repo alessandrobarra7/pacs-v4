@@ -7,7 +7,7 @@
  */
 import * as Minio from "minio";
 
-type MinioRuntimeConfig = {
+export type MinioRuntimeConfig = {
   endpoint: string;
   bucket: string;
   accessKey: string;
@@ -48,16 +48,26 @@ export function createMinioBucketExistenceCache(
 
 const bucketExistenceCache = createMinioBucketExistenceCache();
 
-function readConfig(): MinioRuntimeConfig | null {
-  const endpoint = process.env.MINIO_ENDPOINT;
-  const bucket = process.env.MINIO_BUCKET;
-  const accessKey = process.env.MINIO_ACCESS_KEY;
-  const secretKey = process.env.MINIO_SECRET_KEY;
+/**
+ * Lê e valida a configuração MinIO a partir de um objeto de ambiente explícito
+ * (em vez de ler `process.env` diretamente), para poder ser testada com valores
+ * sintéticos sem depender do .env real de nenhum ambiente (CORREÇÃO — solicitação
+ * "isolamento de testes VM1", 2026-09-17). `readConfig()` abaixo é só um wrapper
+ * fino que chama esta função com `process.env`; nenhum comportamento de runtime
+ * mudou, só ficou testável.
+ */
+export function parseMinioConfig(
+  env: Record<string, string | undefined>,
+): MinioRuntimeConfig | null {
+  const endpoint = env.MINIO_ENDPOINT;
+  const bucket = env.MINIO_BUCKET;
+  const accessKey = env.MINIO_ACCESS_KEY;
+  const secretKey = env.MINIO_SECRET_KEY;
 
   if (!endpoint || !bucket || !accessKey || !secretKey) return null;
 
   const parsed = new URL(endpoint);
-  const envUseSsl = process.env.MINIO_USE_SSL;
+  const envUseSsl = env.MINIO_USE_SSL;
   return {
     endpoint,
     bucket,
@@ -65,6 +75,10 @@ function readConfig(): MinioRuntimeConfig | null {
     secretKey,
     useSSL: envUseSsl === undefined ? parsed.protocol === "https:" : envUseSsl === "true",
   };
+}
+
+function readConfig(): MinioRuntimeConfig | null {
+  return parseMinioConfig(process.env);
 }
 
 function requireConfig(): MinioRuntimeConfig {

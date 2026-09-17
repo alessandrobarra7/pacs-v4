@@ -9,6 +9,15 @@
  *   - units.update por papel não-administrativo (antes: qualquer papel com QUALQUER
  *     vínculo em user_unit_permissions — mesmo só view_studies — podia editar
  *     pacs_ip/pacs_port/pacs_ae_title/name/slug/isActive da unidade)
+ *
+ * CORREÇÃO (solicitação "isolamento de testes VM1", 2026-09-17): os dois primeiros
+ * cenários (sla.getUnitSla, studyExamLegend.getBatch) chamavam canAccessUnit()
+ * sem mock — no sandbox isso "funcionava" só porque getDb() retorna null
+ * instantaneamente sem DATABASE_URL configurado, mas na VM1 (com banco real) a
+ * mesma chamada abre uma conexão de verdade, e uma rede/conexão mais lenta
+ * estourou o timeout padrão de 5s do Vitest. canAccessUnit agora é mockado
+ * diretamente nos dois casos, então nenhum dos seis cenários deste arquivo toca
+ * banco em nenhum ambiente.
  */
 import { describe, expect, it, vi } from "vitest";
 import { TRPCError } from "@trpc/server";
@@ -46,18 +55,38 @@ function createCtx(overrides: Partial<AuthenticatedUser> & { unit_id?: number | 
 }
 
 describe("sla.getUnitSla — nega acesso sem vínculo com a unidade", () => {
-  it("médico sem vínculo com a unidade recebe FORBIDDEN", async () => {
+  it("médico sem vínculo com a unidade recebe FORBIDDEN (sem tocar banco)", async () => {
+    vi.resetModules();
+    vi.doMock("./authorization", async (importOriginal) => {
+      const original = await importOriginal<typeof import("./authorization")>();
+      return {
+        ...original,
+        // Mocka a decisão em si, não o banco por trás dela: elimina qualquer
+        // dependência de rede/conexão real, em qualquer ambiente.
+        canAccessUnit: vi.fn(async () => false),
+      };
+    });
     const { appRouter } = await import("./routers");
     const ctx = createCtx({ id: 10, role: "medico", unit_id: 1 });
     const caller = appRouter.createCaller(ctx);
     await expect(
       caller.sla.getUnitSla({ unitId: 999 })
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    vi.doUnmock("./authorization");
+    vi.resetModules();
   });
 });
 
 describe("studyExamLegend.getBatch — nega acesso sem vínculo com a unidade", () => {
-  it("médico sem vínculo com a unidade recebe FORBIDDEN para o lote inteiro", async () => {
+  it("médico sem vínculo com a unidade recebe FORBIDDEN para o lote inteiro (sem tocar banco)", async () => {
+    vi.resetModules();
+    vi.doMock("./authorization", async (importOriginal) => {
+      const original = await importOriginal<typeof import("./authorization")>();
+      return {
+        ...original,
+        canAccessUnit: vi.fn(async () => false),
+      };
+    });
     const { appRouter } = await import("./routers");
     const ctx = createCtx({ id: 11, role: "medico", unit_id: 1 });
     const caller = appRouter.createCaller(ctx);
@@ -67,6 +96,8 @@ describe("studyExamLegend.getBatch — nega acesso sem vínculo com a unidade", 
         studyInstanceUids: ["1.2.3.4.5"],
       })
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    vi.doUnmock("./authorization");
+    vi.resetModules();
   });
 });
 
