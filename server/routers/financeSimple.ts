@@ -1950,6 +1950,7 @@ export const financeSimpleRouter = router({
                 eq(billing_visit_events.unit_id, lu.unit_id),
                 sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
                 sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
+                ne(billing_visit_events.financial_status, 'cancelled'), // fix(revisao-independente): mesma exclusão usada em doctorSummaryByUnit/unitSummary
               )),
             db
               .select({
