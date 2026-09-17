@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { fmtBRL, MONTHS } from "./FinanceModals";
+import { ProfitModal } from "./FinanceMeuResponsavel";
 
 const MODALITIES = ["CT", "CR", "MR", "US"] as const;
 const MODALITY_LABEL: Record<(typeof MODALITIES)[number], string> = { CT: "CT", CR: "CR", MR: "RM", US: "US" };
@@ -261,6 +262,10 @@ function UnitFinancialDetail({
   const { data: readiness } = trpc.financeSimple.unitFinancialReadiness.useQuery({ unit_id: currentUnit.unit_id });
   const isAdminMaster = user?.role === "admin_master";
   const canManagePrices = isAdminMaster || user?.role === "responsavel_financeiro";
+  // NOVO (claude/modulo-repasse-preco-externo): preço de venda externa / lucro é exclusivo
+  // do unit_admin aqui — admin_master não tem esse módulo, por decisão explícita de produto.
+  const canManageExternalPrice = user?.role === "unit_admin";
+  const [showProfitModal, setShowProfitModal] = useState(false);
   const systemCycleTotal = asMoney(visibleUnit.system_total);
   const historicalRates = historicalSystemRatesLabel(visibleUnit);
   const fallbacks = new Map(unitModalityPrices.map((price) => [price.modality, Number(price.price_per_event ?? 0)]));
@@ -275,8 +280,12 @@ function UnitFinancialDetail({
       <button onClick={onBack} className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-cyan-800"><ChevronLeft className="h-4 w-4" /> Voltar às unidades</button>
       <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-start md:justify-between">
         <div><span className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-700">Financeiro / Unidades</span><h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{currentUnit.unit_name}</h1><p className="mt-1 text-sm text-slate-500">{activeView === "current" ? `Painel operacional do ciclo atual: ${currentUnit.cycle_label}.` : `Consulta histórica do período: ${historicalUnit.cycle_label}.`}</p></div>
-        <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" /> Unidade ativa</span>
+        <div className="flex items-center gap-2">
+          {canManageExternalPrice && <Button type="button" size="sm" variant="outline" className="border-cyan-200 text-cyan-800" onClick={() => setShowProfitModal(true)}>Preço externo / Lucro</Button>}
+          <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" /> Unidade ativa</span>
+        </div>
       </div>
+      {showProfitModal && <ProfitModal unitId={currentUnit.unit_id} unitName={currentUnit.unit_name} onClose={() => setShowProfitModal(false)} />}
 
       <div className="mt-6 flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="inline-flex w-fit rounded-xl border border-slate-200 bg-white p-1 shadow-sm"><Button type="button" size="sm" variant={activeView === "current" ? "default" : "ghost"} className={activeView === "current" ? "bg-cyan-700 hover:bg-cyan-600" : ""} onClick={() => onChangeView("current")}>Ciclo atual</Button><Button type="button" size="sm" variant={activeView === "history" ? "default" : "ghost"} className={activeView === "history" ? "bg-slate-800 hover:bg-slate-700" : ""} onClick={() => onChangeView("history")}>Histórico</Button></div>

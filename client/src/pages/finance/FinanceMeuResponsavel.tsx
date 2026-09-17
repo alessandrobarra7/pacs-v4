@@ -121,6 +121,175 @@ function DoctorsModal({
   );
 }
 
+// ─── NOVO (auditoria claude/modulo-repasse-preco-externo) ───────────────────
+// Modal de preço de venda externa + calculadora de lucro da clínica, por unidade.
+// Ambiente exclusivo do responsável financeiro / unit_admin — não diz respeito
+// a admin_master nem a médico, conforme definido na coleta de requisitos.
+export function ProfitModal({
+  unitId, unitName, onClose,
+}: {
+  unitId: number; unitName: string; onClose: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const [editingLegendId, setEditingLegendId] = useState<number | null>(null);
+  const [priceInput, setPriceInput] = useState("");
+
+  const pricesQuery = trpc.financeSimple.listExternalSalePrices.useQuery({ unit_id: unitId });
+  const profitQuery = trpc.financeSimple.unitProfitCalculator.useQuery({ unit_id: unitId });
+
+  const setPrice = trpc.financeSimple.setExternalSalePrice.useMutation({
+    onSuccess: () => {
+      toast.success("Preço de venda externa atualizado.");
+      utils.financeSimple.listExternalSalePrices.invalidate();
+      utils.financeSimple.unitProfitCalculator.invalidate();
+      setEditingLegendId(null);
+      setPriceInput("");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const profitByLegend = new Map((profitQuery.data?.by_exam ?? []).map((row) => [row.exam_legend_id, row]));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+          <div>
+            <p className="text-white font-semibold">{unitName}</p>
+            <p className="text-slate-400 text-xs">Preço de venda externa e lucro — {profitQuery.data?.cycle_label ?? "ciclo atual"}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {profitQuery.data && (
+          <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-slate-700/50">
+            <div className="bg-slate-800/60 rounded-lg p-3">
+              <p className="text-slate-500 text-xs mb-1">Caixa recebido</p>
+              <p className="text-cyan-400 font-semibold">{fmtBRL(profitQuery.data.totals.cash_received)}</p>
+            </div>
+            <div className="bg-slate-800/60 rounded-lg p-3">
+              <p className="text-slate-500 text-xs mb-1">Repasse sistema</p>
+              <p className="text-amber-400 font-semibold">{fmtBRL(profitQuery.data.totals.system_repasse)}</p>
+            </div>
+            <div className="bg-slate-800/60 rounded-lg p-3">
+              <p className="text-slate-500 text-xs mb-1">Repasse médicos</p>
+              <p className="text-rose-400 font-semibold">{fmtBRL(profitQuery.data.totals.doctor_repasse)}</p>
+            </div>
+            <div className="bg-slate-800/60 rounded-lg p-3">
+              <p className="text-slate-500 text-xs mb-1">Lucro da clínica</p>
+              <p className="text-emerald-400 font-semibold">{fmtBRL(profitQuery.data.totals.profit)}</p>
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-y-auto flex-1">
+          {pricesQuery.isLoading ? (
+            <div className="p-6 space-y-2">
+              {[1, 2, 3].map((i) => <div key={i} className="h-12 bg-slate-800 rounded animate-pulse" />)}
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700/50">
+                  <th className="text-left px-6 py-3 text-slate-400 font-medium text-xs uppercase">Exame</th>
+                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Preço externo</th>
+                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Vendidos no ciclo</th>
+                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Lucro no ciclo</th>
+                  <th className="text-right px-6 py-3 text-slate-400 font-medium text-xs uppercase">Ação</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700/30">
+                {(pricesQuery.data ?? []).map((legend) => {
+                  const profitRow = profitByLegend.get(legend.exam_legend_id);
+                  const isEditing = editingLegendId === legend.exam_legend_id;
+                  return (
+                    <tr key={legend.exam_legend_id} className="hover:bg-slate-800/40 transition-colors">
+                      <td className="px-6 py-3 text-white">{legend.exam_name}</td>
+                      <td className="px-4 py-3 text-right">
+                        {isEditing ? (
+                          <input
+                            autoFocus
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={priceInput}
+                            onChange={(e) => setPriceInput(e.target.value)}
+                            className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-right text-white text-xs"
+                          />
+                        ) : legend.configured ? (
+                          <span className="text-cyan-400 font-medium">{fmtBRL(legend.price_external!)}</span>
+                        ) : (
+                          <span className="text-slate-600 text-xs">Não configurado</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-300 text-right">{profitRow?.units_sold ?? 0}</td>
+                      <td className="px-4 py-3 text-right">
+                        {profitRow ? (
+                          <span className="text-emerald-400 font-semibold">{fmtBRL(profitRow.profit)}</span>
+                        ) : (
+                          <span className="text-slate-600 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-3 text-right">
+                        {isEditing ? (
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              size="sm"
+                              className="h-6 px-2 text-xs bg-emerald-700 hover:bg-emerald-600"
+                              disabled={setPrice.isPending || !priceInput || Number(priceInput) <= 0}
+                              onClick={() => setPrice.mutate({
+                                unit_id: unitId,
+                                exam_legend_id: legend.exam_legend_id,
+                                price_external: Number(priceInput),
+                              })}
+                            >
+                              Salvar
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-xs border-slate-600 text-slate-300"
+                              onClick={() => { setEditingLegendId(null); setPriceInput(""); }}
+                            >
+                              Cancelar
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-xs border-slate-600 text-slate-300 hover:bg-slate-700"
+                            onClick={() => {
+                              setEditingLegendId(legend.exam_legend_id);
+                              setPriceInput(legend.configured ? String(legend.price_external) : "");
+                            }}
+                          >
+                            {legend.configured ? "Editar" : "Configurar"}
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+          {(profitQuery.data?.unconfigured_exams.length ?? 0) > 0 && (
+            <div className="mx-6 mb-4 mt-2 flex items-start gap-2 rounded-lg border border-amber-800/50 bg-amber-950/30 p-3 text-xs text-amber-300">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <p>
+                {profitQuery.data!.unconfigured_exams.length} exame(s) tiveram laudos emitidos neste ciclo mas ainda não têm preço de venda externa configurado — o lucro deles não entra no total até você configurar o preço.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function FinanceMeuResponsavel() {
   const [, navigate] = useLocation();
@@ -128,6 +297,7 @@ export default function FinanceMeuResponsavel() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [selectedUnit, setSelectedUnit] = useState<{ id: number; name: string } | null>(null);
+  const [selectedProfitUnit, setSelectedProfitUnit] = useState<{ id: number; name: string } | null>(null);
 
   const referenceDate = new Date(year, month - 1, 15).toISOString();
   const { data, isLoading } = trpc.financeSimple.myResponsavelSummary.useQuery({ reference_date: referenceDate });
@@ -258,13 +428,22 @@ export default function FinanceMeuResponsavel() {
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setSelectedUnit({ id: u.unit_id, name: u.unit_name })}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors"
-                  >
-                    <Users className="h-3.5 w-3.5" />
-                    Ver médicos
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSelectedProfitUnit({ id: u.unit_id, name: u.unit_name })}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors"
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                      Preço externo / Lucro
+                    </button>
+                    <button
+                      onClick={() => setSelectedUnit({ id: u.unit_id, name: u.unit_name })}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors"
+                    >
+                      <Users className="h-3.5 w-3.5" />
+                      Ver médicos
+                    </button>
+                  </div>
                 </div>
 
                 {/* Barra de valores */}
@@ -331,6 +510,15 @@ export default function FinanceMeuResponsavel() {
           unitName={selectedUnit.name}
           referenceDate={referenceDate}
           onClose={() => setSelectedUnit(null)}
+        />
+      )}
+
+      {/* Modal de preço externo / lucro — NOVO (claude/modulo-repasse-preco-externo) */}
+      {selectedProfitUnit && (
+        <ProfitModal
+          unitId={selectedProfitUnit.id}
+          unitName={selectedProfitUnit.name}
+          onClose={() => setSelectedProfitUnit(null)}
         />
       )}
     </FinanceShell>

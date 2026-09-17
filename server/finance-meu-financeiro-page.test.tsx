@@ -29,6 +29,9 @@ vi.mock("@/lib/trpc", () => ({
         };
       } },
       myModalityPrices: { useQuery: () => ({ data: [{ modality: "CT", price_per_report: 90, source: "individual", source_label: "Valor individual definido para você" }], isLoading: false, isError: false, refetch: vi.fn() }) },
+      // NOVO (claude/modulo-repasse-preco-externo): a página passou a chamar esta mutation
+      // para o médico confirmar/contestar repasses — sem isso no mock, o hook quebra.
+      confirmDoctorPayment: { useMutation: (opts?: { onSuccess?: () => void; onError?: (e: unknown) => void }) => ({ mutate: vi.fn(), isPending: false }) },
     },
     useUtils: () => ({ financeSimple: { myReportDownload: { fetch: state.directDownloadFetch } } }),
   },
