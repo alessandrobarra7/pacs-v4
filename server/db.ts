@@ -1460,10 +1460,28 @@ export async function getResponsibleIdForUser(userId: number): Promise<number | 
   return rows[0]?.id;
 }
 
-export async function listUsersForResponsible(financialResponsibleId: number): Promise<FinancialResponsibleUser[]> {
+export type FinancialResponsibleUserWithName = FinancialResponsibleUser & {
+  name: string | null;
+  username: string | null;
+  email: string | null;
+};
+
+export async function listUsersForResponsible(financialResponsibleId: number): Promise<FinancialResponsibleUserWithName[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db.select().from(financial_responsible_users).where(eq(financial_responsible_users.financial_responsible_id, financialResponsibleId));
+  return db
+    .select({
+      id: financial_responsible_users.id,
+      financial_responsible_id: financial_responsible_users.financial_responsible_id,
+      user_id: financial_responsible_users.user_id,
+      createdAt: financial_responsible_users.createdAt,
+      name: users.name,
+      username: users.username,
+      email: users.email,
+    })
+    .from(financial_responsible_users)
+    .leftJoin(users, eq(users.id, financial_responsible_users.user_id))
+    .where(eq(financial_responsible_users.financial_responsible_id, financialResponsibleId));
 }
 
 // ─── Vínculos Unidade → Responsável ──────────────────────────────────────────
