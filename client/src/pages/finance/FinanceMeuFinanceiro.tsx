@@ -11,7 +11,7 @@ import { downloadFinancialReportPdf } from "@/lib/financialReportPdfDownload";
 import { toast } from "sonner";
 import {
   AlertCircle, Building2, CalendarDays, CheckCircle2, CircleDollarSign,
-  FileText, Landmark, LoaderCircle, LockKeyhole, RefreshCw, Search,
+  Clock, FileText, Landmark, LoaderCircle, LockKeyhole, RefreshCw, Search,
 } from "lucide-react";
 
 const MODALITY_META: Record<string, { label: string; className: string }> = {
@@ -149,6 +149,13 @@ export default function FinanceMeuFinanceiro() {
   const selectedUnit = units.find((unit) => unit.unit_id === unitId) ?? null;
   const summary = financeQuery.data?.summary[0];
   const reports = financeQuery.data?.delivered_reports ?? [];
+  // NOVO (claude/modulo-repasse-preco-externo): repasses do ciclo, com status pago/pendente
+  // e confirmação do próprio médico — antes calculado pela API e nunca exibido nesta tela.
+  const repasses = financeQuery.data?.events ?? [];
+  const confirmPayment = trpc.financeSimple.confirmDoctorPayment.useMutation({
+    onSuccess: () => { toast.success("Resposta registrada."); void financeQuery.refetch(); },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Não foi possível registrar sua resposta."),
+  });
   const normalizedFilter = reportFilter.trim().toLocaleLowerCase("pt-BR");
   const visibleReports = useMemo(() => reports.filter((report) => !normalizedFilter || [
     report.patient_name,
@@ -227,6 +234,35 @@ export default function FinanceMeuFinanceiro() {
                   </div>
                 </section>
 
+                {/* NOVO (claude/modulo-repasse-preco-externo): status de repasse — a API já calculava
+                    pago/pendente por evento, mas esta tela nunca exibia. Agora mostra e permite ao
+                    médico confirmar ou contestar um repasse marcado como pago pela clínica. */}
+                <section id="repasses" className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <div className="border-b border-slate-100 px-4 py-3">
+                    <h2 className="text-base font-semibold text-slate-950">Repasses</h2>
+                    <p className="mt-0.5 text-xs text-slate-500">Situação de cada repasse deste ciclo, nesta unidade.</p>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {financeQuery.isLoading ? (
+                      <p className="px-4 py-8 text-center text-sm text-slate-500">Carregando repasses…</p>
+                    ) : repasses.length === 0 ? (
+                      <p className="px-4 py-8 text-center text-sm text-slate-500">Nenhum repasse gerado neste ciclo.</p>
+                    ) : repasses.map((event: any) => (
+                      <RepasseRow
+                        key={event.id}
+                        event={event}
+                        onRespond={(status, note) => confirmPayment.mutate({
+                          event_type: event.event_source,
+                          event_id: typeof event.id === "string" ? Number(String(event.id).replace("catalog-", "")) : event.id,
+                          status,
+                          note,
+                        })}
+                        isPending={confirmPayment.isPending}
+                      />
+                    ))}
+                  </div>
+                </section>
+
                 <section className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"><div className="grid gap-3 sm:grid-cols-3"><CycleDate label="Início" value={fmtCalendarDate(summary?.cycle_start_display)} /><CycleDate label="Término" value={fmtCalendarDate(summary?.cycle_end_display)} /><CycleDate label="Unidade" value={selectedUnit?.unit_name ?? "—"} building /></div></section>
               </div>
 
@@ -274,4 +310,82 @@ function EmptyFinancialAccess() {
 
 function FinancialError({ onRetry }: { onRetry: () => void }) {
   return <div className="mx-auto max-w-xl rounded-2xl border border-rose-200 bg-white p-10 text-center shadow-sm"><AlertCircle className="mx-auto h-10 w-10 text-rose-600" /><h1 className="mt-4 text-xl font-semibold text-slate-900">Não foi possível carregar seu financeiro</h1><p className="mt-2 text-sm text-slate-500">Nenhum dado foi ocultado como lista vazia. Tente novamente ou comunique o responsável pela unidade.</p><button onClick={onRetry} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"><RefreshCw className="h-4 w-4" /> Tentar novamente</button></div>;
+}
+
+// ─── NOVO (auditoria claude/modulo-repasse-preco-externo) ───────────────────
+// Linha de um repasse com status pago/pendente e confirmação do médico.
+// Uma resposta só (confirmar ou contestar); o backend recusa uma segunda.
+function RepasseRow({
+  event, onRespond, isPending,
+}: {
+  event: any;
+  onRespond: (status: "confirmed" | "disputed", note?: string) => void;
+  isPending: boolean;
+}) {
+  const [disputing, setDisputing] = useState(false);
+  const [note, setNote] = useState("");
+
+  if (!event.doctor_received_at) {
+    return (
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
+        <div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{displayPatient(event.patient_name)} — {event.exam_name_snapshot ?? "Exame"}</p><p className="mt-0.5 text-xs text-slate-500">Assinado em {fmtDate(event.signed_at)}</p></div>
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200"><Clock className="h-3.5 w-3.5" /> Pendente</span>
+      </div>
+    );
+  }
+
+  if (event.doctor_confirmation_status === "confirmed") {
+    return (
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
+        <div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{displayPatient(event.patient_name)} — {event.exam_name_snapshot ?? "Exame"}</p><p className="mt-0.5 text-xs text-slate-500">Pago em {fmtDate(event.doctor_received_at)} · confirmado em {fmtDate(event.doctor_confirmed_at)}</p></div>
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" /> Confirmado</span>
+      </div>
+    );
+  }
+
+  if (event.doctor_confirmation_status === "disputed") {
+    return (
+      <div className="px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{displayPatient(event.patient_name)} — {event.exam_name_snapshot ?? "Exame"}</p><p className="mt-0.5 text-xs text-slate-500">Pago em {fmtDate(event.doctor_received_at)} · contestado em {fmtDate(event.doctor_confirmed_at)}</p></div>
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-200"><AlertCircle className="h-3.5 w-3.5" /> Contestado</span>
+        </div>
+        {event.doctor_confirmation_note && <p className="mt-1.5 rounded-lg bg-rose-50/60 px-2.5 py-1.5 text-xs text-rose-800">"{event.doctor_confirmation_note}"</p>}
+      </div>
+    );
+  }
+
+  // Pago pela clínica, aguardando a resposta do médico.
+  return (
+    <div className="px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{displayPatient(event.patient_name)} — {event.exam_name_snapshot ?? "Exame"}</p><p className="mt-0.5 text-xs text-slate-500">Marcado como pago em {fmtDate(event.doctor_received_at)}{event.paid_by_name ? ` por ${event.paid_by_name}` : ""}</p></div>
+        {!disputing && (
+          <div className="flex shrink-0 items-center gap-2">
+            <button disabled={isPending} onClick={() => onRespond("confirmed")} className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60">Recebi</button>
+            <button disabled={isPending} onClick={() => setDisputing(true)} className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-60">Não recebi</button>
+          </div>
+        )}
+      </div>
+      {disputing && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input
+            autoFocus
+            value={note}
+            onChange={(inputEvent) => setNote(inputEvent.target.value)}
+            placeholder="Descreva brevemente o motivo"
+            className="h-8 min-w-52 flex-1 rounded-lg border border-slate-200 px-2.5 text-xs outline-none focus:border-rose-400"
+          />
+          <button
+            disabled={isPending || note.trim().length < 3}
+            onClick={() => onRespond("disputed", note.trim())}
+            className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-60"
+          >
+            Enviar contestação
+          </button>
+          <button onClick={() => { setDisputing(false); setNote(""); }} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
+        </div>
+      )}
+    </div>
+  );
 }

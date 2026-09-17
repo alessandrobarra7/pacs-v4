@@ -1,0 +1,2088 @@
+HANDOFF TÉCNICO — MÓDULO DE PREÇO DE VENDA EXTERNA E CONFIRMAÇÃO DO MÉDICO NO REPASSE
+Projeto: PACS Portal / LAUDS
+Repositório: alessandrobarra7/pacs-v4
+Branch: claude/modulo-repasse-preco-externo
+Commit base: 942a893be9bb079a669df2abf009093f8ff484de (origin/main)
+Commit topo original: 46b605ee825c2e386b4efafaa6ba5b4109f421a2 (ver ADENDO abaixo para o topo atual)
+Destinatário: Manus (acesso real às VMs) e qualquer engenheiro/agente que dê
+continuidade a este branch.
+Data: 2026-09-17
+
+ADENDO (2026-09-17) — REVISÃO INDEPENDENTE DA MANUS E CORREÇÕES APLICADAS
+
+A Manus revisou de forma independente o commit 46b605e deste branch (relato
+RELATO_REVISAO_MODULO_REPASSE_PRECO_EXTERNO_2026-09-17.txt) e confirmou a
+parte TypeScript/build/testes, além de validar corretamente que a exclusão
+do admin_master do módulo de preço externo deve ser preservada. Encontrou,
+porém, 3 correções de código obrigatórias e 1 recomendação de UX, e um
+bloqueio estrutural na aplicação da migration 0060 no sandbox dela. Cada
+achado foi conferido no código real antes de qualquer correção — nenhum foi
+aceito só por confiança no relato.
+
+Achado 1 — setExternalSalePrice aceitava exam_legend_id inexistente ou
+inativo, sem FK que impedisse o registro órfão (a interface só oferece
+legendas ativas, mas o endpoint não validava numa chamada direta). Corrigido
+com o mesmo padrão já usado em setDoctorLegendPrice: consulta exam_legends
+com is_active = true antes de encerrar vigência anterior ou inserir; NOT_FOUND
+caso contrário.
+
+Achado 2 — confirmDoctorPayment tinha uma janela de corrida real: lia
+doctor_confirmation_status nulo e só depois fazia UPDATE filtrando por id.
+Duas requisições concorrentes podiam ambas passar pela leitura antes de a
+primeira gravar, e a segunda sobrescrevia a resposta definitiva da primeira.
+Corrigido: a condição de nulidade agora está no próprio UPDATE
+(WHERE id = ? AND doctor_confirmation_status IS NULL), e o código confere
+affectedRows — se 0, significa que outra requisição já respondeu, e a atual
+recebe BAD_REQUEST sem sobrescrever status, data ou observação.
+
+Achado 3 — unitProfitCalculator buscava o preço externo vigente HOJE
+(reference_date) e aplicava esse único valor a todos os eventos do ciclo.
+Se o preço mudasse no meio do ciclo, laudos já emitidos antes da mudança
+passavam a usar o novo valor retroativamente — inconsistente com o próprio
+propósito de starts_at/ends_at. Decisão tomada (Opção A das duas propostas
+pela Manus): cada evento usa o preço cuja vigência contém o signed_at DAQUELE
+evento específico, o mesmo princípio já aplicado a system_amount_due e
+price_applied (travados no instante da assinatura). A Opção B (só permitir
+troca de preço no início de um novo ciclo, via assertCycleAlignedPriceStart —
+mecanismo que já existe no arquivo para preço de médico por legenda) foi
+descartada porque o próprio Alessandro definiu, na coleta de requisitos, que
+o preço de venda externa precisa ser "de fácil acesso" e mudar "com
+frequência" — uma trava de alinhamento de ciclo contradiria esse requisito
+funcional. A query de unitProfitCalculator foi reescrita: em vez de agregar
+por legenda direto no SQL, busca eventos individuais com seu signed_at e
+todas as vigências de preço que tocam o ciclo, e resolve o preço aplicável
+por evento em memória. Consequência esperada e documentada no código: a
+mesma legenda pode aparecer tanto em by_exam (eventos cobertos por algum
+preço) quanto em unconfigured_exams (eventos sem preço vigente no momento em
+que foram assinados) dentro do mesmo ciclo — isso é intencional quando o
+preço só foi configurado no meio do ciclo, não um bug de agrupamento.
+
+Recomendação de UX — no FinanceDashboard, o botão "Preço externo / Lucro"
+ficava visível também durante a consulta de histórico, mas o ProfitModal
+sempre usa o ciclo atual (não recebe reference_date), o que podia levar o
+usuário a achar que via o lucro do período histórico selecionado. Corrigido
+ocultando o botão fora de activeView === "current" (opção mais simples das
+duas oferecidas pela Manus).
+
+Bloqueio estrutural — a migration 0060 pressupõe billing_catalog_study_events
+e sua coluna doctor_payment_note (criadas em migrations anteriores do
+catálogo clínico-financeiro, 0050 e 0055). O sandbox da Manus não tinha essas
+migrations aplicadas; a 0060, executada como script SQL solto, rodou as 3
+primeiras instruções (tabela billing_external_sale_prices + colunas em
+billing_visit_events) e falhou na primeira ALTER de
+billing_catalog_study_events, deixando o banco num estado parcial. A Manus
+diagnosticou e reverteu manualmente essas 3 alterações antes de reportar —
+nenhuma VM foi tocada, e o estado do sandbox dela foi confirmado como
+restaurado. Criado scripts/apply_migration_0060.mjs: valida via
+INFORMATION_SCHEMA que todas as dependências existem ANTES de executar
+qualquer DDL (abortando sem alterar nada se faltar algo), e depois de aplicar
+verifica os 7 objetos esperados (1 tabela nova + 6 colunas de confirmação +
+3 valores novos no enum audit_log.action). O cabeçalho do arquivo .sql agora
+documenta essas pré-condições e proíbe explicitamente a aplicação direta via
+`mysql < arquivo.sql`. A aplicação segura passa a ser obrigatoriamente:
+
+  DATABASE_URL=... node scripts/apply_migration_0060.mjs
+
+Testes novos (server/audit-fixes-repasse-preco-externo.test.ts, +3 casos,
+10/10 aprovados no total do arquivo): legenda inativa rejeitada sem chamar
+update/insert; segunda resposta a um repasse rejeitada quando o UPDATE
+atinge 0 linhas (simula a corrida); preço externo resolvido por vigência do
+evento (dois eventos no mesmo ciclo, preço muda entre os dois, cada evento
+aplica o preço correto para o próprio signed_at, provando que não há mais
+aplicação retroativa). As duas correções mais sensíveis (legenda ativa,
+vigência por evento) foram quebradas de propósito no código, confirmadas
+falhando, e só então revertidas para a versão correta.
+
+Validação após as correções: pnpm check aprovado; TZ=UTC pnpm test — 433
+aprovados, 9 falhos (exatamente os mesmos 7 arquivos da linha de base
+conhecida, nenhum arquivo novo), 1 ignorado; pnpm build aprovado; git diff
+--check 942a893..HEAD aprovado.
+
+Commit da correção: 1ae0303dc3f1bfddc2edcdc6e1c8e233e200d53f (não é amend do
+commit funcional original 46b605e — histórico preservado). Novo topo do
+branch após este adendo e o commit que o acompanha.
+
+GIT LOG (46b605e..HEAD, correções deste adendo)
+
+1ae0303 fix(financeiro): 4 achados da revisão independente Manus no módulo de repasse/preço externo
+
+GIT DIFF (46b605e..HEAD, exclui docs/auditoria-claude — só código/teste/script)
+
+diff --git a/client/src/pages/finance/FinanceDashboard.tsx b/client/src/pages/finance/FinanceDashboard.tsx
+index 382b73a..e3f0260 100644
+--- a/client/src/pages/finance/FinanceDashboard.tsx
++++ b/client/src/pages/finance/FinanceDashboard.tsx
+@@ -281,7 +281,11 @@ function UnitFinancialDetail({
+       <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-start md:justify-between">
+         <div><span className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-700">Financeiro / Unidades</span><h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{currentUnit.unit_name}</h1><p className="mt-1 text-sm text-slate-500">{activeView === "current" ? `Painel operacional do ciclo atual: ${currentUnit.cycle_label}.` : `Consulta histórica do período: ${historicalUnit.cycle_label}.`}</p></div>
+         <div className="flex items-center gap-2">
+-          {canManageExternalPrice && <Button type="button" size="sm" variant="outline" className="border-cyan-200 text-cyan-800" onClick={() => setShowProfitModal(true)}>Preço externo / Lucro</Button>}
++          {/* CORREÇÃO (revisão independente Manus, 2026-09-17): o ProfitModal sempre usa o
++              ciclo atual (não recebe reference_date); mostrar o botão também no modo
++              histórico induzia o usuário a achar que estava vendo o lucro do período
++              histórico selecionado. Só aparece no ciclo atual, que é o que ele de fato mostra. */}
++          {canManageExternalPrice && activeView === "current" && <Button type="button" size="sm" variant="outline" className="border-cyan-200 text-cyan-800" onClick={() => setShowProfitModal(true)}>Preço externo / Lucro</Button>}
+           <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" /> Unidade ativa</span>
+         </div>
+       </div>
+diff --git a/client/src/pages/finance/FinanceMeuResponsavel.tsx b/client/src/pages/finance/FinanceMeuResponsavel.tsx
+index 018c230..6f90dd9 100644
+--- a/client/src/pages/finance/FinanceMeuResponsavel.tsx
++++ b/client/src/pages/finance/FinanceMeuResponsavel.tsx
+@@ -148,7 +148,17 @@ export function ProfitModal({
+     onError: (e) => toast.error(e.message),
+   });
+
+-  const profitByLegend = new Map((profitQuery.data?.by_exam ?? []).map((row) => [row.exam_legend_id, row]));
++  // CORREÇÃO (revisão independente Manus, 2026-09-17): by_exam agora pode ter mais de uma
++  // linha para a mesma legenda quando o preço externo mudou dentro do ciclo (cada linha usa
++  // o preço vigente no momento de cada laudo). Somamos aqui só para exibir um total por
++  // legenda nesta tabela; o valor exato por vigência continua correto na origem.
++  const profitByLegend = new Map<number, { units_sold: number; profit: number }>();
++  for (const row of profitQuery.data?.by_exam ?? []) {
++    const current = profitByLegend.get(row.exam_legend_id) ?? { units_sold: 0, profit: 0 };
++    current.units_sold += row.units_sold;
++    current.profit += row.profit;
++    profitByLegend.set(row.exam_legend_id, current);
++  }
+
+   return (
+     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+diff --git a/drizzle/0060_external_sale_price_doctor_confirmation.sql b/drizzle/0060_external_sale_price_doctor_confirmation.sql
+index c9b93ba..805a6ae 100644
+--- a/drizzle/0060_external_sale_price_doctor_confirmation.sql
++++ b/drizzle/0060_external_sale_price_doctor_confirmation.sql
+@@ -4,6 +4,22 @@
+ -- 2) Confirmação do médico sobre o repasse marcado como pago pela clínica, nas duas
+ --    tabelas de evento financeiro (legado e catálogo), para que o médico deixe de
+ --    depender só da palavra da clínica sobre o próprio repasse.
++--
++-- PRÉ-CONDIÇÕES ESTRUTURAIS (achado da revisão independente Manus, 2026-09-17):
++-- este arquivo pressupõe que as migrations do catálogo clínico-financeiro já foram
++-- aplicadas neste banco, em especial:
++--   - tabela `billing_catalog_study_events` (criada em 0050_catalog_clinical_financial.sql)
++--   - coluna `billing_catalog_study_events.doctor_payment_note` (criada em
++--     0055_finance_catalog_payment_tracking.sql)
++-- Em um ambiente sem essas migrations, este arquivo executa as 3 primeiras instruções
++-- (tabela billing_external_sale_prices + colunas em billing_visit_events) e falha na
++-- primeira ALTER TABLE de billing_catalog_study_events, deixando o banco num estado
++-- parcial. NÃO aplique este arquivo diretamente com `mysql < 0060_....sql`.
++--
++-- APLICAÇÃO OBRIGATÓRIA POR SCRIPT COM PREFLIGHT:
++--   DATABASE_URL=... node scripts/apply_migration_0060.mjs
++-- O script verifica as pré-condições acima via INFORMATION_SCHEMA antes de executar
++-- qualquer DDL, e valida os objetos criados depois de aplicar.
+
+ CREATE TABLE `billing_external_sale_prices` (
+   `id` int AUTO_INCREMENT NOT NULL,
+diff --git a/scripts/apply_migration_0060.mjs b/scripts/apply_migration_0060.mjs
+new file mode 100644
+index 0000000..f6e1f12
+--- /dev/null
++++ b/scripts/apply_migration_0060.mjs
+@@ -0,0 +1,130 @@
++/**
++ * Aplicador da migration 0060 — preço de venda externa + confirmação do médico.
++ *
++ * CORREÇÃO (revisão independente Manus, 2026-09-17): a migration 0060 pressupõe que
++ * billing_catalog_study_events e sua coluna doctor_payment_note já existem (foram
++ * criadas por migrations anteriores do pipeline de catálogo clínico-financeiro). Um
++ * ambiente sem essas migrations aplicadas executa as primeiras instruções da 0060 com
++ * sucesso (billing_external_sale_prices, colunas em billing_visit_events) e só falha
++ * na primeira ALTER TABLE de billing_catalog_study_events — deixando o banco num
++ * estado parcial, nem antes nem depois da migration. Foi exatamente o que aconteceu
++ * no sandbox da Manus.
++ *
++ * Este script faz um PREFLIGHT via INFORMATION_SCHEMA antes de executar qualquer DDL:
++ * se as dependências não existirem, ele aborta com uma mensagem explícita e não altera
++ * nada. Só corre a migration se o preflight passar. No final, valida que os objetos
++ * esperados realmente existem (tabela nova, 6 colunas de confirmação, 3 valores de enum).
++ *
++ * Uso: DATABASE_URL=... node scripts/apply_migration_0060.mjs
++ */
++import mysql from 'mysql2/promise';
++import { readFileSync } from 'fs';
++import { fileURLToPath } from 'url';
++import { dirname, join } from 'path';
++
++const __dirname = dirname(fileURLToPath(import.meta.url));
++const sqlPath = join(__dirname, '../drizzle/0060_external_sale_price_doctor_confirmation.sql');
++const sql = readFileSync(sqlPath, 'utf8');
++
++if (!process.env.DATABASE_URL) {
++  console.error('✗ DATABASE_URL não definido. Abortando sem tocar no banco.');
++  process.exit(1);
++}
++
++const conn = await mysql.createConnection(process.env.DATABASE_URL);
++
++async function columnExists(table, column) {
++  const [rows] = await conn.execute(
++    `SELECT COUNT(*) AS n FROM INFORMATION_SCHEMA.COLUMNS
++       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
++    [table, column],
++  );
++  return rows[0].n > 0;
++}
++
++async function tableExists(table) {
++  const [rows] = await conn.execute(
++    `SELECT COUNT(*) AS n FROM INFORMATION_SCHEMA.TABLES
++       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
++    [table],
++  );
++  return rows[0].n > 0;
++}
++
++console.log('— Preflight: verificando dependências antes de qualquer DDL —');
++
++const preflightChecks = [
++  { label: 'tabela billing_catalog_study_events existe', ok: await tableExists('billing_catalog_study_events') },
++  { label: 'coluna billing_catalog_study_events.doctor_payment_note existe', ok: await columnExists('billing_catalog_study_events', 'doctor_payment_note') },
++  { label: 'tabela billing_visit_events existe', ok: await tableExists('billing_visit_events') },
++  { label: 'tabela audit_log existe', ok: await tableExists('audit_log') },
++  { label: 'tabela billing_external_sale_prices AINDA NÃO existe (idempotência)', ok: !(await tableExists('billing_external_sale_prices')) },
++];
++
++let preflightFailed = false;
++for (const check of preflightChecks) {
++  console.log(check.ok ? '  ✓' : '  ✗', check.label);
++  if (!check.ok) preflightFailed = true;
++}
++
++if (preflightFailed) {
++  console.error('\n✗ Preflight falhou. Nenhuma instrução DDL foi executada.');
++  console.error('  Este ambiente não tem as migrations do catálogo clínico-financeiro (0050-0059)');
++  console.error('  aplicadas, ou a migration 0060 já foi aplicada aqui antes. Aplique as migrations');
++  console.error('  pendentes na ordem correta (ver drizzle/MIGRATIONS_README.md) antes de tentar de novo,');
++  console.error('  ou confirme que este banco já está com a 0060 aplicada e pare aqui.');
++  await conn.end();
++  process.exit(1);
++}
++
++console.log('\n— Preflight aprovado. Aplicando migration 0060 —');
++
++const statements = sql.split(';').map((s) => s.trim()).filter((s) => s && !s.startsWith('--'));
++for (const stmt of statements) {
++  try {
++    await conn.execute(stmt);
++    console.log('✓', stmt.slice(0, 70).replace(/\n/g, ' '));
++  } catch (e) {
++    console.error('✗ ERRO:', e.message, '\n  SQL:', stmt.slice(0, 120));
++    console.error('\nAplicação interrompida. Revise o estado do banco manualmente antes de tentar de novo —');
++    console.error('o preflight passou, então este erro não é sobre pré-condição ausente.');
++    await conn.end();
++    process.exit(1);
++  }
++}
++
++console.log('\n— Validação pós-migration —');
++const postChecks = [
++  { label: 'tabela billing_external_sale_prices existe', ok: await tableExists('billing_external_sale_prices') },
++  { label: 'billing_visit_events.doctor_confirmation_status existe', ok: await columnExists('billing_visit_events', 'doctor_confirmation_status') },
++  { label: 'billing_visit_events.doctor_confirmed_at existe', ok: await columnExists('billing_visit_events', 'doctor_confirmed_at') },
++  { label: 'billing_visit_events.doctor_confirmation_note existe', ok: await columnExists('billing_visit_events', 'doctor_confirmation_note') },
++  { label: 'billing_catalog_study_events.doctor_confirmation_status existe', ok: await columnExists('billing_catalog_study_events', 'doctor_confirmation_status') },
++  { label: 'billing_catalog_study_events.doctor_confirmed_at existe', ok: await columnExists('billing_catalog_study_events', 'doctor_confirmed_at') },
++  { label: 'billing_catalog_study_events.doctor_confirmation_note existe', ok: await columnExists('billing_catalog_study_events', 'doctor_confirmation_note') },
++];
++const [enumRows] = await conn.execute(
++  `SELECT COLUMN_TYPE AS t FROM INFORMATION_SCHEMA.COLUMNS
++     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'audit_log' AND COLUMN_NAME = 'action'`,
++);
++const enumDef = enumRows[0]?.t ?? '';
++postChecks.push(
++  { label: "audit_log.action contém 'DOCTOR_PAYMENT_CONFIRMED'", ok: enumDef.includes('DOCTOR_PAYMENT_CONFIRMED') },
++  { label: "audit_log.action contém 'DOCTOR_PAYMENT_DISPUTED'", ok: enumDef.includes('DOCTOR_PAYMENT_DISPUTED') },
++  { label: "audit_log.action contém 'SET_EXTERNAL_SALE_PRICE'", ok: enumDef.includes('SET_EXTERNAL_SALE_PRICE') },
++);
++
++let postFailed = false;
++for (const check of postChecks) {
++  console.log(check.ok ? '  ✓' : '  ✗', check.label);
++  if (!check.ok) postFailed = true;
++}
++
++await conn.end();
++
++if (postFailed) {
++  console.error('\n✗ Validação pós-migration encontrou item ausente. Não considere esta aplicação concluída.');
++  process.exit(1);
++}
++
++console.log('\nMigration 0060 aplicada e validada com sucesso. Nenhum dado clínico foi lido ou alterado.');
+diff --git a/server/audit-fixes-repasse-preco-externo.test.ts b/server/audit-fixes-repasse-preco-externo.test.ts
+index 7fdfe12..1b86f15 100644
+--- a/server/audit-fixes-repasse-preco-externo.test.ts
++++ b/server/audit-fixes-repasse-preco-externo.test.ts
+@@ -237,3 +237,160 @@ describe("confirmDoctorPayment — só o próprio médico responde pelo próprio
+     vi.resetModules();
+   });
+ });
++
++// ─── Regressão (revisão independente Manus, 2026-09-17) ─────────────────────
++// Três achados da revisão: legenda inexistente/inativa aceita no setter,
++// confirmação de repasse com janela de corrida, e preço externo aplicado
++// retroativamente a eventos assinados antes de uma mudança de preço.
++
++describe("setExternalSalePrice — rejeita legenda inexistente ou inativa", () => {
++  it("legenda inativa é rejeitada com NOT_FOUND, sem encerrar vigência nem inserir", async () => {
++    vi.resetModules();
++    const updateWhereSpy = vi.fn();
++    const insertValuesSpy = vi.fn();
++    vi.doMock("./db", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./db")>();
++      return {
++        ...original,
++        getDb: vi.fn(async () => {
++          let call = 0;
++          return {
++            select: () => {
++              call += 1;
++              // 1ª chamada: checagem de vínculo unit_admin -> unidade (permitido).
++              // 2ª chamada: checagem de legenda ativa (não encontrada).
++              return selectChain(call === 1 ? [{ unit_id: 1 }] : []);
++            },
++            update: () => ({ set: () => ({ where: updateWhereSpy }) }),
++            insert: () => ({ values: insertValuesSpy }),
++          };
++        }),
++      };
++    });
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 2, role: "unit_admin" });
++    const caller = appRouter.createCaller(ctx);
++
++    await expect(
++      caller.financeSimple.setExternalSalePrice({ unit_id: 1, exam_legend_id: 999, price_external: 40 })
++    ).rejects.toMatchObject({ code: "NOT_FOUND" });
++    expect(updateWhereSpy).not.toHaveBeenCalled();
++    expect(insertValuesSpy).not.toHaveBeenCalled();
++
++    vi.doUnmock("./db");
++    vi.resetModules();
++  });
++});
++
++describe("confirmDoctorPayment — atômico, sem janela de corrida", () => {
++  it("quando outra requisição já respondeu (UPDATE atinge 0 linhas), recebe BAD_REQUEST e não sobrescreve", async () => {
++    vi.resetModules();
++    vi.doMock("./db", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./db")>();
++      return {
++        ...original,
++        getDb: vi.fn(async () => ({
++          select: () => selectChain([{
++            id: 1,
++            doctor_user_id: 5,
++            doctor_received_at: new Date(),
++            doctor_confirmation_status: null, // ainda nulo na leitura...
++          }]),
++          // ...mas o UPDATE condicional não encontra mais nenhuma linha nula: outra
++          // requisição já respondeu entre a leitura e a gravação desta.
++          update: () => ({ set: () => ({ where: () => [{ affectedRows: 0 }] }) }),
++        })),
++      };
++    });
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 5, role: "medico" });
++    const caller = appRouter.createCaller(ctx);
++
++    await expect(
++      caller.financeSimple.confirmDoctorPayment({ event_type: "legacy", event_id: 1, status: "confirmed" })
++    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
++
++    vi.doUnmock("./db");
++    vi.resetModules();
++  });
++});
++
++describe("unitProfitCalculator — preço externo não é aplicado retroativamente", () => {
++  it("evento assinado antes da mudança de preço usa o preço antigo; evento depois usa o novo", async () => {
++    vi.resetModules();
++    const { units, billing_catalog_study_events, billing_external_sale_prices, user_unit_permissions } =
++      await import("../drizzle/schema");
++
++    const unitsRows = [{ s: 1, e: 31 }];
++    const permissionRows = [{ unit_id: 1 }]; // unit_admin vinculado à unidade 1
++    const eventsRows = [
++      {
++        exam_legend_id: 7,
++        exam_name: "Tórax",
++        signed_at: new Date("2026-09-05T12:00:00Z"), // antes da mudança de preço
++        system_amount_due: "2.00",
++        price_applied: "10.00",
++      },
++      {
++        exam_legend_id: 7,
++        exam_name: "Tórax",
++        signed_at: new Date("2026-09-15T12:00:00Z"), // depois da mudança de preço
++        system_amount_due: "2.00",
++        price_applied: "10.00",
++      },
++    ];
++    const pricesRows = [
++      { exam_legend_id: 7, price_external: "30.00", starts_at: new Date("2026-08-01T00:00:00Z"), ends_at: new Date("2026-09-10T00:00:00Z") },
++      { exam_legend_id: 7, price_external: "50.00", starts_at: new Date("2026-09-10T00:00:00Z"), ends_at: null },
++    ];
++
++    const routes = new Map<unknown, unknown[]>([
++      [units, unitsRows],
++      [billing_catalog_study_events, eventsRows],
++      [billing_external_sale_prices, pricesRows],
++      [user_unit_permissions, permissionRows],
++    ]);
++
++    vi.doMock("./db", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./db")>();
++      return {
++        ...original,
++        getDb: vi.fn(async () => ({
++          select: () => ({
++            from: (table: unknown) => {
++              const rows = routes.get(table) ?? [];
++              const inner: any = {
++                where: () => inner,
++                limit: () => inner,
++                then: (resolve: (v: unknown[]) => void) => resolve(rows),
++              };
++              return inner;
++            },
++          }),
++        })),
++      };
++    });
++
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 2, role: "unit_admin" });
++    const caller = appRouter.createCaller(ctx);
++
++    const result = await caller.financeSimple.unitProfitCalculator({
++      unit_id: 1,
++      reference_date: "2026-09-17T00:00:00.000Z",
++    });
++
++    expect(result.by_exam).toHaveLength(2);
++    const oldPriceRow = result.by_exam.find((row) => row.price_external === 30);
++    const newPriceRow = result.by_exam.find((row) => row.price_external === 50);
++    expect(oldPriceRow).toMatchObject({ units_sold: 1, cash_received: 30 });
++    expect(newPriceRow).toMatchObject({ units_sold: 1, cash_received: 50 });
++    // Prova de que não houve aplicação retroativa: se o bug antigo estivesse presente,
++    // os dois eventos cairiam numa única linha usando o preço vigente hoje (50), com
++    // units_sold: 2 e cash_received: 100.
++    expect(result.by_exam.some((row) => row.units_sold === 2)).toBe(false);
++
++    vi.doUnmock("./db");
++    vi.resetModules();
++  });
++});
+diff --git a/server/routers/financeSimple.ts b/server/routers/financeSimple.ts
+index 8b0e003..3273b61 100644
+--- a/server/routers/financeSimple.ts
++++ b/server/routers/financeSimple.ts
+@@ -1067,14 +1067,24 @@ export const financeSimpleRouter = router({
+       }
+
+       const now = new Date();
+-      await db
++      // CORREÇÃO (revisão independente Manus, 2026-09-17): a checagem acima (select +
++      // depois update) tinha uma janela de corrida — duas requisições concorrentes podiam
++      // ler doctor_confirmation_status nulo e a segunda sobrescrever a resposta definitiva
++      // da primeira. A condição de nulidade agora vai NO PRÓPRIO UPDATE, então só a
++      // requisição que efetivamente encontrar a linha ainda nula consegue gravar; a outra
++      // atualiza zero linhas e recebe erro explícito, sem sobrescrever status/data/nota.
++      const updateResult = await db
+         .update(table)
+         .set({
+           doctor_confirmation_status: input.status,
+           doctor_confirmed_at: now,
+           doctor_confirmation_note: input.note ?? null,
+         })
+-        .where(eq(table.id, input.event_id));
++        .where(and(eq(table.id, input.event_id), isNull(table.doctor_confirmation_status)));
++
++      if ((updateResult[0] as { affectedRows: number }).affectedRows === 0) {
++        throw new TRPCError({ code: "BAD_REQUEST", message: "Este repasse já foi respondido." });
++      }
+
+       await createAuditLog({
+         user_id: ctx.user.id,
+@@ -1200,6 +1210,18 @@ export const financeSimpleRouter = router({
+       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+       await assertCanManageExternalSalePrice(db, ctx.user, input.unit_id);
+
++      // CORREÇÃO (revisão independente Manus, 2026-09-17): a interface só oferece legendas
++      // ativas, mas o endpoint aceitava qualquer exam_legend_id — uma chamada direta podia
++      // gravar preço para legenda inexistente/inativa, sem FK que impedisse o registro órfão.
++      // Mesmo padrão já usado em setDoctorLegendPrice.
++      const legend = await db.select({ id: exam_legends.id })
++        .from(exam_legends)
++        .where(and(eq(exam_legends.id, input.exam_legend_id), eq(exam_legends.is_active, true)))
++        .limit(1);
++      if (!legend[0]) {
++        throw new TRPCError({ code: "NOT_FOUND", message: "Legenda de exame ativa não encontrada." });
++      }
++
+       const now = new Date();
+       await db
+         .update(billing_external_sale_prices)
+@@ -1252,13 +1274,26 @@ export const financeSimpleRouter = router({
+       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+       const { startDate, endDate, label } = await resolveFinancialCycle(db, input.unit_id, refDate);
+
++      // CORREÇÃO (revisão independente Manus, 2026-09-17): a versão anterior buscava só o
++      // preço externo VIGENTE HOJE e aplicava esse único valor a todos os eventos do ciclo —
++      // se o preço mudasse no meio do ciclo, laudos já emitidos antes da mudança passavam a
++      // usar o novo valor retroativamente, o que não é auditável e contradiz o próprio
++      // propósito de guardar starts_at/ends_at. Decisão registrada no handoff (Opção A):
++      // cada evento usa o preço cuja vigência CONTÉM O signed_at DAQUELE EVENTO — igual ao
++      // que já acontece com system_amount_due/price_applied, que são travados no instante da
++      // assinatura. Por isso a query busca eventos individuais (não agregados por legenda) e
++      // TODAS as vigências de preço que tocam o ciclo, e a correspondência é feita aqui, por
++      // evento. Consequência esperada e correta: se o preço só foi configurado no meio do
++      // ciclo, a mesma legenda pode aparecer em `by_exam` (eventos assinados depois) e em
++      // `unconfigured_exams` (eventos assinados antes) ao mesmo tempo — isso é intencional,
++      // não um bug de agrupamento.
+       const [eventRows, priceRows] = await Promise.all([
+         db.select({
+           exam_legend_id: billing_catalog_study_events.exam_legend_id,
+           exam_name: billing_catalog_study_events.exam_name_snapshot,
+-          units_sold: sql<number>`COUNT(*)`,
+-          system_repasse: sql<number>`COALESCE(SUM(${billing_catalog_study_events.system_amount_due}), 0)`,
+-          doctor_repasse: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
++          signed_at: billing_catalog_study_events.signed_at,
++          system_amount_due: billing_catalog_study_events.system_amount_due,
++          price_applied: billing_catalog_study_events.price_applied,
+         })
+           .from(billing_catalog_study_events)
+           .where(and(
+@@ -1266,46 +1301,78 @@ export const financeSimpleRouter = router({
+             eq(billing_catalog_study_events.financial_status, "active"),
+             sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
+             sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
+-          ))
+-          .groupBy(billing_catalog_study_events.exam_legend_id, billing_catalog_study_events.exam_name_snapshot),
++          )),
++        // Todas as vigências que tocam o ciclo, não só a vigente agora — precisamos
++        // resolver o preço correto para cada signed_at individualmente, inclusive para
++        // eventos assinados antes de uma mudança de preço já ocorrida.
+         db.select({
+           exam_legend_id: billing_external_sale_prices.exam_legend_id,
+           price_external: billing_external_sale_prices.price_external,
++          starts_at: billing_external_sale_prices.starts_at,
++          ends_at: billing_external_sale_prices.ends_at,
+         })
+           .from(billing_external_sale_prices)
+           .where(and(
+             eq(billing_external_sale_prices.unit_id, input.unit_id),
+-            lte(billing_external_sale_prices.starts_at, refDate),
+-            or(isNull(billing_external_sale_prices.ends_at), gte(billing_external_sale_prices.ends_at, refDate)),
++            sql`${billing_external_sale_prices.starts_at} < ${endDate}`,
++            or(isNull(billing_external_sale_prices.ends_at), sql`${billing_external_sale_prices.ends_at} >= ${startDate}`),
+           )),
+       ]);
+
+-      const priceByLegend = new Map(priceRows.map((p) => [p.exam_legend_id, toMoney(p.price_external)]));
+-      const configured: Array<{ exam_legend_id: number; exam_name: string; units_sold: number; price_external: number; cash_received: number; system_repasse: number; doctor_repasse: number; profit: number }> = [];
+-      const unconfigured: Array<{ exam_legend_id: number; exam_name: string; units_sold: number }> = [];
++      const pricesByLegend = new Map<number, typeof priceRows>();
++      for (const price of priceRows) {
++        const list = pricesByLegend.get(price.exam_legend_id) ?? [];
++        list.push(price);
++        pricesByLegend.set(price.exam_legend_id, list);
++      }
++      function resolvePriceForSignedAt(examLegendId: number, signedAt: Date): number | undefined {
++        const candidates = pricesByLegend.get(examLegendId);
++        if (!candidates) return undefined;
++        const match = candidates.find((p) =>
++          p.starts_at <= signedAt && (p.ends_at === null || p.ends_at > signedAt)
++        );
++        return match ? toMoney(match.price_external) : undefined;
++      }
++
++      type ConfiguredRow = { exam_legend_id: number; exam_name: string; units_sold: number; price_external: number; cash_received: number; system_repasse: number; doctor_repasse: number; profit: number };
++      const configuredByKey = new Map<string, ConfiguredRow>();
++      const unconfiguredByLegend = new Map<number, { exam_legend_id: number; exam_name: string; units_sold: number }>();
+
+-      for (const row of eventRows) {
+-        const priceExternal = priceByLegend.get(row.exam_legend_id);
+-        const unitsSold = Number(row.units_sold ?? 0);
+-        const systemRepasse = toMoney(row.system_repasse);
+-        const doctorRepasse = toMoney(row.doctor_repasse);
++      for (const event of eventRows) {
++        const priceExternal = resolvePriceForSignedAt(event.exam_legend_id, event.signed_at);
++        const systemRepasse = toMoney(event.system_amount_due);
++        const doctorRepasse = toMoney(event.price_applied);
+         if (priceExternal === undefined) {
+-          unconfigured.push({ exam_legend_id: row.exam_legend_id, exam_name: row.exam_name, units_sold: unitsSold });
++          const current = unconfiguredByLegend.get(event.exam_legend_id) ?? { exam_legend_id: event.exam_legend_id, exam_name: event.exam_name, units_sold: 0 };
++          current.units_sold += 1;
++          unconfiguredByLegend.set(event.exam_legend_id, current);
+           continue;
+         }
+-        const cashReceived = subMoney(priceExternal * unitsSold, 0);
+-        configured.push({
+-          exam_legend_id: row.exam_legend_id,
+-          exam_name: row.exam_name,
+-          units_sold: unitsSold,
++        // A mesma legenda pode ter mais de um preço vigente dentro do ciclo (mudança
++        // intra-ciclo) — chave por legenda+preço para não misturar cash_received de
++        // vigências diferentes na mesma linha.
++        const key = `${event.exam_legend_id}:${priceExternal}`;
++        const current = configuredByKey.get(key) ?? {
++          exam_legend_id: event.exam_legend_id,
++          exam_name: event.exam_name,
++          units_sold: 0,
+           price_external: priceExternal,
+-          cash_received: cashReceived,
+-          system_repasse: systemRepasse,
+-          doctor_repasse: doctorRepasse,
+-          profit: subMoney(subMoney(cashReceived, systemRepasse), doctorRepasse),
+-        });
++          cash_received: 0,
++          system_repasse: 0,
++          doctor_repasse: 0,
++          profit: 0,
++        };
++        current.units_sold += 1;
++        current.cash_received = subMoney(current.cash_received + priceExternal, 0);
++        current.system_repasse = subMoney(current.system_repasse + systemRepasse, 0);
++        current.doctor_repasse = subMoney(current.doctor_repasse + doctorRepasse, 0);
++        current.profit = subMoney(subMoney(current.cash_received, current.system_repasse), current.doctor_repasse);
++        configuredByKey.set(key, current);
+       }
+
++      const configured = Array.from(configuredByKey.values());
++      const unconfigured = Array.from(unconfiguredByLegend.values());
++
+       const totals = configured.reduce((acc, row) => ({
+         cash_received: acc.cash_received + row.cash_received,
+         system_repasse: acc.system_repasse + row.system_repasse,
+
+Estado após este adendo: branch ainda sem PR, sem merge, sem deploy, sem
+alteração de VM. A migration 0060 continua não aplicada em nenhum ambiente.
+Aguardando nova revisão da Manus a partir deste topo antes de qualquer
+decisão de integração, conforme solicitado no relato original.
+
+1. COMO CHEGAR NO CÓDIGO REAL
+
+  git fetch origin
+  git checkout claude/modulo-repasse-preco-externo
+  git log --oneline 942a893..HEAD
+  git diff 942a893..HEAD
+  git diff --check 942a893..HEAD   # deve retornar código 0, sem achado
+
+2. ORIGEM DO REQUISITO
+
+Este branch não corrige um problema relatado — implementa um requisito levantado
+em uma entrevista de coleta de requisitos conduzida em chat com Alessandro, sobre
+os papéis administrador/unit_admin, responsável financeiro e médico. Não existe
+ticket formal; a especificação abaixo é a extraída literalmente dessa conversa.
+
+Antes de escrever qualquer código, o código real foi investigado (não a descrição
+do problema). Achado relevante: o requisito original descrevia "hoje médico e
+sistema têm que confiar na palavra da clínica sobre o repasse" — isso só era
+parcialmente verdade. O backend já continha `markDoctorPaid` (marca repasse como
+pago, com autoria e data, já chamável pelo responsável financeiro) e a query
+`myFinanceiro` já calculava `doctor_received_at`/`paid_by_name` por evento; só a
+tela do médico (`FinanceMeuFinanceiro.tsx`) nunca desenhava essa informação — dado
+calculado e disponível, mas escondido da interface. A separação por unidade do
+médico também já existia (seletor obrigatório, com comentário no próprio código
+dizendo que é proposital, "para impedir consolidação acidental entre hospitais").
+O que realmente não existia: confirmação/contestação do médico sobre o repasse, e
+preço de venda externa por exame (nenhum campo, tabela ou lógica no schema).
+
+3. ESPECIFICAÇÃO FUNCIONAL EXATA (da entrevista, sem paráfrase que perca regra)
+
+3.1. Preço de venda externa / calculadora de lucro (responsável financeiro + unit_admin)
+  - Quem edita: responsável financeiro (dono natural do módulo) E unit_admin
+    ("pode até ver as configurações ou alterar" — confirmado explicitamente).
+  - admin_master NÃO tem acesso a este módulo — nem leitura. Decisão de produto
+    explícita ("por dono do sistema isso não é um conhecimento válido ou
+    interessante"), não uma omissão.
+  - Configuração é OPCIONAL por exame/legenda — uma unidade pode não configurar
+    preço externo para um exame, e o cálculo de lucro daquele exame não aparece
+    (nunca assume zero).
+  - Granularidade: por unidade + legenda de exame (não por laudo inteiro) — a
+    legenda já determina quantas unidades de laudo são cobradas e já determina o
+    valor do médico e do sistema por evento; o preço externo segue a mesma regra.
+    Nenhum exame sem legenda definida pode ser laudado (regra pré-existente,
+    reafirmada explicitamente na entrevista como premissa).
+  - Base de cálculo: laudos EMITIDOS no ciclo (não pagos pelo cliente externo).
+    O sistema já cobra o médico e o sistema por laudo emitido, não por pago; a
+    venda externa segue a mesma lógica.
+  - "Recebido em caixa" é multiplicação simples (quantidade emitida × preço
+    configurado) — não é controle de caixa real, não há marcação de pago/pendente
+    por venda externa individual ("é de modo simples mesmo", confirmado).
+  - Se o cliente externo pagou ou não a clínica NUNCA aparece no sistema para
+    admin_master nem para médico — é inteiramente interno ao responsável
+    financeiro da clínica.
+  - Fórmula de lucro (exemplo dado na entrevista, usado para validar a conta):
+    unidade A, tórax, preço externo R$ 40, 30 laudos emitidos no ciclo →
+    caixa recebido = 40 × 30 = R$ 1.200; repasse ao sistema = R$ 60 (R$ 2/laudo);
+    repasse ao médico = R$ 300 (R$ 10/laudo); lucro = 1.200 − 60 − 300 = R$ 840.
+  - Separação visual por unidade: cada unidade vinculada ao responsável
+    financeiro aparece em um cartão separado, nunca consolidado ("evita confusão
+    no momento de editar").
+
+3.2. Confirmação do médico sobre repasse (proposta feita e aprovada na entrevista)
+  - O responsável financeiro (ou unit_admin) marca um repasse como pago — isso já
+    existia (`markDoctorPaid`).
+  - O médico ganha um botão de confirmar "recebi" ou contestar "não recebi".
+  - Se confirma, o status fica definitivo.
+  - Se contesta, o sistema NÃO arbitra quem está certo — só gera um alerta visível
+    para o responsável financeiro/unit_admin, a ser resolvido fora do sistema.
+  - Enquanto não confirma nem contesta, o repasse fica "aguardando confirmação" —
+    isso é só informativo, não trava nenhuma operação (laudar, acessar o sistema).
+  - Separação por unidade do médico: já existia antes deste branch, sem alteração
+    de comportamento — apenas confirmado como suficiente na entrevista.
+
+4. MECANISMO DA IMPLEMENTAÇÃO
+
+4.1. Schema (migration `drizzle/0060_external_sale_price_doctor_confirmation.sql`)
+  - Tabela nova `billing_external_sale_prices`: `unit_id`, `exam_legend_id`,
+    `price_external`, `starts_at`/`ends_at` (vigência, mesmo padrão de
+    `billing_unit_modality_prices`), `created_by`. SEM `financial_responsible_id`
+    como chave — o preço é da unidade, não de um responsável específico; se a
+    unidade tiver mais de um responsável vinculado, todos veem o mesmo preço.
+  - `doctor_confirmation_status` (enum `confirmed`/`disputed`, nulo por padrão),
+    `doctor_confirmed_at`, `doctor_confirmation_note` — adicionados em
+    `billing_visit_events` E `billing_catalog_study_events` (os dois lugares
+    onde `doctor_received_at` já existia duplicado).
+  - 3 novos valores em `audit_log.action`: `DOCTOR_PAYMENT_CONFIRMED`,
+    `DOCTOR_PAYMENT_DISPUTED`, `SET_EXTERNAL_SALE_PRICE`.
+  - A migration NÃO foi executada em nenhum ambiente. Aplicar somente depois de
+    validação no sandbox da Manus, seguindo a regra permanente do projeto
+    (git pull a partir de branch já testado, nunca outro caminho).
+
+4.2. Backend (`server/routers/financeSimple.ts`)
+  - `assertCanManageExternalSalePrice(db, user, unitId)`: função nova. Para
+    `unit_admin`, exige vínculo em `user_unit_permissions`; para
+    `responsavel_financeiro`, exige vínculo ativo em `financial_responsible_units`;
+    qualquer outro papel — incluindo `admin_master` — cai no `throw FORBIDDEN`
+    final, sem nenhuma consulta ao banco. Isso é testado explicitamente (ver
+    seção 6) porque é a regra mais fácil de quebrar por engano num merge futuro
+    (a tentação natural é dar bypass a admin_master, como em toda outra função
+    de autorização financeira do arquivo).
+  - `listExternalSalePrices` / `setExternalSalePrice`: listam o catálogo inteiro
+    de legendas ativas com o preço vigente ou `null`/`configured: false` quando
+    não configurado; `setExternalSalePrice` encerra a vigência anterior
+    (`ends_at = now`) antes de inserir a nova linha, preservando histórico.
+  - `unitProfitCalculator`: agrupa `billing_catalog_study_events` por
+    `exam_legend_id` dentro do ciclo real da unidade (`resolveFinancialCycle`,
+    já existente — reaproveitado, não duplicado), soma `system_amount_due` e
+    `price_applied` (os mesmos valores já usados no resto do módulo financeiro),
+    junta com o preço externo vigente. Legendas com evento no ciclo mas sem
+    preço configurado saem em `unconfigured_exams`, fora do total de lucro.
+  - `confirmDoctorPayment`: a checagem de papel (`role !== "medico"`) acontece
+    ANTES de qualquer chamada a `getDb()` — decisão deliberada, para que negar
+    acesso a um papel errado nunca dependa de banco disponível. Depois, busca o
+    evento e confirma `event.doctor_user_id === ctx.user.id` (posse), que
+    `doctor_received_at` não é nulo (repasse já foi marcado como pago) e que
+    `doctor_confirmation_status` ainda é nulo (uma resposta só). Contestar sem
+    observação de pelo menos 3 caracteres é rejeitado pelo Zod antes do handler
+    rodar.
+  - `listDoctorPaymentDisputes`: lista repasses contestados de uma unidade,
+    visível a `admin_master`/`unit_admin`/`responsavel_financeiro` (via
+    `assertCanAccessFinancialUnit`, já existente) — diferente do módulo de preço
+    externo, este é sobre confiança operacional, não sobre o preço que a unidade
+    cobra do próprio cliente, por isso `admin_master` participa aqui.
+  - `myFinanceiro`: os dois blocos de seleção de eventos (`legacyEventsPerUnit`,
+    `catalogEventsPerUnit`) passaram a incluir `doctor_confirmation_status`,
+    `doctor_confirmed_at`, `doctor_confirmation_note` e `event_source` (`legacy`
+    ou `catalog`, necessário para o frontend saber qual `event_type` mandar em
+    `confirmDoctorPayment`). O array `events` já era devolvido na resposta antes
+    deste branch — só não continha esses campos.
+
+4.3. Frontend
+  - `FinanceMeuResponsavel.tsx`: `ProfitModal` novo (exportado), com edição
+    inline de preço por legenda e o resumo de lucro do ciclo. Botão "Preço
+    externo / Lucro" ao lado de "Ver médicos" em cada cartão de unidade.
+  - `FinanceDashboard.tsx`: reaproveita o mesmo `ProfitModal` (import direto de
+    `FinanceMeuResponsavel.tsx`, sem duplicar código), com botão visível somente
+    quando `user.role === "unit_admin"` — `admin_master` acessa esta mesma
+    página mas não vê o botão, por ser o mesmo papel excluído do módulo.
+  - `FinanceMeuFinanceiro.tsx`: nova seção "Repasses" logo abaixo de "Laudos
+    entregues", com um `RepasseRow` por evento (não por laudo — um evento de
+    catálogo pode não ter 1:1 com `reports`, por isso a seção usa `events`, não
+    `delivered_reports`). Estados renderizados: pendente (sem `doctor_received_at`),
+    aguardando confirmação (pago, sem resposta — botões "Recebi"/"Não recebi"),
+    confirmado, contestado (mostra a observação do médico).
+
+5. O QUE FICOU DELIBERADAMENTE FORA DO ESCOPO
+
+  - Nenhuma alteração em `markDoctorPaid`, `myResponsavelSummary`,
+    `doctorSummaryByUnit` ou qualquer lógica de cálculo de repasse já existente
+    — este branch só adiciona campos e telas novas por cima.
+  - Nenhuma alteração na Parte 2 do handoff financeiro anterior (aviso de
+    pagamento ao sistema, granularidade de pagamento médico por laudo x ciclo,
+    convivência entre ciclos calculados e persistidos) — continuam pendentes de
+    decisão de produto separada.
+  - `listDoctorPaymentDisputes` não tem UI própria ainda neste branch — o
+    backend está pronto e testado (papel/RBAC via `assertCanAccessFinancialUnit`
+    reaproveitado), mas nenhuma tela chama esta query. Fica registrado para não
+    ser esquecido: sem uma tela que leia essa lista, uma contestação do médico
+    fica só no banco, sem que o responsável financeiro seja avisado na prática.
+  - Migration `0060` não foi aplicada em nenhum ambiente.
+
+6. VALIDAÇÃO EXECUTADA (branch local, antes do push)
+
+pnpm check: aprovado (tsc --noEmit sem erros).
+
+TZ=UTC pnpm test: 430 aprovados, 9 falhos, 1 ignorado (440 no total). Os 9
+falhos batem exatamente com os 7 arquivos da linha de base conhecida deste
+projeto, sem nenhum arquivo novo na lista:
+  - server/finance-v2-dashboard.test.tsx
+  - server/exam-catalog-security.test.ts
+  - server/mediaProxy.test.ts
+  - server/pacs-desktop-download-progress.test.ts
+  - server/pacs.mobile-ui.test.ts
+  - server/security.auth.test.ts
+  - server/study-priority-ui.test.ts (4 casos)
+
+pnpm build: aprovado (vite build + esbuild, sem erro).
+
+Teste direcionado novo — server/audit-fixes-repasse-preco-externo.test.ts:
+7/7 aprovados. Duas das asserções mais sensíveis (exclusão do admin_master em
+assertCanManageExternalSalePrice; checagem de posse em confirmDoctorPayment)
+foram propositalmente quebradas no código, confirmadas falhando, e só então
+revertidas — prova de que os testes realmente pegam a regressão, não passam
+por ausência de banco no sandbox (lição já registrada neste projeto em
+audit-fixes-forbidden-regressions.test.ts).
+
+Teste ajustado — server/finance-meu-financeiro-page.test.tsx: a tela passou a
+chamar confirmDoctorPayment.useMutation; o mock de trpc não tinha esse
+procedure e os 2 testes existentes quebravam com "Cannot read properties of
+undefined (reading 'useMutation')". Adicionado ao mock; os 2 testes voltaram
+a passar sem alteração de comportamento nem de asserção.
+
+git diff --check 942a893..HEAD: aprovado (código de saída 0).
+
+7. GIT LOG (942a893..HEAD)
+
+46b605e feat(financeiro): confirmação do médico no repasse + módulo de preço de venda externa
+
+8. GIT DIFF COMPLETO (942a893..HEAD)
+
+diff --git a/client/src/pages/finance/FinanceDashboard.tsx b/client/src/pages/finance/FinanceDashboard.tsx
+index 0ebe17e..382b73a 100644
+--- a/client/src/pages/finance/FinanceDashboard.tsx
++++ b/client/src/pages/finance/FinanceDashboard.tsx
+@@ -27,6 +27,7 @@ import {
+ } from "lucide-react";
+ import { toast } from "sonner";
+ import { fmtBRL, MONTHS } from "./FinanceModals";
++import { ProfitModal } from "./FinanceMeuResponsavel";
+
+ const MODALITIES = ["CT", "CR", "MR", "US"] as const;
+ const MODALITY_LABEL: Record<(typeof MODALITIES)[number], string> = { CT: "CT", CR: "CR", MR: "RM", US: "US" };
+@@ -261,6 +262,10 @@ function UnitFinancialDetail({
+   const { data: readiness } = trpc.financeSimple.unitFinancialReadiness.useQuery({ unit_id: currentUnit.unit_id });
+   const isAdminMaster = user?.role === "admin_master";
+   const canManagePrices = isAdminMaster || user?.role === "responsavel_financeiro";
++  // NOVO (claude/modulo-repasse-preco-externo): preço de venda externa / lucro é exclusivo
++  // do unit_admin aqui — admin_master não tem esse módulo, por decisão explícita de produto.
++  const canManageExternalPrice = user?.role === "unit_admin";
++  const [showProfitModal, setShowProfitModal] = useState(false);
+   const systemCycleTotal = asMoney(visibleUnit.system_total);
+   const historicalRates = historicalSystemRatesLabel(visibleUnit);
+   const fallbacks = new Map(unitModalityPrices.map((price) => [price.modality, Number(price.price_per_event ?? 0)]));
+@@ -275,8 +280,12 @@ function UnitFinancialDetail({
+       <button onClick={onBack} className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-cyan-800"><ChevronLeft className="h-4 w-4" /> Voltar às unidades</button>
+       <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-start md:justify-between">
+         <div><span className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-700">Financeiro / Unidades</span><h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{currentUnit.unit_name}</h1><p className="mt-1 text-sm text-slate-500">{activeView === "current" ? `Painel operacional do ciclo atual: ${currentUnit.cycle_label}.` : `Consulta histórica do período: ${historicalUnit.cycle_label}.`}</p></div>
+-        <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" /> Unidade ativa</span>
++        <div className="flex items-center gap-2">
++          {canManageExternalPrice && <Button type="button" size="sm" variant="outline" className="border-cyan-200 text-cyan-800" onClick={() => setShowProfitModal(true)}>Preço externo / Lucro</Button>}
++          <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" /> Unidade ativa</span>
++        </div>
+       </div>
++      {showProfitModal && <ProfitModal unitId={currentUnit.unit_id} unitName={currentUnit.unit_name} onClose={() => setShowProfitModal(false)} />}
+
+       <div className="mt-6 flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+         <div className="inline-flex w-fit rounded-xl border border-slate-200 bg-white p-1 shadow-sm"><Button type="button" size="sm" variant={activeView === "current" ? "default" : "ghost"} className={activeView === "current" ? "bg-cyan-700 hover:bg-cyan-600" : ""} onClick={() => onChangeView("current")}>Ciclo atual</Button><Button type="button" size="sm" variant={activeView === "history" ? "default" : "ghost"} className={activeView === "history" ? "bg-slate-800 hover:bg-slate-700" : ""} onClick={() => onChangeView("history")}>Histórico</Button></div>
+diff --git a/client/src/pages/finance/FinanceMeuFinanceiro.tsx b/client/src/pages/finance/FinanceMeuFinanceiro.tsx
+index 36bcdc5..17e307d 100644
+--- a/client/src/pages/finance/FinanceMeuFinanceiro.tsx
++++ b/client/src/pages/finance/FinanceMeuFinanceiro.tsx
+@@ -11,7 +11,7 @@ import { downloadFinancialReportPdf } from "@/lib/financialReportPdfDownload";
+ import { toast } from "sonner";
+ import {
+   AlertCircle, Building2, CalendarDays, CheckCircle2, CircleDollarSign,
+-  FileText, Landmark, LoaderCircle, LockKeyhole, RefreshCw, Search,
++  Clock, FileText, Landmark, LoaderCircle, LockKeyhole, RefreshCw, Search,
+ } from "lucide-react";
+
+ const MODALITY_META: Record<string, { label: string; className: string }> = {
+@@ -149,6 +149,13 @@ export default function FinanceMeuFinanceiro() {
+   const selectedUnit = units.find((unit) => unit.unit_id === unitId) ?? null;
+   const summary = financeQuery.data?.summary[0];
+   const reports = financeQuery.data?.delivered_reports ?? [];
++  // NOVO (claude/modulo-repasse-preco-externo): repasses do ciclo, com status pago/pendente
++  // e confirmação do próprio médico — antes calculado pela API e nunca exibido nesta tela.
++  const repasses = financeQuery.data?.events ?? [];
++  const confirmPayment = trpc.financeSimple.confirmDoctorPayment.useMutation({
++    onSuccess: () => { toast.success("Resposta registrada."); void financeQuery.refetch(); },
++    onError: (error) => toast.error(error instanceof Error ? error.message : "Não foi possível registrar sua resposta."),
++  });
+   const normalizedFilter = reportFilter.trim().toLocaleLowerCase("pt-BR");
+   const visibleReports = useMemo(() => reports.filter((report) => !normalizedFilter || [
+     report.patient_name,
+@@ -227,6 +234,35 @@ export default function FinanceMeuFinanceiro() {
+                   </div>
+                 </section>
+
++                {/* NOVO (claude/modulo-repasse-preco-externo): status de repasse — a API já calculava
++                    pago/pendente por evento, mas esta tela nunca exibia. Agora mostra e permite ao
++                    médico confirmar ou contestar um repasse marcado como pago pela clínica. */}
++                <section id="repasses" className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
++                  <div className="border-b border-slate-100 px-4 py-3">
++                    <h2 className="text-base font-semibold text-slate-950">Repasses</h2>
++                    <p className="mt-0.5 text-xs text-slate-500">Situação de cada repasse deste ciclo, nesta unidade.</p>
++                  </div>
++                  <div className="divide-y divide-slate-100">
++                    {financeQuery.isLoading ? (
++                      <p className="px-4 py-8 text-center text-sm text-slate-500">Carregando repasses…</p>
++                    ) : repasses.length === 0 ? (
++                      <p className="px-4 py-8 text-center text-sm text-slate-500">Nenhum repasse gerado neste ciclo.</p>
++                    ) : repasses.map((event: any) => (
++                      <RepasseRow
++                        key={event.id}
++                        event={event}
++                        onRespond={(status, note) => confirmPayment.mutate({
++                          event_type: event.event_source,
++                          event_id: typeof event.id === "string" ? Number(String(event.id).replace("catalog-", "")) : event.id,
++                          status,
++                          note,
++                        })}
++                        isPending={confirmPayment.isPending}
++                      />
++                    ))}
++                  </div>
++                </section>
++
+                 <section className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"><div className="grid gap-3 sm:grid-cols-3"><CycleDate label="Início" value={fmtCalendarDate(summary?.cycle_start_display)} /><CycleDate label="Término" value={fmtCalendarDate(summary?.cycle_end_display)} /><CycleDate label="Unidade" value={selectedUnit?.unit_name ?? "—"} building /></div></section>
+               </div>
+
+@@ -275,3 +311,81 @@ function EmptyFinancialAccess() {
+ function FinancialError({ onRetry }: { onRetry: () => void }) {
+   return <div className="mx-auto max-w-xl rounded-2xl border border-rose-200 bg-white p-10 text-center shadow-sm"><AlertCircle className="mx-auto h-10 w-10 text-rose-600" /><h1 className="mt-4 text-xl font-semibold text-slate-900">Não foi possível carregar seu financeiro</h1><p className="mt-2 text-sm text-slate-500">Nenhum dado foi ocultado como lista vazia. Tente novamente ou comunique o responsável pela unidade.</p><button onClick={onRetry} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"><RefreshCw className="h-4 w-4" /> Tentar novamente</button></div>;
+ }
++
++// ─── NOVO (auditoria claude/modulo-repasse-preco-externo) ───────────────────
++// Linha de um repasse com status pago/pendente e confirmação do médico.
++// Uma resposta só (confirmar ou contestar); o backend recusa uma segunda.
++function RepasseRow({
++  event, onRespond, isPending,
++}: {
++  event: any;
++  onRespond: (status: "confirmed" | "disputed", note?: string) => void;
++  isPending: boolean;
++}) {
++  const [disputing, setDisputing] = useState(false);
++  const [note, setNote] = useState("");
++
++  if (!event.doctor_received_at) {
++    return (
++      <div className="flex items-center justify-between gap-3 px-4 py-3">
++        <div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{displayPatient(event.patient_name)} — {event.exam_name_snapshot ?? "Exame"}</p><p className="mt-0.5 text-xs text-slate-500">Assinado em {fmtDate(event.signed_at)}</p></div>
++        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200"><Clock className="h-3.5 w-3.5" /> Pendente</span>
++      </div>
++    );
++  }
++
++  if (event.doctor_confirmation_status === "confirmed") {
++    return (
++      <div className="flex items-center justify-between gap-3 px-4 py-3">
++        <div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{displayPatient(event.patient_name)} — {event.exam_name_snapshot ?? "Exame"}</p><p className="mt-0.5 text-xs text-slate-500">Pago em {fmtDate(event.doctor_received_at)} · confirmado em {fmtDate(event.doctor_confirmed_at)}</p></div>
++        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" /> Confirmado</span>
++      </div>
++    );
++  }
++
++  if (event.doctor_confirmation_status === "disputed") {
++    return (
++      <div className="px-4 py-3">
++        <div className="flex items-center justify-between gap-3">
++          <div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{displayPatient(event.patient_name)} — {event.exam_name_snapshot ?? "Exame"}</p><p className="mt-0.5 text-xs text-slate-500">Pago em {fmtDate(event.doctor_received_at)} · contestado em {fmtDate(event.doctor_confirmed_at)}</p></div>
++          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-200"><AlertCircle className="h-3.5 w-3.5" /> Contestado</span>
++        </div>
++        {event.doctor_confirmation_note && <p className="mt-1.5 rounded-lg bg-rose-50/60 px-2.5 py-1.5 text-xs text-rose-800">"{event.doctor_confirmation_note}"</p>}
++      </div>
++    );
++  }
++
++  // Pago pela clínica, aguardando a resposta do médico.
++  return (
++    <div className="px-4 py-3">
++      <div className="flex flex-wrap items-center justify-between gap-3">
++        <div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{displayPatient(event.patient_name)} — {event.exam_name_snapshot ?? "Exame"}</p><p className="mt-0.5 text-xs text-slate-500">Marcado como pago em {fmtDate(event.doctor_received_at)}{event.paid_by_name ? ` por ${event.paid_by_name}` : ""}</p></div>
++        {!disputing && (
++          <div className="flex shrink-0 items-center gap-2">
++            <button disabled={isPending} onClick={() => onRespond("confirmed")} className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60">Recebi</button>
++            <button disabled={isPending} onClick={() => setDisputing(true)} className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-60">Não recebi</button>
++          </div>
++        )}
++      </div>
++      {disputing && (
++        <div className="mt-2 flex flex-wrap items-center gap-2">
++          <input
++            autoFocus
++            value={note}
++            onChange={(inputEvent) => setNote(inputEvent.target.value)}
++            placeholder="Descreva brevemente o motivo"
++            className="h-8 min-w-52 flex-1 rounded-lg border border-slate-200 px-2.5 text-xs outline-none focus:border-rose-400"
++          />
++          <button
++            disabled={isPending || note.trim().length < 3}
++            onClick={() => onRespond("disputed", note.trim())}
++            className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-60"
++          >
++            Enviar contestação
++          </button>
++          <button onClick={() => { setDisputing(false); setNote(""); }} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
++        </div>
++      )}
++    </div>
++  );
++}
+diff --git a/client/src/pages/finance/FinanceMeuResponsavel.tsx b/client/src/pages/finance/FinanceMeuResponsavel.tsx
+index 1d4a98c..018c230 100644
+--- a/client/src/pages/finance/FinanceMeuResponsavel.tsx
++++ b/client/src/pages/finance/FinanceMeuResponsavel.tsx
+@@ -121,6 +121,175 @@ function DoctorsModal({
+   );
+ }
+
++// ─── NOVO (auditoria claude/modulo-repasse-preco-externo) ───────────────────
++// Modal de preço de venda externa + calculadora de lucro da clínica, por unidade.
++// Ambiente exclusivo do responsável financeiro / unit_admin — não diz respeito
++// a admin_master nem a médico, conforme definido na coleta de requisitos.
++export function ProfitModal({
++  unitId, unitName, onClose,
++}: {
++  unitId: number; unitName: string; onClose: () => void;
++}) {
++  const utils = trpc.useUtils();
++  const [editingLegendId, setEditingLegendId] = useState<number | null>(null);
++  const [priceInput, setPriceInput] = useState("");
++
++  const pricesQuery = trpc.financeSimple.listExternalSalePrices.useQuery({ unit_id: unitId });
++  const profitQuery = trpc.financeSimple.unitProfitCalculator.useQuery({ unit_id: unitId });
++
++  const setPrice = trpc.financeSimple.setExternalSalePrice.useMutation({
++    onSuccess: () => {
++      toast.success("Preço de venda externa atualizado.");
++      utils.financeSimple.listExternalSalePrices.invalidate();
++      utils.financeSimple.unitProfitCalculator.invalidate();
++      setEditingLegendId(null);
++      setPriceInput("");
++    },
++    onError: (e) => toast.error(e.message),
++  });
++
++  const profitByLegend = new Map((profitQuery.data?.by_exam ?? []).map((row) => [row.exam_legend_id, row]));
++
++  return (
++    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
++      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl">
++        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
++          <div>
++            <p className="text-white font-semibold">{unitName}</p>
++            <p className="text-slate-400 text-xs">Preço de venda externa e lucro — {profitQuery.data?.cycle_label ?? "ciclo atual"}</p>
++          </div>
++          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
++            <X className="h-5 w-5" />
++          </button>
++        </div>
++
++        {profitQuery.data && (
++          <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-slate-700/50">
++            <div className="bg-slate-800/60 rounded-lg p-3">
++              <p className="text-slate-500 text-xs mb-1">Caixa recebido</p>
++              <p className="text-cyan-400 font-semibold">{fmtBRL(profitQuery.data.totals.cash_received)}</p>
++            </div>
++            <div className="bg-slate-800/60 rounded-lg p-3">
++              <p className="text-slate-500 text-xs mb-1">Repasse sistema</p>
++              <p className="text-amber-400 font-semibold">{fmtBRL(profitQuery.data.totals.system_repasse)}</p>
++            </div>
++            <div className="bg-slate-800/60 rounded-lg p-3">
++              <p className="text-slate-500 text-xs mb-1">Repasse médicos</p>
++              <p className="text-rose-400 font-semibold">{fmtBRL(profitQuery.data.totals.doctor_repasse)}</p>
++            </div>
++            <div className="bg-slate-800/60 rounded-lg p-3">
++              <p className="text-slate-500 text-xs mb-1">Lucro da clínica</p>
++              <p className="text-emerald-400 font-semibold">{fmtBRL(profitQuery.data.totals.profit)}</p>
++            </div>
++          </div>
++        )}
++
++        <div className="overflow-y-auto flex-1">
++          {pricesQuery.isLoading ? (
++            <div className="p-6 space-y-2">
++              {[1, 2, 3].map((i) => <div key={i} className="h-12 bg-slate-800 rounded animate-pulse" />)}
++            </div>
++          ) : (
++            <table className="w-full text-sm">
++              <thead>
++                <tr className="border-b border-slate-700/50">
++                  <th className="text-left px-6 py-3 text-slate-400 font-medium text-xs uppercase">Exame</th>
++                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Preço externo</th>
++                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Vendidos no ciclo</th>
++                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Lucro no ciclo</th>
++                  <th className="text-right px-6 py-3 text-slate-400 font-medium text-xs uppercase">Ação</th>
++                </tr>
++              </thead>
++              <tbody className="divide-y divide-slate-700/30">
++                {(pricesQuery.data ?? []).map((legend) => {
++                  const profitRow = profitByLegend.get(legend.exam_legend_id);
++                  const isEditing = editingLegendId === legend.exam_legend_id;
++                  return (
++                    <tr key={legend.exam_legend_id} className="hover:bg-slate-800/40 transition-colors">
++                      <td className="px-6 py-3 text-white">{legend.exam_name}</td>
++                      <td className="px-4 py-3 text-right">
++                        {isEditing ? (
++                          <input
++                            autoFocus
++                            type="number"
++                            step="0.01"
++                            min="0"
++                            value={priceInput}
++                            onChange={(e) => setPriceInput(e.target.value)}
++                            className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-right text-white text-xs"
++                          />
++                        ) : legend.configured ? (
++                          <span className="text-cyan-400 font-medium">{fmtBRL(legend.price_external!)}</span>
++                        ) : (
++                          <span className="text-slate-600 text-xs">Não configurado</span>
++                        )}
++                      </td>
++                      <td className="px-4 py-3 text-slate-300 text-right">{profitRow?.units_sold ?? 0}</td>
++                      <td className="px-4 py-3 text-right">
++                        {profitRow ? (
++                          <span className="text-emerald-400 font-semibold">{fmtBRL(profitRow.profit)}</span>
++                        ) : (
++                          <span className="text-slate-600 text-xs">—</span>
++                        )}
++                      </td>
++                      <td className="px-6 py-3 text-right">
++                        {isEditing ? (
++                          <div className="flex items-center justify-end gap-1.5">
++                            <Button
++                              size="sm"
++                              className="h-6 px-2 text-xs bg-emerald-700 hover:bg-emerald-600"
++                              disabled={setPrice.isPending || !priceInput || Number(priceInput) <= 0}
++                              onClick={() => setPrice.mutate({
++                                unit_id: unitId,
++                                exam_legend_id: legend.exam_legend_id,
++                                price_external: Number(priceInput),
++                              })}
++                            >
++                              Salvar
++                            </Button>
++                            <Button
++                              size="sm"
++                              variant="outline"
++                              className="h-6 px-2 text-xs border-slate-600 text-slate-300"
++                              onClick={() => { setEditingLegendId(null); setPriceInput(""); }}
++                            >
++                              Cancelar
++                            </Button>
++                          </div>
++                        ) : (
++                          <Button
++                            size="sm"
++                            variant="outline"
++                            className="h-6 px-2 text-xs border-slate-600 text-slate-300 hover:bg-slate-700"
++                            onClick={() => {
++                              setEditingLegendId(legend.exam_legend_id);
++                              setPriceInput(legend.configured ? String(legend.price_external) : "");
++                            }}
++                          >
++                            {legend.configured ? "Editar" : "Configurar"}
++                          </Button>
++                        )}
++                      </td>
++                    </tr>
++                  );
++                })}
++              </tbody>
++            </table>
++          )}
++          {(profitQuery.data?.unconfigured_exams.length ?? 0) > 0 && (
++            <div className="mx-6 mb-4 mt-2 flex items-start gap-2 rounded-lg border border-amber-800/50 bg-amber-950/30 p-3 text-xs text-amber-300">
++              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
++              <p>
++                {profitQuery.data!.unconfigured_exams.length} exame(s) tiveram laudos emitidos neste ciclo mas ainda não têm preço de venda externa configurado — o lucro deles não entra no total até você configurar o preço.
++              </p>
++            </div>
++          )}
++        </div>
++      </div>
++    </div>
++  );
++}
++
+ // ─── Componente principal ─────────────────────────────────────────────────────
+ export default function FinanceMeuResponsavel() {
+   const [, navigate] = useLocation();
+@@ -128,6 +297,7 @@ export default function FinanceMeuResponsavel() {
+   const [year, setYear] = useState(now.getFullYear());
+   const [month, setMonth] = useState(now.getMonth() + 1);
+   const [selectedUnit, setSelectedUnit] = useState<{ id: number; name: string } | null>(null);
++  const [selectedProfitUnit, setSelectedProfitUnit] = useState<{ id: number; name: string } | null>(null);
+
+   const referenceDate = new Date(year, month - 1, 15).toISOString();
+   const { data, isLoading } = trpc.financeSimple.myResponsavelSummary.useQuery({ reference_date: referenceDate });
+@@ -258,13 +428,22 @@ export default function FinanceMeuResponsavel() {
+                       </p>
+                     </div>
+                   </div>
+-                  <button
+-                    onClick={() => setSelectedUnit({ id: u.unit_id, name: u.unit_name })}
+-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors"
+-                  >
+-                    <Users className="h-3.5 w-3.5" />
+-                    Ver médicos
+-                  </button>
++                  <div className="flex items-center gap-2">
++                    <button
++                      onClick={() => setSelectedProfitUnit({ id: u.unit_id, name: u.unit_name })}
++                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors"
++                    >
++                      <Settings className="h-3.5 w-3.5" />
++                      Preço externo / Lucro
++                    </button>
++                    <button
++                      onClick={() => setSelectedUnit({ id: u.unit_id, name: u.unit_name })}
++                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors"
++                    >
++                      <Users className="h-3.5 w-3.5" />
++                      Ver médicos
++                    </button>
++                  </div>
+                 </div>
+
+                 {/* Barra de valores */}
+@@ -333,6 +512,15 @@ export default function FinanceMeuResponsavel() {
+           onClose={() => setSelectedUnit(null)}
+         />
+       )}
++
++      {/* Modal de preço externo / lucro — NOVO (claude/modulo-repasse-preco-externo) */}
++      {selectedProfitUnit && (
++        <ProfitModal
++          unitId={selectedProfitUnit.id}
++          unitName={selectedProfitUnit.name}
++          onClose={() => setSelectedProfitUnit(null)}
++        />
++      )}
+     </FinanceShell>
+   );
+ }
+diff --git a/drizzle/0060_external_sale_price_doctor_confirmation.sql b/drizzle/0060_external_sale_price_doctor_confirmation.sql
+new file mode 100644
+index 0000000..c9b93ba
+--- /dev/null
++++ b/drizzle/0060_external_sale_price_doctor_confirmation.sql
+@@ -0,0 +1,50 @@
++-- CORREÇÃO (auditoria claude/modulo-repasse-preco-externo):
++-- 1) Nova tabela de preço de venda externa por unidade + legenda de exame, usada
++--    exclusivamente pelo módulo de lucro do responsável financeiro / unit_admin.
++-- 2) Confirmação do médico sobre o repasse marcado como pago pela clínica, nas duas
++--    tabelas de evento financeiro (legado e catálogo), para que o médico deixe de
++--    depender só da palavra da clínica sobre o próprio repasse.
++
++CREATE TABLE `billing_external_sale_prices` (
++  `id` int AUTO_INCREMENT NOT NULL,
++  `unit_id` int NOT NULL,
++  `exam_legend_id` int NOT NULL,
++  `price_external` decimal(10,2) NOT NULL,
++  `starts_at` timestamp NOT NULL,
++  `ends_at` timestamp NULL,
++  `created_by` int NOT NULL,
++  `createdAt` timestamp NOT NULL DEFAULT (now()),
++  CONSTRAINT `billing_external_sale_prices_id` PRIMARY KEY(`id`),
++  CONSTRAINT `uq_external_sale_price_unit_legend_start` UNIQUE(`unit_id`,`exam_legend_id`,`starts_at`)
++);
++
++ALTER TABLE `billing_visit_events`
++  ADD COLUMN `doctor_confirmation_status` enum('confirmed','disputed') NULL AFTER `doctor_received_by_user_id`;
++
++ALTER TABLE `billing_visit_events`
++  ADD COLUMN `doctor_confirmed_at` timestamp NULL AFTER `doctor_confirmation_status`;
++
++ALTER TABLE `billing_visit_events`
++  ADD COLUMN `doctor_confirmation_note` varchar(500) NULL AFTER `doctor_confirmed_at`;
++
++ALTER TABLE `billing_catalog_study_events`
++  ADD COLUMN `doctor_confirmation_status` enum('confirmed','disputed') NULL AFTER `doctor_payment_note`;
++
++ALTER TABLE `billing_catalog_study_events`
++  ADD COLUMN `doctor_confirmed_at` timestamp NULL AFTER `doctor_confirmation_status`;
++
++ALTER TABLE `billing_catalog_study_events`
++  ADD COLUMN `doctor_confirmation_note` varchar(500) NULL AFTER `doctor_confirmed_at`;
++
++-- Novos valores de audit_log.action usados pelas mutations acima.
++ALTER TABLE `audit_log`
++  MODIFY COLUMN `action` enum(
++    'LOGIN','LOGOUT','VIEW_STUDY','OPEN_VIEWER','CREATE_REPORT','UPDATE_REPORT','SIGN_REPORT',
++    'DELETE_REPORT','CANCEL_REPORT','REVISE_REPORT','CREATE_USER','UPDATE_USER','DELETE_USER',
++    'ACTIVATE_USER','DEACTIVATE_USER','CREATE_UNIT','UPDATE_UNIT','DELETE_UNIT','PACS_QUERY',
++    'PACS_DOWNLOAD','CREATE_ANAMNESIS','EDIT_STUDY_METADATA','SET_STUDY_PRIORITY',
++    'UPDATE_STUDY_PRIORITY','CLEAR_STUDY_PRIORITY','RESET_DOCTOR_BILLING','CREATE_LAYOUT',
++    'UPDATE_LAYOUT','DELETE_LAYOUT','BILLING_EVENT_FAILED','FINANCIAL_ENABLED','FINANCIAL_DISABLED',
++    'BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED','BILLING_EVENT_CANCELLED',
++    'DOCTOR_PAYMENT_CONFIRMED','DOCTOR_PAYMENT_DISPUTED','SET_EXTERNAL_SALE_PRICE'
++  ) NOT NULL;
+diff --git a/drizzle/schema.ts b/drizzle/schema.ts
+index 28ee322..76f9ae0 100644
+--- a/drizzle/schema.ts
++++ b/drizzle/schema.ts
+@@ -187,7 +187,7 @@ export const audit_log = mysqlTable("audit_log", {
+   id: int("id").autoincrement().primaryKey(),
+   user_id: int("user_id"),
+   unit_id: int("unit_id"),
+-  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "DELETE_REPORT", "CANCEL_REPORT", "REVISE_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "ACTIVATE_USER", "DEACTIVATE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA", "SET_STUDY_PRIORITY", "UPDATE_STUDY_PRIORITY", "CLEAR_STUDY_PRIORITY", "RESET_DOCTOR_BILLING", "CREATE_LAYOUT", "UPDATE_LAYOUT", "DELETE_LAYOUT", "BILLING_EVENT_FAILED", "FINANCIAL_ENABLED", "FINANCIAL_DISABLED", "BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED", "BILLING_EVENT_CANCELLED"]).notNull(),
++  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "DELETE_REPORT", "CANCEL_REPORT", "REVISE_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "ACTIVATE_USER", "DEACTIVATE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA", "SET_STUDY_PRIORITY", "UPDATE_STUDY_PRIORITY", "CLEAR_STUDY_PRIORITY", "RESET_DOCTOR_BILLING", "CREATE_LAYOUT", "UPDATE_LAYOUT", "DELETE_LAYOUT", "BILLING_EVENT_FAILED", "FINANCIAL_ENABLED", "FINANCIAL_DISABLED", "BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED", "BILLING_EVENT_CANCELLED", "DOCTOR_PAYMENT_CONFIRMED", "DOCTOR_PAYMENT_DISPUTED", "SET_EXTERNAL_SALE_PRICE"]).notNull(),
+   target_type: varchar("target_type", { length: 50 }),
+   target_id: varchar("target_id", { length: 100 }),
+   ip_address: varchar("ip_address", { length: 45 }),
+@@ -568,6 +568,36 @@ export const billing_doctor_modality_prices = mysqlTable(
+ export type BillingDoctorModalityPrice = typeof billing_doctor_modality_prices.$inferSelect;
+ export type InsertBillingDoctorModalityPrice = typeof billing_doctor_modality_prices.$inferInsert;
+
++/**
++ * billing_external_sale_prices — Preço de venda externa por unidade + legenda de exame
++ * NOVO (auditoria claude/modulo-repasse-preco-externo): valor que a própria unidade cobra
++ * do cliente externo dela por um tipo de exame (não confundir com billing_unit_modality_prices,
++ * que é o que a unidade paga PARA A LAUDS). Usado só pelo módulo do responsável financeiro
++ * para calcular lucro da clínica: caixa recebido (contagem de laudos emitidos da legenda no
++ * ciclo × este preço) menos repasse ao sistema menos repasse ao médico, ambos já calculados
++ * por evento em billing_catalog_study_events. Configuração opcional por natureza — uma unidade
++ * pode não ter preço externo configurado para uma legenda, e nesse caso o cálculo de lucro
++ * daquele exame não é exibido (nunca assume zero). Sem financial_responsible_id como chave:
++ * o preço pertence à unidade, não a um responsável financeiro específico — se a unidade tiver
++ * mais de um responsável vinculado, todos veem o mesmo preço. Não diz respeito a nenhum outro
++ * papel do sistema (nem admin_master, nem unit_admin fora da edição, nem médico).
++ */
++export const billing_external_sale_prices = mysqlTable("billing_external_sale_prices", {
++  id: int("id").autoincrement().primaryKey(),
++  unit_id: int("unit_id").notNull(),
++  exam_legend_id: int("exam_legend_id").notNull(),
++  price_external: decimal("price_external", { precision: 10, scale: 2 }).notNull(),
++  starts_at: timestamp("starts_at").notNull(),
++  ends_at: timestamp("ends_at"),
++  /** Autor pode ser responsavel_financeiro OU unit_admin — ambos podem configurar. */
++  created_by: int("created_by").notNull(),
++  createdAt: timestamp("createdAt").defaultNow().notNull(),
++}, (t) => ({
++  uqUnitLegendStart: uniqueIndex("uq_external_sale_price_unit_legend_start").on(t.unit_id, t.exam_legend_id, t.starts_at),
++}));
++export type BillingExternalSalePrice = typeof billing_external_sale_prices.$inferSelect;
++export type InsertBillingExternalSalePrice = typeof billing_external_sale_prices.$inferInsert;
++
+ /**
+  * billing_report_items — Itemização auditável: um registro por laudo faturável
+  * Fato gerador: reports com status signed ou revised.
+@@ -728,6 +758,14 @@ export const billing_visit_events = mysqlTable("billing_visit_events", {
+   doctor_received_at: timestamp("doctor_received_at"),
+   /** P4: auditoria — quem marcou o pagamento ao médico */
+   doctor_received_by_user_id: int("doctor_received_by_user_id"),
++  /** CORREÇÃO (auditoria claude/modulo-repasse-preco-externo): confirmação do próprio médico
++   * sobre o repasse marcado como pago pela clínica — resolve o problema de o médico e o
++   * sistema terem que "confiar na palavra da clínica" sem nenhum registro. Nulo enquanto
++   * o médico não respondeu; "confirmed" quando ele confirma o recebimento; "disputed"
++   * quando ele contesta (gera alerta operacional, não bloqueia nada e não arbitra o mérito). */
++  doctor_confirmation_status: mysqlEnum("doctor_confirmation_status", ["confirmed", "disputed"]),
++  doctor_confirmed_at: timestamp("doctor_confirmed_at"),
++  doctor_confirmation_note: varchar("doctor_confirmation_note", { length: 500 }),
+   system_paid_at: timestamp("system_paid_at"),
+   /** P4: auditoria — quem marcou o pagamento ao sistema */
+   system_paid_by_user_id: int("system_paid_by_user_id"),
+@@ -1063,6 +1101,12 @@ export const billing_catalog_study_events = mysqlTable("billing_catalog_study_ev
+   doctor_received_at: timestamp("doctor_received_at"),
+   doctor_received_by_user_id: int("doctor_received_by_user_id"),
+   doctor_payment_note: varchar("doctor_payment_note", { length: 500 }),
++  /** CORREÇÃO (auditoria claude/modulo-repasse-preco-externo): mesma confirmação do médico
++   * descrita em billing_visit_events — mantida nos dois lugares porque doctor_received_at
++   * já existe duplicado entre as duas tabelas (evento legado vs. evento de catálogo). */
++  doctor_confirmation_status: mysqlEnum("doctor_confirmation_status", ["confirmed", "disputed"]),
++  doctor_confirmed_at: timestamp("doctor_confirmed_at"),
++  doctor_confirmation_note: varchar("doctor_confirmation_note", { length: 500 }),
+   /** Baixa operacional da obrigação da unidade com a LAUDS, exclusiva do admin_master. */
+   system_paid_at: timestamp("system_paid_at"),
+   system_paid_by_user_id: int("system_paid_by_user_id"),
+diff --git a/server/audit-fixes-repasse-preco-externo.test.ts b/server/audit-fixes-repasse-preco-externo.test.ts
+new file mode 100644
+index 0000000..7fdfe12
+--- /dev/null
++++ b/server/audit-fixes-repasse-preco-externo.test.ts
+@@ -0,0 +1,239 @@
++/**
++ * Regressão (auditoria claude/modulo-repasse-preco-externo, 2026-09-17):
++ * cobre as duas peças novas de RBAC do módulo de repasse ao médico e preço de
++ * venda externa, seguindo a mesma lição já aplicada neste projeto em
++ * audit-fixes-forbidden-regressions.test.ts — getDb() retorna null sem
++ * DATABASE_URL, então qualquer procedure que chame getDb() antes de decidir
++ * a autorização precisa de ./db mockado, senão o teste "passa" só pela
++ * ausência de banco no sandbox, não porque a regra realmente barrou o acesso.
++ *
++ *   - assertCanManageExternalSalePrice: admin_master é deliberadamente
++ *     excluído do módulo de preço de venda externa (decisão de produto, não
++ *     falha de permissão) — unit_admin com vínculo é permitido e grava o
++ *     preço com os dados exatos esperados.
++ *   - confirmDoctorPayment: só o próprio médico dono do repasse pode
++ *     confirmar/contestar; contestar sem observação é rejeitado pelo Zod
++ *     antes de qualquer acesso a banco.
++ */
++import { describe, expect, it, vi } from "vitest";
++import type { TrpcContext } from "./_core/context";
++
++type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
++
++function createCtx(overrides: Partial<AuthenticatedUser> & { unit_id?: number | null }): TrpcContext {
++  const user: AuthenticatedUser = {
++    id: overrides.id ?? 99,
++    openId: overrides.openId ?? "test-user",
++    email: overrides.email ?? "test@pacs.com",
++    name: overrides.name ?? "Test User",
++    loginMethod: "local",
++    role: overrides.role ?? "medico",
++    unit_id: overrides.unit_id ?? null,
++    isActive: overrides.isActive ?? true,
++    createdAt: new Date(),
++    updatedAt: new Date(),
++    lastSignedIn: new Date(),
++    ...overrides,
++  };
++  return {
++    user,
++    req: {
++      protocol: "https",
++      headers: { "user-agent": "vitest" },
++      ip: "127.0.0.1",
++    } as TrpcContext["req"],
++    res: {
++      clearCookie: () => {},
++      cookie: () => {},
++    } as unknown as TrpcContext["res"],
++  };
++}
++
++/** Chain mínimo de select() que resolve para `rows`, sem depender de banco real. */
++function selectChain<T>(rows: T[]) {
++  const chain: any = {
++    from: () => chain,
++    where: () => chain,
++    limit: () => chain,
++    orderBy: () => chain,
++    groupBy: () => chain,
++    then: (resolve: (value: T[]) => void) => resolve(rows),
++  };
++  return chain;
++}
++
++describe("setExternalSalePrice / listExternalSalePrices / unitProfitCalculator — escopo exclusivo", () => {
++  it("admin_master recebe FORBIDDEN sem tocar banco (módulo não é dele, por decisão de produto)", async () => {
++    vi.resetModules();
++    const selectSpy = vi.fn(() => { throw new Error("não deveria consultar o banco para admin_master neste módulo"); });
++    vi.doMock("./db", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./db")>();
++      return {
++        ...original,
++        getDb: vi.fn(async () => ({ select: selectSpy, insert: selectSpy, update: selectSpy })),
++      };
++    });
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 1, role: "admin_master" });
++    const caller = appRouter.createCaller(ctx);
++
++    await expect(
++      caller.financeSimple.listExternalSalePrices({ unit_id: 1 })
++    ).rejects.toMatchObject({ code: "FORBIDDEN" });
++    await expect(
++      caller.financeSimple.setExternalSalePrice({ unit_id: 1, exam_legend_id: 1, price_external: 40 })
++    ).rejects.toMatchObject({ code: "FORBIDDEN" });
++    await expect(
++      caller.financeSimple.unitProfitCalculator({ unit_id: 1 })
++    ).rejects.toMatchObject({ code: "FORBIDDEN" });
++    expect(selectSpy).not.toHaveBeenCalled();
++
++    vi.doUnmock("./db");
++    vi.resetModules();
++  });
++
++  it("unit_admin sem vínculo com a unidade recebe FORBIDDEN", async () => {
++    vi.resetModules();
++    vi.doMock("./db", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./db")>();
++      return {
++        ...original,
++        getDb: vi.fn(async () => ({ select: () => selectChain([]) })), // nenhum vínculo encontrado
++      };
++    });
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 2, role: "unit_admin" });
++    const caller = appRouter.createCaller(ctx);
++
++    await expect(
++      caller.financeSimple.listExternalSalePrices({ unit_id: 1 })
++    ).rejects.toMatchObject({ code: "FORBIDDEN" });
++
++    vi.doUnmock("./db");
++    vi.resetModules();
++  });
++
++  it("unit_admin com vínculo grava o preço com os dados exatos (não aceita sucesso/erro indistintos)", async () => {
++    vi.resetModules();
++    const insertValuesSpy = vi.fn();
++    const updateWhereSpy = vi.fn();
++    vi.doMock("./db", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./db")>();
++      return {
++        ...original,
++        getDb: vi.fn(async () => ({
++          // Única consulta desta procedure: a checagem de vínculo unit_admin -> unidade.
++          select: () => selectChain([{ unit_id: 1 }]),
++          update: () => ({ set: () => ({ where: updateWhereSpy }) }),
++          insert: () => ({ values: insertValuesSpy }),
++        })),
++      };
++    });
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 2, role: "unit_admin" });
++    const caller = appRouter.createCaller(ctx);
++
++    const result = await caller.financeSimple.setExternalSalePrice({
++      unit_id: 1,
++      exam_legend_id: 7,
++      price_external: 40,
++    });
++
++    expect(result).toEqual({ success: true });
++    // Encerra a vigência anterior antes de gravar a nova — prova de que o padrão de
++    // histórico auditável (igual a billing_unit_modality_prices) foi seguido de fato.
++    expect(updateWhereSpy).toHaveBeenCalledTimes(1);
++    expect(insertValuesSpy).toHaveBeenCalledTimes(1);
++    const inserted = insertValuesSpy.mock.calls[0][0];
++    expect(inserted.unit_id).toBe(1);
++    expect(inserted.exam_legend_id).toBe(7);
++    expect(inserted.price_external).toBe("40");
++    expect(inserted.created_by).toBe(2);
++    expect(inserted.starts_at).toBeInstanceOf(Date);
++
++    vi.doUnmock("./db");
++    vi.resetModules();
++  });
++});
++
++describe("confirmDoctorPayment — só o próprio médico responde pelo próprio repasse", () => {
++  it("papel diferente de médico recebe FORBIDDEN sem tocar banco", async () => {
++    vi.resetModules();
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 1, role: "admin_master" });
++    const caller = appRouter.createCaller(ctx);
++
++    await expect(
++      caller.financeSimple.confirmDoctorPayment({ event_type: "legacy", event_id: 1, status: "confirmed" })
++    ).rejects.toMatchObject({ code: "FORBIDDEN" });
++    vi.resetModules();
++  });
++
++  it("contestar sem observação é rejeitado pelo Zod antes de qualquer acesso a banco", async () => {
++    vi.resetModules();
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 5, role: "medico" });
++    const caller = appRouter.createCaller(ctx);
++
++    await expect(
++      caller.financeSimple.confirmDoctorPayment({ event_type: "legacy", event_id: 1, status: "disputed" })
++    ).rejects.toThrow();
++    vi.resetModules();
++  });
++
++  it("médico não pode confirmar um repasse que pertence a outro médico", async () => {
++    vi.resetModules();
++    vi.doMock("./db", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./db")>();
++      return {
++        ...original,
++        getDb: vi.fn(async () => ({
++          select: () => selectChain([{
++            id: 1,
++            doctor_user_id: 999, // outro médico, não o do ctx
++            doctor_received_at: new Date(),
++            doctor_confirmation_status: null,
++          }]),
++        })),
++      };
++    });
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 5, role: "medico" });
++    const caller = appRouter.createCaller(ctx);
++
++    await expect(
++      caller.financeSimple.confirmDoctorPayment({ event_type: "legacy", event_id: 1, status: "confirmed" })
++    ).rejects.toMatchObject({ code: "FORBIDDEN" });
++
++    vi.doUnmock("./db");
++    vi.resetModules();
++  });
++
++  it("médico não pode responder um repasse que a clínica ainda não marcou como pago", async () => {
++    vi.resetModules();
++    vi.doMock("./db", async (importOriginal) => {
++      const original = await importOriginal<typeof import("./db")>();
++      return {
++        ...original,
++        getDb: vi.fn(async () => ({
++          select: () => selectChain([{
++            id: 1,
++            doctor_user_id: 5,
++            doctor_received_at: null, // clínica ainda não marcou como pago
++            doctor_confirmation_status: null,
++          }]),
++        })),
++      };
++    });
++    const { appRouter } = await import("./routers");
++    const ctx = createCtx({ id: 5, role: "medico" });
++    const caller = appRouter.createCaller(ctx);
++
++    await expect(
++      caller.financeSimple.confirmDoctorPayment({ event_type: "legacy", event_id: 1, status: "confirmed" })
++    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
++
++    vi.doUnmock("./db");
++    vi.resetModules();
++  });
++});
+diff --git a/server/finance-meu-financeiro-page.test.tsx b/server/finance-meu-financeiro-page.test.tsx
+index db54000..95d0cfa 100644
+--- a/server/finance-meu-financeiro-page.test.tsx
++++ b/server/finance-meu-financeiro-page.test.tsx
+@@ -29,6 +29,9 @@ vi.mock("@/lib/trpc", () => ({
+         };
+       } },
+       myModalityPrices: { useQuery: () => ({ data: [{ modality: "CT", price_per_report: 90, source: "individual", source_label: "Valor individual definido para você" }], isLoading: false, isError: false, refetch: vi.fn() }) },
++      // NOVO (claude/modulo-repasse-preco-externo): a página passou a chamar esta mutation
++      // para o médico confirmar/contestar repasses — sem isso no mock, o hook quebra.
++      confirmDoctorPayment: { useMutation: (opts?: { onSuccess?: () => void; onError?: (e: unknown) => void }) => ({ mutate: vi.fn(), isPending: false }) },
+     },
+     useUtils: () => ({ financeSimple: { myReportDownload: { fetch: state.directDownloadFetch } } }),
+   },
+diff --git a/server/routers/financeSimple.ts b/server/routers/financeSimple.ts
+index 4b1f7bc..8b0e003 100644
+--- a/server/routers/financeSimple.ts
++++ b/server/routers/financeSimple.ts
+@@ -28,6 +28,7 @@ import {
+   billing_unit_modality_prices,
+   billing_doctor_exam_legend_prices,
+   billing_catalog_study_events,
++  billing_external_sale_prices,
+   exam_legends,
+   study_exam_legend_selections,
+   studies_cache,
+@@ -387,6 +388,55 @@ async function assertCanAccessFinancialUnit(
+   throw new TRPCError({ code: 'FORBIDDEN' });
+ }
+
++/**
++ * NOVO (auditoria claude/modulo-repasse-preco-externo): módulo de preço de venda externa
++ * e cálculo de lucro da clínica — exclusivo de responsavel_financeiro e unit_admin.
++ * admin_master é deliberadamente excluído (mesmo tendo acesso irrestrito a tudo mais no
++ * módulo financeiro): o dono do sistema não tem relação com o preço que a unidade cobra
++ * do próprio cliente externo, decisão confirmada explicitamente por Alessandro na coleta
++ * de requisitos — não é falha de permissão, é escopo de produto.
++ */
++async function assertCanManageExternalSalePrice(
++  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
++  user: { id: number; role: string },
++  unitId: number
++): Promise<void> {
++  if (user.role === 'unit_admin') {
++    const perm = await db
++      .select({ unit_id: user_unit_permissions.unit_id })
++      .from(user_unit_permissions)
++      .where(and(
++        eq(user_unit_permissions.user_id, user.id),
++        eq(user_unit_permissions.unit_id, unitId),
++      ))
++      .limit(1);
++    if (!perm.length)
++      throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem acesso a esta unidade.' });
++    return;
++  }
++
++  if (user.role === 'responsavel_financeiro') {
++    const responsibleId = await getResponsibleIdForUser(user.id);
++    if (!responsibleId)
++      throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem responsável financeiro vinculado.' });
++    const link = await db
++      .select({ id: financial_responsible_units.id })
++      .from(financial_responsible_units)
++      .where(and(
++        eq(financial_responsible_units.financial_responsible_id, responsibleId),
++        eq(financial_responsible_units.unit_id, unitId),
++        isNull(financial_responsible_units.ends_at),
++      ))
++      .limit(1);
++    if (!link.length)
++      throw new TRPCError({ code: 'FORBIDDEN', message: 'Esta unidade não está vinculada ao seu perfil financeiro.' });
++    return;
++  }
++
++  // admin_master cai aqui também, de propósito — ver comentário da função.
++  throw new TRPCError({ code: 'FORBIDDEN', message: 'Módulo exclusivo do responsável financeiro e do administrador da unidade.' });
++}
++
+ /** Preços financeiros só podem ser mantidos pelo admin_master ou pelo responsável da unidade vinculada. */
+ async function assertCanManageFinancialPrices(
+   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+@@ -967,6 +1017,305 @@ export const financeSimpleRouter = router({
+       return { success: true, paid_at: now };
+     }),
+
++  // ─── NOVO (auditoria claude/modulo-repasse-preco-externo) ──────────────────
++  // Confirmação do médico sobre repasse marcado como pago + módulo de preço de
++  // venda externa / cálculo de lucro, exclusivo de responsavel_financeiro e unit_admin.
++
++  /**
++   * Médico confirma ou contesta um repasse já marcado como pago pela clínica.
++   * Uma resposta só, não editável depois — se precisar corrigir, é decisão humana
++   * fora do sistema (igual a qualquer divergência financeira real).
++   */
++  confirmDoctorPayment: protectedProcedure
++    .input(z.object({
++      event_type: z.enum(["legacy", "catalog"]),
++      event_id: z.number().int(),
++      status: z.enum(["confirmed", "disputed"]),
++      note: z.string().max(500).optional(),
++    }).refine((data) => data.status !== "disputed" || (data.note && data.note.trim().length >= 3), {
++      message: "Descreva brevemente o motivo da contestação.",
++      path: ["note"],
++    }))
++    .mutation(async ({ input, ctx }) => {
++      if (ctx.user.role !== "medico") {
++        throw new TRPCError({ code: "FORBIDDEN", message: "Somente o próprio médico pode confirmar um repasse." });
++      }
++      const db = await getDb();
++      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
++
++      const table = input.event_type === "legacy" ? billing_visit_events : billing_catalog_study_events;
++      const [event] = await db
++        .select({
++          id: table.id,
++          doctor_user_id: table.doctor_user_id,
++          doctor_received_at: table.doctor_received_at,
++          doctor_confirmation_status: table.doctor_confirmation_status,
++        })
++        .from(table)
++        .where(eq(table.id, input.event_id))
++        .limit(1);
++
++      if (!event) throw new TRPCError({ code: "NOT_FOUND" });
++      if (event.doctor_user_id !== ctx.user.id) {
++        throw new TRPCError({ code: "FORBIDDEN", message: "Este repasse não pertence a você." });
++      }
++      if (!event.doctor_received_at) {
++        throw new TRPCError({ code: "BAD_REQUEST", message: "Este repasse ainda não foi marcado como pago pela clínica." });
++      }
++      if (event.doctor_confirmation_status) {
++        throw new TRPCError({ code: "BAD_REQUEST", message: "Este repasse já foi respondido." });
++      }
++
++      const now = new Date();
++      await db
++        .update(table)
++        .set({
++          doctor_confirmation_status: input.status,
++          doctor_confirmed_at: now,
++          doctor_confirmation_note: input.note ?? null,
++        })
++        .where(eq(table.id, input.event_id));
++
++      await createAuditLog({
++        user_id: ctx.user.id,
++        unit_id: null,
++        action: input.status === "confirmed" ? "DOCTOR_PAYMENT_CONFIRMED" : "DOCTOR_PAYMENT_DISPUTED",
++        target_type: input.event_type === "legacy" ? "BILLING_VISIT_EVENT" : "BILLING_CATALOG_STUDY_EVENT",
++        target_id: String(input.event_id),
++        ip_address: ctx.req.ip,
++        user_agent: ctx.req.headers['user-agent'],
++        metadata: { note: input.note ?? null },
++      });
++
++      return { success: true, status: input.status, confirmed_at: now };
++    }),
++
++  /**
++   * Repasses ao médico marcados como contestados — visão do responsável financeiro
++   * e do unit_admin da unidade, para resolver fora do sistema. admin_master também
++   * enxerga (é uma questão de confiança/operação, não de preço de venda externa).
++   */
++  listDoctorPaymentDisputes: protectedProcedure
++    .input(z.object({ unit_id: z.number().int() }))
++    .query(async ({ input, ctx }) => {
++      assertAdmin(ctx.user.role);
++      const db = await getDb();
++      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
++      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id);
++
++      const [legacyRows, catalogRows] = await Promise.all([
++        db.select({
++          id: billing_visit_events.id,
++          doctor_user_id: billing_visit_events.doctor_user_id,
++          doctor_name: sql<string>`(SELECT name FROM users WHERE id = ${billing_visit_events.doctor_user_id} LIMIT 1)`,
++          amount: billing_visit_events.doctor_amount_due,
++          note: billing_visit_events.doctor_confirmation_note,
++          confirmed_at: billing_visit_events.doctor_confirmed_at,
++          patient_name: billing_visit_events.patient_name,
++        })
++          .from(billing_visit_events)
++          .where(and(
++            eq(billing_visit_events.unit_id, input.unit_id),
++            eq(billing_visit_events.doctor_confirmation_status, "disputed"),
++          )),
++        db.select({
++          id: billing_catalog_study_events.id,
++          doctor_user_id: billing_catalog_study_events.doctor_user_id,
++          doctor_name: sql<string>`(SELECT name FROM users WHERE id = ${billing_catalog_study_events.doctor_user_id} LIMIT 1)`,
++          amount: billing_catalog_study_events.price_applied,
++          note: billing_catalog_study_events.doctor_confirmation_note,
++          confirmed_at: billing_catalog_study_events.doctor_confirmed_at,
++          patient_name: sql<string | null>`NULL`,
++        })
++          .from(billing_catalog_study_events)
++          .where(and(
++            eq(billing_catalog_study_events.unit_id, input.unit_id),
++            eq(billing_catalog_study_events.doctor_confirmation_status, "disputed"),
++          )),
++      ]);
++
++      return [
++        ...legacyRows.map((r) => ({ ...r, source: "legacy" as const, amount: toMoney(r.amount) })),
++        ...catalogRows.map((r) => ({ ...r, source: "catalog" as const, amount: toMoney(r.amount) })),
++      ].sort((a, b) => (b.confirmed_at?.getTime() ?? 0) - (a.confirmed_at?.getTime() ?? 0));
++    }),
++
++  /**
++   * Preço de venda externa por legenda de exame — lista o catálogo inteiro da unidade
++   * com o preço vigente quando existir, ou null quando ainda não foi configurado
++   * (configuração é opcional; nunca assume zero).
++   */
++  listExternalSalePrices: protectedProcedure
++    .input(z.object({ unit_id: z.number().int() }))
++    .query(async ({ input, ctx }) => {
++      const db = await getDb();
++      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
++      await assertCanManageExternalSalePrice(db, ctx.user, input.unit_id);
++
++      const now = new Date();
++      const [legends, activePrices] = await Promise.all([
++        db.select({ id: exam_legends.id, exam_name: exam_legends.exam_name, modality: exam_legends.modality })
++          .from(exam_legends)
++          .where(eq(exam_legends.is_active, true))
++          .orderBy(exam_legends.modality, exam_legends.exam_name),
++        db.select({
++          exam_legend_id: billing_external_sale_prices.exam_legend_id,
++          price_external: billing_external_sale_prices.price_external,
++          starts_at: billing_external_sale_prices.starts_at,
++        })
++          .from(billing_external_sale_prices)
++          .where(and(
++            eq(billing_external_sale_prices.unit_id, input.unit_id),
++            lte(billing_external_sale_prices.starts_at, now),
++            or(isNull(billing_external_sale_prices.ends_at), gte(billing_external_sale_prices.ends_at, now)),
++          )),
++      ]);
++
++      const priceByLegend = new Map(activePrices.map((p) => [p.exam_legend_id, p]));
++      return legends.map((legend) => {
++        const active = priceByLegend.get(legend.id);
++        return {
++          exam_legend_id: legend.id,
++          exam_name: legend.exam_name,
++          modality: legend.modality,
++          price_external: active ? toMoney(active.price_external) : null,
++          configured: Boolean(active),
++        };
++      });
++    }),
++
++  /**
++   * Define (ou substitui) o preço de venda externa vigente de uma legenda de exame
++   * para a unidade. Encerra a vigência anterior em vez de sobrescrever, preservando
++   * histórico auditável — mesmo padrão de billing_unit_modality_prices.
++   */
++  setExternalSalePrice: protectedProcedure
++    .input(z.object({
++      unit_id: z.number().int(),
++      exam_legend_id: z.number().int(),
++      price_external: z.number().positive(),
++    }))
++    .mutation(async ({ input, ctx }) => {
++      const db = await getDb();
++      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
++      await assertCanManageExternalSalePrice(db, ctx.user, input.unit_id);
++
++      const now = new Date();
++      await db
++        .update(billing_external_sale_prices)
++        .set({ ends_at: now })
++        .where(and(
++          eq(billing_external_sale_prices.unit_id, input.unit_id),
++          eq(billing_external_sale_prices.exam_legend_id, input.exam_legend_id),
++          isNull(billing_external_sale_prices.ends_at),
++        ));
++
++      await db.insert(billing_external_sale_prices).values({
++        unit_id: input.unit_id,
++        exam_legend_id: input.exam_legend_id,
++        price_external: String(input.price_external),
++        starts_at: now,
++        created_by: ctx.user.id,
++      });
++
++      await createAuditLog({
++        user_id: ctx.user.id,
++        unit_id: input.unit_id,
++        action: "SET_EXTERNAL_SALE_PRICE",
++        target_type: "EXAM_LEGEND",
++        target_id: String(input.exam_legend_id),
++        ip_address: ctx.req.ip,
++        user_agent: ctx.req.headers['user-agent'],
++        metadata: { price_external: input.price_external },
++      });
++
++      return { success: true };
++    }),
++
++  /**
++   * Calculadora de lucro da clínica por legenda de exame, no ciclo real da unidade:
++   * caixa recebido (laudos emitidos × preço externo) menos repasse ao sistema menos
++   * repasse ao médico, reaproveitando os valores já calculados por evento em
++   * billing_catalog_study_events. Legendas sem preço externo configurado ficam de
++   * fora do cálculo de lucro (não entram como zero) e são listadas à parte.
++   */
++  unitProfitCalculator: protectedProcedure
++    .input(z.object({
++      unit_id: z.number().int(),
++      reference_date: z.string().datetime().optional(),
++    }))
++    .query(async ({ input, ctx }) => {
++      const db = await getDb();
++      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
++      await assertCanManageExternalSalePrice(db, ctx.user, input.unit_id);
++
++      const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
++      const { startDate, endDate, label } = await resolveFinancialCycle(db, input.unit_id, refDate);
++
++      const [eventRows, priceRows] = await Promise.all([
++        db.select({
++          exam_legend_id: billing_catalog_study_events.exam_legend_id,
++          exam_name: billing_catalog_study_events.exam_name_snapshot,
++          units_sold: sql<number>`COUNT(*)`,
++          system_repasse: sql<number>`COALESCE(SUM(${billing_catalog_study_events.system_amount_due}), 0)`,
++          doctor_repasse: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
++        })
++          .from(billing_catalog_study_events)
++          .where(and(
++            eq(billing_catalog_study_events.unit_id, input.unit_id),
++            eq(billing_catalog_study_events.financial_status, "active"),
++            sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
++            sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
++          ))
++          .groupBy(billing_catalog_study_events.exam_legend_id, billing_catalog_study_events.exam_name_snapshot),
++        db.select({
++          exam_legend_id: billing_external_sale_prices.exam_legend_id,
++          price_external: billing_external_sale_prices.price_external,
++        })
++          .from(billing_external_sale_prices)
++          .where(and(
++            eq(billing_external_sale_prices.unit_id, input.unit_id),
++            lte(billing_external_sale_prices.starts_at, refDate),
++            or(isNull(billing_external_sale_prices.ends_at), gte(billing_external_sale_prices.ends_at, refDate)),
++          )),
++      ]);
++
++      const priceByLegend = new Map(priceRows.map((p) => [p.exam_legend_id, toMoney(p.price_external)]));
++      const configured: Array<{ exam_legend_id: number; exam_name: string; units_sold: number; price_external: number; cash_received: number; system_repasse: number; doctor_repasse: number; profit: number }> = [];
++      const unconfigured: Array<{ exam_legend_id: number; exam_name: string; units_sold: number }> = [];
++
++      for (const row of eventRows) {
++        const priceExternal = priceByLegend.get(row.exam_legend_id);
++        const unitsSold = Number(row.units_sold ?? 0);
++        const systemRepasse = toMoney(row.system_repasse);
++        const doctorRepasse = toMoney(row.doctor_repasse);
++        if (priceExternal === undefined) {
++          unconfigured.push({ exam_legend_id: row.exam_legend_id, exam_name: row.exam_name, units_sold: unitsSold });
++          continue;
++        }
++        const cashReceived = subMoney(priceExternal * unitsSold, 0);
++        configured.push({
++          exam_legend_id: row.exam_legend_id,
++          exam_name: row.exam_name,
++          units_sold: unitsSold,
++          price_external: priceExternal,
++          cash_received: cashReceived,
++          system_repasse: systemRepasse,
++          doctor_repasse: doctorRepasse,
++          profit: subMoney(subMoney(cashReceived, systemRepasse), doctorRepasse),
++        });
++      }
++
++      const totals = configured.reduce((acc, row) => ({
++        cash_received: acc.cash_received + row.cash_received,
++        system_repasse: acc.system_repasse + row.system_repasse,
++        doctor_repasse: acc.doctor_repasse + row.doctor_repasse,
++        profit: acc.profit + row.profit,
++      }), { cash_received: 0, system_repasse: 0, doctor_repasse: 0, profit: 0 });
++
++      return { cycle_label: label, cycle_start_date: startDate, cycle_end_date: endDate, by_exam: configured, unconfigured_exams: unconfigured, totals };
++    }),
++
+   /**
+    * Marcar pagamento ao sistema como realizado (em lote por unidade+mês)
+    */
+@@ -1262,6 +1611,11 @@ export const financeSimpleRouter = router({
+               doctor_received_by_user_id: billing_visit_events.doctor_received_by_user_id,
+               /** P6A: nome de quem marcou pago (subquery) */
+               paid_by_name: sql<string | null>`(SELECT u2.name FROM users u2 WHERE u2.id = ${billing_visit_events.doctor_received_by_user_id} LIMIT 1)`,
++              /** NOVO (claude/modulo-repasse-preco-externo): confirmação do próprio médico. */
++              doctor_confirmation_status: billing_visit_events.doctor_confirmation_status,
++              doctor_confirmed_at: billing_visit_events.doctor_confirmed_at,
++              doctor_confirmation_note: billing_visit_events.doctor_confirmation_note,
++              event_source: sql<"legacy">`'legacy'`,
+               pricing_status: billing_visit_events.pricing_status,
+               signed_at: billing_visit_events.signed_at,
+             })
+@@ -1293,6 +1647,11 @@ export const financeSimpleRouter = router({
+               doctor_received_at: billing_catalog_study_events.doctor_received_at,
+               doctor_received_by_user_id: billing_catalog_study_events.doctor_received_by_user_id,
+               paid_by_name: sql<string | null>`(SELECT u2.name FROM users u2 WHERE u2.id = ${billing_catalog_study_events.doctor_received_by_user_id} LIMIT 1)`,
++              /** NOVO (claude/modulo-repasse-preco-externo): confirmação do próprio médico. */
++              doctor_confirmation_status: billing_catalog_study_events.doctor_confirmation_status,
++              doctor_confirmed_at: billing_catalog_study_events.doctor_confirmed_at,
++              doctor_confirmation_note: billing_catalog_study_events.doctor_confirmation_note,
++              event_source: sql<"catalog">`'catalog'`,
+               pricing_status: billing_catalog_study_events.pricing_status,
+               signed_at: billing_catalog_study_events.signed_at,
+             })
+
+9. ESTADO ATUAL
+
+Branch publicado no GitHub (após push desta sessão), sem PR aberto, sem merge
+em `main`, nada implantado em nenhuma VM. Nenhuma migration foi executada.
+Nenhuma variável de ambiente, segredo, bucket ou configuração de runtime foi
+tocada. Nenhum dado clínico, UID DICOM real ou credencial aparece neste
+documento, nos commits ou nos testes deste branch.
+
+Antes de integrar: aplicar a migration `0060` no sandbox da Manus primeiro,
+rodar a suíte completa lá, e só depois disso considerar `git pull` em VM1/VM2,
+seguindo a regra permanente do projeto (sandbox primeiro, sempre `git pull`,
+nunca outro caminho). Recomendação adicional, fora do escopo deste branch: uma
+tela para `listDoctorPaymentDisputes` antes de divulgar a confirmação do
+médico aos usuários finais, senão uma contestação fica invisível na prática.

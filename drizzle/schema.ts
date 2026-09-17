@@ -187,7 +187,7 @@ export const audit_log = mysqlTable("audit_log", {
   id: int("id").autoincrement().primaryKey(),
   user_id: int("user_id"),
   unit_id: int("unit_id"),
-  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "DELETE_REPORT", "CANCEL_REPORT", "REVISE_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "ACTIVATE_USER", "DEACTIVATE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA", "SET_STUDY_PRIORITY", "UPDATE_STUDY_PRIORITY", "CLEAR_STUDY_PRIORITY", "RESET_DOCTOR_BILLING", "CREATE_LAYOUT", "UPDATE_LAYOUT", "DELETE_LAYOUT", "BILLING_EVENT_FAILED", "FINANCIAL_ENABLED", "FINANCIAL_DISABLED", "BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED", "BILLING_EVENT_CANCELLED"]).notNull(),
+  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "DELETE_REPORT", "CANCEL_REPORT", "REVISE_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "ACTIVATE_USER", "DEACTIVATE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA", "SET_STUDY_PRIORITY", "UPDATE_STUDY_PRIORITY", "CLEAR_STUDY_PRIORITY", "RESET_DOCTOR_BILLING", "CREATE_LAYOUT", "UPDATE_LAYOUT", "DELETE_LAYOUT", "BILLING_EVENT_FAILED", "FINANCIAL_ENABLED", "FINANCIAL_DISABLED", "BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED", "BILLING_EVENT_CANCELLED", "DOCTOR_PAYMENT_CONFIRMED", "DOCTOR_PAYMENT_DISPUTED", "SET_EXTERNAL_SALE_PRICE"]).notNull(),
   target_type: varchar("target_type", { length: 50 }),
   target_id: varchar("target_id", { length: 100 }),
   ip_address: varchar("ip_address", { length: 45 }),
@@ -569,6 +569,36 @@ export type BillingDoctorModalityPrice = typeof billing_doctor_modality_prices.$
 export type InsertBillingDoctorModalityPrice = typeof billing_doctor_modality_prices.$inferInsert;
 
 /**
+ * billing_external_sale_prices — Preço de venda externa por unidade + legenda de exame
+ * NOVO (auditoria claude/modulo-repasse-preco-externo): valor que a própria unidade cobra
+ * do cliente externo dela por um tipo de exame (não confundir com billing_unit_modality_prices,
+ * que é o que a unidade paga PARA A LAUDS). Usado só pelo módulo do responsável financeiro
+ * para calcular lucro da clínica: caixa recebido (contagem de laudos emitidos da legenda no
+ * ciclo × este preço) menos repasse ao sistema menos repasse ao médico, ambos já calculados
+ * por evento em billing_catalog_study_events. Configuração opcional por natureza — uma unidade
+ * pode não ter preço externo configurado para uma legenda, e nesse caso o cálculo de lucro
+ * daquele exame não é exibido (nunca assume zero). Sem financial_responsible_id como chave:
+ * o preço pertence à unidade, não a um responsável financeiro específico — se a unidade tiver
+ * mais de um responsável vinculado, todos veem o mesmo preço. Não diz respeito a nenhum outro
+ * papel do sistema (nem admin_master, nem unit_admin fora da edição, nem médico).
+ */
+export const billing_external_sale_prices = mysqlTable("billing_external_sale_prices", {
+  id: int("id").autoincrement().primaryKey(),
+  unit_id: int("unit_id").notNull(),
+  exam_legend_id: int("exam_legend_id").notNull(),
+  price_external: decimal("price_external", { precision: 10, scale: 2 }).notNull(),
+  starts_at: timestamp("starts_at").notNull(),
+  ends_at: timestamp("ends_at"),
+  /** Autor pode ser responsavel_financeiro OU unit_admin — ambos podem configurar. */
+  created_by: int("created_by").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uqUnitLegendStart: uniqueIndex("uq_external_sale_price_unit_legend_start").on(t.unit_id, t.exam_legend_id, t.starts_at),
+}));
+export type BillingExternalSalePrice = typeof billing_external_sale_prices.$inferSelect;
+export type InsertBillingExternalSalePrice = typeof billing_external_sale_prices.$inferInsert;
+
+/**
  * billing_report_items — Itemização auditável: um registro por laudo faturável
  * Fato gerador: reports com status signed ou revised.
  * Médico financeiro: signedBy ?? author_user_id.
@@ -728,6 +758,14 @@ export const billing_visit_events = mysqlTable("billing_visit_events", {
   doctor_received_at: timestamp("doctor_received_at"),
   /** P4: auditoria — quem marcou o pagamento ao médico */
   doctor_received_by_user_id: int("doctor_received_by_user_id"),
+  /** CORREÇÃO (auditoria claude/modulo-repasse-preco-externo): confirmação do próprio médico
+   * sobre o repasse marcado como pago pela clínica — resolve o problema de o médico e o
+   * sistema terem que "confiar na palavra da clínica" sem nenhum registro. Nulo enquanto
+   * o médico não respondeu; "confirmed" quando ele confirma o recebimento; "disputed"
+   * quando ele contesta (gera alerta operacional, não bloqueia nada e não arbitra o mérito). */
+  doctor_confirmation_status: mysqlEnum("doctor_confirmation_status", ["confirmed", "disputed"]),
+  doctor_confirmed_at: timestamp("doctor_confirmed_at"),
+  doctor_confirmation_note: varchar("doctor_confirmation_note", { length: 500 }),
   system_paid_at: timestamp("system_paid_at"),
   /** P4: auditoria — quem marcou o pagamento ao sistema */
   system_paid_by_user_id: int("system_paid_by_user_id"),
@@ -1063,6 +1101,12 @@ export const billing_catalog_study_events = mysqlTable("billing_catalog_study_ev
   doctor_received_at: timestamp("doctor_received_at"),
   doctor_received_by_user_id: int("doctor_received_by_user_id"),
   doctor_payment_note: varchar("doctor_payment_note", { length: 500 }),
+  /** CORREÇÃO (auditoria claude/modulo-repasse-preco-externo): mesma confirmação do médico
+   * descrita em billing_visit_events — mantida nos dois lugares porque doctor_received_at
+   * já existe duplicado entre as duas tabelas (evento legado vs. evento de catálogo). */
+  doctor_confirmation_status: mysqlEnum("doctor_confirmation_status", ["confirmed", "disputed"]),
+  doctor_confirmed_at: timestamp("doctor_confirmed_at"),
+  doctor_confirmation_note: varchar("doctor_confirmation_note", { length: 500 }),
   /** Baixa operacional da obrigação da unidade com a LAUDS, exclusiva do admin_master. */
   system_paid_at: timestamp("system_paid_at"),
   system_paid_by_user_id: int("system_paid_by_user_id"),

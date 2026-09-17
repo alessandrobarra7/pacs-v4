@@ -28,6 +28,7 @@ import {
   billing_unit_modality_prices,
   billing_doctor_exam_legend_prices,
   billing_catalog_study_events,
+  billing_external_sale_prices,
   exam_legends,
   study_exam_legend_selections,
   studies_cache,
@@ -385,6 +386,55 @@ async function assertCanAccessFinancialUnit(
   }
 
   throw new TRPCError({ code: 'FORBIDDEN' });
+}
+
+/**
+ * NOVO (auditoria claude/modulo-repasse-preco-externo): módulo de preço de venda externa
+ * e cálculo de lucro da clínica — exclusivo de responsavel_financeiro e unit_admin.
+ * admin_master é deliberadamente excluído (mesmo tendo acesso irrestrito a tudo mais no
+ * módulo financeiro): o dono do sistema não tem relação com o preço que a unidade cobra
+ * do próprio cliente externo, decisão confirmada explicitamente por Alessandro na coleta
+ * de requisitos — não é falha de permissão, é escopo de produto.
+ */
+async function assertCanManageExternalSalePrice(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  user: { id: number; role: string },
+  unitId: number
+): Promise<void> {
+  if (user.role === 'unit_admin') {
+    const perm = await db
+      .select({ unit_id: user_unit_permissions.unit_id })
+      .from(user_unit_permissions)
+      .where(and(
+        eq(user_unit_permissions.user_id, user.id),
+        eq(user_unit_permissions.unit_id, unitId),
+      ))
+      .limit(1);
+    if (!perm.length)
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem acesso a esta unidade.' });
+    return;
+  }
+
+  if (user.role === 'responsavel_financeiro') {
+    const responsibleId = await getResponsibleIdForUser(user.id);
+    if (!responsibleId)
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem responsável financeiro vinculado.' });
+    const link = await db
+      .select({ id: financial_responsible_units.id })
+      .from(financial_responsible_units)
+      .where(and(
+        eq(financial_responsible_units.financial_responsible_id, responsibleId),
+        eq(financial_responsible_units.unit_id, unitId),
+        isNull(financial_responsible_units.ends_at),
+      ))
+      .limit(1);
+    if (!link.length)
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Esta unidade não está vinculada ao seu perfil financeiro.' });
+    return;
+  }
+
+  // admin_master cai aqui também, de propósito — ver comentário da função.
+  throw new TRPCError({ code: 'FORBIDDEN', message: 'Módulo exclusivo do responsável financeiro e do administrador da unidade.' });
 }
 
 /** Preços financeiros só podem ser mantidos pelo admin_master ou pelo responsável da unidade vinculada. */
@@ -967,6 +1017,372 @@ export const financeSimpleRouter = router({
       return { success: true, paid_at: now };
     }),
 
+  // ─── NOVO (auditoria claude/modulo-repasse-preco-externo) ──────────────────
+  // Confirmação do médico sobre repasse marcado como pago + módulo de preço de
+  // venda externa / cálculo de lucro, exclusivo de responsavel_financeiro e unit_admin.
+
+  /**
+   * Médico confirma ou contesta um repasse já marcado como pago pela clínica.
+   * Uma resposta só, não editável depois — se precisar corrigir, é decisão humana
+   * fora do sistema (igual a qualquer divergência financeira real).
+   */
+  confirmDoctorPayment: protectedProcedure
+    .input(z.object({
+      event_type: z.enum(["legacy", "catalog"]),
+      event_id: z.number().int(),
+      status: z.enum(["confirmed", "disputed"]),
+      note: z.string().max(500).optional(),
+    }).refine((data) => data.status !== "disputed" || (data.note && data.note.trim().length >= 3), {
+      message: "Descreva brevemente o motivo da contestação.",
+      path: ["note"],
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "medico") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Somente o próprio médico pode confirmar um repasse." });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const table = input.event_type === "legacy" ? billing_visit_events : billing_catalog_study_events;
+      const [event] = await db
+        .select({
+          id: table.id,
+          doctor_user_id: table.doctor_user_id,
+          doctor_received_at: table.doctor_received_at,
+          doctor_confirmation_status: table.doctor_confirmation_status,
+        })
+        .from(table)
+        .where(eq(table.id, input.event_id))
+        .limit(1);
+
+      if (!event) throw new TRPCError({ code: "NOT_FOUND" });
+      if (event.doctor_user_id !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Este repasse não pertence a você." });
+      }
+      if (!event.doctor_received_at) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Este repasse ainda não foi marcado como pago pela clínica." });
+      }
+      if (event.doctor_confirmation_status) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Este repasse já foi respondido." });
+      }
+
+      const now = new Date();
+      // CORREÇÃO (revisão independente Manus, 2026-09-17): a checagem acima (select +
+      // depois update) tinha uma janela de corrida — duas requisições concorrentes podiam
+      // ler doctor_confirmation_status nulo e a segunda sobrescrever a resposta definitiva
+      // da primeira. A condição de nulidade agora vai NO PRÓPRIO UPDATE, então só a
+      // requisição que efetivamente encontrar a linha ainda nula consegue gravar; a outra
+      // atualiza zero linhas e recebe erro explícito, sem sobrescrever status/data/nota.
+      const updateResult = await db
+        .update(table)
+        .set({
+          doctor_confirmation_status: input.status,
+          doctor_confirmed_at: now,
+          doctor_confirmation_note: input.note ?? null,
+        })
+        .where(and(eq(table.id, input.event_id), isNull(table.doctor_confirmation_status)));
+
+      if ((updateResult[0] as { affectedRows: number }).affectedRows === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Este repasse já foi respondido." });
+      }
+
+      await createAuditLog({
+        user_id: ctx.user.id,
+        unit_id: null,
+        action: input.status === "confirmed" ? "DOCTOR_PAYMENT_CONFIRMED" : "DOCTOR_PAYMENT_DISPUTED",
+        target_type: input.event_type === "legacy" ? "BILLING_VISIT_EVENT" : "BILLING_CATALOG_STUDY_EVENT",
+        target_id: String(input.event_id),
+        ip_address: ctx.req.ip,
+        user_agent: ctx.req.headers['user-agent'],
+        metadata: { note: input.note ?? null },
+      });
+
+      return { success: true, status: input.status, confirmed_at: now };
+    }),
+
+  /**
+   * Repasses ao médico marcados como contestados — visão do responsável financeiro
+   * e do unit_admin da unidade, para resolver fora do sistema. admin_master também
+   * enxerga (é uma questão de confiança/operação, não de preço de venda externa).
+   */
+  listDoctorPaymentDisputes: protectedProcedure
+    .input(z.object({ unit_id: z.number().int() }))
+    .query(async ({ input, ctx }) => {
+      assertAdmin(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id);
+
+      const [legacyRows, catalogRows] = await Promise.all([
+        db.select({
+          id: billing_visit_events.id,
+          doctor_user_id: billing_visit_events.doctor_user_id,
+          doctor_name: sql<string>`(SELECT name FROM users WHERE id = ${billing_visit_events.doctor_user_id} LIMIT 1)`,
+          amount: billing_visit_events.doctor_amount_due,
+          note: billing_visit_events.doctor_confirmation_note,
+          confirmed_at: billing_visit_events.doctor_confirmed_at,
+          patient_name: billing_visit_events.patient_name,
+        })
+          .from(billing_visit_events)
+          .where(and(
+            eq(billing_visit_events.unit_id, input.unit_id),
+            eq(billing_visit_events.doctor_confirmation_status, "disputed"),
+          )),
+        db.select({
+          id: billing_catalog_study_events.id,
+          doctor_user_id: billing_catalog_study_events.doctor_user_id,
+          doctor_name: sql<string>`(SELECT name FROM users WHERE id = ${billing_catalog_study_events.doctor_user_id} LIMIT 1)`,
+          amount: billing_catalog_study_events.price_applied,
+          note: billing_catalog_study_events.doctor_confirmation_note,
+          confirmed_at: billing_catalog_study_events.doctor_confirmed_at,
+          patient_name: sql<string | null>`NULL`,
+        })
+          .from(billing_catalog_study_events)
+          .where(and(
+            eq(billing_catalog_study_events.unit_id, input.unit_id),
+            eq(billing_catalog_study_events.doctor_confirmation_status, "disputed"),
+          )),
+      ]);
+
+      return [
+        ...legacyRows.map((r) => ({ ...r, source: "legacy" as const, amount: toMoney(r.amount) })),
+        ...catalogRows.map((r) => ({ ...r, source: "catalog" as const, amount: toMoney(r.amount) })),
+      ].sort((a, b) => (b.confirmed_at?.getTime() ?? 0) - (a.confirmed_at?.getTime() ?? 0));
+    }),
+
+  /**
+   * Preço de venda externa por legenda de exame — lista o catálogo inteiro da unidade
+   * com o preço vigente quando existir, ou null quando ainda não foi configurado
+   * (configuração é opcional; nunca assume zero).
+   */
+  listExternalSalePrices: protectedProcedure
+    .input(z.object({ unit_id: z.number().int() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanManageExternalSalePrice(db, ctx.user, input.unit_id);
+
+      const now = new Date();
+      const [legends, activePrices] = await Promise.all([
+        db.select({ id: exam_legends.id, exam_name: exam_legends.exam_name, modality: exam_legends.modality })
+          .from(exam_legends)
+          .where(eq(exam_legends.is_active, true))
+          .orderBy(exam_legends.modality, exam_legends.exam_name),
+        db.select({
+          exam_legend_id: billing_external_sale_prices.exam_legend_id,
+          price_external: billing_external_sale_prices.price_external,
+          starts_at: billing_external_sale_prices.starts_at,
+        })
+          .from(billing_external_sale_prices)
+          .where(and(
+            eq(billing_external_sale_prices.unit_id, input.unit_id),
+            lte(billing_external_sale_prices.starts_at, now),
+            or(isNull(billing_external_sale_prices.ends_at), gte(billing_external_sale_prices.ends_at, now)),
+          )),
+      ]);
+
+      const priceByLegend = new Map(activePrices.map((p) => [p.exam_legend_id, p]));
+      return legends.map((legend) => {
+        const active = priceByLegend.get(legend.id);
+        return {
+          exam_legend_id: legend.id,
+          exam_name: legend.exam_name,
+          modality: legend.modality,
+          price_external: active ? toMoney(active.price_external) : null,
+          configured: Boolean(active),
+        };
+      });
+    }),
+
+  /**
+   * Define (ou substitui) o preço de venda externa vigente de uma legenda de exame
+   * para a unidade. Encerra a vigência anterior em vez de sobrescrever, preservando
+   * histórico auditável — mesmo padrão de billing_unit_modality_prices.
+   */
+  setExternalSalePrice: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().int(),
+      exam_legend_id: z.number().int(),
+      price_external: z.number().positive(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanManageExternalSalePrice(db, ctx.user, input.unit_id);
+
+      // CORREÇÃO (revisão independente Manus, 2026-09-17): a interface só oferece legendas
+      // ativas, mas o endpoint aceitava qualquer exam_legend_id — uma chamada direta podia
+      // gravar preço para legenda inexistente/inativa, sem FK que impedisse o registro órfão.
+      // Mesmo padrão já usado em setDoctorLegendPrice.
+      const legend = await db.select({ id: exam_legends.id })
+        .from(exam_legends)
+        .where(and(eq(exam_legends.id, input.exam_legend_id), eq(exam_legends.is_active, true)))
+        .limit(1);
+      if (!legend[0]) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Legenda de exame ativa não encontrada." });
+      }
+
+      const now = new Date();
+      await db
+        .update(billing_external_sale_prices)
+        .set({ ends_at: now })
+        .where(and(
+          eq(billing_external_sale_prices.unit_id, input.unit_id),
+          eq(billing_external_sale_prices.exam_legend_id, input.exam_legend_id),
+          isNull(billing_external_sale_prices.ends_at),
+        ));
+
+      await db.insert(billing_external_sale_prices).values({
+        unit_id: input.unit_id,
+        exam_legend_id: input.exam_legend_id,
+        price_external: String(input.price_external),
+        starts_at: now,
+        created_by: ctx.user.id,
+      });
+
+      await createAuditLog({
+        user_id: ctx.user.id,
+        unit_id: input.unit_id,
+        action: "SET_EXTERNAL_SALE_PRICE",
+        target_type: "EXAM_LEGEND",
+        target_id: String(input.exam_legend_id),
+        ip_address: ctx.req.ip,
+        user_agent: ctx.req.headers['user-agent'],
+        metadata: { price_external: input.price_external },
+      });
+
+      return { success: true };
+    }),
+
+  /**
+   * Calculadora de lucro da clínica por legenda de exame, no ciclo real da unidade:
+   * caixa recebido (laudos emitidos × preço externo) menos repasse ao sistema menos
+   * repasse ao médico, reaproveitando os valores já calculados por evento em
+   * billing_catalog_study_events. Legendas sem preço externo configurado ficam de
+   * fora do cálculo de lucro (não entram como zero) e são listadas à parte.
+   */
+  unitProfitCalculator: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().int(),
+      reference_date: z.string().datetime().optional(),
+    }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanManageExternalSalePrice(db, ctx.user, input.unit_id);
+
+      const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      const { startDate, endDate, label } = await resolveFinancialCycle(db, input.unit_id, refDate);
+
+      // CORREÇÃO (revisão independente Manus, 2026-09-17): a versão anterior buscava só o
+      // preço externo VIGENTE HOJE e aplicava esse único valor a todos os eventos do ciclo —
+      // se o preço mudasse no meio do ciclo, laudos já emitidos antes da mudança passavam a
+      // usar o novo valor retroativamente, o que não é auditável e contradiz o próprio
+      // propósito de guardar starts_at/ends_at. Decisão registrada no handoff (Opção A):
+      // cada evento usa o preço cuja vigência CONTÉM O signed_at DAQUELE EVENTO — igual ao
+      // que já acontece com system_amount_due/price_applied, que são travados no instante da
+      // assinatura. Por isso a query busca eventos individuais (não agregados por legenda) e
+      // TODAS as vigências de preço que tocam o ciclo, e a correspondência é feita aqui, por
+      // evento. Consequência esperada e correta: se o preço só foi configurado no meio do
+      // ciclo, a mesma legenda pode aparecer em `by_exam` (eventos assinados depois) e em
+      // `unconfigured_exams` (eventos assinados antes) ao mesmo tempo — isso é intencional,
+      // não um bug de agrupamento.
+      const [eventRows, priceRows] = await Promise.all([
+        db.select({
+          exam_legend_id: billing_catalog_study_events.exam_legend_id,
+          exam_name: billing_catalog_study_events.exam_name_snapshot,
+          signed_at: billing_catalog_study_events.signed_at,
+          system_amount_due: billing_catalog_study_events.system_amount_due,
+          price_applied: billing_catalog_study_events.price_applied,
+        })
+          .from(billing_catalog_study_events)
+          .where(and(
+            eq(billing_catalog_study_events.unit_id, input.unit_id),
+            eq(billing_catalog_study_events.financial_status, "active"),
+            sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
+            sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
+          )),
+        // Todas as vigências que tocam o ciclo, não só a vigente agora — precisamos
+        // resolver o preço correto para cada signed_at individualmente, inclusive para
+        // eventos assinados antes de uma mudança de preço já ocorrida.
+        db.select({
+          exam_legend_id: billing_external_sale_prices.exam_legend_id,
+          price_external: billing_external_sale_prices.price_external,
+          starts_at: billing_external_sale_prices.starts_at,
+          ends_at: billing_external_sale_prices.ends_at,
+        })
+          .from(billing_external_sale_prices)
+          .where(and(
+            eq(billing_external_sale_prices.unit_id, input.unit_id),
+            sql`${billing_external_sale_prices.starts_at} < ${endDate}`,
+            or(isNull(billing_external_sale_prices.ends_at), sql`${billing_external_sale_prices.ends_at} >= ${startDate}`),
+          )),
+      ]);
+
+      const pricesByLegend = new Map<number, typeof priceRows>();
+      for (const price of priceRows) {
+        const list = pricesByLegend.get(price.exam_legend_id) ?? [];
+        list.push(price);
+        pricesByLegend.set(price.exam_legend_id, list);
+      }
+      function resolvePriceForSignedAt(examLegendId: number, signedAt: Date): number | undefined {
+        const candidates = pricesByLegend.get(examLegendId);
+        if (!candidates) return undefined;
+        const match = candidates.find((p) =>
+          p.starts_at <= signedAt && (p.ends_at === null || p.ends_at > signedAt)
+        );
+        return match ? toMoney(match.price_external) : undefined;
+      }
+
+      type ConfiguredRow = { exam_legend_id: number; exam_name: string; units_sold: number; price_external: number; cash_received: number; system_repasse: number; doctor_repasse: number; profit: number };
+      const configuredByKey = new Map<string, ConfiguredRow>();
+      const unconfiguredByLegend = new Map<number, { exam_legend_id: number; exam_name: string; units_sold: number }>();
+
+      for (const event of eventRows) {
+        const priceExternal = resolvePriceForSignedAt(event.exam_legend_id, event.signed_at);
+        const systemRepasse = toMoney(event.system_amount_due);
+        const doctorRepasse = toMoney(event.price_applied);
+        if (priceExternal === undefined) {
+          const current = unconfiguredByLegend.get(event.exam_legend_id) ?? { exam_legend_id: event.exam_legend_id, exam_name: event.exam_name, units_sold: 0 };
+          current.units_sold += 1;
+          unconfiguredByLegend.set(event.exam_legend_id, current);
+          continue;
+        }
+        // A mesma legenda pode ter mais de um preço vigente dentro do ciclo (mudança
+        // intra-ciclo) — chave por legenda+preço para não misturar cash_received de
+        // vigências diferentes na mesma linha.
+        const key = `${event.exam_legend_id}:${priceExternal}`;
+        const current = configuredByKey.get(key) ?? {
+          exam_legend_id: event.exam_legend_id,
+          exam_name: event.exam_name,
+          units_sold: 0,
+          price_external: priceExternal,
+          cash_received: 0,
+          system_repasse: 0,
+          doctor_repasse: 0,
+          profit: 0,
+        };
+        current.units_sold += 1;
+        current.cash_received = subMoney(current.cash_received + priceExternal, 0);
+        current.system_repasse = subMoney(current.system_repasse + systemRepasse, 0);
+        current.doctor_repasse = subMoney(current.doctor_repasse + doctorRepasse, 0);
+        current.profit = subMoney(subMoney(current.cash_received, current.system_repasse), current.doctor_repasse);
+        configuredByKey.set(key, current);
+      }
+
+      const configured = Array.from(configuredByKey.values());
+      const unconfigured = Array.from(unconfiguredByLegend.values());
+
+      const totals = configured.reduce((acc, row) => ({
+        cash_received: acc.cash_received + row.cash_received,
+        system_repasse: acc.system_repasse + row.system_repasse,
+        doctor_repasse: acc.doctor_repasse + row.doctor_repasse,
+        profit: acc.profit + row.profit,
+      }), { cash_received: 0, system_repasse: 0, doctor_repasse: 0, profit: 0 });
+
+      return { cycle_label: label, cycle_start_date: startDate, cycle_end_date: endDate, by_exam: configured, unconfigured_exams: unconfigured, totals };
+    }),
+
   /**
    * Marcar pagamento ao sistema como realizado (em lote por unidade+mês)
    */
@@ -1262,6 +1678,11 @@ export const financeSimpleRouter = router({
               doctor_received_by_user_id: billing_visit_events.doctor_received_by_user_id,
               /** P6A: nome de quem marcou pago (subquery) */
               paid_by_name: sql<string | null>`(SELECT u2.name FROM users u2 WHERE u2.id = ${billing_visit_events.doctor_received_by_user_id} LIMIT 1)`,
+              /** NOVO (claude/modulo-repasse-preco-externo): confirmação do próprio médico. */
+              doctor_confirmation_status: billing_visit_events.doctor_confirmation_status,
+              doctor_confirmed_at: billing_visit_events.doctor_confirmed_at,
+              doctor_confirmation_note: billing_visit_events.doctor_confirmation_note,
+              event_source: sql<"legacy">`'legacy'`,
               pricing_status: billing_visit_events.pricing_status,
               signed_at: billing_visit_events.signed_at,
             })
@@ -1293,6 +1714,11 @@ export const financeSimpleRouter = router({
               doctor_received_at: billing_catalog_study_events.doctor_received_at,
               doctor_received_by_user_id: billing_catalog_study_events.doctor_received_by_user_id,
               paid_by_name: sql<string | null>`(SELECT u2.name FROM users u2 WHERE u2.id = ${billing_catalog_study_events.doctor_received_by_user_id} LIMIT 1)`,
+              /** NOVO (claude/modulo-repasse-preco-externo): confirmação do próprio médico. */
+              doctor_confirmation_status: billing_catalog_study_events.doctor_confirmation_status,
+              doctor_confirmed_at: billing_catalog_study_events.doctor_confirmed_at,
+              doctor_confirmation_note: billing_catalog_study_events.doctor_confirmation_note,
+              event_source: sql<"catalog">`'catalog'`,
               pricing_status: billing_catalog_study_events.pricing_status,
               signed_at: billing_catalog_study_events.signed_at,
             })
