@@ -5,7 +5,7 @@ import { getAnamnesisSimple, saveAnamnesisSimple, createAuditLog, getDb, resolve
 import { evaluateAndUpsertReadiness } from "./sla";
 import { anamnesis_simple } from "../../drizzle/schema";
 import { inArray } from "drizzle-orm";
-import { canAccessUnit, getStudyUnitId } from "../authorization";
+import { canAccessUnit, getStudyUnitId, assertDicomFileAccess } from "../authorization";
 import { studyInstanceUidSchema } from "../routerUtils";
 
 export const anamnesisSimpleRouter = router({
@@ -13,12 +13,13 @@ export const anamnesisSimpleRouter = router({
     getByStudy: protectedProcedure
       .input(z.object({ studyInstanceUid: studyInstanceUidSchema }))
       .query(async ({ input, ctx }) => {
-        // Validar permissão view_anamnesis na unidade real do estudo
-        const studyUnitId = await getStudyUnitId(input.studyInstanceUid);
-        if (studyUnitId) {
-          const canView = await canAccessUnit(ctx.user, studyUnitId, 'view_anamnesis');
-          if (!canView) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para visualizar anamnese deste estudo' });
-        }
+        // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria):
+        // Antes, quando o estudo não tinha unit_id em study_metadata, a checagem de
+        // permissão era pulada por completo e a anamnese era liberada para qualquer
+        // usuário autenticado. Agora usamos assertDicomFileAccess, que também consulta
+        // studies_cache (populada em pacs.query, antes do usuário poder abrir o estudo)
+        // e nega por padrão ("deny-by-default") quando nenhuma unidade é encontrada.
+        await assertDicomFileAccess(ctx.user, input.studyInstanceUid, 'view_anamnesis');
         return await getAnamnesisSimple(input.studyInstanceUid);
       }),
 
@@ -31,17 +32,13 @@ export const anamnesisSimpleRouter = router({
         manualText: z.string().min(1, "O campo de indicação clínica é obrigatório"),
       }))
       .mutation(async ({ input, ctx }) => {
-        // Validar permissão edit_anamnesis na unidade real do estudo
-        const studyUnitId = await getStudyUnitId(input.studyInstanceUid);
-        let effectiveUnitId: number | null = null;
-        if (studyUnitId) {
-          const canEdit = await canAccessUnit(ctx.user, studyUnitId, 'edit_anamnesis');
-          if (!canEdit) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem permissão para editar anamnese deste estudo' });
-          effectiveUnitId = studyUnitId;
-        } else {
-          // Fallback para unidade efetiva do usuário
-          effectiveUnitId = await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
-        }
+        // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria):
+        // Antes, sem unit_id resolvido em study_metadata, a checagem de edit_anamnesis
+        // era pulada e o unit_id gravado vinha só do fallback do próprio usuário —
+        // ou seja, qualquer usuário autenticado podia gravar anamnese em estudo órfão,
+        // sem nenhuma verificação de permissão. Agora assertDicomFileAccess resolve
+        // (studies_cache -> study_metadata) e nega por padrão se não encontrar unidade.
+        const effectiveUnitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, 'edit_anamnesis');
 
         await saveAnamnesisSimple({
           study_instance_uid: input.studyInstanceUid,

@@ -1,7 +1,7 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { applyPacsMappedExamLegendIfUnselected, getDb, getStudyMetadata, getStudyMetadataBatch, createAuditLog, assertUnitPermission, getUserUnitPermission, upsertStudyCache, getActivePacsExamMappings } from "../db";
+import { applyPacsMappedExamLegendIfUnselected, getDb, getStudyMetadata, getStudyMetadataBatch, createAuditLog, assertUnitPermission, getUserUnitPermission, upsertStudyCache, getActivePacsExamMappings, getStudyByInstanceUid } from "../db";
 import { cFind } from "../dicom.service";
 import type { CFindResult } from "../dicom.service";
 import { MAX_UPLOAD_BYTES } from "../../shared/const";
@@ -262,9 +262,13 @@ export const pacsRouter = router({
           }
 
           // Log audit
+          // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria): registrava
+          // ctx.user.unit_id (unidade legada/"de origem" do usuário) em vez de unit.id,
+          // a unidade efetivamente consultada (targetUnitId) — o log de auditoria
+          // ficava incorreto sempre que um admin_master consultava outra unidade.
           await createAuditLog({
             user_id: ctx.user.id,
-            unit_id: ctx.user.unit_id,
+            unit_id: unit.id,
             action: 'PACS_QUERY',
             target_type: 'PACS',
             target_id: unit.pacs_ae_title || 'unknown',
@@ -288,9 +292,11 @@ export const pacsRouter = router({
         } catch (error: any) {
           console.error('[PACS Query] Erro:', error);
           
+          // CORREÇÃO: mesmo ajuste do log de sucesso acima — usar unit.id (unidade
+          // efetivamente consultada) em vez de ctx.user.unit_id.
           await createAuditLog({
             user_id: ctx.user.id,
-            unit_id: ctx.user.unit_id,
+            unit_id: unit.id,
             action: 'PACS_QUERY',
             target_type: 'PACS',
             target_id: unit.pacs_ae_title || 'unknown',
@@ -366,10 +372,29 @@ export const pacsRouter = router({
         const localAeTitle = unit.pacs_local_ae_title || 'LAUDS';
         
         // Verificar cache existente — evita re-download se imagens já estão no disco
+        //
+        // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria): este fast path
+        // só validava que o usuário tinha permissão geral (view_studies) na unidade
+        // targetUnitId — mas nunca conferia se o studyInstanceUid pedido REALMENTE
+        // pertence a essa unidade. O diretório de cache em disco é indexado só pelo
+        // UID, sem unidade; então, se qualquer unidade já tivesse baixado esse UID
+        // antes (via outro usuário/unidade), um usuário com acesso a QUALQUER unidade
+        // podia informar esse UID + sua própria unit_id e receber os metadados do
+        // cache — um vazamento cross-unidade (IDOR). Agora confirmamos com
+        // getStudyByInstanceUid (mesma função documentada como "previne IDOR" em
+        // db.ts) que o estudo está de fato registrado em studies_cache para
+        // targetUnitId antes de confiar no cache em disco.
         const studyCacheDir = `/tmp/dicom-cache/${input.studyInstanceUid}`;
         if (existsSync(studyCacheDir)) {
           const cachedFiles = readdirSync(studyCacheDir).filter((f: string) => f.endsWith('.dcm'));
           if (cachedFiles.length > 0) {
+            const belongsToUnit = await getStudyByInstanceUid(input.studyInstanceUid, targetUnitId);
+            if (!belongsToUnit) {
+              throw new TRPCError({
+                code: 'FORBIDDEN',
+                message: 'Este exame não está vinculado à unidade informada.',
+              });
+            }
             console.log(`[C-GET] Cache HIT: ${cachedFiles.length} arquivos para ${input.studyInstanceUid}`);
             await createAuditLog({
               user_id: ctx.user.id,
@@ -545,9 +570,12 @@ export const pacsRouter = router({
           ? `${orthancPublicUrl.replace(/\/$/, '')}/app/explorer.html#study?uuid=`
           : null;
         
+        // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria): registrava
+        // ctx.user.unit_id em vez de targetUnitIdForViewer, a unidade efetivamente
+        // usada para montar a viewerUrl — mesmo padrão do bug corrigido em pacs.query.
         await createAuditLog({
           user_id: ctx.user.id,
-          unit_id: ctx.user.unit_id,
+          unit_id: targetUnitIdForViewer,
           action: 'OPEN_VIEWER',
           target_type: 'STUDY',
           target_id: input.studyInstanceUid,

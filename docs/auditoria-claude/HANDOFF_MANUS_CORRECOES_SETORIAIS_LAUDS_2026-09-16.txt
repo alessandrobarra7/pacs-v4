@@ -1,0 +1,362 @@
+HANDOFF TÉCNICO — CORREÇÕES SETORIAIS PRONTAS PARA LEITURA E IMPLANTAÇÃO
+Projeto: PACS Portal / LAUDS
+Repositório: https://github.com/alessandrobarra7/pacs-v4
+Branch com as correções: claude/correcoes-setoriais-auditoria
+Base do branch: origin/main, commit 09a8c7f713cef674fa06c258b4f3d67bd1bcf8c1
+Topo do branch (commit mais recente): 28a5da46257adde7b2432af0b51ccc3fdf4926c9 (ver ADENDO
+                                       abaixo; commit anterior era 8d64b31)
+Gerado por: Claude (Cowork), a pedido de Alessandro (studiobarra7@gmail.com)
+Data: 2026-09-16
+
+DESTINATÁRIO DESTE DOCUMENTO: qualquer agente ou engenheiro com acesso de
+leitura/escrita ao repositório (nomeadamente, o agente identificado nos
+commits de produção como "Manus <dev-agent@manus.ai>"), para ler este
+arquivo, depois ir ao branch acima e conferir, no código real, se o estado
+final bate com a descrição de cada correção abaixo antes de mesclar.
+
+=============================================================================
+COMO CHEGAR NO CÓDIGO REAL (não confie só neste texto — confira no branch)
+=============================================================================
+  git fetch origin
+  git checkout claude/correcoes-setoriais-auditoria
+  git log --oneline 09a8c7f..HEAD
+  git diff 09a8c7f..HEAD          # diff completo, todos os 7 arquivos
+  git diff 09a8c7f..HEAD -- server/routers/<arquivo>.ts   # diff por arquivo
+
+Os 6 commits, na ordem em que devem ser lidos (cada um é uma correção
+isolada e coerente sozinha):
+  1. 74866e6  fix(anamnesis): negar acesso por padrão quando o estudo não
+              tem unidade resolvida
+  2. f87993f  fix(exam-legend): validar permissão em getBatch
+  3. 50de855  fix(sla): validar permissão em getUnitSla
+  4. dcd9671  fix(pacs): corrigir unit_id em audit logs e validar unidade
+              no cache hit do C-GET
+  5. 893f5ef  fix(units): restringir update de unidade a
+              admin_master/unit_admin
+  6. 8d64b31  fix(admin): corrigir tipo de expiration_date gravado em
+              updateUser
+
+Cada commit já tem, na própria mensagem, a explicação da causa raiz — e
+cada trecho alterado tem um comentário inline no código começando com
+"CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria):" explicando o
+antes/depois. Este documento é o nível acima disso: explica o MECANISMO
+de cada bug e de cada correção com mais detalhe do que cabe num comentário
+de código, para quem for aplicar/revisar não precisar reconstruir esse
+raciocínio do zero.
+
+=============================================================================
+1. server/routers/anamnesisSimple.ts + server/routers/anamnesis.ts
+   fix(anamnesis): negar acesso por padrão quando o estudo não tem
+   unidade resolvida
+=============================================================================
+ONDE: anamnesisSimple.getByStudy, anamnesisSimple.save,
+anamnesis.getByStudyId.
+
+MECANISMO DO PROBLEMA (como o bug se manifestava na prática):
+  O sistema resolve a "unidade" (unit_id) de um exame de duas formas
+  possíveis: (a) study_metadata, uma tabela só povoada quando alguém edita
+  manualmente os metadados de um estudo (override), portanto rara; (b)
+  studies_cache, povoada automaticamente toda vez que um usuário consulta
+  o PACS via pacs.query — ou seja, praticamente todo estudo que já foi
+  visto na tela de busca passa a existir aqui.
+
+  anamnesisSimple.getByStudy/.save usavam getStudyUnitId(), uma função em
+  server/authorization.ts que consulta SÓ study_metadata (a tabela rara).
+  Quando essa função não encontrava nada — o que é o caso comum, não o
+  raro — o código tratava isso como "não sei a unidade, então não vou nem
+  checar permissão" e liberava a operação para qualquer usuário
+  autenticado. Ou seja: na prática, a MAIORIA dos estudos (os que nunca
+  tiveram um override manual) tinha a anamnese acessível/editável por
+  qualquer conta logada no sistema, de qualquer unidade, sem nenhuma
+  verificação.
+
+  anamnesis.getByStudyId tinha o mesmo padrão, mas ainda mais grave: além
+  de pular a checagem de permissão quando resolveEffectiveUnitId() não
+  resolvia unidade para o usuário, o filtro WHERE unit_id = ... da própria
+  query também era removido nesse caso — a consulta passava a devolver a
+  anamnese de QUALQUER unidade do sistema para esse usuário, não só a
+  liberação de acesso, mas o vazamento de dado cross-unidade de fato.
+
+MECANISMO DA CORREÇÃO (como o código deve funcionar agora):
+  anamnesisSimple.ts: as duas procedures passaram a usar
+  assertDicomFileAccess(user, studyInstanceUid, permissão) — a função
+  central de autorização do projeto, já usada em outros routers (pacs.ts,
+  sla.ts, studyExamLegend.ts). Ela resolve a unidade consultando PRIMEIRO
+  studies_cache (a tabela populada automaticamente, cobrindo o caso
+  comum) e só depois study_metadata como complemento; se mesmo assim
+  nenhuma unidade for encontrada, ela lança TRPCError FORBIDDEN em vez de
+  liberar acesso. Isso é "deny-by-default": a ausência de informação
+  passa a significar "negar", não "permitir". Em .save, o unit_id
+  retornado por assertDicomFileAccess é o mesmo valor gravado no registro
+  de anamnese, então não existe mais um "unit_id fantasma" vindo de um
+  fallback separado (resolveEffectiveUnitId do próprio usuário, que antes
+  era usado mesmo sem nenhuma relação comprovada entre o usuário e aquele
+  estudo específico).
+
+  anamnesis.getByStudyId: para ctx.user.role !== 'admin_master', se
+  resolveEffectiveUnitId() não resolve nenhuma unidade, a procedure agora
+  lança FORBIDDEN imediatamente, ANTES de montar a query. Isso significa
+  que o whereClause com o filtro por unit_id passa a ser sempre aplicado
+  para não-admin_master (porque, se effectiveUnitId fosse null, já
+  teríamos lançado erro antes de chegar lá) — o vazamento cross-unidade
+  deixa de ser possível por construção, não só por checagem.
+
+PENDÊNCIA CONHECIDA, NÃO CORRIGIDA NESTE BRANCH:
+  Em anamnesis.getByStudyId, o audit log do caminho de leitura ainda usa
+  action: 'CREATE_ANAMNESIS' (deveria ser algo como 'VIEW_ANAMNESIS').
+  audit_log.action é um MySQL ENUM fixo em drizzle/schema.ts (linha
+  ~190) — adicionar um novo valor exige uma migration real
+  (ALTER TABLE ... MODIFY COLUMN action ENUM(...)), fora do escopo de uma
+  correção só de código/sem migration. Quem for mesclar este branch deve
+  decidir separadamente se/quando faz essa migration; o código atual
+  mantém o rótulo antigo de propósito, com um comentário explicando o
+  motivo no próprio arquivo.
+
+=============================================================================
+2. server/routers/studyExamLegend.ts
+   fix(exam-legend): validar permissão em getBatch
+=============================================================================
+ONDE: studyExamLegendRouter.getBatch.
+
+MECANISMO DO PROBLEMA: getBatch recebe { unit_id, studyInstanceUids } e
+devolve as seleções de legenda de exame (study_exam_legend_selections)
+para esse lote. O unit_id vinha direto do input do cliente, sem NENHUMA
+chamada a canAccessUnit ou assertDicomFileAccess — diferente dos outros
+três endpoints do mesmo arquivo (listForStudy, confirmSelections, select),
+que sempre resolvem e validam a unidade. Bastava o cliente (frontend ou
+uma chamada direta à API) informar qualquer unit_id para ler as seleções
+de legenda de qualquer unidade do sistema.
+
+MECANISMO DA CORREÇÃO: antes de consultar o banco, a procedure agora
+chama canAccessUnit(ctx.user, input.unit_id, "view_studies") e lança
+FORBIDDEN se o usuário não tiver essa permissão na unidade solicitada —
+mesma permissão (view_studies) usada nos outros três endpoints deste
+router, para manter consistência.
+
+=============================================================================
+3. server/routers/sla.ts
+   fix(sla): validar permissão em getUnitSla
+=============================================================================
+ONDE: slaRouter.getUnitSla (não confundir com a função helper de mesmo
+nome, getUnitSla(unitId), definida em módulo separado no mesmo arquivo e
+usada internamente — essa função interna não foi alterada e não precisa
+ser).
+
+MECANISMO DO PROBLEMA: a procedure do router lia unit_report_sla_configs
+filtrando só por input.unitId, sem checagem de permissão nenhuma.
+Qualquer usuário autenticado conseguia ler a configuração de SLA
+(prazo de laudo) de qualquer unidade, mesmo sem vínculo com ela.
+
+MECANISMO DA CORREÇÃO: adicionada a mesma chamada canAccessUnit(ctx.user,
+input.unitId, "view_studies") já usada em setUnitSla e nos endpoints de
+readiness do mesmo arquivo, lançando FORBIDDEN quando o usuário não tem
+acesso à unidade.
+
+=============================================================================
+4. server/routers/pacs.ts
+   fix(pacs): corrigir unit_id em audit logs e validar unidade no cache
+   hit do C-GET
+=============================================================================
+Três correções distintas neste arquivo — tratar cada uma isoladamente ao
+revisar o diff:
+
+4.1) pacs.query — dois audit logs (sucesso e captura de erro dentro do
+mesmo bloco try/catch) registravam unit_id: ctx.user.unit_id. Essa é a
+unidade "legada"/de origem cadastrada no próprio usuário, que pode ser
+DIFERENTE da unidade que ele efetivamente consultou naquela chamada
+(admin_master e usuários multiunidade podem consultar qualquer unidade
+autorizada via input.unit_id). A variável correta, já calculada logo
+acima no mesmo escopo, é "unit" (o registro da unidade resolvida,
+unit.id). Ambos os pontos foram trocados para unit_id: unit.id. Compare
+com startViewer, mais abaixo no mesmo arquivo, que já fazia isso certo
+com sua variável targetUnitId — essa comparação foi a evidência de que o
+padrão correto já existia no arquivo, só não estava aplicado
+uniformemente.
+
+4.2) pacs.getViewerUrl — mesmo problema, mesma causa: o audit log de
+OPEN_VIEWER usava ctx.user.unit_id em vez de targetUnitIdForViewer (a
+variável, já resolvida algumas linhas acima, usada para montar a própria
+viewerUrl retornada ao cliente). Corrigido para usar
+targetUnitIdForViewer.
+
+4.3) pacs.startViewer, fast path de cache HIT — este é o achado mais
+sério do arquivo. Quando os arquivos DICOM de um studyInstanceUid já
+existem em /tmp/dicom-cache/{uid}/*.dcm (baixados anteriormente via
+C-GET, por qualquer usuário, de qualquer unidade), o código retornava
+esses metadados sem baixar de novo — otimização legítima. Mas a
+validação de acesso, antes da correção, verificava só se o usuário tinha
+permissão GERAL (view_studies) na unidade que ELE informou como
+targetUnitId — nunca conferia se o studyInstanceUid pedido pertence
+mesmo a essa unidade. Como o diretório de cache em disco é indexado
+só pelo UID (sem nenhuma segregação por unidade), o cenário de
+exploração é: unidade A baixa o estudo X (fica em cache); mais tarde,
+um usuário da unidade B, que não tem nenhum vínculo com o estudo X, pode
+chamar startViewer informando studyInstanceUid=X e sua própria unitId=B
+— e, como X está em cache e o usuário tem view_studies em B (sua
+própria unidade), o sistema devolvia os metadados do cache sem perceber
+que X nunca teve relação nenhuma com B. Isso é um IDOR clássico via
+cache compartilhado.
+
+  Correção: antes de confiar no cache, a procedure agora chama
+  getStudyByInstanceUid(input.studyInstanceUid, targetUnitId) — função
+  já existente em server/db.ts (com o comentário original "previne
+  IDOR", usada em outros pontos do sistema com o mesmo propósito), que
+  consulta studies_cache filtrando por UID *e* unit_id simultaneamente.
+  Se não houver linha correspondente (ou seja, esse UID nunca foi
+  associado a essa unidade especificamente), a procedure lança FORBIDDEN
+  em vez de servir o cache. Quem revisar isto deve testar: abrir, na
+  mesma sessão, um estudo já cacheado por uma unidade diferente da
+  logada — o resultado esperado agora é FORBIDDEN, não os metadados do
+  cache.
+
+=============================================================================
+5. server/routers/units.ts
+   fix(units): restringir update de unidade a admin_master/unit_admin
+=============================================================================
+ONDE: unitsRouter.update.
+
+MECANISMO DO PROBLEMA: para usuários que não são admin_master, a
+autorização de units.update delegava inteiramente a
+getAdminManagedUnitIds(ctx.user) (função em server/authorization.ts).
+Essa função devolve os unit_ids de QUALQUER linha que o usuário tenha em
+user_unit_permissions, somados ao seu users.unit_id legado — SEM olhar
+para o papel (role) do usuário nem para quais permissões específicas
+aquela linha concede. Ou seja: um médico, atendente, operador ou
+responsável financeiro que tivesse qualquer vínculo com a unidade (por
+exemplo, só a permissão view_studies, necessária para ele ver os
+próprios exames) automaticamente "passava" na checagem de units.update e
+conseguia alterar pacs_ip, pacs_port, pacs_ae_title, name, slug e
+isActive dessa unidade — ou seja, reconfigurar a conexão com o próprio
+servidor PACS/Orthanc da unidade, uma ação que claramente deveria ser
+exclusiva de administração.
+
+MECANISMO DA CORREÇÃO: adicionada uma checagem de papel ANTES da
+checagem por unidade. Agora, se ctx.user.role não for 'admin_master' NEM
+'unit_admin', a procedure lança FORBIDDEN imediatamente — sem sequer
+consultar getAdminManagedUnitIds. Só admin_master (irrestrito) e
+unit_admin (restrito às unidades que getAdminManagedUnitIds devolver)
+chegam à lógica de update. O comportamento para esses dois papéis não
+mudou; só os demais papéis, que nunca deveriam ter chegado até ali,
+passam a ser barrados na entrada.
+
+=============================================================================
+6. server/routers/admin.ts
+   fix(admin): corrigir tipo de expiration_date gravado em updateUser
+=============================================================================
+ONDE: adminRouter.updateUser, bloco de tratamento de input.expiration_date.
+
+MECANISMO DO PROBLEMA: drizzle/schema.ts declara
+expiration_date: date("expiration_date"), sem a opção "mode" explícita.
+No drizzle-orm/mysql-core, um date() sem mode equivale a mode: 'string' —
+a coluna é lida (e deve ser escrita) como uma string no formato
+'YYYY-MM-DD'. O código de updateUser, porém, fazia:
+  const d = new Date(input.expiration_date + 'T23:59:59.000Z');
+  updateData.expiration_date = isNaN(d.getTime()) ? null : d.getTime();
+d.getTime() devolve um número inteiro (milissegundos desde epoch, ex.:
+1798761599000) — um tipo incompatível com o que a coluna DATE do MySQL
+espera via Drizzle, e também incompatível com o lado de leitura, em
+server/auth.service.ts (AuthService.validateCredentials), que trata
+expiration_date como string ao decidir, no login, se a conta expirou.
+Esse mismatch já estava documentado, mas não corrigido, em
+docs/SECURITY_REVIEW_ANALYSIS.md como item F2-2.
+
+MECANISMO DA CORREÇÃO: mantida a mesma validação de formato (parse via
+new Date(...) e checagem isNaN para rejeitar entradas malformadas), mas
+agora, se a data for válida, o valor persistido é reconstruído como
+string 'YYYY-MM-DD' a partir dos componentes UTC do Date parseado
+(getUTCFullYear/getUTCMonth/getUTCDate, com zero-padding), em vez do
+timestamp numérico. Isso alinha a escrita ao formato que o schema e o
+auth.service.ts já esperam.
+
+RESSALVA IMPORTANTE PARA QUEM FOR APLICAR EM PRODUÇÃO: esta correção só
+afeta GRAVAÇÕES NOVAS feitas a partir do momento em que o código corrigido
+entrar em produção. Ela NÃO corrige retroativamente linhas que já foram
+gravadas erradas (como BIGINT) pelo código antigo, se existirem. Antes ou
+logo depois de aplicar esta correção, vale rodar uma consulta na VM2
+(MySQL) para checar se existem valores numéricos grandes em
+users.expiration_date — se existirem, essas linhas precisam de uma
+correção de dados à parte, não coberta por este commit.
+
+=============================================================================
+ADENDO (2026-09-17) — TESTES DE REGRESSÃO A PARTIR DE REVISÃO INDEPENDENTE
+=============================================================================
+Um revisor independente leu este handoff e o diff real do branch (relatório
+"Revisão independente dos branches Claude.md", 16-17/09/2026 — inspeção do
+diff, pnpm install --frozen-lockfile, pnpm check, TZ=UTC pnpm test e pnpm
+build; nenhum merge/migration/deploy executado) e classificou a correção
+como "aprovação condicional": tecnicamente correta, mas sem nenhum teste
+automatizado próprio que prove o retorno FORBIDDEN nas quatro barreiras de
+autorização novas — recomendação era integrar SOMENTE depois de adicionar
+essas regressões.
+
+CORREÇÃO APLICADA (commit 28a5da46257adde7b2432af0b51ccc3fdf4926c9, em cima do 8d64b31 anterior):
+  git diff 8d64b31..28a5da46257adde7b2432af0b51ccc3fdf4926c9 -- server/audit-fixes-forbidden-regressions.test.ts
+
+Adiciona server/audit-fixes-forbidden-regressions.test.ts com 6 testes:
+  - sla.getUnitSla: médico sem vínculo com a unidade recebe FORBIDDEN.
+  - studyExamLegend.getBatch: mesma cobertura, nega o lote inteiro.
+  - units.update: médico e operador com uma permissão de SÓ LEITURA
+    (view_studies) na unidade — o cenário exato do bug original, em que
+    qualquer vínculo bastava — continuam recebendo FORBIDDEN por não
+    serem admin_master/unit_admin; um terceiro teste confirma que
+    unit_admin com o mesmo vínculo CONTINUA autorizado, ou seja, a
+    barreira por papel não quebrou o fluxo legítimo.
+  - anamnesis.getByStudyId: usuário sem unidade resolvida recebe
+    FORBIDDEN em vez de vazar a anamnese de qualquer unidade.
+
+Duas ressalvas técnicas sobre como os testes foram construídos, registradas
+para quem for reescrevê-los com banco real:
+  1) Este ambiente de teste não tem DATABASE_URL configurado — getDb()
+     sempre devolve null. Para sla.getUnitSla e studyExamLegend.getBatch
+     isso já é suficiente (canAccessUnit nega por padrão sem banco), mas
+     para units.update e anamnesis.getByStudyId, as funções auxiliares
+     (getAdminManagedUnitIds, resolveEffectiveUnitId) foram mockadas via
+     vi.doMock para simular o cenário específico do bug (usuário COM um
+     vínculo à unidade / usuário sem unidade resolvida), porque sem banco
+     elas já devolvem um resultado que mascara silenciosamente o cenário
+     original (ex.: getAdminManagedUnitIds devolve [] sem banco, o que já
+     bloquearia o update por outro motivo, não pela barreira de papel
+     testada).
+  2) Cada um dos 4 testes foi verificado manualmente revertendo o fix
+     correspondente e confirmando que o teste específico passa a falhar
+     (não incluído no commit — é um passo de verificação, não parte do
+     código de teste).
+
+VALIDAÇÃO EXECUTADA APÓS O ADENDO:
+  pnpm check ............................ OK, 0 erros
+  TZ=UTC pnpm test ....................... 413 passaram, 13 falharam
+    (mesma linha de base pré-existente já documentada; +6 testes novos,
+    todos passando).
+  pnpm build ............................. OK
+
+=============================================================================
+VALIDAÇÃO JÁ EXECUTADA SOBRE ESTE BRANCH (antes de qualquer merge)
+=============================================================================
+Em clone limpo de origin/main (09a8c7f), branch criado a partir dele:
+  pnpm install --frozen-lockfile ....... OK
+  pnpm check (tsc --noEmit) ............ OK, 0 erros
+  TZ=UTC pnpm test (vitest) ............ 407 passaram, 13 falharam, 1
+    pulado, de 421 testes — as 13 falhas são EXATAMENTE as mesmas 13
+    falhas pré-existentes já documentadas antes deste branch (mesmos
+    arquivos, mesma causa-raiz, nenhuma nova); verificação específica
+    feita nos testes que tocam os arquivos alterados
+    (security.auth.test.ts, units.test.ts, pacs*.test.ts,
+    anamnesis-status-security.test.ts, sla-countdown-ui.test.ts,
+    catalog-multi-legend.test.ts, pacsAutoMapping.test.ts): 85
+    passaram, só as 2 falhas pré-existentes já conhecidas.
+  pnpm build ............................ OK
+
+Nenhuma migration foi criada ou executada. Nenhum arquivo fora de
+server/routers/{admin,anamnesis,anamnesisSimple,pacs,sla,
+studyExamLegend}.ts e server/routers/units.ts foi tocado.
+
+=============================================================================
+ESTADO ATUAL — O QUE AINDA NÃO ACONTECEU
+=============================================================================
+Este branch está publicado no GitHub, mas NÃO tem Pull Request aberto,
+NÃO foi mesclado em main, e NADA foi implantado em nenhuma VM. Quem ler
+este documento e for aplicar as mudanças deve: ler o diff de cada commit
+no branch (comandos no topo deste arquivo), decidir se mescla tudo de uma
+vez ou em etapas, e só então seguir o fluxo normal de implantação do
+projeto (install → check → test → build → restart do serviço → health
+check).
