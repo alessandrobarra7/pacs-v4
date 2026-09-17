@@ -3,7 +3,8 @@ Projeto: PACS Portal / LAUDS
 Repositório: https://github.com/alessandrobarra7/pacs-v4
 Branch com as correções: claude/correcoes-setoriais-auditoria
 Base do branch: origin/main, commit 09a8c7f713cef674fa06c258b4f3d67bd1bcf8c1
-Topo do branch (commit mais recente): 8d64b3182eea0d486bad059acfc7b3fd46a8138b
+Topo do branch (commit mais recente): 28a5da46257adde7b2432af0b51ccc3fdf4926c9 (ver ADENDO
+                                       abaixo; commit anterior era 8d64b31)
 Gerado por: Claude (Cowork), a pedido de Alessandro (studiobarra7@gmail.com)
 Data: 2026-09-16
 
@@ -275,6 +276,58 @@ logo depois de aplicar esta correção, vale rodar uma consulta na VM2
 (MySQL) para checar se existem valores numéricos grandes em
 users.expiration_date — se existirem, essas linhas precisam de uma
 correção de dados à parte, não coberta por este commit.
+
+=============================================================================
+ADENDO (2026-09-17) — TESTES DE REGRESSÃO A PARTIR DE REVISÃO INDEPENDENTE
+=============================================================================
+Um revisor independente leu este handoff e o diff real do branch (relatório
+"Revisão independente dos branches Claude.md", 16-17/09/2026 — inspeção do
+diff, pnpm install --frozen-lockfile, pnpm check, TZ=UTC pnpm test e pnpm
+build; nenhum merge/migration/deploy executado) e classificou a correção
+como "aprovação condicional": tecnicamente correta, mas sem nenhum teste
+automatizado próprio que prove o retorno FORBIDDEN nas quatro barreiras de
+autorização novas — recomendação era integrar SOMENTE depois de adicionar
+essas regressões.
+
+CORREÇÃO APLICADA (commit 28a5da46257adde7b2432af0b51ccc3fdf4926c9, em cima do 8d64b31 anterior):
+  git diff 8d64b31..28a5da46257adde7b2432af0b51ccc3fdf4926c9 -- server/audit-fixes-forbidden-regressions.test.ts
+
+Adiciona server/audit-fixes-forbidden-regressions.test.ts com 6 testes:
+  - sla.getUnitSla: médico sem vínculo com a unidade recebe FORBIDDEN.
+  - studyExamLegend.getBatch: mesma cobertura, nega o lote inteiro.
+  - units.update: médico e operador com uma permissão de SÓ LEITURA
+    (view_studies) na unidade — o cenário exato do bug original, em que
+    qualquer vínculo bastava — continuam recebendo FORBIDDEN por não
+    serem admin_master/unit_admin; um terceiro teste confirma que
+    unit_admin com o mesmo vínculo CONTINUA autorizado, ou seja, a
+    barreira por papel não quebrou o fluxo legítimo.
+  - anamnesis.getByStudyId: usuário sem unidade resolvida recebe
+    FORBIDDEN em vez de vazar a anamnese de qualquer unidade.
+
+Duas ressalvas técnicas sobre como os testes foram construídos, registradas
+para quem for reescrevê-los com banco real:
+  1) Este ambiente de teste não tem DATABASE_URL configurado — getDb()
+     sempre devolve null. Para sla.getUnitSla e studyExamLegend.getBatch
+     isso já é suficiente (canAccessUnit nega por padrão sem banco), mas
+     para units.update e anamnesis.getByStudyId, as funções auxiliares
+     (getAdminManagedUnitIds, resolveEffectiveUnitId) foram mockadas via
+     vi.doMock para simular o cenário específico do bug (usuário COM um
+     vínculo à unidade / usuário sem unidade resolvida), porque sem banco
+     elas já devolvem um resultado que mascara silenciosamente o cenário
+     original (ex.: getAdminManagedUnitIds devolve [] sem banco, o que já
+     bloquearia o update por outro motivo, não pela barreira de papel
+     testada).
+  2) Cada um dos 4 testes foi verificado manualmente revertendo o fix
+     correspondente e confirmando que o teste específico passa a falhar
+     (não incluído no commit — é um passo de verificação, não parte do
+     código de teste).
+
+VALIDAÇÃO EXECUTADA APÓS O ADENDO:
+  pnpm check ............................ OK, 0 erros
+  TZ=UTC pnpm test ....................... 413 passaram, 13 falharam
+    (mesma linha de base pré-existente já documentada; +6 testes novos,
+    todos passando).
+  pnpm build ............................. OK
 
 =============================================================================
 VALIDAÇÃO JÁ EXECUTADA SOBRE ESTE BRANCH (antes de qualquer merge)
