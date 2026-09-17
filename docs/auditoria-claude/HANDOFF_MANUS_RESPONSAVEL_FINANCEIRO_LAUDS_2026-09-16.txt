@@ -3,7 +3,9 @@ Projeto: PACS Portal / LAUDS
 Repositório: https://github.com/alessandrobarra7/pacs-v4
 Branch com a correção aplicada: claude/correcao-resumo-responsavel-financeiro
 Base do branch: origin/main, commit 09a8c7f713cef674fa06c258b4f3d67bd1bcf8c1
-Topo do branch: d314c2bad30d3b1897b4e980c878b54a16fcf555
+Topo do branch: 70ecf50c23b559107719a89ab39c507ad6b45ffc (ver ADENDO
+                abaixo; commit original da correção descrita na PARTE 1 era
+                d314c2b, agora com um segundo commit de correção por cima)
 Gerado por: Claude (Cowork), a pedido de Alessandro (studiobarra7@gmail.com)
 Data: 2026-09-16
 
@@ -28,6 +30,69 @@ tem DUAS obrigações de pagamento distintas e simultâneas: R$30 ao médico,
 R$2 ao sistema. O usuário relatou que essa lógica "está quebrada e sem as
 funcionalidades necessárias" e que "não temos páginas e nem ambiente
 montado para o responsavel financeiro trabalhar com seus controles".
+
+=============================================================================
+ADENDO (2026-09-17) — CORREÇÃO A PARTIR DE REVISÃO INDEPENDENTE
+=============================================================================
+Um revisor independente leu este handoff e o diff real do branch (relatório
+"Revisão independente dos branches Claude.md", 16-17/09/2026, escopo:
+inspeção do diff, pnpm install --frozen-lockfile, pnpm check, TZ=UTC pnpm
+test e pnpm build — nenhum merge/migration/deploy executado) e encontrou
+uma divergência real na correção da PARTE 1, ainda não resolvida quando
+este handoff foi escrito pela primeira vez:
+
+  A nova consulta de billing_visit_events dentro de myResponsavelSummary
+  (a query "legado" do Promise.all descrito na PARTE 1) não excluía linhas
+  com financial_status = 'cancelled'. As outras duas consultas do MESMO
+  módulo que fazem o mesmo tipo de soma — doctorSummaryByUnit (linha ~736)
+  e a consulta equivalente em unitSummary/listUnitCycleFinancialEvents —
+  já excluem eventos cancelados (`ne(billing_visit_events.financial_status,
+  'cancelled')` ou filtro equivalente em memória). Ou seja: se existisse um
+  evento legado cancelado no período, o card principal do responsável
+  financeiro (myResponsavelSummary) continuaria divergindo do drill-down
+  por médico da mesma unidade (doctorSummaryByUnit) — o mesmo tipo de
+  inconsistência que a correção original da PARTE 1 pretendia eliminar,
+  só que por uma causa diferente (exclusão de cancelados, não a tabela de
+  catálogo).
+
+CORREÇÃO APLICADA (commit 70ecf50, em cima do d314c2b da PARTE 1):
+  git diff d314c2b..70ecf50 -- server/routers/financeSimple.ts
+
+  Adiciona `ne(billing_visit_events.financial_status, 'cancelled')` na
+  cláusula WHERE da consulta legada de myResponsavelSummary — mesmo padrão
+  já usado em doctorSummaryByUnit. A consulta de billing_catalog_study_events
+  já filtrava `financial_status = 'active'` desde a PARTE 1 e não precisou
+  de alteração.
+
+TESTE ADICIONADO: server/finance-my-responsavel-summary.test.ts
+  - Um teste funcional (mock de banco) confirma que legado + catálogo do
+    mesmo ciclo são somados corretamente.
+  - Dois testes de regressão fixam no código-fonte que myResponsavelSummary
+    carrega a mesma exclusão de cancelados que doctorSummaryByUnit
+    (billing_visit_events) e a mesma restrição a eventos ativos
+    (billing_catalog_study_events). Filtragem aqui é feita via SQL agregado
+    (COUNT/SUM), não por filtro em memória sobre eventos individuais — por
+    isso a asserção é sobre o código-fonte da procedure, no mesmo padrão já
+    usado em server/doctor-finance-unit-isolation.test.ts, e não sobre um
+    banco mockado (que não conseguiria exercitar a cláusula WHERE real).
+  - Verificação manual (não faz parte do commit): revertendo a condição
+    `ne(...)`, o teste de regressão falha, confirmando que ele realmente
+    prende esta correção específica.
+
+VALIDAÇÃO EXECUTADA APÓS O ADENDO:
+  pnpm check ............................ OK, 0 erros
+  TZ=UTC pnpm test ....................... 410 passaram, 13 falharam
+    (mesma linha de base pré-existente das entregas anteriores; nenhuma das
+    13 falhas tem relação com financeSimple.ts ou com este branch — ver
+    lista completa no relatório de revisão independente).
+  pnpm build ............................. OK
+
+O QUE O ADENDO NÃO MUDA: os três achados arquiteturais da PARTE 2 abaixo
+(fluxo de aviso de pagamento ao sistema, granularidade de pagamento médico,
+coexistência dos dois mecanismos de ciclo/pagamento) continuam sem solução
+proposta aqui — são decisões de produto, não bugs de código, e o revisor
+independente concordou que não devem ser incorporadas a este merge
+corretivo sem autorização específica do usuário.
 
 =============================================================================
 PARTE 1 — CORREÇÃO APLICADA NESTA BRANCH (commit d314c2b)
@@ -87,8 +152,12 @@ VALIDAÇÃO JÁ EXECUTADA:
     silenciosamente.
   pnpm build ............................ OK
 
-ESTADO: branch publicado no GitHub, SEM Pull Request aberto, SEM merge,
-NADA implantado em VM.
+ESTADO (após o ADENDO acima): branch publicado no GitHub com os dois
+commits (d314c2b + 70ecf50), SEM Pull Request aberto, SEM merge, NADA
+implantado em VM. A revisão independente recomendou NÃO integrar este
+branch antes do ADENDO; a recomendação para depois do ADENDO ainda não foi
+reavaliada por um segundo revisor — quem for decidir o merge deve conferir
+se a correção do ADENDO resolve de fato a ressalva levantada.
 
 =============================================================================
 PARTE 2 — ACHADOS ARQUITETURAIS MAIS PROFUNDOS (NÃO CORRIGIDOS)
