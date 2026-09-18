@@ -9,12 +9,18 @@ const state = vi.hoisted(() => ({
   directDownloadFetch: vi.fn(),
 }));
 
-vi.mock("wouter", () => ({ useLocation: () => ["/financeiro/meu-financeiro", vi.fn()] }));
-vi.mock("@/components/AppHeader", () => ({ AppHeader: ({ nav, unitSlot }: { nav?: React.ReactNode; unitSlot?: React.ReactNode }) => <header>{unitSlot}{nav}</header> }));
+vi.mock("wouter", () => ({ useLocation: () => ["/financeiro/meu-financeiro", vi.fn()], Link: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a> }));
+// NOVO (claude/financeiro-nova-identidade-visual): a página passou a usar FinanceShell
+// (sidebar comum a todo o módulo) em vez de AppHeader — o shell chama useAuth() para
+// decidir o que mostrar no menu por role, então precisa de um usuário mockado aqui,
+// senão renderiza só "Acesso restrito." e nenhuma das asserções de conteúdo bate.
+vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: { role: "medico", name: "Dr. Teste", username: "dr.teste" } }) }) );
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     financeSimple: {
       myFinanceiroUnits: { useQuery: () => ({ data: [{ unit_id: 8, unit_name: "Unidade Teste", cycle_start_day: 1, cycle_end_day: 31 }], isLoading: false, isError: false, refetch: vi.fn() }) },
+      // NOVO (claude/financeiro-nova-identidade-visual): painel "Períodos anteriores".
+      myPastCycles: { useQuery: () => ({ data: { cycles: [] }, isLoading: false }) },
       myFinanceiro: { useQuery: (input: { unit_id: number; reference_date: string }) => {
         state.financeInputs.push(input);
         return {
@@ -64,11 +70,14 @@ describe("página financeira individual do médico", () => {
     expect(renderer.root.findAllByType("input").some((node) => node.props.placeholder === "Buscar paciente ou exame")).toBe(true);
     expect(hasText(renderer.root, "Baixar PDF")).toBe(true);
     expect(hasText(renderer.root, "Valores definidos pelo administrador")).toBe(true);
-    const header = renderer.root.findAllByType("header")[0];
-    expect(hasText(header, "Estudos")).toBe(true);
-    expect(hasText(header, "Financeiro")).toBe(true);
-    expect(hasText(header, "Meus laudos")).toBe(false);
-    expect(hasText(header, "Minha configuração")).toBe(false);
+    // NOVO (claude/financeiro-nova-identidade-visual): nav agora vem do FinanceShell
+    // (sidebar comum), filtrado por role — médico só vê "Meu Financeiro".
+    const nav = renderer.root.findAllByType("nav")[0];
+    expect(hasText(nav, "Meu Financeiro")).toBe(true);
+    expect(hasText(nav, "Dashboard")).toBe(false);
+    expect(hasText(nav, "Pagamentos")).toBe(false);
+    expect(hasText(nav, "Minhas Unidades")).toBe(false);
+    expect(hasText(nav, "Configuração")).toBe(false);
     expect(state.financeInputs.some((input) => input.unit_id === 8)).toBe(true);
 
     expect(renderer.root.findAllByType("button").some((node) => node.children.some((child) => typeof child === "string" && child.includes("Baixar PDF")))).toBe(true);
