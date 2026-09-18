@@ -686,6 +686,184 @@ export const financeSimpleRouter = router({
    * Lista de laudos por unidade — para a tela de Pagamentos
    * Agrupa por unidade, retorna totais e status de pagamento
    */
+  /**
+   * Visão consolidada extra do administrador — faturamento externo do ciclo
+   * atual (REAL, mesmo cálculo do unitProfitCalculator, agregado entre todas
+   * as unidades autorizadas) + médicos com laudo faturável nos últimos 30
+   * dias + fluxo mensal histórico (últimos 6 meses com ciclo fechado).
+   *
+   * O fluxo mensal é ESTIMATIVA na parte de receita externa, pelo mesmo
+   * motivo e mesma técnica de getResponsibleProfitHistory (server/db.ts):
+   * não existe registro histórico de receita externa, só do que foi devido
+   * ao sistema e aos médicos. Decisão do usuário 2026-09-18, mesma já
+   * aplicada ao gráfico do responsável.
+   */
+  financialOverviewExtras: protectedProcedure
+    .query(async ({ ctx }) => {
+      assertAdmin(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const unitScope = await getAuthorizedFinancialUnitIds(db, ctx.user); // null = todas
+      const scopedUnitsRows = await db
+        .select({ id: units.id })
+        .from(units)
+        .where(unitScope ? inArray(units.id, unitScope) : undefined);
+      const unitIds = scopedUnitsRows.map((u) => u.id);
+      if (unitIds.length === 0) {
+        return { external_revenue_current: 0, active_doctors: 0, monthly_flow: [] };
+      }
+
+      // ── Faturamento externo do ciclo atual (REAL) ──────────────────────
+      let externalRevenueCurrent = 0;
+      const activeDoctorIds = new Set<number>();
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+      for (const unitId of unitIds) {
+        const { startDate, endDate } = await resolveFinancialCycle(db, unitId, now);
+        const [eventRows, priceRows] = await Promise.all([
+          db.select({
+            exam_legend_id: billing_catalog_study_events.exam_legend_id,
+            signed_at: billing_catalog_study_events.signed_at,
+          }).from(billing_catalog_study_events)
+            .where(and(
+              eq(billing_catalog_study_events.unit_id, unitId),
+              eq(billing_catalog_study_events.financial_status, "active"),
+              sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
+              sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
+            )),
+          db.select({
+            exam_legend_id: billing_external_sale_prices.exam_legend_id,
+            price_external: billing_external_sale_prices.price_external,
+            starts_at: billing_external_sale_prices.starts_at,
+            ends_at: billing_external_sale_prices.ends_at,
+          }).from(billing_external_sale_prices)
+            .where(and(
+              eq(billing_external_sale_prices.unit_id, unitId),
+              sql`${billing_external_sale_prices.starts_at} < ${endDate}`,
+              or(isNull(billing_external_sale_prices.ends_at), sql`${billing_external_sale_prices.ends_at} >= ${startDate}`),
+            )),
+        ]);
+        const byLegend = new Map<number, typeof priceRows>();
+        for (const p of priceRows) {
+          const list = byLegend.get(p.exam_legend_id) ?? [];
+          list.push(p);
+          byLegend.set(p.exam_legend_id, list);
+        }
+        for (const event of eventRows) {
+          const candidates = byLegend.get(event.exam_legend_id);
+          const match = candidates?.find((p) => p.starts_at <= event.signed_at && (p.ends_at === null || p.ends_at > event.signed_at));
+          if (match) externalRevenueCurrent += toMoney(match.price_external);
+        }
+
+        const [recentLegacy, recentCatalog] = await Promise.all([
+          db.select({ doctor_user_id: billing_visit_events.doctor_user_id })
+            .from(billing_visit_events)
+            .where(and(
+              eq(billing_visit_events.unit_id, unitId),
+              ne(billing_visit_events.financial_status, "cancelled"),
+              sql`${billing_visit_events.signed_at} >= ${thirtyDaysAgo}`,
+            )),
+          db.select({ doctor_user_id: billing_catalog_study_events.doctor_user_id })
+            .from(billing_catalog_study_events)
+            .where(and(
+              eq(billing_catalog_study_events.unit_id, unitId),
+              eq(billing_catalog_study_events.financial_status, "active"),
+              sql`${billing_catalog_study_events.signed_at} >= ${thirtyDaysAgo}`,
+            )),
+        ]);
+        for (const r of [...recentLegacy, ...recentCatalog]) {
+          if (r.doctor_user_id != null) activeDoctorIds.add(r.doctor_user_id);
+        }
+      }
+
+      // ── Fluxo mensal histórico (ciclos fechados, agrupados por mês) ────
+      const systemCycles = await db.select({
+        unit_id: billing_cycle_system_summary.unit_id,
+        amount_due: billing_cycle_system_summary.amount_due,
+        cycle_id: billing_cycles.id,
+        starts_at: billing_cycles.starts_at,
+        ends_at: billing_cycles.ends_at,
+      }).from(billing_cycle_system_summary)
+        .innerJoin(billing_cycles, eq(billing_cycle_system_summary.system_cycle_id, billing_cycles.id))
+        .where(and(
+          inArray(billing_cycle_system_summary.unit_id, unitIds),
+          eq(billing_cycles.status, "closed"),
+        ))
+        .orderBy(desc(billing_cycles.ends_at));
+
+      const doctorCycles = await db.select({
+        unit_id: billing_cycle_doctor_summary.unit_id,
+        amount_due: billing_cycle_doctor_summary.amount_due,
+        doctor_cycle_id: billing_cycle_doctor_summary.doctor_cycle_id,
+      }).from(billing_cycle_doctor_summary)
+        .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+        .where(and(
+          inArray(billing_cycle_doctor_summary.unit_id, unitIds),
+          eq(billing_cycles.status, "closed"),
+        ));
+
+      const currentPrices = await db.select({
+        unit_id: billing_external_sale_prices.unit_id,
+        exam_legend_id: billing_external_sale_prices.exam_legend_id,
+        price_external: billing_external_sale_prices.price_external,
+      }).from(billing_external_sale_prices)
+        .where(isNull(billing_external_sale_prices.ends_at));
+      const priceByUnitLegend = new Map<string, number>();
+      for (const p of currentPrices) priceByUnitLegend.set(`${p.unit_id}:${p.exam_legend_id}`, toMoney(p.price_external));
+
+      const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const monthlyAgg = new Map<string, { month_label: string; system_cost: number; doctor_cost: number; estimated_revenue: number }>();
+
+      for (const cycle of systemCycles) {
+        const start = new Date(cycle.starts_at);
+        const key = monthKey(start);
+        const entry = monthlyAgg.get(key) ?? {
+          month_label: start.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }),
+          system_cost: 0, doctor_cost: 0, estimated_revenue: 0,
+        };
+        entry.system_cost += toMoney(cycle.amount_due);
+
+        const eventRows = await db.select({ exam_legend_id: billing_catalog_study_events.exam_legend_id })
+          .from(billing_catalog_study_events)
+          .where(and(
+            eq(billing_catalog_study_events.unit_id, cycle.unit_id),
+            eq(billing_catalog_study_events.financial_status, "active"),
+            sql`${billing_catalog_study_events.signed_at} >= ${cycle.starts_at}`,
+            sql`${billing_catalog_study_events.signed_at} < ${cycle.ends_at}`,
+          ));
+        for (const event of eventRows) {
+          const price = priceByUnitLegend.get(`${cycle.unit_id}:${event.exam_legend_id}`);
+          if (price !== undefined) entry.estimated_revenue += price;
+        }
+
+        const doctorCost = doctorCycles
+          .filter((d) => d.unit_id === cycle.unit_id && d.doctor_cycle_id === cycle.cycle_id)
+          .reduce((sum, d) => sum + toMoney(d.amount_due), 0);
+        entry.doctor_cost += doctorCost;
+
+        monthlyAgg.set(key, entry);
+      }
+
+      const monthlyFlow = Array.from(monthlyAgg.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .slice(-6)
+        .map(([, v]) => ({
+          month_label: v.month_label,
+          system_cost: Math.round(v.system_cost * 100) / 100,
+          doctor_cost: Math.round(v.doctor_cost * 100) / 100,
+          estimated_revenue: Math.round(v.estimated_revenue * 100) / 100,
+          price_basis: "current" as const,
+        }));
+
+      return {
+        external_revenue_current: toMoney(externalRevenueCurrent),
+        active_doctors: activeDoctorIds.size,
+        monthly_flow: monthlyFlow,
+      };
+    }),
+
   unitSummary: protectedProcedure
     .input(z.object({
       reference_date: z.string().datetime().optional(),
