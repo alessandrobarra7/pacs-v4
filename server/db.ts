@@ -2770,6 +2770,49 @@ export async function markDoctorCycleReceived(
  * Retorna o resumo financeiro do responsável:
  * ciclos abertos por unidade + totais.
  */
+/**
+ * getDoctorCycleSummary — histórico de ciclos JÁ FECHADOS (billing_cycle_doctor_summary)
+ * para um médico específico, em todas as unidades. Espelha getResponsibleCycleSummary:
+ * mesma fonte de dados (snapshot gravado quando um ciclo é fechado via closeCycle),
+ * mesma limitação — só aparece aqui o que já foi fechado; o ciclo vigente continua
+ * vindo de myFinanceiro (cálculo ao vivo sobre billing_visit_events/billing_catalog_study_events).
+ */
+export async function getDoctorCycleSummary(doctorUserId: number) {
+  const db = await getDb();
+  if (!db) return { cycles: [] as Array<{
+    id: number;
+    unit_id: number;
+    unit_name: string | null;
+    reports_count: number;
+    amount_due: string;
+    received_at: Date | null;
+    cycle_starts_at: string;
+    cycle_ends_at: string;
+    cycle_status: "open" | "closed";
+  }> };
+
+  const rows = await db.select({
+    id: billing_cycle_doctor_summary.id,
+    unit_id: billing_cycle_doctor_summary.unit_id,
+    unit_name: units.name,
+    reports_count: billing_cycle_doctor_summary.reports_count,
+    amount_due: billing_cycle_doctor_summary.amount_due,
+    received_at: billing_cycle_doctor_summary.received_at,
+    cycle_starts_at: billing_cycles.starts_at,
+    cycle_ends_at: billing_cycles.ends_at,
+    cycle_status: billing_cycles.status,
+  }).from(billing_cycle_doctor_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .innerJoin(units, eq(billing_cycle_doctor_summary.unit_id, units.id))
+    .where(and(
+      eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
+      eq(billing_cycles.status, "closed"),
+    ))
+    .orderBy(desc(billing_cycles.ends_at));
+
+  return { cycles: rows };
+}
+
 export async function getResponsibleCycleSummary(financialResponsibleId: number) {
   const db = await getDb();
   if (!db) return { systemCycles: [], doctorCycles: [], totalSystem: "0.00", totalDoctors: "0.00", totalGeral: "0.00" };

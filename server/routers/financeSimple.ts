@@ -41,6 +41,7 @@ import {
   listResponsiblesForUser,
   createBillingVisitEvent,
   getResponsibleCycleSummary,
+  getDoctorCycleSummary,
   getDoctorFinancialSummary,
   getDoctorCycleEvents,
   linkUnitToResponsible,
@@ -1497,6 +1498,16 @@ export const financeSimpleRouter = router({
         .from(units)
         .where(inArray(units.id, unitIds))
         .orderBy(units.name);
+    }),
+
+  /**
+   * Períodos anteriores do médico — ciclos já fechados (billing_cycle_doctor_summary),
+   * em todas as unidades. O ciclo vigente NÃO aparece aqui (vem de myFinanceiro).
+   */
+  myPastCycles: protectedProcedure
+    .query(async ({ ctx }) => {
+      assertMedico(ctx.user.role);
+      return await getDoctorCycleSummary(ctx.user.id);
     }),
 
   /** Preços vigentes do próprio médico no contexto de uma única unidade. */

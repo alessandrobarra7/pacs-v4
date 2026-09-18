@@ -1,0 +1,57 @@
+/**
+ * finance-theme.css — identidade visual do módulo Financeiro (paleta "azul corporativo").
+ *
+ * Escopo: só as páginas dentro de /financeiro/*. Estas variáveis NÃO tocam
+ * client/src/index.css (tema global do resto do app — PACS, laudos, admin
+ * geral). Aplicar a classe .finance-theme no elemento raiz do FinanceShell.
+ *
+ * Uso nos componentes: classes Tailwind com valor arbitrário referenciando
+ * a variável, ex: bg-[var(--fin-bg)] text-[var(--fin-text)] border-[var(--fin-line)]
+ */
+
+.finance-theme {
+  --fin-bg: #080B12;
+  --fin-side: #0A0E17;
+  --fin-panel: #0D1220;
+  --fin-panel-2: #101828;
+  --fin-line: rgba(226, 233, 246, 0.09);
+  --fin-line-soft: rgba(226, 233, 246, 0.06);
+
+  --fin-text: #EDF1F9;
+  --fin-muted: #8B96AD;
+  --fin-muted-dim: #5B6376;
+
+  --fin-accent: #4C8DFF;
+  --fin-accent-hover: #6FA1FF;
+  --fin-accent-soft: #8FB4FF;
+  --fin-accent-deep: #12295E;
+  --fin-accent-ink: #F5F8FF;
+  --fin-accent-wash: rgba(76, 141, 255, 0.13);
+  --fin-accent-border: rgba(76, 141, 255, 0.35);
+
+  --fin-warn: #E3B24F;
+  --fin-warn-wash: rgba(227, 178, 79, 0.1);
+  --fin-warn-border: rgba(227, 178, 79, 0.25);
+
+  --fin-danger: #E38C7F;
+  --fin-danger-wash: rgba(227, 140, 127, 0.1);
+  --fin-danger-border: rgba(227, 140, 127, 0.25);
+
+  --fin-success: #4FC98A;
+  --fin-success-wash: rgba(79, 201, 138, 0.1);
+
+  --fin-font-body: 'Manrope', sans-serif;
+  --fin-font-head: 'Sora', sans-serif;
+}
+
+.finance-theme {
+  background: var(--fin-bg);
+  color: var(--fin-text);
+  font-family: var(--fin-font-body);
+}
+
+.finance-theme h1,
+.finance-theme h2,
+.finance-theme .fin-head {
+  font-family: var(--fin-font-head);
+}
