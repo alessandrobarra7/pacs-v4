@@ -29,6 +29,7 @@ import {
   billing_catalog_study_events,
   billing_cycle_doctor_summary,
   billing_cycle_system_summary,
+  billing_external_sale_prices,
   user_unit_permissions,
   phrase_groups,
   phrases,
@@ -2858,6 +2859,120 @@ export async function getResponsibleCycleSummary(financialResponsibleId: number)
  * Retorna info financeira discreta para o seletor de unidades:
  * valor/laudo do médico e acumulado no ciclo atual.
  */
+/**
+ * getResponsibleProfitHistory — ESTIMATIVA de receita externa e lucro por
+ * ciclo já fechado, para o gráfico "Receita, custos e lucro" do responsável.
+ *
+ * Por que é estimativa: billing_cycle_system_summary/doctor_summary (o
+ * snapshot gravado no fechamento do ciclo) só guarda o total devido ao
+ * sistema e aos médicos — não guarda a receita externa (preço cobrado do
+ * paciente), que só existe calculada ao vivo (unitProfitCalculator) para o
+ * ciclo em aberto. Não há, hoje, registro histórico de receita externa.
+ *
+ * Decisão do usuário (2026-09-18): em vez de omitir o gráfico, aplicar o
+ * PREÇO EXTERNO VIGENTE HOJE (billing_external_sale_prices sem ends_at)
+ * sobre a contagem real de laudos por legenda de cada ciclo fechado — ou
+ * seja, "quanto essa produção passada renderia com a tabela de preços
+ * atual". Se o preço mudou desde então, o número diverge do que realmente
+ * foi cobrado naquele ciclo. Por isso todo item retornado carrega
+ * price_basis: "current", para a tela deixar isso explícito ao usuário.
+ */
+export async function getResponsibleProfitHistory(financialResponsibleId: number, limit = 6) {
+  const db = await getDb();
+  if (!db) return { periods: [] as Array<{
+    unit_id: number;
+    unit_name: string | null;
+    cycle_starts_at: string;
+    cycle_ends_at: string;
+    system_cost: number;
+    doctor_cost: number;
+    estimated_revenue: number;
+    estimated_profit: number;
+    price_basis: "current";
+  }> };
+
+  const systemCycles = await db.select({
+    unit_id: billing_cycle_system_summary.unit_id,
+    unit_name: units.name,
+    amount_due: billing_cycle_system_summary.amount_due,
+    cycle_id: billing_cycles.id,
+    starts_at: billing_cycles.starts_at,
+    ends_at: billing_cycles.ends_at,
+  }).from(billing_cycle_system_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_system_summary.system_cycle_id, billing_cycles.id))
+    .innerJoin(units, eq(billing_cycle_system_summary.unit_id, units.id))
+    .where(and(
+      eq(billing_cycle_system_summary.financial_responsible_id, financialResponsibleId),
+      eq(billing_cycles.status, "closed"),
+    ))
+    .orderBy(desc(billing_cycles.ends_at))
+    .limit(limit);
+
+  if (systemCycles.length === 0) return { periods: [] };
+
+  const doctorCycles = await db.select({
+    unit_id: billing_cycle_doctor_summary.unit_id,
+    amount_due: billing_cycle_doctor_summary.amount_due,
+    doctor_cycle_id: billing_cycle_doctor_summary.doctor_cycle_id,
+  }).from(billing_cycle_doctor_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .where(and(
+      eq(billing_cycle_doctor_summary.financial_responsible_id, financialResponsibleId),
+      eq(billing_cycles.status, "closed"),
+    ));
+
+  const round2 = (v: number) => Math.round(v * 100) / 100;
+  const asMoney = (v: number | string | null | undefined) => round2(Number(v ?? 0));
+
+  const currentPrices = await db.select({
+    unit_id: billing_external_sale_prices.unit_id,
+    exam_legend_id: billing_external_sale_prices.exam_legend_id,
+    price_external: billing_external_sale_prices.price_external,
+  }).from(billing_external_sale_prices)
+    .where(isNull(billing_external_sale_prices.ends_at));
+  const priceByUnitLegend = new Map<string, number>();
+  for (const p of currentPrices) {
+    priceByUnitLegend.set(`${p.unit_id}:${p.exam_legend_id}`, asMoney(p.price_external));
+  }
+
+  const periods = await Promise.all(systemCycles.map(async (cycle) => {
+    const eventRows = await db.select({
+      exam_legend_id: billing_catalog_study_events.exam_legend_id,
+    }).from(billing_catalog_study_events)
+      .where(and(
+        eq(billing_catalog_study_events.unit_id, cycle.unit_id),
+        eq(billing_catalog_study_events.financial_status, "active"),
+        drizzleSql2`${billing_catalog_study_events.signed_at} >= ${cycle.starts_at}`,
+        drizzleSql2`${billing_catalog_study_events.signed_at} < ${cycle.ends_at}`,
+      ));
+
+    let estimatedRevenue = 0;
+    for (const event of eventRows) {
+      const price = priceByUnitLegend.get(`${cycle.unit_id}:${event.exam_legend_id}`);
+      if (price !== undefined) estimatedRevenue = round2(estimatedRevenue + price);
+    }
+
+    const systemCost = asMoney(cycle.amount_due);
+    const doctorCost = round2(doctorCycles
+      .filter((d) => d.unit_id === cycle.unit_id && d.doctor_cycle_id === cycle.cycle_id)
+      .reduce((sum, d) => sum + asMoney(d.amount_due), 0));
+
+    return {
+      unit_id: cycle.unit_id,
+      unit_name: cycle.unit_name,
+      cycle_starts_at: String(cycle.starts_at),
+      cycle_ends_at: String(cycle.ends_at),
+      system_cost: systemCost,
+      doctor_cost: doctorCost,
+      estimated_revenue: estimatedRevenue,
+      estimated_profit: round2(estimatedRevenue - systemCost - doctorCost),
+      price_basis: "current" as const,
+    };
+  }));
+
+  return { periods: periods.sort((a, b) => a.cycle_starts_at.localeCompare(b.cycle_starts_at)) };
+}
+
 export function combineDoctorCycleEventTotals(
   legacy: { events: number | string | null | undefined; amount: number | string | null | undefined },
   catalog: { events: number | string | null | undefined; amount: number | string | null | undefined },

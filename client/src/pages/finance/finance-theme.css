@@ -14,6 +14,9 @@
   --fin-side: #0A0E17;
   --fin-panel: #0D1220;
   --fin-panel-2: #101828;
+  --fin-panel-soft: #101726;
+  --fin-panel-faint: #0C111C;
+  --fin-line-strong: rgba(226, 233, 246, 0.16);
   --fin-line: rgba(226, 233, 246, 0.09);
   --fin-line-soft: rgba(226, 233, 246, 0.06);
 

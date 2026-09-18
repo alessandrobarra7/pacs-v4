@@ -41,6 +41,7 @@ import {
   listResponsiblesForUser,
   createBillingVisitEvent,
   getResponsibleCycleSummary,
+  getResponsibleProfitHistory,
   getDoctorCycleSummary,
   getDoctorFinancialSummary,
   getDoctorCycleEvents,
@@ -3417,6 +3418,28 @@ export const financeSimpleRouter = router({
         const respId = await resolveResponsibleContext(ctx.user, input?.financialResponsibleId);
         if (!respId) return { systemCycles: [], doctorCycles: [] };
         return await getResponsibleCycleSummary(respId);
+      }),
+
+    /**
+     * Histórico de receita/custo/lucro por ciclo fechado, para o gráfico do
+     * responsável. Receita é ESTIMATIVA (preço externo vigente hoje aplicado
+     * retroativamente) — ver comentário de getResponsibleProfitHistory em db.ts.
+     */
+    getResponsibleProfitHistory: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number().optional() }).optional())
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'responsavel_financeiro' && ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const respId = await resolveResponsibleContext(ctx.user, input?.financialResponsibleId);
+        if (!respId) return { periods: [] };
+        const { periods } = await getResponsibleProfitHistory(respId);
+        return {
+          periods: periods.map((p) => ({
+            ...p,
+            cycle_label: `${formatCycleCalendarDate(new Date(p.cycle_starts_at))} a ${formatCycleCalendarDate(new Date(new Date(p.cycle_ends_at).getTime() - 1))}`,
+          })),
+        };
       }),
 
     getUnitFinancialInfo: protectedProcedure
