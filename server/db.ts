@@ -1464,12 +1464,16 @@ export type FinancialResponsibleUserWithName = FinancialResponsibleUser & {
   name: string | null;
   username: string | null;
   email: string | null;
+  role: string | null;
+  is_active: boolean | null;
+  /** true quando o vínculo aponta para um user_id que não existe mais (LEFT JOIN sem match). */
+  is_orphan: boolean;
 };
 
 export async function listUsersForResponsible(financialResponsibleId: number): Promise<FinancialResponsibleUserWithName[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db
+  const rows = await db
     .select({
       id: financial_responsible_users.id,
       financial_responsible_id: financial_responsible_users.financial_responsible_id,
@@ -1478,10 +1482,16 @@ export async function listUsersForResponsible(financialResponsibleId: number): P
       name: users.name,
       username: users.username,
       email: users.email,
+      role: users.role,
+      is_active: users.isActive,
     })
     .from(financial_responsible_users)
     .leftJoin(users, eq(users.id, financial_responsible_users.user_id))
     .where(eq(financial_responsible_users.financial_responsible_id, financialResponsibleId));
+  // Vínculo órfão: o LEFT JOIN não encontrou nenhuma linha em users pro user_id
+  // gravado — username é NOT NULL na tabela users, então null aqui só acontece
+  // por ausência de match, nunca por um username realmente vazio.
+  return rows.map((r) => ({ ...r, is_orphan: r.username === null }));
 }
 
 // ─── Vínculos Unidade → Responsável ──────────────────────────────────────────

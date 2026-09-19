@@ -2807,22 +2807,92 @@ export const financeSimpleRouter = router({
       }),
 
     // ── Vínculos Usuário → Responsável ────────────────────────────────────────
+    // NOVO (claude/gestao-usuarios-responsavel-financeiro, requisitos 2026-09-17
+    // seções 3.3/3.4/7): antes desta mudança, linkUser/unlinkUser só faziam o
+    // INSERT/DELETE cru — sem checar se a conta já tinha vínculo (a unique key
+    // do banco rejeitava, mas com erro cru de driver, não uma mensagem
+    // compreensível), sem checar se a conta é de fato do tipo responsavel_
+    // financeiro (um vínculo pra outro role nunca aparece em tela nenhuma —
+    // ver RBAC nas procedures de leitura, todas checam ctx.user.role antes de
+    // resolver o responsável), sem impedir remover o único acesso restante em
+    // silêncio, e sem gerar auditoria — os 4 pontos exigidos pelo documento.
     linkUser: protectedProcedure
       .input(z.object({ financialResponsibleId: z.number(), userId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        
-        await linkUserToResponsible(input.financialResponsibleId, input.userId);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+
+        const targetRows = await db.select({ id: users.id, role: users.role, isActive: users.isActive })
+          .from(users).where(eq(users.id, input.userId)).limit(1);
+        const target = targetRows[0];
+        if (!target) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conta de usuário não encontrada.' });
+        if (target.role !== 'responsavel_financeiro') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta conta não tem o perfil "Responsável Financeiro" — ajuste o perfil do usuário antes de conceder acesso ao painel financeiro.' });
+        }
+        if (!target.isActive) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta conta está inativa. Ative o usuário antes de conceder acesso.' });
+        }
+
+        try {
+          await linkUserToResponsible(input.financialResponsibleId, input.userId);
+        } catch (err) {
+          // uq_resp_user (financial_responsible_id, user_id) — vínculo duplicado.
+          if (err instanceof Error && /uq_resp_user|Duplicate entry/i.test(err.message)) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta conta já tem acesso a este responsável financeiro.' });
+          }
+          throw err;
+        }
+
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: null,
+          action: 'GRANT_FINANCIAL_RESPONSIBLE_ACCESS',
+          target_type: 'FINANCIAL_RESPONSIBLE_USER',
+          target_id: `${input.financialResponsibleId}:${input.userId}`,
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+          metadata: { financial_responsible_id: input.financialResponsibleId, user_id: input.userId },
+        }).catch(() => {});
+
         return { success: true };
       }),
 
     unlinkUser: protectedProcedure
-      .input(z.object({ financialResponsibleId: z.number(), userId: z.number() }))
+      .input(z.object({
+        financialResponsibleId: z.number(),
+        userId: z.number(),
+        // Seção 3.4: se for o único usuário com acesso, a interface tem que
+        // exigir confirmação reforçada — validado aqui de novo (não só na UI),
+        // porque uma chamada direta à API tem que obedecer à mesma regra (seção 7).
+        confirmLastUser: z.boolean().optional(),
+      }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
-        
+
+        const currentUsers = await listUsersForResponsible(input.financialResponsibleId);
+        const isLastUser = currentUsers.length === 1 && currentUsers[0]?.user_id === input.userId;
+        if (isLastUser && !input.confirmLastUser) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'LAST_USER_CONFIRMATION_REQUIRED: este é o único usuário com acesso a este responsável financeiro. Confirme a remoção para deixá-lo temporariamente sem nenhum operador com acesso ao painel.',
+          });
+        }
+
         await unlinkUserFromResponsible(input.financialResponsibleId, input.userId);
-        return { success: true };
+
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: null,
+          action: 'REVOKE_FINANCIAL_RESPONSIBLE_ACCESS',
+          target_type: 'FINANCIAL_RESPONSIBLE_USER',
+          target_id: `${input.financialResponsibleId}:${input.userId}`,
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers['user-agent'],
+          metadata: { financial_responsible_id: input.financialResponsibleId, user_id: input.userId, was_last_user: isLastUser },
+        }).catch(() => {});
+
+        return { success: true, was_last_user: isLastUser };
       }),
 
     listUsersForResponsible: protectedProcedure
@@ -2831,6 +2901,25 @@ export const financeSimpleRouter = router({
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         
         return await listUsersForResponsible(input.financialResponsibleId);
+      }),
+
+    // Seção 3.3: contas elegíveis pra receber acesso (role correto, ativas,
+    // e que ainda não têm vínculo com este responsável).
+    listEligibleUsersForResponsible: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const [linked, eligible] = await Promise.all([
+          listUsersForResponsible(input.financialResponsibleId),
+          db.select({ id: users.id, name: users.name, username: users.username, email: users.email })
+            .from(users)
+            .where(and(eq(users.role, 'responsavel_financeiro'), eq(users.isActive, true)))
+            .orderBy(users.name),
+        ]);
+        const linkedIds = new Set(linked.filter((l) => !l.is_orphan).map((l) => l.user_id));
+        return eligible.filter((u) => !linkedIds.has(u.id));
       }),
 
     // ── Vínculos Unidade → Responsável ────────────────────────────────────────
@@ -4446,15 +4535,19 @@ export const financeSimpleRouter = router({
       const hasResponsible = responsibleRow.length > 0;
       const responsibleName = responsibleRow[0]?.name ?? null;
 
-      // 3. Usuário financeiro vinculado ao responsável
+      // 3. Usuários com acesso financeiro vinculados ao responsável.
+      // NOVO (claude/gestao-usuarios-responsavel-financeiro, requisitos seção
+      // 5 — "quadro de estado da unidade"): além de saber SE existe usuário,
+      // o quadro de estado precisa da contagem e de sinalizar vínculo órfão
+      // (user_id que não existe mais em users) explicitamente, não em silêncio.
       let hasResponsibleUser = false;
+      let responsibleUserCount = 0;
+      let responsibleHasInvalidLink = false;
       if (hasResponsible && responsibleRow[0]?.id) {
-        const userRow = await db
-          .select({ id: financial_responsible_users.user_id })
-          .from(financial_responsible_users)
-          .where(eq(financial_responsible_users.financial_responsible_id, responsibleRow[0].id))
-          .limit(1);
-        hasResponsibleUser = userRow.length > 0;
+        const respUsers = await listUsersForResponsible(responsibleRow[0].id);
+        responsibleUserCount = respUsers.filter((u) => !u.is_orphan).length;
+        responsibleHasInvalidLink = respUsers.some((u) => u.is_orphan);
+        hasResponsibleUser = responsibleUserCount > 0;
       }
 
       // 4. Ciclo configurado (diferente dos defaults genéricos ou explicitamente configurado)
@@ -4555,7 +4648,10 @@ export const financeSimpleRouter = router({
         has_responsible: hasResponsible,
         responsible_id: responsibleRow[0]?.id ?? null,
         responsible_name: responsibleName,
+        responsible_starts_at: responsibleRow[0]?.starts_at ?? null,
         has_responsible_user: hasResponsibleUser,
+        responsible_user_count: responsibleUserCount,
+        responsible_has_invalid_link: responsibleHasInvalidLink,
         has_cycle: hasCycle,
         cycle_start_day: cycleStartDay,
         cycle_end_day: cycleEndDay,
