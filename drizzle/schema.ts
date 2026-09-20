@@ -468,7 +468,14 @@ export const financial_responsible_users = mysqlTable("financial_responsible_use
   user_id: int("user_id").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => ({
-  uq_resp_user: uniqueIndex("uq_resp_user").on(t.financial_responsible_id, t.user_id),
+  // Opção A do documento de requisitos (2026-09-17, seção 4, decisão confirmada
+  // pelo Alessandro em 2026-09-20 após revisão do Manus): uma conta pertence a
+  // somente um responsável financeiro ativo por vez. Unique em user_id sozinho
+  // (não mais no par financial_responsible_id+user_id) garante isso de forma
+  // transacional no próprio banco — não só na camada de aplicação. Trocar de
+  // responsável é sempre revogar o vínculo antigo (DELETE) e conceder um novo
+  // (INSERT), nunca duas linhas simultâneas pro mesmo user_id. Ver migration 0062.
+  uq_resp_user: uniqueIndex("uq_resp_user").on(t.user_id),
 }));
 export type FinancialResponsibleUser = typeof financial_responsible_users.$inferSelect;
 export type InsertFinancialResponsibleUser = typeof financial_responsible_users.$inferInsert;

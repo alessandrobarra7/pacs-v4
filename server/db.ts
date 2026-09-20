@@ -1441,16 +1441,107 @@ export async function updateFinancialResponsible(id: number, data: Partial<Inser
 
 // ─── Vínculos Usuário → Responsável ──────────────────────────────────────────
 
-export async function linkUserToResponsible(financialResponsibleId: number, userId: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.insert(financial_responsible_users).values({ financial_responsible_id: financialResponsibleId, user_id: userId }).onDuplicateKeyUpdate({ set: { user_id: userId } });
+export type FinancialResponsibleAccessActor = {
+  user_id: number;
+  ip_address?: string | null;
+  user_agent?: string | null;
+};
+
+/** Lançada por unlinkUserFromResponsible quando o vínculo pedido não existe. */
+export class FinancialResponsibleUserLinkNotFoundError extends Error {
+  constructor() {
+    super("FINANCIAL_RESPONSIBLE_USER_LINK_NOT_FOUND");
+    this.name = "FinancialResponsibleUserLinkNotFoundError";
+  }
 }
 
-export async function unlinkUserFromResponsible(financialResponsibleId: number, userId: number): Promise<void> {
+/**
+ * Concede acesso ao painel financeiro de um responsável.
+ *
+ * CORREÇÃO (revisão Manus 2026-09-20, Bloqueio 1): a versão anterior usava
+ * onDuplicateKeyUpdate, que em MySQL nunca lança em caso de colisão de chave
+ * única — só vira um UPDATE silencioso. Isso fazia o catch de duplicidade no
+ * router (financeSimple.linkUser) ser código morto contra o banco real,
+ * mesmo passando no teste (que mockava o erro artificialmente). Agora é um
+ * INSERT normal: uma segunda tentativa pro mesmo user_id colide de verdade
+ * com a unique key uq_resp_user (ver migration 0062 — Opção A, um responsável
+ * ativo por conta) e lança ER_DUP_ENTRY, que o router traduz.
+ *
+ * O vínculo e a linha de auditoria são gravados na mesma transação: se a
+ * auditoria falhar (por exemplo a migration 0061 ainda não foi aplicada e o
+ * enum de audit_log.action não tem os valores novos), a transação inteira é
+ * revertida — nunca fica um acesso concedido sem o registro que o documento
+ * de requisitos exige (Correção adicional pedida na mesma revisão).
+ */
+export async function linkUserToResponsible(
+  financialResponsibleId: number,
+  userId: number,
+  actor: FinancialResponsibleAccessActor,
+): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(financial_responsible_users).where(and(eq(financial_responsible_users.financial_responsible_id, financialResponsibleId), eq(financial_responsible_users.user_id, userId)));
+  await db.transaction(async (tx) => {
+    await tx.insert(financial_responsible_users).values({
+      financial_responsible_id: financialResponsibleId,
+      user_id: userId,
+    });
+    await tx.insert(audit_log).values({
+      user_id: actor.user_id,
+      unit_id: null,
+      action: "GRANT_FINANCIAL_RESPONSIBLE_ACCESS",
+      target_type: "FINANCIAL_RESPONSIBLE_USER",
+      target_id: `${financialResponsibleId}:${userId}`,
+      ip_address: actor.ip_address ?? null,
+      user_agent: actor.user_agent ?? null,
+      metadata: { financial_responsible_id: financialResponsibleId, user_id: userId },
+      timestamp: new Date(),
+    });
+  });
+}
+
+/**
+ * Revoga acesso ao painel financeiro de um responsável.
+ *
+ * CORREÇÃO (revisão Manus 2026-09-20, "correções adicionais"): a versão
+ * anterior fazia um DELETE sem checar quantas linhas foram afetadas — uma
+ * chamada pra um vínculo que já não existe (ou nunca existiu) reportava
+ * sucesso e gravava uma auditoria de revogação que não corresponde a
+ * nenhuma alteração real. Agora o DELETE e o INSERT de auditoria acontecem
+ * na mesma transação, e affectedRows === 0 lança
+ * FinancialResponsibleUserLinkNotFoundError, revertendo tudo — o router
+ * traduz isso num erro claro pro administrador, em vez de um "sucesso" falso.
+ */
+export async function unlinkUserFromResponsible(
+  financialResponsibleId: number,
+  userId: number,
+  actor: FinancialResponsibleAccessActor,
+  metadata?: Record<string, unknown>,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.transaction(async (tx) => {
+    const result = await tx.delete(financial_responsible_users).where(
+      and(
+        eq(financial_responsible_users.financial_responsible_id, financialResponsibleId),
+        eq(financial_responsible_users.user_id, userId),
+      ),
+    );
+    const affectedRows = (result[0] as { affectedRows: number }).affectedRows;
+    if (affectedRows === 0) {
+      throw new FinancialResponsibleUserLinkNotFoundError();
+    }
+    await tx.insert(audit_log).values({
+      user_id: actor.user_id,
+      unit_id: null,
+      action: "REVOKE_FINANCIAL_RESPONSIBLE_ACCESS",
+      target_type: "FINANCIAL_RESPONSIBLE_USER",
+      target_id: `${financialResponsibleId}:${userId}`,
+      ip_address: actor.ip_address ?? null,
+      user_agent: actor.user_agent ?? null,
+      metadata: { financial_responsible_id: financialResponsibleId, user_id: userId, ...metadata },
+      timestamp: new Date(),
+    });
+  });
 }
 
 export async function getResponsibleIdForUser(userId: number): Promise<number | undefined> {

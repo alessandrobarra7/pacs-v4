@@ -49,22 +49,32 @@ export default function Login() {
   const [, navigate] = useLocation();
 
   // [BUG1-FIX] desestruturar isAuthenticated e loading para redirect automático
-  const { isAuthenticated, loading, refresh } = useAuth();
+  const { isAuthenticated, loading, refresh, user } = useAuth();
 
   // [M6-FIX] respeitar prefers-reduced-motion
   const shouldReduceMotion = useReducedMotion();
 
+  // CORRIGIDO (revisão Manus 2026-09-20, Bloqueio 3 — claude/gestao-usuarios-
+  // responsavel-financeiro): toda conta autenticada caía em /pacs-query, uma
+  // tela pensada pra fluxo clínico. Uma conta responsavel_financeiro
+  // recém-vinculada a um responsável não tem, em geral, unit_id nem a
+  // permissão granular view_financial — ela chegava numa tela sem unidade
+  // selecionável, sem nenhum caminho óbvio até o painel financeiro. Papel
+  // financeiro vai direto pro próprio módulo; os demais continuam como antes.
+  const postLoginPath = (role: string | undefined) =>
+    role === "responsavel_financeiro" ? "/financeiro/responsavel" : "/pacs-query";
+
   // [BUG1-FIX] redirecionar usuário já autenticado
   useEffect(() => {
     if (isAuthenticated) {
-      navigate("/pacs-query");
+      navigate(postLoginPath(user?.role));
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, user]);
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async () => {
-      await refresh();
-      navigate("/pacs-query");
+      const result = await refresh();
+      navigate(postLoginPath(result.data?.role));
     },
     onError: (err) => {
       toast.error(err.message || "Usuário ou senha inválidos");

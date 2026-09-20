@@ -50,6 +50,7 @@ import {
   linkUserToResponsible,
   unlinkUserFromResponsible,
   listUsersForResponsible,
+  FinancialResponsibleUserLinkNotFoundError,
   listUnitsForResponsible,
   getCycleConfig,
   upsertCycleConfig,
@@ -2808,14 +2809,20 @@ export const financeSimpleRouter = router({
 
     // ── Vínculos Usuário → Responsável ────────────────────────────────────────
     // NOVO (claude/gestao-usuarios-responsavel-financeiro, requisitos 2026-09-17
-    // seções 3.3/3.4/7): antes desta mudança, linkUser/unlinkUser só faziam o
-    // INSERT/DELETE cru — sem checar se a conta já tinha vínculo (a unique key
-    // do banco rejeitava, mas com erro cru de driver, não uma mensagem
-    // compreensível), sem checar se a conta é de fato do tipo responsavel_
-    // financeiro (um vínculo pra outro role nunca aparece em tela nenhuma —
-    // ver RBAC nas procedures de leitura, todas checam ctx.user.role antes de
-    // resolver o responsável), sem impedir remover o único acesso restante em
-    // silêncio, e sem gerar auditoria — os 4 pontos exigidos pelo documento.
+    // seções 3.3/3.4/7) + CORRIGIDO (revisão Manus 2026-09-20, 3 bloqueios):
+    // antes desta mudança, linkUser/unlinkUser só faziam o INSERT/DELETE cru.
+    // Depois de uma primeira rodada com checagem de perfil e "tratamento" de
+    // duplicidade, o Manus revisou e achou 3 problemas reais: (1) o helper
+    // usava onDuplicateKeyUpdate, que nunca lança em MySQL — o catch de
+    // duplicidade abaixo era código morto contra o banco real; (2) nada
+    // impedia vincular a mesma conta a um SEGUNDO responsável diferente,
+    // e getResponsibleIdForUser (.limit(1)) resolveria um dos dois em
+    // silêncio — decisão de produto confirmada pelo Alessandro em
+    // 2026-09-20: Opção A, uma conta tem no máximo um responsável ativo,
+    // garantido pela unique key uq_resp_user(user_id) da migration 0062;
+    // (3) o vínculo concedido não bastava pra a conta enxergar o módulo
+    // depois do login (ver Login.tsx e PacsQueryPage.tsx). Esta versão
+    // corrige (1) e (2); (3) é tratado fora desta procedure.
     linkUser: protectedProcedure
       .input(z.object({ financialResponsibleId: z.number(), userId: z.number() }))
       .mutation(async ({ input, ctx }) => {
@@ -2834,26 +2841,45 @@ export const financeSimpleRouter = router({
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta conta está inativa. Ative o usuário antes de conceder acesso.' });
         }
 
+        // Responsável precisa existir de fato — a tabela de vínculo não tem
+        // FK declarada no schema, então uma chamada direta de admin poderia
+        // criar um vínculo órfão pro lado do responsável (achado do Manus).
+        const responsible = await getFinancialResponsibleById(input.financialResponsibleId);
+        if (!responsible) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Responsável financeiro não encontrado.' });
+        }
+
+        // Opção A (pré-checagem com mensagem específica — a unique key do
+        // banco é a garantia de verdade, isto aqui é só pra dizer AO QUE a
+        // conta já está vinculada, em vez de um ER_DUP_ENTRY genérico).
+        const existingResponsibleId = await getResponsibleIdForUser(input.userId);
+        if (existingResponsibleId !== undefined && existingResponsibleId !== input.financialResponsibleId) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Esta conta já tem acesso a outro responsável financeiro. Revogue o acesso atual antes de vincular a um novo (uma conta só pode operar um responsável financeiro por vez).',
+          });
+        }
+
         try {
-          await linkUserToResponsible(input.financialResponsibleId, input.userId);
+          await linkUserToResponsible(input.financialResponsibleId, input.userId, {
+            user_id: ctx.user.id,
+            ip_address: ctx.req.ip,
+            user_agent: ctx.req.headers['user-agent'],
+          });
         } catch (err) {
-          // uq_resp_user (financial_responsible_id, user_id) — vínculo duplicado.
-          if (err instanceof Error && /uq_resp_user|Duplicate entry/i.test(err.message)) {
-            throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta conta já tem acesso a este responsável financeiro.' });
+          // uq_resp_user(user_id) — vínculo duplicado (defesa em profundidade
+          // contra corrida com a pré-checagem acima; o texto exato da mensagem
+          // de duplicidade do MySQL varia por versão/driver, por isso o regex
+          // cobre tanto o nome da constraint quanto "Duplicate entry" e o
+          // código de erro ER_DUP_ENTRY quando o driver o expõe).
+          const code = (err as { code?: string } | undefined)?.code;
+          const isDuplicateKey = code === 'ER_DUP_ENTRY' ||
+            (err instanceof Error && /uq_resp_user|Duplicate entry/i.test(err.message));
+          if (isDuplicateKey) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta conta já tem acesso a um responsável financeiro (o mesmo ou outro) — revogue o acesso atual antes de conceder um novo.' });
           }
           throw err;
         }
-
-        await createAuditLog({
-          user_id: ctx.user.id,
-          unit_id: null,
-          action: 'GRANT_FINANCIAL_RESPONSIBLE_ACCESS',
-          target_type: 'FINANCIAL_RESPONSIBLE_USER',
-          target_id: `${input.financialResponsibleId}:${input.userId}`,
-          ip_address: ctx.req.ip,
-          user_agent: ctx.req.headers['user-agent'],
-          metadata: { financial_responsible_id: input.financialResponsibleId, user_id: input.userId },
-        }).catch(() => {});
 
         return { success: true };
       }),
@@ -2879,18 +2905,19 @@ export const financeSimpleRouter = router({
           });
         }
 
-        await unlinkUserFromResponsible(input.financialResponsibleId, input.userId);
-
-        await createAuditLog({
-          user_id: ctx.user.id,
-          unit_id: null,
-          action: 'REVOKE_FINANCIAL_RESPONSIBLE_ACCESS',
-          target_type: 'FINANCIAL_RESPONSIBLE_USER',
-          target_id: `${input.financialResponsibleId}:${input.userId}`,
-          ip_address: ctx.req.ip,
-          user_agent: ctx.req.headers['user-agent'],
-          metadata: { financial_responsible_id: input.financialResponsibleId, user_id: input.userId, was_last_user: isLastUser },
-        }).catch(() => {});
+        try {
+          await unlinkUserFromResponsible(
+            input.financialResponsibleId,
+            input.userId,
+            { user_id: ctx.user.id, ip_address: ctx.req.ip, user_agent: ctx.req.headers['user-agent'] },
+            { was_last_user: isLastUser },
+          );
+        } catch (err) {
+          if (err instanceof FinancialResponsibleUserLinkNotFoundError) {
+            throw new TRPCError({ code: 'NOT_FOUND', message: 'Este vínculo não existe — talvez já tenha sido removido.' });
+          }
+          throw err;
+        }
 
         return { success: true, was_last_user: isLastUser };
       }),
@@ -2903,22 +2930,28 @@ export const financeSimpleRouter = router({
         return await listUsersForResponsible(input.financialResponsibleId);
       }),
 
-    // Seção 3.3: contas elegíveis pra receber acesso (role correto, ativas,
-    // e que ainda não têm vínculo com este responsável).
+    // Seção 3.3: contas elegíveis pra receber acesso (role correto, ativas).
+    // CORRIGIDO (revisão Manus 2026-09-20, Bloqueio 2 / Opção A): antes só
+    // excluía contas já vinculadas a ESTE responsável — uma conta vinculada
+    // a outro responsável continuava aparecendo como "elegível" aqui, e só
+    // era barrada (com um erro) no clique de confirmar. Agora exclui contas
+    // vinculadas a QUALQUER responsável, já que sob a Opção A uma conta só
+    // pode ter um por vez — a lista deixa de oferecer uma opção que sempre
+    // falharia.
     listEligibleUsersForResponsible: protectedProcedure
       .input(z.object({ financialResponsibleId: z.number() }))
-      .query(async ({ input, ctx }) => {
+      .query(async ({ ctx }) => {
         if (ctx.user.role !== 'admin_master') throw new TRPCError({ code: 'FORBIDDEN' });
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-        const [linked, eligible] = await Promise.all([
-          listUsersForResponsible(input.financialResponsibleId),
+        const [linkedAnywhere, eligible] = await Promise.all([
+          db.selectDistinct({ user_id: financial_responsible_users.user_id }).from(financial_responsible_users),
           db.select({ id: users.id, name: users.name, username: users.username, email: users.email })
             .from(users)
             .where(and(eq(users.role, 'responsavel_financeiro'), eq(users.isActive, true)))
             .orderBy(users.name),
         ]);
-        const linkedIds = new Set(linked.filter((l) => !l.is_orphan).map((l) => l.user_id));
+        const linkedIds = new Set(linkedAnywhere.map((l) => l.user_id));
         return eligible.filter((u) => !linkedIds.has(u.id));
       }),
 
@@ -4540,12 +4573,23 @@ export const financeSimpleRouter = router({
       // 5 — "quadro de estado da unidade"): além de saber SE existe usuário,
       // o quadro de estado precisa da contagem e de sinalizar vínculo órfão
       // (user_id que não existe mais em users) explicitamente, não em silêncio.
+      //
+      // CORRIGIDO (revisão Manus 2026-09-20): uma conta INATIVA (isActive =
+      // false) aparecia contada como "usuário com acesso" — ela aparece
+      // corretamente na lista, mas não consegue de fato entrar no sistema.
+      // responsibleUserCount / hasResponsibleUser agora contam só vínculos
+      // ativos e não órfãos; a contagem total e a quebra por situação ficam
+      // disponíveis à parte pra quem precisar diagnosticar/manter.
       let hasResponsibleUser = false;
       let responsibleUserCount = 0;
+      let responsibleUserTotalLinks = 0;
+      let responsibleInactiveUserCount = 0;
       let responsibleHasInvalidLink = false;
       if (hasResponsible && responsibleRow[0]?.id) {
         const respUsers = await listUsersForResponsible(responsibleRow[0].id);
-        responsibleUserCount = respUsers.filter((u) => !u.is_orphan).length;
+        responsibleUserTotalLinks = respUsers.length;
+        responsibleUserCount = respUsers.filter((u) => !u.is_orphan && u.is_active).length;
+        responsibleInactiveUserCount = respUsers.filter((u) => !u.is_orphan && !u.is_active).length;
         responsibleHasInvalidLink = respUsers.some((u) => u.is_orphan);
         hasResponsibleUser = responsibleUserCount > 0;
       }
@@ -4651,6 +4695,8 @@ export const financeSimpleRouter = router({
         responsible_starts_at: responsibleRow[0]?.starts_at ?? null,
         has_responsible_user: hasResponsibleUser,
         responsible_user_count: responsibleUserCount,
+        responsible_user_total_links: responsibleUserTotalLinks,
+        responsible_inactive_user_count: responsibleInactiveUserCount,
         responsible_has_invalid_link: responsibleHasInvalidLink,
         has_cycle: hasCycle,
         cycle_start_day: cycleStartDay,
