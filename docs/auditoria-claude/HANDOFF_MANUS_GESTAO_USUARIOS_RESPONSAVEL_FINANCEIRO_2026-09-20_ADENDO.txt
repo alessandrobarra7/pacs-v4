@@ -1,0 +1,177 @@
+ADENDO AO HANDOFF — GESTÃO DE USUÁRIOS DO RESPONSÁVEL FINANCEIRO
+Data: 20/09/2026
+Projeto: PACS Portal / LAUDS
+Branch: claude/gestao-usuarios-responsavel-financeiro
+Commit novo: f0573b4 (em cima de 237e2e9 + b6b23a0, já descritos no handoff original)
+Base: main em 1b906ad
+
+Este adendo responde ponto a ponto ao "Relatório de Revisão — Gestão de
+Usuários do Responsável Financeiro" (20/09/2026, veredito BLOQUEADO). Os
+3 achados foram confirmados no código antes de qualquer correção — não
+foram aceitos às cegas — e todos foram corrigidos. Resumo executivo: os 3
+bloqueios estão resolvidos; a branch ainda não foi validada de ponta a
+ponta num ambiente com MySQL real (ver seção 5).
+
+1. BLOQUEIO 1 — TRATAMENTO DE DUPLICIDADE INALCANÇÁVEL
+
+Confirmado: linkUserToResponsible usava
+`.onDuplicateKeyUpdate({ set: { user_id: userId } })`, que em MySQL nunca
+lança em colisão de chave única — a segunda inserção do mesmo par vira um
+UPDATE bem-sucedido, silencioso. O catch de duplicidade no router nunca
+era alcançado contra o banco real; o teste anterior só "passava" porque
+mockava o helper pra lançar o erro manualmente.
+
+Correção: linkUserToResponsible agora faz um INSERT normal dentro de
+db.transaction, junto com o INSERT da linha de audit_log — as duas
+operações são atômicas. Se a segunda inserção do mesmo user_id acontecer,
+a unique key (ver Bloqueio 2) rejeita de verdade com ER_DUP_ENTRY, que o
+router traduz numa mensagem compreensível (regex ampliado pra cobrir tanto
+o texto quanto o código de erro do driver). unlinkUserFromResponsible
+segue o mesmo padrão: o DELETE e o INSERT de auditoria estão na mesma
+transação, e affectedRows === 0 lança FinancialResponsibleUserLinkNotFoundError
+(sem gravar auditoria de uma revogação que não aconteceu) em vez de
+retornar sucesso.
+
+Se a auditoria falhar por qualquer motivo (migration 0061 ausente, enum
+desatualizado, etc.), a transação inteira reverte — nunca fica um acesso
+concedido/revogado sem o registro correspondente. Isso responde também à
+"Correção adicional" do relatório sobre createAuditLog(...).catch(()=>{})
+descartar falhas: esse padrão foi removido de linkUser/unlinkUser; a
+auditoria deixou de ser best-effort nesse fluxo específico.
+
+Prova: novo describe em audit-fixes-gestao-usuarios-responsavel.test.ts
+roda linkUserToResponsible/unlinkUserFromResponsible REAIS (não mockados)
+contra um fake de "drizzle-orm/mysql2" que modela de verdade unique key,
+affectedRows e rollback de transação — não é mais um mock que lança o
+erro por decreto. 4 dos 5 casos provados por quebra deliberada vêm desse
+describe (ver seção 4).
+
+2. BLOQUEIO 2 — MÚLTIPLOS RESPONSÁVEIS POR CONTA
+
+Confirmado: a unique key era (financial_responsible_id, user_id), então
+nada impedia vincular a mesma conta a um segundo responsável.
+getResponsibleIdForUser usa .limit(1) e é chamada por toda procedure
+financeira que resolve "o responsável do usuário logado" — com dois
+vínculos, o resultado dependeria da ordem do banco, sem seleção de
+contexto.
+
+Decisão de produto (Alessandro, 20/09/2026, escolhida entre as 2 opções
+do relatório): Opção A — uma conta tem no máximo um responsável
+financeiro ativo por vez.
+
+Correção:
+- Migration 0062 troca a unique key pra (user_id) sozinho — a garantia
+  passa a ser do próprio banco, não só da aplicação. Script de preflight
+  (scripts/apply_migration_0062.mjs) recusa aplicar se já existir
+  qualquer user_id vinculado a mais de um responsável neste banco (exige
+  decisão manual antes, não é algo que um script deva resolver sozinho).
+- linkUser faz uma pré-checagem com getResponsibleIdForUser antes de
+  inserir: se a conta já tem um responsável DIFERENTE do informado,
+  rejeita com BAD_REQUEST explicando que precisa revogar o acesso atual
+  primeiro. A unique key do banco é a garantia de verdade (funciona mesmo
+  numa corrida entre duas chamadas simultâneas); a pré-checagem só existe
+  pra dar uma mensagem específica em vez de um ER_DUP_ENTRY genérico.
+- listEligibleUsersForResponsible foi reescrita: antes excluía só contas
+  já vinculadas AO RESPONSÁVEL QUE ESTÁ SENDO EDITADO; agora exclui
+  contas vinculadas a QUALQUER responsável (`SELECT DISTINCT user_id FROM
+  financial_responsible_users`, sem filtro por responsável) — o seletor
+  de "adicionar usuário" deixa de oferecer uma conta que sempre falharia.
+
+Não implementei a Opção B (nem tentei combinar com a branch não publicada
+de múltiplos responsáveis) — a recomendação do próprio relatório era não
+fazer isso, e a decisão do Alessandro já resolveu a ambiguidade.
+
+3. BLOQUEIO 3 — ACESSO APÓS LOGIN
+
+Confirmado: Login.tsx redireciona toda conta autenticada pra
+/pacs-query; lá, o botão Financeiro só aparece com a permissão granular
+view_financial (por unidade), que uma conta responsavel_financeiro sem
+unit_id nunca teria. Fui além do que o relatório pediu checar e confirmei
+que isso NÃO é um problema introduzido por esta branch — é preexistente:
+até o fluxo "oficial" de criação de usuário financeiro
+(server/routers/admin.ts, groupKey 'responsaveisFinanceiros') nunca setou
+view_financial nas permissões padrão do grupo. Ou seja, mesmo uma conta
+financeira criada pela tela certa, do jeito certo, já esbarrava nisso
+antes desta branch existir.
+
+Correção (mantendo o bloqueio clínico intacto — só visibilidade do botão
+Financeiro é afetada):
+- Login.tsx: conta com role responsavel_financeiro é redirecionada direto
+  pra /financeiro/responsavel (tanto no login quanto no redirect de sessão
+  já autenticada), em vez de /pacs-query.
+- PacsQueryPage.tsx: canViewFinancial agora também é true quando
+  userRole === 'responsavel_financeiro', independente de view_financial —
+  o papel em si já é a autorização real (toda procedure financeira confere
+  ctx.user.role antes de resolver qualquer dado), isso só corrige a
+  visibilidade do ponto de entrada. Nenhuma permissão de estudo, laudo,
+  anamnese ou paciente foi tocada.
+
+Não escrevi um teste E2E de login → painel financeiro (pediria um
+navegador real ou um harness de integração que este sandbox não tem) — a
+correção foi verificada por leitura de código + pnpm check. Se quiser essa
+cobertura antes de aprovar, um teste com Playwright/Cypress contra uma VM
+de sandbox é o caminho mais realista; posso escrever o roteiro se for útil.
+
+4. TESTES — O QUE MUDOU
+
+audit-fixes-gestao-usuarios-responsavel.test.ts foi reescrito: 18 casos
+(eram 10). Novidades:
+- Describe "contra semântica real de MySQL": roda linkUserToResponsible/
+  unlinkUserFromResponsible de verdade (getDb() real, só o driver
+  drizzle-orm/mysql2 é fake) — prova ER_DUP_ENTRY na segunda inserção do
+  mesmo user_id (mesmo pra responsável diferente — Opção A), rollback
+  quando a auditoria falha, e o comportamento de affectedRows na
+  revogação.
+- Casos novos de Opção A e de responsável/vínculo inexistente no nível
+  router.
+- listEligibleUsersForResponsible: novo teste comprova exclusão por
+  QUALQUER vínculo, não só ao responsável atual.
+
+5 propriedades centrais provadas por quebra deliberada + reversão nesta
+rodada (documentado, não só alegado): remoção do onDuplicateKeyUpdate,
+atomicidade vínculo+auditoria, pré-checagem de Opção A, checagem de
+affectedRows na revogação, e (mantida da rodada anterior) checagem de
+perfil.
+
+Limitação que continua existindo e que sinalizo com a mesma honestidade
+da rodada anterior: o fake de driver não reavalia a árvore SQL construída
+por `.where(and(eq(...), eq(...)))` — ele modela o EFEITO (affectedRows,
+unique key) via um alvo de DELETE configurado explicitamente pelo teste,
+não uma reconstrução genérica do predicado. Isso é suficiente pra provar
+as propriedades listadas acima, mas não seria suficiente sozinho pra
+provar que o WHERE usa as colunas certas — essa é uma técnica diferente
+(spy no eq(), já usada em outros arquivos desta suíte) que eu não achei
+necessária aqui porque o WHERE em si não mudou nesta correção.
+
+5. VALIDAÇÃO NO SANDBOX DO CLAUDE
+
+- pnpm check: aprovado.
+- pnpm vitest run: 456 aprovados, 9 falhos, 1 ignorado (466 total). As 9
+  falhas são o mesmo baseline preexistente de sempre (exam-catalog-security,
+  finance-v2-dashboard, mediaProxy, pacs-desktop-download-progress,
+  pacs.mobile-ui, security.auth, study-priority-ui). Nenhuma falha nova.
+- pnpm vite build: aprovado.
+
+O que este sandbox NÃO tem e portanto não pôde validar: um MySQL real pra
+rodar a migration 0062 de ponta a ponta (o script de preflight foi escrito
+e revisado, mas não executado contra um banco de verdade), e um navegador
+pra validar o fluxo de login → painel financeiro visualmente. Ambos ficam
+como validação pendente no seu lado antes do merge, conforme a sequência
+seguinha sugerida no relatório original.
+
+6. PUBLICADA NO GITHUB
+
+Branch atualizada: claude/gestao-usuarios-responsavel-financeiro (push
+pendente no momento em que este adendo foi escrito — dependendo de quando
+você ler isso, pode já estar lá; se não estiver, o Alessandro tem o patch
+pra te passar do jeito de sempre).
+
+7. O QUE AINDA NÃO FOI FEITO
+
+Não rodei a migration 0062 contra nenhum banco real. Não escrevi teste
+E2E do fluxo de login. Não toquei nas 9 falhas de baseline preexistente.
+Não fiz o merge desta branch com claude/multi-responsavel-financeiro nem
+claude/financeiro-nova-identidade-visual — ainda pendente, ver seção 0 do
+handoff original.
+
+FIM DO ADENDO
