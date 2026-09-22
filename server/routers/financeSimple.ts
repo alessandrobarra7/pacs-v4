@@ -37,6 +37,7 @@ import {
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, ne, sql, sql as sqlFn, desc, inArray, gte, lte, or, SQL } from "drizzle-orm";
 import {
+  getResponsibleIdForUser,
   getResponsibleIdsForUser,
   listResponsiblesForUser,
   createBillingVisitEvent,
