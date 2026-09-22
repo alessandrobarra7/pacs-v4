@@ -1,0 +1,72 @@
+HANDOFF MANUS — SCRIPT DE TESTE DE CARGA (k6)
+Data: 22/09/2026
+Projeto: PACS Portal / LAUDS
+Branch: claude/teste-de-carga-vms
+Base: main
+
+1. O QUE É
+
+scripts/loadtest/k6-financeiro-pacs.js — script k6 pronto pra rodar contra
+uma VM real (VM1, ambiente de teste, nunca produção com usuários reais
+sem avisar todo mundo antes). Cobre 3 níveis de peso: auth.me (leve),
+financeSimple.listMyResponsibles (médio, agregação real no MySQL) e
+pacs.query (pesado — chama o PACS de verdade via processo externo, é o
+candidato mais provável a gargalo). Um 4º cenário (reports.getByStudyUid)
+roda só se você passar STUDY_UID de um laudo real existente.
+
+2. POR QUE EU NÃO RODEI ISSO
+
+Meu sandbox não tem MySQL, não tem Docker, não tenho sudo/root, e mesmo
+que tivesse, a máquina (2 vCPU, 2.8GB RAM) não representa a VM de
+produção nem a rede real. Um teste de carga rodado aqui não mediria nada
+que sirva pra decisão de capacidade — só mediria uma máquina que não é a
+sua. Por isso o script foi escrito lendo o código real (rotas, formato de
+autenticação, rate limiter), mas NUNCA EXECUTADO. Trate como um ponto de
+partida a validar, não como um resultado.
+
+3. COMO RODAR
+
+  k6 run \
+    -e BASE_URL=http://<endereco-da-vm>:<porta> \
+    -e LOGIN=<usuario_de_teste> \
+    -e PASSWORD=<senha_de_teste> \
+    -e VUS=20 \
+    -e DURATION=2m \
+    scripts/loadtest/k6-financeiro-pacs.js
+
+Use uma conta de teste dedicada, não uma conta clínica real — o script
+faz login de verdade e grava audit_log (ação LOGIN) por VU. k6:
+https://k6.io/docs/get-started/installation/
+
+4. CUIDADO COM O RATE LIMITER DE LOGIN
+
+/api/trpc/auth.login tem limite de 10 tentativas por 15 minutos por IP
+(server/_core/index.ts). skipSuccessfulRequests: true, então login que dá
+certo não conta contra o limite — mas se LOGIN/PASSWORD estiverem errados,
+cada tentativa falha conta, e 10 VUs com credencial errada bloqueiam o IP
+por 15 minutos. Teste as credenciais manualmente primeiro (1 login via
+curl ou navegador) antes de rodar com VUS alto.
+
+5. O QUE PRECISA SER AJUSTADO ANTES DE RODAR A SÉRIO
+
+- O papel da conta de teste: financeSimple.listMyResponsibles é para
+  responsavel_financeiro. Se a conta de teste for admin_master ou médico,
+  troque esse procedure (ex.: financeSimple.responsibleSummary para
+  admin_master) — o script vai retornar erro de permissão (403) do jeito
+  que está, o que também é um dado válido, mas não o que provavelmente
+  você quer medir.
+- Os thresholds em `options.thresholds` são valores de partida
+  conservadores, não SLA formal do produto — ajuste depois da primeira
+  rodada exploratória.
+- STUDY_UID: sem ele, o cenário de leitura de laudo é pulado. Se quiser
+  medir esse caminho, passe o UID de um estudo real de teste.
+
+6. O QUE REPORTAR DE VOLTA
+
+Latência p50/p95/p99 por endpoint (o k6 já separa por `tags.endpoint` —
+auth_me, finance_summary, pacs_query, reports_get), taxa de erro
+(http_req_failed), e em qual VUS a latência do pacs_query começa a
+degradar — esse é provavelmente o sinal mais importante, porque é uma
+chamada a sistema externo, não só banco.
+
+FIM DO HANDOFF
