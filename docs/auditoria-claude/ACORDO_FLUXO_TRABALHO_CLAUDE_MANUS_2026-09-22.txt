@@ -1,0 +1,107 @@
+ACORDO DE FLUXO DE TRABALHO — CONSTRUÇÃO (CLAUDE) x AUDITORIA E DEPLOY (MANUS)
+Data: 22/09/2026
+Projeto: PACS Portal / LAUDS
+Decisão de: Alessandro (proprietário do projeto)
+Vigência: a partir desta data, para todas as próximas solicitações — não é um
+acordo pontual para uma branch específica.
+
+1. MOTIVO
+
+Durante a auditoria do repositório em 22/09/2026 (ver conversa com o
+Alessandro), foi identificado que o Manus não vem atuando só como auditor:
+ele também constrói funcionalidade diretamente, em commits e branches
+próprios. Evidência encontrada no histórico real do GitHub
+(alessandrobarra7/pacs-v4):
+
+- Commits assinados "Manus <dev-agent@manus.ai>", em formato "Checkpoint:
+  ...", presentes nas branches limpeza/unificacao-financeiro (475 commits),
+  integracao/login-mobile (614 commits) e claude/correcao-paginas-laudo-pdf.
+- Duplicidade concreta e verificada: o commit 09a8c7f (Manus, 16/09/2026,
+  branch claude/correcao-paginas-laudo-pdf) corrige o mesmo bug de estouro
+  de mês em calculateFinancialCycleDates (server/financeCycle.ts) que o
+  Claude já havia corrigido antes, no mesmo dia, no commit 40322ea — com
+  nomes de função e lógica quase idênticos (clampedDate/dayAfterClamped).
+  Ambos resolveram o problema de forma independente, sem saber um do
+  outro. Esse tipo de retrabalho é o problema direto que este acordo
+  resolve.
+
+Ter duas partes construindo a mesma funcionalidade sem visibilidade uma da
+outra gera: retrabalho, branches divergentes tocando os mesmos arquivos
+(ex.: FinanceDashboard.tsx, FinanceMeuFinanceiro.tsx, FinanceMeuResponsavel.tsx
+aparecem alteradas em pelo menos 4 branches diferentes no histórico atual),
+e risco de perder correções quando uma branch é descartada sem reconciliar
+com a outra.
+
+2. NOVA DIVISÃO DE PAPÉIS
+
+CLAUDE constrói:
+- Toda funcionalidade nova, correção de bug e ajuste de UI deste projeto
+  passa a ser implementada pelo Claude, em branch dedicada
+  (claude/nome-da-mudança), a partir da origin/main mais atual.
+- O Claude nunca edita main diretamente e nunca acessa VM1/VM2/VM3 — não
+  tem esse acesso e não deve ter.
+- Antes de entregar, o Claude valida: pnpm check, suíte de testes
+  (vitest), pnpm build. Nenhuma entrega é feita sem essa validação, e o
+  resultado real (incluindo falhas pré-existentes já conhecidas, se
+  houver) é relatado sem omissão.
+- Toda entrega vem acompanhada de um handoff técnico em
+  docs/auditoria-claude/, descrevendo o que foi feito, o que foi validado
+  neste sandbox e o que NÃO foi validado (ex.: migrations contra MySQL
+  real, testes E2E de navegador — coisas que este ambiente não tem).
+- A branch é publicada no GitHub (quando há credencial disponível na
+  sessão) ou entregue como .patch (git format-patch) para aplicação via
+  git am, quando não há.
+
+MANUS audita e decide o deploy:
+- Recebe a branch (publicada ou via patch) e o handoff técnico.
+- Revisa o código, roda validação própria com acesso real a
+  banco/VM/ambiente que o sandbox do Claude não tem.
+- Decide se aprova, pede ajuste (devolve para o Claude com achados
+  concretos, como já aconteceu na revisão de Gestão de Usuários do
+  Responsável Financeiro em 20/09/2026) ou bloqueia.
+- É o Manus quem aplica em main e leva para as VMs — essa parte continua
+  sendo exclusivamente dele, isso não muda.
+- A partir deste acordo, o Manus não abre branches próprias construindo
+  funcionalidade nova em paralelo. Se encontrar um bug durante a
+  auditoria ou o deploy, o caminho é reportar para o Claude construir a
+  correção — não corrigir diretamente e seguir para outra tarefa, para
+  evitar o cenário de duplicidade descrito na seção 1.
+
+3. O QUE FICA PENDENTE DE RECONCILIAR SOB O NOVO MODELO
+
+Levantamento feito em 22/09/2026, para não perder o que já existe:
+
+- limpeza/unificacao-financeiro e integracao/login-mobile: branches
+  antigas do Manus, JÁ CONTIDAS INTEGRALMENTE em main (confirmado via
+  merge-base --is-ancestor). Nenhuma ação necessária — são apenas refs
+  obsoletas que podem ser apagadas do GitHub quando for conveniente.
+- claude/correcao-paginas-laudo-pdf (Manus, não mergeada): mistura a
+  correção de ciclo financeiro já redundante (main já tem o fix, por
+  outra via) com correções de margem de PDF que, até este levantamento,
+  não foram confirmadas como já mergeadas. Precisa triagem: separar o que
+  ainda é útil (margens de PDF) do que é redundante (ciclo financeiro),
+  antes de decidir o que fazer com essa branch.
+- claude/correcao-resumo-responsavel-financeiro (Claude, publicada, não
+  mergeada): o bug que ela corrige (myResponsavelSummary não excluía
+  eventos cancelados nem incluía billing_catalog_study_events) AINDA
+  existe em main hoje, confirmado lendo o código atual. A branch em si
+  está desatualizada (a função foi reestruturada desde então) — precisa
+  ser refeita em cima do main atual, não reaplicada como está.
+- claude/financeiro-nova-identidade-visual e
+  claude/gestao-usuarios-responsavel-financeiro (Claude, publicadas, não
+  mergeadas, ambas em dia com main): testadas juntas via merge-tree e
+  HÁ conflito real entre as duas (ambas alteram FinanceConfiguracao.tsx e
+  financeSimple.ts/db.ts de forma substancial). Precisam ser conciliadas
+  — por mim (Claude), nesse novo modelo — antes ou durante a revisão do
+  Manus, não deixado para ele resolver na hora do merge.
+
+4. REGRAS QUE CONTINUAM VALENDO (já em vigor antes deste acordo)
+
+- Nunca editar main diretamente.
+- Sempre trabalhar em branch dedicada claude/nome-da-alteração.
+- Nunca fabricar dado clínico, hash de commit ou contagem de teste — o que
+  não foi validado é reportado como não validado, não como aprovado.
+- Todo veredito sobre o código é conversado com o Alessandro antes de
+  qualquer entrega ser considerada concluída.
+
+FIM DO ACORDO
