@@ -2507,10 +2507,18 @@ export const financeSimpleRouter = router({
     }),
 
   /**
-   * Configura o ciclo de pagamento da unidade (admin_master only)
+   * Configura o ciclo de pagamento da unidade.
    * start_day: dia do mês de início (1-31)
    * end_day: dia do mês de fim (1-31)
    * Se start_day > end_day, o ciclo cruza mêses (ex: 15 ao 14 do mês seguinte)
+   *
+   * Decisão de 22/09/2026 (Alessandro): responsavel_financeiro também pode
+   * editar o ciclo da(s) própria(s) unidade(s) — antes era admin_master
+   * only. Reusa assertCanManageFinancialPrices (mesma checagem de
+   * setUnitModalityPrice: admin_master irrestrito, responsavel_financeiro
+   * só na própria unidade via assertCanAccessFinancialUnit) — o nome da
+   * função ficou de quando só cobria preços, mas a regra de autorização é
+   * idêntica pra configuração financeira da unidade em geral.
    */
   setUnitCycle: protectedProcedure
     .input(z.object({
@@ -2519,9 +2527,9 @@ export const financeSimpleRouter = router({
       end_day: z.number().int().min(1).max(31),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin_master") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanManageFinancialPrices(db, ctx.user, input.unit_id);
       await db.update(units)
         .set({
           billing_cycle_start_day: input.start_day,
@@ -2577,24 +2585,33 @@ export const financeSimpleRouter = router({
       const unitIds = linkedUnits.map((u) => u.unit_id);
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
       // P1C: myResponsavelSummary usa ciclo real por unidade
+      // FIX (2026-09-22): a agregação anterior lia só billing_visit_events
+      // via SQL cru, direto — isso deixava de fora billing_catalog_study_events
+      // (evento faturado pelo fluxo novo de catálogo) e não excluía eventos
+      // com financial_status = 'cancelled' dos totais. Reusa
+      // listUnitCycleFinancialEvents, que já combina as duas tabelas e já
+      // normaliza financial_status (mesmo helper usado pelo log auditável e
+      // pelo fechamento histórico) — agrega os totais aqui em vez de duplicar
+      // a leitura em SQL cru.
       const summaryPerUnit = await Promise.all(
         linkedUnits.map(async (lu) => {
           const { cycleStart, cycleEnd, label: cycle_label } = calcCycleDates(lu.cycle_start_day, lu.cycle_end_day, refDate);
-          const r = await db
-            .select({
-              total_laudos: sql<number>`COUNT(*)`,
-              system_total: sql<number>`COALESCE(SUM(${billing_visit_events.system_amount_due}), 0)`,
-              system_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.system_paid_at} IS NOT NULL THEN ${billing_visit_events.system_amount_due} ELSE 0 END), 0)`,
-              doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
-              doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
-            })
-            .from(billing_visit_events)
-            .where(and(
-              eq(billing_visit_events.unit_id, lu.unit_id),
-              sql`${billing_visit_events.signed_at} >= ${cycleStart}`,
-              sql`${billing_visit_events.signed_at} < ${cycleEnd}`,
-            ));
-          return { unit_id: lu.unit_id, cycle_label, cycle_start_date: cycleStart.toISOString(), cycle_end_date: cycleEnd.toISOString(), ...r[0] };
+          const events = await listUnitCycleFinancialEvents(db, lu.unit_id, cycleStart, cycleEnd, false);
+          const activeEvents = events.filter((event) => event.financial_status !== "cancelled");
+          const totals = activeEvents.reduce(
+            (acc, event) => {
+              const systemDue = Number(event.system_amount_due ?? 0);
+              const doctorDue = Number(event.doctor_amount_due ?? 0);
+              acc.total_laudos += 1;
+              acc.system_total += systemDue;
+              acc.doctor_total += doctorDue;
+              if (event.system_paid_at) acc.system_paid += systemDue;
+              if (event.doctor_received_at) acc.doctor_paid += doctorDue;
+              return acc;
+            },
+            { total_laudos: 0, system_total: 0, system_paid: 0, doctor_total: 0, doctor_paid: 0 },
+          );
+          return { unit_id: lu.unit_id, cycle_label, cycle_start_date: cycleStart.toISOString(), cycle_end_date: cycleEnd.toISOString(), ...totals };
         })
       );
       const summary = summaryPerUnit;
@@ -3768,10 +3785,23 @@ export const financeSimpleRouter = router({
     closeCycle: protectedProcedure
       .input(z.object({ cycle_id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== 'admin_master') {
-          throw new TRPCError({ code: 'FORBIDDEN' });
+        // Decisão de 22/09/2026 (Alessandro): responsavel_financeiro também
+        // pode encerrar o ciclo da própria unidade — antes era admin_master
+        // only. closeBillingCycle só recebe cycle_id, então resolve o
+        // unit_id do ciclo primeiro pra checar a autorização por unidade
+        // (mesma regra de setUnitCycle/setUnitModalityPrice).
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+        const cycleRows = await db
+          .select({ unit_id: billing_cycles.unit_id })
+          .from(billing_cycles)
+          .where(eq(billing_cycles.id, input.cycle_id))
+          .limit(1);
+        if (!cycleRows[0]) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Ciclo não encontrado.' });
         }
-        
+        await assertCanManageFinancialPrices(db, ctx.user, cycleRows[0].unit_id);
+
         await closeBillingCycle(input.cycle_id, ctx.user.id);
         return { success: true };
       }),

@@ -687,6 +687,10 @@ function ReadinessChecklist({ unitId }: { unitId: number }) {
 export function FinanceConfiguracao() {
   const { data: currentUser } = trpc.auth.me.useQuery();
   const isAdminMaster = currentUser?.role === 'admin_master';
+  // Decisão de 22/09/2026 (Alessandro): responsavel_financeiro também edita
+  // o ciclo da própria unidade — backend (setUnitCycle/closeCycle) já
+  // valida escopo por unidade via assertCanManageFinancialPrices.
+  const isResponsavelFinanceiro = currentUser?.role === 'responsavel_financeiro';
   const { data: units, isLoading: unitsLoading } = trpc.financeSimple.unitSummary.useQuery({});
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
   const [showPriceModal, setShowPriceModal] = useState(false);
@@ -786,7 +790,7 @@ export function FinanceConfiguracao() {
                     <Settings className="h-3.5 w-3.5 mr-1.5" />
                     Preços Padrão
                   </Button>
-                  {isAdminMaster && (
+                  {(isAdminMaster || isResponsavelFinanceiro) && (
                     <Button
                       size="sm"
                       variant="outline"
