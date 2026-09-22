@@ -7,12 +7,13 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Building2, ChevronLeft, ChevronRight, DollarSign, FileText,
-  CheckCircle2, Clock, AlertCircle, X, Users, Settings,
+  CheckCircle2, Clock, AlertCircle, X, Users, Settings, TrendingUp,
 } from "lucide-react";
 import { FinanceShell } from "./FinanceShell";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const MONTHS = [
   "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
@@ -44,53 +45,53 @@ function DoctorsModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+      <div className="bg-[var(--fin-panel)] border border-[var(--fin-line)] rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--fin-line)]">
           <div>
-            <p className="text-white font-semibold">{unitName}</p>
-            <p className="text-slate-400 text-xs">Ciclo atual — médicos</p>
+            <p className="text-[var(--fin-text)] font-semibold">{unitName}</p>
+            <p className="text-[var(--fin-muted)] text-xs">Ciclo atual — médicos</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-[var(--fin-muted)] hover:text-[var(--fin-text)] transition-colors">
             <X className="h-5 w-5" />
           </button>
         </div>
         <div className="overflow-y-auto flex-1">
           {isLoading ? (
             <div className="p-6 space-y-2">
-              {[1, 2, 3].map((i) => <div key={i} className="h-12 bg-slate-800 rounded animate-pulse" />)}
+              {[1, 2, 3].map((i) => <div key={i} className="h-12 bg-[var(--fin-panel-2)] rounded animate-pulse" />)}
             </div>
           ) : !data?.length ? (
-            <div className="p-8 text-center text-slate-500 text-sm">Nenhum médico com laudos neste período.</div>
+            <div className="p-8 text-center text-[var(--fin-muted-dim)] text-sm">Nenhum médico com laudos neste período.</div>
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-700/50">
-                  <th className="text-left px-6 py-3 text-slate-400 font-medium text-xs uppercase">Médico</th>
-                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Laudos</th>
-                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">R$/Laudo</th>
-                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Total</th>
-                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Pago</th>
-                  <th className="text-right px-6 py-3 text-slate-400 font-medium text-xs uppercase">Pendente</th>
+                <tr className="border-b border-[var(--fin-line)]">
+                  <th className="text-left px-6 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Médico</th>
+                  <th className="text-right px-4 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Laudos</th>
+                  <th className="text-right px-4 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">R$/Laudo</th>
+                  <th className="text-right px-4 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Total</th>
+                  <th className="text-right px-4 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Pago</th>
+                  <th className="text-right px-6 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Pendente</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-700/30">
+              <tbody className="divide-y divide-[var(--fin-line-soft)]">
                 {data.map((doc) => (
-                  <tr key={doc.doctor_user_id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="px-6 py-3 text-white">{doc.doctor_name}</td>
-                    <td className="px-4 py-3 text-slate-400 text-right">{doc.total_laudos}</td>
-                    <td className="px-4 py-3 text-cyan-400 text-right text-xs">
-                      {(doc as any).price_per_report ? fmtBRL(Number((doc as any).price_per_report)) : <span className="text-slate-600">—</span>}
+                  <tr key={doc.doctor_user_id} className="hover:bg-[var(--fin-panel-soft)] transition-colors">
+                    <td className="px-6 py-3 text-[var(--fin-text)]">{doc.doctor_name}</td>
+                    <td className="px-4 py-3 text-[var(--fin-muted)] text-right">{doc.total_laudos}</td>
+                    <td className="px-4 py-3 text-[var(--fin-accent-soft)] text-right text-xs">
+                      {(doc as any).price_per_report ? fmtBRL(Number((doc as any).price_per_report)) : <span className="text-[var(--fin-muted-dim)]">—</span>}
                     </td>
-                    <td className="px-4 py-3 text-amber-400 text-right font-medium">{fmtBRL(doc.doctor_total)}</td>
-                    <td className="px-4 py-3 text-emerald-400 text-right">{fmtBRL(doc.doctor_paid)}</td>
+                    <td className="px-4 py-3 text-[var(--fin-warn)] text-right font-medium">{fmtBRL(doc.doctor_total)}</td>
+                    <td className="px-4 py-3 text-[var(--fin-success)] text-right">{fmtBRL(doc.doctor_paid)}</td>
                     <td className="px-6 py-3 text-right">
                       {doc.doctor_pending > 0 ? (
                         <div className="flex items-center justify-end gap-2">
-                          <span className="text-orange-400 font-medium">{fmtBRL(doc.doctor_pending)}</span>
+                          <span className="text-[var(--fin-warn)] font-medium">{fmtBRL(doc.doctor_pending)}</span>
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-6 px-2 text-xs border-emerald-600 text-emerald-400 hover:bg-emerald-900/30"
+                            className="h-6 px-2 text-xs border-emerald-600 text-[var(--fin-success)] hover:bg-emerald-900/30"
                             disabled={markPaid.isPending}
                             onClick={() => markPaid.mutate({
                               unit_id: unitId,
@@ -102,10 +103,10 @@ function DoctorsModal({
                           </Button>
                         </div>
                       ) : (
-                        <span className="inline-flex flex-col items-center gap-0.5 text-emerald-400 text-xs">
+                        <span className="inline-flex flex-col items-center gap-0.5 text-[var(--fin-success)] text-xs">
                           <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Quitado</span>
                           {doc.last_received_at && (
-                            <span className="text-slate-500 text-[10px]">{new Date(doc.last_received_at).toLocaleDateString('pt-BR')}</span>
+                            <span className="text-[var(--fin-muted-dim)] text-[10px]">{new Date(doc.last_received_at).toLocaleDateString('pt-BR')}</span>
                           )}
                         </span>
                       )}
@@ -162,34 +163,34 @@ export function ProfitModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+      <div className="bg-[var(--fin-panel)] border border-[var(--fin-line)] rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--fin-line)]">
           <div>
-            <p className="text-white font-semibold">{unitName}</p>
-            <p className="text-slate-400 text-xs">Preço de venda externa e lucro — {profitQuery.data?.cycle_label ?? "ciclo atual"}</p>
+            <p className="text-[var(--fin-text)] font-semibold">{unitName}</p>
+            <p className="text-[var(--fin-muted)] text-xs">Preço de venda externa e lucro — {profitQuery.data?.cycle_label ?? "ciclo atual"}</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-[var(--fin-muted)] hover:text-[var(--fin-text)] transition-colors">
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {profitQuery.data && (
-          <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-slate-700/50">
-            <div className="bg-slate-800/60 rounded-lg p-3">
-              <p className="text-slate-500 text-xs mb-1">Caixa recebido</p>
-              <p className="text-cyan-400 font-semibold">{fmtBRL(profitQuery.data.totals.cash_received)}</p>
+          <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-[var(--fin-line)]">
+            <div className="bg-[var(--fin-panel-soft)] rounded-lg p-3">
+              <p className="text-[var(--fin-muted-dim)] text-xs mb-1">Caixa recebido</p>
+              <p className="text-[var(--fin-accent-soft)] font-semibold">{fmtBRL(profitQuery.data.totals.cash_received)}</p>
             </div>
-            <div className="bg-slate-800/60 rounded-lg p-3">
-              <p className="text-slate-500 text-xs mb-1">Repasse sistema</p>
-              <p className="text-amber-400 font-semibold">{fmtBRL(profitQuery.data.totals.system_repasse)}</p>
+            <div className="bg-[var(--fin-panel-soft)] rounded-lg p-3">
+              <p className="text-[var(--fin-muted-dim)] text-xs mb-1">Repasse sistema</p>
+              <p className="text-[var(--fin-warn)] font-semibold">{fmtBRL(profitQuery.data.totals.system_repasse)}</p>
             </div>
-            <div className="bg-slate-800/60 rounded-lg p-3">
-              <p className="text-slate-500 text-xs mb-1">Repasse médicos</p>
-              <p className="text-rose-400 font-semibold">{fmtBRL(profitQuery.data.totals.doctor_repasse)}</p>
+            <div className="bg-[var(--fin-panel-soft)] rounded-lg p-3">
+              <p className="text-[var(--fin-muted-dim)] text-xs mb-1">Repasse médicos</p>
+              <p className="text-[var(--fin-danger)] font-semibold">{fmtBRL(profitQuery.data.totals.doctor_repasse)}</p>
             </div>
-            <div className="bg-slate-800/60 rounded-lg p-3">
-              <p className="text-slate-500 text-xs mb-1">Lucro da clínica</p>
-              <p className="text-emerald-400 font-semibold">{fmtBRL(profitQuery.data.totals.profit)}</p>
+            <div className="bg-[var(--fin-panel-soft)] rounded-lg p-3">
+              <p className="text-[var(--fin-muted-dim)] text-xs mb-1">Lucro da clínica</p>
+              <p className="text-[var(--fin-success)] font-semibold">{fmtBRL(profitQuery.data.totals.profit)}</p>
             </div>
           </div>
         )}
@@ -197,26 +198,26 @@ export function ProfitModal({
         <div className="overflow-y-auto flex-1">
           {pricesQuery.isLoading ? (
             <div className="p-6 space-y-2">
-              {[1, 2, 3].map((i) => <div key={i} className="h-12 bg-slate-800 rounded animate-pulse" />)}
+              {[1, 2, 3].map((i) => <div key={i} className="h-12 bg-[var(--fin-panel-2)] rounded animate-pulse" />)}
             </div>
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-700/50">
-                  <th className="text-left px-6 py-3 text-slate-400 font-medium text-xs uppercase">Exame</th>
-                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Preço externo</th>
-                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Vendidos no ciclo</th>
-                  <th className="text-right px-4 py-3 text-slate-400 font-medium text-xs uppercase">Lucro no ciclo</th>
-                  <th className="text-right px-6 py-3 text-slate-400 font-medium text-xs uppercase">Ação</th>
+                <tr className="border-b border-[var(--fin-line)]">
+                  <th className="text-left px-6 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Exame</th>
+                  <th className="text-right px-4 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Preço externo</th>
+                  <th className="text-right px-4 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Vendidos no ciclo</th>
+                  <th className="text-right px-4 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Lucro no ciclo</th>
+                  <th className="text-right px-6 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Ação</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-700/30">
+              <tbody className="divide-y divide-[var(--fin-line-soft)]">
                 {(pricesQuery.data ?? []).map((legend) => {
                   const profitRow = profitByLegend.get(legend.exam_legend_id);
                   const isEditing = editingLegendId === legend.exam_legend_id;
                   return (
-                    <tr key={legend.exam_legend_id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="px-6 py-3 text-white">{legend.exam_name}</td>
+                    <tr key={legend.exam_legend_id} className="hover:bg-[var(--fin-panel-soft)] transition-colors">
+                      <td className="px-6 py-3 text-[var(--fin-text)]">{legend.exam_name}</td>
                       <td className="px-4 py-3 text-right">
                         {isEditing ? (
                           <input
@@ -226,20 +227,20 @@ export function ProfitModal({
                             min="0"
                             value={priceInput}
                             onChange={(e) => setPriceInput(e.target.value)}
-                            className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-right text-white text-xs"
+                            className="w-24 bg-[var(--fin-panel-2)] border border-[var(--fin-line-strong)] rounded px-2 py-1 text-right text-[var(--fin-text)] text-xs"
                           />
                         ) : legend.configured ? (
-                          <span className="text-cyan-400 font-medium">{fmtBRL(legend.price_external!)}</span>
+                          <span className="text-[var(--fin-accent-soft)] font-medium">{fmtBRL(legend.price_external!)}</span>
                         ) : (
-                          <span className="text-slate-600 text-xs">Não configurado</span>
+                          <span className="text-[var(--fin-muted-dim)] text-xs">Não configurado</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-slate-300 text-right">{profitRow?.units_sold ?? 0}</td>
+                      <td className="px-4 py-3 text-[var(--fin-muted)] text-right">{profitRow?.units_sold ?? 0}</td>
                       <td className="px-4 py-3 text-right">
                         {profitRow ? (
-                          <span className="text-emerald-400 font-semibold">{fmtBRL(profitRow.profit)}</span>
+                          <span className="text-[var(--fin-success)] font-semibold">{fmtBRL(profitRow.profit)}</span>
                         ) : (
-                          <span className="text-slate-600 text-xs">—</span>
+                          <span className="text-[var(--fin-muted-dim)] text-xs">—</span>
                         )}
                       </td>
                       <td className="px-6 py-3 text-right">
@@ -260,7 +261,7 @@ export function ProfitModal({
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-6 px-2 text-xs border-slate-600 text-slate-300"
+                              className="h-6 px-2 text-xs border-[var(--fin-line-strong)] text-[var(--fin-muted)]"
                               onClick={() => { setEditingLegendId(null); setPriceInput(""); }}
                             >
                               Cancelar
@@ -270,7 +271,7 @@ export function ProfitModal({
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-6 px-2 text-xs border-slate-600 text-slate-300 hover:bg-slate-700"
+                            className="h-6 px-2 text-xs border-[var(--fin-line-strong)] text-[var(--fin-muted)] hover:bg-[var(--fin-panel-2)]"
                             onClick={() => {
                               setEditingLegendId(legend.exam_legend_id);
                               setPriceInput(legend.configured ? String(legend.price_external) : "");
@@ -309,8 +310,23 @@ export default function FinanceMeuResponsavel() {
   const [selectedUnit, setSelectedUnit] = useState<{ id: number; name: string } | null>(null);
   const [selectedProfitUnit, setSelectedProfitUnit] = useState<{ id: number; name: string } | null>(null);
 
+  // Suporte a múltiplos responsáveis financeiros por conta (decisão de produto,
+  // 2026-09-17): se a conta tiver mais de um vínculo, exige seleção explícita
+  // antes de abrir qualquer dado financeiro — nunca escolhe "o primeiro" de
+  // forma implícita. Com 0 ou 1 vínculo, comportamento idêntico ao de sempre.
+  const [selectedResponsibleId, setSelectedResponsibleId] = useState<number | null>(null);
+  const { data: myResponsibles } = trpc.financeSimple.listMyResponsibles.useQuery();
+  const { data: profitHistory } = trpc.financeSimple.getResponsibleProfitHistory.useQuery(
+    { financialResponsibleId: selectedResponsibleId ?? undefined },
+    { enabled: myResponsibles !== undefined && !((myResponsibles?.length ?? 0) > 1 && selectedResponsibleId === null) },
+  );
+  const needsResponsibleSelection = (myResponsibles?.length ?? 0) > 1 && selectedResponsibleId === null;
+
   const referenceDate = new Date(year, month - 1, 15).toISOString();
-  const { data, isLoading } = trpc.financeSimple.myResponsavelSummary.useQuery({ reference_date: referenceDate });
+  const { data, isLoading } = trpc.financeSimple.myResponsavelSummary.useQuery(
+    { reference_date: referenceDate, financialResponsibleId: selectedResponsibleId ?? undefined },
+    { enabled: myResponsibles !== undefined && !needsResponsibleSelection }
+  );
 
   function prevMonth() {
     if (month === 1) { setMonth(12); setYear((y) => y - 1); }
@@ -333,77 +349,132 @@ export default function FinanceMeuResponsavel() {
         {/* Cabeçalho + navegação de mês */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold text-white">Meu Painel Financeiro</h1>
-            <p className="text-slate-400 text-sm mt-0.5">Unidades sob sua responsabilidade</p>
+            <h1 className="text-xl font-bold text-[var(--fin-text)]">Meu Painel Financeiro</h1>
+            <p className="text-[var(--fin-muted)] text-sm mt-0.5">Unidades sob sua responsabilidade</p>
           </div>
           <div className="flex items-center gap-2">
+            {myResponsibles && myResponsibles.length > 1 && (
+              <select
+                value={selectedResponsibleId ?? ""}
+                onChange={(e) => setSelectedResponsibleId(e.target.value ? Number(e.target.value) : null)}
+                className="bg-[var(--fin-panel-2)] border border-[var(--fin-line-strong)] text-[var(--fin-text)] rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">— Selecione o responsável —</option>
+                {myResponsibles.map((r) => (
+                  <option key={r.id} value={r.id}>{r.trade_name || r.legal_name}</option>
+                ))}
+              </select>
+            )}
             <Button
               size="sm"
               variant="outline"
               onClick={() => navigate('/financeiro/configuracao')}
-              className="border-cyan-700/70 text-cyan-300 hover:bg-cyan-950/40"
+              className="border-[var(--fin-accent-border)] text-[var(--fin-accent-soft)] hover:bg-[var(--fin-accent-wash)]"
             >
               <Settings className="h-3.5 w-3.5 mr-1.5" />
               Preços
             </Button>
-            <div className="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-2">
-              <button onClick={prevMonth} className="text-slate-400 hover:text-white transition-colors">
+            <div className="flex items-center gap-2 bg-[var(--fin-panel-2)] rounded-lg px-3 py-2">
+              <button onClick={prevMonth} className="text-[var(--fin-muted)] hover:text-[var(--fin-text)] transition-colors">
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              <span className="text-white font-medium text-sm min-w-[120px] text-center">
+              <span className="text-[var(--fin-text)] font-medium text-sm min-w-[120px] text-center">
                 {MONTHS[month - 1]} {year}
               </span>
-              <button onClick={nextMonth} className="text-slate-400 hover:text-white transition-colors">
+              <button onClick={nextMonth} className="text-[var(--fin-muted)] hover:text-[var(--fin-text)] transition-colors">
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
           </div>
         </div>
 
+        {needsResponsibleSelection ? (
+        <div className="bg-[var(--fin-panel-soft)] rounded-xl p-12 text-center border border-[var(--fin-line)]">
+          <Building2 className="h-10 w-10 text-[var(--fin-muted-dim)] mx-auto mb-3" />
+          <p className="text-[var(--fin-muted)] text-sm font-medium">Sua conta tem mais de um responsável financeiro vinculado.</p>
+          <p className="text-[var(--fin-muted-dim)] text-xs mt-1">Selecione qual responsável você quer visualizar no menu acima antes de continuar.</p>
+        </div>
+        ) : (
+        <>
         {/* Cards de resumo */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
+          <div className="bg-[var(--fin-panel-soft)] rounded-xl p-4 border border-[var(--fin-line)]">
             <div className="flex items-center gap-2 mb-2">
-              <FileText className="h-4 w-4 text-slate-400" />
-              <span className="text-slate-400 text-xs uppercase tracking-wide">Laudos</span>
+              <FileText className="h-4 w-4 text-[var(--fin-muted)]" />
+              <span className="text-[var(--fin-muted)] text-xs uppercase tracking-wide">Laudos</span>
             </div>
-            <p className="text-2xl font-bold text-white">{totalLaudos}</p>
+            <p className="text-2xl font-bold text-[var(--fin-text)]">{totalLaudos}</p>
           </div>
-          <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
+          <div className="bg-[var(--fin-panel-soft)] rounded-xl p-4 border border-[var(--fin-line)]">
             <div className="flex items-center gap-2 mb-2">
-              <DollarSign className="h-4 w-4 text-slate-400" />
-              <span className="text-slate-400 text-xs uppercase tracking-wide">Total ao Sistema</span>
+              <DollarSign className="h-4 w-4 text-[var(--fin-muted)]" />
+              <span className="text-[var(--fin-muted)] text-xs uppercase tracking-wide">Total ao Sistema</span>
             </div>
-            <p className="text-2xl font-bold text-amber-400">{fmtBRL(totalSystem)}</p>
+            <p className="text-2xl font-bold text-[var(--fin-warn)]">{fmtBRL(totalSystem)}</p>
           </div>
-          <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
+          <div className="bg-[var(--fin-panel-soft)] rounded-xl p-4 border border-[var(--fin-line)]">
             <div className="flex items-center gap-2 mb-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-              <span className="text-slate-400 text-xs uppercase tracking-wide">Pago ao Sistema</span>
+              <CheckCircle2 className="h-4 w-4 text-[var(--fin-success)]" />
+              <span className="text-[var(--fin-muted)] text-xs uppercase tracking-wide">Pago ao Sistema</span>
             </div>
-            <p className="text-2xl font-bold text-emerald-400">{fmtBRL(totalSystemPaid)}</p>
+            <p className="text-2xl font-bold text-[var(--fin-success)]">{fmtBRL(totalSystemPaid)}</p>
           </div>
-          <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
+          <div className="bg-[var(--fin-panel-soft)] rounded-xl p-4 border border-[var(--fin-line)]">
             <div className="flex items-center gap-2 mb-2">
-              <AlertCircle className="h-4 w-4 text-orange-400" />
-              <span className="text-slate-400 text-xs uppercase tracking-wide">Pendente ao Sistema</span>
+              <AlertCircle className="h-4 w-4 text-[var(--fin-warn)]" />
+              <span className="text-[var(--fin-muted)] text-xs uppercase tracking-wide">Pendente ao Sistema</span>
             </div>
-            <p className="text-2xl font-bold text-orange-400">{fmtBRL(totalSystemPending)}</p>
+            <p className="text-2xl font-bold text-[var(--fin-warn)]">{fmtBRL(totalSystemPending)}</p>
           </div>
         </div>
+
+        {/* Receita, custos e lucro por período — NOVO. Receita é ESTIMATIVA: aplica o
+            preço externo vigente HOJE sobre a produção de cada ciclo já fechado, porque
+            não existe registro histórico de receita externa (ver getResponsibleProfitHistory
+            em server/db.ts). Por isso o rótulo do gráfico deixa isso explícito. */}
+        {profitHistory && profitHistory.periods.length > 0 && (
+          <div className="bg-[var(--fin-panel-soft)] rounded-xl border border-[var(--fin-line)] p-4 mb-6">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingUp className="h-4 w-4 text-[var(--fin-accent-soft)]" />
+              <h2 className="fin-head text-sm font-semibold text-[var(--fin-text)]">Receita, custos e lucro por período</h2>
+            </div>
+            <p className="text-[var(--fin-muted-dim)] text-xs mb-3">
+              Receita estimada com o preço externo vigente hoje aplicado à produção de cada ciclo já fechado — não é o valor real cobrado na época, que o sistema não guarda.
+            </p>
+            <div className="h-56 -ml-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={profitHistory.periods} barGap={4}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--fin-line-soft)" vertical={false} />
+                  <XAxis dataKey="cycle_label" tick={{ fill: "var(--fin-muted-dim)", fontSize: 10 }} axisLine={{ stroke: "var(--fin-line)" }} tickLine={false} />
+                  <YAxis tick={{ fill: "var(--fin-muted-dim)", fontSize: 10 }} axisLine={false} tickLine={false} width={56} tickFormatter={(v) => fmtBRL(Number(v))} />
+                  <Tooltip
+                    formatter={(value: number) => fmtBRL(value)}
+                    contentStyle={{ background: "var(--fin-panel)", border: "1px solid var(--fin-line)", borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: "var(--fin-text)" }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, color: "var(--fin-muted)" }} />
+                  <Bar dataKey="estimated_revenue" name="Receita (estimada)" fill="var(--fin-accent)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="system_cost" name="Sistema" fill="var(--fin-warn)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="doctor_cost" name="Médicos" fill="var(--fin-danger)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="estimated_profit" name="Lucro (estimado)" fill="var(--fin-success)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
 
         {/* Lista de unidades */}
         {isLoading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-20 bg-slate-800/40 rounded-xl animate-pulse" />
+              <div key={i} className="h-20 bg-[var(--fin-panel-soft)] rounded-xl animate-pulse" />
             ))}
           </div>
         ) : units.length === 0 ? (
-          <div className="bg-slate-800/40 rounded-xl p-12 text-center border border-slate-700/50">
-            <Building2 className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-            <p className="text-slate-400 text-sm">Nenhuma unidade vinculada à sua conta.</p>
-            <p className="text-slate-500 text-xs mt-1">
+          <div className="bg-[var(--fin-panel-soft)] rounded-xl p-12 text-center border border-[var(--fin-line)]">
+            <Building2 className="h-10 w-10 text-[var(--fin-muted-dim)] mx-auto mb-3" />
+            <p className="text-[var(--fin-muted)] text-sm">Nenhuma unidade vinculada à sua conta.</p>
+            <p className="text-[var(--fin-muted-dim)] text-xs mt-1">
               Solicite ao administrador que vincule uma unidade ao seu perfil.
             </p>
           </div>
@@ -412,16 +483,16 @@ export default function FinanceMeuResponsavel() {
             {units.map((u) => (
               <div
                 key={u.unit_id}
-                className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4 hover:border-slate-600 transition-colors"
+                className="bg-[var(--fin-panel-soft)] rounded-xl border border-[var(--fin-line)] p-4 hover:border-[var(--fin-line-strong)] transition-colors"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center">
-                      <Building2 className="h-5 w-5 text-slate-400" />
+                    <div className="w-10 h-10 rounded-lg bg-[var(--fin-panel-2)] flex items-center justify-center">
+                      <Building2 className="h-5 w-5 text-[var(--fin-muted)]" />
                     </div>
                     <div>
-                      <p className="text-white font-semibold">{u.unit_name}</p>
-                      <p className="text-slate-400 text-xs">
+                      <p className="text-[var(--fin-text)] font-semibold">{u.unit_name}</p>
+                      <p className="text-[var(--fin-muted)] text-xs">
                         {u.total_laudos} laudos
                         {' · '}
                         {(() => {
@@ -441,14 +512,14 @@ export default function FinanceMeuResponsavel() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setSelectedProfitUnit({ id: u.unit_id, name: u.unit_name })}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-[var(--fin-line-strong)] text-[var(--fin-muted)] hover:bg-[var(--fin-panel-2)] transition-colors"
                     >
                       <Settings className="h-3.5 w-3.5" />
                       Preço externo / Lucro
                     </button>
                     <button
                       onClick={() => setSelectedUnit({ id: u.unit_id, name: u.unit_name })}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-[var(--fin-line-strong)] text-[var(--fin-muted)] hover:bg-[var(--fin-panel-2)] transition-colors"
                     >
                       <Users className="h-3.5 w-3.5" />
                       Ver médicos
@@ -458,17 +529,17 @@ export default function FinanceMeuResponsavel() {
 
                 {/* Barra de valores */}
                 <div className="mt-3 grid grid-cols-3 gap-3">
-                  <div className="bg-slate-900/50 rounded-lg p-2.5">
-                    <p className="text-slate-500 text-xs mb-1">Total ao Sistema</p>
-                    <p className="text-amber-400 font-semibold text-sm">{fmtBRL(u.system_total)}</p>
+                  <div className="bg-[var(--fin-panel-faint)] rounded-lg p-2.5">
+                    <p className="text-[var(--fin-muted-dim)] text-xs mb-1">Total ao Sistema</p>
+                    <p className="text-[var(--fin-warn)] font-semibold text-sm">{fmtBRL(u.system_total)}</p>
                   </div>
-                  <div className="bg-slate-900/50 rounded-lg p-2.5">
-                    <p className="text-slate-500 text-xs mb-1">Pago ao Sistema</p>
-                    <p className="text-emerald-400 font-semibold text-sm">{fmtBRL(u.system_paid)}</p>
+                  <div className="bg-[var(--fin-panel-faint)] rounded-lg p-2.5">
+                    <p className="text-[var(--fin-muted-dim)] text-xs mb-1">Pago ao Sistema</p>
+                    <p className="text-[var(--fin-success)] font-semibold text-sm">{fmtBRL(u.system_paid)}</p>
                   </div>
-                  <div className="bg-slate-900/50 rounded-lg p-2.5">
-                    <p className="text-slate-500 text-xs mb-1">Pendente ao Sistema</p>
-                    <p className={`font-semibold text-sm ${u.system_pending > 0 ? "text-orange-400" : "text-slate-500"}`}>
+                  <div className="bg-[var(--fin-panel-faint)] rounded-lg p-2.5">
+                    <p className="text-[var(--fin-muted-dim)] text-xs mb-1">Pendente ao Sistema</p>
+                    <p className={`font-semibold text-sm ${u.system_pending > 0 ? "text-[var(--fin-warn)]" : "text-[var(--fin-muted-dim)]"}`}>
                       {fmtBRL(u.system_pending)}
                     </p>
                   </div>
@@ -477,17 +548,17 @@ export default function FinanceMeuResponsavel() {
                 {/* Barra de valores — médicos */}
                 {(u.doctor_total > 0 || u.doctor_pending > 0) && (
                   <div className="mt-2 grid grid-cols-3 gap-3">
-                    <div className="bg-slate-900/30 rounded-lg p-2.5 border border-slate-700/30">
-                      <p className="text-slate-500 text-xs mb-1">Total Médicos</p>
-                      <p className="text-cyan-400 font-semibold text-sm">{fmtBRL(u.doctor_total)}</p>
+                    <div className="bg-[var(--fin-panel-faint)] rounded-lg p-2.5 border border-[var(--fin-line-soft)]">
+                      <p className="text-[var(--fin-muted-dim)] text-xs mb-1">Total Médicos</p>
+                      <p className="text-[var(--fin-accent-soft)] font-semibold text-sm">{fmtBRL(u.doctor_total)}</p>
                     </div>
-                    <div className="bg-slate-900/30 rounded-lg p-2.5 border border-slate-700/30">
-                      <p className="text-slate-500 text-xs mb-1">Pago Médicos</p>
-                      <p className="text-emerald-400 font-semibold text-sm">{fmtBRL(u.doctor_paid)}</p>
+                    <div className="bg-[var(--fin-panel-faint)] rounded-lg p-2.5 border border-[var(--fin-line-soft)]">
+                      <p className="text-[var(--fin-muted-dim)] text-xs mb-1">Pago Médicos</p>
+                      <p className="text-[var(--fin-success)] font-semibold text-sm">{fmtBRL(u.doctor_paid)}</p>
                     </div>
-                    <div className="bg-slate-900/30 rounded-lg p-2.5 border border-slate-700/30">
-                      <p className="text-slate-500 text-xs mb-1">Pendente Médicos</p>
-                      <p className={`font-semibold text-sm ${u.doctor_pending > 0 ? "text-rose-400" : "text-slate-500"}`}>
+                    <div className="bg-[var(--fin-panel-faint)] rounded-lg p-2.5 border border-[var(--fin-line-soft)]">
+                      <p className="text-[var(--fin-muted-dim)] text-xs mb-1">Pendente Médicos</p>
+                      <p className={`font-semibold text-sm ${u.doctor_pending > 0 ? "text-[var(--fin-danger)]" : "text-[var(--fin-muted-dim)]"}`}>
                         {fmtBRL(u.doctor_pending)}
                       </p>
                     </div>
@@ -496,13 +567,13 @@ export default function FinanceMeuResponsavel() {
 
                 {/* Status visual */}
                 {u.system_pending === 0 && u.total_laudos > 0 && (
-                  <div className="mt-2 flex items-center gap-1.5 text-emerald-400 text-xs">
+                  <div className="mt-2 flex items-center gap-1.5 text-[var(--fin-success)] text-xs">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     <span>Pagamentos ao sistema em dia</span>
                   </div>
                 )}
                 {u.system_pending > 0 && (
-                  <div className="mt-2 flex items-center gap-1.5 text-orange-400 text-xs">
+                  <div className="mt-2 flex items-center gap-1.5 text-[var(--fin-warn)] text-xs">
                     <Clock className="h-3.5 w-3.5" />
                     <span>Pagamento pendente ao sistema</span>
                   </div>
@@ -510,6 +581,8 @@ export default function FinanceMeuResponsavel() {
               </div>
             ))}
           </div>
+        )}
+        </>
         )}
       </div>
 

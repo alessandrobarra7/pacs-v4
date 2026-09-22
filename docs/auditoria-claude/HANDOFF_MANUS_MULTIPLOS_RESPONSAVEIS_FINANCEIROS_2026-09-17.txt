@@ -1,0 +1,121 @@
+HANDOFF PARA MANUS — SUPORTE A MÚLTIPLOS RESPONSÁVEIS FINANCEIROS POR USUÁRIO
+Data: 17/09/2026
+Projeto: PACS Portal / LAUDS
+Branch: claude/multi-responsavel-financeiro
+Commit: 7369ae6
+Base: main em 1b906ad (já inclui o fix do JOIN da erica)
+
+1. ORIGEM DA MUDANÇA
+
+Você enviou REQUISITOS_FUNCIONALIDADE_RESPONSAVEL_FINANCEIRO_2026-09-17.txt
+pedindo decisão de produto entre Opção A (um usuário = um responsável
+financeiro ativo) e Opção B (um usuário pode acessar vários responsáveis,
+com seleção explícita de contexto). Alessandro escolheu a Opção B — existe
+necessidade operacional real de uma mesma conta administrar mais de um
+responsável financeiro.
+
+2. O QUE MUDOU
+
+O schema já suportava isso (financial_responsible_users não tem unique
+constraint em user_id). O problema era só a camada de aplicação:
+getResponsibleIdForUser fazia .limit(1) em 13 lugares diferentes de
+server/routers/financeSimple.ts, todos assumindo um único vínculo — o
+mesmo tipo de resolução implícita e não determinística que causou o caso
+da erica.
+
+Dividi os 13 pontos em dois grupos:
+
+Grupo 1 — checagens de autorização por unidade (assertCanAccessFinancialUnit,
+assertCanManageExternalSalePrice, assertCanManageFinancialPrices,
+getAuthorizedFinancialUnitIds, filtro de getDoctorStatement). Aqui a
+pergunta é sempre "essa unidade pertence a algum dos MEUS responsáveis?" —
+como uma unidade só pertence a um responsável ativo por vez, isso vira
+simplesmente inArray() no lugar de eq(). Sem ambiguidade, sem precisar de
+seleção de contexto.
+
+Grupo 2 — telas que hoje mostram "o responsável" no singular sem receber
+nenhum id explícito (myResponsavelSummary, getResponsible,
+listUnitsForResponsible, getReportItems, getResponsibleSummary,
+getMyResponsible, getResponsibleCycles, getResponsibleFullDashboard). Criei
+resolveResponsibleContext(): financialResponsibleId explícito é validado
+contra os vínculos reais do usuário; sem id explícito, resolve sozinho se
+houver exatamente 1 vínculo (UX de sempre), retorna null se houver 0
+(estado vazio, como sempre), e rejeita com BAD_REQUEST pedindo seleção se
+houver mais de 1 — nunca escolhe "o primeiro" em silêncio.
+
+Nova procedure listMyResponsibles retorna os responsáveis vinculados ao
+usuário logado (id + nome), para montar um seletor de contexto.
+
+3. FRONTEND
+
+De todos os endpoints do Grupo 2, só myResponsavelSummary é chamado pelo
+frontend hoje (client/src/pages/finance/FinanceMeuResponsavel.tsx — "Meu
+Painel Financeiro"). Adicionei lá:
+- um seletor de responsável no cabeçalho, visível só quando a conta tem
+  mais de um vínculo ativo (com 0 ou 1 vínculo, tela idêntica a antes);
+- enquanto há mais de um vínculo e nenhum selecionado, a tela mostra um
+  aviso pedindo a seleção em vez de disparar a query (que rejeitaria com
+  BAD_REQUEST).
+
+Os outros endpoints do Grupo 2 (getResponsibleSummary, getMyResponsible,
+getResponsibleCycles, getReportItems) não são chamados por nenhuma tela
+hoje — corrigi por consistência e para uso futuro, mas isso não muda
+nenhuma UI existente.
+
+4. TESTES (server/audit-fixes-multi-responsavel-financeiro.test.ts)
+
+- Grupo 1: usuário vinculado a 2 responsáveis, unidade pertence só ao
+  segundo. Uso um spy no inArray real do drizzle-orm (mock parcial do
+  módulo, preservando o resto) para provar que o código passou os dois ids
+  pro inArray, não só um. Revertido de propósito para simular o bug antigo
+  (pegar só o primeiro id), confirmado que o teste falha exatamente nessa
+  asserção, revertido de volta.
+- Grupo 2: 3 cenários — id não pertencente ao usuário (FORBIDDEN), 2
+  vínculos sem id informado (BAD_REQUEST), 1 vínculo sem id (resolve
+  sozinho), 0 vínculos (estado vazio). Os dois primeiros foram revertidos
+  de propósito (simulando resolveResponsibleContext escolhendo o primeiro
+  vínculo em silêncio), confirmado que ambos falham como esperado,
+  revertidos de volta.
+- server/financeSimple.test.ts: um teste estático pré-existente checava a
+  string literal "ownResponsibleId !== input.responsibleId" (a checagem
+  antiga de igualdade de um único id) dentro do código-fonte de
+  getResponsibleFullDashboard. Atualizei a asserção para
+  "!ownResponsibleIds.includes(input.responsibleId)" — mesma propriedade
+  de segurança, generalizada pra array. Não é uma falha real, é um teste
+  textual que precisava acompanhar a mudança intencional.
+
+5. VALIDAÇÃO NO SANDBOX DO CLAUDE
+
+- pnpm check: aprovado, sem erro TypeScript.
+- TZ=UTC pnpm test: 443 aprovados, 9 falhos, 1 ignorado, 453 no total. Os 9
+  falhos são os mesmos 7 arquivos históricos já documentados em handoffs
+  anteriores (finance-v2-dashboard, exam-catalog-security, mediaProxy,
+  pacs-desktop-download-progress, pacs.mobile-ui, security.auth,
+  study-priority-ui). Nenhuma falha nova.
+- pnpm build: aprovado.
+- git diff --check: sem problema de whitespace.
+
+6. BLOQUEIO — BRANCH AINDA NÃO PUBLICADA NO GITHUB
+
+Mesma situação do handoff anterior (HANDOFF_MANUS_DIAGNOSTICO_ERICA_LINK):
+este sandbox do Claude não tem credencial git configurada, então não há
+como dar push direto. O commit existe só localmente aqui. Vou providenciar
+o patch (git format-patch) e a mensagem de aplicação pro Alessandro
+repassar, do mesmo jeito que funcionou da última vez.
+
+7. O QUE NÃO FOI FEITO NESTA BRANCH
+
+Não mexi em nenhuma tela de administração de vínculo (criar/trocar/remover
+usuário de um responsável) além do que já existe em
+client/src/pages/finance/FinanceConfiguracao.tsx — essa parte do
+documento de requisitos (seções 3.3, 3.4, 5, 6 — mensagens de confirmação,
+terminologia, quadro de estado da unidade, auditoria detalhada) não foi
+implementada nesta rodada; ficou fora de escopo porque o Alessandro pediu
+especificamente a decisão de Opção A/B e sua implementação. Se quiser que
+eu continue com o restante do documento de requisitos, é só sinalizar.
+
+Também não toquei no vínculo de dado da erica em produção nem em nenhuma
+VM — isso continua pendente conforme o handoff anterior, aguardando seu
+diagnóstico confirmado antes de qualquer correção em VM1.
+
+FIM DO HANDOFF

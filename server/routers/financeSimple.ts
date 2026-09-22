@@ -37,9 +37,12 @@ import {
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, ne, sql, sql as sqlFn, desc, inArray, gte, lte, or, SQL } from "drizzle-orm";
 import {
-  getResponsibleIdForUser,
+  getResponsibleIdsForUser,
+  listResponsiblesForUser,
   createBillingVisitEvent,
   getResponsibleCycleSummary,
+  getResponsibleProfitHistory,
+  getDoctorCycleSummary,
   getDoctorFinancialSummary,
   getDoctorCycleEvents,
   linkUnitToResponsible,
@@ -368,14 +371,14 @@ async function assertCanAccessFinancialUnit(
   }
 
   if (user.role === 'responsavel_financeiro') {
-    const responsibleId = await getResponsibleIdForUser(user.id);
-    if (!responsibleId)
+    const responsibleIds = await getResponsibleIdsForUser(user.id);
+    if (!responsibleIds.length)
       throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem responsável financeiro vinculado.' });
     const link = await db
       .select({ id: financial_responsible_units.id })
       .from(financial_responsible_units)
       .where(and(
-        eq(financial_responsible_units.financial_responsible_id, responsibleId),
+        inArray(financial_responsible_units.financial_responsible_id, responsibleIds),
         eq(financial_responsible_units.unit_id, unitId),
         isNull(financial_responsible_units.ends_at),
       ))
@@ -416,14 +419,14 @@ async function assertCanManageExternalSalePrice(
   }
 
   if (user.role === 'responsavel_financeiro') {
-    const responsibleId = await getResponsibleIdForUser(user.id);
-    if (!responsibleId)
+    const responsibleIds = await getResponsibleIdsForUser(user.id);
+    if (!responsibleIds.length)
       throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem responsável financeiro vinculado.' });
     const link = await db
       .select({ id: financial_responsible_units.id })
       .from(financial_responsible_units)
       .where(and(
-        eq(financial_responsible_units.financial_responsible_id, responsibleId),
+        inArray(financial_responsible_units.financial_responsible_id, responsibleIds),
         eq(financial_responsible_units.unit_id, unitId),
         isNull(financial_responsible_units.ends_at),
       ))
@@ -448,11 +451,47 @@ async function assertCanManageFinancialPrices(
   if (user.role !== 'responsavel_financeiro') {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Somente o administrador raiz ou o responsável financeiro pode configurar preços.' });
   }
-  const ownResponsibleId = await getResponsibleIdForUser(user.id);
-  if (!ownResponsibleId || (financialResponsibleId !== undefined && ownResponsibleId !== financialResponsibleId)) {
+  const ownResponsibleIds = await getResponsibleIdsForUser(user.id);
+  if (!ownResponsibleIds.length || (financialResponsibleId !== undefined && !ownResponsibleIds.includes(financialResponsibleId))) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'O responsável financeiro não corresponde ao preço informado.' });
   }
   await assertCanAccessFinancialUnit(db, user, unitId);
+}
+
+/**
+ * Resolve QUAL responsável financeiro uma tela "minha visão" (sem unit_id no
+ * caminho) deve usar, agora que um usuário pode estar vinculado a mais de um
+ * (decisão de produto — suporte a múltiplos responsáveis, 2026-09-17).
+ *
+ *  - financialResponsibleId informado: precisa estar entre os vínculos do
+ *    usuário, senão FORBIDDEN — nunca confia num id vindo do cliente sem
+ *    checar contra o array real.
+ *  - não informado e o usuário tem exatamente 1 vínculo: usa esse (mantém o
+ *    comportamento de sempre para o caso comum, sem exigir seletor).
+ *  - não informado e o usuário tem 0 vínculos: retorna null (tela mostra
+ *    estado vazio, como já fazia antes).
+ *  - não informado e o usuário tem mais de 1 vínculo: erro explícito — o
+ *    frontend deve chamar listMyResponsibles antes e pedir a seleção. Nunca
+ *    escolhe implicitamente "o primeiro" aqui — foi exatamente esse tipo de
+ *    resolução implícita e não determinística que causou o caso da erica.
+ */
+async function resolveResponsibleContext(
+  user: { id: number },
+  financialResponsibleId: number | undefined | null,
+): Promise<number | null> {
+  const ownResponsibleIds = await getResponsibleIdsForUser(user.id);
+  if (financialResponsibleId !== undefined && financialResponsibleId !== null) {
+    if (!ownResponsibleIds.includes(financialResponsibleId)) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Este responsável financeiro não está vinculado à sua conta.' });
+    }
+    return financialResponsibleId;
+  }
+  if (ownResponsibleIds.length === 0) return null;
+  if (ownResponsibleIds.length === 1) return ownResponsibleIds[0];
+  throw new TRPCError({
+    code: 'BAD_REQUEST',
+    message: 'Sua conta tem mais de um responsável financeiro vinculado — selecione um antes de continuar.',
+  });
 }
 
 function isSameCalendarDay(left: Date, right: Date): boolean {
@@ -529,16 +568,16 @@ async function getAuthorizedFinancialUnitIds(
   }
 
   if (user.role === 'responsavel_financeiro') {
-    const responsibleId = await getResponsibleIdForUser(user.id);
-    if (!responsibleId) return [];
+    const responsibleIds = await getResponsibleIdsForUser(user.id);
+    if (!responsibleIds.length) return [];
     const links = await db
       .select({ unit_id: financial_responsible_units.unit_id })
       .from(financial_responsible_units)
       .where(and(
-        eq(financial_responsible_units.financial_responsible_id, responsibleId),
+        inArray(financial_responsible_units.financial_responsible_id, responsibleIds),
         isNull(financial_responsible_units.ends_at),
       ));
-    return links.map((link) => link.unit_id);
+    return Array.from(new Set(links.map((link) => link.unit_id)));
   }
 
   return [];
@@ -647,6 +686,184 @@ export const financeSimpleRouter = router({
    * Lista de laudos por unidade — para a tela de Pagamentos
    * Agrupa por unidade, retorna totais e status de pagamento
    */
+  /**
+   * Visão consolidada extra do administrador — faturamento externo do ciclo
+   * atual (REAL, mesmo cálculo do unitProfitCalculator, agregado entre todas
+   * as unidades autorizadas) + médicos com laudo faturável nos últimos 30
+   * dias + fluxo mensal histórico (últimos 6 meses com ciclo fechado).
+   *
+   * O fluxo mensal é ESTIMATIVA na parte de receita externa, pelo mesmo
+   * motivo e mesma técnica de getResponsibleProfitHistory (server/db.ts):
+   * não existe registro histórico de receita externa, só do que foi devido
+   * ao sistema e aos médicos. Decisão do usuário 2026-09-18, mesma já
+   * aplicada ao gráfico do responsável.
+   */
+  financialOverviewExtras: protectedProcedure
+    .query(async ({ ctx }) => {
+      assertAdmin(ctx.user.role);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const unitScope = await getAuthorizedFinancialUnitIds(db, ctx.user); // null = todas
+      const scopedUnitsRows = await db
+        .select({ id: units.id })
+        .from(units)
+        .where(unitScope ? inArray(units.id, unitScope) : undefined);
+      const unitIds = scopedUnitsRows.map((u) => u.id);
+      if (unitIds.length === 0) {
+        return { external_revenue_current: 0, active_doctors: 0, monthly_flow: [] };
+      }
+
+      // ── Faturamento externo do ciclo atual (REAL) ──────────────────────
+      let externalRevenueCurrent = 0;
+      const activeDoctorIds = new Set<number>();
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+      for (const unitId of unitIds) {
+        const { startDate, endDate } = await resolveFinancialCycle(db, unitId, now);
+        const [eventRows, priceRows] = await Promise.all([
+          db.select({
+            exam_legend_id: billing_catalog_study_events.exam_legend_id,
+            signed_at: billing_catalog_study_events.signed_at,
+          }).from(billing_catalog_study_events)
+            .where(and(
+              eq(billing_catalog_study_events.unit_id, unitId),
+              eq(billing_catalog_study_events.financial_status, "active"),
+              sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
+              sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
+            )),
+          db.select({
+            exam_legend_id: billing_external_sale_prices.exam_legend_id,
+            price_external: billing_external_sale_prices.price_external,
+            starts_at: billing_external_sale_prices.starts_at,
+            ends_at: billing_external_sale_prices.ends_at,
+          }).from(billing_external_sale_prices)
+            .where(and(
+              eq(billing_external_sale_prices.unit_id, unitId),
+              sql`${billing_external_sale_prices.starts_at} < ${endDate}`,
+              or(isNull(billing_external_sale_prices.ends_at), sql`${billing_external_sale_prices.ends_at} >= ${startDate}`),
+            )),
+        ]);
+        const byLegend = new Map<number, typeof priceRows>();
+        for (const p of priceRows) {
+          const list = byLegend.get(p.exam_legend_id) ?? [];
+          list.push(p);
+          byLegend.set(p.exam_legend_id, list);
+        }
+        for (const event of eventRows) {
+          const candidates = byLegend.get(event.exam_legend_id);
+          const match = candidates?.find((p) => p.starts_at <= event.signed_at && (p.ends_at === null || p.ends_at > event.signed_at));
+          if (match) externalRevenueCurrent += toMoney(match.price_external);
+        }
+
+        const [recentLegacy, recentCatalog] = await Promise.all([
+          db.select({ doctor_user_id: billing_visit_events.doctor_user_id })
+            .from(billing_visit_events)
+            .where(and(
+              eq(billing_visit_events.unit_id, unitId),
+              ne(billing_visit_events.financial_status, "cancelled"),
+              sql`${billing_visit_events.signed_at} >= ${thirtyDaysAgo}`,
+            )),
+          db.select({ doctor_user_id: billing_catalog_study_events.doctor_user_id })
+            .from(billing_catalog_study_events)
+            .where(and(
+              eq(billing_catalog_study_events.unit_id, unitId),
+              eq(billing_catalog_study_events.financial_status, "active"),
+              sql`${billing_catalog_study_events.signed_at} >= ${thirtyDaysAgo}`,
+            )),
+        ]);
+        for (const r of [...recentLegacy, ...recentCatalog]) {
+          if (r.doctor_user_id != null) activeDoctorIds.add(r.doctor_user_id);
+        }
+      }
+
+      // ── Fluxo mensal histórico (ciclos fechados, agrupados por mês) ────
+      const systemCycles = await db.select({
+        unit_id: billing_cycle_system_summary.unit_id,
+        amount_due: billing_cycle_system_summary.amount_due,
+        cycle_id: billing_cycles.id,
+        starts_at: billing_cycles.starts_at,
+        ends_at: billing_cycles.ends_at,
+      }).from(billing_cycle_system_summary)
+        .innerJoin(billing_cycles, eq(billing_cycle_system_summary.system_cycle_id, billing_cycles.id))
+        .where(and(
+          inArray(billing_cycle_system_summary.unit_id, unitIds),
+          eq(billing_cycles.status, "closed"),
+        ))
+        .orderBy(desc(billing_cycles.ends_at));
+
+      const doctorCycles = await db.select({
+        unit_id: billing_cycle_doctor_summary.unit_id,
+        amount_due: billing_cycle_doctor_summary.amount_due,
+        doctor_cycle_id: billing_cycle_doctor_summary.doctor_cycle_id,
+      }).from(billing_cycle_doctor_summary)
+        .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+        .where(and(
+          inArray(billing_cycle_doctor_summary.unit_id, unitIds),
+          eq(billing_cycles.status, "closed"),
+        ));
+
+      const currentPrices = await db.select({
+        unit_id: billing_external_sale_prices.unit_id,
+        exam_legend_id: billing_external_sale_prices.exam_legend_id,
+        price_external: billing_external_sale_prices.price_external,
+      }).from(billing_external_sale_prices)
+        .where(isNull(billing_external_sale_prices.ends_at));
+      const priceByUnitLegend = new Map<string, number>();
+      for (const p of currentPrices) priceByUnitLegend.set(`${p.unit_id}:${p.exam_legend_id}`, toMoney(p.price_external));
+
+      const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const monthlyAgg = new Map<string, { month_label: string; system_cost: number; doctor_cost: number; estimated_revenue: number }>();
+
+      for (const cycle of systemCycles) {
+        const start = new Date(cycle.starts_at);
+        const key = monthKey(start);
+        const entry = monthlyAgg.get(key) ?? {
+          month_label: start.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }),
+          system_cost: 0, doctor_cost: 0, estimated_revenue: 0,
+        };
+        entry.system_cost += toMoney(cycle.amount_due);
+
+        const eventRows = await db.select({ exam_legend_id: billing_catalog_study_events.exam_legend_id })
+          .from(billing_catalog_study_events)
+          .where(and(
+            eq(billing_catalog_study_events.unit_id, cycle.unit_id),
+            eq(billing_catalog_study_events.financial_status, "active"),
+            sql`${billing_catalog_study_events.signed_at} >= ${cycle.starts_at}`,
+            sql`${billing_catalog_study_events.signed_at} < ${cycle.ends_at}`,
+          ));
+        for (const event of eventRows) {
+          const price = priceByUnitLegend.get(`${cycle.unit_id}:${event.exam_legend_id}`);
+          if (price !== undefined) entry.estimated_revenue += price;
+        }
+
+        const doctorCost = doctorCycles
+          .filter((d) => d.unit_id === cycle.unit_id && d.doctor_cycle_id === cycle.cycle_id)
+          .reduce((sum, d) => sum + toMoney(d.amount_due), 0);
+        entry.doctor_cost += doctorCost;
+
+        monthlyAgg.set(key, entry);
+      }
+
+      const monthlyFlow = Array.from(monthlyAgg.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .slice(-6)
+        .map(([, v]) => ({
+          month_label: v.month_label,
+          system_cost: Math.round(v.system_cost * 100) / 100,
+          doctor_cost: Math.round(v.doctor_cost * 100) / 100,
+          estimated_revenue: Math.round(v.estimated_revenue * 100) / 100,
+          price_basis: "current" as const,
+        }));
+
+      return {
+        external_revenue_current: toMoney(externalRevenueCurrent),
+        active_doctors: activeDoctorIds.size,
+        monthly_flow: monthlyFlow,
+      };
+    }),
+
   unitSummary: protectedProcedure
     .input(z.object({
       reference_date: z.string().datetime().optional(),
@@ -1460,6 +1677,16 @@ export const financeSimpleRouter = router({
         .from(units)
         .where(inArray(units.id, unitIds))
         .orderBy(units.name);
+    }),
+
+  /**
+   * Períodos anteriores do médico — ciclos já fechados (billing_cycle_doctor_summary),
+   * em todas as unidades. O ciclo vigente NÃO aparece aqui (vem de myFinanceiro).
+   */
+  myPastCycles: protectedProcedure
+    .query(async ({ ctx }) => {
+      assertMedico(ctx.user.role);
+      return await getDoctorCycleSummary(ctx.user.id);
     }),
 
   /** Preços vigentes do próprio médico no contexto de uma única unidade. */
@@ -2309,6 +2536,7 @@ export const financeSimpleRouter = router({
   myResponsavelSummary: protectedProcedure
     .input(z.object({
       reference_date: z.string().datetime().optional(),
+      financialResponsibleId: z.number().optional(),
     }))
     .query(async ({ input, ctx }) => {
       if (ctx.user.role !== "responsavel_financeiro" && ctx.user.role !== "admin_master") {
@@ -2317,8 +2545,8 @@ export const financeSimpleRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Descobrir o ID do responsável vinculado ao usuário
-      const responsavelId = await getResponsibleIdForUser(ctx.user.id);
+      // Descobrir o responsável a usar (explícito, ou o único vínculo do usuário)
+      const responsavelId = await resolveResponsibleContext(ctx.user, input.financialResponsibleId);
       if (!responsavelId) {
         return { units: [], responsavelId: null };
       }
@@ -2763,8 +2991,8 @@ export const financeSimpleRouter = router({
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') {
           
-          const respId = await getResponsibleIdForUser(ctx.user.id);
-          if (respId !== input.id) throw new TRPCError({ code: 'FORBIDDEN' });
+          const respIds = await getResponsibleIdsForUser(ctx.user.id);
+          if (!respIds.includes(input.id)) throw new TRPCError({ code: 'FORBIDDEN' });
         }
         
         return await getFinancialResponsibleById(input.id);
@@ -2859,8 +3087,8 @@ export const financeSimpleRouter = router({
       .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master') {
           
-          const respId = await getResponsibleIdForUser(ctx.user.id);
-          if (respId !== input.financialResponsibleId) throw new TRPCError({ code: 'FORBIDDEN' });
+          const respIds = await getResponsibleIdsForUser(ctx.user.id);
+          if (!respIds.includes(input.financialResponsibleId)) throw new TRPCError({ code: 'FORBIDDEN' });
         }
         
         return await listUnitsForResponsible(input.financialResponsibleId);
@@ -3173,8 +3401,8 @@ export const financeSimpleRouter = router({
         // medico: só seus próprios laudos
         if (ctx.user.role === 'responsavel_financeiro') {
           
-          const respId = await getResponsibleIdForUser(ctx.user.id);
-          if (!respId || (input.financialResponsibleId && respId !== input.financialResponsibleId)) {
+          const respId = await resolveResponsibleContext(ctx.user, input.financialResponsibleId);
+          if (!respId) {
             throw new TRPCError({ code: 'FORBIDDEN' });
           }
           input.financialResponsibleId = respId;
@@ -3205,11 +3433,12 @@ export const financeSimpleRouter = router({
       }),
 
     getResponsibleSummary: protectedProcedure
-      .query(async ({ ctx }) => {
+      .input(z.object({ financialResponsibleId: z.number().optional() }).optional())
+      .query(async ({ input, ctx }) => {
         const ALLOWED = ['responsavel_financeiro', 'unit_admin', 'admin_master'];
         if (!ALLOWED.includes(ctx.user.role)) throw new TRPCError({ code: 'FORBIDDEN' });
         
-        const respId = await getResponsibleIdForUser(ctx.user.id);
+        const respId = await resolveResponsibleContext(ctx.user, input?.financialResponsibleId);
         if (!respId) return { byUnit: [], byDoctor: [], totalSystem: '0.00', totalDoctors: '0.00', totalGeral: '0.00' };
         const { systemCycles, doctorCycles, totalSystem, totalDoctors, totalGeral } = await getResponsibleCycleSummary(respId);
         // Agregar por unidade
@@ -3260,11 +3489,23 @@ export const financeSimpleRouter = router({
         return { byResponsible, items };
       }),
     getMyResponsible: protectedProcedure
-      .query(async ({ ctx }) => {
+      .input(z.object({ financialResponsibleId: z.number().optional() }).optional())
+      .query(async ({ input, ctx }) => {
         
-        const respId = await getResponsibleIdForUser(ctx.user.id);
+        const respId = await resolveResponsibleContext(ctx.user, input?.financialResponsibleId);
         if (!respId) return null;
         return await getFinancialResponsibleById(respId) ?? null;
+      }),
+
+    /**
+     * Todos os responsáveis financeiros vinculados ao usuário logado, para o
+     * seletor de contexto no frontend (suporte a múltiplos responsáveis,
+     * decisão de produto — 2026-09-17). Quando length <= 1 o frontend não
+     * precisa mostrar seletor nenhum — mantém a experiência de sempre.
+     */
+    listMyResponsibles: protectedProcedure
+      .query(async ({ ctx }) => {
+        return await listResponsiblesForUser(ctx.user.id);
       }),
 
     // ─── V3 Operacional: Ciclos Financeiros ──────────────────────────────────
@@ -3346,14 +3587,37 @@ export const financeSimpleRouter = router({
       }),
 
     getResponsibleCycles: protectedProcedure
-      .query(async ({ ctx }) => {
+      .input(z.object({ financialResponsibleId: z.number().optional() }).optional())
+      .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'responsavel_financeiro' && ctx.user.role !== 'admin_master') {
           throw new TRPCError({ code: 'FORBIDDEN' });
         }
         
-        const respId = await getResponsibleIdForUser(ctx.user.id);
+        const respId = await resolveResponsibleContext(ctx.user, input?.financialResponsibleId);
         if (!respId) return { systemCycles: [], doctorCycles: [] };
         return await getResponsibleCycleSummary(respId);
+      }),
+
+    /**
+     * Histórico de receita/custo/lucro por ciclo fechado, para o gráfico do
+     * responsável. Receita é ESTIMATIVA (preço externo vigente hoje aplicado
+     * retroativamente) — ver comentário de getResponsibleProfitHistory em db.ts.
+     */
+    getResponsibleProfitHistory: protectedProcedure
+      .input(z.object({ financialResponsibleId: z.number().optional() }).optional())
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'responsavel_financeiro' && ctx.user.role !== 'admin_master') {
+          throw new TRPCError({ code: 'FORBIDDEN' });
+        }
+        const respId = await resolveResponsibleContext(ctx.user, input?.financialResponsibleId);
+        if (!respId) return { periods: [] };
+        const { periods } = await getResponsibleProfitHistory(respId);
+        return {
+          periods: periods.map((p) => ({
+            ...p,
+            cycle_label: `${formatCycleCalendarDate(new Date(p.cycle_starts_at))} a ${formatCycleCalendarDate(new Date(new Date(p.cycle_ends_at).getTime() - 1))}`,
+          })),
+        };
       }),
 
     getUnitFinancialInfo: protectedProcedure
@@ -3742,8 +4006,8 @@ export const financeSimpleRouter = router({
         const allowed = ['admin_master', 'responsavel_financeiro'];
         if (!allowed.includes(ctx.user.role)) throw new TRPCError({ code: 'FORBIDDEN' });
         if (ctx.user.role === 'responsavel_financeiro') {
-          const ownResponsibleId = await getResponsibleIdForUser(ctx.user.id);
-          if (!ownResponsibleId || ownResponsibleId !== input.responsibleId) {
+          const ownResponsibleIds = await getResponsibleIdsForUser(ctx.user.id);
+          if (!ownResponsibleIds.includes(input.responsibleId)) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Você não tem acesso a este responsável financeiro.' });
           }
         }
@@ -3978,17 +4242,19 @@ export const financeSimpleRouter = router({
         let allowedUnitIds: number[] | undefined = undefined;
         if (isResp) {
           
-          const myRespId = await getResponsibleIdForUser(ctx.user.id);
-          if (!myRespId) return [];
+          // Relatório agregado: soma as unidades de TODOS os responsáveis do usuário
+          // (não precisa de contexto único, diferente das telas "meu resumo").
+          const myRespIds = await getResponsibleIdsForUser(ctx.user.id);
+          if (!myRespIds.length) return [];
           const now = new Date();
           const unitLinks = await db.select({ unit_id: financial_responsible_units.unit_id })
             .from(financial_responsible_units)
             .where(and(
-              eq(financial_responsible_units.financial_responsible_id, myRespId),
+              inArray(financial_responsible_units.financial_responsible_id, myRespIds),
               lte(financial_responsible_units.starts_at, now),
               or(isNull(financial_responsible_units.ends_at), gte(financial_responsible_units.ends_at, now))
             ));
-          allowedUnitIds = unitLinks.map(u => u.unit_id);
+          allowedUnitIds = Array.from(new Set(unitLinks.map(u => u.unit_id)));
           if (allowedUnitIds.length === 0) return [];
         }
         const conditions: SQL[] = [];
