@@ -1,0 +1,117 @@
+HANDOFF MANUS — TESTE COMPORTAMENTAL DE ISOLAMENTO FINANCEIRO
+Data: 22/09/2026
+Branch: claude/testes-comportamentais-isolamento-financeiro
+Base: origin/main (1b906ad)
+
+------------------------------------------------------------
+MOTIVO
+------------------------------------------------------------
+Durante uma auditoria geral pedida pelo Alessandro, procurando setores do
+código que precisam de atenção, identifiquei um padrão de teste fraco
+espalhado por boa parte da suíte (cerca de metade dos arquivos de teste):
+testes que leem um arquivo de código-fonte como texto puro e conferem se
+uma string aparece nele (`expect(source).toContain("algum trecho")`), em
+vez de executar o código e checar o comportamento real.
+
+O caso mais grave encontrado, pelo nome e pela função que deveria cumprir:
+server/doctor-finance-unit-isolation.test.ts. O nome promete testar que um
+médico não vê o financeiro de uma unidade que não é dele — mas o teste
+antigo nunca chamava o roteador. Ele só verificava se certas strings
+(nome de função, mensagem de erro) apareciam em financeSimple.ts e em
+FinanceMeuFinanceiro.tsx. Um refactor que quebrasse a checagem de
+permissão mas deixasse o nome da função em qualquer lugar do arquivo
+faria esse teste continuar passando com o isolamento realmente quebrado.
+
+Não foi encontrada nenhuma falha de autorização ativa no código de
+produção — o código de financeSimple.ts está correto nos pontos
+verificados. O problema é a rede de segurança (o teste), não a
+implementação.
+
+------------------------------------------------------------
+O QUE FOI MODIFICADO
+------------------------------------------------------------
+Um único arquivo: server/doctor-finance-unit-isolation.test.ts
+(reescrito por completo — não houve nenhuma mudança em código de
+produção, só no teste).
+
+O teste agora chama financeSimpleRouter.createCaller(...) de verdade,
+simulando um médico autenticado, e cobre dois procedimentos:
+
+1. myFinanceiro (extrato financeiro do médico por unidade)
+   - confirma FORBIDDEN ao pedir uma unidade fora da permissão
+     view_financial do médico
+   - confirma que a própria unidade autorizada é liberada (não lança
+     FORBIDDEN)
+   - confirma que admin_master não é bloqueado, mesmo sem permissão
+     explícita cadastrada (bypass esperado do papel)
+
+2. myModalityPrices (preços por modalidade do médico na unidade)
+   - confirma FORBIDDEN ao pedir uma unidade fora da permissão
+   - confirma que os preços retornados são exatamente os da unidade
+     autorizada, sem vazar dado de outra unidade
+
+Escopo deliberadamente contido: para myFinanceiro, a consulta de
+unidades é esvaziada de propósito (fila de respostas mockadas vazia)
+para isolar o teste na checagem de permissão, sem acoplar este arquivo
+à extensa lógica de agregação financeira (ciclos, eventos legados e de
+catálogo, laudos entregues) — que já tem cobertura própria em outros
+arquivos, como finance-unit-summary-behavior.test.ts. Isso é uma escolha
+de escopo, não uma lacuna: o objetivo aqui era corrigir especificamente
+o teste de isolamento entre unidades.
+
+------------------------------------------------------------
+PROVA DE QUE O TESTE REALMENTE PEGA REGRESSÃO
+------------------------------------------------------------
+Segui o mesmo processo já usado nas correções anteriores deste projeto:
+quebra deliberada, confirmação de falha, reversão, confirmação de que
+voltou ao original.
+
+1. Removida a checagem de FORBIDDEN de myModalityPrices → o teste
+   correspondente falhou como esperado (promessa resolveu em vez de
+   rejeitar).
+2. Restaurado o arquivo original (diff confirmando bytes idênticos ao
+   backup) → teste voltou a passar.
+3. Removida a checagem de FORBIDDEN de myFinanceiro → o teste
+   correspondente falhou como esperado, pelo mesmo motivo.
+4. Restaurado o arquivo original (diff confirmando bytes idênticos ao
+   backup) → teste voltou a passar.
+
+Isso não foi feito no teste antigo (baseado em texto) porque ele não
+teria pego nenhuma dessas duas quebras — a string com o nome da função
+continuaria presente no arquivo independentemente da checagem estar
+ativa ou não.
+
+------------------------------------------------------------
+VALIDAÇÃO
+------------------------------------------------------------
+- tsc --noEmit: limpo, sem erros.
+- vitest run (suíte completa): 440 passed / 9 failed / 1 skipped / 450
+  total. As 9 falhas são exatamente as mesmas 9 falhas pré-existentes já
+  documentadas em main (nenhuma delas é bug real — já investiguei duas a
+  fundo antes desta mudança: uma é um teste com dado fixo desatualizado
+  frente a uma validação de formato mais estrita, outra é um assert de
+  texto literal que não acompanhou um rename de campo). Nenhuma
+  regressão nova.
+- vite build + esbuild do servidor: ambos OK.
+
+------------------------------------------------------------
+O QUE NÃO FOI FEITO NESTE BRANCH (fora de escopo, para decidir depois)
+------------------------------------------------------------
+- Os demais ~50 arquivos de teste que usam o mesmo padrão de leitura de
+  texto-fonte não foram tocados. Este branch corrige só o caso mais
+  crítico (isolamento financeiro entre unidades). Se fizer sentido
+  continuar esse trabalho, o padrão aplicado aqui (createCaller real +
+  mock de getDb por fila de respostas) pode ser replicado nos demais,
+  mas é trabalho repetitivo, arquivo por arquivo.
+- Nenhuma mudança em código de produção — só no teste.
+
+------------------------------------------------------------
+COMO AGIR
+------------------------------------------------------------
+Audite a decisão: confira se o novo teste realmente reflete o
+comportamento esperado de isolamento entre unidades no financeiro, e se
+o escopo reduzido para myFinanceiro (sem mockar toda a agregação) é
+aceitável. Decida se adota este branch (merge em main) ou se prefere
+uma abordagem diferente. Não modifique o branch diretamente — devolva
+observações para o Claude tratar em branch novo, mantendo a divisão de
+trabalho combinada em ACORDO_FLUXO_TRABALHO_CLAUDE_MANUS_2026-09-22.txt.
