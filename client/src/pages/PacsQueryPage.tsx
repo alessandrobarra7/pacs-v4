@@ -603,8 +603,21 @@ const isAdminMaster = user?.role === 'admin_master';
   const canPrint = isAdminMaster ? true : (myPerms?.print_reports ?? false);
   // canCID: alias de compatibilidade — editar anamnese requer edit_anamnesis
   const canCID = canEditAnamnesis;
-  // view_financial: controla visibilidade do botão Financeiro no header
-  const canViewFinancial = isAdminMaster ? true : (myPerms?.view_financial ?? false);
+  // view_financial: controla visibilidade do botão Financeiro no header.
+  // CORRIGIDO (revisão Manus 2026-09-20, Bloqueio 3 — claude/gestao-usuarios-
+  // responsavel-financeiro): view_financial é uma permissão granular POR
+  // UNIDADE, pensada pra dar visibilidade financeira a um papel clínico
+  // (ex.: unit_admin). Uma conta com o papel dedicado responsavel_financeiro
+  // pode não ter nenhuma unidade selecionável (sem unit_id, sem vínculo em
+  // user_unit_permissions) — myPerms nunca carrega, e o botão nunca aparece,
+  // mesmo com um vínculo válido em financial_responsible_users. O papel em
+  // si já é a autorização (toda procedure financeira confere ctx.user.role
+  // antes de resolver o responsável), então ele libera o botão independente
+  // de view_financial — isso não abre nenhum acesso clínico (estudos,
+  // pacientes, laudos continuam gated pelas permissões acima).
+  const canViewFinancial = isAdminMaster || userRole === 'responsavel_financeiro'
+    ? true
+    : (myPerms?.view_financial ?? false);
 
   const { data: unitData } = trpc.units.getById.useQuery(
     { id: effectiveUnitId || 0 },
