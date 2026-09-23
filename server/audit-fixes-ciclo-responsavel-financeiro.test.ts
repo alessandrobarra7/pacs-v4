@@ -160,3 +160,56 @@ describe("setUnitCycle / closeCycle — responsavel_financeiro escopado à próp
     expect(state.closeCalls).toEqual([]);
   });
 });
+
+/**
+ * FIX (2026-09-23, revisão Manus — bloqueio crítico 2): getUnitCycle ainda
+ * exigia admin_master mesmo depois de setUnitCycle ter sido aberta pra
+ * responsavel_financeiro. O botão "Ciclo" aparecia pro responsável, mas o
+ * modal nunca conseguia carregar os dias atuais — arriscando sobrescrever
+ * o ciclo real com os valores-padrão 1 e 31 ao salvar às cegas. Corrigido
+ * pra usar a mesma checagem de setUnitCycle (assertCanManageFinancialPrices).
+ */
+describe("getUnitCycle — mesma autorização escopada de setUnitCycle", () => {
+  beforeEach(() => {
+    state.responses = [];
+    state.ownResponsibleId = undefined;
+    state.ownResponsibleIds = [];
+    state.updates = [];
+    state.closeCalls = [];
+  });
+
+  it("admin_master lê o ciclo de qualquer unidade sem checar vínculo", async () => {
+    state.responses = [
+      [{ id: 12, name: "Unidade A", billing_cycle_start_day: 5, billing_cycle_end_day: 4 }],
+    ];
+
+    const result = await callerFor("admin_master").getUnitCycle({ unit_id: 12 });
+
+    expect(result).toMatchObject({ unit_id: 12, start_day: 5, end_day: 4 });
+  });
+
+  it("responsavel_financeiro lê o ciclo da própria unidade", async () => {
+    state.ownResponsibleId = 7;
+    state.ownResponsibleIds = [7];
+    state.responses = [
+      [{ id: 1 }], // assertCanAccessFinancialUnit: vínculo encontrado
+      [{ id: 12, name: "Unidade A", billing_cycle_start_day: 10, billing_cycle_end_day: 9 }],
+    ];
+
+    const result = await callerFor("responsavel_financeiro").getUnitCycle({ unit_id: 12 });
+
+    expect(result).toMatchObject({ unit_id: 12, start_day: 10, end_day: 9 });
+  });
+
+  it("responsavel_financeiro NÃO consegue ler o ciclo de uma unidade de outro responsável (sem vazar datas)", async () => {
+    state.ownResponsibleId = 7;
+    state.ownResponsibleIds = [7];
+    state.responses = [
+      [], // assertCanAccessFinancialUnit: nenhum vínculo — unidade de outro responsável
+    ];
+
+    await expect(
+      callerFor("responsavel_financeiro").getUnitCycle({ unit_id: 999 })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+});

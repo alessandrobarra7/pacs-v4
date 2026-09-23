@@ -1556,10 +1556,33 @@ export async function unlinkUserFromResponsible(
  * Mantida só por compatibilidade de leitura pontual onde múltiplos vínculos são
  * estruturalmente impossíveis; não introduza novos usos.
  */
+/**
+ * FIX (2026-09-23, revisão Manus — política de responsável inativo):
+ * decisão do Alessandro foi "bloquear tudo" — um responsável financeiro
+ * desativado (financial_responsibles.isActive = false) não deve permitir
+ * mais NENHUM acesso financeiro pelos usuários vinculados a ele, mesmo que
+ * o vínculo em financial_responsible_users continue existindo (o vínculo em
+ * si não é apagado; ele só passa a não contar mais pra autorização). Como
+ * praticamente toda checagem de permissão do módulo financeiro (
+ * assertCanAccessFinancialUnit, assertCanManageFinancialPrices,
+ * resolveResponsibleContext, myResponsavelSummary, etc.) resolve o(s)
+ * financial_responsible_id de um usuário through estas duas funções, o
+ * innerJoin com o filtro de isActive aqui é o ponto único que faz o
+ * bloqueio cascatear pra tudo, sem precisar repetir a checagem em cada
+ * procedure isoladamente.
+ */
 export async function getResponsibleIdForUser(userId: number): Promise<number | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const rows = await db.select({ id: financial_responsible_users.financial_responsible_id }).from(financial_responsible_users).where(eq(financial_responsible_users.user_id, userId)).limit(1);
+  const rows = await db
+    .select({ id: financial_responsible_users.financial_responsible_id })
+    .from(financial_responsible_users)
+    .innerJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_users.financial_responsible_id))
+    .where(and(
+      eq(financial_responsible_users.user_id, userId),
+      eq(financial_responsibles.isActive, true),
+    ))
+    .limit(1);
   return rows[0]?.id;
 }
 
@@ -1567,11 +1590,20 @@ export async function getResponsibleIdForUser(userId: number): Promise<number | 
  * Todos os financial_responsible_id vinculados a um usuário (suporte a múltiplos
  * responsáveis — decisão de produto, 2026-09-17). Autorização e resolução de
  * contexto devem usar esta função, nunca a versão singular.
+ *
+ * Só retorna vínculos com responsável ATIVO — ver nota de política acima.
  */
 export async function getResponsibleIdsForUser(userId: number): Promise<number[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const rows = await db.select({ id: financial_responsible_users.financial_responsible_id }).from(financial_responsible_users).where(eq(financial_responsible_users.user_id, userId));
+  const rows = await db
+    .select({ id: financial_responsible_users.financial_responsible_id })
+    .from(financial_responsible_users)
+    .innerJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_users.financial_responsible_id))
+    .where(and(
+      eq(financial_responsible_users.user_id, userId),
+      eq(financial_responsibles.isActive, true),
+    ));
   return rows.map((r) => r.id);
 }
 

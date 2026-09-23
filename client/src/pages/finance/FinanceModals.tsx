@@ -292,13 +292,22 @@ export function PriceConfigModal({ unitId, unitName, onClose }: { unitId: number
 // ─── Modal de configuração de ciclo de pagamento ─────────────────────────────
 export function CycleConfigModal({ unitId, unitName, onClose }: { unitId: number; unitName: string; onClose: () => void }) {
   const utils = trpc.useUtils();
-  const { data, isLoading } = trpc.financeSimple.getUnitCycle.useQuery({ unit_id: unitId });
+  // FIX (2026-09-23, revisão Manus — bloqueio crítico 2): antes, um erro ao
+  // carregar o ciclo (ex.: FORBIDDEN que existia na procedure até este fix)
+  // deixava startDay/endDay vazios, e o parseInt("") || fallback abaixo
+  // convertia isso silenciosamente em 1 e 31 — clicar em Salvar sobrescrevia
+  // o ciclo real da unidade sem o usuário perceber. Agora o carregamento com
+  // erro é mostrado explicitamente e o botão Salvar fica desabilitado até os
+  // dados carregarem com sucesso.
+  const { data, isLoading, isError, error } = trpc.financeSimple.getUnitCycle.useQuery({ unit_id: unitId });
   const [startDay, setStartDay] = useState("");
   const [endDay, setEndDay] = useState("");
+  const [loadedOnce, setLoadedOnce] = useState(false);
   useEffect(() => {
     if (!isLoading && data) {
       setStartDay(String(data.start_day ?? 1));
       setEndDay(String(data.end_day ?? 31));
+      setLoadedOnce(true);
     }
   }, [data, isLoading]);
   const save = trpc.financeSimple.setUnitCycle.useMutation({
@@ -343,9 +352,18 @@ export function CycleConfigModal({ unitId, unitName, onClose }: { unitId: number
               <span>Ciclo mensal: do dia <strong>{startDayNum}</strong> ao dia <strong>{endDayNum}</strong> do mesmo mês</span>
             )}
           </div>
+          {isError && (
+            <div className="rounded-lg px-4 py-3 text-xs bg-red-500/10 border border-red-500/30 text-red-300">
+              Não foi possível carregar o ciclo atual desta unidade{error?.message ? `: ${error.message}` : "."} Feche e tente novamente — os valores abaixo não refletem a configuração real enquanto isso não for resolvido.
+            </div>
+          )}
           <div className="flex gap-3 pt-2">
             <Button variant="outline" className="flex-1 border-slate-600 text-slate-300" onClick={onClose}>Cancelar</Button>
-            <Button className="flex-1 bg-violet-600 hover:bg-violet-500 text-white" disabled={save.isPending} onClick={() => save.mutate({ unit_id: unitId, start_day: startDayNum, end_day: endDayNum })}>
+            <Button
+              className="flex-1 bg-violet-600 hover:bg-violet-500 text-white"
+              disabled={save.isPending || !loadedOnce || isError}
+              onClick={() => save.mutate({ unit_id: unitId, start_day: startDayNum, end_day: endDayNum })}
+            >
               {save.isPending ? "Salvando..." : "Salvar Ciclo"}
             </Button>
           </div>

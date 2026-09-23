@@ -362,7 +362,7 @@ describe("financeSimple.linkUser — conceder acesso", () => {
         getDb: vi.fn(async () => ({
           select: () => selectChain([{ id: 7, role: "responsavel_financeiro", isActive: true }]),
         })),
-        getFinancialResponsibleById: vi.fn(async () => ({ id: 10, legal_name: "Unidade X" })),
+        getFinancialResponsibleById: vi.fn(async () => ({ id: 10, legal_name: "Unidade X", isActive: true })),
         getResponsibleIdForUser: vi.fn(async () => 20), // já vinculado a OUTRO responsável (20 != 10)
         linkUserToResponsible: linkSpy,
       };
@@ -389,7 +389,7 @@ describe("financeSimple.linkUser — conceder acesso", () => {
         getDb: vi.fn(async () => ({
           select: () => selectChain([{ id: 7, role: "responsavel_financeiro", isActive: true }]),
         })),
-        getFinancialResponsibleById: vi.fn(async () => ({ id: 10, legal_name: "Unidade X" })),
+        getFinancialResponsibleById: vi.fn(async () => ({ id: 10, legal_name: "Unidade X", isActive: true })),
         getResponsibleIdForUser: vi.fn(async () => undefined), // sem vínculo prévio
         linkUserToResponsible: linkSpy,
       };
@@ -406,6 +406,33 @@ describe("financeSimple.linkUser — conceder acesso", () => {
     vi.resetModules();
   });
 
+  it("FIX (2026-09-23, política 'bloquear tudo'): rejeita conceder acesso a um responsável INATIVO, sem chamar linkUserToResponsible", async () => {
+    vi.resetModules();
+    const linkSpy = vi.fn(async () => undefined);
+    vi.doMock("./db", async (importOriginal) => {
+      const original = await importOriginal<typeof import("./db")>();
+      return {
+        ...original,
+        getDb: vi.fn(async () => ({
+          select: () => selectChain([{ id: 7, role: "responsavel_financeiro", isActive: true }]),
+        })),
+        getFinancialResponsibleById: vi.fn(async () => ({ id: 10, legal_name: "Unidade X", isActive: false })),
+        getResponsibleIdForUser: vi.fn(async () => undefined),
+        linkUserToResponsible: linkSpy,
+      };
+    });
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(createCtx({ id: 1, role: "admin_master" }));
+
+    await expect(
+      caller.financeSimple.linkUser({ financialResponsibleId: 10, userId: 7 }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(linkSpy).not.toHaveBeenCalled();
+
+    vi.doUnmock("./db");
+    vi.resetModules();
+  });
+
   it("traduz um ER_DUP_ENTRY vindo do db.ts (corrida com a pré-checagem) em mensagem compreensível", async () => {
     vi.resetModules();
     vi.doMock("./db", async (importOriginal) => {
@@ -415,7 +442,7 @@ describe("financeSimple.linkUser — conceder acesso", () => {
         getDb: vi.fn(async () => ({
           select: () => selectChain([{ id: 7, role: "responsavel_financeiro", isActive: true }]),
         })),
-        getFinancialResponsibleById: vi.fn(async () => ({ id: 10, legal_name: "Unidade X" })),
+        getFinancialResponsibleById: vi.fn(async () => ({ id: 10, legal_name: "Unidade X", isActive: true })),
         getResponsibleIdForUser: vi.fn(async () => undefined),
         linkUserToResponsible: vi.fn(async () => {
           const err: any = new Error("Duplicate entry '7' for key 'financial_responsible_users.uq_resp_user'");
@@ -444,7 +471,7 @@ describe("financeSimple.linkUser — conceder acesso", () => {
         getDb: vi.fn(async () => ({
           select: () => selectChain([{ id: 7, role: "responsavel_financeiro", isActive: true }]),
         })),
-        getFinancialResponsibleById: vi.fn(async () => ({ id: 10, legal_name: "Unidade X" })),
+        getFinancialResponsibleById: vi.fn(async () => ({ id: 10, legal_name: "Unidade X", isActive: true })),
         getResponsibleIdForUser: vi.fn(async () => undefined),
         linkUserToResponsible: vi.fn(async () => {
           throw new Error("ECONNRESET: conexão com o banco perdida");

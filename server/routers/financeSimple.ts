@@ -2480,12 +2480,22 @@ export const financeSimpleRouter = router({
   /**
    * Busca o ciclo de pagamento configurado para a unidade (admin_master only)
    */
+  /**
+   * FIX (2026-09-23, revisão Manus — bloqueio crítico 2): esta procedure
+   * ainda exigia admin_master mesmo depois de setUnitCycle ter sido aberta
+   * para responsavel_financeiro (decisão de 22/09/2026). Resultado prático:
+   * o botão "Ciclo" aparecia pro responsável, mas o modal nunca conseguia
+   * carregar os dias atuais (FORBIDDEN), então CycleConfigModal ficava com
+   * os campos vazios — e o parseInt("") || fallback do modal convertia isso
+   * em 1 e 31, arriscando sobrescrever o ciclo real com 1–31 ao salvar. Usa
+   * agora a mesma checagem de setUnitCycle (assertCanManageFinancialPrices).
+   */
   getUnitCycle: protectedProcedure
     .input(z.object({ unit_id: z.number().int() }))
     .query(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin_master") throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanManageFinancialPrices(db, ctx.user, input.unit_id);
       const rows = await db
         .select({
           id: units.id,
@@ -3093,6 +3103,16 @@ export const financeSimpleRouter = router({
         const responsible = await getFinancialResponsibleById(input.financialResponsibleId);
         if (!responsible) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Responsável financeiro não encontrado.' });
+        }
+        // FIX (2026-09-23, revisão Manus — política de responsável inativo,
+        // "bloquear tudo"): não conceder acesso novo a um responsável
+        // desativado. Vínculos já existentes de um responsável que for
+        // desativado depois continuam no banco, mas param de contar pra
+        // autorização (ver getResponsibleIdForUser/getResponsibleIdsForUser
+        // em server/db.ts) — aqui é só a barreira de não criar vínculo NOVO
+        // pra um responsável que já está inativo.
+        if (!responsible.isActive) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Este responsável financeiro está inativo. Reative-o antes de conceder acesso a novos usuários.' });
         }
 
         // Opção A (pré-checagem com mensagem específica — a unique key do

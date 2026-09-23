@@ -13,11 +13,30 @@
  *   (evita aplicar duas vezes ou aplicar num banco já migrado);
  * - valida o formato final do índice depois de aplicar;
  * - não lê nem altera nenhum dado clínico ou financeiro além do índice.
+ *
+ * FIX (2026-09-23, revisão Manus — bloqueio crítico 1): a versão anterior
+ * deste script fazia `sql.split(';')` e descartava blocos que começassem
+ * com '--', o que é incorreto para um arquivo SQL com ponto e vírgula
+ * dentro de comentários explicativos (este arquivo tinha um, na explicação
+ * da regra de negócio). Isso fazia o DROP INDEX nunca ser enviado ao MySQL
+ * (engolido dentro de um bloco que dava erro de sintaxe antes de chegar
+ * nele). A migration em si também foi reescrita para combinar DROP INDEX +
+ * ADD UNIQUE INDEX num único ALTER TABLE atômico. Este script agora envia o
+ * arquivo inteiro numa única chamada, sem nenhum parsing manual por ponto e
+ * vírgula — mesma técnica já usada em apply_migration_0060.mjs e
+ * apply_migration_0061.mjs.
  */
 import mysql from 'mysql2/promise';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { readFile } from 'fs/promises';
+import {
+  allChecksPass,
+  executeWholeMigration,
+  formatChecks,
+  getPostMigrationChecks,
+  getPreflightChecks,
+  readMigrationSql,
+} from './lib/migration0062.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const sqlPath = join(__dirname, '../drizzle/0062_financial_responsible_single_active.sql');
@@ -27,71 +46,46 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-async function getIndexColumns(conn, table, indexName) {
-  const [rows] = await conn.execute(
-    `SELECT COLUMN_NAME AS col FROM INFORMATION_SCHEMA.STATISTICS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?
-       ORDER BY SEQ_IN_INDEX`,
-    [table, indexName],
-  );
-  return rows.map((r) => r.col);
-}
-
-async function findDuplicateUserLinks(conn) {
-  const [rows] = await conn.execute(
-    `SELECT user_id, COUNT(*) AS n FROM financial_responsible_users
-       GROUP BY user_id HAVING COUNT(*) > 1`,
-  );
-  return rows;
-}
-
-const conn = await mysql.createConnection({ uri: process.env.DATABASE_URL });
+const conn = await mysql.createConnection({
+  uri: process.env.DATABASE_URL,
+  // O SQL vem exclusivamente de drizzle/0062 versionado no repositório. Esta opção
+  // fica limitada a esta conexão de migration e permite enviar o arquivo integral
+  // sem nenhum parsing manual por ponto e vírgula (ver nota FIX acima).
+  multipleStatements: true,
+});
 
 try {
   console.log('— Preflight: verificando estado antes de qualquer DDL —');
+  const preflightChecks = await getPreflightChecks(conn);
+  for (const line of formatChecks(preflightChecks)) console.log(line);
 
-  const duplicates = await findDuplicateUserLinks(conn);
-  const noDuplicates = duplicates.length === 0;
-  console.log(`${noDuplicates ? '✓' : '✗'} nenhum user_id vinculado a mais de um responsável` +
-    (noDuplicates ? '' : ` — encontrados: ${duplicates.map((d) => `user_id=${d.user_id} (${d.n} vínculos)`).join(', ')}`));
+  const duplicatesCheck = preflightChecks.find((c) => c.duplicates);
+  const compositeCheck = preflightChecks.find((c) => c.currentIndexCols);
 
-  const currentIndexCols = await getIndexColumns(conn, 'financial_responsible_users', 'uq_resp_user');
-  const isComposite = currentIndexCols.length === 2 &&
-    currentIndexCols.includes('financial_responsible_id') && currentIndexCols.includes('user_id');
-  console.log(`${isComposite ? '✓' : '✗'} índice uq_resp_user está no formato composto esperado antes da migration (encontrado: ${currentIndexCols.join(', ') || '(nenhum)'})`);
-
-  if (!noDuplicates) {
-    console.error('\n✗ Preflight falhou: existem contas vinculadas a mais de um responsável financeiro.');
-    console.error('  Decida manualmente qual vínculo prevalece pra cada conta listada acima (revogando os');
-    console.error('  outros pela tela Financeiro → Configuração → Usuários com acesso financeiro, ou por');
-    console.error('  DELETE direto e auditável) antes de rodar esta migration. Nenhuma instrução DDL foi executada.');
-    process.exitCode = 1;
-  } else if (!isComposite) {
-    console.error('\n✗ Preflight falhou: o índice uq_resp_user não está no formato esperado antes da migration.');
-    console.error('  Isso pode significar que a migration já foi aplicada, ou que o schema deste banco não');
-    console.error('  corresponde ao esperado. Revise manualmente antes de tentar de novo. Nenhuma instrução DDL foi executada.');
+  if (!allChecksPass(preflightChecks)) {
+    if (duplicatesCheck && !duplicatesCheck.ok) {
+      console.error('\n✗ Preflight falhou: existem contas vinculadas a mais de um responsável financeiro.');
+      console.error(`  Encontrados: ${duplicatesCheck.duplicates.map((d) => `user_id=${d.user_id} (${d.n} vínculos)`).join(', ')}`);
+      console.error('  Decida manualmente qual vínculo prevalece pra cada conta listada acima (revogando os');
+      console.error('  outros pela tela Financeiro → Configuração → Usuários com acesso financeiro, ou por');
+      console.error('  DELETE direto e auditável) antes de rodar esta migration. Nenhuma instrução DDL foi executada.');
+    } else if (compositeCheck && !compositeCheck.ok) {
+      console.error('\n✗ Preflight falhou: o índice uq_resp_user não está no formato esperado antes da migration.');
+      console.error(`  Encontrado: ${compositeCheck.currentIndexCols.join(', ') || '(nenhum)'}`);
+      console.error('  Isso pode significar que a migration já foi aplicada, ou que o schema deste banco não');
+      console.error('  corresponde ao esperado. Revise manualmente antes de tentar de novo. Nenhuma instrução DDL foi executada.');
+    }
     process.exitCode = 1;
   } else {
-    const sql = await readFile(sqlPath, 'utf8');
-    console.log('\n— Preflight aprovado. Aplicando migration 0062 —');
-    // As duas instruções ALTER TABLE são enviadas em sequência (statement a
-    // statement, sem multipleStatements) — mais simples e mais fácil de
-    // auditar linha a linha que a migration 0060, que precisava enviar o
-    // arquivo inteiro de uma vez por causa de instruções fora de ordem.
-    const statements = sql
-      .split(';')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && !s.startsWith('--'));
-    for (const statement of statements) {
-      await conn.query(statement);
-    }
+    const sql = await readMigrationSql(sqlPath);
+    console.log('\n— Preflight aprovado. Aplicando arquivo integral da migration 0062 —');
+    await executeWholeMigration(conn, sql);
 
     console.log('\n— Validação pós-migration —');
-    const newIndexCols = await getIndexColumns(conn, 'financial_responsible_users', 'uq_resp_user');
-    const isSingleColumn = newIndexCols.length === 1 && newIndexCols[0] === 'user_id';
-    console.log(`${isSingleColumn ? '✓' : '✗'} índice uq_resp_user agora é (user_id) sozinho (encontrado: ${newIndexCols.join(', ') || '(nenhum)'})`);
+    const postChecks = await getPostMigrationChecks(conn);
+    for (const line of formatChecks(postChecks)) console.log(line);
 
-    if (!isSingleColumn) {
+    if (!allChecksPass(postChecks)) {
       console.error('\n✗ Validação pós-migration encontrou um estado inesperado. Não considere esta aplicação concluída.');
       process.exitCode = 1;
     } else {
