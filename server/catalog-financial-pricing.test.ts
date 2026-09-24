@@ -48,10 +48,12 @@ function selection(overrides: Record<string, unknown> = {}) {
 }
 
 function preparePricing({
+  legend = [],
   doctor = [],
   unit = [],
   system = [{ ...current, price_per_report: "3.50" }],
 }: {
+  legend?: unknown[];
   doctor?: unknown[];
   unit?: unknown[];
   system?: unknown[];
@@ -60,6 +62,10 @@ function preparePricing({
     [selection()],
     [{ document_key: "primary" }],
     [],
+    // FIX (2026-09-24): billing_doctor_exam_legend_prices agora e consultada
+    // primeiro, antes de doctor/unit/system -- ver ordem do Promise.all em
+    // createCatalogEventsWhenComplete (catalogFinancial.ts).
+    legend,
     doctor,
     unit,
     system,
@@ -123,6 +129,63 @@ describe("Precificação comportamental dos eventos de catálogo", () => {
       doctor_price_source: null,
       system_amount_due: "3.5",
       pricing_status: "pending_doctor_price",
+    })]);
+  });
+
+  // FIX (2026-09-24, AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO): a tela "Preços
+  // por Legenda Canônica" (billing_doctor_exam_legend_prices) prometia um
+  // preço específico por médico+unidade+exame, mas essa função nunca a lia.
+  // Os testes abaixo cobrem a nova fonte de preço, com prioridade máxima.
+  it("prioriza o preço por legenda vigente sobre o preço por modalidade do médico", async () => {
+    preparePricing({
+      legend: [{ starts_at: "2026-08-01", ends_at: null, price_per_event: "25.00" }],
+      doctor: [{ ...current, price_per_report: "10.00" }],
+      unit: [{ ...current, price_per_event: "18.00" }],
+    });
+
+    await createCatalogEventsWhenComplete({
+      studyUid: "1.2.3", unitId: 12, doctorUserId: 31, documentKey: "primary", signedAt,
+    });
+
+    expect(state.inserts[0]).toEqual([expect.objectContaining({
+      price_applied: "25",
+      doctor_price_source: "doctor_legend",
+      pricing_status: "ok",
+    })]);
+  });
+
+  it("ignora o preço por legenda quando a vigência já encerrou, caindo para a modalidade do médico", async () => {
+    preparePricing({
+      // ends_at anterior à data de assinatura (signedAt = 2026-08-21):
+      // preço vencido, não deve ser aplicado.
+      legend: [{ starts_at: "2026-06-01", ends_at: "2026-07-08", price_per_event: "25.00" }],
+      doctor: [{ ...current, price_per_report: "10.00" }],
+    });
+
+    await createCatalogEventsWhenComplete({
+      studyUid: "1.2.3", unitId: 12, doctorUserId: 31, documentKey: "primary", signedAt,
+    });
+
+    expect(state.inserts[0]).toEqual([expect.objectContaining({
+      price_applied: "10",
+      doctor_price_source: "doctor_modality",
+      pricing_status: "ok",
+    })]);
+  });
+
+  it("sem preço por legenda nem por modalidade do médico, mantém o fallback da unidade (comportamento antigo intacto)", async () => {
+    preparePricing({
+      unit: [{ ...current, price_per_event: "18.00" }],
+    });
+
+    await createCatalogEventsWhenComplete({
+      studyUid: "1.2.3", unitId: 12, doctorUserId: 31, documentKey: "primary", signedAt,
+    });
+
+    expect(state.inserts[0]).toEqual([expect.objectContaining({
+      price_applied: "18",
+      doctor_price_source: "unit_modality_fallback",
+      pricing_status: "ok",
     })]);
   });
 });

@@ -491,7 +491,21 @@ export default function FinanceMeuResponsavel() {
                       <Building2 className="h-5 w-5 text-[var(--fin-muted)]" />
                     </div>
                     <div>
-                      <p className="text-[var(--fin-text)] font-semibold">{u.unit_name}</p>
+                      <p className="text-[var(--fin-text)] font-semibold flex items-center gap-1.5">
+                        {u.unit_name}
+                        {/* FIX (AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO_2026-09-24, Achado 2):
+                            destaca visualmente quando o unit_id nao tem mais
+                            correspondencia em `units` -- dado que precisa de
+                            investigacao, nao um nome de unidade real. */}
+                        {u.unit_orphaned && (
+                          <span
+                            title="Este vinculo aponta para uma unidade que nao existe mais no cadastro. Provavelmente um dado a corrigir."
+                            className="text-[10px] uppercase tracking-wide bg-[var(--fin-danger-wash)] text-[var(--fin-danger)] border border-[var(--fin-danger-border)] px-1.5 py-0.5 rounded-full"
+                          >
+                            dado inconsistente
+                          </span>
+                        )}
+                      </p>
                       <p className="text-[var(--fin-muted)] text-xs">
                         {u.total_laudos} laudos
                         {' · '}
