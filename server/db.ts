@@ -1465,8 +1465,10 @@ export class FinancialResponsibleUserLinkNotFoundError extends Error {
  * router (financeSimple.linkUser) ser código morto contra o banco real,
  * mesmo passando no teste (que mockava o erro artificialmente). Agora é um
  * INSERT normal: uma segunda tentativa pro mesmo user_id colide de verdade
- * com a unique key uq_resp_user (ver migration 0062 — Opção A, um responsável
- * ativo por conta) e lança ER_DUP_ENTRY, que o router traduz.
+ * com a unique key uq_resp_user_id (ver migration 0062 — Opção A, um
+ * responsável ativo por conta; nome do índice atualizado na revisão de
+ * 2026-09-23, bloqueio 1 da 2ª rodada) e lança ER_DUP_ENTRY, que o router
+ * traduz.
  *
  * O vínculo e a linha de auditoria são gravados na mesma transação: se a
  * auditoria falhar (por exemplo a migration 0061 ainda não foi aplicada e o
@@ -1610,6 +1612,14 @@ export async function getResponsibleIdsForUser(userId: number): Promise<number[]
 /**
  * Responsáveis financeiros vinculados a um usuário, com nome, para montar o
  * seletor de contexto no frontend quando houver mais de um vínculo.
+ *
+ * FIX (2026-09-23, revisão Manus — bloqueio 2 da 2ª rodada): esta função não
+ * filtrava por isActive, então um responsável desativado continuava
+ * aparecendo como opção no seletor de contexto (listMyResponsibles), mesmo
+ * a política de "bloqueio total" já valendo pro resto do módulo. Isso não
+ * vazava valor financeiro por si só, mas deixava a interface abrir e mostrar
+ * um contexto que deveria estar bloqueado. Único chamador desta função hoje
+ * é listMyResponsibles — filtrar aqui é seguro e não quebra outro uso.
  */
 export async function listResponsiblesForUser(userId: number): Promise<
   { id: number; legal_name: string; trade_name: string | null; isActive: boolean }[]
@@ -1625,7 +1635,10 @@ export async function listResponsiblesForUser(userId: number): Promise<
     })
     .from(financial_responsible_users)
     .innerJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_users.financial_responsible_id))
-    .where(eq(financial_responsible_users.user_id, userId))
+    .where(and(
+      eq(financial_responsible_users.user_id, userId),
+      eq(financial_responsibles.isActive, true),
+    ))
     .orderBy(financial_responsibles.legal_name);
 }
 

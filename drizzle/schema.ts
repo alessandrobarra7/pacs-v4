@@ -475,7 +475,15 @@ export const financial_responsible_users = mysqlTable("financial_responsible_use
   // transacional no próprio banco — não só na camada de aplicação. Trocar de
   // responsável é sempre revogar o vínculo antigo (DELETE) e conceder um novo
   // (INSERT), nunca duas linhas simultâneas pro mesmo user_id. Ver migration 0062.
-  uq_resp_user: uniqueIndex("uq_resp_user").on(t.user_id),
+  //
+  // FIX (2026-09-23, revisão Manus — bloqueio crítico 1 da 2ª rodada): o nome
+  // final do índice foi trocado de "uq_resp_user" para "uq_resp_user_id".
+  // Motivo: a migration precisa fazer DROP INDEX + ADD UNIQUE INDEX num único
+  // ALTER TABLE atômico (ver histórico no arquivo da migration), e o dialeto
+  // real do banco (TiDB) rejeita remover e recriar um índice com o MESMO nome
+  // dentro da mesma instrução ("Duplicate key name"). Usar um nome final
+  // diferente do nome antigo resolve isso sem precisar de duas instruções.
+  uq_resp_user_id: uniqueIndex("uq_resp_user_id").on(t.user_id),
 }));
 export type FinancialResponsibleUser = typeof financial_responsible_users.$inferSelect;
 export type InsertFinancialResponsibleUser = typeof financial_responsible_users.$inferInsert;

@@ -4497,9 +4497,27 @@ export const financeSimpleRouter = router({
         
         let targetResponsibleId = input?.responsibleId;
         if (isResp && !isAdmin) {
-          
-          const resp = await db.select({ id: financial_responsible_users.financial_responsible_id }).from(financial_responsible_users).where(eq(financial_responsible_users.user_id, ctx.user.id)).limit(1);
-          targetResponsibleId = resp[0]?.id;
+          // FIX (2026-09-23, revisão Manus — bloqueio 2 da 2ª rodada): esta
+          // procedure lia financial_responsible_users direto, sem checar se o
+          // responsável financeiro está ativo (política de "bloqueio total"
+          // já decidida pelo Alessandro). Um responsável desativado ainda
+          // conseguia ver dívidas de médicos por aqui. Corrigido reutilizando
+          // a mesma resolução central usada em todo o resto do módulo
+          // (getResponsibleIdForUser), que já respeita isActive.
+          //
+          // Também corrige um bug mais grave escondido atrás disso: se
+          // nenhum responsável fosse encontrado (inativo OU simplesmente sem
+          // vínculo nenhum), targetResponsibleId ficava undefined e o bloco
+          // de filtro por unidade abaixo era pulado inteiro — a consulta
+          // devolvia dívidas de TODAS as unidades, sem filtro nenhum, pra
+          // uma conta responsavel_financeiro. Agora nega explicitamente.
+          targetResponsibleId = await getResponsibleIdForUser(ctx.user.id);
+          if (!targetResponsibleId) {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'Nenhum responsável financeiro ativo vinculado a esta conta.',
+            });
+          }
         }
         const conditions: SQL[] = [];
         // LOG-05: excluir eventos de ciclos já pagos do grand_total
@@ -4613,11 +4631,21 @@ export const financeSimpleRouter = router({
         // Determinar quais unidades o usuário pode ver
         let allowedUnitIds: number[] | undefined = undefined;
         if (ctx.user.role === 'responsavel_financeiro') {
-          const respLinks = await db.select({ financial_responsible_id: financial_responsible_users.financial_responsible_id })
-            .from(financial_responsible_users)
-            .where(eq(financial_responsible_users.user_id, ctx.user.id));
-          const respId = respLinks[0]?.financial_responsible_id;
-          if (!respId) return [];
+          // FIX (2026-09-23, revisão Manus — bloqueio 2 da 2ª rodada): igual
+          // ao ajuste em getResponsibleDebtByDoctor — esta procedure lia
+          // financial_responsible_users direto, sem checar isActive. Um
+          // responsável desativado ainda conseguia ver a lista de médicos,
+          // unidades e preços vinculados por aqui. Corrigido com a mesma
+          // resolução central (getResponsibleIdForUser), e negando de forma
+          // explícita (FORBIDDEN) em vez de devolver lista vazia — recomendação
+          // da revisão: sem vínculo ativo, nem consultar médicos/unidades/preços.
+          const respId = await getResponsibleIdForUser(ctx.user.id);
+          if (!respId) {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'Nenhum responsável financeiro ativo vinculado a esta conta.',
+            });
+          }
           const unitLinks = await db.select({ unit_id: financial_responsible_units.unit_id })
             .from(financial_responsible_units)
             .where(and(eq(financial_responsible_units.financial_responsible_id, respId), isNull(financial_responsible_units.ends_at)));
