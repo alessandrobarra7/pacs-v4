@@ -1,0 +1,151 @@
+HANDOFF PARA MANUS — NOVA IDENTIDADE VISUAL DO MÓDULO FINANCEIRO + HISTÓRICO ESTIMADO
+Data: 18/09/2026
+Projeto: PACS Portal / LAUDS
+Branch: claude/financeiro-nova-identidade-visual
+Commits: 170e473, b849801, 55cecee, 786eba3, 05d6455
+Base: main em 27009f6 (já inclui suporte a múltiplos responsáveis financeiros)
+
+1. ORIGEM DA MUDANÇA
+
+Alessandro não gostou da paleta de cores das 3 telas do módulo Financeiro
+(médico, responsável financeiro, administrador). Ele enviou 3 mockups HTML
+próprios como referência de identidade visual ("azul corporativo", fundo
+escuro, sidebar fixa) e pediu para recriar as telas reais do sistema nesse
+visual, mantendo o conteúdo/dados que já existiam. Depois de eu mapear as
+telas reais, ele aprovou expandir o escopo em duas decisões explícitas:
+(a) migrar as 5 telas do módulo para o mesmo componente de layout
+(FinanceShell, que já era usado só em 3 delas) em vez de recolorir cada
+uma no seu layout antigo; (b) para os novos painéis de histórico, estimar
+receita externa de ciclos fechados usando o preço atual (já que o sistema
+nunca armazenou o preço externo histórico de ciclos fechados), com o valor
+claramente rotulado como estimativa.
+
+2. O QUE MUDOU — VISUAL
+
+Duas famílias de layout coexistiam no módulo: FinanceShell (sidebar escura)
+em FinanceConfiguracao/FinanceMeuResponsavel/FinancePagamentos, e AppHeader
+(header claro, sem sidebar) em FinanceMeuFinanceiro/FinanceDashboard. As 5
+telas foram migradas para FinanceShell.
+
+Tema novo escopado só ao módulo Financeiro, sem tocar no tema global do
+app: client/src/pages/finance/finance-theme.css define uma classe
+.finance-theme com variáveis --fin-* (fundo, painel, texto, accent azul,
+bordas, estados de aviso/erro/sucesso) e as fontes Manrope/Sora. As 6 telas
+(FinanceShell + as 5 páginas) aplicam a classe na raiz e usam as variáveis
+via sintaxe arbitrária do Tailwind (bg-[var(--fin-bg)] etc.) em vez de
+classes slate/cyan/violet fixas. client/index.html ganhou os <link> das
+fontes (efeito colateral global de bytes extra de fonte, mas sem mudança
+visual fora do Financeiro, já que a fonte só é aplicada dentro de
+.finance-theme).
+
+3. O QUE MUDOU — NOVOS PAINÉIS DE HISTÓRICO (dado real, cálculo estimado)
+
+O sistema só grava snapshot (billing_cycle_system_summary /
+billing_cycle_doctor_summary) do valor devido ao sistema e aos médicos
+quando um ciclo é fechado — nunca gravou o preço externo (repassado ao
+paciente/convênio) de ciclos já fechados. Para não inventar um número que
+não existe, os 3 novos endpoints que mostram histórico financeiro estimado
+retornam o preço atual (billing_external_sale_prices vigente hoje)
+aplicado à produção real e já registrada de cada ciclo fechado (eventos de
+billing_catalog_study_events daquele ciclo/unidade), e marcam cada valor
+com price_basis: "current". Isso foi feito assim porque Alessandro,
+avisado do gap, escolheu essa opção entre 3 apresentadas.
+
+- server/db.ts: getDoctorCycleSummary(doctorUserId) — ciclos fechados do
+  médico (snapshot real, sem estimativa, só filtra status=closed).
+- server/db.ts: getResponsibleProfitHistory(financialResponsibleId, limit)
+  — por ciclo fechado: system_cost e doctor_cost vêm do snapshot real;
+  estimated_revenue vem do preço atual x produção real do ciclo;
+  estimated_profit = estimated_revenue - system_cost - doctor_cost.
+- server/routers/financeSimple.ts: myPastCycles (médico),
+  getResponsibleProfitHistory (responsável), financialOverviewExtras
+  (admin — reaplica a mesma técnica de estimativa para consolidar
+  "Faturamento externo do ciclo atual" real por live-calculation,
+  "Médicos ativos" nos últimos 30 dias, e "Fluxo financeiro consolidado"
+  dos últimos 6 meses fechados usando a mesma estimativa com preço atual).
+
+4. O QUE MUDOU — TELAS
+
+- FinanceMeuFinanceiro.tsx (médico): saiu de AppHeader para FinanceShell;
+  seletor de unidade que estava no header foi pro cabeçalho da própria
+  página; nova seção "Períodos anteriores" lista ciclos fechados
+  (unidade, período, nº de laudos, valor, status pago/pendente).
+- FinanceMeuResponsavel.tsx: novo gráfico de barras (recharts) com receita
+  estimada / custo do sistema / custo dos médicos / lucro estimado por
+  período, logo antes da lista de unidades.
+- FinanceDashboard.tsx (admin): saiu de AppHeader para FinanceShell; 2
+  novos cartões de métrica ("Faturamento externo do ciclo atual",
+  "Médicos ativos") e um novo gráfico "Fluxo financeiro consolidado" na
+  visão de catálogo (não aparece na visão de detalhe de unidade).
+- FinanceConfiguracao.tsx / FinancePagamentos.tsx: só remapeamento de cor,
+  sem mudança de conteúdo ou estrutura.
+
+5. TESTES
+
+Novo server/audit-fixes-financeiro-historico.test.ts — 2 testes:
+- getResponsibleProfitHistory: prova a matemática (receita estimada -
+  custo do sistema - custo dos médicos), com um fake db roteado por
+  tabela.
+- getDoctorCycleSummary: prova que o filtro status="closed" está
+  realmente presente na query, usando spy no eq() do drizzle-orm (o fake
+  db roteado não avalia WHERE de verdade — só ecoa a fixture registrada
+  pra tabela, então não provaria um filtro por si só; documentado no
+  cabeçalho do arquivo de teste pra não repetir esse erro depois).
+Os dois foram provados por quebra deliberada de cada asserção-chave,
+confirmação de falha, e reversão.
+
+server/finance-meu-financeiro-page.test.tsx e
+server/finance-v2-dashboard.test.tsx precisaram de mocks novos por causa
+da migração AppHeader -> FinanceShell (useAuth, myPastCycles, Link do
+wouter, ícones lucide novos do FinanceShell/painéis,
+financialOverviewExtras). Depois de corrigidos, finance-meu-financeiro-
+page.test.tsx passa 100%. finance-v2-dashboard.test.tsx ainda tem 2 falhas
+(texto "Eventos no ciclo" / "Soma para o sistema" que a suite espera e não
+existe em nenhuma versão do componente que encontrei; e uma comparação de
+reference_date sensível a relógio real, sem fake timers no teste) — CONFIRMEI
+que essas 2 falhas já existiam no commit-base 27009f6, antes desta branch
+tocar o arquivo (git show 27009f6:client/.../FinanceDashboard.tsx não tem
+nenhuma dessas strings). Não é regressão desta branch; é dívida de teste
+preexistente que ninguém atualizou quando o texto do painel mudou antes.
+Não alterei essas 2 asserções — não é dado ou lógica que eu tenha tocado
+com certeza suficiente pra "consertar" sem risco de mascarar algo.
+
+6. VALIDAÇÃO NO SANDBOX DO CLAUDE
+
+- pnpm check: aprovado, sem erro TypeScript.
+- pnpm vitest run: 447 aprovados, 11 falhos, 1 ignorado (459 total). Os 11
+  falhos estão em 7 arquivos: os mesmos 6 já documentados em handoffs
+  anteriores como baseline preexistente e não relacionados a este módulo
+  (security.auth, pacs.mobile-ui, exam-catalog-security, study-priority-ui,
+  mediaProxy, pacs-desktop-download-progress) mais os 2 de
+  finance-v2-dashboard.test.tsx descritos acima (também preexistentes,
+  confirmados no commit-base). Nenhuma falha nova além dessas.
+- pnpm vite build: aprovado.
+
+7. BLOQUEIO — BRANCH AINDA NÃO PUBLICADA NO GITHUB
+
+Mesma situação de sempre: este sandbox não tem credencial git configurada.
+O patch está em claude-financeiro-nova-identidade-visual.patch (5 commits,
+27009f6..HEAD) para aplicar com:
+
+  git checkout main && git pull
+  git checkout -b claude/financeiro-nova-identidade-visual
+  git am claude-financeiro-nova-identidade-visual.patch
+
+Recomendo validar no sandbox (pnpm check / pnpm vitest run / pnpm vite
+build) antes de qualquer deploy, e olhar visualmente as 5 telas numa VM de
+sandbox antes de ir pra produção — é uma mudança estrutural de layout em
+telas que médicos, responsáveis financeiros e administradores usam todo
+mês, não só cor.
+
+8. O QUE NÃO FOI FEITO NESTA BRANCH
+
+Não toquei nas 2 falhas preexistentes de finance-v2-dashboard.test.tsx nem
+em nenhum dos outros 6 arquivos de teste com falha baseline — ficam
+registrados aqui, não corrigidos, pra não misturar uma correção de teste
+não pedida com uma entrega de identidade visual. Se quiser que eu
+investigue e corrija a suíte de finance-v2-dashboard.test.tsx à parte
+(provavelmente precisa reescrever as asserções de texto pro texto atual do
+componente e travar o relógio do teste), é só sinalizar.
+
+FIM DO HANDOFF

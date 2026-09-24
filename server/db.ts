@@ -29,6 +29,7 @@ import {
   billing_catalog_study_events,
   billing_cycle_doctor_summary,
   billing_cycle_system_summary,
+  billing_external_sale_prices,
   user_unit_permissions,
   phrase_groups,
   phrases,
@@ -1441,35 +1442,220 @@ export async function updateFinancialResponsible(id: number, data: Partial<Inser
 
 // ─── Vínculos Usuário → Responsável ──────────────────────────────────────────
 
-export async function linkUserToResponsible(financialResponsibleId: number, userId: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.insert(financial_responsible_users).values({ financial_responsible_id: financialResponsibleId, user_id: userId }).onDuplicateKeyUpdate({ set: { user_id: userId } });
+export type FinancialResponsibleAccessActor = {
+  user_id: number;
+  ip_address?: string | null;
+  user_agent?: string | null;
+};
+
+/** Lançada por unlinkUserFromResponsible quando o vínculo pedido não existe. */
+export class FinancialResponsibleUserLinkNotFoundError extends Error {
+  constructor() {
+    super("FINANCIAL_RESPONSIBLE_USER_LINK_NOT_FOUND");
+    this.name = "FinancialResponsibleUserLinkNotFoundError";
+  }
 }
 
-export async function unlinkUserFromResponsible(financialResponsibleId: number, userId: number): Promise<void> {
+/**
+ * Concede acesso ao painel financeiro de um responsável.
+ *
+ * CORREÇÃO (revisão Manus 2026-09-20, Bloqueio 1): a versão anterior usava
+ * onDuplicateKeyUpdate, que em MySQL nunca lança em caso de colisão de chave
+ * única — só vira um UPDATE silencioso. Isso fazia o catch de duplicidade no
+ * router (financeSimple.linkUser) ser código morto contra o banco real,
+ * mesmo passando no teste (que mockava o erro artificialmente). Agora é um
+ * INSERT normal: uma segunda tentativa pro mesmo user_id colide de verdade
+ * com a unique key uq_resp_user_id (ver migration 0062 — Opção A, um
+ * responsável ativo por conta; nome do índice atualizado na revisão de
+ * 2026-09-23, bloqueio 1 da 2ª rodada) e lança ER_DUP_ENTRY, que o router
+ * traduz.
+ *
+ * O vínculo e a linha de auditoria são gravados na mesma transação: se a
+ * auditoria falhar (por exemplo a migration 0061 ainda não foi aplicada e o
+ * enum de audit_log.action não tem os valores novos), a transação inteira é
+ * revertida — nunca fica um acesso concedido sem o registro que o documento
+ * de requisitos exige (Correção adicional pedida na mesma revisão).
+ */
+export async function linkUserToResponsible(
+  financialResponsibleId: number,
+  userId: number,
+  actor: FinancialResponsibleAccessActor,
+): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(financial_responsible_users).where(and(eq(financial_responsible_users.financial_responsible_id, financialResponsibleId), eq(financial_responsible_users.user_id, userId)));
+  await db.transaction(async (tx) => {
+    await tx.insert(financial_responsible_users).values({
+      financial_responsible_id: financialResponsibleId,
+      user_id: userId,
+    });
+    await tx.insert(audit_log).values({
+      user_id: actor.user_id,
+      unit_id: null,
+      action: "GRANT_FINANCIAL_RESPONSIBLE_ACCESS",
+      target_type: "FINANCIAL_RESPONSIBLE_USER",
+      target_id: `${financialResponsibleId}:${userId}`,
+      ip_address: actor.ip_address ?? null,
+      user_agent: actor.user_agent ?? null,
+      metadata: { financial_responsible_id: financialResponsibleId, user_id: userId },
+      timestamp: new Date(),
+    });
+  });
 }
 
+/**
+ * Revoga acesso ao painel financeiro de um responsável.
+ *
+ * CORREÇÃO (revisão Manus 2026-09-20, "correções adicionais"): a versão
+ * anterior fazia um DELETE sem checar quantas linhas foram afetadas — uma
+ * chamada pra um vínculo que já não existe (ou nunca existiu) reportava
+ * sucesso e gravava uma auditoria de revogação que não corresponde a
+ * nenhuma alteração real. Agora o DELETE e o INSERT de auditoria acontecem
+ * na mesma transação, e affectedRows === 0 lança
+ * FinancialResponsibleUserLinkNotFoundError, revertendo tudo — o router
+ * traduz isso num erro claro pro administrador, em vez de um "sucesso" falso.
+ */
+export async function unlinkUserFromResponsible(
+  financialResponsibleId: number,
+  userId: number,
+  actor: FinancialResponsibleAccessActor,
+  metadata?: Record<string, unknown>,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.transaction(async (tx) => {
+    const result = await tx.delete(financial_responsible_users).where(
+      and(
+        eq(financial_responsible_users.financial_responsible_id, financialResponsibleId),
+        eq(financial_responsible_users.user_id, userId),
+      ),
+    );
+    const affectedRows = (result[0] as { affectedRows: number }).affectedRows;
+    if (affectedRows === 0) {
+      throw new FinancialResponsibleUserLinkNotFoundError();
+    }
+    await tx.insert(audit_log).values({
+      user_id: actor.user_id,
+      unit_id: null,
+      action: "REVOKE_FINANCIAL_RESPONSIBLE_ACCESS",
+      target_type: "FINANCIAL_RESPONSIBLE_USER",
+      target_id: `${financialResponsibleId}:${userId}`,
+      ip_address: actor.ip_address ?? null,
+      user_agent: actor.user_agent ?? null,
+      metadata: { financial_responsible_id: financialResponsibleId, user_id: userId, ...metadata },
+      timestamp: new Date(),
+    });
+  });
+}
+
+/**
+ * @deprecated Um usuário pode estar vinculado a mais de um responsável financeiro
+ * (decisão de produto — suporte a múltiplos responsáveis, 2026-09-17). Esta função
+ * retorna só o primeiro vínculo encontrado (ordem do banco, não determinística) e
+ * NÃO deve ser usada para autorização ou para decidir "o" responsável do usuário —
+ * isso é exatamente o bug que motivou essa mudança. Use getResponsibleIdsForUser
+ * (array) e, quando a operação exigir um único contexto, receba o id explicitamente
+ * do chamador (input da procedure) e valide com .includes() contra o array.
+ * Mantida só por compatibilidade de leitura pontual onde múltiplos vínculos são
+ * estruturalmente impossíveis; não introduza novos usos.
+ */
+/**
+ * FIX (2026-09-23, revisão Manus — política de responsável inativo):
+ * decisão do Alessandro foi "bloquear tudo" — um responsável financeiro
+ * desativado (financial_responsibles.isActive = false) não deve permitir
+ * mais NENHUM acesso financeiro pelos usuários vinculados a ele, mesmo que
+ * o vínculo em financial_responsible_users continue existindo (o vínculo em
+ * si não é apagado; ele só passa a não contar mais pra autorização). Como
+ * praticamente toda checagem de permissão do módulo financeiro (
+ * assertCanAccessFinancialUnit, assertCanManageFinancialPrices,
+ * resolveResponsibleContext, myResponsavelSummary, etc.) resolve o(s)
+ * financial_responsible_id de um usuário through estas duas funções, o
+ * innerJoin com o filtro de isActive aqui é o ponto único que faz o
+ * bloqueio cascatear pra tudo, sem precisar repetir a checagem em cada
+ * procedure isoladamente.
+ */
 export async function getResponsibleIdForUser(userId: number): Promise<number | undefined> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const rows = await db.select({ id: financial_responsible_users.financial_responsible_id }).from(financial_responsible_users).where(eq(financial_responsible_users.user_id, userId)).limit(1);
+  const rows = await db
+    .select({ id: financial_responsible_users.financial_responsible_id })
+    .from(financial_responsible_users)
+    .innerJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_users.financial_responsible_id))
+    .where(and(
+      eq(financial_responsible_users.user_id, userId),
+      eq(financial_responsibles.isActive, true),
+    ))
+    .limit(1);
   return rows[0]?.id;
+}
+
+/**
+ * Todos os financial_responsible_id vinculados a um usuário (suporte a múltiplos
+ * responsáveis — decisão de produto, 2026-09-17). Autorização e resolução de
+ * contexto devem usar esta função, nunca a versão singular.
+ *
+ * Só retorna vínculos com responsável ATIVO — ver nota de política acima.
+ */
+export async function getResponsibleIdsForUser(userId: number): Promise<number[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const rows = await db
+    .select({ id: financial_responsible_users.financial_responsible_id })
+    .from(financial_responsible_users)
+    .innerJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_users.financial_responsible_id))
+    .where(and(
+      eq(financial_responsible_users.user_id, userId),
+      eq(financial_responsibles.isActive, true),
+    ));
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Responsáveis financeiros vinculados a um usuário, com nome, para montar o
+ * seletor de contexto no frontend quando houver mais de um vínculo.
+ *
+ * FIX (2026-09-23, revisão Manus — bloqueio 2 da 2ª rodada): esta função não
+ * filtrava por isActive, então um responsável desativado continuava
+ * aparecendo como opção no seletor de contexto (listMyResponsibles), mesmo
+ * a política de "bloqueio total" já valendo pro resto do módulo. Isso não
+ * vazava valor financeiro por si só, mas deixava a interface abrir e mostrar
+ * um contexto que deveria estar bloqueado. Único chamador desta função hoje
+ * é listMyResponsibles — filtrar aqui é seguro e não quebra outro uso.
+ */
+export async function listResponsiblesForUser(userId: number): Promise<
+  { id: number; legal_name: string; trade_name: string | null; isActive: boolean }[]
+> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db
+    .select({
+      id: financial_responsibles.id,
+      legal_name: financial_responsibles.legal_name,
+      trade_name: financial_responsibles.trade_name,
+      isActive: financial_responsibles.isActive,
+    })
+    .from(financial_responsible_users)
+    .innerJoin(financial_responsibles, eq(financial_responsibles.id, financial_responsible_users.financial_responsible_id))
+    .where(and(
+      eq(financial_responsible_users.user_id, userId),
+      eq(financial_responsibles.isActive, true),
+    ))
+    .orderBy(financial_responsibles.legal_name);
 }
 
 export type FinancialResponsibleUserWithName = FinancialResponsibleUser & {
   name: string | null;
   username: string | null;
   email: string | null;
+  role: string | null;
+  is_active: boolean | null;
+  /** true quando o vínculo aponta para um user_id que não existe mais (LEFT JOIN sem match). */
+  is_orphan: boolean;
 };
 
 export async function listUsersForResponsible(financialResponsibleId: number): Promise<FinancialResponsibleUserWithName[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db
+  const rows = await db
     .select({
       id: financial_responsible_users.id,
       financial_responsible_id: financial_responsible_users.financial_responsible_id,
@@ -1478,10 +1664,16 @@ export async function listUsersForResponsible(financialResponsibleId: number): P
       name: users.name,
       username: users.username,
       email: users.email,
+      role: users.role,
+      is_active: users.isActive,
     })
     .from(financial_responsible_users)
     .leftJoin(users, eq(users.id, financial_responsible_users.user_id))
     .where(eq(financial_responsible_users.financial_responsible_id, financialResponsibleId));
+  // Vínculo órfão: o LEFT JOIN não encontrou nenhuma linha em users pro user_id
+  // gravado — username é NOT NULL na tabela users, então null aqui só acontece
+  // por ausência de match, nunca por um username realmente vazio.
+  return rows.map((r) => ({ ...r, is_orphan: r.username === null }));
 }
 
 // ─── Vínculos Unidade → Responsável ──────────────────────────────────────────
@@ -2725,6 +2917,49 @@ export async function markDoctorCycleReceived(
  * Retorna o resumo financeiro do responsável:
  * ciclos abertos por unidade + totais.
  */
+/**
+ * getDoctorCycleSummary — histórico de ciclos JÁ FECHADOS (billing_cycle_doctor_summary)
+ * para um médico específico, em todas as unidades. Espelha getResponsibleCycleSummary:
+ * mesma fonte de dados (snapshot gravado quando um ciclo é fechado via closeCycle),
+ * mesma limitação — só aparece aqui o que já foi fechado; o ciclo vigente continua
+ * vindo de myFinanceiro (cálculo ao vivo sobre billing_visit_events/billing_catalog_study_events).
+ */
+export async function getDoctorCycleSummary(doctorUserId: number) {
+  const db = await getDb();
+  if (!db) return { cycles: [] as Array<{
+    id: number;
+    unit_id: number;
+    unit_name: string | null;
+    reports_count: number;
+    amount_due: string;
+    received_at: Date | null;
+    cycle_starts_at: string;
+    cycle_ends_at: string;
+    cycle_status: "open" | "closed";
+  }> };
+
+  const rows = await db.select({
+    id: billing_cycle_doctor_summary.id,
+    unit_id: billing_cycle_doctor_summary.unit_id,
+    unit_name: units.name,
+    reports_count: billing_cycle_doctor_summary.reports_count,
+    amount_due: billing_cycle_doctor_summary.amount_due,
+    received_at: billing_cycle_doctor_summary.received_at,
+    cycle_starts_at: billing_cycles.starts_at,
+    cycle_ends_at: billing_cycles.ends_at,
+    cycle_status: billing_cycles.status,
+  }).from(billing_cycle_doctor_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .innerJoin(units, eq(billing_cycle_doctor_summary.unit_id, units.id))
+    .where(and(
+      eq(billing_cycle_doctor_summary.doctor_user_id, doctorUserId),
+      eq(billing_cycles.status, "closed"),
+    ))
+    .orderBy(desc(billing_cycles.ends_at));
+
+  return { cycles: rows };
+}
+
 export async function getResponsibleCycleSummary(financialResponsibleId: number) {
   const db = await getDb();
   if (!db) return { systemCycles: [], doctorCycles: [], totalSystem: "0.00", totalDoctors: "0.00", totalGeral: "0.00" };
@@ -2770,6 +3005,120 @@ export async function getResponsibleCycleSummary(financialResponsibleId: number)
  * Retorna info financeira discreta para o seletor de unidades:
  * valor/laudo do médico e acumulado no ciclo atual.
  */
+/**
+ * getResponsibleProfitHistory — ESTIMATIVA de receita externa e lucro por
+ * ciclo já fechado, para o gráfico "Receita, custos e lucro" do responsável.
+ *
+ * Por que é estimativa: billing_cycle_system_summary/doctor_summary (o
+ * snapshot gravado no fechamento do ciclo) só guarda o total devido ao
+ * sistema e aos médicos — não guarda a receita externa (preço cobrado do
+ * paciente), que só existe calculada ao vivo (unitProfitCalculator) para o
+ * ciclo em aberto. Não há, hoje, registro histórico de receita externa.
+ *
+ * Decisão do usuário (2026-09-18): em vez de omitir o gráfico, aplicar o
+ * PREÇO EXTERNO VIGENTE HOJE (billing_external_sale_prices sem ends_at)
+ * sobre a contagem real de laudos por legenda de cada ciclo fechado — ou
+ * seja, "quanto essa produção passada renderia com a tabela de preços
+ * atual". Se o preço mudou desde então, o número diverge do que realmente
+ * foi cobrado naquele ciclo. Por isso todo item retornado carrega
+ * price_basis: "current", para a tela deixar isso explícito ao usuário.
+ */
+export async function getResponsibleProfitHistory(financialResponsibleId: number, limit = 6) {
+  const db = await getDb();
+  if (!db) return { periods: [] as Array<{
+    unit_id: number;
+    unit_name: string | null;
+    cycle_starts_at: string;
+    cycle_ends_at: string;
+    system_cost: number;
+    doctor_cost: number;
+    estimated_revenue: number;
+    estimated_profit: number;
+    price_basis: "current";
+  }> };
+
+  const systemCycles = await db.select({
+    unit_id: billing_cycle_system_summary.unit_id,
+    unit_name: units.name,
+    amount_due: billing_cycle_system_summary.amount_due,
+    cycle_id: billing_cycles.id,
+    starts_at: billing_cycles.starts_at,
+    ends_at: billing_cycles.ends_at,
+  }).from(billing_cycle_system_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_system_summary.system_cycle_id, billing_cycles.id))
+    .innerJoin(units, eq(billing_cycle_system_summary.unit_id, units.id))
+    .where(and(
+      eq(billing_cycle_system_summary.financial_responsible_id, financialResponsibleId),
+      eq(billing_cycles.status, "closed"),
+    ))
+    .orderBy(desc(billing_cycles.ends_at))
+    .limit(limit);
+
+  if (systemCycles.length === 0) return { periods: [] };
+
+  const doctorCycles = await db.select({
+    unit_id: billing_cycle_doctor_summary.unit_id,
+    amount_due: billing_cycle_doctor_summary.amount_due,
+    doctor_cycle_id: billing_cycle_doctor_summary.doctor_cycle_id,
+  }).from(billing_cycle_doctor_summary)
+    .innerJoin(billing_cycles, eq(billing_cycle_doctor_summary.doctor_cycle_id, billing_cycles.id))
+    .where(and(
+      eq(billing_cycle_doctor_summary.financial_responsible_id, financialResponsibleId),
+      eq(billing_cycles.status, "closed"),
+    ));
+
+  const round2 = (v: number) => Math.round(v * 100) / 100;
+  const asMoney = (v: number | string | null | undefined) => round2(Number(v ?? 0));
+
+  const currentPrices = await db.select({
+    unit_id: billing_external_sale_prices.unit_id,
+    exam_legend_id: billing_external_sale_prices.exam_legend_id,
+    price_external: billing_external_sale_prices.price_external,
+  }).from(billing_external_sale_prices)
+    .where(isNull(billing_external_sale_prices.ends_at));
+  const priceByUnitLegend = new Map<string, number>();
+  for (const p of currentPrices) {
+    priceByUnitLegend.set(`${p.unit_id}:${p.exam_legend_id}`, asMoney(p.price_external));
+  }
+
+  const periods = await Promise.all(systemCycles.map(async (cycle) => {
+    const eventRows = await db.select({
+      exam_legend_id: billing_catalog_study_events.exam_legend_id,
+    }).from(billing_catalog_study_events)
+      .where(and(
+        eq(billing_catalog_study_events.unit_id, cycle.unit_id),
+        eq(billing_catalog_study_events.financial_status, "active"),
+        drizzleSql2`${billing_catalog_study_events.signed_at} >= ${cycle.starts_at}`,
+        drizzleSql2`${billing_catalog_study_events.signed_at} < ${cycle.ends_at}`,
+      ));
+
+    let estimatedRevenue = 0;
+    for (const event of eventRows) {
+      const price = priceByUnitLegend.get(`${cycle.unit_id}:${event.exam_legend_id}`);
+      if (price !== undefined) estimatedRevenue = round2(estimatedRevenue + price);
+    }
+
+    const systemCost = asMoney(cycle.amount_due);
+    const doctorCost = round2(doctorCycles
+      .filter((d) => d.unit_id === cycle.unit_id && d.doctor_cycle_id === cycle.cycle_id)
+      .reduce((sum, d) => sum + asMoney(d.amount_due), 0));
+
+    return {
+      unit_id: cycle.unit_id,
+      unit_name: cycle.unit_name,
+      cycle_starts_at: String(cycle.starts_at),
+      cycle_ends_at: String(cycle.ends_at),
+      system_cost: systemCost,
+      doctor_cost: doctorCost,
+      estimated_revenue: estimatedRevenue,
+      estimated_profit: round2(estimatedRevenue - systemCost - doctorCost),
+      price_basis: "current" as const,
+    };
+  }));
+
+  return { periods: periods.sort((a, b) => a.cycle_starts_at.localeCompare(b.cycle_starts_at)) };
+}
+
 export function combineDoctorCycleEventTotals(
   legacy: { events: number | string | null | undefined; amount: number | string | null | undefined },
   catalog: { events: number | string | null | undefined; amount: number | string | null | undefined },

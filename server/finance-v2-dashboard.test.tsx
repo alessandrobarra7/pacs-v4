@@ -28,6 +28,8 @@ function Mutation() {
 vi.mock("wouter", () => ({
   useLocation: () => ["/financeiro/dashboard/hospital-da-crianca", vi.fn()],
   useRoute: () => [true, { unitSlug: "hospital-da-crianca" }],
+  // NOVO (claude/financeiro-nova-identidade-visual): FinanceShell usa <Link> pro "Voltar ao PACS".
+  Link: ({ href, children }: { href: string; children: ReactNode }) => <a href={href}>{children}</a>,
 }));
 
 vi.mock("@/_core/hooks/useAuth", () => ({
@@ -69,6 +71,14 @@ vi.mock("lucide-react", () => ({
   Settings2: () => null,
   Stethoscope: () => null,
   X: () => null,
+  // NOVO (claude/financeiro-nova-identidade-visual): ícones do FinanceShell (sidebar
+  // comum) e dos novos painéis "Faturamento" / "Médicos ativos" / "Fluxo consolidado".
+  LayoutDashboard: () => null,
+  DollarSign: () => null,
+  Menu: () => null,
+  Settings: () => null,
+  TrendingUp: () => null,
+  Users: () => null,
 }));
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -110,6 +120,9 @@ vi.mock("@/lib/trpc", () => ({
       setUnitSystemRate: Mutation(),
       setUnitModalityPrice: Mutation(),
       setDoctorModalityPrice: Mutation(),
+      // NOVO (claude/financeiro-nova-identidade-visual): usado só na visão de catálogo
+      // (não nesta rota de detalhe de unidade), mas o hook é chamado incondicionalmente.
+      financialOverviewExtras: Query({ data: { external_revenue_current: 0, active_doctors: 0, monthly_flow: [] } }),
     },
   },
 }));

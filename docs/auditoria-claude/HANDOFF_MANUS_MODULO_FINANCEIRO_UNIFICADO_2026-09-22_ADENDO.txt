@@ -1,0 +1,80 @@
+ADENDO AO HANDOFF — MÓDULO FINANCEIRO UNIFICADO
+Data: 22/09/2026
+Projeto: PACS Portal / LAUDS
+Branch: claude/modulo-financeiro-unificado
+Commit novo: 1e0a411 (em cima de 82c2013, já descrito no handoff original)
+Base: main (1b906ad)
+
+Este adendo fecha os 2 itens que o handoff original (mesma data) deixou
+explicitamente pendentes.
+
+1. myResponsavelSummary — CORRIGIDO
+
+O bug documentado desde 16/09 (não incluía billing_catalog_study_events,
+não excluía eventos cancelados dos totais) ainda estava em main. A branch
+antiga que tinha esse fix (claude/correcao-resumo-responsavel-financeiro)
+estava desatualizada demais pra reaproveitar — a função já tinha sido
+reestruturada nesse meio tempo (passou a iterar por unidade com ciclo
+real). Refiz em cima do código atual, reusando
+listUnitCycleFinancialEvents (o mesmo helper que já serve o log auditável
+e o fechamento histórico) em vez de duplicar leitura SQL crua contra
+billing_visit_events sozinha.
+
+2. PERMISSÃO DE CICLO PARA RESPONSAVEL_FINANCEIRO — DECISÃO TOMADA E
+   IMPLEMENTADA
+
+O Alessandro decidiu (22/09/2026, em resposta ao mockup
+financeiro-responsavel-v2.html que ele compartilhou): sim, o responsável
+financeiro deve poder editar a data de início/fim do ciclo e encerrar o
+ciclo — não fica mais restrito a admin_master.
+
+Implementado reusando assertCanManageFinancialPrices (a mesma checagem já
+usada por setUnitModalityPrice desde antes): admin_master irrestrito;
+responsavel_financeiro só na(s) unidade(s) vinculada(s) a ele mesmo, via
+assertCanAccessFinancialUnit. Não é uma abertura geral de permissão — é
+escopada por unidade, com FORBIDDEN pra qualquer unidade fora do vínculo
+do responsável.
+
+setUnitCycle (definir dia de início/fim) já tinha botão na UI
+(FinanceConfiguracao.tsx, modal "Ciclo") — só liberei a visibilidade do
+botão pra responsavel_financeiro também.
+
+closeCycle (encerrar ciclo) já existia no backend mas NÃO tinha nenhum
+botão na UI antes desta mudança — nem pra admin_master. Abri a permissão
+no backend do mesmo jeito, mas não construí tela nova pra isso: não foi
+pedido, e inventar uma UI nova não pedida não é o escopo deste adendo. Se
+quiserem esse botão (como o mockup mostrava, "Encerrar ciclo"), é um
+pedido separado.
+
+3. TESTES
+
+Dois arquivos novos, os dois com prova por quebra deliberada + reversão
+(documentado nos comentários dos próprios testes):
+
+- server/audit-fixes-my-responsavel-summary.test.ts (2 casos): inclusão
+  de billing_catalog_study_events + exclusão de cancelados dos totais e
+  da contagem; caso extremo de todos os eventos cancelados = zero.
+- server/audit-fixes-ciclo-responsavel-financeiro.test.ts (6 casos):
+  setUnitCycle e closeCycle — responsavel_financeiro autorizado na
+  própria unidade, FORBIDDEN em unidade de outro responsável,
+  admin_master irrestrito, NOT_FOUND pra cycle_id inexistente.
+
+4. VALIDAÇÃO
+
+- pnpm check: limpo.
+- pnpm build: aprovado.
+- pnpm vitest run: 473 aprovados, 11 falhos, 1 ignorado (485 total). Os 11
+  falhos continuam sendo exatamente o mesmo conjunto já documentado no
+  handoff original desta branch (9 baseline de main + 2 pré-existentes em
+  financeiro-nova-identidade-visual, nenhum novo). 8 testes novos
+  somados, todos passando.
+
+5. ESTADO DO MÓDULO FINANCEIRO APÓS ESTE ADENDO
+
+Com isso, os dois itens que ficavam de fora na entrega anterior estão
+fechados. O que continua fora do escopo desta branch, por não ter sido
+pedido: UI de "Encerrar ciclo" (item 2 acima) e qualquer trabalho nas
+outras branches ainda não reconciliadas (claude/correcao-paginas-laudo-pdf
+e o conteúdo específico dela além do fix de ciclo já redundante).
+
+FIM DO ADENDO

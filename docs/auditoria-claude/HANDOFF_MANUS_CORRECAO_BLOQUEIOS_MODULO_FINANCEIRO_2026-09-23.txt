@@ -1,0 +1,170 @@
+HANDOFF MANUS — CORREÇÃO DOS BLOQUEIOS DA REVISÃO DO MÓDULO FINANCEIRO
+Data: 23/09/2026
+Branch: claude/modulo-financeiro-unificado-fixes
+Base: origem — origin/claude/modulo-financeiro-unificado (commit e1b9fbd),
+      que por sua vez está sobre origin/main (1b906ad)
+Commit desta correção: 34b8935
+
+------------------------------------------------------------
+CONTEXTO
+------------------------------------------------------------
+Este branch responde ao "Relatório de Revisão — Módulo Financeiro
+Unificado" (23/09/2026), que bloqueou o merge de
+claude/modulo-financeiro-unificado (commit e1b9fbd) por 2 bloqueios
+críticos e apontou 2 pendências adicionais.
+
+Antes de corrigir qualquer coisa, verifiquei cada achado diretamente no
+código real (não tomei o relatório como verdade sem checar) — os 4 itens
+eram reais, nenhum falso positivo. Corrigidos nesta ordem:
+
+------------------------------------------------------------
+1. BLOQUEIO CRÍTICO 1 — aplicador da migration 0062
+------------------------------------------------------------
+Confirmado exatamente como descrito: drizzle/0062_...sql tinha um ponto e
+vírgula dentro de um comentário explicativo (linha "...afetado; esta
+migration só altera..."), e scripts/apply_migration_0062.mjs fazia
+`sql.split(';').filter(s => !s.startsWith('--'))`. Rastreei manualmente o
+resultado do split: o DROP INDEX acabava dentro de um bloco misto com
+texto de comentário solto, que o MySQL rejeitaria por erro de sintaxe
+antes de chegar ao DDL real — o DROP INDEX nunca seria executado.
+
+Correção:
+- drizzle/0062_financial_responsible_single_active.sql: DROP INDEX e ADD
+  UNIQUE INDEX combinados num único ALTER TABLE atômico (uma só
+  instrução real no arquivo inteiro, reduz estado intermediário — opção 1
+  sugerida no relatório).
+- scripts/lib/migration0062.mjs (novo): extrai preflight/postcheck/
+  execução em funções puras testáveis, mesmo padrão de
+  scripts/lib/migration0060.mjs.
+- scripts/apply_migration_0062.mjs: reescrito para usar essa lib e enviar
+  o arquivo inteiro numa única chamada (`multipleStatements: true`,
+  `conn.query(sql)`), sem nenhum parsing manual por ponto e vírgula.
+- server/migration0062.test.ts (novo): 6 testes, incluindo um que
+  reproduz isoladamente o algoritmo antigo (split+filter) contra o
+  arquivo real e prova que ele NÃO produz um statement limpo de DROP
+  INDEX — documentando formalmente que o bug relatado era real.
+
+------------------------------------------------------------
+2. BLOQUEIO CRÍTICO 2 — getUnitCycle sem autorização atualizada
+------------------------------------------------------------
+Confirmado: server/routers/financeSimple.ts tinha
+`getUnitCycle: ... if (ctx.user.role !== "admin_master") throw FORBIDDEN`
+— a checagem antiga, nunca atualizada quando setUnitCycle foi aberta pra
+responsavel_financeiro em 22/09/2026. Fui também até
+client/src/pages/finance/FinanceModals.tsx (CycleConfigModal) e confirmei
+o efeito prático: sem tratamento de erro na query, `data` fica undefined,
+o useEffect que popula startDay/endDay nunca dispara, e
+`parseInt("") || 1` / `parseInt("") || 31` produzem 1 e 31 silenciosamente
+— o botão Salvar não tinha nenhuma trava contra isso.
+
+Correção:
+- server/routers/financeSimple.ts: getUnitCycle agora chama
+  `assertCanManageFinancialPrices(db, ctx.user, input.unit_id)`, mesma
+  checagem de setUnitCycle (admin_master irrestrito, responsavel_financeiro
+  só na própria unidade).
+- client/src/pages/finance/FinanceModals.tsx: CycleConfigModal agora lê
+  `isError`/`error` da query, mostra um aviso explícito de falha de
+  carregamento, e o botão Salvar fica desabilitado até os dados carregarem
+  com sucesso (`disabled={save.isPending || !loadedOnce || isError}`) —
+  defesa no cliente, não depende só do servidor estar certo.
+- server/audit-fixes-ciclo-responsavel-financeiro.test.ts: 3 testes novos
+  (admin lê qualquer unidade; responsavel_financeiro lê a própria; recebe
+  FORBIDDEN em unidade de outro responsável, sem vazar datas).
+
+Prova de quebra deliberada (as duas correções críticas): reverti cada
+checagem isoladamente, confirmei que os testes correspondentes falhavam
+exatamente como esperado, restaurei e revalidei byte-a-byte contra
+backup.
+
+------------------------------------------------------------
+3. PENDÊNCIA — migration 0061 sem aplicador dedicado
+------------------------------------------------------------
+Confirmado: drizzle/0061_financial_responsible_user_access_audit.sql
+existia sem nenhum scripts/apply_migration_0061.mjs correspondente.
+
+Correção: criados scripts/lib/migration0061.mjs e
+scripts/apply_migration_0061.mjs seguindo exatamente o mesmo padrão do
+0060/0062 corrigido (preflight validando que o enum ainda NÃO tem os 2
+valores novos, envio do arquivo inteiro sem parsing manual, postcheck
+validando que os 2 valores passaram a existir). server/migration0061.test.ts
+(novo) com 6 testes cobrindo preflight, execução e postcheck.
+
+------------------------------------------------------------
+4. PENDÊNCIA — política de responsável financeiro inativo
+------------------------------------------------------------
+O relatório levantou a pergunta sem presumir a resposta, corretamente.
+Perguntei ao Alessandro: decisão foi POLÍTICA DE BLOQUEIO TOTAL — um
+responsável financeiro inativo não pode receber novos usuários, nem
+permitir leitura financeira, alteração de preço ou de ciclo pelos
+usuários vinculados a ele. O vínculo em financial_responsible_users NÃO é
+apagado quando o responsável é desativado; ele só para de contar pra
+autorização enquanto isActive=false.
+
+Implementação: o ponto de menor superfície e maior cobertura é
+server/db.ts — getResponsibleIdForUser e getResponsibleIdsForUser são as
+duas funções que praticamente toda checagem de autorização financeira
+usa pra resolver o(s) responsável(is) de um usuário (assertCanAccessFinancialUnit,
+assertCanManageFinancialPrices, resolveResponsibleContext,
+myResponsavelSummary, etc.). As duas agora fazem innerJoin com
+financial_responsibles e filtram isActive=true — o bloqueio cascateia
+para todo o módulo sem precisar repetir a checagem em cada procedure
+isolada. Além disso, financeSimple.linkUser passou a recusar conceder
+acesso NOVO a um responsável já inativo (antes só validava que a CONTA de
+login está ativa, nunca o responsável).
+
+Cobertura de teste: adicionado 1 teste em
+server/audit-fixes-gestao-usuarios-responsavel.test.ts (linkUser rejeita
+responsável inativo). Os 4 mocks existentes de getFinancialResponsibleById
+nesse arquivo foram corrigidos para incluir isActive:true (senão o novo
+guard os teria quebrado com falso-positivo, já que undefined é falsy).
+
+Limitação honesta desta cobertura: getResponsibleIdForUser/
+getResponsibleIdsForUser chamam getDb() dentro do PRÓPRIO server/db.ts —
+não é possível mockar getDb via vi.mock("./db", ...) e ainda executar a
+implementação real dessas duas funções no mesmo teste (auto-referência
+de módulo; tentei, confirmei o erro "Database not available" quando a
+implementação real tenta usar um getDb não mockado, documentado
+anteriormente neste projeto). Ou seja: o innerJoin+isActive foi verificado
+por leitura de código e por tsc (a query é type-safe contra o schema), e
+o efeito em cascata na autorização é testado na camada de router (que já
+mockava essas duas funções como dependência externa, fronteira válida
+pra mock). Mas a query SQL em si, gerada por essas duas funções, não tem
+teste automatizado isolado no meu ambiente. Peço que valide especificamente
+este ponto contra um banco de sandbox real: um usuário vinculado só a um
+responsável inativo deve efetivamente perder acesso a myFinanceiro,
+myModalityPrices, myResponsavelSummary etc.
+
+------------------------------------------------------------
+VALIDAÇÃO
+------------------------------------------------------------
+- tsc --noEmit: limpo.
+- vitest run (suíte completa): 489 passed / 11 failed / 1 skipped / 501
+  total. As 11 falhas são exatamente as 9 históricas do repositório + as
+  2 preexistentes de finance-v2-dashboard.test.tsx já documentadas no
+  handoff original desta branch — o mesmo baseline que o próprio
+  relatório de revisão da Manus confirmou. Zero regressão nova.
+- vite build + esbuild do servidor: ambos OK (só o aviso preexistente de
+  bundle grande).
+
+------------------------------------------------------------
+O QUE NÃO FOI FEITO (fora de escopo deste branch)
+------------------------------------------------------------
+- Não apliquei nenhuma migration em nenhum banco — nem 0061, nem 0062.
+  Nenhum ambiente (sandbox, VM1, VM2) foi tocado. Os passos 5 e 6 do
+  roteiro do relatório (rodar tudo em sandbox limpo, aplicar 0061 e 0062
+  de verdade contra banco real) seguem sob sua responsabilidade, com
+  acesso real às VMs.
+- Não toquei em closeCycle UI nem em claude/correcao-paginas-laudo-pdf —
+  seguem como itens 7 do relatório original, não bloqueiam esta correção.
+
+------------------------------------------------------------
+COMO AGIR
+------------------------------------------------------------
+Siga o roteiro do seu próprio relatório (seção 8), agora com os itens 1 e
+2 corrigidos e os itens 3 e 4 endereçados: rode a suíte completa em
+sandbox limpo, aplique 0061 e depois 0062 (nessa ordem) contra um banco
+de sandbox real e confirme os pós-checks, valide especificamente o
+cenário de responsável inativo perdendo acesso em cascata (ponto que eu
+não consegui testar isoladamente, descrito acima), e só então decida
+sobre nova revisão / merge. Não modifique o branch diretamente — devolva
+observações para o Claude tratar em branch novo.

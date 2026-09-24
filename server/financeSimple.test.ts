@@ -99,7 +99,11 @@ describe("financeSimple router", () => {
 
     expect(dashboard).toContain("getAuthorizedFinancialUnitIds(db, ctx.user)");
     expect(summary).toContain("getAuthorizedFinancialUnitIds(db, ctx.user)");
-    expect(responsibleDashboard).toContain("ownResponsibleId !== input.responsibleId");
+    // Suporte a múltiplos responsáveis por usuário (decisão de produto,
+    // 2026-09-17): a checagem de posse deixou de ser igualdade de um único id
+    // (ownResponsibleId !== input.responsibleId) e passou a ser pertencimento
+    // num array, já que uma conta pode estar vinculada a mais de um responsável.
+    expect(responsibleDashboard).toContain("!ownResponsibleIds.includes(input.responsibleId)");
   });
 
   it("protege ciclos e gestão de equipe pelo escopo da unidade", async () => {

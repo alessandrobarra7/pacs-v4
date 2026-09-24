@@ -1,0 +1,138 @@
+HANDOFF MANUS — CORRECAO DA 2A REVISAO (MODULO FINANCEIRO UNIFICADO)
+Data: 23/09/2026
+Branch: claude/modulo-financeiro-unificado-fixes
+Commit novo: 6608ff8 (em cima de 34b8935 + 3657767, sem reescrever historico)
+Relatorio de origem: "Relatorio de Revisao - Correcoes do Modulo Financeiro
+Unificado" (23/09/2026), veredito "Nao aprovar merge, publicacao nem
+implantacao nesta versao", 2 bloqueios.
+
+------------------------------------------------------------
+RESUMO
+------------------------------------------------------------
+Os 2 bloqueios novos encontrados na validacao contra banco real de sandbox
+foram corrigidos. Nenhum commit foi reescrito; as correcoes sao 1 commit
+novo em cima do que ja existia. Nao fiz push nem toquei em VM/banco real —
+sem credencial de banco real neste sandbox, so consegui validar por
+pnpm check + vitest + build + leitura de codigo.
+
+------------------------------------------------------------
+BLOQUEIO 1 — MIGRATION 0062 (Duplicate key name no TiDB real)
+------------------------------------------------------------
+Causa confirmada: DROP INDEX + ADD UNIQUE INDEX no mesmo ALTER TABLE usando
+o MESMO nome (uq_resp_user) para o indice antigo e o novo. TiDB rejeita.
+
+Correcao:
+1. drizzle/schema.ts: indice final renomeado de uq_resp_user para
+   uq_resp_user_id.
+2. drizzle/0062_financial_responsible_single_active.sql: agora faz
+     DROP INDEX `uq_resp_user`, ADD UNIQUE INDEX `uq_resp_user_id` (`user_id`)
+   (nomes diferentes nos dois lados).
+3. scripts/lib/migration0062.mjs: nova funcao getMigrationState(conn) que
+   consulta os dois indices (uq_resp_user e uq_resp_user_id) via
+   INFORMATION_SCHEMA.STATISTICS e classifica o banco em 3 estados:
+   - "before": uq_resp_user composto presente, uq_resp_user_id ausente
+     (banco ainda nao migrado — seguro rodar a migration).
+   - "after": uq_resp_user_id em (user_id) sozinho presente, uq_resp_user
+     ausente (migration ja aplicada com sucesso — idempotente, NAO E ERRO).
+   - "unknown": qualquer outra combinacao — bloqueia e pede revisao manual.
+   getPreflightChecks/getPostMigrationChecks usam essa funcao em vez de so
+   olhar o nome antigo.
+4. scripts/apply_migration_0062.mjs: quando o preflight detecta estado
+   "after", o script reporta sucesso SEM rodar DDL de novo (idempotencia),
+   em vez de tentar reaplicar e quebrar.
+5. server/migration0062.test.ts: reescrito com um fake de conexao que
+   responde por indexName (simulando as 2 consultas separadas que o banco
+   real recebe), cobrindo os 3 estados e confirmando que o SQL final gerado
+   usa uq_resp_user_id (nunca uq_resp_user) no ADD UNIQUE INDEX.
+
+O que NAO pude fazer neste sandbox (sem MySQL/TiDB real, sem sudo/Docker):
+exercitar o DDL de verdade contra o dialeto TiDB. Pedido explicito: rodar
+scripts/apply_migration_0062.mjs contra o banco de sandbox de voces,
+confirmando que:
+  a) num banco ainda no estado "before", o DDL roda sem erro e o indice
+     final fica uq_resp_user_id em (user_id) sozinho;
+  b) rodando o script de novo depois (banco ja no estado "after"), ele
+     reporta sucesso idempotente sem tentar DDL de novo e sem erro.
+
+------------------------------------------------------------
+BLOQUEIO 2 — POLITICA "BLOQUEAR TUDO" TINHA 2 FUROS
+------------------------------------------------------------
+Confirmado no codigo, exatamente como reportado:
+
+1. getResponsibleDebtByDoctor (server/routers/financeSimple.ts) lia
+   financial_responsible_users direto com SELECT cru, sem checar isActive.
+   Corrigido: agora usa getResponsibleIdForUser(ctx.user.id) — a mesma
+   trava central usada em todo o resto do modulo, que ja respeita isActive
+   via innerJoin com financial_responsibles. Se nao houver responsavel
+   ativo, lanca FORBIDDEN ANTES de qualquer consulta de evento/divida.
+
+   Bug adicional encontrado (mais grave que so isActive): na versao
+   anterior, se targetResponsibleId ficasse undefined por QUALQUER motivo
+   (responsavel inativo OU simplesmente sem vinculo nenhum), o bloco que
+   monta o filtro por unidade era pulado inteiro — a consulta devolvia
+   dividas de TODAS as unidades do sistema pra uma conta
+   responsavel_financeiro, sem filtro nenhum. Corrigido junto: agora nega
+   explicitamente antes de chegar la.
+
+2. listDoctorsForResponsible (mesmo arquivo) tinha o mesmo padrao: leitura
+   direta sem isActive. Corrigido do mesmo jeito — getResponsibleIdForUser
+   + FORBIDDEN explicito, sem consultar medicos/unidades/precos quando nao
+   ha responsavel ativo.
+
+3. listResponsiblesForUser (server/db.ts), usado por listMyResponsibles
+   (unico chamador confirmado por grep), nao filtrava isActive — um
+   responsavel inativo continuava aparecendo como opcao no seletor de
+   contexto do frontend. Corrigido: adicionado
+   eq(financial_responsibles.isActive, true) na WHERE.
+
+Testes novos: server/audit-fixes-responsavel-inativo-bloqueio-total.test.ts
+(5 testes) cobrindo:
+  - getResponsibleDebtByDoctor: FORBIDDEN sem tocar em nenhuma consulta
+    quando so ha responsavel inativo; consulta normal quando ativo.
+  - listDoctorsForResponsible: FORBIDDEN sem consultar nada quando so ha
+    responsavel inativo; lista vazia normal (nao erro) quando ativo mas sem
+    unidade vinculada.
+  - listMyResponsibles: encaminha o user id certo pra listResponsiblesForUser.
+
+Comprovado por quebra deliberada: revertendo o fix em financeSimple.ts, 3
+dos 5 testes falham exatamente como esperado (FORBIDDEN nao acontece mais).
+Restaurado e reconfirmado depois (diff byte-a-byte contra a versao corrigida).
+
+LIMITACAO HONESTA (mesma da rodada anterior, mesma causa): o filtro
+isActive dentro de listResponsiblesForUser em si (a query SQL) nao pode ser
+testado isoladamente neste sandbox, porque essa funcao chama getDb()
+internamente DENTRO do proprio server/db.ts — vi.mock("./db", ...)
+espalhando ...original nao intercepta essa chamada interna (o fechamento da
+funcao real aponta pro getDb original, nao pro mock), entao um teste assim
+sempre falha com "Database not available". O teste que escrevi mocka
+listResponsiblesForUser direto (prova que listMyResponsibles encaminha
+certo), nao prova o filtro SQL isActive em si. Pedido: validar em sandbox
+real que uma conta ligada so a responsavel inativo NAO aparece na resposta
+de listMyResponsibles.
+
+------------------------------------------------------------
+VALIDACAO RODADA NESTE SANDBOX
+------------------------------------------------------------
+- pnpm check (tsc --noEmit): limpo, sem erros.
+- git diff --check HEAD: limpo, sem whitespace invalido.
+- TZ=UTC pnpm vitest run: 495 aprovados, 11 falhos, 1 skipped, 507 total.
+  Os 11 falhos sao EXATAMENTE os mesmos arquivos do baseline que a Manus ja
+  documentou (exam-catalog-security, finance-v2-dashboard x2,
+  mediaProxy, pacs-desktop-download-progress, pacs.mobile-ui,
+  security.auth, study-priority-ui x4) — nenhuma falha nova.
+- pnpm build (vite build + esbuild server): concluido sem erro, so o aviso
+  preexistente de bundle grande.
+
+------------------------------------------------------------
+PROXIMO PASSO SUGERIDO
+------------------------------------------------------------
+1. Revisar este commit (6608ff8) com a mesma sequencia de sempre: diff,
+   testes direcionados, pnpm check, TZ=UTC pnpm test, pnpm build,
+   git diff --check.
+2. Validar migration 0062 em sandbox real nos dois cenarios descritos acima
+   (estado "before" rodando com sucesso; estado "after" idempotente).
+3. Validar o cenario sintetico de responsavel inativo contra as 2 rotas que
+   escapavam (getResponsibleDebtByDoctor, listDoctorsForResponsible) e o
+   seletor de contexto (listMyResponsibles), removendo os registros
+   sinteticos ao final, como da ultima vez.
+4. Somente depois disso, decidir sobre merge em main e deploy.

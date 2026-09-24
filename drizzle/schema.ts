@@ -187,7 +187,7 @@ export const audit_log = mysqlTable("audit_log", {
   id: int("id").autoincrement().primaryKey(),
   user_id: int("user_id"),
   unit_id: int("unit_id"),
-  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "DELETE_REPORT", "CANCEL_REPORT", "REVISE_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "ACTIVATE_USER", "DEACTIVATE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA", "SET_STUDY_PRIORITY", "UPDATE_STUDY_PRIORITY", "CLEAR_STUDY_PRIORITY", "RESET_DOCTOR_BILLING", "CREATE_LAYOUT", "UPDATE_LAYOUT", "DELETE_LAYOUT", "BILLING_EVENT_FAILED", "FINANCIAL_ENABLED", "FINANCIAL_DISABLED", "BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED", "BILLING_EVENT_CANCELLED", "DOCTOR_PAYMENT_CONFIRMED", "DOCTOR_PAYMENT_DISPUTED", "SET_EXTERNAL_SALE_PRICE"]).notNull(),
+  action: mysqlEnum("action", ["LOGIN", "LOGOUT", "VIEW_STUDY", "OPEN_VIEWER", "CREATE_REPORT", "UPDATE_REPORT", "SIGN_REPORT", "DELETE_REPORT", "CANCEL_REPORT", "REVISE_REPORT", "CREATE_USER", "UPDATE_USER", "DELETE_USER", "ACTIVATE_USER", "DEACTIVATE_USER", "CREATE_UNIT", "UPDATE_UNIT", "DELETE_UNIT", "PACS_QUERY", "PACS_DOWNLOAD", "CREATE_ANAMNESIS", "EDIT_STUDY_METADATA", "SET_STUDY_PRIORITY", "UPDATE_STUDY_PRIORITY", "CLEAR_STUDY_PRIORITY", "RESET_DOCTOR_BILLING", "CREATE_LAYOUT", "UPDATE_LAYOUT", "DELETE_LAYOUT", "BILLING_EVENT_FAILED", "FINANCIAL_ENABLED", "FINANCIAL_DISABLED", "BILLING_EVENT_WITHOUT_FINANCIAL_ENABLED", "BILLING_EVENT_CANCELLED", "DOCTOR_PAYMENT_CONFIRMED", "DOCTOR_PAYMENT_DISPUTED", "SET_EXTERNAL_SALE_PRICE", "GRANT_FINANCIAL_RESPONSIBLE_ACCESS", "REVOKE_FINANCIAL_RESPONSIBLE_ACCESS"]).notNull(),
   target_type: varchar("target_type", { length: 50 }),
   target_id: varchar("target_id", { length: 100 }),
   ip_address: varchar("ip_address", { length: 45 }),
@@ -468,7 +468,22 @@ export const financial_responsible_users = mysqlTable("financial_responsible_use
   user_id: int("user_id").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => ({
-  uq_resp_user: uniqueIndex("uq_resp_user").on(t.financial_responsible_id, t.user_id),
+  // Opção A do documento de requisitos (2026-09-17, seção 4, decisão confirmada
+  // pelo Alessandro em 2026-09-20 após revisão do Manus): uma conta pertence a
+  // somente um responsável financeiro ativo por vez. Unique em user_id sozinho
+  // (não mais no par financial_responsible_id+user_id) garante isso de forma
+  // transacional no próprio banco — não só na camada de aplicação. Trocar de
+  // responsável é sempre revogar o vínculo antigo (DELETE) e conceder um novo
+  // (INSERT), nunca duas linhas simultâneas pro mesmo user_id. Ver migration 0062.
+  //
+  // FIX (2026-09-23, revisão Manus — bloqueio crítico 1 da 2ª rodada): o nome
+  // final do índice foi trocado de "uq_resp_user" para "uq_resp_user_id".
+  // Motivo: a migration precisa fazer DROP INDEX + ADD UNIQUE INDEX num único
+  // ALTER TABLE atômico (ver histórico no arquivo da migration), e o dialeto
+  // real do banco (TiDB) rejeita remover e recriar um índice com o MESMO nome
+  // dentro da mesma instrução ("Duplicate key name"). Usar um nome final
+  // diferente do nome antigo resolve isso sem precisar de duas instruções.
+  uq_resp_user_id: uniqueIndex("uq_resp_user_id").on(t.user_id),
 }));
 export type FinancialResponsibleUser = typeof financial_responsible_users.$inferSelect;
 export type InsertFinancialResponsibleUser = typeof financial_responsible_users.$inferInsert;
