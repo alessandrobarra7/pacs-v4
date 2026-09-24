@@ -1,0 +1,184 @@
+HANDOFF MANUS — Setor Laudos: Trechos, Laudos Prontos (Máscaras) e Margens/PDF
+Branch: claude/setor-laudos-masks-trechos-pdf
+Base: origin/main @ 1b906ad
+Data: 24/09/2026
+
+===============================================================================
+OBJETIVO DESTE DOCUMENTO
+===============================================================================
+Este branch já está implementado, testado localmente (pnpm check, testes
+direcionados, suíte completa, build, git diff --check) e comitado. Não há
+decisão de design em aberto — cada mudança abaixo tem a causa raiz identificada
+no código, o commit exato e o teste que comprova o comportamento. O trabalho
+pedido a você aqui é validação/QA: reproduzir os cenários descritos, rodar a
+suíte no ambiente real (sandbox TiDB) e, se tudo bater, aprovar para merge.
+Não é necessário reanalisar a causa dos bugs nem redesenhar a solução.
+
+===============================================================================
+RESUMO DO QUE MUDOU (4 correções + 1 feature nova, tudo no setor de Laudos)
+===============================================================================
+
+1) MARGENS/TAMANHO DE PÁGINA DO PDF DIVERGENTES ENTRE 3 TELAS (cherry-pick)
+   Commits: 27f3f84, 7307f98, 6b125ff
+   (originalmente do branch claude/correcao-paginas-laudo-pdf, pronto desde
+   16/09, nunca mesclado — motivo pelo qual o usuário via a configuração de
+   página não refletir na impressão)
+
+   Causa raiz: três pontos de geração de laudo tinham cada um seu próprio
+   fallback de margem hardcoded, divergentes entre si e do padrão real:
+     - ReportEditorPage.tsx (impressão oficial): fallback 20/20/18/18
+     - ReportEditorPage.tsx (download PDF da visão financeira): jsPDF sempre
+       "a4" fixo, ignorando layoutPrefs.pageSize
+     - PacsQueryPage.tsx (impressão rápida da lista de exames): outro
+       conjunto de fallbacks, também divergente
+     - financialReportPdfDownload.ts (PDF do financeiro): margens nem eram
+       lidas — CSS com padding:16mm 18mm 30mm fixo, sempre
+   Correção: todos os 4 pontos agora usam o mesmo merge
+   {...DEFAULT_LAYOUT_PREFERENCES, ...preferences} já usado corretamente em
+   ReportDocument.tsx (20mm topo / 25mm demais lados).
+
+   COMO VALIDAR: configure uma unidade com margens diferentes do padrão
+   (ex.: 30mm em todos os lados) e tamanho de página "letter". Gere o laudo
+   pelas 4 vias (impressão normal, download PDF financeiro, impressão rápida
+   pela lista de exames, PDF do financeiro) e confirme que as 4 saem iguais
+   e refletem a configuração.
+
+2) TRECHOS ("Frases Prontas") COLANDO SEM ESPAÇO NO CORPO DO LAUDO
+   Commit: a484228 (client/src/pages/ReportEditorPage.tsx)
+
+   Causa raiz: insertAtCursor usa document.execCommand('insertText') sem
+   nenhuma lógica de separador. Reproduzido ao vivo em produção: clicar numa
+   frase colava direto no texto existente, sem espaço nem quebra
+   ("...normalidadeTÉCNICA:Realizados cortes axiais...").
+   Correção: insertAtCursor recebe agora um parâmetro opcional
+   { smartSeparator: true }, usado apenas na inserção de Trechos/Frases
+   (desktop e mobile). Quando há um caractere não-espaço imediatamente antes
+   do cursor, prefixa o texto inserido com uma quebra dupla ("\n\n"). O editor
+   usa white-space:pre-wrap, então a quebra aparece de verdade. Os demais usos
+   de insertAtCursor (colar imagem, colar texto simples) NÃO foram alterados
+   — nenhum risco de regressão ali.
+
+   COMO VALIDAR: abrir um laudo com texto já digitado no corpo, posicionar o
+   cursor no meio de uma palavra/frase e clicar numa frase pronta na aba
+   Trechos. Deve entrar uma quebra de linha em branco antes do texto inserido,
+   nunca grudado. Testar também com o cursor logo após um espaço/quebra —
+   nesse caso NÃO deve inserir separador extra (evitar espaçamento duplo).
+
+3) CAMPO DE CRIAÇÃO DE FRASE MUITO PEQUENO / QUEBRAS NÃO PRESERVADAS NA LISTA
+   Commit: a484228 (mesmo arquivo)
+
+   textarea de "+ Adicionar frase" foi de rows=2 para rows=6 com dica de usar
+   Enter para separar seções (TÉCNICA/ACHADOS/IMPRESSÃO). A listagem lateral
+   da frase (que antes renderizava {phrase.content} cru) agora tem
+   whitespace-pre-wrap, então frases com \n já salvas passam a exibir a
+   formatação corretamente em vez de aparecer como texto corrido.
+
+   COMO VALIDAR: criar uma frase nova digitando 3 linhas com Enter entre
+   elas. Confirmar que a listagem lateral mostra as 3 linhas separadas (não
+   corridas) e que inserir a frase no laudo preserva as quebras.
+
+4) BUSCA DE "LAUDOS PRONTOS" NÃO IGNORA ACENTO
+   Commit: a484228 (mesmo arquivo)
+
+   Causa raiz: filtro comparava m.name.toLowerCase().includes(busca) sem
+   normalizar diacríticos. Buscar "cranio" não encontrava "Crânio" — só
+   funcionava digitando o acento exato. Reproduzido ao vivo: 0 resultados
+   para "cranio", 6 resultados para "crânio".
+   Correção: reaproveitado o mesmo padrão já existente no arquivo (usado no
+   seletor de templates, linha ~2333: s.normalize("NFD").replace(diacríticos,
+   "").toLowerCase()) também no filtro de nome/modalidade/título do exame das
+   máscaras.
+
+   COMO VALIDAR: buscar "cranio", "torax", "orbitas" (sem acento) no painel
+   de Laudos Prontos e confirmar que encontra "Crânio", "Tórax", "Órbitas".
+
+5) NOVA FEATURE: EDITAR UM LAUDO PRONTO JÁ IMPORTADO
+   Commits: a484228 (server/routers/masks.ts, server/db.ts,
+   client/src/pages/ReportEditorPage.tsx) +
+   server/audit-fixes-masks-update.test.ts
+
+   Motivação do usuário: hoje a única forma de corrigir um laudo pronto
+   (máscara) já importado é apagar e reimportar um JSON novo — inviável para
+   ajustes pontuais, especialmente com a biblioteca de 100+ laudos recém
+   importada.
+
+   Backend: nova procedure masks.update (name, modality, exam_title, body),
+   com a MESMA regra de posse do masks.delete já existente: usuário comum só
+   edita as próprias máscaras pessoais; admin_master/unit_admin pode editar
+   qualquer máscara scope='unit' DA PRÓPRIA UNIDADE (não de outras unidades).
+   Corpo em texto puro passa por normalizeBodyToHtml (mesmo helper do
+   import), preservando compatibilidade com o formato "=== TÍTULO ===".
+   Frontend: ícone de editar (lápis) ao lado da lixeira em cada máscara,
+   abrindo um modal com nome/modalidade/título do exame/corpo. Não é mais
+   necessário abrir um laudo de paciente para editar uma máscara.
+
+   Testes (server/audit-fixes-masks-update.test.ts, 4 cenários, todos
+   passando, nenhum toca banco — canAccessUnit e updateReportMask mockados):
+     - usuário sem vínculo com a unidade -> FORBIDDEN, updateReportMask não
+       é chamado
+     - usuário comum tentando editar máscara de outro usuário -> NOT_FOUND
+       (updateReportMask retorna false porque o WHERE não bate)
+     - usuário comum editando a própria máscara -> sucesso, updateReportMask
+       chamado com isAdmin=false e o body em texto puro normalizado para HTML
+     - admin_master editando máscara scope='unit' da própria unidade ->
+       sucesso, updateReportMask chamado com isAdmin=true
+
+   COMO VALIDAR (cenário sintético, sem tocar dado real): criar uma máscara
+   pessoal de teste, editar via novo modal e confirmar que persiste. Tentar
+   editar (via chamada direta à procedure, não pela UI) uma máscara de outro
+   usuário e confirmar NOT_FOUND. Tentar editar uma máscara scope='unit' de
+   OUTRA unidade logado como admin_master dessa unidade e confirmar NOT_FOUND
+   (isolamento entre unidades).
+
+===============================================================================
+VALIDAÇÕES JÁ EXECUTADAS NESTE SANDBOX
+===============================================================================
+| Verificação                          | Resultado                          |
+|---------------------------------------|-------------------------------------|
+| pnpm install                          | OK                                  |
+| pnpm check (tsc --noEmit)             | OK, sem erros                       |
+| Testes direcionados (masks.update, 4  | OK, 4/4 (+ 6/6 dos já existentes    |
+| cenários) + regressão FORBIDDEN geral | de FORBIDDEN) — nenhum toca banco   |
+| TZ=UTC pnpm test (suíte completa)     | 442 aprovados, 9 falhos, 1 ignorado, |
+|                                        | 452 total. As 9 falhas são as MESMAS|
+|                                        | categorias pré-existentes já        |
+|                                        | documentadas em revisão anterior:   |
+|                                        | catálogo de exames, dashboard       |
+|                                        | financeiro antigo, proxy de mídia,  |
+|                                        | download desktop, interface mobile, |
+|                                        | autenticação, prioridade de estudo. |
+|                                        | Nenhuma toca ReportEditorPage.tsx,  |
+|                                        | masks.ts ou db.ts (arquivos         |
+|                                        | alterados aqui).                    |
+| pnpm build                            | OK (client + servidor)              |
+| git diff --check                      | OK, sem whitespace inválido         |
+
+Observação sobre o total de testes: este sandbox não tem DATABASE_URL
+configurado (getDb() retorna null), então alguns testes que dependem de banco
+real podem não rodar da mesma forma aqui que na VM1. Isso é esperado e é
+exatamente o motivo de pedir a validação da suíte completa no ambiente com
+TiDB real.
+
+===============================================================================
+O QUE NÃO FOI ALTERADO / FORA DE ESCOPO
+===============================================================================
+- Nenhuma migration de banco neste branch.
+- Nenhum dado de produção foi tocado (validações de máscara feitas ao vivo
+  em turnos anteriores foram revertidas/descartadas sem salvar).
+- O botão "+ Adicionar frase" já existia e funciona — o que parecia ausência
+  era só posição no fim de listas longas; não foi necessário mexer nisso.
+- Biblioteca de laudos prontos (107 templates CR/CT/RM) já foi importada
+  separadamente em produção antes deste branch; não faz parte deste commit.
+
+===============================================================================
+PRÓXIMO FLUXO RECOMENDADO
+===============================================================================
+1. Ler este handoff (já cobre causa raiz e correção de cada item).
+2. Rodar TZ=UTC pnpm test na VM1 e comparar a lista de falhas com a tabela
+   acima — só aprovar se as falhas forem as mesmas 9 categorias pré-existentes.
+3. Reproduzir os 5 cenários de "COMO VALIDAR" acima, manualmente ou via teste
+   automatizado adicional se preferir.
+4. Validar isolamento entre unidades no masks.update (ponto mais sensível
+   desta entrega, por mexer em autorização).
+5. Aprovar merge em main e publicação no GitHub. VM1 pode receber via git
+   pull normal (sem migration). VM2 sem necessidade específica.
