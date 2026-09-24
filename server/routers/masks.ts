@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
-import { listReportMasks, createReportMasks, deleteReportMask } from "../db";
+import { listReportMasks, createReportMasks, updateReportMask, deleteReportMask } from "../db";
 import { canAccessUnit } from "../authorization";
 
 const ADMIN_ROLES = ["admin_master", "unit_admin"] as const;
@@ -124,6 +124,47 @@ export const masksRouter = router({
       }));
       await createReportMasks(rows);
       return { imported: rows.length };
+    }),
+
+  /**
+   * Atualiza os campos editáveis de uma máscara já importada (nome, modalidade,
+   * título do exame, corpo). Permite ao médico corrigir/personalizar um laudo
+   * pronto sem precisar apagar e reimportar um JSON novo.
+   * Mesma regra de posse do delete: dono da máscara pessoal, ou admin da unidade
+   * se for scope='unit'.
+   */
+  update: protectedProcedure
+    .input(z.object({
+      id:         z.number().int().positive(),
+      unitId:     z.number().int().positive(),
+      name:       z.string().min(1).max(255),
+      modality:   z.string().max(10).optional().nullable(),
+      exam_title: z.string().max(255).optional().nullable(),
+      body:       z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const canAccess = await canAccessUnit(ctx.user, input.unitId, "view_studies");
+      if (!canAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Você não tem acesso a esta unidade.",
+        });
+      }
+
+      const admin = isAdmin(ctx.user.role);
+      const updated = await updateReportMask(input.id, ctx.user.id, admin, input.unitId, {
+        name: input.name,
+        modality: input.modality ?? null,
+        exam_title: input.exam_title ?? null,
+        body: normalizeBodyToHtml(input.body),
+      });
+      if (!updated) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Máscara não encontrada ou sem permissão para editar.",
+        });
+      }
+      return { success: true };
     }),
 
   /**

@@ -349,6 +349,14 @@ export default function ReportEditorPage() {
     onSuccess: () => { toast.success("Máscara removida"); refetchMasks(); },
     onError: (e) => toast.error(e.message),
   });
+  // FIX: edição de laudo pronto (máscara) sem precisar apagar e reimportar JSON
+  const [editingMask, setEditingMask] = useState<{ id: number; name: string; modality: string; exam_title: string; body: string } | null>(null);
+  const updateMask = trpc.masks.update.useMutation({
+    onSuccess: () => { toast.success("Máscara atualizada"); setEditingMask(null); refetchMasks(); },
+    onError: (e) => toast.error(e.message),
+  });
+  // FIX: busca de máscaras ignorando acentuação (ex.: "cranio" encontra "Crânio")
+  const normalizeSearchText = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   // Aplica tamanho de fonte na seção ativa
   const applyFontSize = useCallback((size: string) => {
     setFontSize(size);
@@ -479,7 +487,32 @@ export default function ReportEditorPage() {
 
   // FIX BUG-1: usar execCommand('insertText') em vez de range.insertNode()
   // Garante cursor após o texto inserido (sem ordem reversa) e Undo/Redo nativo.
-  const insertAtCursor = useCallback((text: string) => {
+  //
+  // FIX: retorna o caractere imediatamente anterior ao cursor, para decidir se
+  // é preciso inserir um separador antes do texto (evita "...normalidadeTÉCNICA:...").
+  const getCharBeforeRange = (range: Range): string => {
+    const { startContainer, startOffset } = range;
+    if (startContainer.nodeType === Node.TEXT_NODE) {
+      const text = startContainer.textContent || '';
+      if (startOffset > 0) return text[startOffset - 1] || '';
+      let prev: Node | null = startContainer.previousSibling;
+      while (prev) {
+        const t = prev.textContent || '';
+        if (t.length > 0) return t[t.length - 1];
+        prev = prev.previousSibling;
+      }
+      return '';
+    }
+    const el = startContainer as Element;
+    if (startOffset > 0) {
+      const child = el.childNodes[startOffset - 1];
+      const t = child?.textContent || '';
+      return t[t.length - 1] || '';
+    }
+    return '';
+  };
+
+  const insertAtCursor = useCallback((text: string, opts?: { smartSeparator?: boolean }) => {
     // Determinar o elemento editor correto para o modo ativo
     const targetEl = isMultiSection
       ? sectionRefs.current[activeSectionRef.current]
@@ -504,9 +537,24 @@ export default function ReportEditorPage() {
       sel?.addRange(range);
     }
 
+    // FIX: quando solicitado (ex.: inserir trecho/frase pronta), prefixa com uma
+    // quebra de linha em branco se ja houver conteudo nao-espaco imediatamente
+    // antes do cursor. O editor usa white-space:pre-wrap, entao a quebra dupla
+    // vira uma quebra visivel de verdade, evitando texto colado (bug reportado).
+    let toInsert = text;
+    if (opts?.smartSeparator) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const charBefore = getCharBeforeRange(sel.getRangeAt(0));
+        if (charBefore && !/\s/.test(charBefore)) {
+          toInsert = "\n\n" + toInsert;
+        }
+      }
+    }
+
     // execCommand garante: cursor avança após o texto, Undo/Redo nativo funciona,
     // nós de texto são normalizados automaticamente pelo browser.
-    document.execCommand('insertText', false, text);
+    document.execCommand('insertText', false, toInsert);
 
     // Salvar a nova posição do cursor após a inserção
     const sel = window.getSelection();
@@ -1513,7 +1561,7 @@ export default function ReportEditorPage() {
             )}
             {activeTab === "frases" && (
               <FrasesTab
-                onInsert={insertAtCursor}
+                onInsert={(text) => insertAtCursor(text, { smartSeparator: true })}
                 onFocus={saveSelection}
               />
             )}
@@ -2099,7 +2147,7 @@ export default function ReportEditorPage() {
                   currentModality={studyInfo?.modality || ""}
                 />
               )}
-              {activeTab === "frases" && <FrasesTab onInsert={(text) => { insertAtCursor(text); setShowMobileTools(false); }} onFocus={saveSelection} />}
+              {activeTab === "frases" && <FrasesTab onInsert={(text) => { insertAtCursor(text, { smartSeparator: true }); setShowMobileTools(false); }} onFocus={saveSelection} />}
               {activeTab === "carimbo" && <CarimboTab signatureUrl={signedDoctorSignatureUrl} stampUrl={signedDoctorStampUrl} doctorName={signedDoctorName} crm={signedDoctorCrm} />}
             </div>
           </div>
@@ -2171,10 +2219,13 @@ export default function ReportEditorPage() {
 
               {/* Lista de máscaras */}
               <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
-                {(masks ?? []).filter(m =>
-                  !maskSearch || m.name.toLowerCase().includes(maskSearch.toLowerCase()) ||
-                  (m.modality ?? "").toLowerCase().includes(maskSearch.toLowerCase())
-                ).map(m => (
+                {(masks ?? []).filter(m => {
+                  if (!maskSearch) return true;
+                  const term = normalizeSearchText(maskSearch);
+                  return normalizeSearchText(m.name).includes(term) ||
+                    normalizeSearchText(m.modality ?? "").includes(term) ||
+                    normalizeSearchText(m.exam_title ?? "").includes(term);
+                }).map(m => (
                   <div
                     key={m.id}
                     className="group flex items-start gap-2 p-2.5 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-colors"
@@ -2194,15 +2245,99 @@ export default function ReportEditorPage() {
                         <p className="text-[10px] text-gray-500 truncate">{m.exam_title}</p>
                       )}
                     </div>
-                    <button
-                      onClick={e => { e.stopPropagation(); deleteMask.mutate({ id: m.id, unitId }); }}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-100 text-red-500 transition-opacity shrink-0"
-                      title="Remover máscara"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          setEditingMask({ id: m.id, name: m.name, modality: m.modality ?? "", exam_title: m.exam_title ?? "", body: m.body });
+                        }}
+                        className="p-1 rounded hover:bg-blue-100 text-blue-500"
+                        title="Editar máscara"
+                      >
+                        <Edit2 className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); deleteMask.mutate({ id: m.id, unitId }); }}
+                        className="p-1 rounded hover:bg-red-100 text-red-500"
+                        title="Remover máscara"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Modal de edição de máscara / laudo pronto */}
+          {editingMask && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 print:hidden" onClick={() => setEditingMask(null)}>
+              <div className="w-full max-w-lg max-h-[85vh] flex flex-col bg-white rounded-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                  <span className="text-sm font-semibold text-gray-800">Editar Laudo Pronto</span>
+                  <button onClick={() => setEditingMask(null)} className="p-1 rounded hover:bg-gray-100 text-gray-500">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Nome</label>
+                    <input
+                      value={editingMask.name}
+                      onChange={e => setEditingMask(v => v && { ...v, name: e.target.value })}
+                      className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Modalidade</label>
+                      <input
+                        value={editingMask.modality}
+                        onChange={e => setEditingMask(v => v && { ...v, modality: e.target.value })}
+                        placeholder="CR, CT, RM..."
+                        className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      />
+                    </div>
+                    <div className="flex-[2]">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Título do exame</label>
+                      <input
+                        value={editingMask.exam_title}
+                        onChange={e => setEditingMask(v => v && { ...v, exam_title: e.target.value })}
+                        className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Corpo do laudo</label>
+                    <textarea
+                      value={editingMask.body}
+                      onChange={e => setEditingMask(v => v && { ...v, body: e.target.value })}
+                      rows={12}
+                      className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y"
+                    />
+                    <p className="mt-1 text-[10px] text-gray-400">Aceita HTML (como já importado) ou texto simples com blocos "=== TÍTULO ===".</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 px-4 py-3 border-t border-gray-200">
+                  <button
+                    onClick={() => editingMask && updateMask.mutate({
+                      id: editingMask.id,
+                      unitId,
+                      name: editingMask.name,
+                      modality: editingMask.modality || null,
+                      exam_title: editingMask.exam_title || null,
+                      body: editingMask.body,
+                    })}
+                    disabled={updateMask.isPending || !editingMask.name.trim() || !editingMask.body.trim()}
+                    className="flex-1 text-xs bg-blue-600 text-white rounded py-2 font-medium hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Salvar alterações
+                  </button>
+                  <button onClick={() => setEditingMask(null)} className="text-xs border border-gray-200 rounded px-4 py-2 hover:bg-gray-50">
+                    Cancelar
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -2635,7 +2770,7 @@ function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; on
                       <button
                         onMouseDown={(e) => { e.preventDefault(); onFocus(); }}
                         onClick={() => { onInsert(phrase.content); }}
-                        className="flex-1 text-left text-xs text-gray-700 leading-relaxed"
+                        className="flex-1 text-left text-xs text-gray-700 leading-relaxed whitespace-pre-wrap"
                       >
                         {phrase.content}
                       </button>
@@ -2673,9 +2808,9 @@ function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; on
                     <textarea
                       value={newPhraseText}
                       onChange={e => setNewPhraseText(e.target.value)}
-                      placeholder="Digite a frase..."
-                      rows={2}
-                      className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
+                      placeholder={"Digite a frase...\n\nUse Enter para separar linhas/seções (ex.: TÉCNICA, ACHADOS, IMPRESSÃO)."}
+                      rows={6}
+                      className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y"
                       autoFocus
                     />
                     <div className="flex gap-1">

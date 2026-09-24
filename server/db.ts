@@ -3716,6 +3716,40 @@ export async function deleteReportMask(
   return (result[0] as { affectedRows: number }).affectedRows > 0;
 }
 
+/**
+ * Atualiza os campos editáveis de uma máscara (nome, modalidade, título do exame, corpo).
+ * Mesma regra de posse do delete: admin pode editar qualquer máscara da PRÓPRIA unidade;
+ * usuário comum só pode editar as próprias.
+ */
+export async function updateReportMask(
+  id: number,
+  userId: number,
+  isAdmin: boolean,
+  unitId: number,
+  fields: { name: string; modality: string | null; exam_title: string | null; body: string }
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const condition = isAdmin
+    ? and(
+        eq(report_masks.id, id),
+        eq(report_masks.unit_id, unitId)
+      )
+    : and(
+        eq(report_masks.id, id),
+        eq(report_masks.owner_user_id, userId)
+      );
+
+  const result = await db.update(report_masks).set({
+    name: fields.name,
+    modality: fields.modality,
+    exam_title: fields.exam_title,
+    body: fields.body,
+  }).where(condition);
+  return (result[0] as { affectedRows: number }).affectedRows > 0;
+}
+
 // ─── Group Permission Configs ─────────────────────────────────────────────────
 
 export async function getGroupPermissions(): Promise<GroupPermissionConfig[]> {
