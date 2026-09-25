@@ -182,3 +182,58 @@ PRÓXIMO FLUXO RECOMENDADO
    desta entrega, por mexer em autorização).
 5. Aprovar merge em main e publicação no GitHub. VM1 pode receber via git
    pull normal (sem migration). VM2 sem necessidade específica.
+
+===============================================================================
+ADENDO 2026-09-24 — BRANCH ATUALIZADA COM MAIN (pós-merge do financeiro)
+===============================================================================
+
+Contexto: entre a criação original deste branch e esta revisão, a branch
+claude/financeiro-precos-consistencia foi auditada pela Manus, corrigida em
+3 rodadas e mesclada em main (commit b7eb1b8). Isso deixou este branch
+30 commits atrás de main.
+
+Ação tomada: main foi mesclado para dentro deste branch (merge simples,
+sem rebase, sem reescrita de histórico):
+
+  git merge origin/main --no-edit
+
+Resultado: merge limpo, SEM CONFLITOS. 45 arquivos alterados (+6470/-598),
+trazendo todo o histórico do módulo financeiro (migrations 0061/0062, novos
+testes, handoffs, finance-theme.css etc.) para dentro deste branch. Dois
+arquivos tiveram merge automático (auto-merge, sem intervenção manual):
+client/src/pages/PacsQueryPage.tsx e server/db.ts — ambos recebiam mudanças
+independentes em pontos diferentes (este branch mexeu em margem de PDF;
+main trouxe o módulo financeiro), sem sobreposição de linhas.
+
+Commit do merge: ec6ee65 (topo atual do branch).
+
+REVALIDAÇÃO COMPLETA APÓS O MERGE:
+  pnpm check (tsc --noEmit) .............. OK, sem erros
+  TZ=UTC pnpm test (suíte completa) ...... 519 aprovados, 11 falhas
+                                            históricas, 1 ignorado, de 531
+                                            (108 arquivos de teste)
+  Falhas batem com o baseline conhecido? . Sim — mesmas 7 suítes históricas
+                                            já documentadas acima; nenhuma
+                                            falha nova
+  pnpm build .............................. OK
+  git diff --check origin/main..HEAD ...... OK, sem whitespace inválido
+
+CONFERÊNCIA DE QUE AS 5 MUDANÇAS DESTE BRANCH SOBREVIVERAM AO MERGE:
+  - server/routers/masks.ts: procedure `update` presente (linha ~136)
+  - client/src/pages/ReportEditorPage.tsx: smartSeparator/getCharBeforeRange
+    presentes; DEFAULT_LAYOUT_PREFERENCES em uso
+  - client/src/pages/PacsQueryPage.tsx: DEFAULT_LAYOUT_PREFERENCES em uso
+    (sobreviveu ao auto-merge)
+  - server/audit-fixes-masks-update.test.ts: presente, 4/4 passando dentro
+    da suíte completa acima
+
+Nada neste adendo altera o escopo original (seção "RESUMO DO QUE MUDOU"
+continua válida como está). O único propósito deste merge foi trazer o
+branch para cima de main atual antes da revisão da Manus, evitando que ela
+audite um código desatualizado ou tenha que resolver conflitos na hora do
+merge final.
+
+PRÓXIMO FLUXO (igual ao original, sem mudança): revisar os 5 itens do
+"RESUMO DO QUE MUDOU", rodar a suíte na VM1, aprovar e mesclar. Como este
+branch já está com main em dia, o merge final deve ser fast-forward ou
+trivial (sem conflito esperado).
