@@ -12,6 +12,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { buildPdfPageBatch, pageHeightPx, pageWidthPx, resolvePdfPageElements } from "@/lib/pdfPageGeometry";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -1764,13 +1765,28 @@ setSelectedStudy(study);
     if (actionType === 'download') {
       toast.loading('Gerando arquivo PDF para download...', { id: 'pdf-dl' });
       try {
+        // CORREÇÃO (auditoria independente 2026-09-25, Achado 1, confirmado
+        // pela Manus): o seletor `.sheet` nunca existiu no HTML gerado — o
+        // HTML só produz `.print-page` (multisseção) ou `.print-shared-sheet`
+        // (seção única). O fallback `doc.body` capturava TODAS as folhas
+        // empilhadas como uma única imagem, inserida numa única página de
+        // PDF, sem `pdf.addPage()` nem proteção de altura — laudo
+        // multisseção saía com seções posteriores cortadas/ilegíveis, em A4
+        // ou Letter. Agora cada folha real é localizada e capturada
+        // individualmente, com uma página de PDF por folha, igual ao padrão
+        // já usado no download financeiro do editor
+        // (ReportEditorPage.tsx/handleFinancialPdfDownload) e no PDF do
+        // módulo Financeiro (financialReportPdfDownload.ts).
+        const pageWidthPxQ = pageWidthPx(pageSizeQ);
+        const pageHeightPxQ = pageHeightPx(pageSizeQ);
+
         // Criar iframe oculto para renderizar perfeitamente com CSS e imagens completas
         const iframe = document.createElement('iframe');
         iframe.style.position = 'fixed';
         iframe.style.left = '-9999px';
         iframe.style.top = '0';
-        iframe.style.width = '794px';
-        iframe.style.height = '1123px';
+        iframe.style.width = `${pageWidthPxQ}px`;
+        iframe.style.height = `${pageHeightPxQ}px`;
         document.body.appendChild(iframe);
 
         const doc = iframe.contentWindow?.document;
@@ -1783,26 +1799,35 @@ setSelectedStudy(study);
         // Aguardar carregamento de fontes e imagens
         await new Promise((resolve) => setTimeout(resolve, 800));
 
-        const targetEl = doc.querySelector('.sheet') || doc.body;
-        const canvas = await html2canvas(targetEl as HTMLElement, {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          windowWidth: 794,
-        });
+        const targetEls = resolvePdfPageElements(doc);
 
-        document.body.removeChild(iframe);
-
-        const imgData = canvas.toDataURL('image/png');
         // CORREÇÃO (Bloqueio 1, auditoria Manus 2026-09-24): formato vinha
         // hardcoded como 'a4', ignorando pageSizeQ — uma unidade configurada
         // para Letter baixava um PDF A4 pela impressão rápida, divergente das
         // outras 3 vias de geração de PDF do mesmo laudo.
         const pdf = new jsPDF('p', 'mm', pageSizeQ.toLowerCase() as 'a4' | 'letter');
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-        
+        const pdfPageWidth = pdf.internal.pageSize.getWidth();
+        const pdfPageHeight = pdf.internal.pageSize.getHeight();
+
+        const canvases = [];
+        for (let index = 0; index < targetEls.length; index += 1) {
+          const canvas = await html2canvas(targetEls[index], {
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            windowWidth: pageWidthPxQ,
+          });
+          canvases.push(canvas);
+        }
+        const batch = buildPdfPageBatch(canvases, pdfPageWidth, pdfPageHeight);
+        for (let index = 0; index < canvases.length; index += 1) {
+          const entry = batch[index];
+          if (entry.addPageBefore) pdf.addPage();
+          pdf.addImage(canvases[index].toDataURL('image/png'), 'PNG', entry.xOffset, 0, entry.width, entry.height);
+        }
+
+        document.body.removeChild(iframe);
+
         pdf.save(`Laudo_${patientName.replace(/\s+/g, '_')}.pdf`);
         toast.dismiss('pdf-dl');
         toast.success('PDF baixado com sucesso!');

@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { DEFAULT_LAYOUT_PREFERENCES } from "../../../shared/types";
+import { buildPdfPageBatch, pageHeightPx, pageWidthPx } from "./pdfPageGeometry";
 
 function absoluteUrl(value: string | null | undefined) {
   return value?.startsWith("/") ? `${window.location.origin}${value}` : value || "";
@@ -93,7 +94,18 @@ export async function downloadFinancialReportPdf(documentData: any) {
     </article>`).join("");
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
-  iframe.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;visibility:hidden;";
+  // CORREÇÃO (auditoria independente 2026-09-25, Achado 2, confirmado pela
+  // Manus): o iframe de captura ficava fixo em 794x1123px (proporção A4),
+  // e o html2canvas era chamado com windowWidth:794 fixo — independente do
+  // pageSize efetivo da unidade. Diferente das outras vias já corrigidas
+  // (Bloqueio 1, ReportEditorPage.tsx/PacsQueryPage.tsx), este arquivo não
+  // usava o módulo compartilhado pdfPageGeometry.ts. Agora as dimensões do
+  // iframe e o windowWidth do html2canvas derivam de pageSize (A4/Letter),
+  // e cada folha capturada passa por clampImageToPage antes do addImage,
+  // igual ao padrão das demais 3 vias.
+  const framePxWidth = pageWidthPx(pageSize);
+  const framePxHeight = pageHeightPx(pageSize);
+  iframe.style.cssText = `position:fixed;left:-10000px;top:0;width:${framePxWidth}px;height:${framePxHeight}px;border:0;visibility:hidden;`;
   document.body.appendChild(iframe);
   try {
     const doc = iframe.contentWindow?.document;
@@ -114,10 +126,18 @@ export async function downloadFinancialReportPdf(documentData: any) {
     const sheetElements = Array.from(doc.querySelectorAll<HTMLElement>(".print-page"));
     if (!sheetElements.length) throw new Error("Não foi possível preparar as páginas do documento.");
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: pageSize.toLowerCase() as "a4" | "letter" });
+    const pdfPageWidth = pdf.internal.pageSize.getWidth();
+    const pdfPageHeight = pdf.internal.pageSize.getHeight();
+    const canvases = [];
     for (let index = 0; index < sheetElements.length; index += 1) {
-      const canvas = await html2canvas(sheetElements[index], { scale: 2, useCORS: true, logging: false, backgroundColor: "#ffffff", windowWidth: 794 });
-      if (index > 0) pdf.addPage();
-      pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
+      const canvas = await html2canvas(sheetElements[index], { scale: 2, useCORS: true, logging: false, backgroundColor: "#ffffff", windowWidth: framePxWidth });
+      canvases.push(canvas);
+    }
+    const batch = buildPdfPageBatch(canvases, pdfPageWidth, pdfPageHeight);
+    for (let index = 0; index < canvases.length; index += 1) {
+      const entry = batch[index];
+      if (entry.addPageBefore) pdf.addPage();
+      pdf.addImage(canvases[index].toDataURL("image/png"), "PNG", entry.xOffset, 0, entry.width, entry.height);
     }
     pdf.save(`Laudo_${patientName.replace(/[^a-zA-Z0-9]+/g, "_") || "entregue"}.pdf`);
   } finally {

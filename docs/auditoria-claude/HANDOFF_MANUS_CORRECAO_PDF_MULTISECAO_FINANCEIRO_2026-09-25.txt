@@ -1,0 +1,229 @@
+HANDOFF TÉCNICO — CORREÇÃO DOS ACHADOS 1 E 2 (DOWNLOADS DE PDF)
+SETOR DE LAUDOS — IMPRESSÃO RÁPIDA E PDF FINANCEIRO DO MÉDICO
+
+Data: 25 de setembro de 2026
+Repositório: alessandrobarra7/pacs-v4
+Destinatário: Manus (e qualquer outro agente/engenheiro com acesso à VM1)
+Branch: claude/correcao-pdf-multisecao-financeiro
+Commit base: origin/main @ 72ba5fb (git rev-parse confirmado, não de memória)
+Documentos de origem:
+  - docs/auditoria-claude/AUDITORIA_INDEPENDENTE_SETOR_LAUDOS_2026-09-25.txt
+    (auditoria independente que encontrou os 2 achados)
+  - PARECER_CONFERENCIA_AUDITORIA_SETOR_LAUDOS_2026-09-25.txt (Manus, que
+    confirmou os 2 achados e recomendou correção imediata em branch
+    dedicada — não commitado no repo, documento externo)
+
+===============================================================================
+COMO CHEGAR NO CÓDIGO
+===============================================================================
+
+  git fetch origin claude/correcao-pdf-multisecao-financeiro
+  git checkout claude/correcao-pdf-multisecao-financeiro
+  git diff origin/main..HEAD --stat
+
+===============================================================================
+O MECANISMO DO ACHADO 1 E DA CORREÇÃO
+===============================================================================
+
+Arquivo: client/src/pages/PacsQueryPage.tsx (download pela "impressão
+rápida" da lista de exames).
+
+O HTML gerado para impressão/download nunca produz nenhum elemento com
+classe "sheet" — os elementos reais são `.print-page` (um por seção, em
+laudo multisseção) ou `.print-shared-sheet` (seção única, renderizado por
+`renderSharedReportSheetHtml`). O código de download, porém, fazia:
+
+  const targetEl = doc.querySelector('.sheet') || doc.body;
+
+Como `.sheet` nunca existe, o seletor sempre falhava e o fallback era
+sempre `doc.body`. Para um laudo com 2+ seções, o `body` contém TODAS as
+folhas `.print-page` empilhadas verticalmente. O código então chamava
+`html2canvas` UMA ÚNICA VEZ sobre esse `body` inteiro, gerando um único
+canvas alto com todas as folhas concatenadas, e inseria essa imagem única
+numa ÚNICA página de PDF (não havia `pdf.addPage()` nem laço nesta função —
+apenas uma chamada de `pdf.addImage`), com a altura calculada só pela
+proporção, sem nenhuma proteção contra estouro. Resultado: laudos
+multisseção baixados por este caminho específico saíam com as seções
+posteriores à primeira comprimidas, cortadas ou ilegíveis — em A4 e em
+Letter, já que o defeito não depende do tamanho de página.
+
+Correção:
+1. Nova função pura `resolvePdfPageElements(doc)` em
+   client/src/lib/pdfPageGeometry.ts: localiza `.print-page, .print-shared-
+   sheet` reais; cai em `[doc.body]` apenas se nenhuma das duas classes
+   existir (documento fora do padrão esperado). PacsQueryPage.tsx agora usa
+   essa função em vez do seletor `.sheet` quebrado.
+2. O download agora CAPTURA CADA FOLHA INDIVIDUALMENTE (um `html2canvas`
+   por elemento resolvido), acumula os canvases, e usa a nova função pura
+   `buildPdfPageBatch(canvases, pdfPageWidth, pdfPageHeight)` (mesmo
+   módulo) para calcular, folha por folha: altura por proporção, `clamp`
+   contra estouro de altura (reaproveitando `clampImageToPage`, já existente
+   e testado desde a correção do Bloqueio 1 anterior) e `addPageBefore`
+   (true para toda folha exceto a primeira). O laço final chama
+   `pdf.addPage()` quando `addPageBefore` é true, e insere cada imagem já
+   posicionada/clampada — uma página de PDF por folha real, nunca todas
+   espremidas numa só.
+3. A largura/altura do iframe de captura oculto, e o `windowWidth` passado
+   ao `html2canvas`, deixaram de ser fixos em 794×1123px (proporção A4) e
+   agora derivam de `pageSizeQ` via as novas funções `pageWidthPx`/
+   `pageHeightPx` (mesmo módulo) — ver Achado 2 abaixo, o mesmo padrão de
+   valor fixo existia aqui também, embora sem o mesmo grau de certeza sobre
+   impacto visual comprovado.
+
+===============================================================================
+O MECANISMO DO ACHADO 2 E DA CORREÇÃO
+===============================================================================
+
+Arquivo: client/src/lib/financialReportPdfDownload.ts (usado por
+client/src/pages/finance/FinanceMeuFinanceiro.tsx — download do laudo
+assinado pela tela financeira do médico).
+
+Este é um caminho de download TOTALMENTE SEPARADO dos corrigidos nas
+rodadas anteriores (ReportEditorPage.tsx, SharedReportPrint.tsx,
+PacsQueryPage.tsx antes desta correção). Ele já lia `pageSize`/margens das
+preferências da unidade (correção de uma rodada anterior, branch
+`claude/correcao-paginas-laudo-pdf`) e usava `paperWidth`/`paperHeight`
+corretos no CSS da folha — mas o CONTÊINER onde a folha era renderizada (o
+iframe oculto) permanecia com largura/altura de pixel FIXAS em 794×1123
+(proporção A4), independente do `pageSize` efetivo, e o `html2canvas` era
+chamado com `windowWidth: 794` também fixo. O `addImage` final esticava a
+imagem capturada para preencher exatamente `pdf.internal.pageSize.getWidth
+()` × `getHeight()` da página de destino, sem clamp — mesma classe de bug
+do Bloqueio 1 corrigido em ReportEditorPage.tsx, mas neste arquivo irmão
+nunca replicada. O arquivo já iterava `.print-page` corretamente e já tinha
+`pdf.addPage()` entre páginas (por isso não repetia o defeito de
+empilhamento do Achado 1) — o problema era exclusivamente de geometria
+Letter.
+
+Correção: o mesmo padrão do Achado 1 — `pageWidthPx`/`pageHeightPx` para
+dimensionar o iframe e o `windowWidth`, e `buildPdfPageBatch` para calcular
+altura/clamp por folha antes de cada `addImage`, em vez de esticar
+diretamente para o tamanho cheio da página.
+
+===============================================================================
+NOVO MÓDULO COMPARTILHADO (extensão de pdfPageGeometry.ts)
+===============================================================================
+
+client/src/lib/pdfPageGeometry.ts (já existente desde a correção do
+Bloqueio 1 anterior) ganhou 4 novas exportações, todas funções puras sem
+dependência de DOM/browser real (exceto `resolvePdfPageElements`, que
+recebe um `Document` já pronto):
+
+  - MM_TO_PX_96DPI: constante de conversão (3.7795275591 px/mm)
+  - pageWidthPx(pageSize) / pageHeightPx(pageSize): dimensão física da
+    página em pixels a 96dpi — usada para dimensionar iframes de captura e
+    o parâmetro `windowWidth` do html2canvas, substituindo os valores 794/
+    1123 fixos que existiam em 2 arquivos diferentes.
+  - resolvePdfPageElements(doc): localiza as folhas reais de um documento
+    de impressão (`.print-page`/`.print-shared-sheet`), com fallback seguro.
+  - buildPdfPageBatch(canvases, pdfPageWidth, pdfPageHeight): dado um array
+    de dimensões de canvas já capturados, retorna a posição/dimensão final
+    de cada um no PDF (clamp aplicado individualmente) e um booleano
+    `addPageBefore` por entrada — permite provar, sem precisar de
+    html2canvas/jsPDF reais, que N folhas resultam em N páginas.
+
+Ambos os arquivos corrigidos (PacsQueryPage.tsx e
+financialReportPdfDownload.ts) agora importam e usam essas 4 funções em vez
+de reimplementar a lógica com valores hardcoded — elimina a duplicação que
+causou a divergência original entre as "4 vias".
+
+===============================================================================
+TESTES NOVOS
+===============================================================================
+
+server/pdf-multipage-fix.test.ts (11 testes, `@vitest-environment jsdom`,
+Manus pediu explicitamente que não fossem apenas busca textual de
+pageSize no arquivo):
+
+  - resolvePdfPageElements: DOM real com 2 `.print-page` → resolve
+    exatamente 2 elementos, nenhum deles é `doc.body`; DOM real com 1
+    `.print-shared-sheet` → resolve 1 elemento; DOM sem nenhuma das duas
+    classes → cai em `[doc.body]`; e um teste que reproduz literalmente o
+    bug original (`.sheet` nunca existe) com 3 `.print-page`, confirmando
+    que a nova resolução nunca colapsa as 3 folhas numa única.
+  - buildPdfPageBatch: 2 canvases → 2 entradas, a segunda com
+    addPageBefore=true (prova direta de "N folhas → N páginas"); 1 canvas →
+    1 entrada sem addPage; 5 canvases → padrão [false, true, true, true,
+    true]; clamp aplicado corretamente em Letter quando uma folha estoura a
+    altura física, preservando proporção e centralizando, enquanto uma
+    folha com proporção exata não sofre clamp nenhum; A4 com proporção
+    exata não é indevidamente clampado.
+  - pageWidthPx/pageHeightPx: confirma que A4 e Letter derivam pixels
+    físicos DISTINTOS (A4 = 794×1123, os valores antigos hardcoded — mas
+    agora como resultado de cálculo, não constante fixa; Letter = valores
+    maiores em largura e menores em altura, nunca mais os mesmos 794/1123).
+
+===============================================================================
+VALIDAÇÃO EXECUTADA
+===============================================================================
+  Estado Git: branch criada a partir de origin/main @ 72ba5fb (confirmado
+              via git rev-parse); nenhum commit pendente em main na hora da
+              criação.
+  pnpm check ............................... Aprovado, sem erro TypeScript
+  server/pdf-multipage-fix.test.ts ......... 11 aprovados
+  TZ=UTC pnpm test (suíte completa) ........ 567 aprovados, 11 falhas
+                                              históricas, 1 skip, de 579
+                                              (556 + 11 novos testes deste
+                                              branch = 567)
+  Falhas batem com o baseline conhecido? ... Sim — mesmas 7 suítes já
+                                              documentadas (exam-catalog-
+                                              security, finance-v2-dashboard,
+                                              mediaProxy, pacs-desktop-
+                                              download-progress, pacs.mobile-
+                                              ui, security.auth, study-
+                                              priority-ui). Nenhuma nova.
+  pnpm build ................................ Aprovado, só aviso
+                                              preexistente de bundle grande
+  git diff --check origin/main..HEAD ........ Aprovado, sem whitespace
+                                              inválido
+
+Arquivos alterados/criados nesta rodada:
+  - client/src/lib/pdfPageGeometry.ts (4 novas funções puras)
+  - client/src/pages/PacsQueryPage.tsx (Achado 1 — captura por folha real,
+    N páginas de PDF, dimensão de captura derivada de pageSize)
+  - client/src/lib/financialReportPdfDownload.ts (Achado 2 — dimensão de
+    captura derivada de pageSize, clamp por folha)
+  - server/pdf-multipage-fix.test.ts (novo — 11 testes DOM reais/funções
+    puras)
+
+===============================================================================
+O QUE NÃO FOI ALTERADO / FORA DE ESCOPO
+===============================================================================
+
+  - Nenhuma migration de banco.
+  - Nenhum dado de produção tocado.
+  - As 3 observações de severidade baixa da auditoria independente (O-1:
+    rel="noopener noreferrer" em links; O-2: sanitização de CSS em style;
+    O-3: ausência de procedure de exportação de máscaras) NÃO foram
+    tratadas nesta rodada — a Manus classificou como baixa prioridade e
+    pediu explicitamente para não misturar com o patch urgente dos PDFs.
+    Ficam registradas para decisão separada.
+  - O roteiro de homologação manual (docs/auditoria-claude/
+    ROTEIRO_HOMOLOGACAO_MANUAL_SETOR_LAUDOS_2026-09-25.txt) ainda precisa
+    ser executado, agora incluindo explicitamente as duas vias corrigidas
+    nesta rodada (download rápido da lista de exames e PDF financeiro do
+    médico), conforme a seção 7 do parecer de conferência da Manus.
+
+===============================================================================
+ESTADO ATUAL
+===============================================================================
+Publicado no GitHub (branch claude/correcao-pdf-multisecao-financeiro), sem
+PR aberto, sem merge, nada implantado em VM1/VM2/VM3.
+
+===============================================================================
+PRÓXIMO FLUXO SEGURO (repetindo os gates que a própria Manus listou no
+parecer de conferência, seção 6)
+===============================================================================
+1. Revisão independente deste diff no sandbox.
+2. Testes direcionados novos e existentes + TZ=UTC pnpm test completo,
+   comparando com o baseline acima.
+3. pnpm build.
+4. Merge sem reescrever histórico.
+5. Atualização da VM1 exclusivamente por git fetch + merge --ff-only a
+   partir de main.
+6. Build, restart PM2, health check HTTP 200.
+7. Homologação manual dos QUATRO caminhos de PDF (impressão oficial,
+   download financeiro do editor, download rápido da lista de exames, PDF
+   financeiro do médico), incluindo explicitamente os dois cenários já
+   descritos no roteiro (Letter+margens+rodapé; unidade sem preferência
+   salva) e laudo multisseção real em cada via.

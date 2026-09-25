@@ -44,3 +44,58 @@ export const clampImageToPage = (
   const xOffset = (pdfPageWidth - clampedWidth) / 2;
   return { width: clampedWidth, height: clampedHeight, xOffset };
 };
+
+export const MM_TO_PX_96DPI = 3.7795275591;
+
+/** Largura física da página em pixels a 96dpi, para dimensionar o iframe/janela de captura do html2canvas. */
+export const pageWidthPx = (pageSize: PageSize): number => Math.round(pageWidthMm(pageSize) * MM_TO_PX_96DPI);
+
+/** Altura física da página em pixels a 96dpi, para dimensionar o iframe/janela de captura do html2canvas. */
+export const pageHeightPx = (pageSize: PageSize): number => Math.round(pageHeightMm(pageSize) * MM_TO_PX_96DPI);
+
+/**
+ * Localiza as folhas reais de um documento de impressão/PDF gerado pelo
+ * editor de laudos: `.print-page` (uma por seção, modo multisseção) ou
+ * `.print-shared-sheet` (folha única). Cai em `[doc.body]` apenas quando
+ * nenhuma das duas classes existir (documento fora do padrão esperado).
+ *
+ * Extraída para corrigir e prevenir a regressão do Achado 1 (auditoria
+ * independente 2026-09-25, confirmada pela Manus): o seletor `.sheet`
+ * usado antes em PacsQueryPage.tsx nunca casava com nenhum elemento real
+ * do HTML gerado, então SEMPRE caía no fallback `doc.body` — para um
+ * laudo multisseção, isso capturava todas as folhas empilhadas como uma
+ * única imagem, inserida numa única página de PDF.
+ */
+export const resolvePdfPageElements = (doc: Document): HTMLElement[] => {
+  const pages = Array.from(doc.querySelectorAll<HTMLElement>(".print-page, .print-shared-sheet"));
+  return pages.length > 0 ? pages : [doc.body];
+};
+
+export interface PdfPageBatchEntry extends ClampedImagePlacement {
+  /** true para toda folha exceto a primeira — indica que o chamador deve inserir `pdf.addPage()` antes desta entrada. */
+  addPageBefore: boolean;
+}
+
+/**
+ * Calcula, para uma lista de canvases já capturados (um por folha), a
+ * posição/dimensão final de cada imagem no PDF de destino — width da
+ * página, altura por proporção, com `clampImageToPage` aplicado
+ * individualmente a cada folha, e `addPageBefore` marcando toda entrada
+ * após a primeira.
+ *
+ * Extraída para permitir provar, sem precisar de um motor de renderização
+ * real (jsPDF/html2canvas), que N folhas capturadas resultam em N entradas
+ * — ou seja, N páginas no PDF final, uma por folha, nunca uma única imagem
+ * com todas as folhas espremidas juntas (o defeito do Achado 1).
+ */
+export const buildPdfPageBatch = (
+  canvases: Array<{ width: number; height: number }>,
+  pdfPageWidth: number,
+  pdfPageHeight: number,
+): PdfPageBatchEntry[] => {
+  return canvases.map((canvas, index) => {
+    const rawHeight = (canvas.height * pdfPageWidth) / canvas.width;
+    const clamped = clampImageToPage(pdfPageWidth, rawHeight, pdfPageWidth, pdfPageHeight);
+    return { ...clamped, addPageBefore: index > 0 };
+  });
+};
