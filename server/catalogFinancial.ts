@@ -91,13 +91,26 @@ export async function createCatalogEventsWhenComplete(input: { studyUid: string;
       eq(billing_system_unit_prices.unit_id, input.unitId),
     )),
   ]);
-  // billing_doctor_exam_legend_prices usa starts_at/ends_at do tipo `date`
-  // (string), enquanto selectActiveByVigency espera `Date` -- normaliza antes
-  // de reutilizar o mesmo helper de vigência usado pelas outras fontes.
+  // FIX (2026-09-24, bloqueio 1 da revisao Manus): billing_doctor_exam_legend_prices
+  // usa starts_at/ends_at do tipo `date` do MySQL (string "YYYY-MM-DD", sem
+  // horario). A primeira versao fazia `new Date(row.ends_at)`, que o
+  // JavaScript interpreta como 00:00:00.000 UTC daquele dia -- ou seja, um
+  // preco com ends_at = "2026-08-21" era tratado como encerrado a partir da
+  // MEIA-NOITE do proprio dia 21, e nao ao final dele. Uma assinatura as
+  // 12:00 UTC do dia 21 ja falhava a checagem de vigencia (`endsAt >= at`),
+  // caindo indevidamente para o preco por modalidade ou para pendente.
+  //
+  // Zona operacional adotada explicitamente aqui: UTC -- mesma convencao do
+  // resto do sistema (testes rodam com TZ=UTC, signed_at e armazenado em
+  // UTC, e todas as outras tabelas de vigencia do modulo financeiro tratam
+  // a data de negocio como o dia calendario em UTC). A correcao normaliza
+  // ends_at para o ULTIMO instante daquele dia calendario em UTC
+  // (23:59:59.999Z), preservando o dia inteiro de vigencia. starts_at
+  // permanece 00:00:00.000Z do dia (inicio do dia, ja correto por padrao).
   const doctorLegendRowsNormalized = doctorLegendRows.map((row) => ({
     ...row,
-    starts_at: new Date(row.starts_at),
-    ends_at: row.ends_at ? new Date(row.ends_at) : null,
+    starts_at: new Date(`${row.starts_at}T00:00:00.000Z`),
+    ends_at: row.ends_at ? new Date(`${row.ends_at}T23:59:59.999Z`) : null,
   }));
   const doctorLegendPrice = selectActiveByVigency(doctorLegendRowsNormalized, input.signedAt);
   const doctorModalityPrice = selectActiveByVigency(doctorModalityRows, input.signedAt);

@@ -993,6 +993,13 @@ export const financeSimpleRouter = router({
           doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
           doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
           doctor_pending_count: sql<number>`SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NULL THEN 1 ELSE 0 END)`,
+          // FIX (2026-09-24, bloqueio 2 da revisao Manus): conta separadamente
+          // quantos laudos deste medico JA TEM preco aplicado (doctor_amount_due
+          // nao nulo) -- necessario para nao dividir o total pelo numero TOTAL
+          // de laudos (que inclui os ainda sem preco, "pending_doctor_price"),
+          // o que mascarava pendencia de precificacao tratando-a como preco
+          // zero dentro da media exibida.
+          doctor_priced_count: sql<number>`SUM(CASE WHEN ${billing_visit_events.doctor_amount_due} IS NOT NULL THEN 1 ELSE 0 END)`,
           last_received_at: sql<Date | null>`MAX(${billing_visit_events.doctor_received_at})`,
         })
         .from(billing_visit_events)
@@ -1015,6 +1022,8 @@ export const financeSimpleRouter = router({
             doctor_total: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
             doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.doctor_received_at} IS NOT NULL THEN ${billing_catalog_study_events.price_applied} ELSE 0 END), 0)`,
             doctor_pending_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.doctor_received_at} IS NULL AND ${billing_catalog_study_events.price_applied} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
+            // Ver comentario equivalente na query de legacyRows acima.
+            doctor_priced_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.price_applied} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
             last_received_at: sql<Date | null>`MAX(${billing_catalog_study_events.doctor_received_at})`,
           })
           .from(billing_catalog_study_events)
@@ -1035,6 +1044,7 @@ export const financeSimpleRouter = router({
         doctor_total: number;
         doctor_paid: number;
         doctor_pending_count: number;
+        doctor_priced_count: number;
         last_received_at: Date | null;
       }>();
       for (const row of legacyRows) {
@@ -1046,6 +1056,7 @@ export const financeSimpleRouter = router({
           doctor_total: toMoney(row.doctor_total),
           doctor_paid: toMoney(row.doctor_paid),
           doctor_pending_count: Number(row.doctor_pending_count),
+          doctor_priced_count: Number(row.doctor_priced_count),
           last_received_at: row.last_received_at,
         });
       }
@@ -1059,6 +1070,7 @@ export const financeSimpleRouter = router({
           doctor_total: (current?.doctor_total ?? 0) + toMoney(row.doctor_total),
           doctor_paid: (current?.doctor_paid ?? 0) + toMoney(row.doctor_paid),
           doctor_pending_count: (current?.doctor_pending_count ?? 0) + Number(row.doctor_pending_count),
+          doctor_priced_count: (current?.doctor_priced_count ?? 0) + Number(row.doctor_priced_count),
           last_received_at: [current?.last_received_at, row.last_received_at]
             .filter((value): value is Date => value instanceof Date)
             .sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
@@ -1094,23 +1106,31 @@ export const financeSimpleRouter = router({
       }
 
       return rows.map((r) => {
-        // FIX (AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO_2026-09-24, Achado 4):
+        // FIX (AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO_2026-09-24, Achado 4,
+        // e bloqueio 2 da revisao Manus em 2026-09-24):
         // price_per_report vinha do preco ATUALMENTE configurado
         // (billing_doctor_unit_prices), desacoplado de doctor_total /
         // total_laudos -- que sao somas dos valores REALMENTE aplicados em
-        // cada evento no momento da assinatura. Se o preco muda depois (ex.:
-        // reconfigurado no meio do ciclo, ou apos revisao de modalidade),
-        // essas duas fontes divergem e a tela mostra algo matematicamente
-        // impossivel: "1 laudo, R$1,00/laudo, Total R$10,00" (confirmado ao
-        // vivo em producao, unidade HOSPITAL DA CRIANCA, Dra. Claudia
-        // Cipriano). A correcao deriva o R$/Laudo exibido do proprio total
-        // ja calculado (media dos valores efetivamente aplicados no ciclo) --
-        // sempre consistente com a coluna Total por construcao. So cai para
-        // o preco configurado quando nao houve nenhum laudo no ciclo (nao ha
-        // o que derivar), preservando o uso desse campo como preview de
-        // configuracao nesse caso especifico.
-        const derivedPricePerReport = r.total_laudos > 0
-          ? toMoney(r.doctor_total / r.total_laudos)
+        // cada evento no momento da assinatura. A primeira correcao dividiu
+        // doctor_total por total_laudos, mas a Manus apontou dois problemas
+        // nisso: (1) total_laudos inclui laudos AINDA SEM preco aplicado
+        // (pending_doctor_price), que entram no total como se fossem preco
+        // zero, distorcendo a media para baixo e escondendo a pendencia; e
+        // (2) uma media de 2 casas decimais nao garante
+        // preco_exibido * quantidade == total (ex.: R$0,87 em 2 laudos vira
+        // R$0,44/laudo, que multiplicado por 2 da R$0,88, nao R$0,87) -- a
+        // tela nao deve prometer essa igualdade.
+        //
+        // Correcao: o denominador passa a ser SOMENTE os laudos que ja tem
+        // preco aplicado (doctor_priced_count), nunca total_laudos. O
+        // resultado e exposto como price_per_report (mantido por
+        // compatibilidade com o frontend existente) mas deve ser entendido
+        // e rotulado no frontend como MEDIA EFETIVA do periodo, nao como uma
+        // tarifa fixa exata -- ver pending_price_count abaixo para o
+        // frontend sinalizar quando parte dos laudos ainda nao tem preco.
+        const pendingPriceCount = r.total_laudos - r.doctor_priced_count;
+        const derivedPricePerReport = r.doctor_priced_count > 0
+          ? toMoney(r.doctor_total / r.doctor_priced_count)
           : (r.doctor_user_id ? (priceMap.get(r.doctor_user_id) ?? null) : null);
         return {
           doctor_user_id: r.doctor_user_id,
@@ -1121,7 +1141,18 @@ export const financeSimpleRouter = router({
           doctor_pending: subMoney(r.doctor_total, r.doctor_paid),   // FIX float
           doctor_pending_count: Number(r.doctor_pending_count),
           last_received_at: r.last_received_at,
+          // Média efetiva do período (Total ÷ Laudos já precificados) — não
+          // é necessariamente igual ao preço configurado hoje, nem
+          // necessariamente multiplica de volta para o total exato quando
+          // há mais de uma tarifa aplicada no período (arredondamento de
+          // centavos). Ver priced_laudos_count / pending_price_count.
           price_per_report: derivedPricePerReport,
+          // Quantos dos total_laudos já têm preço aplicado (entraram no
+          // cálculo acima) vs. quantos ainda estão pendentes de
+          // precificação (não entram no denominador, não são tratados como
+          // preço zero).
+          priced_laudos_count: r.doctor_priced_count,
+          pending_price_count: pendingPriceCount,
           // Preco atualmente configurado (pode divergir do price_per_report
           // acima quando o preco mudou durante o ciclo) -- exposto para quem
           // quiser mostrar os dois lado a lado.
@@ -4618,7 +4649,7 @@ export const financeSimpleRouter = router({
           .limit(pageSize2)
           .offset((page2 - 1) * pageSize2);
         type DayEntry = { date: string; reports: number; amount: number };
-        type UnitEntry = { unit_id: number; unit_name: string; reports: number; amount: number; price_per_report: string; days: DayEntry[] };
+        type UnitEntry = { unit_id: number; unit_name: string; reports: number; priced_reports: number; pending_price_count: number; amount: number; price_per_report: string; days: DayEntry[] };
         type DoctorEntry = { doctor_id: number; doctor_name: string; total_reports: number; total_amount: number; units: UnitEntry[] };
         const doctorMap = new Map<number, DoctorEntry>();
         let grandTotal = 0;
@@ -4628,32 +4659,48 @@ export const financeSimpleRouter = router({
           const doc = doctorMap.get(did)!;
           const uid = row.event.unit_id;
           let ue = doc.units.find(u => u.unit_id === uid);
-          // FIX (AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO_2026-09-24, Achado 4b):
+          // FIX (AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO_2026-09-24, Achado 4b,
+          // e bloqueio 2 da revisao Manus em 2026-09-24):
           // price_per_report era fixado com o valor da PRIMEIRA linha
           // encontrada para este medico+unidade, enquanto reports/amount
-          // continuavam acumulando por TODAS as linhas seguintes. Se o preco
-          // aplicado mudou entre eventos dentro do mesmo periodo (modalidade
-          // reconfigurada, nova vigencia etc.), o valor mostrado passava a
-          // nao representar nem o primeiro nem a media dos eventos somados.
-          // Corrigido abaixo: depois de somar reports/amount, price_per_report
-          // e recalculado como amount/reports (media real aplicada).
-          if (!ue) { ue = { unit_id: uid, unit_name: row.unit_name ?? `Unidade ${uid}`, reports: 0, amount: 0, price_per_report: '0', days: [] }; doc.units.push(ue); }
+          // continuavam acumulando por TODAS as linhas seguintes. A primeira
+          // correcao passou a recalcular como amount/reports no final, mas a
+          // Manus apontou dois problemas adicionais: (1) reports contava
+          // TODOS os eventos, incluindo os que ainda nao tem
+          // doctor_price_applied (pendentes de precificacao) -- esses
+          // entravam no denominador como se fossem preco zero, distorcendo a
+          // media para baixo e escondendo a pendencia; e (2) amount era
+          // acumulado com += em ponto flutuante ao longo de muitas
+          // iteracoes, o que pode divergir por erro de representacao binaria
+          // (ex.: 0.29 + 0.58 nem sempre da exatamente 0.87 em float).
+          // Corrigido: (1) priced_reports conta so os eventos com preco
+          // aplicado, e e o denominador da media -- nao reports; (2) toMoney()
+          // e aplicado a CADA soma, arredondando para o centavo mais proximo
+          // imediatamente apos cada adicao, o que impede o erro de
+          // representacao de se acumular ao longo de muitas iteracoes.
+          if (!ue) { ue = { unit_id: uid, unit_name: row.unit_name ?? `Unidade ${uid}`, reports: 0, priced_reports: 0, pending_price_count: 0, amount: 0, price_per_report: '0', days: [] }; doc.units.push(ue); }
           const rawDate2 = row.event.study_date;
           const d = rawDate2 ? (rawDate2 instanceof Date ? rawDate2.toISOString().split('T')[0] : String(rawDate2).split('T')[0]) : 'sem-data';
           let de = ue.days.find(x => x.date === d);
           if (!de) { de = { date: d, reports: 0, amount: 0 }; ue.days.push(de); }
+          const hasPrice = row.event.doctor_price_applied !== null && row.event.doctor_price_applied !== undefined;
           const amt = toMoney(row.event.doctor_price_applied ?? 0);
-          de.reports += 1; de.amount += amt;
-          ue.reports += 1; ue.amount += amt;
-          doc.total_reports += 1; doc.total_amount += amt;
-          grandTotal += amt;
+          de.reports += 1; de.amount = toMoney(de.amount + amt);
+          ue.reports += 1; ue.amount = toMoney(ue.amount + amt);
+          if (hasPrice) ue.priced_reports += 1;
+          doc.total_reports += 1; doc.total_amount = toMoney(doc.total_amount + amt);
+          grandTotal = toMoney(grandTotal + amt);
         }
         // Recalcula price_per_report como a media dos valores realmente
-        // aplicados (amount/reports) apos toda a agregacao -- ver comentario
-        // FIX Achado 4b acima, no ponto onde `ue` e criado.
+        // aplicados (amount/priced_reports, nao amount/reports) apos toda a
+        // agregacao -- ver comentario FIX acima, no ponto onde `ue` e
+        // criado. Continua sendo uma MEDIA (rótulo no frontend deve deixar
+        // isso claro), nao uma tarifa fixa que multiplicada pelos laudos
+        // reproduz o total exato quando há mais de um preço no período.
         for (const doc of Array.from(doctorMap.values())) {
           for (const ue of doc.units) {
-            ue.price_per_report = ue.reports > 0 ? (ue.amount / ue.reports).toFixed(2) : '0';
+            ue.pending_price_count = ue.reports - ue.priced_reports;
+            ue.price_per_report = ue.priced_reports > 0 ? (ue.amount / ue.priced_reports).toFixed(2) : '0';
           }
         }
         return { doctors: Array.from(doctorMap.values()), grand_total: grandTotal, responsible_id: targetResponsibleId ?? null, total: total2, page: page2, pageSize: pageSize2, hasMore: total2 > page2 * pageSize2 };
