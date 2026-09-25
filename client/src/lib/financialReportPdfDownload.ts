@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { DEFAULT_LAYOUT_PREFERENCES } from "../../../shared/types";
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx } from "./pdfPageGeometry";
-import { measureTopLevelBlocks, splitBlocksIntoPages } from "./reportPagination";
+import { paginateSectionIntoPages } from "./reportPagination";
 
 // CORREÇÃO (revisão Manus 2026-09-25, bloqueio "laudo único longo é
 // cortado no PDF financeiro"): reserva fixa de altura para o bloco de
@@ -147,7 +147,7 @@ export async function downloadFinancialReportPdf(documentData: any) {
       * { box-sizing:border-box; } html,body { margin:0;padding:0;background:#fff;color:#111;font-family:${fontFamily},Arial,sans-serif; }
       .print-page { width:${paperWidth};height:${paperHeight};position:relative;overflow:hidden;padding:${marginTop}mm ${marginRight}mm ${marginBottom}mm ${marginLeft}mm;background:#fff center/cover no-repeat;page-break-after:always;font-size:${fontSize}pt;line-height:${lineHeight};display:flex;flex-direction:column; }
       .print-page:last-child { page-break-after:auto; } header { display:flex;align-items:center;gap:8px;min-height:18mm;border-bottom:1px solid #d0d0d0;padding-bottom:4mm; } header img { max-height:15mm;max-width:45mm;object-fit:contain; } .header-spacer { flex:1; }
-      .patient { font-size:9.5pt;line-height:1.7;margin:5mm 0; } h1 { font-size:12pt;text-align:center;text-transform:uppercase;letter-spacing:.04em;margin:4mm 0 7mm; } .report-body { flex:1;min-height:0;overflow-wrap:anywhere; } .report-body p,.report-body div { margin-bottom:3pt; }
+      .patient { font-size:9.5pt;line-height:1.7;margin:5mm 0; } h1 { font-size:12pt;text-align:center;text-transform:uppercase;letter-spacing:.04em;margin:4mm 0 7mm; } .report-body { flex:1;min-height:0;overflow-wrap:anywhere;overflow:hidden; } .report-body p,.report-body div { margin-bottom:3pt; }
       .footer-reserve { min-height:${FOOTER_RESERVE_MM}mm;display:flex;align-items:flex-end;justify-content:center; }
       .doctor-footer { text-align:center;margin:0 auto 3mm;max-width:65mm;page-break-inside:avoid;font-size:9pt; } .doctor-footer span { display:block;margin-top:2pt;color:#444; } .signature,.stamp { display:block;object-fit:contain;margin:0 auto 2mm; } .signature { max-width:45mm;max-height:13mm; } .stamp { max-width:53mm;max-height:24mm; } .signature-line { border-top:1px solid #333;width:45mm;margin:0 auto 2mm; }
       .unit-footer { position:absolute;bottom:0;left:0;width:100%;max-height:28mm;object-fit:contain; }
@@ -155,39 +155,64 @@ export async function downloadFinancialReportPdf(documentData: any) {
     doc.close();
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    // ── Medir a altura disponível do corpo, uma única vez ──────────────
-    // Folha-modelo com header/dados do paciente/título reais e corpo
-    // vazio: o flex:1 do `.report-body` calcula sozinho o espaço restante
-    // dentro da altura FIXA real da página, já descontando o
-    // `.footer-reserve` (sempre presente, preenchido ou não).
-    const templateWrapper = doc.createElement("div");
-    templateWrapper.style.cssText = "position:absolute;visibility:hidden;left:-99999px;top:0;";
-    templateWrapper.innerHTML = buildPageShell(sections[0]?.title || "Laudo", "", doctorFooter);
-    doc.body.appendChild(templateWrapper);
-    const templateBodyEl = templateWrapper.querySelector<HTMLElement>(".report-body");
-    const availableBodyHeightPx = templateBodyEl?.getBoundingClientRect().height ?? 0;
-    doc.body.removeChild(templateWrapper);
-    if (availableBodyHeightPx <= 0) throw new Error("Não foi possível medir a área útil da página para paginação.");
+    // ── Checagem preventiva: a área útil do corpo é medível? ────────────
+    // Não usamos mais este número para DECIDIR a paginação (ver bloco
+    // abaixo) — a decisão agora vem da inserção incremental real em cada
+    // folha. Mas uma folha-modelo com área útil <= 0 (layout mal
+    // configurado, CSS não carregado etc.) faria a paginação real falhar
+    // de forma confusa (todo conteúdo pareceria "maior que a página");
+    // verificar aqui dá um erro claro e cedo.
+    const sanityWrapper = doc.createElement("div");
+    sanityWrapper.style.cssText = "position:absolute;visibility:hidden;left:-99999px;top:0;";
+    sanityWrapper.innerHTML = buildPageShell(sections[0]?.title || "Laudo", "", doctorFooter);
+    doc.body.appendChild(sanityWrapper);
+    const sanityBodyEl = sanityWrapper.querySelector<HTMLElement>(".report-body");
+    const sanityAvailableHeightPx = sanityBodyEl?.getBoundingClientRect().height ?? 0;
+    doc.body.removeChild(sanityWrapper);
+    if (sanityAvailableHeightPx <= 0) throw new Error("Não foi possível medir a área útil da página para paginação.");
 
     // ── Paginar cada seção antes da captura ─────────────────────────────
-    // Mede a altura real de cada bloco de conteúdo (em fluxo livre, mesma
-    // largura/fonte da folha real) e decide em qual folha física cada
-    // bloco entra — nenhum bloco é cortado, uma seção pode virar 1+ folhas.
+    // CORREÇÃO (Parecer de revisão da Manus, 2026-09-25, bloqueios B1/B2/
+    // B3): a versão anterior somava alturas pré-medidas de cada
+    // filho-elemento, sem contar margens, e ignorava nós de texto soltos
+    // (fora de tag) — a Manus mediu 23px de conteúdo excedente aceito
+    // indevidamente com esse método. Agora, em vez de somar alturas,
+    // inserimos incrementalmente clones reais de CADA nó do corpo
+    // (elementos e texto solto) numa folha física real e verificamos
+    // `scrollHeight <= clientHeight` após cada inserção — isso conta
+    // corretamente margens, colapso de margem e qualquer regra de CSS
+    // real, e nunca perde texto solto. Um bloco que não caiba nem sozinho
+    // numa página vazia é fragmentado por palavra (parágrafo/texto
+    // simples) ou interrompe a geração com um erro explícito — nunca
+    // produz um PDF com conteúdo cortado silenciosamente. Ver
+    // client/src/lib/reportPagination.ts (paginateSectionIntoPages) para
+    // o mecanismo completo.
     const physicalPages: Array<{ title: string; bodyHtml: string }> = [];
     for (const section of sections) {
-      const measureWrapper = doc.createElement("div");
-      measureWrapper.style.cssText = "position:absolute;visibility:hidden;left:-99999px;top:0;";
-      measureWrapper.innerHTML = `<article class="print-page" style="height:auto;overflow:visible;"><main class="report-body" style="overflow:visible;">${withoutUnsupportedColors(section.body || "")}</main></article>`;
-      doc.body.appendChild(measureWrapper);
-      const sectionBodyEl = measureWrapper.querySelector<HTMLElement>(".report-body")!;
-      const blocks = measureTopLevelBlocks(sectionBodyEl);
-      doc.body.removeChild(measureWrapper);
+      const sourceContainer = doc.createElement("div");
+      sourceContainer.style.cssText = "position:absolute;visibility:hidden;left:-99999px;top:0;";
+      sourceContainer.innerHTML = withoutUnsupportedColors(section.body || "");
+      doc.body.appendChild(sourceContainer);
 
-      const chunkedPages = blocks.length > 0
-        ? splitBlocksIntoPages(blocks, availableBodyHeightPx)
-        : [[withoutUnsupportedColors(section.body || "")]]; // conteúdo sem blocos de nível superior (texto solto) — 1 folha, sem paginação
-      for (const chunk of chunkedPages) {
-        physicalPages.push({ title: section.title, bodyHtml: chunk.join("") });
+      const measuringShells: HTMLElement[] = [];
+      const pagesHtmlForSection = paginateSectionIntoPages(sourceContainer, () => {
+        const shell = doc.createElement("div");
+        shell.style.cssText = "position:absolute;visibility:hidden;left:-99999px;top:0;";
+        // Mesma estrutura/CSS da folha final (altura fixa, footer-reserve
+        // presente) — é o que torna scrollHeight/clientHeight do corpo
+        // significativos. footerReserveHtml fica vazio aqui: a reserva já
+        // tem altura mínima fixa (FOOTER_RESERVE_MM) independente de estar
+        // preenchida, então não afeta a área útil medida.
+        shell.innerHTML = buildPageShell(section.title, "", "");
+        doc.body.appendChild(shell);
+        measuringShells.push(shell);
+        return shell.querySelector<HTMLElement>(".report-body")!;
+      });
+      measuringShells.forEach((shell) => doc.body.removeChild(shell));
+      doc.body.removeChild(sourceContainer);
+
+      for (const bodyHtml of pagesHtmlForSection) {
+        physicalPages.push({ title: section.title, bodyHtml });
       }
     }
     if (physicalPages.length === 0) physicalPages.push({ title: sections[0]?.title || "Laudo", bodyHtml: "" });

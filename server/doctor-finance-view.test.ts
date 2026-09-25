@@ -51,8 +51,14 @@ describe("visão financeira individual do médico", () => {
     // server/report-pagination.test.ts.
     expect(downloadSource).toContain(".doctor-footer { text-align:center;margin:0 auto 3mm");
     expect(downloadSource).toContain("footer-reserve");
-    expect(downloadSource).toContain("measureTopLevelBlocks");
-    expect(downloadSource).toContain("splitBlocksIntoPages");
+    // CORREÇÃO (Parecer de revisão da Manus, 2026-09-25): a v1 da
+    // paginação (measureTopLevelBlocks/splitBlocksIntoPages, soma de
+    // alturas pré-medidas) foi substituída pela v2
+    // (paginateSectionIntoPages, inserção incremental real + scrollHeight/
+    // clientHeight) — ver server/report-pagination.test.ts.
+    expect(downloadSource).toContain("paginateSectionIntoPages");
+    expect(downloadSource).not.toContain("measureTopLevelBlocks");
+    expect(downloadSource).not.toContain("splitBlocksIntoPages");
     expect(routerSource).toContain("myReportDownload:");
     expect(routerSource).toContain("Sem permissão para baixar este documento.");
     expect(editorSource).toContain("financialDocumentView");

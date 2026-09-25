@@ -1,130 +1,245 @@
-// Testes de regressão para o bloqueio de paginação real relatado pela
-// Manus em 2026-09-25 ("Relatório de revisão — PDFs multisseção e
-// financeiro"): mesmo depois da correção dos Achados 1 e 2
-// (server/pdf-multipage-fix.test.ts), um relatório de UMA seção só cujo
-// conteúdo seja mais alto do que uma folha física continuava sendo
-// cortado por `overflow:hidden` em `.print-page`, com a assinatura do
-// médico sobreposta ao texto cortado — porque a correção anterior mapeava
-// "N seções JSON -> N páginas", não "conteúdo mais alto que 1 página -> 2+
-// páginas".
+// Testes de regressão para o módulo de paginação real de conteúdo longo
+// (client/src/lib/reportPagination.ts), reescrito em resposta ao "Parecer
+// de revisão — Paginação real dos PDFs" (Manus, 2026-09-25), que bloqueou
+// a primeira versão (medição por soma de alturas pré-computadas) com 4
+// achados confirmados por medição real em Chromium:
 //
-// A correção introduziu client/src/lib/reportPagination.ts
-// (measureTopLevelBlocks + splitBlocksIntoPages), usado tanto por
-// financialReportPdfDownload.ts quanto pelo download da impressão rápida
-// em PacsQueryPage.tsx. A função de medição real (measureTopLevelBlocks)
-// só é exercitável com um motor de layout real (browser) — em jsdom,
-// getBoundingClientRect/offsetHeight sempre retornam 0, então ela não
-// reflete o comportamento real e não é testada aqui (limitação documentada
-// no próprio módulo). O que ESTE arquivo cobre exaustivamente é a lógica
-// pura de decisão (splitBlocksIntoPages), que é exatamente onde mora a
-// regra de negócio "nunca cortar um bloco no meio, reservar altura fixa
-// para o rodapé, nunca sobrepor assinatura ao corpo".
+//   B1 — a soma de alturas não contava margens dos blocos, aceitando mais
+//        conteúdo do que realmente cabia (23px de excesso medido).
+//   B2 — só filhos-ELEMENTO eram considerados; texto solto fora de
+//        qualquer tag era silenciosamente perdido na reconstrução.
+//   B3 — um bloco isolado mais alto que a página inteira ainda era
+//        cortado por overflow:hidden, sem nenhum tratamento real.
+//   B4 — a paginação só era aplicada a laudo multisseção no download
+//        rápido; laudo de seção única continuava sem paginação real
+//        (corrigido em PacsQueryPage.tsx, fora deste módulo — ver
+//        server/pacs-quick-print-single-section-pagination.test.ts).
 //
-// A Manus pediu explicitamente, entre outros pontos:
-// (a) um corpo único mais alto que 2 folhas Letter deve gerar 2+ páginas
-//     sem perda de texto;
-// (c) 3 seções curtas devem continuar gerando exatamente 3 folhas
-//     (guarda de regressão contra quebrar o Achado 1 já corrigido);
-// (e) rodapé/assinatura nunca pode sobrepor o corpo.
-// Os testes abaixo cobrem (a) e (c) diretamente via splitBlocksIntoPages,
-// e (e) via um teste dedicado de não-sobreposição por reserva de altura
-// fixa (mesmo padrão adotado em financialReportPdfDownload.ts e em
-// PacsQueryPage.tsx: a altura útil de .report-body é medida com o rodapé
-// já reservado, então o conteúdo paginado nunca pode invadir essa faixa).
+// A nova versão (v2) substitui a soma de alturas por inserção
+// incremental de nós REAIS numa folha física real, verificando
+// `scrollHeight <= clientHeight` após cada inserção — isso conta
+// margens/colapso corretamente (B1) e usa `childNodes` em vez de
+// `children`, preservando texto solto (B2). Um nó que não caiba nem
+// sozinho numa página vazia é fragmentado por palavra quando possível, ou
+// lança `ContentTooLargeForPageError` (B3) em vez de produzir um PDF
+// cortado silenciosamente.
+//
+// TESTABILIDADE: `paginateNodes` (o núcleo de decisão) não faz nenhuma
+// chamada de layout diretamente — toda interação com o DOM passa pela
+// interface `PageBuilder`, injetada por `createPage`. Isso permite testar
+// a lógica de decisão inteira aqui com um `PageBuilder` falso, orçamentado
+// por contagem de caracteres em vez de layout real (jsdom não computa
+// scrollHeight/clientHeight reais — por isso `createRealDomPageBuilder`,
+// que É a parte dependente de layout, não é exercitado aqui; a validação
+// visual real fica com a Manus, como em todas as rodadas anteriores).
+//
+// @vitest-environment jsdom
+
 
 import { describe, expect, it } from "vitest";
-import { splitBlocksIntoPages, type MeasuredBlock } from "../client/src/lib/reportPagination";
+import {
+  ContentTooLargeForPageError,
+  paginateNodes,
+  paginateSectionIntoPages,
+  type PageBuilder,
+} from "../client/src/lib/reportPagination";
 
-const block = (html: string, height: number): MeasuredBlock => ({ html, height });
+/**
+ * PageBuilder falso, orçamentado por número de caracteres — permite
+ * simular "cabe"/"não cabe" sem depender de layout real, exercitando
+ * exatamente a mesma lógica de decisão (paginateNodes) que a produção usa
+ * com scrollHeight/clientHeight reais.
+ */
+function createFakeBuilder(budgetChars: number): PageBuilder {
+  let usedChars = 0;
+  const parts: string[] = [];
 
-describe("splitBlocksIntoPages — decisão pura de paginação", () => {
-  it("um corpo curto que cabe inteiro em uma folha gera exatamente 1 página", () => {
-    const blocks = [block("<p>a</p>", 100), block("<p>b</p>", 100), block("<p>c</p>", 100)];
-    const pages = splitBlocksIntoPages(blocks, 1000);
+  const nodeText = (node: ChildNode): string => node.textContent ?? "";
+  const serialize = (node: ChildNode): string =>
+    node.nodeType === Node.TEXT_NODE ? nodeText(node) : (node as Element).outerHTML;
+
+  return {
+    tryAppend(node) {
+      const cost = nodeText(node).length || 1; // custo mínimo de 1 para nó vazio
+      if (usedChars + cost > budgetChars) return false;
+      usedChars += cost;
+      parts.push(serialize(node));
+      return true;
+    },
+    tryAppendPartialText(node) {
+      const words = nodeText(node).trim().split(/\s+/).filter(Boolean);
+      if (words.length === 0) return null;
+      let fitted = 0;
+      let used = usedChars;
+      for (const word of words) {
+        const cost = word.length + 1;
+        if (used + cost > budgetChars) break;
+        used += cost;
+        fitted += 1;
+      }
+      if (fitted === 0) return null;
+      usedChars = used;
+      parts.push(words.slice(0, fitted).join(" "));
+      if (fitted >= words.length) return null;
+      const remainderText = words.slice(fitted).join(" ");
+      return document.createTextNode(remainderText);
+    },
+    html() {
+      return parts.join("");
+    },
+  };
+}
+
+const el = (tag: string, text: string): HTMLElement => {
+  const node = document.createElement(tag);
+  node.textContent = text;
+  return node;
+};
+
+const elWithChild = (tag: string, childTag: string, text: string): HTMLElement => {
+  const node = document.createElement(tag);
+  node.appendChild(el(childTag, text));
+  return node;
+};
+
+describe("paginateNodes — núcleo de decisão da paginação real", () => {
+  it("lista vazia retorna uma única página vazia (nunca 0 páginas)", () => {
+    const pages = paginateNodes([], () => createFakeBuilder(1000));
     expect(pages).toHaveLength(1);
-    expect(pages[0]).toEqual(["<p>a</p>", "<p>b</p>", "<p>c</p>"]);
+    expect(pages[0].html()).toBe("");
   });
 
-  it("Manus (a): corpo mais alto que a folha é dividido em 2+ páginas, sem perder nenhum bloco", () => {
-    const blocks = Array.from({ length: 10 }, (_, i) => block(`<p>bloco-${i}</p>`, 150));
-    const pages = splitBlocksIntoPages(blocks, 400);
+  it("blocos curtos que cabem juntos geram exatamente 1 página", () => {
+    const nodes = [el("p", "a"), el("p", "b"), el("p", "c")];
+    const pages = paginateNodes(nodes, () => createFakeBuilder(1000));
+    expect(pages).toHaveLength(1);
+  });
 
+  it("conteúdo que excede o orçamento de uma página é dividido em 2+ páginas, sem perder blocos", () => {
+    const nodes = Array.from({ length: 10 }, (_, i) => el("p", `bloco-${i}-xxxxxxxxxx`));
+    const pages = paginateNodes(nodes, () => createFakeBuilder(60));
+    expect(pages.length).toBeGreaterThan(1);
+    const combinedHtml = pages.map((p) => p.html()).join("");
+    for (let i = 0; i < 10; i += 1) {
+      expect(combinedHtml).toContain(`bloco-${i}-xxxxxxxxxx`);
+    }
+  });
+
+  it("B2 (regressão): texto solto fora de qualquer tag nunca é perdido na reconstrução", () => {
+    const nodes: ChildNode[] = [
+      document.createTextNode("Texto introdutório "),
+      el("p", "Parágrafo interno"),
+      document.createTextNode(" Texto final"),
+    ];
+    const pages = paginateNodes(nodes, () => createFakeBuilder(1000));
+    const combinedHtml = pages.map((p) => p.html()).join("");
+    expect(combinedHtml).toContain("Texto introdutório");
+    expect(combinedHtml).toContain("Parágrafo interno");
+    expect(combinedHtml).toContain("Texto final");
+  });
+
+  it("nós de texto só-espaço em branco entre blocos são ignorados (não geram páginas vazias)", () => {
+    const nodes: ChildNode[] = [el("p", "a"), document.createTextNode("   \n  "), el("p", "b")];
+    const pages = paginateNodes(nodes, () => createFakeBuilder(1000));
+    expect(pages).toHaveLength(1);
+  });
+
+  it("B1 (regressão conceitual): o custo de cada bloco é decidido inteiramente pelo PageBuilder — nenhuma soma pré-calculada é feita por paginateNodes, então qualquer fator (incluindo margens reais) que o builder real leve em conta é respeitado", () => {
+    // Simula dois blocos que, medidos "sem margem", pareceriam caber juntos
+    // (5 + 5 = 10 <= orçamento 10), mas que o builder real (que soma um
+    // custo extra por causa de uma margem simulada) rejeita.
+    let calls = 0;
+    const marginAwareBuilder = (): PageBuilder => {
+      let used = 0;
+      const parts: string[] = [];
+      return {
+        tryAppend(node) {
+          calls += 1;
+          const MARGIN_COST = 3; // simula margin-bottom não contabilizado na v1
+          const cost = (node.textContent ?? "").length + MARGIN_COST;
+          if (used + cost > 10) return false;
+          used += cost;
+          parts.push(node.textContent ?? "");
+          return true;
+        },
+        tryAppendPartialText: () => null,
+        html: () => parts.join(""),
+      };
+    };
+    const nodes = [el("p", "aaaaa"), el("p", "bbbbb")]; // 5 + 5 = 10 sem margem, mas 8+8=16 com margem simulada
+    const pages = paginateNodes(nodes, marginAwareBuilder);
+    expect(pages.length).toBeGreaterThan(1); // a v1 (soma sem margem) diria "cabe em 1 página" — errado
+    expect(calls).toBeGreaterThan(0);
+  });
+
+  it("B3: elemento com filhos aninhados que não cabe nem sozinho numa página vazia lança ContentTooLargeForPageError (nunca corta silenciosamente)", () => {
+    const nodes = [elWithChild("div", "span", "conteúdo-gigante-nao-fragmentavel")];
+    expect(() => paginateNodes(nodes, () => createFakeBuilder(5))).toThrow(ContentTooLargeForPageError);
+  });
+
+  it("B3: texto simples que não cabe nem sozinho é fragmentado por palavra em 2+ páginas, sem perder nenhuma palavra", () => {
+    const longText = Array.from({ length: 20 }, (_, i) => `palavra${i}`).join(" ");
+    const nodes = [el("p", longText)];
+    const pages = paginateNodes(nodes, () => createFakeBuilder(40));
     expect(pages.length).toBeGreaterThan(1);
 
-    const flattened = pages.flat();
-    expect(flattened).toHaveLength(10);
-    expect(flattened).toEqual(blocks.map((b) => b.html));
+    const combinedWords = pages
+      .map((p) => p.html())
+      .join(" ")
+      .split(/\s+/)
+      .filter(Boolean);
+    const originalWords = longText.split(/\s+/);
+    expect(combinedWords).toEqual(originalWords);
+  });
 
-    for (const page of pages) {
-      const pageBlocks = page.map((html) => blocks.find((b) => b.html === html)!);
-      const totalHeight = pageBlocks.reduce((sum, b) => sum + b.height, 0);
-      expect(totalHeight).toBeLessThanOrEqual(400);
+  it("B3: se nem uma palavra do texto cabe numa página vazia, lança ContentTooLargeForPageError", () => {
+    const nodes = [el("p", "palavra-unica-enorme-que-nao-cabe-em-lugar-nenhum")];
+    expect(() => paginateNodes(nodes, () => createFakeBuilder(3))).toThrow(ContentTooLargeForPageError);
+  });
+
+  it("um bloco com várias palavras que não cabe nem sozinho é fragmentado por palavra em página(s) própria(s), sem perder nenhuma palavra", () => {
+    // Diferente do teste anterior (uma única "palavra" de 20 caracteres
+    // sem espaço, que é genuinamente infragmentável e deve lançar erro —
+    // ver o teste seguinte), um bloco com VÁRIAS palavras pode ser
+    // fragmentado normalmente mesmo sem caber com o conteúdo anterior.
+    const nodes = [el("p", "curto"), el("p", "palavra1 palavra2 palavra3 palavra4 palavra5"), el("p", "curto2")];
+    const pages = paginateNodes(nodes, () => createFakeBuilder(12));
+    const combinedText = pages.map((p) => p.html()).join(" ");
+    expect(combinedText).toContain("curto");
+    expect(combinedText).toContain("curto2");
+    for (let i = 1; i <= 5; i += 1) {
+      expect(combinedText).toContain(`palavra${i}`);
     }
   });
 
-  it("Manus (a): um corpo mais alto que 2 folhas Letter gera pelo menos 3 páginas quando necessário", () => {
-    const blocks = Array.from({ length: 6 }, (_, i) => block(`<div>secao-${i}</div>`, 500));
-    const pages = splitBlocksIntoPages(blocks, 1000);
-    expect(pages.length).toBeGreaterThanOrEqual(3);
-    expect(pages.flat()).toHaveLength(6);
-  });
-
-  it("Manus (c): 3 seções curtas continuam gerando exatamente 3 folhas (guarda de regressão do Achado 1)", () => {
-    const secoes = [
-      [block("<p>s1</p>", 200)],
-      [block("<p>s2</p>", 150)],
-      [block("<p>s3</p>", 180)],
-    ];
-    const paginasPorSecao = secoes.map((blocosDaSecao) => splitBlocksIntoPages(blocosDaSecao, 1000));
-    expect(paginasPorSecao.every((p) => p.length === 1)).toBe(true);
-    const totalDePaginasFisicas = paginasPorSecao.reduce((sum, p) => sum + p.length, 0);
-    expect(totalDePaginasFisicas).toBe(3);
-  });
-
-  it("nunca corta um bloco no meio: um bloco isolado maior que a página inteira ainda recebe sua própria folha", () => {
-    const blocks = [block("<p>curto</p>", 100), block("<table>tabela-gigante</table>", 5000), block("<p>curto2</p>", 100)];
-    const pages = splitBlocksIntoPages(blocks, 1000);
-
-    const pageWithGiant = pages.find((p) => p.includes("<table>tabela-gigante</table>"));
-    expect(pageWithGiant).toBeDefined();
-    expect(pageWithGiant).toHaveLength(1);
-
-    expect(pages.flat()).toEqual(["<p>curto</p>", "<table>tabela-gigante</table>", "<p>curto2</p>"]);
-  });
-
-  it("lista vazia de blocos retorna uma única página vazia (nunca 0 páginas)", () => {
-    const pages = splitBlocksIntoPages([], 1000);
-    expect(pages).toEqual([[]]);
-  });
-
-  it("Manus (e): reserva fixa de rodapé garante que a altura útil do corpo nunca inclui a faixa da assinatura", () => {
-    const pageHeightPx = 1200;
-    const footerReservePx = 300;
-    const availableBodyHeightPx = pageHeightPx - footerReservePx;
-
-    const blocks = [block("<p>a</p>", 400), block("<p>b</p>", 400), block("<p>c</p>", 400)];
-    const pages = splitBlocksIntoPages(blocks, availableBodyHeightPx);
-
-    for (const page of pages) {
-      const pageBlocks = page.map((html) => blocks.find((b) => b.html === html)!);
-      const totalHeight = pageBlocks.reduce((sum, b) => sum + b.height, 0);
-      expect(totalHeight).toBeLessThanOrEqual(availableBodyHeightPx);
-      expect(totalHeight + footerReservePx).toBeLessThanOrEqual(pageHeightPx);
-    }
+  it("uma única 'palavra' longa sem espaços (infragmentável) que não cabe nem sozinha lança ContentTooLargeForPageError, em vez de ser silenciosamente aceita numa página que a corta (comportamento da v1)", () => {
+    const nodes = [el("p", "curto"), el("p", "xxxxxxxxxxxxxxxxxxxx"), el("p", "curto2")];
+    expect(() => paginateNodes(nodes, () => createFakeBuilder(12))).toThrow(ContentTooLargeForPageError);
   });
 });
 
+describe("paginateSectionIntoPages — integração mínima (sem layout real)", () => {
+  it("seção vazia produz uma única página com corpo vazio, sem lançar exceção", () => {
+    const container = document.createElement("div");
+    // Corpo vazio -> paginateNodes recebe lista vazia -> 1 página vazia,
+    // mesmo sem layout real disponível em jsdom (nenhuma chamada de
+    // scrollHeight/clientHeight chega a acontecer, porque não há nós para
+    // inserir).
+    const pages = paginateSectionIntoPages(container, () => document.createElement("div"));
+    expect(pages).toEqual([""]);
+  });
+});
 
 // Confirmação estrutural (não substitui os testes de lógica pura acima,
 // mas garante que as duas vias de download — financeiro e impressão
-// rápida — de fato usam o mesmo módulo de paginação, exatamente o que a
-// Manus pediu: "Aplicar a mesma rotina à impressão rápida e ao download
-// financeiro, para que os dois caminhos não tenham resultados
-// diferentes".
+// rápida — de fato usam o mesmo módulo de paginação real, e que o
+// pré-requisito de CSS (overflow:hidden em .report-body, necessário para
+// que scrollHeight divirja de clientHeight quando há overflow) está
+// presente nas duas).
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-describe("wiring — as duas vias de download usam o mesmo módulo de paginação real", () => {
+describe("wiring — as duas vias de download usam o mesmo módulo de paginação real (v2)", () => {
   const financialSource = readFileSync(
     resolve(process.cwd(), "client/src/lib/financialReportPdfDownload.ts"),
     "utf8",
@@ -134,23 +249,49 @@ describe("wiring — as duas vias de download usam o mesmo módulo de paginaçã
     "utf8",
   );
 
-  it("financialReportPdfDownload.ts importa e usa measureTopLevelBlocks/splitBlocksIntoPages", () => {
+  it("financialReportPdfDownload.ts importa e usa paginateSectionIntoPages", () => {
     expect(financialSource).toContain('from "./reportPagination"');
-    expect(financialSource).toContain("measureTopLevelBlocks(");
-    expect(financialSource).toContain("splitBlocksIntoPages(");
+    expect(financialSource).toContain("paginateSectionIntoPages(");
+    expect(financialSource).not.toContain("measureTopLevelBlocks");
+    expect(financialSource).not.toContain("splitBlocksIntoPages");
   });
 
   it("PacsQueryPage.tsx (download da impressão rápida) importa e usa o mesmo módulo", () => {
     expect(pacsQuerySource).toContain('from "@/lib/reportPagination"');
-    expect(pacsQuerySource).toContain("measureTopLevelBlocks(");
-    expect(pacsQuerySource).toContain("splitBlocksIntoPages(");
+    expect(pacsQuerySource).toContain("paginateSectionIntoPages(");
+    expect(pacsQuerySource).not.toContain("measureTopLevelBlocks");
+    expect(pacsQuerySource).not.toContain("splitBlocksIntoPages");
   });
 
-  it("as duas vias reservam altura fixa de rodapé antes de medir a área útil do corpo", () => {
-    // Garante que nenhuma das duas vias voltou a medir a altura útil do
-    // corpo SEM a reserva do rodapé já presente no molde de medição — essa
-    // ordem é o que impede a assinatura de sobrepor texto cortado.
-    expect(financialSource).toContain("availableBodyHeightPx");
-    expect(pacsQuerySource).toContain("availableBodyHeightPxQ");
+  it("B1: .report-body tem overflow:hidden nas duas vias (pré-requisito para scrollHeight refletir overflow real)", () => {
+    // NOTA: o CSS real é gerado por template literal e contém `${lSize}`/
+    // `${lLine}` — chaves LITERAIS dentro da própria regra, antes de
+    // "overflow: hidden". Uma regex "balanceada por chaves" (tipo
+    // /\.report-body\s*\{[^}]*overflow:hidden/) pararia no primeiro `}`
+    // (o de `${lSize}`) e nunca chegaria a "overflow". Por isso localizamos
+    // a regra pela substring inicial e conferimos que "overflow: hidden"
+    // aparece logo depois, na mesma regra, sem depender de contagem de
+    // chaves.
+    const assertReportBodyHasOverflowHidden = (source: string, label: string) => {
+      const ruleStart = source.indexOf(".report-body {");
+      expect(ruleStart, `${label}: regra .report-body { ... } não encontrada`).toBeGreaterThanOrEqual(0);
+      const ruleSnippet = source.slice(ruleStart, ruleStart + 200);
+      expect(ruleSnippet).toMatch(/overflow:\s*hidden/);
+    };
+    assertReportBodyHasOverflowHidden(financialSource, "financialReportPdfDownload.ts");
+    assertReportBodyHasOverflowHidden(pacsQuerySource, "PacsQueryPage.tsx");
+  });
+
+  it("B4: PacsQueryPage.tsx não restringe mais a reconstrução em .print-page a laudo multisseção — laudo de seção única também é reconstruído antes da captura", () => {
+    // Regressão específica do Bloqueio B4: a versão anterior tinha um
+    // `if (multiSectionParsed)` que pulava inteiramente a reconstrução
+    // para seção única. Agora sectionsForPdfQ é sempre construído (com 1
+    // ou mais seções) e a reconstrução roda incondicionalmente.
+    expect(pacsQuerySource).toContain("sectionsForPdfQ");
+    expect(pacsQuerySource).not.toContain("if (multiSectionParsed)");
+    // A remoção de folhas antigas do DOM antes de reinserir as páginas
+    // agora cobre .print-shared-sheet também (a folha de seção única),
+    // não só .print-page.
+    expect(pacsQuerySource).toContain("'.print-page, .print-shared-sheet'");
   });
 });

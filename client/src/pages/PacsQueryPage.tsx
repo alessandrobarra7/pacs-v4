@@ -13,7 +13,7 @@ import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx, resolvePdfPageElements } from "@/lib/pdfPageGeometry";
-import { measureTopLevelBlocks, splitBlocksIntoPages } from "@/lib/reportPagination";
+import { paginateSectionIntoPages } from "@/lib/reportPagination";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -1649,7 +1649,7 @@ setSelectedStudy(study);
   .clinic-sub { font-size: 10pt; color: #444; margin-top: 2pt; }
   .patient-data { font-size: 10pt; line-height: 1.7; margin-bottom: 12pt; }
   .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
-  .report-body { font-size: ${lSize}pt; line-height: ${lLine}; }
+  .report-body { font-size: ${lSize}pt; line-height: ${lLine}; overflow: hidden; }
   .report-body > p,
   .report-body > div { margin-bottom: 3pt; }
   .report-body strong, .report-body b { font-weight: 700; }
@@ -1801,100 +1801,119 @@ setSelectedStudy(study);
         await new Promise((resolve) => setTimeout(resolve, 800));
 
         // CORREÇÃO (revisão Manus 2026-09-25, "PDFs multisseção e
-        // financeiro"): o Achado 1 acima resolveu "N seções JSON -> N
-        // páginas", mas uma ÚNICA seção cujo conteúdo seja mais alto do que
-        // uma folha física Letter/A4 ainda era cortada por
-        // `overflow:hidden` em `.print-page`, com a assinatura do médico
-        // sobreposta ao texto cortado (mesmo defeito estrutural já corrigido
-        // em financialReportPdfDownload.ts). Antes de capturar, medimos cada
-        // bloco de nível superior do corpo de cada seção e dividimos em
-        // quantas folhas físicas forem necessárias, sempre reservando uma
-        // faixa fixa no rodapé (idêntica em toda página) para a assinatura,
-        // preenchida somente na última folha. Isso NÃO altera a impressão
-        // nativa (fullHtml original, ainda usada pelo fallback de erro
-        // abaixo) — apenas reconstrói o DOM já escrito no iframe, momentos
-        // antes da captura.
-        let multiSectionParsed: Array<{ title: string; body: string }> | null = null;
+        // financeiro", e "Parecer de revisão — Paginação real dos PDFs"):
+        // o Achado 1 resolveu "N seções JSON -> N páginas", mas (a) uma
+        // ÚNICA seção cujo conteúdo seja mais alto do que uma folha física
+        // ainda era cortada por `overflow:hidden` em `.print-page`, com a
+        // assinatura sobreposta ao texto cortado; e (b) a versão anterior
+        // desta correção só reconstruía o DOM quando `reportBody` era um
+        // JSON com 2+ seções — um laudo de SEÇÃO ÚNICA continuava usando
+        // `.print-shared-sheet` sem nenhuma paginação real (Bloqueio B4 do
+        // parecer da Manus). Agora TODO laudo (seção única ou múltipla)
+        // passa pela mesma reconstrução em `.print-page` antes da captura
+        // — uma seção única vira uma lista de 1 "seção" e segue o mesmo
+        // caminho. Isso só afeta o DOM já escrito no iframe, momentos antes
+        // da captura por html2canvas — não altera a impressão nativa
+        // (fullHtml original, ainda usada por `window.print()` e pelo
+        // fallback de erro abaixo), nem o componente compartilhado
+        // SharedReportSheet.tsx usado pelo editor ao vivo.
+        //
+        // A paginação em si também foi corrigida (Bloqueios B1/B2/B3): em
+        // vez de somar alturas pré-medidas (que ignorava margens dos
+        // blocos e perdia texto solto fora de tags), agora inserimos
+        // incrementalmente cada nó real do corpo numa folha física real e
+        // verificamos `scrollHeight <= clientHeight` após cada inserção —
+        // ver client/src/lib/reportPagination.ts (paginateSectionIntoPages)
+        // para o mecanismo completo, idêntico ao usado em
+        // financialReportPdfDownload.ts.
+        let sectionsForPdfQ: Array<{ title: string; body: string }>;
         try {
           const parsedForPagination = JSON.parse(reportBody);
           if (Array.isArray(parsedForPagination) && parsedForPagination.length > 1 && 'body' in parsedForPagination[0]) {
-            multiSectionParsed = parsedForPagination;
+            sectionsForPdfQ = parsedForPagination;
+          } else {
+            sectionsForPdfQ = [{ title: reportTitle || '', body: bodyHtml }];
           }
-        } catch { /* não é JSON multisseção */ }
-
-        if (multiSectionParsed) {
-          const FOOTER_RESERVE_MM_Q = 50;
-          const headerHtmlQ = `
-            <div class="header">
-              <div class="header-logo">${logoHtml}</div>
-              <div class="header-title">
-                <div class="clinic-name">${unitName}</div>
-                <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
-              </div>
-            </div>`;
-          const footerHtmlQ = lFooterUrl
-            ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
-            : `<div style="height:4mm;"></div>`;
-          const buildPageShellQ = (examTitle: string, bodyHtml: string, footerReserveHtml: string) => `
-            <div class="print-page">
-              ${headerHtmlQ}
-              <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
-                <div class="patient-data">${patientDataHtml}</div>
-                <div class="exam-title">${examTitle || ''}</div>
-                <div class="report-body" style="flex:1;overflow:hidden;">${bodyHtml}</div>
-                <div style="min-height:${FOOTER_RESERVE_MM_Q}mm;display:flex;align-items:flex-end;justify-content:center;">${footerReserveHtml}</div>
-              </div>
-              <div style="margin-top:auto;">${footerHtmlQ}</div>
-            </div>`;
-
-          // Medir a altura útil disponível para .report-body UMA vez, usando
-          // uma folha molde oculta com corpo vazio (a reserva de rodapé fixa
-          // garante que essa altura é igual em toda página, seja ela a
-          // última ou não).
-          const templateWrapperQ = doc.createElement('div');
-          templateWrapperQ.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
-          templateWrapperQ.innerHTML = buildPageShellQ(multiSectionParsed[0]?.title || '', '', doctorFooterHtml);
-          doc.body.appendChild(templateWrapperQ);
-          const templateBodyElQ = templateWrapperQ.querySelector<HTMLElement>('.report-body');
-          const availableBodyHeightPxQ = templateBodyElQ?.getBoundingClientRect().height ?? 0;
-          doc.body.removeChild(templateWrapperQ);
-
-          if (availableBodyHeightPxQ <= 0) {
-            throw new Error('Não foi possível medir a área útil da página para paginação.');
-          }
-
-          const physicalPagesQ: Array<{ title: string; bodyHtml: string }> = [];
-          for (const section of multiSectionParsed) {
-            const measureWrapperQ = doc.createElement('div');
-            measureWrapperQ.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
-            measureWrapperQ.innerHTML = `<div class="print-page" style="height:auto;overflow:visible;"><div class="report-body" style="overflow:visible;">${section.body || ''}</div></div>`;
-            doc.body.appendChild(measureWrapperQ);
-            const sectionBodyElQ = measureWrapperQ.querySelector<HTMLElement>('.report-body')!;
-            const blocksQ = measureTopLevelBlocks(sectionBodyElQ);
-            doc.body.removeChild(measureWrapperQ);
-
-            const chunkedPagesQ = blocksQ.length > 0
-              ? splitBlocksIntoPages(blocksQ, availableBodyHeightPxQ)
-              : [[section.body || '']];
-            for (const chunk of chunkedPagesQ) {
-              physicalPagesQ.push({ title: section.title, bodyHtml: chunk.join('') });
-            }
-          }
-          if (physicalPagesQ.length === 0) {
-            physicalPagesQ.push({ title: multiSectionParsed[0]?.title || '', bodyHtml: '' });
-          }
-
-          const pagesHtmlQ = physicalPagesQ
-            .map((page, index) => buildPageShellQ(page.title, page.bodyHtml, index === physicalPagesQ.length - 1 ? doctorFooterHtml : ''))
-            .join('');
-
-          const existingPagesQ = doc.querySelectorAll('.print-page');
-          existingPagesQ.forEach((el) => el.remove());
-          doc.body.insertAdjacentHTML('beforeend', pagesHtmlQ);
-
-          // Pequena espera adicional para o reflow do DOM reconstruído.
-          await new Promise((resolve) => setTimeout(resolve, 300));
+        } catch {
+          // reportBody não é JSON multisseção — laudo de seção única, HTML puro.
+          sectionsForPdfQ = [{ title: reportTitle || '', body: bodyHtml }];
         }
+
+        const FOOTER_RESERVE_MM_Q = 50;
+        const headerHtmlQ = `
+          <div class="header">
+            <div class="header-logo">${logoHtml}</div>
+            <div class="header-title">
+              <div class="clinic-name">${unitName}</div>
+              <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
+            </div>
+          </div>`;
+        const footerHtmlQ = lFooterUrl
+          ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
+          : `<div style="height:4mm;"></div>`;
+        const buildPageShellQ = (examTitle: string, bodyHtml: string, footerReserveHtml: string) => `
+          <div class="print-page">
+            ${headerHtmlQ}
+            <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
+              <div class="patient-data">${patientDataHtml}</div>
+              <div class="exam-title">${examTitle || ''}</div>
+              <div class="report-body" style="flex:1;overflow:hidden;">${bodyHtml}</div>
+              <div style="min-height:${FOOTER_RESERVE_MM_Q}mm;display:flex;align-items:flex-end;justify-content:center;">${footerReserveHtml}</div>
+            </div>
+            <div style="margin-top:auto;">${footerHtmlQ}</div>
+          </div>`;
+
+        // Checagem preventiva (não usada para decidir a paginação — só
+        // detecta cedo um layout mal configurado onde a área útil seria
+        // <= 0, o que faria a paginação real falhar de forma confusa).
+        const sanityWrapperQ = doc.createElement('div');
+        sanityWrapperQ.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
+        sanityWrapperQ.innerHTML = buildPageShellQ(sectionsForPdfQ[0]?.title || '', '', doctorFooterHtml);
+        doc.body.appendChild(sanityWrapperQ);
+        const sanityBodyElQ = sanityWrapperQ.querySelector<HTMLElement>('.report-body');
+        const sanityAvailableHeightPxQ = sanityBodyElQ?.getBoundingClientRect().height ?? 0;
+        doc.body.removeChild(sanityWrapperQ);
+        if (sanityAvailableHeightPxQ <= 0) {
+          throw new Error('Não foi possível medir a área útil da página para paginação.');
+        }
+
+        const physicalPagesQ: Array<{ title: string; bodyHtml: string }> = [];
+        for (const section of sectionsForPdfQ) {
+          const sourceContainerQ = doc.createElement('div');
+          sourceContainerQ.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
+          sourceContainerQ.innerHTML = section.body || '';
+          doc.body.appendChild(sourceContainerQ);
+
+          const measuringShellsQ: HTMLElement[] = [];
+          const pagesHtmlForSectionQ = paginateSectionIntoPages(sourceContainerQ, () => {
+            const shell = doc.createElement('div');
+            shell.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
+            shell.innerHTML = buildPageShellQ(section.title, '', '');
+            doc.body.appendChild(shell);
+            measuringShellsQ.push(shell);
+            return shell.querySelector<HTMLElement>('.report-body')!;
+          });
+          measuringShellsQ.forEach((shell) => doc.body.removeChild(shell));
+          doc.body.removeChild(sourceContainerQ);
+
+          for (const bodyHtmlForPage of pagesHtmlForSectionQ) {
+            physicalPagesQ.push({ title: section.title, bodyHtml: bodyHtmlForPage });
+          }
+        }
+        if (physicalPagesQ.length === 0) {
+          physicalPagesQ.push({ title: sectionsForPdfQ[0]?.title || '', bodyHtml: '' });
+        }
+
+        const pagesHtmlQ = physicalPagesQ
+          .map((page, index) => buildPageShellQ(page.title, page.bodyHtml, index === physicalPagesQ.length - 1 ? doctorFooterHtml : ''))
+          .join('');
+
+        const existingPagesQ = doc.querySelectorAll('.print-page, .print-shared-sheet');
+        existingPagesQ.forEach((el) => el.remove());
+        doc.body.insertAdjacentHTML('beforeend', pagesHtmlQ);
+
+        // Pequena espera adicional para o reflow do DOM reconstruído.
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
         const targetEls = resolvePdfPageElements(doc);
 
