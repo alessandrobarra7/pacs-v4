@@ -395,3 +395,74 @@ CHECKLIST ATUALIZADO PARA A MANUS
   [ ] Se tudo bater: merge sem reescrever histórico, revalidar no sandbox,
       publicar main, atualizar VM1 (sem migration nova — só código +
       restart PM2).
+
+===============================================================================
+ADENDO 3, 2026-09-24 (mesmo dia) — RESPOSTA AO "PARECER CORRETIVO"
+===============================================================================
+
+A Manus revisou o topo 40b5594 e encontrou mais um bloqueio real, específico
+do cenário "médico com laudos no ciclo mas nenhum deles ainda precificado".
+
+Diagnóstico dela estava correto: em doctorSummaryByUnit, quando
+doctor_priced_count era zero, o código caía para priceMap.get(doctor_user_id)
+— o preço CONFIGURADO AGORA — e devolvia isso como price_per_report, o mesmo
+campo renderizado sob "Média/Laudo" no frontend. Não existe média nenhuma
+nesse cenário (denominador zero); mostrar o preço configurado ali podia
+passar a impressão de uma tarifa efetivamente praticada.
+
+Fix (novo topo: ver `git log`):
+
+  1. price_per_report agora é `null` sempre que doctor_priced_count é zero
+     — nunca mais cai para o preço configurado. configured_price_per_report
+     continua existindo como campo separado, exatamente como a Manus pediu.
+
+  2. A query de configured_price_per_report (priceMap) estava incompleta:
+     só filtrava `ends_at IS NULL`, sem checar `starts_at <= refDate`. Um
+     preço com início no futuro (ends_at ainda nulo) podia ser escolhido
+     como "o mais recente" e aparecer como vigente antes de começar a
+     valer. Corrigido: agora exige starts_at <= refDate E (ends_at IS NULL
+     OU ends_at >= refDate) — vigência real na data de referência do
+     resumo. (billing_doctor_unit_prices usa TIMESTAMP, não DATE — não tem
+     o mesmo problema de "meia-noite" do Bloqueio 1, então a comparação
+     direta com lte/gte já é suficiente aqui.)
+
+  3. Frontend (FinanceMeuResponsavel.tsx, DoctorsModal): "Média/Laudo"
+     mostra "— Sem preço aplicado" quando price_per_report é null (já era
+     o comportamento do "—" existente, só passou a disparar corretamente
+     agora que o backend não mente mais). O preço configurado, quando
+     vigente, aparece como linha secundária "Preço configurado: R$X",
+     rotulado explicitamente, nunca sob o cabeçalho de média.
+
+  4. Consumidores de doctorSummaryByUnit: confirmei via grep que
+     FinanceDashboard.tsx e FinancePagamentos.tsx também usam essa
+     procedure, mas nenhum dos dois renderiza price_per_report diretamente
+     — só o DoctorsModal em FinanceMeuResponsavel.tsx o faz. Não precisou
+     de ajuste adicional em nenhum dos dois.
+
+Testes novos, exatamente os dois pedidos pela revisão:
+  - todos os laudos pendentes de preço, com preço configurado vigente →
+    price_per_report null, configured_price_per_report com o valor
+  - todos os laudos pendentes de preço, com preço configurado
+    exclusivamente futuro → nem price_per_report nem
+    configured_price_per_report aparecem como vigentes (ambos null)
+
+Validações desta rodada: pnpm check OK, 2 testes novos passando (9/9 no
+arquivo todo), suíte completa 515 passam / 11 falham (mesmo baseline de
+sempre) / 1 skip de 527, pnpm build OK, git diff --check OK.
+
+-------------------------------------------------------------------------------
+CHECKLIST ATUALIZADO (3ª rodada)
+-------------------------------------------------------------------------------
+
+  [ ] git log --oneline main..HEAD deve mostrar 5 commits agora.
+  [ ] Confirmar que price_per_report é null (não o preço configurado)
+      quando doctor_priced_count = 0, em ambos os cenários (preço
+      configurado vigente / preço só futuro).
+  [ ] Rodar as 3 queries somente-leitura já listadas nos adendos
+      anteriores (vigência de preço por legenda, vínculos duplicados,
+      vínculos órfãos) — continuam pendentes, independentes deste fix.
+  [ ] Confirmar visualmente o Achado 4 (modal somente leitura x editável).
+  [ ] Rodar a suíte completa e confirmar 515/11/1.
+  [ ] Se tudo bater: merge sem reescrever histórico, revalidar no sandbox,
+      publicar main, atualizar VM1 (sem migration nova — só código +
+      restart PM2).
