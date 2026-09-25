@@ -30,4 +30,43 @@ describe("SharedReportSheet print contract", () => {
     expect(markup).toContain("LAUDO RADIOLOGICO");
     expect(markup).toContain("Médico radiologista");
   });
+
+  /**
+   * Regressão (auditoria Manus 2026-09-24, Parecer de Auditoria — Setor de
+   * Laudos, Bloqueio 1): a folha compartilhada sempre saía A4 (210x297mm)
+   * sem margem, ignorando o pageSize e as margens configuradas na unidade —
+   * as 4 vias de geração de PDF/impressão divergiam entre si e da
+   * configuração real. Agora o componente aceita pageSize/marginTop/Right/
+   * Bottom/Left e os aplica na dimensão física e no padding da folha.
+   */
+  it("aplica pageSize=Letter e as margens efetivas na dimensão física da folha (Bloqueio 1)", () => {
+    const markup = renderSharedReportSheetHtml({
+      positions: {},
+      pageSize: "Letter",
+      marginTop: 30,
+      marginRight: 25,
+      marginBottom: 30,
+      marginLeft: 25,
+      patientName: "TESTE",
+      body: createElement("div", null, "corpo"),
+    });
+
+    // Dimensão física Letter (216x279mm), não a A4 fixa de antes.
+    expect(markup).toContain("height:279mm");
+    expect(markup).toContain("max-width:216mm");
+    // Margens aplicadas como padding da folha.
+    expect(markup).toContain("padding:30mm 25mm 30mm 25mm");
+  });
+
+  it("mantém A4 sem margem por padrão quando pageSize/margens não são informados (retrocompatibilidade)", () => {
+    const markup = renderSharedReportSheetHtml({
+      positions: {},
+      patientName: "TESTE",
+      body: createElement("div", null, "corpo"),
+    });
+
+    expect(markup).toContain("height:297mm");
+    expect(markup).toContain("max-width:210mm");
+    expect(markup).toContain("padding:0mm 0mm 0mm 0mm");
+  });
 });

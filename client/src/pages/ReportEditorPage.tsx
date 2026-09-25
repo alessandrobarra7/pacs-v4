@@ -477,46 +477,92 @@ export default function ReportEditorPage() {
     return () => observer.disconnect();
   }, [existingReport, isMultiSection, markEditorContentChanged]);
 
+  // Bloqueio 2 (auditoria Manus 2026-09-24): editor ativo unificado.
+  // Antes, saveSelection() e insertAtCursor() sempre miravam docRef (a
+  // instância desktop) fora do modo multi-seção — inclusive quando o laudo
+  // simples estava sendo editado pela UI mobile, que usa mobileDocRef como
+  // elemento realmente visível/tocável. Isso fazia o Trecho inserido ir
+  // parar no editor desktop oculto (ou perder a posição real do cursor) ao
+  // tocar no editor no celular. getVisibleDoc() já existia e escolhe entre
+  // docRef/mobileDocRef pela largura real da viewport — passou a ser usado
+  // aqui também. No modo multi-seção, desktop e mobile já compartilham o
+  // mesmo array sectionRefs, então o alvo permanece o mesmo de antes.
+  const getActiveEditableEl = useCallback((): HTMLDivElement | null => {
+    if (isMultiSection) {
+      return sectionRefs.current[activeSectionRef.current] ?? null;
+    }
+    return getVisibleDoc();
+  }, [isMultiSection, getVisibleDoc]);
+
   // ── Salvar seleção antes de interagir com sidebar ────────────────────────
   const saveSelection = useCallback(() => {
     const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && docRef.current?.contains(sel.anchorNode)) {
+    const activeEl = getActiveEditableEl();
+    if (sel && sel.rangeCount > 0 && activeEl?.contains(sel.anchorNode)) {
       savedSelection.current = sel.getRangeAt(0).cloneRange();
     }
-  }, []);
+  }, [getActiveEditableEl]);
 
   // FIX BUG-1: usar execCommand('insertText') em vez de range.insertNode()
   // Garante cursor após o texto inserido (sem ordem reversa) e Undo/Redo nativo.
   //
   // FIX: retorna o caractere imediatamente anterior ao cursor, para decidir se
   // é preciso inserir um separador antes do texto (evita "...normalidadeTÉCNICA:...").
-  const getCharBeforeRange = (range: Range): string => {
+  //
+  // Bloqueio 2 (auditoria Manus 2026-09-24): quando o cursor está no início
+  // de um nó aninhado (ex.: início de um <strong>/<em> sem irmão de texto
+  // anterior NO MESMO nível), a versão anterior não subia pela árvore para
+  // achar o caractere anterior de fato — podia inserir separador faltando
+  // (ou colar sem separador quando deveria separar). Agora sobe pelos nós
+  // pais, procurando irmãos anteriores em cada nível, até o limite do
+  // editor (`boundary`), para nunca ler texto de fora da área editável.
+  const getCharBeforeRange = (range: Range, boundary?: Node | null): string => {
+    const findLastCharInSubtree = (node: Node): string => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const t = node.textContent || '';
+        return t.length > 0 ? t[t.length - 1] : '';
+      }
+      const children = node.childNodes;
+      for (let i = children.length - 1; i >= 0; i -= 1) {
+        const c = findLastCharInSubtree(children[i]);
+        if (c) return c;
+      }
+      return '';
+    };
+
     const { startContainer, startOffset } = range;
+
     if (startContainer.nodeType === Node.TEXT_NODE) {
       const text = startContainer.textContent || '';
       if (startOffset > 0) return text[startOffset - 1] || '';
-      let prev: Node | null = startContainer.previousSibling;
-      while (prev) {
-        const t = prev.textContent || '';
-        if (t.length > 0) return t[t.length - 1];
-        prev = prev.previousSibling;
+    } else {
+      const el = startContainer as Element;
+      if (startOffset > 0) {
+        const child = el.childNodes[startOffset - 1];
+        const c = child ? findLastCharInSubtree(child) : '';
+        if (c) return c;
       }
-      return '';
     }
-    const el = startContainer as Element;
-    if (startOffset > 0) {
-      const child = el.childNodes[startOffset - 1];
-      const t = child?.textContent || '';
-      return t[t.length - 1] || '';
+
+    // Nada encontrado no próprio nó/offset: sobe pela árvore procurando
+    // irmãos anteriores em cada nível, sem ultrapassar o editor.
+    let current: Node | null = startContainer;
+    while (current && current !== boundary) {
+      let sib: Node | null = current.previousSibling;
+      while (sib) {
+        const c = findLastCharInSubtree(sib);
+        if (c) return c;
+        sib = sib.previousSibling;
+      }
+      current = current.parentNode;
     }
     return '';
   };
 
   const insertAtCursor = useCallback((text: string, opts?: { smartSeparator?: boolean }) => {
-    // Determinar o elemento editor correto para o modo ativo
-    const targetEl = isMultiSection
-      ? sectionRefs.current[activeSectionRef.current]
-      : docRef.current;
+    // Determinar o elemento editor realmente ativo/visível (desktop, mobile
+    // ou seção em foco no modo multi-seção) — ver getActiveEditableEl acima.
+    const targetEl = getActiveEditableEl();
 
     if (!targetEl) return;
 
@@ -545,7 +591,7 @@ export default function ReportEditorPage() {
     if (opts?.smartSeparator) {
       const sel = window.getSelection();
       if (sel && sel.rangeCount > 0) {
-        const charBefore = getCharBeforeRange(sel.getRangeAt(0));
+        const charBefore = getCharBeforeRange(sel.getRangeAt(0), targetEl);
         if (charBefore && !/\s/.test(charBefore)) {
           toInsert = "\n\n" + toInsert;
         }
@@ -561,7 +607,7 @@ export default function ReportEditorPage() {
     if (sel && sel.rangeCount > 0) {
       savedSelection.current = sel.getRangeAt(0).cloneRange();
     }
-  }, [isMultiSection]);
+  }, [getActiveEditableEl]);
 
   // ── Salvar rascunho ──────────────────────────────────────────────────────
   // ── Coletar body (simples ou multi-página) ──────────────────────────────
@@ -751,6 +797,13 @@ export default function ReportEditorPage() {
       } as LayoutSnapshot
     : null;
   const layoutPrefs = layoutSource?.preferences;
+  // Bloqueio 1 (auditoria Manus 2026-09-24): pageSize/margens efetivos,
+  // com o mesmo merge com DEFAULT_LAYOUT_PREFERENCES usado em todo o resto
+  // do arquivo — agora também repassados ao SharedReportSheet em tela, para
+  // que a folha que o médico vê (e que o download financeiro rasteriza via
+  // html2canvas) já nasça no tamanho/margem corretos, em vez de sempre A4
+  // sem margem.
+  const effectiveLayoutPrefs: LayoutPreferences = { ...DEFAULT_LAYOUT_PREFERENCES, ...(layoutPrefs ?? {}) };
   // GAP-BACKGROUND: a mesma fonte visual alimenta o desktop e o PDF.
   // Laudos assinados usam o snapshot; campos ausentes em snapshots antigos
   // recebem fallback do layout atual para preservar compatibilidade.
@@ -958,7 +1011,11 @@ export default function ReportEditorPage() {
   .print-shared-sheet {
     width: ${paperW};
     height: ${paperH};
-    padding: 0;
+    /* Margens efetivas — antes fixo em 0, ignorando a unidade (Bloqueio 1,
+       auditoria Manus 2026-09-24). O valor real já vem no style inline do
+       componente (maior precedência); este bloco existe só para manter a
+       folha de estilos coerente com o que é de fato renderizado. */
+    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
     box-sizing: border-box;
     position: relative;
     overflow: hidden;
@@ -1097,6 +1154,12 @@ export default function ReportEditorPage() {
         ? <div className="report-body" dangerouslySetInnerHTML={{ __html: sectionBodyHtml }} />
         : <SharedReportBodyGuide />;
       const markup = renderSharedReportSheetHtml({
+        className: "print-shared-sheet",
+        pageSize,
+        marginTop: lMT,
+        marginRight: lMR,
+        marginBottom: lMB,
+        marginLeft: lML,
         positions: layoutBlockPos,
         logos: printLogos,
         backgroundUrl: bgBase64 || layoutBgUrl,
@@ -1142,6 +1205,12 @@ export default function ReportEditorPage() {
       ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
       : <SharedReportBodyGuide />;
     return renderSharedReportSheetHtml({
+      className: "print-shared-sheet",
+      pageSize,
+      marginTop: lMT,
+      marginRight: lMR,
+      marginBottom: lMB,
+      marginLeft: lML,
       positions: layoutBlockPos,
       logos: printLogos,
       backgroundUrl: bgBase64 || layoutBgUrl,
@@ -1660,8 +1729,13 @@ export default function ReportEditorPage() {
         )}
         <main className="flex-1 overflow-y-auto bg-gray-100 flex justify-center py-8 print:bg-white print:p-0 print:block">
           <div
-            className={`${isMultiSection ? "relative w-full md:w-[794px]" : "relative w-full md:w-[210mm] bg-white shadow-md print:shadow-none"}`}
-            style={isMultiSection ? undefined : { minHeight: "297mm" }}
+            className={`${isMultiSection ? "relative w-full md:w-[794px]" : "relative w-full bg-white shadow-md print:shadow-none"}`}
+            style={isMultiSection ? undefined : {
+              // Bloqueio 1 (auditoria Manus 2026-09-24): antes fixo em
+              // 210mm/297mm (A4), independente do pageSize da unidade.
+              maxWidth: effectiveLayoutPrefs.pageSize === "Letter" ? "216mm" : "210mm",
+              minHeight: effectiveLayoutPrefs.pageSize === "Letter" ? "279mm" : "297mm",
+            }}
           >
             {/* FIX BUG-2: imagens agora são inline no contentEditable — overlay removido */}
 
@@ -1691,6 +1765,11 @@ export default function ReportEditorPage() {
                       fontFamily={layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "'Times New Roman', Times, serif"}
                       fontSize={layoutPrefs?.fontSize ?? 11}
                       lineHeight={layoutPrefs?.lineHeight ?? 1.6}
+                      pageSize={effectiveLayoutPrefs.pageSize}
+                      marginTop={effectiveLayoutPrefs.marginTop}
+                      marginRight={effectiveLayoutPrefs.marginRight}
+                      marginBottom={effectiveLayoutPrefs.marginBottom}
+                      marginLeft={effectiveLayoutPrefs.marginLeft}
                       patientName={patientName}
                       patientNameContent={<ClinicalPatientName patientName={patientName} />}
                       patientInfo={
@@ -1755,7 +1834,10 @@ export default function ReportEditorPage() {
                                       const el = sectionRefs.current[i];
                                       if (el) el.innerHTML = sanitizeHtmlForEditor(payload.data);
                                     } else if (payload.type === "phrase") {
-                                      insertAtCursor(payload.data);
+                                      // Bloqueio 2 (auditoria Manus 2026-09-24): o clique em
+                                      // Trechos já aplicava smartSeparator; o arrastar-e-soltar
+                                      // da mesma frase não aplicava, podendo colar sem separador.
+                                      insertAtCursor(payload.data, { smartSeparator: true });
                                     } else if (payload.type === "signature" || payload.type === "stamp") {
                                       insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
                                     }
@@ -1814,6 +1896,11 @@ export default function ReportEditorPage() {
                 fontFamily={layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "Arial, Helvetica, sans-serif"}
                 fontSize={layoutPrefs?.fontSize ?? 11}
                 lineHeight={layoutPrefs?.lineHeight ?? 1.6}
+                pageSize={effectiveLayoutPrefs.pageSize}
+                marginTop={effectiveLayoutPrefs.marginTop}
+                marginRight={effectiveLayoutPrefs.marginRight}
+                marginBottom={effectiveLayoutPrefs.marginBottom}
+                marginLeft={effectiveLayoutPrefs.marginLeft}
                 patientName={patientName}
                 patientNameContent={<ClinicalPatientName patientName={patientName} />}
                 patientInfo={
@@ -1882,7 +1969,10 @@ export default function ReportEditorPage() {
                                 if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(payload.data);
                                 if (payload.examTitle) setExamTitle(payload.examTitle);
                               } else if (payload.type === "phrase") {
-                                insertAtCursor(payload.data);
+                                // Bloqueio 2 (auditoria Manus 2026-09-24): mesma correção do
+                                // modo multi-seção — arrastar uma frase agora aplica o mesmo
+                                // separador inteligente do clique.
+                                insertAtCursor(payload.data, { smartSeparator: true });
                               } else if (payload.type === "signature" || payload.type === "stamp") {
                                 insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
                               }

@@ -130,8 +130,25 @@ export const masksRouter = router({
    * Atualiza os campos editáveis de uma máscara já importada (nome, modalidade,
    * título do exame, corpo). Permite ao médico corrigir/personalizar um laudo
    * pronto sem precisar apagar e reimportar um JSON novo.
-   * Mesma regra de posse do delete: dono da máscara pessoal, ou admin da unidade
-   * se for scope='unit'.
+   *
+   * Mesma regra de posse do delete (ver reportMaskOwnershipCondition em
+   * server/db.ts, corrigida na auditoria Manus 2026-09-24, Bloqueio 3):
+   * dono da máscara pessoal NA UNIDADE INFORMADA, ou admin da MESMA unidade
+   * quando a máscara é scope='unit'. Um admin nunca edita máscara pessoal
+   * de outro usuário, e ninguém — nem dono, nem admin — edita uma máscara
+   * de fora da unidade autorizada por canAccessUnit acima.
+   *
+   * Política de sanitização do body (decisão explícita pedida pela Manus):
+   * este campo usa a MESMA normalizeBodyToHtml() do import (`masks.import`,
+   * função inalterada por este branch) — texto puro vira parágrafos, HTML
+   * já formatado é armazenado como veio, sem escapar/sanitizar no servidor.
+   * A superfície de risco não é nova: é a mesma que o import já tinha. A
+   * barreira contra XSS fica no CONSUMO, não na gravação — todo ponto que
+   * insere body de máscara no editor (ModelosTab, drop de template) passa
+   * por sanitizeHtmlForEditor() (DOMPurify com allowlist de tags, sem
+   * <script>/<iframe>/handlers inline) antes de tocar innerHTML, em
+   * client/src/pages/ReportEditorPage.tsx — igual para máscaras criadas por
+   * import ou editadas por esta procedure.
    */
   update: protectedProcedure
     .input(z.object({

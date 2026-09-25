@@ -1578,6 +1578,11 @@ setSelectedStudy(study);
   .print-shared-sheet {
     width: ${paperW};
     height: ${paperH};
+    /* Margens efetivas — antes ausente, ignorando a unidade (Bloqueio 1,
+       auditoria Manus 2026-09-24). O valor real vem do style inline do
+       componente (maior precedência); mantido aqui só por coerência. */
+    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
+    box-sizing: border-box;
     position: relative;
     overflow: hidden;
     background: #fff;
@@ -1709,6 +1714,12 @@ setSelectedStudy(study);
       ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
       : <div className="report-body"><p style={{ color: "#9ca3af", fontStyle: "italic" }}>Sem conteúdo para visualizar.</p></div>;
     return renderSharedReportSheetHtml({
+      className: "print-shared-sheet",
+      pageSize: pageSizeQ,
+      marginTop: lMT,
+      marginRight: lMR,
+      marginBottom: lMB,
+      marginLeft: lML,
       positions: blockPositionsQ,
       logos: printLogosQ,
       backgroundUrl: bgBase64Q || lBgUrl,
@@ -1783,7 +1794,11 @@ setSelectedStudy(study);
         document.body.removeChild(iframe);
 
         const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF('p', 'mm', 'a4');
+        // CORREÇÃO (Bloqueio 1, auditoria Manus 2026-09-24): formato vinha
+        // hardcoded como 'a4', ignorando pageSizeQ — uma unidade configurada
+        // para Letter baixava um PDF A4 pela impressão rápida, divergente das
+        // outras 3 vias de geração de PDF do mesmo laudo.
+        const pdf = new jsPDF('p', 'mm', pageSizeQ.toLowerCase() as 'a4' | 'letter');
         const pdfWidth = pdf.internal.pageSize.getWidth();
         const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
         pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
