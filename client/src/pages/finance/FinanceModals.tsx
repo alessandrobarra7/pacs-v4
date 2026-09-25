@@ -228,8 +228,37 @@ export function DoctorRow({
 }
 
 // ─── Modal de configuração de preços padrão da unidade ───────────────────────
+// FIX (2026-09-24, achado ao vivo com Alessandro logado como responsavel_financeiro):
+// duas correções nesta modal.
+//
+// 1) UX enganosa / bloqueio invisível: getUnitDefaultPrices (leitura) é
+//    liberado para responsavel_financeiro via assertAdmin(), mas
+//    setUnitDefaultPrices (escrita) sempre foi restrito a admin_master no
+//    backend. A modal, porém, renderizava os dois campos como inputs
+//    editáveis e o botão "Salvar Preços" sempre habilitado para qualquer
+//    role — um responsavel_financeiro conseguia editar o número, clicar
+//    Salvar, e só então recebia o erro cru "FORBIDDEN" (sem tradução), sem
+//    nunca ter tido chance real de salvar. Confirmado ao vivo em produção:
+//    o clique gerou o toast "FORBIDDEN" e nada foi persistido. Agora a modal
+//    verifica o role local (useAuth) e renderiza os valores como somente
+//    leitura para quem não é admin_master, sem inputs nem botão de salvar —
+//    a UI deixa de prometer uma ação que o backend nunca ia permitir.
+//
+// 2) "Preço Médico" é um valor morto para o cálculo real: default_doctor_price
+//    fica salvo em `units`, mas NENHUM dos dois motores de faturamento
+//    (server/db.ts, criação de billing_visit_events; server/catalogFinancial.ts,
+//    criação de billing_catalog_study_events) o lê como fallback do que o
+//    médico recebe — o comentário no próprio server/db.ts é explícito: "O
+//    valor do médico nunca usa fallback global". Sem isso ficar claro na
+//    tela, um administrador pode achar que configurar esse campo garante um
+//    piso de pagamento, quando na prática o laudo fica "pending_doctor_price"
+//    até haver um preço por modalidade (ou por legenda, ver DoctorPriceManager)
+//    configurado especificamente para aquele médico. Adicionado aviso
+//    explícito abaixo do campo.
 export function PriceConfigModal({ unitId, unitName, onClose }: { unitId: number; unitName: string; onClose: () => void }) {
   const utils = trpc.useUtils();
+  const { user } = useAuth();
+  const canEdit = user?.role === "admin_master";
   const { data, isLoading } = trpc.financeSimple.getUnitDefaultPrices.useQuery({ unit_id: unitId });
   const [sysPrice, setSysPrice] = useState("");
   const [docPrice, setDocPrice] = useState("");
@@ -245,7 +274,11 @@ export function PriceConfigModal({ unitId, unitName, onClose }: { unitId: number
       utils.financeSimple.unitSummary.invalidate();
       onClose();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toast.error(
+      e.data?.code === "FORBIDDEN"
+        ? "Somente o administrador geral pode alterar os preços padrão da unidade."
+        : e.message
+    ),
   });
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -265,6 +298,24 @@ export function PriceConfigModal({ unitId, unitName, onClose }: { unitId: number
               <div className="h-10 bg-slate-800 rounded animate-pulse" />
               <div className="h-10 bg-slate-800 rounded animate-pulse" />
             </div>
+          ) : !canEdit ? (
+            <>
+              <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+                Você pode consultar os preços padrão desta unidade, mas somente o administrador geral pode alterá-los.
+              </p>
+              <div>
+                <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1.5">Preço Sistema (R$)</label>
+                <p className="text-white text-sm bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2">{sysPrice || "0"}</p>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1.5">Preço Médico (R$) — valor de referência</label>
+                <p className="text-white text-sm bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2">{docPrice || "0"}</p>
+                <p className="text-[11px] text-slate-500 mt-1.5">
+                  Este valor não é usado automaticamente no cálculo do repasse. O que cada médico recebe é definido por
+                  preço por modalidade ou por legenda, configurados na lista de médicos abaixo.
+                </p>
+              </div>
+            </>
           ) : (
             <>
               <div>
@@ -272,16 +323,23 @@ export function PriceConfigModal({ unitId, unitName, onClose }: { unitId: number
                 <Input type="number" min="0" step="0.01" value={sysPrice} onChange={(e) => setSysPrice(e.target.value)} placeholder="0.00" className="bg-slate-800 border-slate-600 text-white" />
               </div>
               <div>
-                <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1.5">Preço Médico (R$)</label>
+                <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1.5">Preço Médico (R$) — valor de referência</label>
                 <Input type="number" min="0" step="0.01" value={docPrice} onChange={(e) => setDocPrice(e.target.value)} placeholder="0.00" className="bg-slate-800 border-slate-600 text-white" />
+                <p className="text-[11px] text-slate-500 mt-1.5">
+                  Atenção: este valor NÃO é usado automaticamente no cálculo do repasse ao médico. O que cada médico
+                  recebe por laudo é definido pelo preço por modalidade ou por legenda, configurados na lista de
+                  médicos abaixo. Use este campo só como referência/anotação interna.
+                </p>
               </div>
             </>
           )}
           <div className="flex gap-3 pt-2">
-            <Button variant="outline" className="flex-1 border-slate-600 text-slate-300" onClick={onClose}>Cancelar</Button>
-            <Button className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white" disabled={save.isPending || isLoading} onClick={() => save.mutate({ unit_id: unitId, default_system_price: parseFloat(sysPrice) || 0, default_doctor_price: parseFloat(docPrice) || 0 })}>
-              {save.isPending ? "Salvando..." : "Salvar Preços"}
-            </Button>
+            <Button variant="outline" className="flex-1 border-slate-600 text-slate-300" onClick={onClose}>{canEdit ? "Cancelar" : "Fechar"}</Button>
+            {canEdit && (
+              <Button className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white" disabled={save.isPending || isLoading} onClick={() => save.mutate({ unit_id: unitId, default_system_price: parseFloat(sysPrice) || 0, default_doctor_price: parseFloat(docPrice) || 0 })}>
+                {save.isPending ? "Salvando..." : "Salvar Preços"}
+              </Button>
+            )}
           </div>
         </div>
       </div>

@@ -68,7 +68,12 @@ function DoctorsModal({
                 <tr className="border-b border-[var(--fin-line)]">
                   <th className="text-left px-6 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Médico</th>
                   <th className="text-right px-4 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Laudos</th>
-                  <th className="text-right px-4 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">R$/Laudo</th>
+                  {/* FIX (2026-09-24, bloqueio 2 da revisão Manus): renomeado de
+                      "R$/Laudo" para "Média/Laudo" -- não é uma tarifa fixa,
+                      é a média dos valores realmente aplicados no período
+                      (pode não reproduzir o Total exato ao multiplicar pelos
+                      laudos, quando há mais de um preço no período). */}
+                  <th className="text-right px-4 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Média/Laudo</th>
                   <th className="text-right px-4 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Total</th>
                   <th className="text-right px-4 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Pago</th>
                   <th className="text-right px-6 py-3 text-[var(--fin-muted)] font-medium text-xs uppercase">Pendente</th>
@@ -80,7 +85,38 @@ function DoctorsModal({
                     <td className="px-6 py-3 text-[var(--fin-text)]">{doc.doctor_name}</td>
                     <td className="px-4 py-3 text-[var(--fin-muted)] text-right">{doc.total_laudos}</td>
                     <td className="px-4 py-3 text-[var(--fin-accent-soft)] text-right text-xs">
-                      {(doc as any).price_per_report ? fmtBRL(Number((doc as any).price_per_report)) : <span className="text-[var(--fin-muted-dim)]">—</span>}
+                      {/* FIX (2026-09-24, Parecer corretivo Manus — bloqueio
+                          remanescente): quando não há nenhum laudo
+                          precificado no período, o backend agora devolve
+                          price_per_report = null (nunca mais o preço
+                          configurado disfarçado de média) — por isso este
+                          "—" já é o comportamento correto sem precisar de
+                          lógica adicional aqui. O preço configurado, quando
+                          existe e está vigente, aparece como linha
+                          secundária abaixo, com rótulo explícito, nunca sob
+                          "Média/Laudo". */}
+                      {(doc as any).price_per_report ? fmtBRL(Number((doc as any).price_per_report)) : <span className="text-[var(--fin-muted-dim)]">— Sem preço aplicado</span>}
+                      {/* Laudos ainda sem preço aplicado não entram nessa
+                          média -- sinaliza explicitamente quando isso está
+                          acontecendo, em vez de escondê-los tratando-os como
+                          preço zero. */}
+                      {Number((doc as any).pending_price_count ?? 0) > 0 && (
+                        <div
+                          title={`${(doc as any).pending_price_count} laudo(s) ainda sem preço configurado -- não entram nesta média`}
+                          className="text-[10px] text-[var(--fin-danger)] mt-0.5"
+                        >
+                          {(doc as any).pending_price_count} sem preço
+                        </div>
+                      )}
+                      {/* Preço configurado (vigente na data de referência),
+                          exposto separadamente — nunca substitui a média
+                          real nem é rotulado como "Média/Laudo". Útil
+                          principalmente quando a média acima é "—". */}
+                      {(doc as any).configured_price_per_report != null && (
+                        <div className="text-[10px] text-[var(--fin-muted-dim)] mt-0.5">
+                          Preço configurado: {fmtBRL(Number((doc as any).configured_price_per_report))}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-[var(--fin-warn)] text-right font-medium">{fmtBRL(doc.doctor_total)}</td>
                     <td className="px-4 py-3 text-[var(--fin-success)] text-right">{fmtBRL(doc.doctor_paid)}</td>
@@ -491,7 +527,21 @@ export default function FinanceMeuResponsavel() {
                       <Building2 className="h-5 w-5 text-[var(--fin-muted)]" />
                     </div>
                     <div>
-                      <p className="text-[var(--fin-text)] font-semibold">{u.unit_name}</p>
+                      <p className="text-[var(--fin-text)] font-semibold flex items-center gap-1.5">
+                        {u.unit_name}
+                        {/* FIX (AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO_2026-09-24, Achado 2):
+                            destaca visualmente quando o unit_id nao tem mais
+                            correspondencia em `units` -- dado que precisa de
+                            investigacao, nao um nome de unidade real. */}
+                        {u.unit_orphaned && (
+                          <span
+                            title="Este vinculo aponta para uma unidade que nao existe mais no cadastro. Provavelmente um dado a corrigir."
+                            className="text-[10px] uppercase tracking-wide bg-[var(--fin-danger-wash)] text-[var(--fin-danger)] border border-[var(--fin-danger-border)] px-1.5 py-0.5 rounded-full"
+                          >
+                            dado inconsistente
+                          </span>
+                        )}
+                      </p>
                       <p className="text-[var(--fin-muted)] text-xs">
                         {u.total_laudos} laudos
                         {' · '}

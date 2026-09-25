@@ -108,3 +108,79 @@ describe("financeSimple.myResponsavelSummary — inclusão de catálogo e exclus
     expect(unit.doctor_total).toBe(0);
   });
 });
+
+/**
+ * Regressão (2026-09-24, AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO, Achados 1 e 2).
+ *
+ * Achado 1: financial_responsible_units pode ter duas linhas ativas
+ * (ends_at IS NULL) apontando para a mesma unidade — dado duplicado.
+ * Confirmado ao vivo em produção: o card "HOSPITAL DA CRIANÇA" aparecia
+ * duas vezes na tela do responsável, e os totais do cabeçalho ("4 laudos",
+ * "R$4,00 pendente") eram o dobro do real (2 laudos, R$2,00).
+ *
+ * Achado 2: quando o unit_id não corresponde a nenhuma linha em `units`
+ * (unidade excluída ou vínculo com dado errado), o LEFT JOIN retorna
+ * unit_name = null e o código antigo substituía silenciosamente por
+ * "Unidade" — indistinguível de uma unidade real com esse nome.
+ */
+describe("financeSimple.myResponsavelSummary — dedupe de unidade duplicada e unidade órfã", () => {
+  beforeEach(() => {
+    state.responses = [];
+  });
+
+  it("não duplica o card nem os totais quando há dois vínculos ativos para a mesma unidade", async () => {
+    const signedAt = new Date("2026-09-10T12:00:00.000Z");
+    state.responses = [
+      // linkedUnits com a MESMA unidade (unit_id 12) repetida duas vezes —
+      // reproduz o dado duplicado encontrado em produção.
+      [
+        { unit_id: 12, unit_name: "Hospital da Criança", cycle_start_day: 1, cycle_end_day: 31 },
+        { unit_id: 12, unit_name: "Hospital da Criança", cycle_start_day: 1, cycle_end_day: 31 },
+      ],
+      // Com o dedupe, listUnitCycleFinancialEvents só é chamada UMA vez
+      // para a unidade 12 — só há um par de respostas (legacy + catalog)
+      // na fila. Se o dedupe não estivesse funcionando, o código tentaria
+      // consumir mais itens da fila do que os disponíveis aqui, e o
+      // segundo card ficaria com totais zerados/incorretos.
+      [{ event_id: 1, study_instance_uid: "1.1", report_id: 10, modality: "CR", clinical_label: "TÓRAX", doctor_user_id: 5, signed_at: signedAt, system_rate_applied: "1.00", doctor_amount_due: "10.00", system_amount_due: "1.00", doctor_received_at: null, system_paid_at: null, pricing_status: "ok", financial_status: "active" }],
+      [],
+    ];
+
+    const result = await caller().myResponsavelSummary({});
+
+    // Uma unidade só, não duas.
+    expect(result.units).toHaveLength(1);
+    const unit = result.units[0]!;
+    // 1 laudo, não 2 — os totais não podem estar dobrados.
+    expect(unit.total_laudos).toBe(1);
+    expect(unit.system_total).toBe(1);
+    expect(unit.doctor_total).toBe(10);
+  });
+
+  it("marca a unidade como órfã com nome explícito quando o unit_id não existe mais em `units`", async () => {
+    state.responses = [
+      // unit_name null simula o LEFT JOIN sem correspondência.
+      [{ unit_id: 999, unit_name: null, cycle_start_day: 1, cycle_end_day: 31 }],
+      [],
+      [],
+    ];
+
+    const result = await caller().myResponsavelSummary({});
+    const unit = result.units[0]!;
+    expect(unit.unit_orphaned).toBe(true);
+    expect(unit.unit_name).toBe("Unidade removida (ID 999)");
+  });
+
+  it("não marca como órfã uma unidade normal, com nome real", async () => {
+    state.responses = [
+      [{ unit_id: 12, unit_name: "Hospital da Criança", cycle_start_day: 1, cycle_end_day: 31 }],
+      [],
+      [],
+    ];
+
+    const result = await caller().myResponsavelSummary({});
+    const unit = result.units[0]!;
+    expect(unit.unit_orphaned).toBe(false);
+    expect(unit.unit_name).toBe("Hospital da Criança");
+  });
+});

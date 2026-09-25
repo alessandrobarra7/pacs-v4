@@ -993,6 +993,13 @@ export const financeSimpleRouter = router({
           doctor_total: sql<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
           doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NOT NULL THEN ${billing_visit_events.doctor_amount_due} ELSE 0 END), 0)`,
           doctor_pending_count: sql<number>`SUM(CASE WHEN ${billing_visit_events.doctor_received_at} IS NULL THEN 1 ELSE 0 END)`,
+          // FIX (2026-09-24, bloqueio 2 da revisao Manus): conta separadamente
+          // quantos laudos deste medico JA TEM preco aplicado (doctor_amount_due
+          // nao nulo) -- necessario para nao dividir o total pelo numero TOTAL
+          // de laudos (que inclui os ainda sem preco, "pending_doctor_price"),
+          // o que mascarava pendencia de precificacao tratando-a como preco
+          // zero dentro da media exibida.
+          doctor_priced_count: sql<number>`SUM(CASE WHEN ${billing_visit_events.doctor_amount_due} IS NOT NULL THEN 1 ELSE 0 END)`,
           last_received_at: sql<Date | null>`MAX(${billing_visit_events.doctor_received_at})`,
         })
         .from(billing_visit_events)
@@ -1015,6 +1022,8 @@ export const financeSimpleRouter = router({
             doctor_total: sql<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
             doctor_paid: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.doctor_received_at} IS NOT NULL THEN ${billing_catalog_study_events.price_applied} ELSE 0 END), 0)`,
             doctor_pending_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.doctor_received_at} IS NULL AND ${billing_catalog_study_events.price_applied} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
+            // Ver comentario equivalente na query de legacyRows acima.
+            doctor_priced_count: sql<number>`COALESCE(SUM(CASE WHEN ${billing_catalog_study_events.price_applied} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
             last_received_at: sql<Date | null>`MAX(${billing_catalog_study_events.doctor_received_at})`,
           })
           .from(billing_catalog_study_events)
@@ -1035,6 +1044,7 @@ export const financeSimpleRouter = router({
         doctor_total: number;
         doctor_paid: number;
         doctor_pending_count: number;
+        doctor_priced_count: number;
         last_received_at: Date | null;
       }>();
       for (const row of legacyRows) {
@@ -1046,6 +1056,7 @@ export const financeSimpleRouter = router({
           doctor_total: toMoney(row.doctor_total),
           doctor_paid: toMoney(row.doctor_paid),
           doctor_pending_count: Number(row.doctor_pending_count),
+          doctor_priced_count: Number(row.doctor_priced_count),
           last_received_at: row.last_received_at,
         });
       }
@@ -1059,6 +1070,7 @@ export const financeSimpleRouter = router({
           doctor_total: (current?.doctor_total ?? 0) + toMoney(row.doctor_total),
           doctor_paid: (current?.doctor_paid ?? 0) + toMoney(row.doctor_paid),
           doctor_pending_count: (current?.doctor_pending_count ?? 0) + Number(row.doctor_pending_count),
+          doctor_priced_count: (current?.doctor_priced_count ?? 0) + Number(row.doctor_priced_count),
           last_received_at: [current?.last_received_at, row.last_received_at]
             .filter((value): value is Date => value instanceof Date)
             .sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
@@ -1071,6 +1083,13 @@ export const financeSimpleRouter = router({
       const doctorIds = rows.map((r) => r.doctor_user_id).filter((id): id is number => id !== null);
       let priceMap = new Map<number, number | null>();
       if (doctorIds.length > 0) {
+        // FIX (2026-09-24, Parecer corretivo Manus — bloqueio remanescente):
+        // a query so filtrava `ends_at IS NULL` (preco em aberto), sem
+        // checar `starts_at <= refDate`. Um preco cadastrado com inicio no
+        // FUTURO (ends_at ainda nulo) era escolhido como "o mais recente" e
+        // aparecia como se ja estivesse vigente hoje. Agora a query exige
+        // vigencia real na data de referencia do resumo: starts_at <=
+        // refDate E (ends_at IS NULL OU ends_at >= refDate).
         const priceRows = await db
           .select({
             doctor_user_id: billing_doctor_unit_prices.doctor_user_id,
@@ -1081,11 +1100,12 @@ export const financeSimpleRouter = router({
             and(
               eq(billing_doctor_unit_prices.unit_id, input.unit_id),
               inArray(billing_doctor_unit_prices.doctor_user_id, doctorIds),
-              isNull(billing_doctor_unit_prices.ends_at),
+              lte(billing_doctor_unit_prices.starts_at, refDate),
+              or(isNull(billing_doctor_unit_prices.ends_at), gte(billing_doctor_unit_prices.ends_at, refDate)),
             )
           )
           .orderBy(desc(billing_doctor_unit_prices.starts_at));
-        // Manter apenas o preço mais recente por médico
+        // Manter apenas o preço vigente mais recente por médico
         for (const pr of priceRows) {
           if (!priceMap.has(pr.doctor_user_id)) {
             priceMap.set(pr.doctor_user_id, pr.price_per_report ? Number(pr.price_per_report) : null);
@@ -1093,17 +1113,72 @@ export const financeSimpleRouter = router({
         }
       }
 
-      return rows.map((r) => ({
-        doctor_user_id: r.doctor_user_id,
-        doctor_name: r.doctor_name,
-        total_laudos: Number(r.total_laudos),
-        doctor_total: toMoney(r.doctor_total),
-        doctor_paid: toMoney(r.doctor_paid),
-        doctor_pending: subMoney(r.doctor_total, r.doctor_paid),   // FIX float
-        doctor_pending_count: Number(r.doctor_pending_count),
-        last_received_at: r.last_received_at,
-        price_per_report: r.doctor_user_id ? (priceMap.get(r.doctor_user_id) ?? null) : null,
-      }));
+      return rows.map((r) => {
+        // FIX (AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO_2026-09-24, Achado 4,
+        // e bloqueio 2 da revisao Manus em 2026-09-24):
+        // price_per_report vinha do preco ATUALMENTE configurado
+        // (billing_doctor_unit_prices), desacoplado de doctor_total /
+        // total_laudos -- que sao somas dos valores REALMENTE aplicados em
+        // cada evento no momento da assinatura. A primeira correcao dividiu
+        // doctor_total por total_laudos, mas a Manus apontou dois problemas
+        // nisso: (1) total_laudos inclui laudos AINDA SEM preco aplicado
+        // (pending_doctor_price), que entram no total como se fossem preco
+        // zero, distorcendo a media para baixo e escondendo a pendencia; e
+        // (2) uma media de 2 casas decimais nao garante
+        // preco_exibido * quantidade == total (ex.: R$0,87 em 2 laudos vira
+        // R$0,44/laudo, que multiplicado por 2 da R$0,88, nao R$0,87) -- a
+        // tela nao deve prometer essa igualdade.
+        //
+        // Correcao: o denominador passa a ser SOMENTE os laudos que ja tem
+        // preco aplicado (doctor_priced_count), nunca total_laudos. O
+        // resultado e exposto como price_per_report (mantido por
+        // compatibilidade com o frontend existente) mas deve ser entendido
+        // e rotulado no frontend como MEDIA EFETIVA do periodo, nao como uma
+        // tarifa fixa exata -- ver pending_price_count abaixo para o
+        // frontend sinalizar quando parte dos laudos ainda nao tem preco.
+        // FIX (2026-09-24, Parecer corretivo Manus — bloqueio remanescente):
+        // quando doctor_priced_count e zero, a versao anterior caia para
+        // priceMap.get(...) (o preco CONFIGURADO agora) e devolvia isso
+        // como price_per_report -- exibido na tela sob o cabecalho "Media/
+        // Laudo". Nao existe media nenhuma nesse cenario (denominador
+        // zero): mostrar o preco configurado como se fosse uma media
+        // efetivamente calculada pode levar a uma decisao financeira
+        // baseada em um numero que nao representa nenhum laudo real.
+        // price_per_report agora e null quando nao ha nenhum laudo
+        // precificado no periodo -- o preco configurado (quando vigente na
+        // data de referencia) continua disponivel, mas so no campo
+        // configured_price_per_report, nunca sob o rotulo de media.
+        const pendingPriceCount = r.total_laudos - r.doctor_priced_count;
+        const derivedPricePerReport = r.doctor_priced_count > 0
+          ? toMoney(r.doctor_total / r.doctor_priced_count)
+          : null;
+        return {
+          doctor_user_id: r.doctor_user_id,
+          doctor_name: r.doctor_name,
+          total_laudos: Number(r.total_laudos),
+          doctor_total: toMoney(r.doctor_total),
+          doctor_paid: toMoney(r.doctor_paid),
+          doctor_pending: subMoney(r.doctor_total, r.doctor_paid),   // FIX float
+          doctor_pending_count: Number(r.doctor_pending_count),
+          last_received_at: r.last_received_at,
+          // Média efetiva do período (Total ÷ Laudos já precificados) — não
+          // é necessariamente igual ao preço configurado hoje, nem
+          // necessariamente multiplica de volta para o total exato quando
+          // há mais de uma tarifa aplicada no período (arredondamento de
+          // centavos). Ver priced_laudos_count / pending_price_count.
+          price_per_report: derivedPricePerReport,
+          // Quantos dos total_laudos já têm preço aplicado (entraram no
+          // cálculo acima) vs. quantos ainda estão pendentes de
+          // precificação (não entram no denominador, não são tratados como
+          // preço zero).
+          priced_laudos_count: r.doctor_priced_count,
+          pending_price_count: pendingPriceCount,
+          // Preco atualmente configurado (pode divergir do price_per_report
+          // acima quando o preco mudou durante o ciclo) -- exposto para quem
+          // quiser mostrar os dois lado a lado.
+          configured_price_per_report: r.doctor_user_id ? (priceMap.get(r.doctor_user_id) ?? null) : null,
+        };
+      });
     }),
 
   /**
@@ -2305,7 +2380,13 @@ export const financeSimpleRouter = router({
       default_doctor_price: z.number().min(0),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin_master") throw new TRPCError({ code: "FORBIDDEN" });
+      // FIX (2026-09-24): mensagem explicativa em vez de FORBIDDEN cru -- a
+      // modal do frontend agora evita chegar aqui para quem nao e
+      // admin_master (ver PriceConfigModal), mas a checagem de role
+      // permanece a fonte de verdade da autorizacao.
+      if (ctx.user.role !== "admin_master") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Somente o administrador geral pode alterar os preços padrão da unidade." });
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       await db.update(units)
@@ -2572,7 +2653,7 @@ export const financeSimpleRouter = router({
       }
 
       // Buscar unidades vinculadas ao responsável (vigência ativa)
-      const linkedUnits = await db
+      const linkedUnitsRaw = await db
         .select({
           unit_id: financial_responsible_units.unit_id,
           unit_name: units.name,
@@ -2587,6 +2668,34 @@ export const financeSimpleRouter = router({
             isNull(financial_responsible_units.ends_at),
           )
         );
+
+      // FIX (AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO_2026-09-24, Achado 1):
+      // financial_responsible_units pode ter mais de uma linha ativa
+      // (ends_at IS NULL) apontando para a MESMA unidade -- vinculo
+      // duplicado por dado sujo (ex.: reativacao sem encerrar o vinculo
+      // antigo). Sem dedupe aqui, cada linha virava um card inteiro na tela
+      // do responsavel (unidade repetida) e os totais do cabecalho ("LAUDOS",
+      // "TOTAL AO SISTEMA" etc.) somavam a mesma unidade duas vezes,
+      // inflando os numeros visiveis para o responsavel financeiro.
+      // Deduplicar aqui garante o comportamento correto independentemente de
+      // o dado no banco ja estar limpo ou nao -- a limpeza dos vinculos
+      // duplicados em si e uma acao de dado, nao de codigo (ver handoff).
+      const seenUnitIds = new Set<number>();
+      const duplicateUnitIds = new Set<number>();
+      const linkedUnits = linkedUnitsRaw.filter((lu) => {
+        if (seenUnitIds.has(lu.unit_id)) {
+          duplicateUnitIds.add(lu.unit_id);
+          return false;
+        }
+        seenUnitIds.add(lu.unit_id);
+        return true;
+      });
+      if (duplicateUnitIds.size > 0) {
+        // Nao bloqueia a resposta -- e so um sinal para investigacao de dado.
+        console.warn(
+          `[finance] financial_responsible_units duplicado para responsavelId=${responsavelId}: unit_id(s) ${Array.from(duplicateUnitIds).join(", ")} tem mais de um vinculo ativo (ends_at IS NULL).`
+        );
+      }
 
       if (linkedUnits.length === 0) {
         return { units: [], responsavelId };
@@ -2630,9 +2739,21 @@ export const financeSimpleRouter = router({
       const summaryMap = new Map(summary.map((s) => [s.unit_id, s]));
       const result = linkedUnits.map((lu) => {
         const s = summaryMap.get(lu.unit_id);
+        // FIX (AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO_2026-09-24, Achado 2):
+        // o LEFT JOIN com `units` nao encontra a unidade quando o unit_id em
+        // financial_responsible_units aponta para uma unidade que nao existe
+        // mais (excluida, ou vinculo criado errado). Antes, isso virava
+        // silenciosamente o texto generico "Unidade" -- indistinguivel de uma
+        // unidade real chamada assim, escondendo um problema de dado real (e
+        // escondendo, junto, qualquer valor pendente ligado a esse unit_id).
+        // Agora o nome deixa explicito que a unidade nao foi encontrada, e o
+        // flag `unit_orphaned` permite o frontend destacar visualmente sem
+        // parsear texto.
+        const isOrphaned = lu.unit_name === null;
         return {
           unit_id: lu.unit_id,
-          unit_name: lu.unit_name ?? "Unidade",
+          unit_name: isOrphaned ? `Unidade removida (ID ${lu.unit_id})` : (lu.unit_name as string),
+          unit_orphaned: isOrphaned,
           cycle_start_day: lu.cycle_start_day ?? 1,
           cycle_end_day: lu.cycle_end_day ?? 31,
           cycle_label: s?.cycle_label ?? "",
@@ -4548,7 +4669,7 @@ export const financeSimpleRouter = router({
           .limit(pageSize2)
           .offset((page2 - 1) * pageSize2);
         type DayEntry = { date: string; reports: number; amount: number };
-        type UnitEntry = { unit_id: number; unit_name: string; reports: number; amount: number; price_per_report: string; days: DayEntry[] };
+        type UnitEntry = { unit_id: number; unit_name: string; reports: number; priced_reports: number; pending_price_count: number; amount: number; price_per_report: string; days: DayEntry[] };
         type DoctorEntry = { doctor_id: number; doctor_name: string; total_reports: number; total_amount: number; units: UnitEntry[] };
         const doctorMap = new Map<number, DoctorEntry>();
         let grandTotal = 0;
@@ -4558,16 +4679,49 @@ export const financeSimpleRouter = router({
           const doc = doctorMap.get(did)!;
           const uid = row.event.unit_id;
           let ue = doc.units.find(u => u.unit_id === uid);
-          if (!ue) { ue = { unit_id: uid, unit_name: row.unit_name ?? `Unidade ${uid}`, reports: 0, amount: 0, price_per_report: row.event.doctor_price_applied ?? '0', days: [] }; doc.units.push(ue); }
+          // FIX (AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO_2026-09-24, Achado 4b,
+          // e bloqueio 2 da revisao Manus em 2026-09-24):
+          // price_per_report era fixado com o valor da PRIMEIRA linha
+          // encontrada para este medico+unidade, enquanto reports/amount
+          // continuavam acumulando por TODAS as linhas seguintes. A primeira
+          // correcao passou a recalcular como amount/reports no final, mas a
+          // Manus apontou dois problemas adicionais: (1) reports contava
+          // TODOS os eventos, incluindo os que ainda nao tem
+          // doctor_price_applied (pendentes de precificacao) -- esses
+          // entravam no denominador como se fossem preco zero, distorcendo a
+          // media para baixo e escondendo a pendencia; e (2) amount era
+          // acumulado com += em ponto flutuante ao longo de muitas
+          // iteracoes, o que pode divergir por erro de representacao binaria
+          // (ex.: 0.29 + 0.58 nem sempre da exatamente 0.87 em float).
+          // Corrigido: (1) priced_reports conta so os eventos com preco
+          // aplicado, e e o denominador da media -- nao reports; (2) toMoney()
+          // e aplicado a CADA soma, arredondando para o centavo mais proximo
+          // imediatamente apos cada adicao, o que impede o erro de
+          // representacao de se acumular ao longo de muitas iteracoes.
+          if (!ue) { ue = { unit_id: uid, unit_name: row.unit_name ?? `Unidade ${uid}`, reports: 0, priced_reports: 0, pending_price_count: 0, amount: 0, price_per_report: '0', days: [] }; doc.units.push(ue); }
           const rawDate2 = row.event.study_date;
           const d = rawDate2 ? (rawDate2 instanceof Date ? rawDate2.toISOString().split('T')[0] : String(rawDate2).split('T')[0]) : 'sem-data';
           let de = ue.days.find(x => x.date === d);
           if (!de) { de = { date: d, reports: 0, amount: 0 }; ue.days.push(de); }
+          const hasPrice = row.event.doctor_price_applied !== null && row.event.doctor_price_applied !== undefined;
           const amt = toMoney(row.event.doctor_price_applied ?? 0);
-          de.reports += 1; de.amount += amt;
-          ue.reports += 1; ue.amount += amt;
-          doc.total_reports += 1; doc.total_amount += amt;
-          grandTotal += amt;
+          de.reports += 1; de.amount = toMoney(de.amount + amt);
+          ue.reports += 1; ue.amount = toMoney(ue.amount + amt);
+          if (hasPrice) ue.priced_reports += 1;
+          doc.total_reports += 1; doc.total_amount = toMoney(doc.total_amount + amt);
+          grandTotal = toMoney(grandTotal + amt);
+        }
+        // Recalcula price_per_report como a media dos valores realmente
+        // aplicados (amount/priced_reports, nao amount/reports) apos toda a
+        // agregacao -- ver comentario FIX acima, no ponto onde `ue` e
+        // criado. Continua sendo uma MEDIA (rótulo no frontend deve deixar
+        // isso claro), nao uma tarifa fixa que multiplicada pelos laudos
+        // reproduz o total exato quando há mais de um preço no período.
+        for (const doc of Array.from(doctorMap.values())) {
+          for (const ue of doc.units) {
+            ue.pending_price_count = ue.reports - ue.priced_reports;
+            ue.price_per_report = ue.priced_reports > 0 ? (ue.amount / ue.priced_reports).toFixed(2) : '0';
+          }
         }
         return { doctors: Array.from(doctorMap.values()), grand_total: grandTotal, responsible_id: targetResponsibleId ?? null, total: total2, page: page2, pageSize: pageSize2, hasMore: total2 > page2 * pageSize2 };
       }),
