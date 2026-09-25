@@ -197,7 +197,29 @@ export function SharedReportSheet({
         if (!position?.visible || !logo) return null;
         return (
           <div key={id} data-layout-block={id} style={{ ...blockStyle(position, fallbackPositions[id]), display: "flex", alignItems: "center", justifyContent: "center", padding: 4, zIndex: 2 }}>
-            <img src={logo.url} alt={logo.label || `Logo ${index + 1}`} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+            {/* CORREÇÃO (auditoria claude/corrige-logo-px-editor-vs-pdf): logo.width/
+                logo.height (px) eram salvos pelo editor de layout (campos "Largura (px)"
+                / "Altura (px)") mas nunca lidos aqui — a imagem sempre esticava para
+                100%/100% da caixa de posição (percentual, ajustada só pelas alças de
+                arraste no canvas). Resultado: o valor configurado numericamente não
+                tinha nenhum efeito visual, nem no preview do editor nem no PDF/impressão
+                final (ambos usam este mesmo componente via renderSharedReportSheetHtml).
+                Agora o px configurado é o tamanho-alvo real do logo, respeitado de forma
+                idêntica em editor e PDF; maxWidth/maxHeight:100% preserva o limite da
+                caixa de posição para não invadir blocos vizinhos, e o fallback para
+                100%/100% mantém compatibilidade com layouts antigos sem width/height. */}
+            <img
+              src={logo.url}
+              alt={logo.label || `Logo ${index + 1}`}
+              style={{
+                width: logo.width ? `${logo.width}px` : "100%",
+                height: logo.height ? `${logo.height}px` : "100%",
+                maxWidth: "100%",
+                maxHeight: "100%",
+                objectFit: "contain",
+                display: "block",
+              }}
+            />
           </div>
         );
       })}
