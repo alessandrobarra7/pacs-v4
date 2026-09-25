@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
-import { listReportMasks, createReportMasks, deleteReportMask } from "../db";
+import { listReportMasks, createReportMasks, updateReportMask, deleteReportMask } from "../db";
 import { canAccessUnit } from "../authorization";
 
 const ADMIN_ROLES = ["admin_master", "unit_admin"] as const;
@@ -127,9 +127,72 @@ export const masksRouter = router({
     }),
 
   /**
+   * Atualiza os campos editáveis de uma máscara já importada (nome, modalidade,
+   * título do exame, corpo). Permite ao médico corrigir/personalizar um laudo
+   * pronto sem precisar apagar e reimportar um JSON novo.
+   *
+   * Mesma regra de posse do delete (ver reportMaskOwnershipCondition em
+   * server/db.ts, corrigida na auditoria Manus 2026-09-24, Bloqueio 3):
+   * dono da máscara pessoal NA UNIDADE INFORMADA, ou admin da MESMA unidade
+   * quando a máscara é scope='unit'. Um admin nunca edita máscara pessoal
+   * de outro usuário, e ninguém — nem dono, nem admin — edita uma máscara
+   * de fora da unidade autorizada por canAccessUnit acima.
+   *
+   * Política de sanitização do body (decisão explícita pedida pela Manus):
+   * este campo usa a MESMA normalizeBodyToHtml() do import (`masks.import`,
+   * função inalterada por este branch) — texto puro vira parágrafos, HTML
+   * já formatado é armazenado como veio, sem escapar/sanitizar no servidor.
+   * A superfície de risco não é nova: é a mesma que o import já tinha. A
+   * barreira contra XSS fica no CONSUMO, não na gravação — todo ponto que
+   * insere body de máscara no editor (ModelosTab, drop de template) passa
+   * por sanitizeHtmlForEditor() (DOMPurify com allowlist de tags, sem
+   * <script>/<iframe>/handlers inline) antes de tocar innerHTML, em
+   * client/src/pages/ReportEditorPage.tsx — igual para máscaras criadas por
+   * import ou editadas por esta procedure.
+   */
+  update: protectedProcedure
+    .input(z.object({
+      id:         z.number().int().positive(),
+      unitId:     z.number().int().positive(),
+      name:       z.string().min(1).max(255),
+      modality:   z.string().max(10).optional().nullable(),
+      exam_title: z.string().max(255).optional().nullable(),
+      body:       z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const canAccess = await canAccessUnit(ctx.user, input.unitId, "view_studies");
+      if (!canAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Você não tem acesso a esta unidade.",
+        });
+      }
+
+      const admin = isAdmin(ctx.user.role);
+      const updated = await updateReportMask(input.id, ctx.user.id, admin, input.unitId, {
+        name: input.name,
+        modality: input.modality ?? null,
+        exam_title: input.exam_title ?? null,
+        body: normalizeBodyToHtml(input.body),
+      });
+      if (!updated) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Máscara não encontrada ou sem permissão para editar.",
+        });
+      }
+      return { success: true };
+    }),
+
+  /**
    * Remove uma máscara pelo id.
-   * Usuário comum só pode remover as próprias máscaras.
-   * Admin pode remover qualquer máscara da PRÓPRIA unidade.
+   * Usuário comum só pode remover as próprias máscaras pessoais.
+   * Admin (admin_master/unit_admin) só remove máscaras com scope='unit' da
+   * PRÓPRIA unidade — nunca máscara pessoal de outro usuário da mesma
+   * unidade (revisão corretiva Manus 2026-09-24: o comentário anterior
+   * dizia "qualquer máscara", divergindo da política efetiva já aplicada
+   * pelo predicado compartilhado reportMaskOwnershipCondition em
+   * server/db.ts, usado tanto aqui quanto em masks.update).
    * FIX: exige unitId para restringir admin à unidade correta.
    */
   delete: protectedProcedure

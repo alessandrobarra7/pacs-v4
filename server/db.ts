@@ -4039,6 +4039,39 @@ export async function createReportMasks(masks: InsertReportMask[]): Promise<void
   await db.insert(report_masks).values(masks);
 }
 
+/**
+ * Predicado de posse compartilhado por deleteReportMask/updateReportMask.
+ *
+ * Corrigido na auditoria Manus 2026-09-24 (Parecer de Auditoria — Setor de
+ * Laudos, Bloqueio 3). Antes desta correção:
+ *  - Usuário comum: filtrava só por id+owner_user_id, SEM checar unit_id.
+ *    Um usuário dono de uma máscara pessoal na unidade B, mas com acesso
+ *    também à unidade A, podia chamar a procedure com unitId=A (autorização
+ *    de acesso à unidade A aceita) e id de uma máscara sua da unidade B — a
+ *    condição no banco não exigia que report_masks.unit_id batesse com A,
+ *    então a linha de B era alterada mesmo assim.
+ *  - Admin: filtrava só por id+unit_id, SEM exigir scope='unit'. Um
+ *    admin_master/unit_admin da unidade X podia editar/apagar uma máscara
+ *    PESSOAL (scope='personal') de outro usuário da mesma unidade X — a
+ *    política documentada sempre foi "admin só mexe em máscaras de escopo
+ *    unit; máscaras pessoais só o dono edita/apaga".
+ * Agora ambos os caminhos incluem unit_id, e o caminho admin também exige
+ * scope='unit', preservando as máscaras pessoais para o respectivo dono.
+ */
+export function reportMaskOwnershipCondition(id: number, userId: number, isAdmin: boolean, unitId: number) {
+  return isAdmin
+    ? and(
+        eq(report_masks.id, id),
+        eq(report_masks.unit_id, unitId),
+        eq(report_masks.scope, "unit")
+      )
+    : and(
+        eq(report_masks.id, id),
+        eq(report_masks.owner_user_id, userId),
+        eq(report_masks.unit_id, unitId)
+      );
+}
+
 /** Remove uma máscara pelo id, verificando que pertence ao usuário (ou admin). */
 export async function deleteReportMask(
   id: number,
@@ -4049,19 +4082,38 @@ export async function deleteReportMask(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Admin pode deletar qualquer máscara da PRÓPRIA unidade
-  // Usuário comum só pode deletar suas próprias máscaras
-  const condition = isAdmin
-    ? and(
-        eq(report_masks.id, id),
-        eq(report_masks.unit_id, unitId)  // FIX: restrito à unidade do admin
-      )
-    : and(
-        eq(report_masks.id, id),
-        eq(report_masks.owner_user_id, userId)
-      );
+  // Admin pode deletar qualquer máscara scope='unit' da PRÓPRIA unidade.
+  // Usuário comum só pode deletar suas próprias máscaras, também restritas
+  // à unidade informada (ver reportMaskOwnershipCondition acima).
+  const condition = reportMaskOwnershipCondition(id, userId, isAdmin, unitId);
 
   const result = await db.delete(report_masks).where(condition);
+  return (result[0] as { affectedRows: number }).affectedRows > 0;
+}
+
+/**
+ * Atualiza os campos editáveis de uma máscara (nome, modalidade, título do exame, corpo).
+ * Mesma regra de posse do delete: admin pode editar qualquer máscara scope='unit'
+ * da PRÓPRIA unidade; usuário comum só pode editar as próprias, na unidade informada.
+ */
+export async function updateReportMask(
+  id: number,
+  userId: number,
+  isAdmin: boolean,
+  unitId: number,
+  fields: { name: string; modality: string | null; exam_title: string | null; body: string }
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const condition = reportMaskOwnershipCondition(id, userId, isAdmin, unitId);
+
+  const result = await db.update(report_masks).set({
+    name: fields.name,
+    modality: fields.modality,
+    exam_title: fields.exam_title,
+    body: fields.body,
+  }).where(condition);
   return (result[0] as { affectedRows: number }).affectedRows > 0;
 }
 

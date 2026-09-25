@@ -37,6 +37,23 @@ export type SharedReportSheetProps = {
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
+  /**
+   * Tamanho físico da folha e margens efetivas (mm), vindos de
+   * LayoutPreferences (DEFAULT_LAYOUT_PREFERENCES em shared/types.ts).
+   * Opcionais e retrocompatíveis: quando ausentes, mantém o comportamento
+   * histórico deste componente (folha A4, sem margem — os blocos ocupavam
+   * 100% da folha física). Correção da auditoria Manus 2026-09-24
+   * (Parecer de Auditoria — Setor de Laudos, Bloqueio 1): antes deste campo
+   * existir, as 4 vias de geração de PDF/impressão ignoravam por completo o
+   * pageSize/margens configurados pelo administrador quando renderizavam
+   * esta folha compartilhada — a folha sempre saía A4 sem margem,
+   * independente da unidade.
+   */
+  pageSize?: "A4" | "Letter";
+  marginTop?: number;
+  marginRight?: number;
+  marginBottom?: number;
+  marginLeft?: number;
 };
 
 const fallbackPositions: SharedBlockPositions = {
@@ -106,6 +123,11 @@ export function SharedReportSheet({
   className = "",
   style,
   children,
+  pageSize = "A4",
+  marginTop = 0,
+  marginRight = 0,
+  marginBottom = 0,
+  marginLeft = 0,
 }: SharedReportSheetProps) {
   const merged: SharedBlockPositions = { ...fallbackPositions, ...(positions ?? {}) };
   // Compatibilidade: layouts antigos persistiam uma única chave `logo`.
@@ -125,11 +147,14 @@ export function SharedReportSheet({
       }
     });
   }
+  // Dimensão física real da folha (A4/Letter) — antes fixa em 297mm/210mm,
+  // ignorando o pageSize configurado (Bloqueio 1, auditoria Manus 2026-09-24).
+  const paperWidthMm = pageSize === "Letter" ? 216 : 210;
+  const paperHeightMm = pageSize === "Letter" ? 279 : 297;
   const paperStyle: CSSProperties = {
-    height: "297mm",
-    minHeight: "1123px",
+    height: `${paperHeightMm}mm`,
     width: "100%",
-    maxWidth: "210mm",
+    maxWidth: `${paperWidthMm}mm`,
     marginInline: "auto",
     position: "relative",
     overflow: "hidden",
@@ -139,7 +164,19 @@ export function SharedReportSheet({
     fontSize: `${fontSize}pt`,
     lineHeight,
     boxSizing: "border-box",
+    // Margens efetivas da unidade, aplicadas como padding da folha física.
+    padding: `${marginTop}mm ${marginRight}mm ${marginBottom}mm ${marginLeft}mm`,
     ...style,
+  };
+  // Os blocos (logo, paciente, título, corpo, rodapé) são posicionados em
+  // percentual dentro da ÁREA ÚTIL (já descontadas as margens), não da folha
+  // física inteira — por isso ficam num wrapper relativo próprio, cujo
+  // padding-box é 100% da área útil (box-sizing:border-box no pai já reduziu
+  // o content-box pelas margens).
+  const contentStyle: CSSProperties = {
+    position: "relative",
+    width: "100%",
+    height: "100%",
   };
 
   return (
@@ -153,7 +190,7 @@ export function SharedReportSheet({
           style={{ zIndex: 0, opacity: backgroundOpacity, objectFit: backgroundSize === "contain" ? "contain" : "cover" }}
         />
       )}
-
+      <div className="shared-report-sheet-content" style={contentStyle}>
       {["logo1", "logo2", "logo3"].map((id, index) => {
         const position = merged[id];
         const logo = logos[index];
@@ -197,6 +234,7 @@ export function SharedReportSheet({
       )}
 
       {children}
+      </div>
     </div>
   );
 }

@@ -1,0 +1,621 @@
+HANDOFF MANUS — Setor Laudos: Trechos, Laudos Prontos (Máscaras) e Margens/PDF
+Branch: claude/setor-laudos-masks-trechos-pdf
+Base: origin/main @ 1b906ad
+Data: 24/09/2026
+
+===============================================================================
+OBJETIVO DESTE DOCUMENTO
+===============================================================================
+Este branch já está implementado, testado localmente (pnpm check, testes
+direcionados, suíte completa, build, git diff --check) e comitado. Não há
+decisão de design em aberto — cada mudança abaixo tem a causa raiz identificada
+no código, o commit exato e o teste que comprova o comportamento. O trabalho
+pedido a você aqui é validação/QA: reproduzir os cenários descritos, rodar a
+suíte no ambiente real (sandbox TiDB) e, se tudo bater, aprovar para merge.
+Não é necessário reanalisar a causa dos bugs nem redesenhar a solução.
+
+===============================================================================
+RESUMO DO QUE MUDOU (4 correções + 1 feature nova, tudo no setor de Laudos)
+===============================================================================
+
+1) MARGENS/TAMANHO DE PÁGINA DO PDF DIVERGENTES ENTRE 3 TELAS (cherry-pick)
+   Commits: 27f3f84, 7307f98, 6b125ff
+   (originalmente do branch claude/correcao-paginas-laudo-pdf, pronto desde
+   16/09, nunca mesclado — motivo pelo qual o usuário via a configuração de
+   página não refletir na impressão)
+
+   Causa raiz: três pontos de geração de laudo tinham cada um seu próprio
+   fallback de margem hardcoded, divergentes entre si e do padrão real:
+     - ReportEditorPage.tsx (impressão oficial): fallback 20/20/18/18
+     - ReportEditorPage.tsx (download PDF da visão financeira): jsPDF sempre
+       "a4" fixo, ignorando layoutPrefs.pageSize
+     - PacsQueryPage.tsx (impressão rápida da lista de exames): outro
+       conjunto de fallbacks, também divergente
+     - financialReportPdfDownload.ts (PDF do financeiro): margens nem eram
+       lidas — CSS com padding:16mm 18mm 30mm fixo, sempre
+   Correção: todos os 4 pontos agora usam o mesmo merge
+   {...DEFAULT_LAYOUT_PREFERENCES, ...preferences} já usado corretamente em
+   ReportDocument.tsx (20mm topo / 25mm demais lados).
+
+   COMO VALIDAR: configure uma unidade com margens diferentes do padrão
+   (ex.: 30mm em todos os lados) e tamanho de página "letter". Gere o laudo
+   pelas 4 vias (impressão normal, download PDF financeiro, impressão rápida
+   pela lista de exames, PDF do financeiro) e confirme que as 4 saem iguais
+   e refletem a configuração.
+
+2) TRECHOS ("Frases Prontas") COLANDO SEM ESPAÇO NO CORPO DO LAUDO
+   Commit: a484228 (client/src/pages/ReportEditorPage.tsx)
+
+   Causa raiz: insertAtCursor usa document.execCommand('insertText') sem
+   nenhuma lógica de separador. Reproduzido ao vivo em produção: clicar numa
+   frase colava direto no texto existente, sem espaço nem quebra
+   ("...normalidadeTÉCNICA:Realizados cortes axiais...").
+   Correção: insertAtCursor recebe agora um parâmetro opcional
+   { smartSeparator: true }, usado apenas na inserção de Trechos/Frases
+   (desktop e mobile). Quando há um caractere não-espaço imediatamente antes
+   do cursor, prefixa o texto inserido com uma quebra dupla ("\n\n"). O editor
+   usa white-space:pre-wrap, então a quebra aparece de verdade. Os demais usos
+   de insertAtCursor (colar imagem, colar texto simples) NÃO foram alterados
+   — nenhum risco de regressão ali.
+
+   COMO VALIDAR: abrir um laudo com texto já digitado no corpo, posicionar o
+   cursor no meio de uma palavra/frase e clicar numa frase pronta na aba
+   Trechos. Deve entrar uma quebra de linha em branco antes do texto inserido,
+   nunca grudado. Testar também com o cursor logo após um espaço/quebra —
+   nesse caso NÃO deve inserir separador extra (evitar espaçamento duplo).
+
+3) CAMPO DE CRIAÇÃO DE FRASE MUITO PEQUENO / QUEBRAS NÃO PRESERVADAS NA LISTA
+   Commit: a484228 (mesmo arquivo)
+
+   textarea de "+ Adicionar frase" foi de rows=2 para rows=6 com dica de usar
+   Enter para separar seções (TÉCNICA/ACHADOS/IMPRESSÃO). A listagem lateral
+   da frase (que antes renderizava {phrase.content} cru) agora tem
+   whitespace-pre-wrap, então frases com \n já salvas passam a exibir a
+   formatação corretamente em vez de aparecer como texto corrido.
+
+   COMO VALIDAR: criar uma frase nova digitando 3 linhas com Enter entre
+   elas. Confirmar que a listagem lateral mostra as 3 linhas separadas (não
+   corridas) e que inserir a frase no laudo preserva as quebras.
+
+4) BUSCA DE "LAUDOS PRONTOS" NÃO IGNORA ACENTO
+   Commit: a484228 (mesmo arquivo)
+
+   Causa raiz: filtro comparava m.name.toLowerCase().includes(busca) sem
+   normalizar diacríticos. Buscar "cranio" não encontrava "Crânio" — só
+   funcionava digitando o acento exato. Reproduzido ao vivo: 0 resultados
+   para "cranio", 6 resultados para "crânio".
+   Correção: reaproveitado o mesmo padrão já existente no arquivo (usado no
+   seletor de templates, linha ~2333: s.normalize("NFD").replace(diacríticos,
+   "").toLowerCase()) também no filtro de nome/modalidade/título do exame das
+   máscaras.
+
+   COMO VALIDAR: buscar "cranio", "torax", "orbitas" (sem acento) no painel
+   de Laudos Prontos e confirmar que encontra "Crânio", "Tórax", "Órbitas".
+
+5) NOVA FEATURE: EDITAR UM LAUDO PRONTO JÁ IMPORTADO
+   Commits: a484228 (server/routers/masks.ts, server/db.ts,
+   client/src/pages/ReportEditorPage.tsx) +
+   server/audit-fixes-masks-update.test.ts
+
+   Motivação do usuário: hoje a única forma de corrigir um laudo pronto
+   (máscara) já importado é apagar e reimportar um JSON novo — inviável para
+   ajustes pontuais, especialmente com a biblioteca de 100+ laudos recém
+   importada.
+
+   Backend: nova procedure masks.update (name, modality, exam_title, body),
+   com a MESMA regra de posse do masks.delete já existente: usuário comum só
+   edita as próprias máscaras pessoais; admin_master/unit_admin pode editar
+   qualquer máscara scope='unit' DA PRÓPRIA UNIDADE (não de outras unidades).
+   Corpo em texto puro passa por normalizeBodyToHtml (mesmo helper do
+   import), preservando compatibilidade com o formato "=== TÍTULO ===".
+   Frontend: ícone de editar (lápis) ao lado da lixeira em cada máscara,
+   abrindo um modal com nome/modalidade/título do exame/corpo. Não é mais
+   necessário abrir um laudo de paciente para editar uma máscara.
+
+   Testes (server/audit-fixes-masks-update.test.ts, 4 cenários, todos
+   passando, nenhum toca banco — canAccessUnit e updateReportMask mockados):
+     - usuário sem vínculo com a unidade -> FORBIDDEN, updateReportMask não
+       é chamado
+     - usuário comum tentando editar máscara de outro usuário -> NOT_FOUND
+       (updateReportMask retorna false porque o WHERE não bate)
+     - usuário comum editando a própria máscara -> sucesso, updateReportMask
+       chamado com isAdmin=false e o body em texto puro normalizado para HTML
+     - admin_master editando máscara scope='unit' da própria unidade ->
+       sucesso, updateReportMask chamado com isAdmin=true
+
+   COMO VALIDAR (cenário sintético, sem tocar dado real): criar uma máscara
+   pessoal de teste, editar via novo modal e confirmar que persiste. Tentar
+   editar (via chamada direta à procedure, não pela UI) uma máscara de outro
+   usuário e confirmar NOT_FOUND. Tentar editar uma máscara scope='unit' de
+   OUTRA unidade logado como admin_master dessa unidade e confirmar NOT_FOUND
+   (isolamento entre unidades).
+
+===============================================================================
+VALIDAÇÕES JÁ EXECUTADAS NESTE SANDBOX
+===============================================================================
+| Verificação                          | Resultado                          |
+|---------------------------------------|-------------------------------------|
+| pnpm install                          | OK                                  |
+| pnpm check (tsc --noEmit)             | OK, sem erros                       |
+| Testes direcionados (masks.update, 4  | OK, 4/4 (+ 6/6 dos já existentes    |
+| cenários) + regressão FORBIDDEN geral | de FORBIDDEN) — nenhum toca banco   |
+| TZ=UTC pnpm test (suíte completa)     | 442 aprovados, 9 falhos, 1 ignorado, |
+|                                        | 452 total. As 9 falhas são as MESMAS|
+|                                        | categorias pré-existentes já        |
+|                                        | documentadas em revisão anterior:   |
+|                                        | catálogo de exames, dashboard       |
+|                                        | financeiro antigo, proxy de mídia,  |
+|                                        | download desktop, interface mobile, |
+|                                        | autenticação, prioridade de estudo. |
+|                                        | Nenhuma toca ReportEditorPage.tsx,  |
+|                                        | masks.ts ou db.ts (arquivos         |
+|                                        | alterados aqui).                    |
+| pnpm build                            | OK (client + servidor)              |
+| git diff --check                      | OK, sem whitespace inválido         |
+
+Observação sobre o total de testes: este sandbox não tem DATABASE_URL
+configurado (getDb() retorna null), então alguns testes que dependem de banco
+real podem não rodar da mesma forma aqui que na VM1. Isso é esperado e é
+exatamente o motivo de pedir a validação da suíte completa no ambiente com
+TiDB real.
+
+===============================================================================
+O QUE NÃO FOI ALTERADO / FORA DE ESCOPO
+===============================================================================
+- Nenhuma migration de banco neste branch.
+- Nenhum dado de produção foi tocado (validações de máscara feitas ao vivo
+  em turnos anteriores foram revertidas/descartadas sem salvar).
+- O botão "+ Adicionar frase" já existia e funciona — o que parecia ausência
+  era só posição no fim de listas longas; não foi necessário mexer nisso.
+- Biblioteca de laudos prontos (107 templates CR/CT/RM) já foi importada
+  separadamente em produção antes deste branch; não faz parte deste commit.
+
+===============================================================================
+PRÓXIMO FLUXO RECOMENDADO
+===============================================================================
+1. Ler este handoff (já cobre causa raiz e correção de cada item).
+2. Rodar TZ=UTC pnpm test na VM1 e comparar a lista de falhas com a tabela
+   acima — só aprovar se as falhas forem as mesmas 9 categorias pré-existentes.
+3. Reproduzir os 5 cenários de "COMO VALIDAR" acima, manualmente ou via teste
+   automatizado adicional se preferir.
+4. Validar isolamento entre unidades no masks.update (ponto mais sensível
+   desta entrega, por mexer em autorização).
+5. Aprovar merge em main e publicação no GitHub. VM1 pode receber via git
+   pull normal (sem migration). VM2 sem necessidade específica.
+
+===============================================================================
+ADENDO 2026-09-24 — BRANCH ATUALIZADA COM MAIN (pós-merge do financeiro)
+===============================================================================
+
+Contexto: entre a criação original deste branch e esta revisão, a branch
+claude/financeiro-precos-consistencia foi auditada pela Manus, corrigida em
+3 rodadas e mesclada em main (commit b7eb1b8). Isso deixou este branch
+30 commits atrás de main.
+
+Ação tomada: main foi mesclado para dentro deste branch (merge simples,
+sem rebase, sem reescrita de histórico):
+
+  git merge origin/main --no-edit
+
+Resultado: merge limpo, SEM CONFLITOS. 45 arquivos alterados (+6470/-598),
+trazendo todo o histórico do módulo financeiro (migrations 0061/0062, novos
+testes, handoffs, finance-theme.css etc.) para dentro deste branch. Dois
+arquivos tiveram merge automático (auto-merge, sem intervenção manual):
+client/src/pages/PacsQueryPage.tsx e server/db.ts — ambos recebiam mudanças
+independentes em pontos diferentes (este branch mexeu em margem de PDF;
+main trouxe o módulo financeiro), sem sobreposição de linhas.
+
+Commit do merge: ec6ee65 (topo atual do branch).
+
+REVALIDAÇÃO COMPLETA APÓS O MERGE:
+  pnpm check (tsc --noEmit) .............. OK, sem erros
+  TZ=UTC pnpm test (suíte completa) ...... 519 aprovados, 11 falhas
+                                            históricas, 1 ignorado, de 531
+                                            (108 arquivos de teste)
+  Falhas batem com o baseline conhecido? . Sim — mesmas 7 suítes históricas
+                                            já documentadas acima; nenhuma
+                                            falha nova
+  pnpm build .............................. OK
+  git diff --check origin/main..HEAD ...... OK, sem whitespace inválido
+
+CONFERÊNCIA DE QUE AS 5 MUDANÇAS DESTE BRANCH SOBREVIVERAM AO MERGE:
+  - server/routers/masks.ts: procedure `update` presente (linha ~136)
+  - client/src/pages/ReportEditorPage.tsx: smartSeparator/getCharBeforeRange
+    presentes; DEFAULT_LAYOUT_PREFERENCES em uso
+  - client/src/pages/PacsQueryPage.tsx: DEFAULT_LAYOUT_PREFERENCES em uso
+    (sobreviveu ao auto-merge)
+  - server/audit-fixes-masks-update.test.ts: presente, 4/4 passando dentro
+    da suíte completa acima
+
+Nada neste adendo altera o escopo original (seção "RESUMO DO QUE MUDOU"
+continua válida como está). O único propósito deste merge foi trazer o
+branch para cima de main atual antes da revisão da Manus, evitando que ela
+audite um código desatualizado ou tenha que resolver conflitos na hora do
+merge final.
+
+PRÓXIMO FLUXO (igual ao original, sem mudança): revisar os 5 itens do
+"RESUMO DO QUE MUDOU", rodar a suíte na VM1, aprovar e mesclar. Como este
+branch já está com main em dia, o merge final deve ser fast-forward ou
+trivial (sem conflito esperado).
+
+===============================================================================
+ADENDO 2 — RESPOSTA AO PARECER DE AUDITORIA (2026-09-24, commit ea6d23b)
+===============================================================================
+
+A Manus auditou o commit ea6d23b e bloqueou o merge com 3 bloqueios
+materiais. Os 3 estão corrigidos neste branch, com testes novos para cada
+um. Nenhum redesenho de produto foi necessário — cada bloqueio tinha causa
+raiz pontual, já identificada com precisão pela Manus.
+
+-------------------------------------------------------------------------------
+BLOQUEIO 1 — As 4 vias de PDF não respeitavam margens/pageSize
+-------------------------------------------------------------------------------
+Causa raiz confirmada: SharedReportSheet.tsx (a folha React reaproveitada
+pelas 4 vias) nunca teve props de pageSize/margem — sempre renderizava A4
+(297mm/210mm) fixo, sem padding, não importa o que a unidade tivesse
+configurado. Além disso, a classe CSS de impressão usada nos <style> gerados
+(.print-shared-sheet) nunca batia com a classe de fato renderizada pelo
+componente (shared-report-sheet, sem o prefixo "print-"), então mesmo a
+regra de page-break daquele bloco CSS nunca era aplicada.
+
+Correção:
+  - client/src/components/SharedReportSheet.tsx: novas props opcionais
+    pageSize/marginTop/marginRight/marginBottom/marginLeft (retrocompatíveis
+    — ausentes, mantém A4 sem margem, comportamento anterior). A folha passou
+    a ter largura/altura físicas corretas (210x297mm ou 216x279mm) e as
+    margens viram padding real da folha. Os blocos posicionados por
+    percentual (logo, paciente, título, corpo, rodapé) foram movidos para um
+    wrapper interno cujo box já é a área útil (descontadas as margens), então
+    as posições continuam corretas percentualmente dentro da área impressa.
+  - As 4 vias passaram a alimentar essas props com o mesmo pageSize/margens
+    efetivos (merge com DEFAULT_LAYOUT_PREFERENCES) já usado no resto do
+    arquivo — nenhum valor novo inventado, só passado adiante:
+      1) Impressão oficial + impressão rápida de laudo único
+         (ReportEditorPage.tsx, renderPrintSheet dentro de handlePrint).
+      2) Impressão rápida da lista de exames (PacsQueryPage.tsx,
+         renderSharedReportSheetHtml). De quebra, corrigido também um
+         segundo bug do mesmo tipo nesta via: o download em PDF chamava
+         `new jsPDF('p', 'mm', 'a4')` hardcoded, ignorando pageSizeQ —
+         agora usa `pageSizeQ.toLowerCase()`.
+      3) A folha em tela do editor clínico (WYSIWYG, SharedReportSheet com
+         className="report-page") também passou a receber pageSize/margens
+         — é ELA que handleFinancialPdfDownload rasteriza via html2canvas
+         para o "download financeiro dentro do editor", então precisa nascer
+         já com a geometria física correta (senão o canvas capturado
+         continuava sendo A4 mesmo pedindo Letter no jsPDF final).
+      4) client/src/lib/financialReportPdfDownload.ts (PDF do módulo
+         Financeiro) já lia pageSize e as 4 margens corretamente antes desta
+         rodada — mantido sem alteração.
+  - A reserva adicional de 30mm no rodapé quando há imagem de rodapé
+    configurada é uma decisão de produto explícita e preexistente (evita que
+    o rodapé imagem sobreponha o texto do laudo), documentada nos comentários
+    do código em ambos os arquivos que a aplicam — mantida como estava, agora
+    apenas com o restante da geometria corrigido ao redor dela.
+
+Testes novos: server/shared-report-print.test.ts (2 casos: Letter+margens
+aplicados corretamente; A4 sem margem por padrão/retrocompatibilidade) e
+novos casos em server/report-editor-mobile-ui.test.ts (fixture de código
+confirmando que as 4 vias propagam pageSize/margens, e que o jsPDF da
+impressão rápida não usa mais 'a4' fixo).
+
+-------------------------------------------------------------------------------
+BLOQUEIO 2 — Trechos falhavam no editor móvel e no arrastar-e-soltar
+-------------------------------------------------------------------------------
+Causa raiz confirmada: saveSelection() e insertAtCursor() sempre miravam
+docRef (instância desktop) fora do modo multi-seção, ignorando mobileDocRef
+mesmo quando a UI mobile estava ativa (getVisibleDoc(), que já existia e
+decide corretamente pela largura real da viewport, não era usado por
+nenhuma das duas). O arrastar-e-soltar de frase não aplicava smartSeparator
+(só o clique aplicava). getCharBeforeRange não subia pela árvore ao esbarrar
+no início de um nó aninhado sem irmão de texto no mesmo nível.
+
+Correção:
+  - Nova função getActiveEditableEl(): usa sectionRefs no modo multi-seção
+    (preserva o comportamento anterior desse caminho) e getVisibleDoc() fora
+    dele (mobileDocRef ou docRef, pela viewport real). saveSelection() e
+    insertAtCursor() passaram a usar essa função em vez do alvo fixo.
+  - Os 2 pontos de drop de frase (multi-seção e página única) passaram a
+    chamar insertAtCursor(payload.data, { smartSeparator: true }), igual ao
+    clique.
+  - getCharBeforeRange() reescrita para, quando não encontra caractere no
+    próprio nó/offset, subir por current.parentNode procurando irmãos
+    anteriores em cada nível, até o limite do editor (boundary, agora
+    passado como o elemento ativo) — nunca escapando da área editável.
+
+Testes novos: casos em server/report-editor-mobile-ui.test.ts confirmando
+a presença de getActiveEditableEl()/getVisibleDoc() em saveSelection/
+insertAtCursor, as 2 ocorrências de smartSeparator no drop de frase, e a
+subida por parentNode com boundary em getCharBeforeRange.
+
+Observação: não foi adicionado teste de interação real (toque/drag) porque
+este repositório não tem suíte de testes de componente/DOM interativo (só
+testes de servidor + fixtures de código-fonte, mesmo padrão já usado nos
+outros testes deste arquivo). A validação funcional real (tocar no editor
+mobile, arrastar uma frase) precisa ser manual — roteiro no "COMO VALIDAR"
+do item 2 do handoff original, ainda válido.
+
+-------------------------------------------------------------------------------
+BLOQUEIO 3 — masks.update/delete não isolavam por unidade nem por escopo
+-------------------------------------------------------------------------------
+Causa raiz confirmada, exatamente como descrito pela Manus:
+  - Caminho não-admin: WHERE só tinha id + owner_user_id, sem unit_id. Dono
+    de máscara pessoal na unidade B, com acesso também à unidade A, podia
+    chamar com unitId=A (autorizado) e id de uma máscara sua da unidade B —
+    a condição não exigia unit_id=A, então a linha de B era afetada.
+  - Caminho admin: WHERE só tinha id + unit_id, sem scope='unit'. Um admin
+    da unidade X podia editar/apagar máscara PESSOAL de outro usuário da
+    mesma unidade X — contrariando a política sempre documentada no código
+    (admin só mexe em scope='unit'; pessoal é só do dono).
+
+Correção: nova função reportMaskOwnershipCondition (server/db.ts),
+compartilhada por updateReportMask e deleteReportMask:
+  - Não-admin: id + owner_user_id + unit_id (as 3 obrigatórias).
+  - Admin: id + unit_id + scope='unit' (as 3 obrigatórias).
+deleteReportMask recebeu a mesma correção do update (Manus pediu
+explicitamente para aplicar a mesma política nos dois, já que o comentário
+do delete promete a mesma regra e o caminho admin também não filtrava
+scope='unit' antes).
+
+Sanitização do body (política explícita pedida pela Manus): a procedure
+update usa a MESMA normalizeBodyToHtml() do import — texto puro vira
+parágrafos, HTML já formatado é armazenado como veio, sem escapar no
+servidor. Isso não é uma superfície nova: é idêntica à que o import
+(masks.import, inalterado) já tinha desde sempre. A barreira contra XSS
+está no CONSUMO — todo ponto que insere body de máscara no editor passa por
+sanitizeHtmlForEditor() (DOMPurify com allowlist de tags, sem script/iframe/
+handlers inline) antes de innerHTML, igual para máscara importada ou
+editada por esta procedure nova. Documentado em comentário na própria
+procedure (server/routers/masks.ts).
+
+Testes novos: server/audit-fixes-masks-ownership-scope.test.ts (6 casos)
+chama reportMaskOwnershipCondition diretamente (função pura, sem tocar
+banco) e compara a condição retornada, campo a campo, contra a combinação
+exata de colunas/valores esperada para cada cenário pedido pela Manus:
+usuário comum com as 3 cláusulas corretas; o cenário específico "dono da
+unidade B chamando com unitId=A" (prova que a condição amarra ao unitId
+AUTORIZADO, nunca ao unitId real da máscara); usuário tentando editar
+máscara de outro (amarra ao owner_user_id de quem chama, não ao dono real);
+admin com as 3 cláusulas incluindo scope='unit'; admin tentando outra
+unidade; e a prova de que admin/usuário comum geram condições
+estruturalmente diferentes (scope só entra no caminho admin).
+
+-------------------------------------------------------------------------------
+VALIDAÇÃO COMPLETA APÓS OS 3 BLOQUEIOS
+-------------------------------------------------------------------------------
+  pnpm check ............................... OK, sem erros
+  TZ=UTC pnpm test (suíte completa) ........ 532 aprovados, 11 falhas
+                                              históricas, 1 skip, de 544
+  Falhas batem com o baseline conhecido? ... Sim — mesmas 7 suítes já
+                                              documentadas (exam-catalog-
+                                              security, finance-v2-dashboard,
+                                              mediaProxy, pacs-desktop-
+                                              download-progress, pacs.mobile-
+                                              ui, security.auth, study-
+                                              priority-ui). Nenhuma nova.
+  pnpm build ................................ OK, só aviso preexistente de
+                                              bundle grande
+  git diff --check origin/main..HEAD ........ OK, sem whitespace inválido
+
+Arquivos alterados nesta rodada:
+  - client/src/components/SharedReportSheet.tsx (Bloqueio 1)
+  - client/src/pages/ReportEditorPage.tsx (Bloqueios 1 e 2)
+  - client/src/pages/PacsQueryPage.tsx (Bloqueio 1)
+  - server/db.ts (Bloqueio 3)
+  - server/routers/masks.ts (Bloqueio 3, comentário de política)
+  - server/shared-report-print.test.ts (testes novos, Bloqueio 1)
+  - server/report-editor-mobile-ui.test.ts (testes novos, Bloqueios 1 e 2)
+  - server/audit-fixes-masks-ownership-scope.test.ts (novo, Bloqueio 3)
+
+===============================================================================
+PRÓXIMO FLUXO (repetido, agora com os 3 bloqueios resolvidos)
+===============================================================================
+1. Revisar o diff desta rodada.
+2. Rodar a suíte completa na VM1 e comparar com a tabela acima.
+3. Reproduzir manualmente o roteiro de mobile/drag-and-drop descrito no
+   Bloqueio 2 acima (sem suíte de componente interativo neste repo).
+4. Reproduzir o roteiro de Letter/margens nas 4 vias, descrito no item 1 do
+   handoff original (agora efetivamente aplicado nas 4).
+5. Validar isolamento entre unidades/escopo no masks.update — os 6 cenários
+   novos de server/audit-fixes-masks-ownership-scope.test.ts cobrem a lógica
+   de banco; uma verificação manual via chamada direta à procedure (não pela
+   UI) com os IDs reais continua sendo a validação mais forte antes do merge.
+6. Se tudo bater: merge sem reescrever histórico, revalidar no sandbox,
+   publicar main, atualizar VM1 (sem migration nova).
+
+===============================================================================
+ADENDO 3 — RESPOSTA AO PARECER DA REVISÃO CORRETIVA (commit auditado 08262cd)
+===============================================================================
+
+A Manus revisou o commit 08262cd e encontrou 2 novos bloqueios críticos,
+ambos confirmados no código exatamente como descrito — sem discordância.
+Também pediu uma correção documental pequena (comentário de masks.delete).
+
+-------------------------------------------------------------------------------
+BLOQUEIO 1 — Download financeiro do editor cortava PDF Letter multisseção
+-------------------------------------------------------------------------------
+Causa raiz confirmada: o contêiner multisseção em ReportEditorPage.tsx
+continuava com maxWidth fixo em px equivalente a A4 (era "md:w-[794px]",
+depois de correções anteriores ainda tinha valores 216mm/210mm mas sem
+alimentar a altura corretamente), independente do pageSize efetivo. Cada
+SharedReportSheet recebia pageSize="Letter" e altura Letter, mas sua
+largura ficava presa em ~210mm (A4). O html2canvas capturava essa folha
+estreita e o jsPDF esticava a captura para a largura Letter — a altura,
+calculada só pela proporção da captura, ultrapassava a altura física da
+página Letter e cortava o rodapé.
+
+Correção:
+  - client/src/pages/ReportEditorPage.tsx: maxWidth/minHeight do contêiner
+    multisseção e de página única agora derivam de
+    effectiveLayoutPrefs.pageSize via as funções puras pageWidthMm/
+    pageHeightMm (novo módulo client/src/lib/pdfPageGeometry.ts) — nunca
+    mais hardcoded.
+  - handleFinancialPdfDownload: adicionado clamp de segurança
+    (clampImageToPage, mesmo módulo) — se a altura calculada por proporção
+    ainda ultrapassar a altura física da página de destino (por qualquer
+    motivo: fonte não carregada, imagem de rodapé maior que o esperado,
+    arredondamento do navegador), reduz width/height proporcionalmente e
+    centraliza horizontalmente, garantindo que a imagem NUNCA seja cortada.
+  - screenFooterReservedMm: a reserva de 30mm extra no rodapé (quando a
+    unidade tem footer_image_url) agora é aplicada também na folha
+    on-screen do editor, igualando a área útil às demais 3 vias
+    (impressão oficial, impressão rápida, PDF do Financeiro).
+
+Testes novos: server/pdf-page-geometry.test.ts (10 casos) — testa
+pageWidthMm/pageHeightMm para A4 e Letter, e clampImageToPage cobrindo: sem
+estouro (não altera nada), reprodução numérica exata do cenário relatado
+pela Manus (container preso em ~210mm capturado e esticado para Letter
+216mm gera altura > 279mm; o clamp reduz e centraliza corretamente),
+preservação do aspect ratio ao reduzir, caso limite (altura exatamente
+igual à altura da página) e fluxo normal A4 sem estouro.
+
+-------------------------------------------------------------------------------
+BLOQUEIO 2 — Editor multisseção com referências conflitantes desktop/mobile
+-------------------------------------------------------------------------------
+Causa raiz confirmada, com 4 pontos distintos:
+
+1) Colisão de refs no modo multisseção: as duas árvores (desktop e mobile),
+   ambas sempre montadas no DOM e ocultas só por CSS, gravavam a referência
+   de cada seção no MESMO array sectionRefs.current[i] — a instância mobile
+   (montada depois, mais abaixo no JSX) sobrescrevia a referência da
+   instância desktop. Em viewport desktop, saveSelection()/insertAtCursor()
+   podiam então focar e escrever na seção mobile oculta.
+
+2) Hidratação assimétrica: o carregamento de existingReport.body (laudo já
+   salvo) escrevia SOMENTE em docRef (desktop) — nunca em mobileDocRef. Um
+   laudo existente aberto no celular aparecia sem o conteúdo já salvo e, ao
+   gravar, o collectBody() (que lê o editor VISÍVEL) substituía o conteúdo
+   original pelo DOM móvel vazio/parcial.
+
+3) getCharBeforeRange incompleto para quebra estrutural: a versão anterior
+   atravessava um <br> (sem texto) continuando a busca até achar a letra
+   anterior de verdade, e também atravessava a fronteira de um bloco
+   (parágrafo/título) para olhar o bloco anterior — podia inserir "\n\n"
+   extra mesmo já havendo separação visual.
+
+4) Range de seleção salva sem checagem de pertencimento: insertAtCursor
+   reaproveitava a seleção salva (savedSelection) sem confirmar que ela
+   ainda pertencia ao editor ativo — entre o momento de salvar e o de
+   inserir, o editor ativo podia ter mudado (troca de seção, troca de
+   viewport).
+
+Correção (fonte única de verdade por seção/viewport):
+  - Novo array mobileSectionRefs, paralelo a sectionRefs — cada árvore
+    (desktop/mobile) grava só na sua própria referência.
+  - Nova função pura isMobileViewportQuery() (window.matchMedia) e
+    pickActiveRef(isMobile, mobileVal, desktopVal) — ambas extraídas para
+    client/src/lib/reportEditorDom.ts — resolvem, num único lugar, qual
+    árvore é a fonte de verdade AGORA, com fallback para a outra quando a
+    preferida ainda não estiver montada (ref nula). isMobileViewport(),
+    getVisibleDoc() e getActiveSectionRefs() (multisseção) passaram a usar
+    essas funções em vez de reimplementar a lógica inline.
+  - getActiveEditableEl(), collectBody(), handleTogglePreview(),
+    applyFontSize(), applyMask(), hasEditorContent, o handler de
+    ModelosTab.onApplyTemplate e o MutationObserver (todos os pontos que
+    antes referenciavam sectionRefs.current diretamente em contexto
+    compartilhado desktop/mobile) foram varridos e corrigidos para usar
+    getActiveSectionRefs() — os poucos usos remanescentes de
+    sectionRefs.current diretamente foram confirmados como legitimamente
+    desktop-only (dentro do bloco JSX "hidden md:flex", nunca visível/
+    tocável no mobile) e mantidos como estão.
+  - Hidratação de existingReport.body reescrita para popular AMBAS as
+    árvores (docRef E mobileDocRef; sectionRefs E mobileSectionRefs no modo
+    multisseção) — elimina a assimetria do item 2.
+  - getCharBeforeRange (extraída para reportEditorDom.ts) agora trata
+    <br>/<hr> como separação já existente (retorna um caractere de espaço
+    como sentinela, nunca atravessa para achar a letra anterior de
+    verdade) e trata o início de um elemento de bloco (P/DIV/H1-H6/LI/UL/
+    OL/BLOCKQUOTE/TR/TABLE/HR) como já-separado, sem retroceder para o
+    bloco anterior.
+  - Nova função pura rangeBelongsToTarget(range, targetEl) (mesmo módulo) —
+    insertAtCursor só reaproveita a seleção salva se
+    targetEl.contains(range.startContainer); caso contrário, usa o fim do
+    editor ativo como posição segura de inserção.
+
+Testes DOM reais (pedido explícito da Manus — não apenas trechos de
+código-fonte): server/report-editor-dom-real.test.ts (16 casos), rodando
+sob @vitest-environment jsdom, constrói árvores DOM de verdade e Range/
+Selection reais, chamando as funções de produção diretamente:
+  - getCharBeforeRange: caractere anterior no mesmo nó de texto; ascensão
+    para irmão anterior (span); cursor logo após <br> não atravessa a
+    quebra (retorna sentinela de espaço, nunca a letra anterior); cursor no
+    início do TEXTO de um novo bloco <p> não atravessa para o bloco
+    anterior; cursor após espaço retorna o espaço; nunca ultrapassa o
+    boundary (editor) para ler texto de fora da área editável; nós
+    aninhados profundos.
+  - isMobileViewportQuery: mock real de window.matchMedia para mobile e
+    desktop.
+  - pickActiveRef: elementos DOM reais, viewport mobile/desktop, fallback
+    quando o preferido está nulo.
+  - rangeBelongsToTarget: cenário exato do Bloqueio 2 — Range salvo na
+    árvore mobile, editor ativo agora é o desktop, confirma que o Range
+    antigo é rejeitado (não pertence) mas continua válido para a árvore a
+    que de fato pertence; Range nulo; nós aninhados profundamente dentro do
+    editor.
+
+O teste antigo (baseado em trecho de código-fonte) que a Manus criticou foi
+atualizado: server/report-editor-mobile-ui.test.ts agora só confirma que o
+componente importa e USA as funções compartilhadas de reportEditorDom.ts
+(wiring), delegando toda a cobertura de comportamento real para
+report-editor-dom-real.test.ts.
+
+-------------------------------------------------------------------------------
+CORREÇÃO DOCUMENTAL — comentário de masks.delete
+-------------------------------------------------------------------------------
+O comentário público de masks.delete dizia que o admin remove "qualquer
+máscara" da própria unidade. Corrigido para declarar a política efetiva já
+aplicada por reportMaskOwnershipCondition (server/db.ts): admin remove
+apenas máscara com scope='unit' da unidade autorizada, nunca máscara
+pessoal de outro usuário da mesma unidade — igual ao comentário já correto
+em masks.update.
+
+-------------------------------------------------------------------------------
+VALIDAÇÃO COMPLETA APÓS ESTA RODADA
+-------------------------------------------------------------------------------
+  pnpm check ............................... OK, sem erros
+  TZ=UTC pnpm test (suíte completa) ........ 556 aprovados, 11 falhas
+                                              históricas, 1 skip, de 568
+  Falhas batem com o baseline conhecido? ... Sim — mesmas 7 suítes já
+                                              documentadas (exam-catalog-
+                                              security, finance-v2-dashboard,
+                                              mediaProxy, pacs-desktop-
+                                              download-progress, pacs.mobile-
+                                              ui, security.auth, study-
+                                              priority-ui). Nenhuma nova.
+  pnpm build ................................ OK, só aviso preexistente de
+                                              bundle grande
+  git diff --check origin/main..HEAD ........ OK, sem whitespace inválido
+
+Arquivos alterados/criados nesta rodada:
+  - client/src/pages/ReportEditorPage.tsx (Bloqueios 1 e 2 — wiring das
+    funções extraídas, largura/altura do contêiner multisseção, clamp do
+    download financeiro)
+  - client/src/lib/reportEditorDom.ts (novo — funções puras extraídas:
+    getCharBeforeRange, isMobileViewportQuery, pickActiveRef,
+    rangeBelongsToTarget)
+  - client/src/lib/pdfPageGeometry.ts (novo — pageWidthMm, pageHeightMm,
+    clampImageToPage)
+  - server/routers/masks.ts (comentário de masks.delete)
+  - server/report-editor-dom-real.test.ts (novo — 16 testes DOM reais,
+    jsdom)
+  - server/pdf-page-geometry.test.ts (novo — 10 testes de regressão do
+    Bloqueio 1)
+  - server/report-editor-mobile-ui.test.ts (testes de wiring atualizados)
+  - package.json / pnpm-lock.yaml (jsdom adicionado como devDependency,
+    necessário para os testes DOM reais)
+
+===============================================================================
+PRÓXIMO FLUXO (repetido, agora com os 2 bloqueios desta rodada resolvidos)
+===============================================================================
+1. Revisar o diff desta rodada (git diff 08262cd..HEAD).
+2. Rodar a suíte completa na VM1 e comparar com a tabela acima.
+3. Validação funcional mínima sugerida pela própria Manus: Letter + duas
+   ou mais seções + margens não padrão + imagem de rodapé, gerando o PDF
+   pelo download financeiro do editor — confirmar todas as páginas Letter,
+   sem corte de rodapé, mesma área útil da impressão oficial.
+4. Validação funcional mínima do Bloqueio 2: abrir laudo simples já salvo
+   no mobile, inserir Trecho no meio do conteúdo, salvar e reabrir no
+   desktop; editar duas seções distintas no desktop e no mobile; clique e
+   arrastar-e-soltar; repetir imediatamente após espaço, Enter, <br> e
+   texto formatado.
+5. Se tudo bater: merge sem reescrever histórico, revalidar no sandbox,
+   publicar main, atualizar VM1 (sem migration nova).

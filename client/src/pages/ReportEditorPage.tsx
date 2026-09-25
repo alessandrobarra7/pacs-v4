@@ -2,12 +2,19 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import DOMPurify from 'dompurify';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import type { LayoutPreferences, LayoutSnapshot } from '../../../shared/types';
+import { DEFAULT_LAYOUT_PREFERENCES, type LayoutPreferences, type LayoutSnapshot } from '../../../shared/types';
 import { SharedReportBodyGuide, SharedReportSheet } from "@/components/SharedReportSheet";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import {
+  getCharBeforeRange as getCharBeforeRangeUtil,
+  isMobileViewportQuery,
+  pickActiveRef,
+  rangeBelongsToTarget,
+} from "@/lib/reportEditorDom";
+import { clampImageToPage, pageHeightMm, pageWidthMm } from "@/lib/pdfPageGeometry";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -224,12 +231,18 @@ export default function ReportEditorPage() {
   // Referências aos documentos editáveis; o mobile usa uma instância própria para não conflitar com o DOM desktop oculto.
   const docRef = useRef<HTMLDivElement>(null);
   const mobileDocRef = useRef<HTMLDivElement>(null);
-  const getVisibleDoc = useCallback(() => {
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
-      return mobileDocRef.current ?? docRef.current;
-    }
-    return docRef.current ?? mobileDocRef.current;
+  // Bloqueio 2 (revisão corretiva Manus 2026-09-24): decide "é a viewport
+  // mobile agora" num único lugar, reaproveitado por getVisibleDoc() (laudo
+  // simples) e por getActiveEditableEl() (multi-seção) — ambas as árvores
+  // (desktop e mobile) ficam sempre montadas no DOM, escondidas só por CSS
+  // conforme a largura da tela, então o código nunca pode assumir qual
+  // delas está de fato visível/tocável sem checar isso explicitamente.
+  const isMobileViewport = useCallback(() => {
+    return isMobileViewportQuery();
   }, []);
+  const getVisibleDoc = useCallback(() => {
+    return pickActiveRef(isMobileViewport(), mobileDocRef.current, docRef.current);
+  }, [isMobileViewport]);
   const savedSelection = useRef<Range | null>(null);
 
   // Suporte a múltiplos exames (multi-seção)
@@ -238,9 +251,24 @@ export default function ReportEditorPage() {
   const [examNames, setExamNames] = useState<string[]>([]);
   const [sectionBodies, setSectionBodies] = useState<string[]>([]);
   const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Bloqueio 2 (revisão corretiva Manus 2026-09-24): antes, a árvore mobile
+  // do modo multi-seção gravava sua própria referência no MESMO array
+  // sectionRefs — como as duas árvores (desktop e mobile) ficam sempre
+  // montadas, a instância mobile (renderizada depois, mais abaixo no JSX)
+  // sobrescrevia a referência da instância desktop em sectionRefs.current[i].
+  // Em viewport desktop, saveSelection()/insertAtCursor() podiam então focar
+  // e escrever na seção mobile oculta em vez da visível. Agora cada árvore
+  // tem seu próprio array de referências.
+  const mobileSectionRefs = useRef<(HTMLDivElement | null)[]>([]);
   // FIX BUG-1: rastreia qual seção está em foco no modo multi-seção
   const activeSectionRef = useRef<number>(0);
   const isMultiSection = examNames.length > 1;
+  // Bloqueio 2: array de refs de fato ativo (visível/tocável) no modo
+  // multi-seção agora, escolhido pela mesma checagem de viewport usada no
+  // laudo simples — nunca hardcoded para o array desktop.
+  const getActiveSectionRefs = useCallback(() => {
+    return pickActiveRef(isMobileViewport(), mobileSectionRefs, sectionRefs);
+  }, [isMobileViewport]);
 
   // FIX BUG-2: imagens inline no contentEditable (sem overlay arrastável)
 
@@ -349,14 +377,24 @@ export default function ReportEditorPage() {
     onSuccess: () => { toast.success("Máscara removida"); refetchMasks(); },
     onError: (e) => toast.error(e.message),
   });
+  // FIX: edição de laudo pronto (máscara) sem precisar apagar e reimportar JSON
+  const [editingMask, setEditingMask] = useState<{ id: number; name: string; modality: string; exam_title: string; body: string } | null>(null);
+  const updateMask = trpc.masks.update.useMutation({
+    onSuccess: () => { toast.success("Máscara atualizada"); setEditingMask(null); refetchMasks(); },
+    onError: (e) => toast.error(e.message),
+  });
+  // FIX: busca de máscaras ignorando acentuação (ex.: "cranio" encontra "Crânio")
+  const normalizeSearchText = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   // Aplica tamanho de fonte na seção ativa
   const applyFontSize = useCallback((size: string) => {
     setFontSize(size);
+    // Bloqueio 2 (revisão corretiva Manus 2026-09-24): usa o array de refs
+    // da viewport ativa (getActiveSectionRefs), não sempre o desktop.
     const el = isMultiSection
-      ? sectionRefs.current[activeSectionRef.current]
+      ? getActiveSectionRefs().current[activeSectionRef.current]
       : getVisibleDoc();
     if (el) el.style.fontSize = `${size}pt`;
-  }, [isMultiSection, getVisibleDoc]);
+  }, [isMultiSection, getVisibleDoc, getActiveSectionRefs]);
   // Importa máscaras de arquivo JSON
   const handleMaskFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -376,7 +414,8 @@ export default function ReportEditorPage() {
   const applyMask = useCallback((body: string, examTitle?: string | null) => {
     const clean = sanitizeHtmlForEditor(body);
     if (isMultiSection) {
-      const el = sectionRefs.current[activeSectionRef.current];
+      // Bloqueio 2 (revisão corretiva Manus 2026-09-24): idem applyFontSize.
+      const el = getActiveSectionRefs().current[activeSectionRef.current];
       if (el) { el.innerHTML = clean; el.focus(); }
     } else {
       const visibleDoc = getVisibleDoc();
@@ -384,17 +423,21 @@ export default function ReportEditorPage() {
     }
     if (examTitle) setExamTitle(examTitle);
     setShowMasksPanel(false);
-  }, [isMultiSection, getVisibleDoc]);
+  }, [isMultiSection, getVisibleDoc, getActiveSectionRefs]);
   // Captura HTML atual para pré-visualização
   const handleTogglePreview = useCallback(() => {
     if (!isPreview) {
+      // Bloqueio 2 (revisão corretiva Manus 2026-09-24): a pré-visualização
+      // sempre lia sectionRefs (árvore desktop) — no mobile, mostrava o
+      // conteúdo (vazio/desatualizado) da árvore oculta, não o que o usuário
+      // via/editava.
       const html = isMultiSection
-        ? sectionRefs.current.map(el => el?.innerHTML ?? "").join("<hr/>")
+        ? getActiveSectionRefs().current.map(el => el?.innerHTML ?? "").join("<hr/>")
         : getVisibleDoc()?.innerHTML ?? "";
       setPreviewHtml(html);
     }
     setIsPreview(p => !p);
-  }, [isPreview, isMultiSection, getVisibleDoc]);
+  }, [isPreview, isMultiSection, getVisibleDoc, getActiveSectionRefs]);
 
   // ── Carregar info do estudo ──────────────────────────────────────────────
   useEffect(() => {
@@ -422,18 +465,29 @@ export default function ReportEditorPage() {
   }, [studyUid, documentKey, documentLabelFromRoute]);
 
   // ── Carregar laudo existente no documento ────────────────────────────────────
+  //
+  // Bloqueio 2 (revisão corretiva Manus 2026-09-24): esta hidratação escrevia
+  // só na árvore desktop (docRef / sectionRefs) — nunca na mobile
+  // (mobileDocRef / mobileSectionRefs). Como as duas árvores ficam sempre
+  // montadas (visibilidade só por CSS), um laudo já salvo aberto pelo
+  // celular aparecia com o editor VISÍVEL vazio (mobileDocRef nunca recebia
+  // o conteúdo), mesmo o laudo tendo corpo salvo. Pior: se o usuário
+  // salvasse nesse estado, collectBody() lê o editor VISÍVEL (getVisibleDoc/
+  // getActiveSectionRefs), então o body seria sobrescrito pelo DOM mobile
+  // vazio/parcial, apagando o conteúdo original. Agora grava em AMBAS as
+  // árvores sempre, mantendo-as em sincronia desde a carga inicial.
   useEffect(() => {
     if (!existingReport?.body) return;
-    if (isMultiSection && sectionRefs.current.length > 0) {
+    if (isMultiSection && (sectionRefs.current.length > 0 || mobileSectionRefs.current.length > 0)) {
+      const setSectionHtml = (i: number, html: string) => {
+        if (sectionRefs.current[i]) sectionRefs.current[i]!.innerHTML = html;
+        if (mobileSectionRefs.current[i]) mobileSectionRefs.current[i]!.innerHTML = html;
+      };
       // Laudo multi-página: tentar parsear JSON [{title, body}, ...]
       try {
         const pages: { title: string; body: string }[] = JSON.parse(existingReport.body);
         if (Array.isArray(pages)) {
-          pages.forEach((page, i) => {
-            if (sectionRefs.current[i]) {
-              sectionRefs.current[i]!.innerHTML = sanitizeHtmlForEditor(page.body || "");
-            }
-          });
+          pages.forEach((page, i) => setSectionHtml(i, sanitizeHtmlForEditor(page.body || "")));
           return;
         }
       } catch { /* não é JSON — tentar formato legado */ }
@@ -444,56 +498,103 @@ export default function ReportEditorPage() {
         const sections = doc.querySelectorAll(".exam-section");
         sections.forEach((sec, i) => {
           const bodyDiv = sec.querySelector(".exam-section-body, div:last-child");
-          if (sectionRefs.current[i] && bodyDiv) {
-            sectionRefs.current[i]!.innerHTML = sanitizeHtmlForEditor(bodyDiv.innerHTML);
-          }
+          if (bodyDiv) setSectionHtml(i, sanitizeHtmlForEditor(bodyDiv.innerHTML));
         });
       } else {
         // Laudo antigo sem seções — colocar tudo na primeira página
-        if (sectionRefs.current[0]) {
-          sectionRefs.current[0].innerHTML = sanitizeHtmlForEditor(existingReport.body);
-        }
+        setSectionHtml(0, sanitizeHtmlForEditor(existingReport.body));
       }
-    } else if (docRef.current) {
-      docRef.current.innerHTML = sanitizeHtmlForEditor(existingReport.body);
+    } else {
+      const html = sanitizeHtmlForEditor(existingReport.body);
+      if (docRef.current) docRef.current.innerHTML = html;
+      if (mobileDocRef.current) mobileDocRef.current.innerHTML = html;
     }
   }, [existingReport, isMultiSection]);
 
   // Recalcula a guia visual depois que o conteúdo existente foi aplicado via DOM.
   useEffect(() => {
     markEditorContentChanged();
-    const targets = [docRef.current, mobileDocRef.current, ...sectionRefs.current].filter(Boolean) as HTMLDivElement[];
+    const targets = [docRef.current, mobileDocRef.current, ...sectionRefs.current, ...mobileSectionRefs.current].filter(Boolean) as HTMLDivElement[];
     if (typeof MutationObserver === "undefined" || targets.length === 0) return;
     const observer = new MutationObserver(() => markEditorContentChanged());
     targets.forEach(target => observer.observe(target, { childList: true, subtree: true, characterData: true }));
     return () => observer.disconnect();
   }, [existingReport, isMultiSection, markEditorContentChanged]);
 
+  // Bloqueio 2 (auditoria Manus 2026-09-24): editor ativo unificado.
+  // Antes, saveSelection() e insertAtCursor() sempre miravam docRef (a
+  // instância desktop) fora do modo multi-seção — inclusive quando o laudo
+  // simples estava sendo editado pela UI mobile, que usa mobileDocRef como
+  // elemento realmente visível/tocável. Isso fazia o Trecho inserido ir
+  // parar no editor desktop oculto (ou perder a posição real do cursor) ao
+  // tocar no editor no celular. getVisibleDoc() já existia e escolhe entre
+  // docRef/mobileDocRef pela largura real da viewport — passou a ser usado
+  // aqui também. No modo multi-seção, desktop e mobile já compartilham o
+  // mesmo array sectionRefs, então o alvo permanece o mesmo de antes.
+  const getActiveEditableEl = useCallback((): HTMLDivElement | null => {
+    if (isMultiSection) {
+      return getActiveSectionRefs().current[activeSectionRef.current] ?? null;
+    }
+    return getVisibleDoc();
+  }, [isMultiSection, getVisibleDoc, getActiveSectionRefs]);
+
   // ── Salvar seleção antes de interagir com sidebar ────────────────────────
   const saveSelection = useCallback(() => {
     const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && docRef.current?.contains(sel.anchorNode)) {
+    const activeEl = getActiveEditableEl();
+    if (sel && sel.rangeCount > 0 && activeEl?.contains(sel.anchorNode)) {
       savedSelection.current = sel.getRangeAt(0).cloneRange();
     }
-  }, []);
+  }, [getActiveEditableEl]);
 
   // FIX BUG-1: usar execCommand('insertText') em vez de range.insertNode()
   // Garante cursor após o texto inserido (sem ordem reversa) e Undo/Redo nativo.
-  const insertAtCursor = useCallback((text: string) => {
-    // Determinar o elemento editor correto para o modo ativo
-    const targetEl = isMultiSection
-      ? sectionRefs.current[activeSectionRef.current]
-      : docRef.current;
+  //
+  // FIX: retorna o caractere imediatamente anterior ao cursor, para decidir se
+  // é preciso inserir um separador antes do texto (evita "...normalidadeTÉCNICA:...").
+  //
+  // Bloqueio 2 (auditoria Manus 2026-09-24): quando o cursor está no início
+  // de um nó aninhado (ex.: início de um <strong>/<em> sem irmão de texto
+  // anterior NO MESMO nível), a versão anterior não subia pela árvore para
+  // achar o caractere anterior de fato — podia inserir separador faltando
+  // (ou colar sem separador quando deveria separar). Agora sobe pelos nós
+  // pais, procurando irmãos anteriores em cada nível, até o limite do
+  // editor (`boundary`), para nunca ler texto de fora da área editável.
+  // Bloqueio 2 (revisão corretiva Manus 2026-09-24): <br> e início de bloco
+  // já são separação estrutural — a versão anterior atravessava um <br>
+  // (que não tem texto) e continuava procurando até achar a letra anterior
+  // de verdade, e também atravessava a fronteira de um parágrafo/bloco para
+  // olhar o bloco anterior. Nos dois casos podia inserir "\n\n" extra
+  // mesmo já havendo separação visual (quebra de linha, ou o próprio
+  // parágrafo/título já em linha própria).
+  // BLOCK_TAGS / isBlockElement / getCharBeforeRange: extraídos para
+  // client/src/lib/reportEditorDom.ts (Bloqueio 2, revisão corretiva Manus
+  // 2026-09-24) para permitir testes DOM reais sem depender do componente.
+  const getCharBeforeRange = getCharBeforeRangeUtil;
+
+  const insertAtCursor = useCallback((text: string, opts?: { smartSeparator?: boolean }) => {
+    // Determinar o elemento editor realmente ativo/visível (desktop, mobile
+    // ou seção em foco no modo multi-seção) — ver getActiveEditableEl acima.
+    const targetEl = getActiveEditableEl();
 
     if (!targetEl) return;
 
     // Restaurar foco e seleção salva antes de inserir
     targetEl.focus();
 
-    if (savedSelection.current) {
+    // Bloqueio 2 (revisão corretiva Manus 2026-09-24): só reaproveita a
+    // seleção salva se ela ainda pertencer ao editor ativo agora. Entre o
+    // momento em que a seleção foi salva (saveSelection) e o momento desta
+    // inserção, o editor ativo pode ter mudado — troca de seção no modo
+    // multi-seção, ou troca de viewport (desktop/mobile) — e um Range de
+    // outra árvore não deve ser restaurado aqui; usar o fim do editor ativo
+    // como posição segura de inserção nesse caso.
+    const savedSelectionBelongsToTarget = rangeBelongsToTarget(savedSelection.current, targetEl);
+
+    if (savedSelectionBelongsToTarget) {
       const sel = window.getSelection();
       sel?.removeAllRanges();
-      sel?.addRange(savedSelection.current);
+      sel?.addRange(savedSelection.current!);
     } else {
       // Sem seleção salva: posicionar cursor no final do editor
       const sel = window.getSelection();
@@ -504,35 +605,58 @@ export default function ReportEditorPage() {
       sel?.addRange(range);
     }
 
+    // FIX: quando solicitado (ex.: inserir trecho/frase pronta), prefixa com uma
+    // quebra de linha em branco se ja houver conteudo nao-espaco imediatamente
+    // antes do cursor. O editor usa white-space:pre-wrap, entao a quebra dupla
+    // vira uma quebra visivel de verdade, evitando texto colado (bug reportado).
+    let toInsert = text;
+    if (opts?.smartSeparator) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const charBefore = getCharBeforeRange(sel.getRangeAt(0), targetEl);
+        if (charBefore && !/\s/.test(charBefore)) {
+          toInsert = "\n\n" + toInsert;
+        }
+      }
+    }
+
     // execCommand garante: cursor avança após o texto, Undo/Redo nativo funciona,
     // nós de texto são normalizados automaticamente pelo browser.
-    document.execCommand('insertText', false, text);
+    document.execCommand('insertText', false, toInsert);
 
     // Salvar a nova posição do cursor após a inserção
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       savedSelection.current = sel.getRangeAt(0).cloneRange();
     }
-  }, [isMultiSection]);
+  }, [getActiveEditableEl]);
 
   // ── Salvar rascunho ──────────────────────────────────────────────────────
   // ── Coletar body (simples ou multi-página) ──────────────────────────────
   // MULTI-PÁGINA: serializa como JSON [{title, body}, ...] para preservar
   // estrutura de páginas independentes. Registro único no banco (1 body por studyInstanceUid).
   // PÁGINA ÚNICA: retorna HTML puro (compatibilidade com laudos existentes).
+  // Bloqueio 2 (revisão corretiva Manus 2026-09-24): no modo multi-seção,
+  // coletava sempre de sectionRefs (árvore desktop), mesmo quando quem
+  // estava de fato editando era a árvore mobile — salvava o DOM oculto, não
+  // o que o usuário via/digitou. Agora usa getActiveSectionRefs(), a mesma
+  // checagem de viewport usada por getActiveEditableEl/getVisibleDoc.
   const collectBody = useCallback(() => {
     if (existingReport?.body && (isSigned && !isRevising)) {
       return existingReport.body;
     }
-    if (isMultiSection && sectionRefs.current.length > 0) {
-      const pages = examNames.map((name, i) => ({
-        title: name,
-        body: sectionRefs.current[i]?.innerHTML || "",
-      }));
-      return JSON.stringify(pages);
+    if (isMultiSection) {
+      const activeRefs = getActiveSectionRefs().current;
+      if (activeRefs.length > 0) {
+        const pages = examNames.map((name, i) => ({
+          title: name,
+          body: activeRefs[i]?.innerHTML || "",
+        }));
+        return JSON.stringify(pages);
+      }
     }
     return getVisibleDoc()?.innerHTML || existingReport?.body || "";
-  }, [isMultiSection, examNames, getVisibleDoc, existingReport, isSigned, isRevising]);
+  }, [isMultiSection, examNames, getVisibleDoc, getActiveSectionRefs, existingReport, isSigned, isRevising]);
 
   const handleSave = useCallback(async () => {
     const body = collectBody();
@@ -703,6 +827,13 @@ export default function ReportEditorPage() {
       } as LayoutSnapshot
     : null;
   const layoutPrefs = layoutSource?.preferences;
+  // Bloqueio 1 (auditoria Manus 2026-09-24): pageSize/margens efetivos,
+  // com o mesmo merge com DEFAULT_LAYOUT_PREFERENCES usado em todo o resto
+  // do arquivo — agora também repassados ao SharedReportSheet em tela, para
+  // que a folha que o médico vê (e que o download financeiro rasteriza via
+  // html2canvas) já nasça no tamanho/margem corretos, em vez de sempre A4
+  // sem margem.
+  const effectiveLayoutPrefs: LayoutPreferences = { ...DEFAULT_LAYOUT_PREFERENCES, ...(layoutPrefs ?? {}) };
   // GAP-BACKGROUND: a mesma fonte visual alimenta o desktop e o PDF.
   // Laudos assinados usam o snapshot; campos ausentes em snapshots antigos
   // recebem fallback do layout atual para preservar compatibilidade.
@@ -728,6 +859,14 @@ export default function ReportEditorPage() {
     bpLogo.x < 30 ? "left" : bpLogo.x > 70 ? "right" : "center";
   const logoJustify = logoAlign === "left" ? "flex-start" : logoAlign === "right" ? "flex-end" : "center";
   const layoutFooterUrl: string | null = toAbsUrl((rawLayout?.["footer_image_url"] as string | null) ?? null);
+  // CORREÇÃO (Bloqueio 1, revisão corretiva Manus 2026-09-24): as vias de
+  // impressão/PDF (handlePrint, PacsQueryPage, financialReportPdfDownload)
+  // sempre somaram 30mm à margem inferior quando há imagem de rodapé
+  // configurada — a folha em tela (SharedReportSheet on-screen, a mesma que
+  // o download financeiro do editor rasteriza via html2canvas) não recebia
+  // essa reserva, então a área útil em tela ficava maior que a das outras
+  // vias no mesmo cenário. Agora a folha em tela usa a mesma reserva.
+  const screenFooterReservedMm = layoutFooterUrl ? 30 : 0;
   const layoutLogos: Array<{ url: string; width: number; height: number; label: string }> =
     Array.isArray(rawLayout?.["logos"]) ? (rawLayout!["logos"] as Array<{ url: string; width: number; height: number; label: string }>) : [];
   // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
@@ -799,20 +938,31 @@ export default function ReportEditorPage() {
       </div>
     ` : '';
 
+    // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf):
+    // Antes, cada campo de layoutPrefs tinha seu próprio fallback "?? valor"
+    // reimplementado à mão neste arquivo — e esses valores (20/20/18/18) NÃO
+    // batiam com DEFAULT_LAYOUT_PREFERENCES (20/25/25/25, em shared/types.ts),
+    // nem com PacsQueryPage.tsx (20/20/20/20), nem com o que o médico via na
+    // tela em ReportDocument.tsx (que já mesclava corretamente com
+    // DEFAULT_LAYOUT_PREFERENCES). Um mesmo laudo podia sair com margem
+    // esquerda/direita diferente dependendo de qual tela o gerou. Agora usamos
+    // o mesmo merge que ReportDocument.tsx já faz — uma única fonte de
+    // verdade para os valores padrão.
+    const effectivePrefs: LayoutPreferences = { ...DEFAULT_LAYOUT_PREFERENCES, ...(layoutPrefs ?? {}) };
     // P3: margens do @page a partir das preferências do layout
-    const lMT = layoutPrefs?.marginTop ?? 20;
+    const lMT = effectivePrefs.marginTop;
     // P5: reservar margem inferior para o rodapé (estimativa de 30mm se houver imagem)
     const footerReservedMm = layoutFooterUrl ? 30 : 0;
-    const lMB = (layoutPrefs?.marginBottom ?? 20) + footerReservedMm;
-    const lML = layoutPrefs?.marginLeft ?? 18;
-    const lMR = layoutPrefs?.marginRight ?? 18;
+    const lMB = effectivePrefs.marginBottom + footerReservedMm;
+    const lML = effectivePrefs.marginLeft;
+    const lMR = effectivePrefs.marginRight;
     // P8: usar stack de fontes com fallback seguro
-    const rawFont = layoutPrefs?.fontFamily || 'Arial';
+    const rawFont = effectivePrefs.fontFamily || 'Arial';
     const fontStack = SAFE_FONTS[rawFont] ?? `${rawFont}, Arial, sans-serif`;
-    const lSize = layoutPrefs?.fontSize || 11;
-    const lLine = layoutPrefs?.lineHeight ?? 1.6;
-    const lBorderColor = layoutPrefs?.headerBorderColor ?? '#1a6b8a';
-    const pageSize = (layoutPrefs as any)?.pageSize ?? 'A4';
+    const lSize = effectivePrefs.fontSize || 11;
+    const lLine = effectivePrefs.lineHeight ?? 1.6;
+    const lBorderColor = effectivePrefs.headerBorderColor ?? '#1a6b8a';
+    const pageSize = effectivePrefs.pageSize ?? 'A4';
     // OPÇÃO 1: dimensões físicas do papel (mm) — 100vw/100vh != A4 na janela popup
     const paperW = pageSize === 'Letter' ? '216mm' : '210mm';
     const paperH = pageSize === 'Letter' ? '279mm' : '297mm';
@@ -899,7 +1049,11 @@ export default function ReportEditorPage() {
   .print-shared-sheet {
     width: ${paperW};
     height: ${paperH};
-    padding: 0;
+    /* Margens efetivas — antes fixo em 0, ignorando a unidade (Bloqueio 1,
+       auditoria Manus 2026-09-24). O valor real já vem no style inline do
+       componente (maior precedência); este bloco existe só para manter a
+       folha de estilos coerente com o que é de fato renderizado. */
+    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
     box-sizing: border-box;
     position: relative;
     overflow: hidden;
@@ -1038,6 +1192,12 @@ export default function ReportEditorPage() {
         ? <div className="report-body" dangerouslySetInnerHTML={{ __html: sectionBodyHtml }} />
         : <SharedReportBodyGuide />;
       const markup = renderSharedReportSheetHtml({
+        className: "print-shared-sheet",
+        pageSize,
+        marginTop: lMT,
+        marginRight: lMR,
+        marginBottom: lMB,
+        marginLeft: lML,
         positions: layoutBlockPos,
         logos: printLogos,
         backgroundUrl: bgBase64 || layoutBgUrl,
@@ -1083,6 +1243,12 @@ export default function ReportEditorPage() {
       ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
       : <SharedReportBodyGuide />;
     return renderSharedReportSheetHtml({
+      className: "print-shared-sheet",
+      pageSize,
+      marginTop: lMT,
+      marginRight: lMR,
+      marginBottom: lMB,
+      marginLeft: lML,
       positions: layoutBlockPos,
       logos: printLogos,
       backgroundUrl: bgBase64 || layoutBgUrl,
@@ -1152,7 +1318,17 @@ export default function ReportEditorPage() {
 
     toast.loading("Gerando PDF configurado...", { id: "financial-pdf-download" });
     try {
-      const pdf = new jsPDF("p", "mm", "a4");
+      // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf): o formato do PDF
+      // vinha hardcoded como "a4", ignorando por completo layoutPrefs.pageSize.
+      // Uma unidade configurada para "Letter" gerava um laudo Letter na
+      // impressão oficial (handlePrint) mas um PDF A4 neste download — o
+      // mesmo documento com tamanho de página diferente dependendo de qual
+      // botão o usuário clicasse. Agora lê o mesmo pageSize, com o mesmo
+      // default (DEFAULT_LAYOUT_PREFERENCES) usado em handlePrint.
+      const effectivePageSize = (layoutPrefs?.pageSize ?? DEFAULT_LAYOUT_PREFERENCES.pageSize) as "A4" | "Letter";
+      const pdf = new jsPDF("p", "mm", effectivePageSize.toLowerCase() as "a4" | "letter");
+      const pdfPageWidth = pdf.internal.pageSize.getWidth();
+      const pdfPageHeight = pdf.internal.pageSize.getHeight();
       for (let index = 0; index < pages.length; index += 1) {
         const canvas = await html2canvas(pages[index], {
           scale: 2,
@@ -1161,17 +1337,30 @@ export default function ReportEditorPage() {
           backgroundColor: "#ffffff",
         });
         const imageData = canvas.toDataURL("image/png");
-        const width = pdf.internal.pageSize.getWidth();
-        const height = (canvas.height * width) / canvas.width;
+        let width = pdfPageWidth;
+        let height = (canvas.height * width) / canvas.width;
+        // CORREÇÃO (Bloqueio 1, revisão corretiva Manus 2026-09-24): com o
+        // container multisseção agora na largura física correta (ver
+        // md:w-[...] dinâmico logo abaixo), altura e largura da folha
+        // capturada já devem bater com a página de destino — mas mantemos
+        // este clamp como salvaguarda: se por qualquer motivo (fonte não
+        // carregada, imagem de rodapé maior que o esperado, arredondamento
+        // do navegador) a altura calculada ainda ultrapassar a altura física
+        // da página, reduz proporcionalmente width/height para caber inteira
+        // numa página (nunca corta conteúdo), centralizando horizontalmente.
+        const clamped = clampImageToPage(width, height, pdfPageWidth, pdfPageHeight);
+        width = clamped.width;
+        height = clamped.height;
+        const xOffset = clamped.xOffset;
         if (index > 0) pdf.addPage();
-        pdf.addImage(imageData, "PNG", 0, 0, width, height);
+        pdf.addImage(imageData, "PNG", xOffset, 0, width, height);
       }
       pdf.save(`Laudo_${(patientName || "assinado").replace(/\s+/g, "_")}.pdf`);
       toast.success("PDF baixado com sucesso!", { id: "financial-pdf-download" });
     } catch {
       toast.error("Não foi possível gerar o PDF. Tente novamente.", { id: "financial-pdf-download" });
     }
-  }, [patientName]);
+  }, [patientName, layoutPrefs]);
 
   useEffect(() => {
     if (!downloadOnOpen || !financialDocumentView || autoDownloadTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
@@ -1212,7 +1401,7 @@ export default function ReportEditorPage() {
   const examDesc = examTitle || studyInfo?.studyDescription || "";
   void editorContentVersion;
   const hasEditorContent = isMultiSection
-    ? sectionRefs.current.some(section => Boolean(section?.innerText?.trim()))
+    ? getActiveSectionRefs().current.some(section => Boolean(section?.innerText?.trim()))
     : Boolean(getVisibleDoc()?.innerText?.trim());
   const showBodyGuide = !hasEditorContent && !isPreview;
   return (
@@ -1494,7 +1683,7 @@ export default function ReportEditorPage() {
             )}
             {activeTab === "frases" && (
               <FrasesTab
-                onInsert={insertAtCursor}
+                onInsert={(text) => insertAtCursor(text, { smartSeparator: true })}
                 onFocus={saveSelection}
               />
             )}
@@ -1593,8 +1782,23 @@ export default function ReportEditorPage() {
         )}
         <main className="flex-1 overflow-y-auto bg-gray-100 flex justify-center py-8 print:bg-white print:p-0 print:block">
           <div
-            className={`${isMultiSection ? "relative w-full md:w-[794px]" : "relative w-full md:w-[210mm] bg-white shadow-md print:shadow-none"}`}
-            style={isMultiSection ? undefined : { minHeight: "297mm" }}
+            className={`${isMultiSection ? "relative w-full" : "relative w-full bg-white shadow-md print:shadow-none"}`}
+            style={isMultiSection ? {
+              // CORREÇÃO (Bloqueio 1, revisão corretiva Manus 2026-09-24): o
+              // contêiner multisseção tinha largura fixa em md:w-[794px]
+              // (~210mm, medida de A4), mesmo quando a unidade usava Letter.
+              // Cada SharedReportSheet já recebia pageSize="Letter" e altura
+              // Letter, mas sua largura real ficava presa aos 794px do pai —
+              // o html2canvas capturava uma folha estreita demais, e o jsPDF
+              // esticava essa captura para a largura Letter, empurrando a
+              // altura calculada (que segue a proporção da captura) para
+              // além da altura física da página, cortando o rodapé. Agora a
+              // largura do contêiner vem do mesmo pageSize efetivo.
+              maxWidth: `${pageWidthMm(effectiveLayoutPrefs.pageSize)}mm`,
+            } : {
+              maxWidth: `${pageWidthMm(effectiveLayoutPrefs.pageSize)}mm`,
+              minHeight: `${pageHeightMm(effectiveLayoutPrefs.pageSize)}mm`,
+            }}
           >
             {/* FIX BUG-2: imagens agora são inline no contentEditable — overlay removido */}
 
@@ -1624,6 +1828,11 @@ export default function ReportEditorPage() {
                       fontFamily={layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "'Times New Roman', Times, serif"}
                       fontSize={layoutPrefs?.fontSize ?? 11}
                       lineHeight={layoutPrefs?.lineHeight ?? 1.6}
+                      pageSize={effectiveLayoutPrefs.pageSize}
+                      marginTop={effectiveLayoutPrefs.marginTop}
+                      marginRight={effectiveLayoutPrefs.marginRight}
+                      marginBottom={effectiveLayoutPrefs.marginBottom + screenFooterReservedMm}
+                      marginLeft={effectiveLayoutPrefs.marginLeft}
                       patientName={patientName}
                       patientNameContent={<ClinicalPatientName patientName={patientName} />}
                       patientInfo={
@@ -1688,7 +1897,10 @@ export default function ReportEditorPage() {
                                       const el = sectionRefs.current[i];
                                       if (el) el.innerHTML = sanitizeHtmlForEditor(payload.data);
                                     } else if (payload.type === "phrase") {
-                                      insertAtCursor(payload.data);
+                                      // Bloqueio 2 (auditoria Manus 2026-09-24): o clique em
+                                      // Trechos já aplicava smartSeparator; o arrastar-e-soltar
+                                      // da mesma frase não aplicava, podendo colar sem separador.
+                                      insertAtCursor(payload.data, { smartSeparator: true });
                                     } else if (payload.type === "signature" || payload.type === "stamp") {
                                       insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
                                     }
@@ -1747,6 +1959,11 @@ export default function ReportEditorPage() {
                 fontFamily={layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "Arial, Helvetica, sans-serif"}
                 fontSize={layoutPrefs?.fontSize ?? 11}
                 lineHeight={layoutPrefs?.lineHeight ?? 1.6}
+                pageSize={effectiveLayoutPrefs.pageSize}
+                marginTop={effectiveLayoutPrefs.marginTop}
+                marginRight={effectiveLayoutPrefs.marginRight}
+                marginBottom={effectiveLayoutPrefs.marginBottom + screenFooterReservedMm}
+                marginLeft={effectiveLayoutPrefs.marginLeft}
                 patientName={patientName}
                 patientNameContent={<ClinicalPatientName patientName={patientName} />}
                 patientInfo={
@@ -1815,7 +2032,10 @@ export default function ReportEditorPage() {
                                 if (docRef.current) docRef.current.innerHTML = sanitizeHtmlForEditor(payload.data);
                                 if (payload.examTitle) setExamTitle(payload.examTitle);
                               } else if (payload.type === "phrase") {
-                                insertAtCursor(payload.data);
+                                // Bloqueio 2 (auditoria Manus 2026-09-24): mesma correção do
+                                // modo multi-seção — arrastar uma frase agora aplica o mesmo
+                                // separador inteligente do clique.
+                                insertAtCursor(payload.data, { smartSeparator: true });
                               } else if (payload.type === "signature" || payload.type === "stamp") {
                                 insertAtCursor(`<img src="${payload.data}" style="max-height:60px;display:block;margin:4px 0;" />`);
                               }
@@ -1976,7 +2196,7 @@ export default function ReportEditorPage() {
                         <div data-editor-content className="min-h-[180px] text-xs leading-relaxed text-gray-900" dangerouslySetInnerHTML={{ __html: previewHtml.split("<hr/>")[i] || "<p style='color:#9ca3af;font-style:italic'>Sem conteúdo.</p>" }} />
                       ) : (
                         <div
-                          ref={el => { sectionRefs.current[i] = el; }}
+                          ref={el => { mobileSectionRefs.current[i] = el; }}
                           contentEditable={isEditable}
                           suppressContentEditableWarning
                           data-editor-content
@@ -2067,11 +2287,15 @@ export default function ReportEditorPage() {
               {activeTab === "modelos" && (
                 <ModelosTab
                   onApplyTemplate={(body, nextExamTitle) => {
+                    // Bloqueio 2 (revisão corretiva Manus 2026-09-24): este
+                    // painel só existe na gaveta de ferramentas mobile — usava
+                    // sectionRefs/docRef (árvore desktop oculta) em vez da
+                    // árvore mobile realmente visível aqui.
                     if (isMultiSection) {
-                      const activeEl = sectionRefs.current[activeSectionRef.current];
+                      const activeEl = mobileSectionRefs.current[activeSectionRef.current];
                       if (activeEl) activeEl.innerHTML = sanitizeHtmlForEditor(body);
-                    } else if (docRef.current) {
-                      docRef.current.innerHTML = sanitizeHtmlForEditor(body);
+                    } else if (mobileDocRef.current) {
+                      mobileDocRef.current.innerHTML = sanitizeHtmlForEditor(body);
                     }
                     if (nextExamTitle) setExamTitle(nextExamTitle);
                     setShowMobileTools(false);
@@ -2080,7 +2304,7 @@ export default function ReportEditorPage() {
                   currentModality={studyInfo?.modality || ""}
                 />
               )}
-              {activeTab === "frases" && <FrasesTab onInsert={(text) => { insertAtCursor(text); setShowMobileTools(false); }} onFocus={saveSelection} />}
+              {activeTab === "frases" && <FrasesTab onInsert={(text) => { insertAtCursor(text, { smartSeparator: true }); setShowMobileTools(false); }} onFocus={saveSelection} />}
               {activeTab === "carimbo" && <CarimboTab signatureUrl={signedDoctorSignatureUrl} stampUrl={signedDoctorStampUrl} doctorName={signedDoctorName} crm={signedDoctorCrm} />}
             </div>
           </div>
@@ -2152,10 +2376,13 @@ export default function ReportEditorPage() {
 
               {/* Lista de máscaras */}
               <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
-                {(masks ?? []).filter(m =>
-                  !maskSearch || m.name.toLowerCase().includes(maskSearch.toLowerCase()) ||
-                  (m.modality ?? "").toLowerCase().includes(maskSearch.toLowerCase())
-                ).map(m => (
+                {(masks ?? []).filter(m => {
+                  if (!maskSearch) return true;
+                  const term = normalizeSearchText(maskSearch);
+                  return normalizeSearchText(m.name).includes(term) ||
+                    normalizeSearchText(m.modality ?? "").includes(term) ||
+                    normalizeSearchText(m.exam_title ?? "").includes(term);
+                }).map(m => (
                   <div
                     key={m.id}
                     className="group flex items-start gap-2 p-2.5 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-colors"
@@ -2175,15 +2402,99 @@ export default function ReportEditorPage() {
                         <p className="text-[10px] text-gray-500 truncate">{m.exam_title}</p>
                       )}
                     </div>
-                    <button
-                      onClick={e => { e.stopPropagation(); deleteMask.mutate({ id: m.id, unitId }); }}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-100 text-red-500 transition-opacity shrink-0"
-                      title="Remover máscara"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          setEditingMask({ id: m.id, name: m.name, modality: m.modality ?? "", exam_title: m.exam_title ?? "", body: m.body });
+                        }}
+                        className="p-1 rounded hover:bg-blue-100 text-blue-500"
+                        title="Editar máscara"
+                      >
+                        <Edit2 className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); deleteMask.mutate({ id: m.id, unitId }); }}
+                        className="p-1 rounded hover:bg-red-100 text-red-500"
+                        title="Remover máscara"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Modal de edição de máscara / laudo pronto */}
+          {editingMask && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 print:hidden" onClick={() => setEditingMask(null)}>
+              <div className="w-full max-w-lg max-h-[85vh] flex flex-col bg-white rounded-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                  <span className="text-sm font-semibold text-gray-800">Editar Laudo Pronto</span>
+                  <button onClick={() => setEditingMask(null)} className="p-1 rounded hover:bg-gray-100 text-gray-500">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Nome</label>
+                    <input
+                      value={editingMask.name}
+                      onChange={e => setEditingMask(v => v && { ...v, name: e.target.value })}
+                      className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Modalidade</label>
+                      <input
+                        value={editingMask.modality}
+                        onChange={e => setEditingMask(v => v && { ...v, modality: e.target.value })}
+                        placeholder="CR, CT, RM..."
+                        className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      />
+                    </div>
+                    <div className="flex-[2]">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Título do exame</label>
+                      <input
+                        value={editingMask.exam_title}
+                        onChange={e => setEditingMask(v => v && { ...v, exam_title: e.target.value })}
+                        className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Corpo do laudo</label>
+                    <textarea
+                      value={editingMask.body}
+                      onChange={e => setEditingMask(v => v && { ...v, body: e.target.value })}
+                      rows={12}
+                      className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y"
+                    />
+                    <p className="mt-1 text-[10px] text-gray-400">Aceita HTML (como já importado) ou texto simples com blocos "=== TÍTULO ===".</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 px-4 py-3 border-t border-gray-200">
+                  <button
+                    onClick={() => editingMask && updateMask.mutate({
+                      id: editingMask.id,
+                      unitId,
+                      name: editingMask.name,
+                      modality: editingMask.modality || null,
+                      exam_title: editingMask.exam_title || null,
+                      body: editingMask.body,
+                    })}
+                    disabled={updateMask.isPending || !editingMask.name.trim() || !editingMask.body.trim()}
+                    className="flex-1 text-xs bg-blue-600 text-white rounded py-2 font-medium hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Salvar alterações
+                  </button>
+                  <button onClick={() => setEditingMask(null)} className="text-xs border border-gray-200 rounded px-4 py-2 hover:bg-gray-50">
+                    Cancelar
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -2616,7 +2927,7 @@ function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; on
                       <button
                         onMouseDown={(e) => { e.preventDefault(); onFocus(); }}
                         onClick={() => { onInsert(phrase.content); }}
-                        className="flex-1 text-left text-xs text-gray-700 leading-relaxed"
+                        className="flex-1 text-left text-xs text-gray-700 leading-relaxed whitespace-pre-wrap"
                       >
                         {phrase.content}
                       </button>
@@ -2654,9 +2965,9 @@ function FrasesTab({ onInsert, onFocus }: { onInsert: (text: string) => void; on
                     <textarea
                       value={newPhraseText}
                       onChange={e => setNewPhraseText(e.target.value)}
-                      placeholder="Digite a frase..."
-                      rows={2}
-                      className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
+                      placeholder={"Digite a frase...\n\nUse Enter para separar linhas/seções (ex.: TÉCNICA, ACHADOS, IMPRESSÃO)."}
+                      rows={6}
+                      className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y"
                       autoFocus
                     />
                     <div className="flex gap-1">

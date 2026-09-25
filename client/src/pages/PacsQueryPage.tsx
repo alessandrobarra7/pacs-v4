@@ -20,6 +20,7 @@ import { PatientAttachmentsModal } from "@/components/PatientAttachmentsModal";
 import { AudioReportsModal } from "@/components/AudioReportsModal";
 import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 import { canAccessAdmin, type UserRole } from "../../../shared/permissions";
+import { DEFAULT_LAYOUT_PREFERENCES } from "../../../shared/types";
 
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -1385,7 +1386,16 @@ setSelectedStudy(study);
     toast.dismiss('print-loading');
 
     // ── Layout da unidade ──
-    const lPrefs = (unitLayout?.preferences as any) || {};
+    // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf):
+    // Este bloco está marcado no código como "SYNC ReportEditorPage" — uma
+    // cópia manual do mesmo bloco em ReportEditorPage.tsx.handlePrint. Mas os
+    // fallbacks já tinham divergido: aqui marginLeft/marginRight caíam para
+    // 20 quando não configurados, contra 18 no ReportEditorPage e 25 em
+    // DEFAULT_LAYOUT_PREFERENCES (shared/types.ts) — o mesmo laudo saía com
+    // margens diferentes dependendo de qual tela imprimisse. Agora usa o
+    // mesmo merge com DEFAULT_LAYOUT_PREFERENCES que ReportDocument.tsx (a
+    // tela que o médico vê ao editar) e ReportEditorPage.tsx já usam.
+    const effectivePrefsQ = { ...DEFAULT_LAYOUT_PREFERENCES, ...((unitLayout?.preferences as any) ?? {}) };
     // P8: mapeamento de fontes com fallback seguro
     const SAFE_FONTS_Q: Record<string, string> = {
       'Arial':           'Arial, Helvetica, sans-serif',
@@ -1395,24 +1405,24 @@ setSelectedStudy(study);
       'Helvetica':       '"Helvetica Neue", Helvetica, Arial, sans-serif',
       'Verdana':         'Verdana, Geneva, sans-serif',
     };
-    const rawFontQ = lPrefs.fontFamily || 'Arial';
+    const rawFontQ = effectivePrefsQ.fontFamily || 'Arial';
     const fontStackQ = SAFE_FONTS_Q[rawFontQ] ?? `${rawFontQ}, Arial, sans-serif`;
-    const lSize = lPrefs.fontSize || 11;
-    const lLine = lPrefs.lineHeight || 1.6;
-    const lMT = lPrefs.marginTop ?? 20;
+    const lSize = effectivePrefsQ.fontSize || 11;
+    const lLine = effectivePrefsQ.lineHeight || 1.6;
+    const lMT = effectivePrefsQ.marginTop;
     // P5: reservar margem inferior para o rodapé
     const toAbsUrl = (u: string) => u && u.startsWith('/') ? `${window.location.origin}${u}` : u;
     const lFooterUrl = toAbsUrl((unitLayout as any)?.footer_image_url || '');
     const footerBase64Q = lFooterUrl ? await fetchToBase64(lFooterUrl) : null;
     const footerReservedMmQ = lFooterUrl ? 30 : 0;
-    const lMB = (lPrefs.marginBottom ?? 20) + footerReservedMmQ;
-    const lML = lPrefs.marginLeft ?? 20;
-    const lMR = lPrefs.marginRight ?? 20;
-    const lBorderColor = lPrefs.headerBorderColor || '#d0d0d0';
+    const lMB = effectivePrefsQ.marginBottom + footerReservedMmQ;
+    const lML = effectivePrefsQ.marginLeft;
+    const lMR = effectivePrefsQ.marginRight;
+    const lBorderColor = effectivePrefsQ.headerBorderColor || '#d0d0d0';
     const lBgUrl = toAbsUrl((unitLayout as any)?.background_image_url || '');
     const lBgOpacity = parseFloat((unitLayout as any)?.background_opacity ?? '1.0');
     const lBgSize = (unitLayout as any)?.background_size ?? 'cover';
-    const pageSizeQ = lPrefs.pageSize ?? 'A4';
+    const pageSizeQ = effectivePrefsQ.pageSize ?? 'A4';
     // OPÇÃO 1: dimensões físicas do papel (mm) — 100vw/100vh != A4 na janela popup
     const paperW = pageSizeQ === 'Letter' ? '216mm' : '210mm';
     const paperH = pageSizeQ === 'Letter' ? '279mm' : '297mm';
@@ -1568,6 +1578,11 @@ setSelectedStudy(study);
   .print-shared-sheet {
     width: ${paperW};
     height: ${paperH};
+    /* Margens efetivas — antes ausente, ignorando a unidade (Bloqueio 1,
+       auditoria Manus 2026-09-24). O valor real vem do style inline do
+       componente (maior precedência); mantido aqui só por coerência. */
+    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
+    box-sizing: border-box;
     position: relative;
     overflow: hidden;
     background: #fff;
@@ -1699,6 +1714,12 @@ setSelectedStudy(study);
       ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
       : <div className="report-body"><p style={{ color: "#9ca3af", fontStyle: "italic" }}>Sem conteúdo para visualizar.</p></div>;
     return renderSharedReportSheetHtml({
+      className: "print-shared-sheet",
+      pageSize: pageSizeQ,
+      marginTop: lMT,
+      marginRight: lMR,
+      marginBottom: lMB,
+      marginLeft: lML,
       positions: blockPositionsQ,
       logos: printLogosQ,
       backgroundUrl: bgBase64Q || lBgUrl,
@@ -1773,7 +1794,11 @@ setSelectedStudy(study);
         document.body.removeChild(iframe);
 
         const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF('p', 'mm', 'a4');
+        // CORREÇÃO (Bloqueio 1, auditoria Manus 2026-09-24): formato vinha
+        // hardcoded como 'a4', ignorando pageSizeQ — uma unidade configurada
+        // para Letter baixava um PDF A4 pela impressão rápida, divergente das
+        // outras 3 vias de geração de PDF do mesmo laudo.
+        const pdf = new jsPDF('p', 'mm', pageSizeQ.toLowerCase() as 'a4' | 'letter');
         const pdfWidth = pdf.internal.pageSize.getWidth();
         const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
         pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
