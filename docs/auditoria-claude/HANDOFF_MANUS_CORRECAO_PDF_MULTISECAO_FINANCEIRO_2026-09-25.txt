@@ -693,3 +693,229 @@ nova revisão")
    exclusivamente por `git fetch` + `merge --ff-only` a partir de main,
    build, restart PM2, health check HTTP 200, homologação manual dos
    quatro caminhos de PDF.
+
+===============================================================================
+ADENDO 3 — CORREÇÃO DOS BLOQUEIOS 1-3 (resposta ao "Parecer corretivo —
+paginação dos PDFs de laudos", Manus, 2026-09-25)
+===============================================================================
+
+Commit desta correção: aee18fd
+Branch: claude/correcao-pdf-multisecao-financeiro (mesma branch, novo commit)
+Topo revisado pela Manus antes desta correção: addae14 (BLOQUEADO)
+
+-------------------------------------------------------------------------------
+CONFIRMAÇÃO IMPORTANTE DA MANUS NESTA RODADA
+-------------------------------------------------------------------------------
+
+A Manus confirmou que o Bloqueio B4 da rodada anterior (laudo de seção
+única sem paginação real no download rápido) está CORRETAMENTE
+RESOLVIDO: "A reconstrução do download rápido agora é executada também
+para laudo de seção única [...] o bloqueio anterior B4 está resolvido no
+escopo do download rápido." Também confirmou que a direção técnica geral
+(inserir nós reais e comparar scrollHeight/clientHeight, em vez de somar
+alturas) é adequada. Os 3 novos bloqueios são refinamentos sobre essa
+direção correta, não uma rejeição da abordagem.
+
+-------------------------------------------------------------------------------
+BLOQUEIO 1 — a última página pode ter menos área útil do que a página
+usada na medição
+-------------------------------------------------------------------------------
+
+O que a Manus encontrou: a folha usada para MEDIR a área útil disponível
+era criada com a reserva de assinatura VAZIA. A folha final, porém,
+recebe carimbo, assinatura, nome, CRM e data. A reserva CSS usava
+`min-height: 50mm` — se o rodapé real fosse maior que esse mínimo, ele
+crescia e reduzia a área disponível para `.report-body` SÓ na última
+página, depois que o conteúdo já tinha sido aceito contra uma medição
+otimista (rodapé vazio). Como `.report-body` usa `overflow:hidden`, esse
+excedente podia ser cortado antes da captura do PDF, sem nenhum aviso. A
+tolerância de ajuste (`scrollHeight <= clientHeight + 1`) agravava o
+problema: numa área com overflow:hidden, até 1px de excesso aceito é
+conteúdo real invisível no PDF final.
+
+Correção: `.footer-reserve` passou a ter uma altura FIXA (não
+`min-height`) com `overflow:hidden` própria, em vez de "altura mínima que
+pode crescer". Como a altura ocupada pela reserva é agora EXATAMENTE a
+mesma na folha de medição (vazia) e na folha real (preenchida com
+qualquer combinação de carimbo/assinatura/nome/CRM/data), a área útil
+medida para `.report-body` é sempre igual à área real disponível, em toda
+folha, inclusive a última. A reserva foi ampliada de 50mm para 65mm
+(dimensionamento com folga generosa sobre o pior caso calculado: carimbo
+24mm + assinatura 13mm + margens entre eles + linha de assinatura + nome
++ CRM + data + margem do bloco, somando cerca de 56mm no cenário mais
+carregado). O `overflow:hidden` da própria reserva funciona como limite
+de segurança final: mesmo que o conteúdo real algum dia excedesse essa
+estimativa, ele seria cortado apenas DENTRO da reserva (nunca invade
+`.report-body`), nunca silenciosamente "aceito como cabendo".
+
+Em PacsQueryPage.tsx especificamente, também foi corrigido um
+`margin-top: 14mm` no `.doctor-footer` que, uma vez colocado dentro da
+nova reserva de altura fixa, inflava a altura realmente ocupada além do
+valor reservado (o mesmo tipo de divergência que causou o Bloqueio 1).
+Um override mais específico (`.footer-reserve .doctor-footer { margin-top:
+0; }`) zera esse espaçamento apenas dentro da reserva do download — a
+colocação original do rodapé na impressão nativa (fora de
+`.footer-reserve`) não foi tocada.
+
+A tolerância de ajuste em `createRealDomPageBuilder` caiu de "+1px" para
+"+0.1px", agora documentada explicitamente como tolerância de
+arredondamento de ponto flutuante entre chamadas de layout — nunca uma
+tolerância de conteúdo.
+
+-------------------------------------------------------------------------------
+BLOQUEIO 2 — espaços significativos entre elementos inline são removidos
+-------------------------------------------------------------------------------
+
+O que a Manus encontrou: `paginateNodes` descartava qualquer nó de texto
+cujo `trim()` fosse vazio. Isso não é seguro para HTML em que o espaço
+entre dois elementos inline é semanticamente visível — o exemplo dado:
+`<span>Primeiro</span> <span>Segundo</span>`, onde o espaço central é um
+nó de texto só-espaço. Antes da correção, esse nó era filtrado e a
+reconstrução podia renderizar "PrimeiroSegundo". A fragmentação por
+palavra (usada quando um bloco de texto não cabe inteiro) também usava
+`trim()` + `split(/\s+/)` + `join(" ")`, normalizando espaços múltiplos,
+iniciais/finais e quebras de linha intencionais para um único espaço
+simples.
+
+Correção: a filtragem de nós agora só descarta nós REALMENTE vazios
+(texto de comprimento zero — não carrega conteúdo algum, nem espaço) ou
+nós de comentário (nunca visíveis). Qualquer nó de texto com pelo menos 1
+caractere, incluindo só espaço, é preservado e processado normalmente —
+incluí-lo é inofensivo (praticamente nenhuma altura real) e omiti-lo
+altera o texto renderizado. A fragmentação por palavra foi reescrita:
+`tokenizePreservingWhitespace` divide o texto em tokens alternando
+sequência-de-não-espaço e sequência-de-espaço (`/\S+|\s+/g`), preservando
+o espaçamento original EXATAMENTE. A reconstrução usa
+`tokens.slice(0, n).join("")` (concatenação direta, sem separador
+adicional, já que o espaçamento já está nos próprios tokens) em vez de
+normalizar com `join(" ")`.
+
+-------------------------------------------------------------------------------
+BLOQUEIO 3 — o download rápido oculta erro de bloco alto e oferece
+fallback potencialmente truncado
+-------------------------------------------------------------------------------
+
+O que a Manus encontrou: o particionador lança `ContentTooLargeForPageError`
+corretamente quando um bloco não fragmentável (tabela, imagem, marcação
+aninhada) não cabe em uma folha — evitando fabricar silenciosamente uma
+página cortada. No PDF financeiro, essa exceção já chegava corretamente
+ao chamador e era mostrada por `toast.error`, com o iframe removido num
+`finally` (confirmado como correto pela Manus, sem alteração necessária).
+No DOWNLOAD RÁPIDO, porém, um `catch` genérico capturava também essa
+exceção, ignorava a mensagem, e abria `fullHtml` para impressão nativa
+com uma mensagem de SUCESSO. Como `fullHtml` usa as mesmas folhas de
+altura fixa com `overflow:hidden` que rejeitaram o bloco por não caber,
+esse "fallback" podia apresentar ao usuário um documento truncado como se
+estivesse pronto para salvar. O iframe de captura também não era removido
+nesse caminho de exceção específico.
+
+Correção em PacsQueryPage.tsx: o `iframe` agora é declarado ANTES do
+try/catch e removido num bloco `finally` (guardado por `iframe.parentNode`,
+seguro mesmo se já tiver sido removido no caminho de sucesso) — garantindo
+remoção em QUALQUER caminho, não só no feliz. No `catch`, há um
+`if (err instanceof ContentTooLargeForPageError)` dedicado: mostra
+`toast.error` com a mensagem clara do erro e NÃO abre o fallback de
+impressão nativa, nem mostra mensagem de sucesso. O fallback de impressão
+nativa continua existindo apenas para as DEMAIS falhas (erro de captura
+do html2canvas, imagem que não carregou etc.) — falhas que não implicam
+conteúdo comprovadamente maior que a página.
+
+-------------------------------------------------------------------------------
+TESTES NOVOS
+-------------------------------------------------------------------------------
+
+server/report-pagination.test.ts ganhou 13 testes novos (29 total):
+
+  - Reconstrução exata de `<span>Primeiro</span> <span>Segundo</span>`
+    sem perder o espaço central (regressão direta do exemplo da Manus).
+  - Nó de texto genuinamente vazio (comprimento zero) ainda é descartado
+    sem gerar página vazia espúria — confirma que a correção não é
+    "preservar tudo incondicionalmente", é "preservar tudo que não é
+    genuinamente vazio".
+  - `tokenizePreservingWhitespace` testada diretamente (função pura,
+    exportada) com 6 casos: texto simples, espaços múltiplos, bordas
+    (espaço inicial/final), tabs e quebras de linha, string vazia, string
+    só-espaço — todos confirmando `tokens.join("") === texto original`
+    byte a byte.
+  - Confirmação de que nenhum token mistura espaço e não-espaço (todo
+    corte de página, se necessário, cai numa fronteira segura de palavra).
+  - Teste em DOM real (jsdom): inserir um texto com espaços múltiplos e
+    bordas via `tryAppend` e confirmar que `body.innerHTML` reproduz o
+    texto exatamente — prova que a inserção (via `cloneNode`) nunca
+    normaliza espaçamento, independente da parte de decisão de layout
+    (não testável em jsdom).
+  - Testes de wiring: `.footer-reserve` usa altura fixa + `overflow:hidden`
+    (não `min-height`) nas duas vias; a tolerância de ajuste não é mais
+    "+1px" (contém `SUBPIXEL_ROUNDING_TOLERANCE` em vez); PacsQueryPage.tsx
+    importa e trata `ContentTooLargeForPageError` especificamente, e
+    remove o iframe num `finally` guardado por `parentNode`.
+
+-------------------------------------------------------------------------------
+VALIDAÇÃO EXECUTADA NO SANDBOX
+-------------------------------------------------------------------------------
+
+  pnpm check ................. aprovado, sem erro TypeScript
+  TZ=UTC pnpm test ............ 596 aprovados, 11 falhas históricas já
+                                 catalogadas em 7 suítes fora deste
+                                 escopo (mesmas de sempre), 1 ignorado,
+                                 608 no total — nenhuma falha nova
+  pnpm build .................. aprovado (apenas aviso conhecido de
+                                 bundle grande)
+  git diff --check ............ aprovado, sem whitespace inválido
+
+-------------------------------------------------------------------------------
+ARQUIVOS ALTERADOS NESTE COMMIT (aee18fd)
+-------------------------------------------------------------------------------
+
+  client/src/lib/reportPagination.ts ........... tolerância de ajuste
+                                                   reduzida; filtragem de
+                                                   nós corrigida (só
+                                                   comprimento-zero/
+                                                   comentário); fragmentação
+                                                   reescrita com
+                                                   tokenizePreservingWhitespace
+  client/src/lib/financialReportPdfDownload.ts . FOOTER_RESERVE_MM 50->65,
+                                                   min-height->height fixa
+                                                   + overflow:hidden
+  client/src/pages/PacsQueryPage.tsx ............ mesma correção de
+                                                   reserva + remoção do
+                                                   margin-top do
+                                                   doctor-footer dentro da
+                                                   reserva + tratamento
+                                                   dedicado de
+                                                   ContentTooLargeForPageError
+                                                   + iframe em finally
+  server/report-pagination.test.ts .............. 13 testes novos
+
+-------------------------------------------------------------------------------
+ESTADO ATUAL
+-------------------------------------------------------------------------------
+
+Publicado no GitHub, mesma branch claude/correcao-pdf-multisecao-
+financeiro, sem PR aberto, sem merge, nada implantado em VM1/VM2/VM3.
+
+-------------------------------------------------------------------------------
+PRÓXIMO FLUXO SEGURO — pedido específico de validação (itens 1-6 do
+parecer corretivo, seção "Critérios para uma nova revisão")
+-------------------------------------------------------------------------------
+
+1. Confirmar em Chromium: uma seção única longa no PDF financeiro gera
+   2+ páginas e não excede a área útil na última folha ASSINADA
+   (com carimbo+assinatura+nome+CRM+data reais, não vazios).
+2. O mesmo teste no download rápido especificamente.
+3. Confirmar que 3 seções curtas continuam gerando exatamente 3 páginas
+   (regressão do Achado 1/B4).
+4. Confirmar visualmente que texto solto e espaços separadores entre
+   elementos inline são preservados exatamente (o exemplo
+   `<span>A</span> <span>B</span>` e variações com espaçamento irregular).
+5. Confirmar que um bloco alto não fragmentável interrompe a geração com
+   mensagem clara (toast de erro) e NÃO abre nenhum fallback truncável,
+   nas duas vias.
+6. Repetir a medição real em Chromium (scrollHeight vs. clientHeight por
+   folha) contra este novo código, incluindo especificamente a última
+   folha com assinatura real preenchida.
+7. Se aprovado: revisão independente do diff, merge sem reescrever
+   histórico, validação completa no sandbox, atualização da VM1
+   exclusivamente por `git fetch` + `merge --ff-only` a partir de main,
+   build, restart PM2, health check HTTP 200, homologação manual dos
+   quatro caminhos de PDF.
