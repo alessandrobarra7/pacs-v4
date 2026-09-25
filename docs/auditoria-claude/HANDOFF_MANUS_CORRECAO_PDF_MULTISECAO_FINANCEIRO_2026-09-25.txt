@@ -1442,3 +1442,54 @@ seção 6 do relato técnico, "Testes e evidência exigidos na correção")
    exclusivamente por `git fetch` + `merge --ff-only` a partir de main,
    build, restart PM2, health check HTTP 200, homologação manual dos
    três caminhos de PDF (download, impressão oficial, PDF financeiro).
+
+===============================================================================
+ADENDO 6 — ELIMINAÇÃO DO AUTO-PRINT NA FONTE; IMPRESSÃO OFICIAL VIA
+runControlledPrint (resposta ao "Relato técnico — Bloqueio da impressão
+oficial de laudos PDF", Manus, 2026-09-25)
+===============================================================================
+
+Commit desta correção: f646713
+Topo revisado pela Manus antes desta correção: 058a5c1 (BLOQUEADO)
+
+O QUE A MANUS ENCONTROU: a regex usada para remover o script de
+auto-print de fullHtml antes de imprimir
+(/<script>\s*window\.onload[\s\S]*?<\\/script>/) não reconhecia o
+"</script>" real gerado pelo template literal — procurava uma barra
+invertida literal que não existe no HTML final. O script sobrevivia e
+disparava window.print() sozinho ~400ms após o carregamento do iframe,
+antes da reconstrução paginada controlada (que só começa após 800ms), ou
+mesmo quando essa reconstrução falhava.
+
+CORREÇÃO: eliminado o script na origem — fullHtml nunca mais contém
+window.onload/window.print(), em nenhum actionType. Não há mais nada
+para remover por regex. A impressão oficial passou a disparar print()
+por um caminho único e explícito: `runControlledPrint`
+(client/src/lib/printOrchestration.ts), extraída para ser testável com
+funções injetadas — atende ao pedido da Manus por "função extraída e
+injetável". Contrato: `print` só é chamado se `reconstruct` resolver sem
+lançar, e é chamado exatamente uma vez nesse caso; se `reconstruct`
+lançar, retorna `{ printed: false, error }` sem nunca chamar `print`.
+
+TESTES NOVOS: server/print-orchestration.test.ts (8 testes — 4
+comportamentais com reconstruct/print mockados: sucesso chama print()
+uma vez após a reconstrução; falha nunca chama print(); erro original é
+propagado sem mascarar; falha síncrona em print() não é reinterpretada
+como falha de reconstrução — e 4 de wiring confirmando ausência de
+window.onload/print() em fullHtml e de qualquer fullHtml.replace
+residual). server/pacs-print-fallback-shared-pagination.test.ts:
+atualizado (o teste que checava a regex de remoção agora checa sua
+ausência e o uso de runControlledPrint).
+
+VALIDAÇÃO: pnpm check limpo; 64 testes direcionados aprovados; TZ=UTC
+pnpm test completo — 616 aprovados, 11 falhas nas mesmas 7 suítes
+históricas, nenhuma nova; pnpm build aprovado; git diff --check
+aprovado.
+
+ESTADO: publicado no GitHub, mesma branch, sem merge, nada implantado em
+VM1/VM2/VM3.
+
+PRÓXIMO PASSO: a validação real em Chromium (itens 5-6 dos relatos
+anteriores) continua pendente e necessária antes de qualquer merge —
+não substituída pelos testes comportamentais desta rodada, que mockam
+reconstruct/print em vez de exercitar DOM/layout reais.
