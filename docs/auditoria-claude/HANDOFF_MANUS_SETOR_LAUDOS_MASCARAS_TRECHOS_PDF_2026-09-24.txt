@@ -421,3 +421,201 @@ PRÓXIMO FLUXO (repetido, agora com os 3 bloqueios resolvidos)
    UI) com os IDs reais continua sendo a validação mais forte antes do merge.
 6. Se tudo bater: merge sem reescrever histórico, revalidar no sandbox,
    publicar main, atualizar VM1 (sem migration nova).
+
+===============================================================================
+ADENDO 3 — RESPOSTA AO PARECER DA REVISÃO CORRETIVA (commit auditado 08262cd)
+===============================================================================
+
+A Manus revisou o commit 08262cd e encontrou 2 novos bloqueios críticos,
+ambos confirmados no código exatamente como descrito — sem discordância.
+Também pediu uma correção documental pequena (comentário de masks.delete).
+
+-------------------------------------------------------------------------------
+BLOQUEIO 1 — Download financeiro do editor cortava PDF Letter multisseção
+-------------------------------------------------------------------------------
+Causa raiz confirmada: o contêiner multisseção em ReportEditorPage.tsx
+continuava com maxWidth fixo em px equivalente a A4 (era "md:w-[794px]",
+depois de correções anteriores ainda tinha valores 216mm/210mm mas sem
+alimentar a altura corretamente), independente do pageSize efetivo. Cada
+SharedReportSheet recebia pageSize="Letter" e altura Letter, mas sua
+largura ficava presa em ~210mm (A4). O html2canvas capturava essa folha
+estreita e o jsPDF esticava a captura para a largura Letter — a altura,
+calculada só pela proporção da captura, ultrapassava a altura física da
+página Letter e cortava o rodapé.
+
+Correção:
+  - client/src/pages/ReportEditorPage.tsx: maxWidth/minHeight do contêiner
+    multisseção e de página única agora derivam de
+    effectiveLayoutPrefs.pageSize via as funções puras pageWidthMm/
+    pageHeightMm (novo módulo client/src/lib/pdfPageGeometry.ts) — nunca
+    mais hardcoded.
+  - handleFinancialPdfDownload: adicionado clamp de segurança
+    (clampImageToPage, mesmo módulo) — se a altura calculada por proporção
+    ainda ultrapassar a altura física da página de destino (por qualquer
+    motivo: fonte não carregada, imagem de rodapé maior que o esperado,
+    arredondamento do navegador), reduz width/height proporcionalmente e
+    centraliza horizontalmente, garantindo que a imagem NUNCA seja cortada.
+  - screenFooterReservedMm: a reserva de 30mm extra no rodapé (quando a
+    unidade tem footer_image_url) agora é aplicada também na folha
+    on-screen do editor, igualando a área útil às demais 3 vias
+    (impressão oficial, impressão rápida, PDF do Financeiro).
+
+Testes novos: server/pdf-page-geometry.test.ts (10 casos) — testa
+pageWidthMm/pageHeightMm para A4 e Letter, e clampImageToPage cobrindo: sem
+estouro (não altera nada), reprodução numérica exata do cenário relatado
+pela Manus (container preso em ~210mm capturado e esticado para Letter
+216mm gera altura > 279mm; o clamp reduz e centraliza corretamente),
+preservação do aspect ratio ao reduzir, caso limite (altura exatamente
+igual à altura da página) e fluxo normal A4 sem estouro.
+
+-------------------------------------------------------------------------------
+BLOQUEIO 2 — Editor multisseção com referências conflitantes desktop/mobile
+-------------------------------------------------------------------------------
+Causa raiz confirmada, com 4 pontos distintos:
+
+1) Colisão de refs no modo multisseção: as duas árvores (desktop e mobile),
+   ambas sempre montadas no DOM e ocultas só por CSS, gravavam a referência
+   de cada seção no MESMO array sectionRefs.current[i] — a instância mobile
+   (montada depois, mais abaixo no JSX) sobrescrevia a referência da
+   instância desktop. Em viewport desktop, saveSelection()/insertAtCursor()
+   podiam então focar e escrever na seção mobile oculta.
+
+2) Hidratação assimétrica: o carregamento de existingReport.body (laudo já
+   salvo) escrevia SOMENTE em docRef (desktop) — nunca em mobileDocRef. Um
+   laudo existente aberto no celular aparecia sem o conteúdo já salvo e, ao
+   gravar, o collectBody() (que lê o editor VISÍVEL) substituía o conteúdo
+   original pelo DOM móvel vazio/parcial.
+
+3) getCharBeforeRange incompleto para quebra estrutural: a versão anterior
+   atravessava um <br> (sem texto) continuando a busca até achar a letra
+   anterior de verdade, e também atravessava a fronteira de um bloco
+   (parágrafo/título) para olhar o bloco anterior — podia inserir "\n\n"
+   extra mesmo já havendo separação visual.
+
+4) Range de seleção salva sem checagem de pertencimento: insertAtCursor
+   reaproveitava a seleção salva (savedSelection) sem confirmar que ela
+   ainda pertencia ao editor ativo — entre o momento de salvar e o de
+   inserir, o editor ativo podia ter mudado (troca de seção, troca de
+   viewport).
+
+Correção (fonte única de verdade por seção/viewport):
+  - Novo array mobileSectionRefs, paralelo a sectionRefs — cada árvore
+    (desktop/mobile) grava só na sua própria referência.
+  - Nova função pura isMobileViewportQuery() (window.matchMedia) e
+    pickActiveRef(isMobile, mobileVal, desktopVal) — ambas extraídas para
+    client/src/lib/reportEditorDom.ts — resolvem, num único lugar, qual
+    árvore é a fonte de verdade AGORA, com fallback para a outra quando a
+    preferida ainda não estiver montada (ref nula). isMobileViewport(),
+    getVisibleDoc() e getActiveSectionRefs() (multisseção) passaram a usar
+    essas funções em vez de reimplementar a lógica inline.
+  - getActiveEditableEl(), collectBody(), handleTogglePreview(),
+    applyFontSize(), applyMask(), hasEditorContent, o handler de
+    ModelosTab.onApplyTemplate e o MutationObserver (todos os pontos que
+    antes referenciavam sectionRefs.current diretamente em contexto
+    compartilhado desktop/mobile) foram varridos e corrigidos para usar
+    getActiveSectionRefs() — os poucos usos remanescentes de
+    sectionRefs.current diretamente foram confirmados como legitimamente
+    desktop-only (dentro do bloco JSX "hidden md:flex", nunca visível/
+    tocável no mobile) e mantidos como estão.
+  - Hidratação de existingReport.body reescrita para popular AMBAS as
+    árvores (docRef E mobileDocRef; sectionRefs E mobileSectionRefs no modo
+    multisseção) — elimina a assimetria do item 2.
+  - getCharBeforeRange (extraída para reportEditorDom.ts) agora trata
+    <br>/<hr> como separação já existente (retorna um caractere de espaço
+    como sentinela, nunca atravessa para achar a letra anterior de
+    verdade) e trata o início de um elemento de bloco (P/DIV/H1-H6/LI/UL/
+    OL/BLOCKQUOTE/TR/TABLE/HR) como já-separado, sem retroceder para o
+    bloco anterior.
+  - Nova função pura rangeBelongsToTarget(range, targetEl) (mesmo módulo) —
+    insertAtCursor só reaproveita a seleção salva se
+    targetEl.contains(range.startContainer); caso contrário, usa o fim do
+    editor ativo como posição segura de inserção.
+
+Testes DOM reais (pedido explícito da Manus — não apenas trechos de
+código-fonte): server/report-editor-dom-real.test.ts (16 casos), rodando
+sob @vitest-environment jsdom, constrói árvores DOM de verdade e Range/
+Selection reais, chamando as funções de produção diretamente:
+  - getCharBeforeRange: caractere anterior no mesmo nó de texto; ascensão
+    para irmão anterior (span); cursor logo após <br> não atravessa a
+    quebra (retorna sentinela de espaço, nunca a letra anterior); cursor no
+    início do TEXTO de um novo bloco <p> não atravessa para o bloco
+    anterior; cursor após espaço retorna o espaço; nunca ultrapassa o
+    boundary (editor) para ler texto de fora da área editável; nós
+    aninhados profundos.
+  - isMobileViewportQuery: mock real de window.matchMedia para mobile e
+    desktop.
+  - pickActiveRef: elementos DOM reais, viewport mobile/desktop, fallback
+    quando o preferido está nulo.
+  - rangeBelongsToTarget: cenário exato do Bloqueio 2 — Range salvo na
+    árvore mobile, editor ativo agora é o desktop, confirma que o Range
+    antigo é rejeitado (não pertence) mas continua válido para a árvore a
+    que de fato pertence; Range nulo; nós aninhados profundamente dentro do
+    editor.
+
+O teste antigo (baseado em trecho de código-fonte) que a Manus criticou foi
+atualizado: server/report-editor-mobile-ui.test.ts agora só confirma que o
+componente importa e USA as funções compartilhadas de reportEditorDom.ts
+(wiring), delegando toda a cobertura de comportamento real para
+report-editor-dom-real.test.ts.
+
+-------------------------------------------------------------------------------
+CORREÇÃO DOCUMENTAL — comentário de masks.delete
+-------------------------------------------------------------------------------
+O comentário público de masks.delete dizia que o admin remove "qualquer
+máscara" da própria unidade. Corrigido para declarar a política efetiva já
+aplicada por reportMaskOwnershipCondition (server/db.ts): admin remove
+apenas máscara com scope='unit' da unidade autorizada, nunca máscara
+pessoal de outro usuário da mesma unidade — igual ao comentário já correto
+em masks.update.
+
+-------------------------------------------------------------------------------
+VALIDAÇÃO COMPLETA APÓS ESTA RODADA
+-------------------------------------------------------------------------------
+  pnpm check ............................... OK, sem erros
+  TZ=UTC pnpm test (suíte completa) ........ 556 aprovados, 11 falhas
+                                              históricas, 1 skip, de 568
+  Falhas batem com o baseline conhecido? ... Sim — mesmas 7 suítes já
+                                              documentadas (exam-catalog-
+                                              security, finance-v2-dashboard,
+                                              mediaProxy, pacs-desktop-
+                                              download-progress, pacs.mobile-
+                                              ui, security.auth, study-
+                                              priority-ui). Nenhuma nova.
+  pnpm build ................................ OK, só aviso preexistente de
+                                              bundle grande
+  git diff --check origin/main..HEAD ........ OK, sem whitespace inválido
+
+Arquivos alterados/criados nesta rodada:
+  - client/src/pages/ReportEditorPage.tsx (Bloqueios 1 e 2 — wiring das
+    funções extraídas, largura/altura do contêiner multisseção, clamp do
+    download financeiro)
+  - client/src/lib/reportEditorDom.ts (novo — funções puras extraídas:
+    getCharBeforeRange, isMobileViewportQuery, pickActiveRef,
+    rangeBelongsToTarget)
+  - client/src/lib/pdfPageGeometry.ts (novo — pageWidthMm, pageHeightMm,
+    clampImageToPage)
+  - server/routers/masks.ts (comentário de masks.delete)
+  - server/report-editor-dom-real.test.ts (novo — 16 testes DOM reais,
+    jsdom)
+  - server/pdf-page-geometry.test.ts (novo — 10 testes de regressão do
+    Bloqueio 1)
+  - server/report-editor-mobile-ui.test.ts (testes de wiring atualizados)
+  - package.json / pnpm-lock.yaml (jsdom adicionado como devDependency,
+    necessário para os testes DOM reais)
+
+===============================================================================
+PRÓXIMO FLUXO (repetido, agora com os 2 bloqueios desta rodada resolvidos)
+===============================================================================
+1. Revisar o diff desta rodada (git diff 08262cd..HEAD).
+2. Rodar a suíte completa na VM1 e comparar com a tabela acima.
+3. Validação funcional mínima sugerida pela própria Manus: Letter + duas
+   ou mais seções + margens não padrão + imagem de rodapé, gerando o PDF
+   pelo download financeiro do editor — confirmar todas as páginas Letter,
+   sem corte de rodapé, mesma área útil da impressão oficial.
+4. Validação funcional mínima do Bloqueio 2: abrir laudo simples já salvo
+   no mobile, inserir Trecho no meio do conteúdo, salvar e reabrir no
+   desktop; editar duas seções distintas no desktop e no mobile; clique e
+   arrastar-e-soltar; repetir imediatamente após espaço, Enter, <br> e
+   texto formatado.
+5. Se tudo bater: merge sem reescrever histórico, revalidar no sandbox,
+   publicar main, atualizar VM1 (sem migration nova).

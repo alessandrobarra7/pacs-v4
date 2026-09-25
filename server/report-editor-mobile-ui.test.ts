@@ -203,18 +203,41 @@ describe("ReportEditorPage — experiência mobile", () => {
   });
 
   /**
-   * Regressão (Bloqueio 2): getCharBeforeRange não subia pela árvore quando
-   * o cursor estava no início de um nó aninhado (ex.: início de um
-   * <strong>/<em> sem irmão de texto no mesmo nível) — podia decidir
-   * incorretamente se precisava inserir separador. Agora sobe por
-   * current.parentNode procurando irmãos anteriores em cada nível, até o
-   * limite do editor (boundary), sem escapar da área editável.
+   * Regressão (Bloqueio 2, revisão corretiva Manus 2026-09-24): a lógica de
+   * getCharBeforeRange (ascensão por parentNode, tratamento de <br>/bloco
+   * como separação estrutural) foi extraída para
+   * client/src/lib/reportEditorDom.ts especificamente para permitir testes
+   * DOM reais (Range/Selection de verdade sobre uma árvore jsdom), em vez
+   * de apenas conferir trechos de código-fonte — ver
+   * server/report-editor-dom-real.test.ts, que cobre: caractere anterior no
+   * mesmo nó de texto, ascensão por nós aninhados, <br> tratado como
+   * separação (sentinela de espaço, nunca a letra anterior), início de
+   * bloco não atravessa para o bloco anterior, e nunca escapar do
+   * `boundary` (editor ativo). Aqui só confirmamos a extração/wiring.
    */
-  it("getCharBeforeRange sobe pela árvore (parentNode) até o limite do editor ao procurar o caractere anterior", () => {
-    expect(editorSource).toContain("const getCharBeforeRange = (range: Range, boundary?: Node | null): string => {");
-    expect(editorSource).toContain("current = current.parentNode;");
-    expect(editorSource).toContain("while (current && current !== boundary) {");
-    // A chamada em insertAtCursor agora passa o editor ativo como limite.
+  it("getCharBeforeRange vem do módulo compartilhado reportEditorDom e é usado com o editor ativo como limite", () => {
+    expect(editorSource).toContain('getCharBeforeRange as getCharBeforeRangeUtil');
+    expect(editorSource).toContain('from "@/lib/reportEditorDom"');
+    expect(editorSource).toContain("const getCharBeforeRange = getCharBeforeRangeUtil;");
+    // A chamada em insertAtCursor continua passando o editor ativo como limite.
     expect(editorSource).toContain("getCharBeforeRange(sel.getRangeAt(0), targetEl)");
+  });
+
+  /**
+   * Regressão (Bloqueio 2): a resolução de qual árvore (desktop/mobile) é a
+   * fonte de verdade agora — isMobileViewport/getVisibleDoc/
+   * getActiveSectionRefs — e a checagem de pertencimento do Range salvo ao
+   * editor ativo (insertAtCursor) também foram extraídas para
+   * reportEditorDom.ts e têm testes DOM reais dedicados
+   * (server/report-editor-dom-real.test.ts: pickActiveRef,
+   * isMobileViewportQuery, rangeBelongsToTarget). Aqui só confirmamos que o
+   * componente de fato usa essas funções em vez de reimplementar a lógica
+   * inline.
+   */
+  it("usa as funções compartilhadas para resolver árvore ativa e pertencimento do Range salvo", () => {
+    expect(editorSource).toContain("isMobileViewportQuery");
+    expect(editorSource).toContain("pickActiveRef(isMobileViewport(), mobileDocRef.current, docRef.current)");
+    expect(editorSource).toContain("pickActiveRef(isMobileViewport(), mobileSectionRefs, sectionRefs)");
+    expect(editorSource).toContain("rangeBelongsToTarget(savedSelection.current, targetEl)");
   });
 });

@@ -186,8 +186,13 @@ export const masksRouter = router({
 
   /**
    * Remove uma máscara pelo id.
-   * Usuário comum só pode remover as próprias máscaras.
-   * Admin pode remover qualquer máscara da PRÓPRIA unidade.
+   * Usuário comum só pode remover as próprias máscaras pessoais.
+   * Admin (admin_master/unit_admin) só remove máscaras com scope='unit' da
+   * PRÓPRIA unidade — nunca máscara pessoal de outro usuário da mesma
+   * unidade (revisão corretiva Manus 2026-09-24: o comentário anterior
+   * dizia "qualquer máscara", divergindo da política efetiva já aplicada
+   * pelo predicado compartilhado reportMaskOwnershipCondition em
+   * server/db.ts, usado tanto aqui quanto em masks.update).
    * FIX: exige unitId para restringir admin à unidade correta.
    */
   delete: protectedProcedure

@@ -8,6 +8,13 @@ import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/Clinic
 import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import {
+  getCharBeforeRange as getCharBeforeRangeUtil,
+  isMobileViewportQuery,
+  pickActiveRef,
+  rangeBelongsToTarget,
+} from "@/lib/reportEditorDom";
+import { clampImageToPage, pageHeightMm, pageWidthMm } from "@/lib/pdfPageGeometry";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -224,12 +231,18 @@ export default function ReportEditorPage() {
   // Referências aos documentos editáveis; o mobile usa uma instância própria para não conflitar com o DOM desktop oculto.
   const docRef = useRef<HTMLDivElement>(null);
   const mobileDocRef = useRef<HTMLDivElement>(null);
-  const getVisibleDoc = useCallback(() => {
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
-      return mobileDocRef.current ?? docRef.current;
-    }
-    return docRef.current ?? mobileDocRef.current;
+  // Bloqueio 2 (revisão corretiva Manus 2026-09-24): decide "é a viewport
+  // mobile agora" num único lugar, reaproveitado por getVisibleDoc() (laudo
+  // simples) e por getActiveEditableEl() (multi-seção) — ambas as árvores
+  // (desktop e mobile) ficam sempre montadas no DOM, escondidas só por CSS
+  // conforme a largura da tela, então o código nunca pode assumir qual
+  // delas está de fato visível/tocável sem checar isso explicitamente.
+  const isMobileViewport = useCallback(() => {
+    return isMobileViewportQuery();
   }, []);
+  const getVisibleDoc = useCallback(() => {
+    return pickActiveRef(isMobileViewport(), mobileDocRef.current, docRef.current);
+  }, [isMobileViewport]);
   const savedSelection = useRef<Range | null>(null);
 
   // Suporte a múltiplos exames (multi-seção)
@@ -238,9 +251,24 @@ export default function ReportEditorPage() {
   const [examNames, setExamNames] = useState<string[]>([]);
   const [sectionBodies, setSectionBodies] = useState<string[]>([]);
   const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Bloqueio 2 (revisão corretiva Manus 2026-09-24): antes, a árvore mobile
+  // do modo multi-seção gravava sua própria referência no MESMO array
+  // sectionRefs — como as duas árvores (desktop e mobile) ficam sempre
+  // montadas, a instância mobile (renderizada depois, mais abaixo no JSX)
+  // sobrescrevia a referência da instância desktop em sectionRefs.current[i].
+  // Em viewport desktop, saveSelection()/insertAtCursor() podiam então focar
+  // e escrever na seção mobile oculta em vez da visível. Agora cada árvore
+  // tem seu próprio array de referências.
+  const mobileSectionRefs = useRef<(HTMLDivElement | null)[]>([]);
   // FIX BUG-1: rastreia qual seção está em foco no modo multi-seção
   const activeSectionRef = useRef<number>(0);
   const isMultiSection = examNames.length > 1;
+  // Bloqueio 2: array de refs de fato ativo (visível/tocável) no modo
+  // multi-seção agora, escolhido pela mesma checagem de viewport usada no
+  // laudo simples — nunca hardcoded para o array desktop.
+  const getActiveSectionRefs = useCallback(() => {
+    return pickActiveRef(isMobileViewport(), mobileSectionRefs, sectionRefs);
+  }, [isMobileViewport]);
 
   // FIX BUG-2: imagens inline no contentEditable (sem overlay arrastável)
 
@@ -360,11 +388,13 @@ export default function ReportEditorPage() {
   // Aplica tamanho de fonte na seção ativa
   const applyFontSize = useCallback((size: string) => {
     setFontSize(size);
+    // Bloqueio 2 (revisão corretiva Manus 2026-09-24): usa o array de refs
+    // da viewport ativa (getActiveSectionRefs), não sempre o desktop.
     const el = isMultiSection
-      ? sectionRefs.current[activeSectionRef.current]
+      ? getActiveSectionRefs().current[activeSectionRef.current]
       : getVisibleDoc();
     if (el) el.style.fontSize = `${size}pt`;
-  }, [isMultiSection, getVisibleDoc]);
+  }, [isMultiSection, getVisibleDoc, getActiveSectionRefs]);
   // Importa máscaras de arquivo JSON
   const handleMaskFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -384,7 +414,8 @@ export default function ReportEditorPage() {
   const applyMask = useCallback((body: string, examTitle?: string | null) => {
     const clean = sanitizeHtmlForEditor(body);
     if (isMultiSection) {
-      const el = sectionRefs.current[activeSectionRef.current];
+      // Bloqueio 2 (revisão corretiva Manus 2026-09-24): idem applyFontSize.
+      const el = getActiveSectionRefs().current[activeSectionRef.current];
       if (el) { el.innerHTML = clean; el.focus(); }
     } else {
       const visibleDoc = getVisibleDoc();
@@ -392,17 +423,21 @@ export default function ReportEditorPage() {
     }
     if (examTitle) setExamTitle(examTitle);
     setShowMasksPanel(false);
-  }, [isMultiSection, getVisibleDoc]);
+  }, [isMultiSection, getVisibleDoc, getActiveSectionRefs]);
   // Captura HTML atual para pré-visualização
   const handleTogglePreview = useCallback(() => {
     if (!isPreview) {
+      // Bloqueio 2 (revisão corretiva Manus 2026-09-24): a pré-visualização
+      // sempre lia sectionRefs (árvore desktop) — no mobile, mostrava o
+      // conteúdo (vazio/desatualizado) da árvore oculta, não o que o usuário
+      // via/editava.
       const html = isMultiSection
-        ? sectionRefs.current.map(el => el?.innerHTML ?? "").join("<hr/>")
+        ? getActiveSectionRefs().current.map(el => el?.innerHTML ?? "").join("<hr/>")
         : getVisibleDoc()?.innerHTML ?? "";
       setPreviewHtml(html);
     }
     setIsPreview(p => !p);
-  }, [isPreview, isMultiSection, getVisibleDoc]);
+  }, [isPreview, isMultiSection, getVisibleDoc, getActiveSectionRefs]);
 
   // ── Carregar info do estudo ──────────────────────────────────────────────
   useEffect(() => {
@@ -430,18 +465,29 @@ export default function ReportEditorPage() {
   }, [studyUid, documentKey, documentLabelFromRoute]);
 
   // ── Carregar laudo existente no documento ────────────────────────────────────
+  //
+  // Bloqueio 2 (revisão corretiva Manus 2026-09-24): esta hidratação escrevia
+  // só na árvore desktop (docRef / sectionRefs) — nunca na mobile
+  // (mobileDocRef / mobileSectionRefs). Como as duas árvores ficam sempre
+  // montadas (visibilidade só por CSS), um laudo já salvo aberto pelo
+  // celular aparecia com o editor VISÍVEL vazio (mobileDocRef nunca recebia
+  // o conteúdo), mesmo o laudo tendo corpo salvo. Pior: se o usuário
+  // salvasse nesse estado, collectBody() lê o editor VISÍVEL (getVisibleDoc/
+  // getActiveSectionRefs), então o body seria sobrescrito pelo DOM mobile
+  // vazio/parcial, apagando o conteúdo original. Agora grava em AMBAS as
+  // árvores sempre, mantendo-as em sincronia desde a carga inicial.
   useEffect(() => {
     if (!existingReport?.body) return;
-    if (isMultiSection && sectionRefs.current.length > 0) {
+    if (isMultiSection && (sectionRefs.current.length > 0 || mobileSectionRefs.current.length > 0)) {
+      const setSectionHtml = (i: number, html: string) => {
+        if (sectionRefs.current[i]) sectionRefs.current[i]!.innerHTML = html;
+        if (mobileSectionRefs.current[i]) mobileSectionRefs.current[i]!.innerHTML = html;
+      };
       // Laudo multi-página: tentar parsear JSON [{title, body}, ...]
       try {
         const pages: { title: string; body: string }[] = JSON.parse(existingReport.body);
         if (Array.isArray(pages)) {
-          pages.forEach((page, i) => {
-            if (sectionRefs.current[i]) {
-              sectionRefs.current[i]!.innerHTML = sanitizeHtmlForEditor(page.body || "");
-            }
-          });
+          pages.forEach((page, i) => setSectionHtml(i, sanitizeHtmlForEditor(page.body || "")));
           return;
         }
       } catch { /* não é JSON — tentar formato legado */ }
@@ -452,25 +498,23 @@ export default function ReportEditorPage() {
         const sections = doc.querySelectorAll(".exam-section");
         sections.forEach((sec, i) => {
           const bodyDiv = sec.querySelector(".exam-section-body, div:last-child");
-          if (sectionRefs.current[i] && bodyDiv) {
-            sectionRefs.current[i]!.innerHTML = sanitizeHtmlForEditor(bodyDiv.innerHTML);
-          }
+          if (bodyDiv) setSectionHtml(i, sanitizeHtmlForEditor(bodyDiv.innerHTML));
         });
       } else {
         // Laudo antigo sem seções — colocar tudo na primeira página
-        if (sectionRefs.current[0]) {
-          sectionRefs.current[0].innerHTML = sanitizeHtmlForEditor(existingReport.body);
-        }
+        setSectionHtml(0, sanitizeHtmlForEditor(existingReport.body));
       }
-    } else if (docRef.current) {
-      docRef.current.innerHTML = sanitizeHtmlForEditor(existingReport.body);
+    } else {
+      const html = sanitizeHtmlForEditor(existingReport.body);
+      if (docRef.current) docRef.current.innerHTML = html;
+      if (mobileDocRef.current) mobileDocRef.current.innerHTML = html;
     }
   }, [existingReport, isMultiSection]);
 
   // Recalcula a guia visual depois que o conteúdo existente foi aplicado via DOM.
   useEffect(() => {
     markEditorContentChanged();
-    const targets = [docRef.current, mobileDocRef.current, ...sectionRefs.current].filter(Boolean) as HTMLDivElement[];
+    const targets = [docRef.current, mobileDocRef.current, ...sectionRefs.current, ...mobileSectionRefs.current].filter(Boolean) as HTMLDivElement[];
     if (typeof MutationObserver === "undefined" || targets.length === 0) return;
     const observer = new MutationObserver(() => markEditorContentChanged());
     targets.forEach(target => observer.observe(target, { childList: true, subtree: true, characterData: true }));
@@ -489,10 +533,10 @@ export default function ReportEditorPage() {
   // mesmo array sectionRefs, então o alvo permanece o mesmo de antes.
   const getActiveEditableEl = useCallback((): HTMLDivElement | null => {
     if (isMultiSection) {
-      return sectionRefs.current[activeSectionRef.current] ?? null;
+      return getActiveSectionRefs().current[activeSectionRef.current] ?? null;
     }
     return getVisibleDoc();
-  }, [isMultiSection, getVisibleDoc]);
+  }, [isMultiSection, getVisibleDoc, getActiveSectionRefs]);
 
   // ── Salvar seleção antes de interagir com sidebar ────────────────────────
   const saveSelection = useCallback(() => {
@@ -516,48 +560,17 @@ export default function ReportEditorPage() {
   // (ou colar sem separador quando deveria separar). Agora sobe pelos nós
   // pais, procurando irmãos anteriores em cada nível, até o limite do
   // editor (`boundary`), para nunca ler texto de fora da área editável.
-  const getCharBeforeRange = (range: Range, boundary?: Node | null): string => {
-    const findLastCharInSubtree = (node: Node): string => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        const t = node.textContent || '';
-        return t.length > 0 ? t[t.length - 1] : '';
-      }
-      const children = node.childNodes;
-      for (let i = children.length - 1; i >= 0; i -= 1) {
-        const c = findLastCharInSubtree(children[i]);
-        if (c) return c;
-      }
-      return '';
-    };
-
-    const { startContainer, startOffset } = range;
-
-    if (startContainer.nodeType === Node.TEXT_NODE) {
-      const text = startContainer.textContent || '';
-      if (startOffset > 0) return text[startOffset - 1] || '';
-    } else {
-      const el = startContainer as Element;
-      if (startOffset > 0) {
-        const child = el.childNodes[startOffset - 1];
-        const c = child ? findLastCharInSubtree(child) : '';
-        if (c) return c;
-      }
-    }
-
-    // Nada encontrado no próprio nó/offset: sobe pela árvore procurando
-    // irmãos anteriores em cada nível, sem ultrapassar o editor.
-    let current: Node | null = startContainer;
-    while (current && current !== boundary) {
-      let sib: Node | null = current.previousSibling;
-      while (sib) {
-        const c = findLastCharInSubtree(sib);
-        if (c) return c;
-        sib = sib.previousSibling;
-      }
-      current = current.parentNode;
-    }
-    return '';
-  };
+  // Bloqueio 2 (revisão corretiva Manus 2026-09-24): <br> e início de bloco
+  // já são separação estrutural — a versão anterior atravessava um <br>
+  // (que não tem texto) e continuava procurando até achar a letra anterior
+  // de verdade, e também atravessava a fronteira de um parágrafo/bloco para
+  // olhar o bloco anterior. Nos dois casos podia inserir "\n\n" extra
+  // mesmo já havendo separação visual (quebra de linha, ou o próprio
+  // parágrafo/título já em linha própria).
+  // BLOCK_TAGS / isBlockElement / getCharBeforeRange: extraídos para
+  // client/src/lib/reportEditorDom.ts (Bloqueio 2, revisão corretiva Manus
+  // 2026-09-24) para permitir testes DOM reais sem depender do componente.
+  const getCharBeforeRange = getCharBeforeRangeUtil;
 
   const insertAtCursor = useCallback((text: string, opts?: { smartSeparator?: boolean }) => {
     // Determinar o elemento editor realmente ativo/visível (desktop, mobile
@@ -569,10 +582,19 @@ export default function ReportEditorPage() {
     // Restaurar foco e seleção salva antes de inserir
     targetEl.focus();
 
-    if (savedSelection.current) {
+    // Bloqueio 2 (revisão corretiva Manus 2026-09-24): só reaproveita a
+    // seleção salva se ela ainda pertencer ao editor ativo agora. Entre o
+    // momento em que a seleção foi salva (saveSelection) e o momento desta
+    // inserção, o editor ativo pode ter mudado — troca de seção no modo
+    // multi-seção, ou troca de viewport (desktop/mobile) — e um Range de
+    // outra árvore não deve ser restaurado aqui; usar o fim do editor ativo
+    // como posição segura de inserção nesse caso.
+    const savedSelectionBelongsToTarget = rangeBelongsToTarget(savedSelection.current, targetEl);
+
+    if (savedSelectionBelongsToTarget) {
       const sel = window.getSelection();
       sel?.removeAllRanges();
-      sel?.addRange(savedSelection.current);
+      sel?.addRange(savedSelection.current!);
     } else {
       // Sem seleção salva: posicionar cursor no final do editor
       const sel = window.getSelection();
@@ -614,19 +636,27 @@ export default function ReportEditorPage() {
   // MULTI-PÁGINA: serializa como JSON [{title, body}, ...] para preservar
   // estrutura de páginas independentes. Registro único no banco (1 body por studyInstanceUid).
   // PÁGINA ÚNICA: retorna HTML puro (compatibilidade com laudos existentes).
+  // Bloqueio 2 (revisão corretiva Manus 2026-09-24): no modo multi-seção,
+  // coletava sempre de sectionRefs (árvore desktop), mesmo quando quem
+  // estava de fato editando era a árvore mobile — salvava o DOM oculto, não
+  // o que o usuário via/digitou. Agora usa getActiveSectionRefs(), a mesma
+  // checagem de viewport usada por getActiveEditableEl/getVisibleDoc.
   const collectBody = useCallback(() => {
     if (existingReport?.body && (isSigned && !isRevising)) {
       return existingReport.body;
     }
-    if (isMultiSection && sectionRefs.current.length > 0) {
-      const pages = examNames.map((name, i) => ({
-        title: name,
-        body: sectionRefs.current[i]?.innerHTML || "",
-      }));
-      return JSON.stringify(pages);
+    if (isMultiSection) {
+      const activeRefs = getActiveSectionRefs().current;
+      if (activeRefs.length > 0) {
+        const pages = examNames.map((name, i) => ({
+          title: name,
+          body: activeRefs[i]?.innerHTML || "",
+        }));
+        return JSON.stringify(pages);
+      }
     }
     return getVisibleDoc()?.innerHTML || existingReport?.body || "";
-  }, [isMultiSection, examNames, getVisibleDoc, existingReport, isSigned, isRevising]);
+  }, [isMultiSection, examNames, getVisibleDoc, getActiveSectionRefs, existingReport, isSigned, isRevising]);
 
   const handleSave = useCallback(async () => {
     const body = collectBody();
@@ -829,6 +859,14 @@ export default function ReportEditorPage() {
     bpLogo.x < 30 ? "left" : bpLogo.x > 70 ? "right" : "center";
   const logoJustify = logoAlign === "left" ? "flex-start" : logoAlign === "right" ? "flex-end" : "center";
   const layoutFooterUrl: string | null = toAbsUrl((rawLayout?.["footer_image_url"] as string | null) ?? null);
+  // CORREÇÃO (Bloqueio 1, revisão corretiva Manus 2026-09-24): as vias de
+  // impressão/PDF (handlePrint, PacsQueryPage, financialReportPdfDownload)
+  // sempre somaram 30mm à margem inferior quando há imagem de rodapé
+  // configurada — a folha em tela (SharedReportSheet on-screen, a mesma que
+  // o download financeiro do editor rasteriza via html2canvas) não recebia
+  // essa reserva, então a área útil em tela ficava maior que a das outras
+  // vias no mesmo cenário. Agora a folha em tela usa a mesma reserva.
+  const screenFooterReservedMm = layoutFooterUrl ? 30 : 0;
   const layoutLogos: Array<{ url: string; width: number; height: number; label: string }> =
     Array.isArray(rawLayout?.["logos"]) ? (rawLayout!["logos"] as Array<{ url: string; width: number; height: number; label: string }>) : [];
   // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
@@ -1289,6 +1327,8 @@ export default function ReportEditorPage() {
       // default (DEFAULT_LAYOUT_PREFERENCES) usado em handlePrint.
       const effectivePageSize = (layoutPrefs?.pageSize ?? DEFAULT_LAYOUT_PREFERENCES.pageSize) as "A4" | "Letter";
       const pdf = new jsPDF("p", "mm", effectivePageSize.toLowerCase() as "a4" | "letter");
+      const pdfPageWidth = pdf.internal.pageSize.getWidth();
+      const pdfPageHeight = pdf.internal.pageSize.getHeight();
       for (let index = 0; index < pages.length; index += 1) {
         const canvas = await html2canvas(pages[index], {
           scale: 2,
@@ -1297,10 +1337,23 @@ export default function ReportEditorPage() {
           backgroundColor: "#ffffff",
         });
         const imageData = canvas.toDataURL("image/png");
-        const width = pdf.internal.pageSize.getWidth();
-        const height = (canvas.height * width) / canvas.width;
+        let width = pdfPageWidth;
+        let height = (canvas.height * width) / canvas.width;
+        // CORREÇÃO (Bloqueio 1, revisão corretiva Manus 2026-09-24): com o
+        // container multisseção agora na largura física correta (ver
+        // md:w-[...] dinâmico logo abaixo), altura e largura da folha
+        // capturada já devem bater com a página de destino — mas mantemos
+        // este clamp como salvaguarda: se por qualquer motivo (fonte não
+        // carregada, imagem de rodapé maior que o esperado, arredondamento
+        // do navegador) a altura calculada ainda ultrapassar a altura física
+        // da página, reduz proporcionalmente width/height para caber inteira
+        // numa página (nunca corta conteúdo), centralizando horizontalmente.
+        const clamped = clampImageToPage(width, height, pdfPageWidth, pdfPageHeight);
+        width = clamped.width;
+        height = clamped.height;
+        const xOffset = clamped.xOffset;
         if (index > 0) pdf.addPage();
-        pdf.addImage(imageData, "PNG", 0, 0, width, height);
+        pdf.addImage(imageData, "PNG", xOffset, 0, width, height);
       }
       pdf.save(`Laudo_${(patientName || "assinado").replace(/\s+/g, "_")}.pdf`);
       toast.success("PDF baixado com sucesso!", { id: "financial-pdf-download" });
@@ -1348,7 +1401,7 @@ export default function ReportEditorPage() {
   const examDesc = examTitle || studyInfo?.studyDescription || "";
   void editorContentVersion;
   const hasEditorContent = isMultiSection
-    ? sectionRefs.current.some(section => Boolean(section?.innerText?.trim()))
+    ? getActiveSectionRefs().current.some(section => Boolean(section?.innerText?.trim()))
     : Boolean(getVisibleDoc()?.innerText?.trim());
   const showBodyGuide = !hasEditorContent && !isPreview;
   return (
@@ -1729,12 +1782,22 @@ export default function ReportEditorPage() {
         )}
         <main className="flex-1 overflow-y-auto bg-gray-100 flex justify-center py-8 print:bg-white print:p-0 print:block">
           <div
-            className={`${isMultiSection ? "relative w-full md:w-[794px]" : "relative w-full bg-white shadow-md print:shadow-none"}`}
-            style={isMultiSection ? undefined : {
-              // Bloqueio 1 (auditoria Manus 2026-09-24): antes fixo em
-              // 210mm/297mm (A4), independente do pageSize da unidade.
-              maxWidth: effectiveLayoutPrefs.pageSize === "Letter" ? "216mm" : "210mm",
-              minHeight: effectiveLayoutPrefs.pageSize === "Letter" ? "279mm" : "297mm",
+            className={`${isMultiSection ? "relative w-full" : "relative w-full bg-white shadow-md print:shadow-none"}`}
+            style={isMultiSection ? {
+              // CORREÇÃO (Bloqueio 1, revisão corretiva Manus 2026-09-24): o
+              // contêiner multisseção tinha largura fixa em md:w-[794px]
+              // (~210mm, medida de A4), mesmo quando a unidade usava Letter.
+              // Cada SharedReportSheet já recebia pageSize="Letter" e altura
+              // Letter, mas sua largura real ficava presa aos 794px do pai —
+              // o html2canvas capturava uma folha estreita demais, e o jsPDF
+              // esticava essa captura para a largura Letter, empurrando a
+              // altura calculada (que segue a proporção da captura) para
+              // além da altura física da página, cortando o rodapé. Agora a
+              // largura do contêiner vem do mesmo pageSize efetivo.
+              maxWidth: `${pageWidthMm(effectiveLayoutPrefs.pageSize)}mm`,
+            } : {
+              maxWidth: `${pageWidthMm(effectiveLayoutPrefs.pageSize)}mm`,
+              minHeight: `${pageHeightMm(effectiveLayoutPrefs.pageSize)}mm`,
             }}
           >
             {/* FIX BUG-2: imagens agora são inline no contentEditable — overlay removido */}
@@ -1768,7 +1831,7 @@ export default function ReportEditorPage() {
                       pageSize={effectiveLayoutPrefs.pageSize}
                       marginTop={effectiveLayoutPrefs.marginTop}
                       marginRight={effectiveLayoutPrefs.marginRight}
-                      marginBottom={effectiveLayoutPrefs.marginBottom}
+                      marginBottom={effectiveLayoutPrefs.marginBottom + screenFooterReservedMm}
                       marginLeft={effectiveLayoutPrefs.marginLeft}
                       patientName={patientName}
                       patientNameContent={<ClinicalPatientName patientName={patientName} />}
@@ -1899,7 +1962,7 @@ export default function ReportEditorPage() {
                 pageSize={effectiveLayoutPrefs.pageSize}
                 marginTop={effectiveLayoutPrefs.marginTop}
                 marginRight={effectiveLayoutPrefs.marginRight}
-                marginBottom={effectiveLayoutPrefs.marginBottom}
+                marginBottom={effectiveLayoutPrefs.marginBottom + screenFooterReservedMm}
                 marginLeft={effectiveLayoutPrefs.marginLeft}
                 patientName={patientName}
                 patientNameContent={<ClinicalPatientName patientName={patientName} />}
@@ -2133,7 +2196,7 @@ export default function ReportEditorPage() {
                         <div data-editor-content className="min-h-[180px] text-xs leading-relaxed text-gray-900" dangerouslySetInnerHTML={{ __html: previewHtml.split("<hr/>")[i] || "<p style='color:#9ca3af;font-style:italic'>Sem conteúdo.</p>" }} />
                       ) : (
                         <div
-                          ref={el => { sectionRefs.current[i] = el; }}
+                          ref={el => { mobileSectionRefs.current[i] = el; }}
                           contentEditable={isEditable}
                           suppressContentEditableWarning
                           data-editor-content
@@ -2224,11 +2287,15 @@ export default function ReportEditorPage() {
               {activeTab === "modelos" && (
                 <ModelosTab
                   onApplyTemplate={(body, nextExamTitle) => {
+                    // Bloqueio 2 (revisão corretiva Manus 2026-09-24): este
+                    // painel só existe na gaveta de ferramentas mobile — usava
+                    // sectionRefs/docRef (árvore desktop oculta) em vez da
+                    // árvore mobile realmente visível aqui.
                     if (isMultiSection) {
-                      const activeEl = sectionRefs.current[activeSectionRef.current];
+                      const activeEl = mobileSectionRefs.current[activeSectionRef.current];
                       if (activeEl) activeEl.innerHTML = sanitizeHtmlForEditor(body);
-                    } else if (docRef.current) {
-                      docRef.current.innerHTML = sanitizeHtmlForEditor(body);
+                    } else if (mobileDocRef.current) {
+                      mobileDocRef.current.innerHTML = sanitizeHtmlForEditor(body);
                     }
                     if (nextExamTitle) setExamTitle(nextExamTitle);
                     setShowMobileTools(false);
