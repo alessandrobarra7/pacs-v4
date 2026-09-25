@@ -265,3 +265,133 @@ PRÓXIMO FLUXO RECOMENDADO
 3. Se tudo bater, seguir o mesmo fluxo já usado nas rodadas anteriores:
    merge sem reescrever histórico, revalidar no sandbox, publicar main,
    atualizar VM1 (sem migration nova desta vez — só código + restart PM2).
+
+===============================================================================
+ADENDO 2026-09-24 (mesmo dia) — RESPOSTA AO "PARECER DE REVISÃO"
+===============================================================================
+
+A Manus revisou o topo 2a2f41e e bloqueou merge/deploy por dois motivos.
+Os dois foram corrigidos nesta mesma branch (novo topo: ver `git log`).
+Resumo do que mudou e por quê, ponto a ponto.
+
+-------------------------------------------------------------------------------
+BLOQUEIO 1 — vigência de preço por legenda falhava no último dia
+-------------------------------------------------------------------------------
+
+Diagnóstico da Manus estava correto: billing_doctor_exam_legend_prices.ends_at
+é DATE (string "YYYY-MM-DD", sem horário). A conversão `new Date(row.ends_at)`
+produz 00:00:00.000 UTC daquele dia — um preço com ends_at = "2026-08-21" já
+era tratado como vencido a partir da MEIA-NOITE do próprio dia 21, não ao
+final dele. Qualquer assinatura depois das 00:00 do dia de encerramento
+perdia o preço por legenda indevidamente.
+
+Fix: ends_at agora é normalizado para 23:59:59.999Z (o último instante
+daquele dia calendário). starts_at continua 00:00:00.000Z (já estava
+correto). Zona operacional documentada explicitamente no código como UTC —
+mesma convenção do resto do sistema (testes rodam com TZ=UTC, signed_at é
+armazenado em UTC).
+
+Os 6 casos de fronteira pedidos pela revisão estão todos cobertos em
+server/catalog-financial-pricing.test.ts, describe "vigência do preço por
+legenda — casos de fronteira (dia inteiro, UTC)":
+  - starts_at igual ao dia da assinatura → já vigora
+  - ends_at igual ao dia da assinatura, horário != meia-noite → ainda
+    vigora (exatamente o cenário relatado pela revisão)
+  - preço encerrado no dia anterior → não vigora
+  - preço futuro (starts_at no futuro) → ainda não vigora
+  - escopo (médico/unidade/legenda) → teste inspeciona o argumento real
+    passado a .where() e confirma eq(unit_id) + eq(doctor_user_id) +
+    eq(exam_legend_id), não apenas a resposta mockada
+  - ausência de toda fonte médica → pending_doctor_price (já coberto pelo
+    teste pré-existente "preserva o evento pendente...")
+
+⚠️ AÇÃO PENDENTE PARA A MANUS antes de publicar: a consulta somente-leitura
+que pedi no handoff original estava incompleta — não filtrava starts_at,
+então um preço EXCLUSIVAMENTE FUTURO (ainda não vigente) apareceria como se
+já estivesse ativo. Versão corrigida, use esta:
+
+  SELECT unit_id, doctor_user_id, exam_legend_id, price_per_event, starts_at, ends_at
+  FROM billing_doctor_exam_legend_prices
+  WHERE starts_at <= CURDATE()
+    AND (ends_at IS NULL OR ends_at >= CURDATE());
+
+Lista vazia = fix inerte hoje. Lista com linhas = confirmar com Alessandro
+antes de publicar, mesmo raciocínio do handoff original.
+
+-------------------------------------------------------------------------------
+BLOQUEIO 2 — R$/Laudo (média) não garantia coerência nem honestidade
+-------------------------------------------------------------------------------
+
+Os dois problemas apontados pela revisão eram reais:
+
+(a) Denominador errado: total_laudos/reports incluíam laudos AINDA SEM
+    preço aplicado (pending_doctor_price), que entravam no cálculo como se
+    fossem preço zero — isso distorcia a média para baixo e escondia a
+    pendência de precificação em vez de sinalizá-la.
+
+(b) Acúmulo em float: em getResponsibleDebtByDoctor, `ue.amount += amt`
+    dentro de um loop podia divergir por erro de representação binária
+    (0.29 + 0.58 nem sempre fecha em 0.87 exato em ponto flutuante puro).
+
+Fix, mapeado item a item na lista da revisão:
+
+  1. Total histórico continua a fonte autoritativa — inalterado.
+  2. (item "pode exibir taxa única quando todos os eventos têm o mesmo
+     preço") — não implementado nesta rodada. Avaliei e decidi não fazer:
+     exigiria buscar os valores individuais de cada evento (não só a soma
+     agregada) para detectar "mesmo preço em todos", o que muda o padrão
+     de query dessas duas procedures de agregação pura para leitura
+     linha-a-linha, aumentando o custo e o raio de mudança sem resolver
+     nenhum dos dois bloqueios reais. Como a revisão usou "pode" (não
+     "deve") para este item, tratei como não-bloqueante — mas se você
+     achar que é necessário antes de aprovar, me avise que implemento.
+  3. price_per_report agora é sempre derivado dos laudos JÁ precificados
+     (nunca do total de laudos) e o frontend (FinanceMeuResponsavel.tsx)
+     renomeou a coluna de "R$/Laudo" para "Média/Laudo" — deixa de prometer
+     implicitamente uma tarifa fixa que multiplicada pela quantidade
+     reproduz o total exato.
+  4. Novos campos expostos nas duas procedures: priced_laudos_count /
+     priced_reports (quantos laudos entraram no cálculo da média) e
+     pending_price_count (quantos ainda não têm preço, excluídos do
+     denominador). O frontend mostra um badge "N sem preço" quando
+     pending_price_count > 0.
+  5. toMoney() (arredonda para o centavo mais próximo) aplicado a CADA soma
+     dentro do loop de getResponsibleDebtByDoctor, não só no resultado
+     final — evita que o erro de representação binária se acumule ao longo
+     de muitas iterações. Novo teste prova isso com o par 0.29 + 0.58 = 0.87
+     exato (server/audit-fixes-preco-por-laudo-consistente.test.ts).
+
+Também corrigi o teste "sem laudo no ciclo, cai para o preço configurado"
+que a revisão apontou como inválido (o GROUP BY nunca produz um médico com
+total_laudos = 0 — zero linhas agregadas simplesmente não incluem esse
+médico na lista). O novo teste cobre o caminho real, mais um cenário de
+laudos parcialmente pendentes de preço.
+
+-------------------------------------------------------------------------------
+VALIDAÇÕES DESTA RODADA
+-------------------------------------------------------------------------------
+
+  pnpm check ............................ OK, sem erros
+  8 testes novos direcionados ........... OK, 8/8 passando
+  TZ=UTC pnpm test (suíte completa) ..... 513 passam, 11 falham, 1 skip, de 525
+  Falhas == baseline conhecido? ......... Sim, as mesmas 7 suítes de sempre
+  pnpm build ............................. OK
+  git diff --check main..HEAD ........... OK
+
+-------------------------------------------------------------------------------
+CHECKLIST ATUALIZADO PARA A MANUS
+-------------------------------------------------------------------------------
+
+  [ ] Revisar o diff desta rodada (git log --oneline main..HEAD mostra 3
+      commits agora: fixes originais, handoff original, fixes dos 2
+      bloqueios).
+  [ ] Rodar a query de vigência CORRIGIDA acima (com starts_at <= CURDATE())
+      — a versão original do handoff estava incompleta.
+  [ ] Rodar também a query de vínculos duplicados/órfãos do handoff
+      original (Achados 1 e 2) — ainda pendente, independente destes 2
+      bloqueios.
+  [ ] Confirmar visualmente o Achado 4 (modal somente leitura x editável).
+  [ ] Rodar a suíte de testes e confirmar 513/11/1.
+  [ ] Se tudo bater: merge sem reescrever histórico, revalidar no sandbox,
+      publicar main, atualizar VM1 (sem migration nova — só código +
+      restart PM2).
