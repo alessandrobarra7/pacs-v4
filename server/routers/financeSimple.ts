@@ -1083,6 +1083,13 @@ export const financeSimpleRouter = router({
       const doctorIds = rows.map((r) => r.doctor_user_id).filter((id): id is number => id !== null);
       let priceMap = new Map<number, number | null>();
       if (doctorIds.length > 0) {
+        // FIX (2026-09-24, Parecer corretivo Manus — bloqueio remanescente):
+        // a query so filtrava `ends_at IS NULL` (preco em aberto), sem
+        // checar `starts_at <= refDate`. Um preco cadastrado com inicio no
+        // FUTURO (ends_at ainda nulo) era escolhido como "o mais recente" e
+        // aparecia como se ja estivesse vigente hoje. Agora a query exige
+        // vigencia real na data de referencia do resumo: starts_at <=
+        // refDate E (ends_at IS NULL OU ends_at >= refDate).
         const priceRows = await db
           .select({
             doctor_user_id: billing_doctor_unit_prices.doctor_user_id,
@@ -1093,11 +1100,12 @@ export const financeSimpleRouter = router({
             and(
               eq(billing_doctor_unit_prices.unit_id, input.unit_id),
               inArray(billing_doctor_unit_prices.doctor_user_id, doctorIds),
-              isNull(billing_doctor_unit_prices.ends_at),
+              lte(billing_doctor_unit_prices.starts_at, refDate),
+              or(isNull(billing_doctor_unit_prices.ends_at), gte(billing_doctor_unit_prices.ends_at, refDate)),
             )
           )
           .orderBy(desc(billing_doctor_unit_prices.starts_at));
-        // Manter apenas o preço mais recente por médico
+        // Manter apenas o preço vigente mais recente por médico
         for (const pr of priceRows) {
           if (!priceMap.has(pr.doctor_user_id)) {
             priceMap.set(pr.doctor_user_id, pr.price_per_report ? Number(pr.price_per_report) : null);
@@ -1128,10 +1136,22 @@ export const financeSimpleRouter = router({
         // e rotulado no frontend como MEDIA EFETIVA do periodo, nao como uma
         // tarifa fixa exata -- ver pending_price_count abaixo para o
         // frontend sinalizar quando parte dos laudos ainda nao tem preco.
+        // FIX (2026-09-24, Parecer corretivo Manus — bloqueio remanescente):
+        // quando doctor_priced_count e zero, a versao anterior caia para
+        // priceMap.get(...) (o preco CONFIGURADO agora) e devolvia isso
+        // como price_per_report -- exibido na tela sob o cabecalho "Media/
+        // Laudo". Nao existe media nenhuma nesse cenario (denominador
+        // zero): mostrar o preco configurado como se fosse uma media
+        // efetivamente calculada pode levar a uma decisao financeira
+        // baseada em um numero que nao representa nenhum laudo real.
+        // price_per_report agora e null quando nao ha nenhum laudo
+        // precificado no periodo -- o preco configurado (quando vigente na
+        // data de referencia) continua disponivel, mas so no campo
+        // configured_price_per_report, nunca sob o rotulo de media.
         const pendingPriceCount = r.total_laudos - r.doctor_priced_count;
         const derivedPricePerReport = r.doctor_priced_count > 0
           ? toMoney(r.doctor_total / r.doctor_priced_count)
-          : (r.doctor_user_id ? (priceMap.get(r.doctor_user_id) ?? null) : null);
+          : null;
         return {
           doctor_user_id: r.doctor_user_id,
           doctor_name: r.doctor_name,

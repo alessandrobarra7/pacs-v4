@@ -139,6 +139,49 @@ describe("financeSimple.doctorSummaryByUnit — R$/Laudo consistente com o Total
     expect(result).toHaveLength(0);
   });
 
+  // FIX (2026-09-24, Parecer corretivo Manus — bloqueio remanescente): quando
+  // doctor_priced_count é zero, a versão anterior caía para o preço
+  // CONFIGURADO (priceMap) e devolvia isso como price_per_report -- exibido
+  // na tela sob "Média/Laudo", sem que exista nenhuma média real (denominador
+  // zero). Os dois testes abaixo são exatamente os pedidos pela revisão.
+  it("todos os laudos pendentes de preço, com preço configurado vigente: price_per_report é null, não o preço configurado", async () => {
+    state.responses = [
+      [{ s: 1, e: 31 }],
+      // 2 laudos no ciclo, NENHUM precificado (doctor_priced_count = 0).
+      [{ doctor_user_id: 10, doctor_name: "Dr. Sem Precificação", total_laudos: 2, doctor_total: "0.00", doctor_paid: "0.00", doctor_pending_count: 2, doctor_priced_count: 0, last_received_at: null }],
+      [],
+      // priceRows: a query (já corrigida para exigir starts_at <= refDate)
+      // encontrou um preço configurado vigente hoje.
+      [{ doctor_user_id: 10, price_per_report: "12.00" }],
+    ];
+
+    const result = await adminCaller().doctorSummaryByUnit({ unit_id: 12 });
+    const doctor = result[0]!;
+    expect(doctor.total_laudos).toBe(2);
+    expect(doctor.priced_laudos_count).toBe(0);
+    expect(doctor.pending_price_count).toBe(2);
+    // Não existe média (denominador zero) -- nunca deve virar o preço configurado.
+    expect(doctor.price_per_report).toBeNull();
+    // O preço configurado continua disponível, mas só neste campo separado.
+    expect(doctor.configured_price_per_report).toBe(12);
+  });
+
+  it("todos os laudos pendentes de preço, com preço configurado exclusivamente futuro: nem price_per_report nem configured_price_per_report aparecem como vigentes", async () => {
+    state.responses = [
+      [{ s: 1, e: 31 }],
+      [{ doctor_user_id: 11, doctor_name: "Dr. Preço Futuro", total_laudos: 1, doctor_total: "0.00", doctor_paid: "0.00", doctor_pending_count: 1, doctor_priced_count: 0, last_received_at: null }],
+      [],
+      // priceRows vazio: a query agora exige starts_at <= refDate, então um
+      // preço cadastrado só para o futuro nunca volta aqui.
+      [],
+    ];
+
+    const result = await adminCaller().doctorSummaryByUnit({ unit_id: 12 });
+    const doctor = result[0]!;
+    expect(doctor.price_per_report).toBeNull();
+    expect(doctor.configured_price_per_report).toBeNull();
+  });
+
   it("laudos pendentes de preço não entram no denominador da média nem são tratados como preço zero", async () => {
     // Médico com 3 laudos no ciclo: 2 já precificados (total R$20) e 1 ainda
     // pendente (doctor_amount_due NULL -- por isso doctor_priced_count = 2,

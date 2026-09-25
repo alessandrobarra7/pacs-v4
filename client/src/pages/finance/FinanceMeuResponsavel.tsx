@@ -85,17 +85,36 @@ function DoctorsModal({
                     <td className="px-6 py-3 text-[var(--fin-text)]">{doc.doctor_name}</td>
                     <td className="px-4 py-3 text-[var(--fin-muted)] text-right">{doc.total_laudos}</td>
                     <td className="px-4 py-3 text-[var(--fin-accent-soft)] text-right text-xs">
-                      {(doc as any).price_per_report ? fmtBRL(Number((doc as any).price_per_report)) : <span className="text-[var(--fin-muted-dim)]">—</span>}
-                      {/* FIX (bloqueio 2 da revisão Manus): laudos ainda sem
-                          preço aplicado não entram nessa média -- sinaliza
-                          explicitamente quando isso está acontecendo, em vez
-                          de escondê-los tratando-os como preço zero. */}
+                      {/* FIX (2026-09-24, Parecer corretivo Manus — bloqueio
+                          remanescente): quando não há nenhum laudo
+                          precificado no período, o backend agora devolve
+                          price_per_report = null (nunca mais o preço
+                          configurado disfarçado de média) — por isso este
+                          "—" já é o comportamento correto sem precisar de
+                          lógica adicional aqui. O preço configurado, quando
+                          existe e está vigente, aparece como linha
+                          secundária abaixo, com rótulo explícito, nunca sob
+                          "Média/Laudo". */}
+                      {(doc as any).price_per_report ? fmtBRL(Number((doc as any).price_per_report)) : <span className="text-[var(--fin-muted-dim)]">— Sem preço aplicado</span>}
+                      {/* Laudos ainda sem preço aplicado não entram nessa
+                          média -- sinaliza explicitamente quando isso está
+                          acontecendo, em vez de escondê-los tratando-os como
+                          preço zero. */}
                       {Number((doc as any).pending_price_count ?? 0) > 0 && (
                         <div
                           title={`${(doc as any).pending_price_count} laudo(s) ainda sem preço configurado -- não entram nesta média`}
                           className="text-[10px] text-[var(--fin-danger)] mt-0.5"
                         >
                           {(doc as any).pending_price_count} sem preço
+                        </div>
+                      )}
+                      {/* Preço configurado (vigente na data de referência),
+                          exposto separadamente — nunca substitui a média
+                          real nem é rotulado como "Média/Laudo". Útil
+                          principalmente quando a média acima é "—". */}
+                      {(doc as any).configured_price_per_report != null && (
+                        <div className="text-[10px] text-[var(--fin-muted-dim)] mt-0.5">
+                          Preço configurado: {fmtBRL(Number((doc as any).configured_price_per_report))}
                         </div>
                       )}
                     </td>
