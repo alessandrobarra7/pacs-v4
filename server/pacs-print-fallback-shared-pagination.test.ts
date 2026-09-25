@@ -53,8 +53,11 @@ describe("Relato técnico — fallback de captura e impressão oficial usam a me
     expect(declarationIndex).toBeGreaterThan(0);
     expect(branchIndex).toBeGreaterThan(declarationIndex);
 
-    // Duas chamadas: uma no download, outra na impressão oficial.
-    const callCount = (pacsQuerySource.match(/await reconstructPaginatedPages\(/g) ?? []).length;
+    // Duas chamadas: uma no download (await direto), outra na impressão
+    // oficial (passada como callback `reconstruct` para runControlledPrint
+    // — ver server/print-orchestration.test.ts para a cobertura
+    // comportamental completa desse caminho).
+    const callCount = (pacsQuerySource.match(/reconstructPaginatedPages\(doc\)|reconstructPaginatedPages\(pDoc\)/g) ?? []).length;
     expect(callCount).toBe(2);
   });
 
@@ -73,22 +76,31 @@ describe("Relato técnico — fallback de captura e impressão oficial usam a me
     expect(pacsQuerySource).not.toContain("new Blob([fullHtml], { type: 'text/html;charset=utf-8' })");
   });
 
-  it("a ação 'Imprimir' remove o script de auto-print embutido em fullHtml e só chama print() explicitamente após reconstructPaginatedPages", () => {
-    // O bloco else (ação 'print') deve conter a reconstrução e a chamada
-    // explícita de print(), nessa ordem.
+  it("a ação 'Imprimir' não remove mais nada por regex — fullHtml nunca contém o script de auto-print, e print() é disparado via runControlledPrint depois de reconstructPaginatedPages", () => {
+    // CORREÇÃO (relato técnico "Bloqueio da impressão oficial de laudos
+    // PDF", Manus, 2026-09-25): a versão anterior deste teste checava a
+    // PRESENÇA de uma remoção por regex (printHtmlWithoutAutoPrint) — mas
+    // essa regex não reconhecia o script real gerado pelo template
+    // literal e o bloqueio persistia na prática. A correção definitiva
+    // eliminou o script na origem; ver server/print-orchestration.test.ts
+    // para a cobertura comportamental completa (runControlledPrint) e a
+    // confirmação de que fullHtml não contém mais window.onload/print().
     const elseBranchIndex = pacsQuerySource.indexOf("    } else {", pacsQuerySource.indexOf("if (actionType === 'download')"));
     expect(elseBranchIndex).toBeGreaterThan(0);
     const elseBranchSlice = pacsQuerySource.slice(elseBranchIndex, elseBranchIndex + 4000);
 
-    expect(elseBranchSlice).toContain("printHtmlWithoutAutoPrint");
-    expect(elseBranchSlice).toContain("await reconstructPaginatedPages(pDoc);");
+    expect(elseBranchSlice).not.toContain("printHtmlWithoutAutoPrint");
+    expect(elseBranchSlice).toContain("pDoc.write(fullHtml);");
+    expect(elseBranchSlice).toContain("runControlledPrint({");
+    expect(elseBranchSlice).toContain("reconstruct: () => reconstructPaginatedPages(pDoc),");
     expect(elseBranchSlice).toContain("printIframe.contentWindow?.print();");
 
-    // A chamada de print() deve vir DEPOIS da reconstrução, não antes.
-    const reconstructIdx = elseBranchSlice.indexOf("await reconstructPaginatedPages(pDoc);");
+    // A chamada de print() (dentro do callback `print`) deve vir DEPOIS
+    // da chamada a runControlledPrint que recebe reconstructPaginatedPages.
+    const runCallIdx = elseBranchSlice.indexOf("runControlledPrint({");
     const printCallIdx = elseBranchSlice.indexOf("printIframe.contentWindow?.print();");
-    expect(reconstructIdx).toBeGreaterThan(0);
-    expect(printCallIdx).toBeGreaterThan(reconstructIdx);
+    expect(runCallIdx).toBeGreaterThan(0);
+    expect(printCallIdx).toBeGreaterThan(runCallIdx);
   });
 
   it("a ação 'Imprimir' não abre mais o diálogo de impressão automaticamente a partir do fullHtml original sem reconstrução (erro de preparo não chama print())", () => {

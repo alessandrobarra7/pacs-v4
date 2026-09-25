@@ -14,6 +14,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx, resolvePdfPageElements } from "@/lib/pdfPageGeometry";
 import { ContentTooLargeForPageError, paginateSectionIntoPages } from "@/lib/reportPagination";
+import { runControlledPrint } from "@/lib/printOrchestration";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -1789,14 +1790,23 @@ setSelectedStudy(study);
     });
   })()
   }
-    <script>
-      window.onload = function() {
-        if ("${actionType}" === "print") {
-          setTimeout(() => { window.print(); }, 400);
-        }
-      };
-    <\/script>
   </body></html>`;
+  // CORRECAO (relato tecnico "Bloqueio da impressao oficial", Manus,
+  // 2026-09-25): fullHtml continha um <script> de auto-impressao
+  // (window.onload -> setTimeout(window.print, 400) quando actionType
+  // === 'print'). A impressao oficial tentava remover esse script por
+  // regex antes de reconstruir as paginas, mas a regex nao reconhecia o
+  // "<\/script>" (com barra invertida escapada) realmente presente no
+  // HTML gerado pelo template literal — o script sobrevivia e disparava
+  // window.print() sozinho ~400ms depois do carregamento do iframe,
+  // ANTES da espera de 800ms e da reconstrucao paginada controlada, ou
+  // mesmo quando a reconstrucao falhava. A solucao adotada (mais robusta
+  // que corrigir a regex, como a propria Manus recomendou) e nunca gerar
+  // esse script: fullHtml agora NUNCA contem window.onload nem
+  // window.print() automatico, para nenhum actionType. A impressao
+  // oficial dispara print() por um unico caminho explicito e controlado
+  // — ver runControlledPrint mais abaixo — depois que a reconstrucao
+  // paginada tiver sucesso.
 
     // CORREÇÃO (relato técnico "Bloqueio de fallback e impressão oficial",
     // Manus, 2026-09-25): a reconstrução das páginas físicas paginadas
@@ -2116,20 +2126,21 @@ setSelectedStudy(study);
         if (iframe.parentNode) iframe.remove();
       }
     } else {
-      // CORREÇÃO (relato técnico "Bloqueio de fallback e impressão
-      // oficial", Manus, 2026-09-25): antes, esta ação escrevia `fullHtml`
-      // original num iframe e o próprio script embutido nele (window.onload
-      // -> window.print(), disparado porque este HTML foi gerado com
-      // actionType === 'print') acionava a impressão sozinho, SEM executar
-      // nenhuma reconstrução de páginas físicas. Um laudo de seção única
-      // longa ou com uma seção não fragmentável saía cortado por
-      // overflow:hidden na impressão oficial, mesmo já corrigido no
-      // download. Agora a impressão executa a MESMA reconstrução
-      // (reconstructPaginatedPages) usada pelo download, sobre o próprio
-      // documento que será impresso, e só chama print() explicitamente
-      // depois que a reconstrução tiver sucesso — nunca a partir do script
-      // automático embutido em fullHtml (removido abaixo antes de escrever
-      // o documento, para não competir com o fluxo controlado aqui).
+      // CORREÇÃO (relato técnico "Bloqueio da impressão oficial de laudos
+      // PDF", Manus, 2026-09-25): a rodada anterior tentava remover o
+      // script de auto-print de fullHtml por regex antes de reconstruir as
+      // páginas, mas a regex não reconhecia o script real gerado pelo
+      // template literal — ele sobrevivia no HTML escrito no iframe e
+      // disparava window.print() sozinho ~400ms depois do carregamento,
+      // ANTES da espera de 800ms e da reconstrução paginada controlada
+      // abaixo, ou mesmo quando essa reconstrução falhava. Correção
+      // definitiva (a que a própria Manus recomendou como mais robusta):
+      // fullHtml NUNCA mais contém esse script — não há nada para
+      // remover. A impressão oficial dispara print() por um único caminho
+      // explícito, via runControlledPrint (client/src/lib/
+      // printOrchestration.ts, extraída para ser testável com funções
+      // injetadas): print() só é chamado se reconstructPaginatedPages
+      // resolver sem lançar, e é chamado no máximo uma vez.
       const printIframe = document.createElement('iframe');
       printIframe.style.position = 'fixed';
       printIframe.style.left = '-9999px';
@@ -2142,30 +2153,30 @@ setSelectedStudy(study);
         const pDoc = printIframe.contentWindow?.document;
         if (!pDoc) throw new Error('Não foi possível iniciar a impressão.');
 
-        // Remove o script de auto-print embutido em fullHtml — a impressão
-        // agora só é disparada explicitamente abaixo, depois que a
-        // reconstrução paginada tiver sucesso, nunca automaticamente a
-        // partir do HTML original sem paginação.
-        const printHtmlWithoutAutoPrint = fullHtml.replace(
-          /<script>\s*window\.onload[\s\S]*?<\\\/script>/,
-          '',
-        );
         pDoc.open();
-        pDoc.write(printHtmlWithoutAutoPrint);
+        pDoc.write(fullHtml);
         pDoc.close();
 
         // Aguardar carregamento de fontes e imagens, igual ao download.
         await new Promise((resolve) => setTimeout(resolve, 800));
 
-        await reconstructPaginatedPages(pDoc);
+        const printResult = await runControlledPrint({
+          reconstruct: () => reconstructPaginatedPages(pDoc),
+          print: () => {
+            toast.success('Abrindo diálogo de impressoras...');
+            printIframe.contentWindow?.print();
+          },
+        });
 
-        toast.success('Abrindo diálogo de impressoras...');
-        printIframe.contentWindow?.print();
+        if (!printResult.printed) {
+          throw printResult.error;
+        }
       } catch (err) {
         // Mesma postura do download: erro de medição, paginação ou
         // conteúdo maior que a página não deve abrir o diálogo de
         // impressão sobre um documento potencialmente cortado — só
-        // informamos o erro.
+        // informamos o erro. runControlledPrint garante que print() nunca
+        // foi chamado neste caminho.
         if (err instanceof ContentTooLargeForPageError) {
           toast.error('Não foi possível preparar a impressão', { description: err.message });
         } else {
