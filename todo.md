@@ -2983,3 +2983,12 @@
 - [x] Confirmar sem revelar valores a origem de `DATABASE_URL` na VM1 antes de ativar a autenticação local
 - [x] Corrigir o carregamento em cascata de `.env` e `/opt/pacs-portal/.env` antes de reiniciar a VM1 com a nova autenticação
 - [x] Garantir que os arquivos de ambiente sejam carregados antes dos módulos que criam a sessão JWT
+
+## CORREÇÃO — IMPRESSÃO OFICIAL E PAGINAÇÃO DE PDF (25/09/2026)
+- [x] Remover da origem o script de autoimpressão do HTML oficial, eliminando o uso frágil de regex para removê-lo posteriormente.
+- [x] Controlar a impressão com `runControlledPrint`: reconstruir e paginar antes de imprimir, imprimir no máximo uma vez e não imprimir após falha de reconstrução.
+- [x] Manter o fallback do download rápido restrito a falha de captura, abrindo somente HTML já paginado e nunca a folha compartilhada original.
+- [x] Validar em Chromium com laudos sintéticos longos de seção única e multisseção, Letter e margens não padrão: múltiplas páginas físicas, nenhuma página vazia e uma única impressão.
+- [x] Induzir falha de captura e de medição após a criação do iframe; confirmar fallback paginado no primeiro caso e zero impressão no segundo.
+- [x] Validar após merge: TypeScript, build e 67 testes PDF direcionados aprovados; suíte completa com a baseline histórica de 616 aprovados, 1 ignorado e 11 falhas conhecidas.
+- [x] Publicar o merge `ad951a5` no GitHub e atualizar a VM1 de `72ba5fb` para `ad951a5`, sem migration; PM2 online e HTTP local 200 confirmados.
