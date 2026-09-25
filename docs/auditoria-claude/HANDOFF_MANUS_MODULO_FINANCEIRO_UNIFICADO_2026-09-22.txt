@@ -1,0 +1,75 @@
+HANDOFF MANUS — MÓDULO FINANCEIRO UNIFICADO
+Data: 22/09/2026
+Projeto: PACS Portal / LAUDS
+Branch: claude/modulo-financeiro-unificado
+Base: main (1b906ad)
+
+1. O QUE É
+
+Une duas branches que estavam publicadas separadamente e conflitavam
+entre si: claude/financeiro-nova-identidade-visual (identidade azul,
+histórico de períodos) e claude/gestao-usuarios-responsavel-financeiro
+(Opção A, gestão de usuários com acesso, correções de atomicidade da
+revisão do Manus de 20/09). É a entrega candidata a "o módulo financeiro"
+que o Alessandro pediu — arquitetura de 3 visões (admin/médico/responsável)
+já existente em main, com as duas branches pendentes reconciliadas em cima
+dela.
+
+2. COMO FOI FEITO O MERGE
+
+git merge sequencial: main → +nova-identidade-visual (limpo, sem
+conflito) → +gestao-usuarios-responsavel-financeiro. server/db.ts e
+server/routers/financeSimple.ts se combinaram automaticamente. O único
+conflito real foi em client/src/pages/finance/FinanceConfiguracao.tsx,
+no componente ResponsavelPanel (9 blocos) — resolvido a mão, mantendo a
+estrutura funcional mais completa (a de gestão de usuários: badge
+ativo/inativo, vínculo órfão explícito, confirmação reforçada de
+revogação, listEligibleUsersForResponsible respeitando Opção A) e
+reaplicando os tokens de tema (--fin-accent, --fin-danger, --fin-warn,
+--fin-success, definidos em finance-theme.css) no lugar das cores fixas
+(violet/rose/amber/slate) que essa branch usava antes do tema existir.
+
+3. BUG DE MERGE ENCONTRADO E CORRIGIDO
+
+O merge automático (sem conflito reportado) derrubou silenciosamente uma
+linha de import: getResponsibleIdForUser deixou de ser importado em
+financeSimple.ts, quebrando a pré-checagem da Opção A em linkUser. Isso
+só apareceu rodando pnpm check (TS2552) — reforça por que validação
+depois de todo merge automático é obrigatória, mesmo sem conflito
+reportado pelo git. Corrigido no commit seguinte (f88029e).
+
+4. VALIDAÇÃO
+
+- pnpm check: limpo.
+- pnpm build: aprovado (vite build + esbuild do server).
+- pnpm vitest run: 465 aprovados, 11 falhos, 1 ignorado (477 total).
+  Os 11 falhos são exatamente: os 9 já documentados como baseline
+  pré-existente em main (exam-catalog-security, mediaProxy,
+  pacs-desktop-download-progress, pacs.mobile-ui, security.auth,
+  study-priority-ui) + 2 em server/finance-v2-dashboard.test.tsx que já
+  existiam de forma isolada em claude/financeiro-nova-identidade-visual
+  ANTES deste merge — confirmado rodando a suíte nessa branch sozinha,
+  sem nenhuma mudança minha, mesmo resultado. Nenhuma falha nova foi
+  introduzida pela unificação.
+
+  Sobre os 2 falhos de finance-v2-dashboard.test.tsx especificamente:
+  investiguei a causa (não corrigi, para não misturar escopo com a
+  unificação) — o componente FinanceDashboard dispara duas queries
+  unitSummary no mesmo render (uma para o ciclo atual, outra para o mês
+  histórico selecionado, condicionada a isUnitRoute), e o teste captura
+  `unitSummaryInputs.at(-1)` esperando pegar a do ciclo atual, mas na
+  prática pega a última despachada — a histórica. É um teste pré-existente
+  desalinhado com a ordem real dos hooks, não um bug de produção. Fica
+  como pendência separada, não bloqueia esta entrega.
+
+5. O QUE NÃO FOI TOCADO NESTA BRANCH
+
+- O bug do myResponsavelSummary (não exclui eventos cancelados, ignora
+  billing_catalog_study_events) — confirmado ainda presente. Fica pra uma
+  correção separada, refeita em cima deste ponto (a branch antiga que
+  tinha esse fix está desatualizada demais pra reaproveitar).
+- A permissão de edição de ciclo (setUnitCycle/closeCycle) continua
+  exclusiva de admin_master — decisão de produto ainda pendente de
+  confirmação do Alessandro sobre o mockup financeiro-responsavel-v2.html.
+
+FIM DO HANDOFF

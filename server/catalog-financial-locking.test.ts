@@ -70,6 +70,10 @@ describe("Bloqueio clínico e eventos financeiros do catálogo", () => {
       [twoDocumentsSelection],
       [{ document_key: "cervical" }, { document_key: "lombar" }],
       [],
+      // FIX (2026-09-24): billing_doctor_exam_legend_prices agora e
+      // consultada primeiro (nenhum preco por legenda configurado neste
+      // cenario -- cai para o fallback de modalidade, como antes).
+      [],
       [],
       [{ ...current, price_per_event: "90.00" }],
       [{ ...current, price_per_report: "3.50" }],
@@ -95,6 +99,10 @@ describe("Bloqueio clínico e eventos financeiros do catálogo", () => {
     state.responses = [
       [twoDocumentsSelection],
       [{ document_key: "cervical" }, { document_key: "lombar" }],
+      [],
+      // FIX (2026-09-24): billing_doctor_exam_legend_prices agora e
+      // consultada primeiro (nenhum preco por legenda configurado neste
+      // cenario -- cai para o fallback de modalidade, como antes).
       [],
       [],
       [{ ...current, price_per_event: "90.00" }],

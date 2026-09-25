@@ -1,0 +1,165 @@
+HANDOFF PARA MANUS — GESTÃO AUDITÁVEL DE USUÁRIOS DE ACESSO DO RESPONSÁVEL FINANCEIRO
+Data: 18/09/2026
+Projeto: PACS Portal / LAUDS
+Branch: claude/gestao-usuarios-responsavel-financeiro
+Commit: 237e2e9
+Base: main em 1b906ad
+
+0. TOPOLOGIA DE BRANCHES — LEIA ANTES DE APLICAR
+
+main está em 1b906ad. Além desta branch, existem hoje duas outras branches
+minhas publicadas no GitHub que ainda NÃO foram mergeadas em main:
+claude/multi-responsavel-financeiro (suporte a múltiplos responsáveis por
+conta) e claude/financeiro-nova-identidade-visual (paleta azul + histórico
+estimado nas 5 telas do módulo). Esta branch aqui foi criada a partir de
+main, igual às outras duas — ela NÃO inclui nenhuma das duas. Se você for
+aplicar as três, a ordem que faz mais sentido pra evitar conflito é:
+multi-responsavel-financeiro primeiro (mexe no modelo de autorização),
+depois esta (mexe na UI de gestão de usuários do mesmo módulo), depois
+nova-identidade-visual (recoloração + novos painéis, mexe nos mesmos
+arquivos de tela). Eu não testei o merge das três juntas — isso é
+trabalho de integração que fica com vocês, ou me avisem que eu cuido.
+
+1. ORIGEM DA MUDANÇA
+
+Você me reenviou REQUISITOS_FUNCIONALIDADE_RESPONSAVEL_FINANCEIRO_2026-09-17
+(o mesmo documento que já tinha motivado a decisão de Opção B, na branch
+multi-responsavel-financeiro). Da vez passada eu só implementei a parte de
+autorização (seção 4) porque foi o que o Alessandro pediu explicitamente
+naquele momento. Ele confirmou agora que quer a parte que ficou de fora:
+seções 3.3, 3.4, 5 e 6 — a tela de adicionar/remover usuário de acesso ao
+responsável financeiro de uma unidade, com terminologia clara, quadro de
+estado e auditoria.
+
+2. O QUE JÁ EXISTIA (achado importante antes de escrever qualquer código)
+
+Investigando o código real antes de implementar, descobri que
+financeSimple.linkUser / unlinkUser / listUsersForResponsible já existiam
+em server/routers/financeSimple.ts, chamando linkUserToResponsible /
+unlinkUserFromResponsible / listUsersForResponsible de server/db.ts — e a
+tela FinanceConfiguracao.tsx (bloco "Responsável Financeiro") já tinha uma
+UI funcional chamando exatamente essas 3 procedures. Ou seja: a
+funcionalidade básica de adicionar/remover usuário de acesso já estava
+implantada e funcionando, só sem nenhuma das garantias que o documento de
+requisitos pede. Não é código morto — é código incompleto.
+
+3. O QUE MUDOU — BACKEND (server/db.ts, server/routers/financeSimple.ts)
+
+- linkUser agora valida a conta ANTES de vincular: rejeita com BAD_REQUEST
+  se o perfil não for responsavel_financeiro (um vínculo pra outro perfil
+  nunca aparece em tela nenhuma — toda procedure de leitura financeira
+  confirma ctx.user.role === 'responsavel_financeiro' antes de resolver o
+  responsável, então isso evita vínculos mortos e confusos, não fecha uma
+  falha de RBAC) e se a conta estiver inativa.
+- linkUser agora captura a violação da unique key uq_resp_user (tentativa
+  de vincular a mesma conta duas vezes ao mesmo responsável) e devolve uma
+  mensagem compreensível em vez do erro cru do driver MySQL. Um teste
+  específico prova que erros de banco NÃO relacionados a essa chave
+  continuam passando adiante sem serem mascarados.
+- unlinkUser agora exige confirmLastUser=true quando a conta a remover é a
+  única com acesso ao responsável — validado no servidor com uma consulta
+  real ao vínculo atual, não só confiando na UI (seção 7 do documento:
+  "a validação não pode depender apenas da interface").
+- Ambas geram audit_log agora (migration 0061 — novos valores de enum
+  GRANT_FINANCIAL_RESPONSIBLE_ACCESS / REVOKE_FINANCIAL_RESPONSIBLE_ACCESS,
+  mesmo padrão das migrations 0033/0056/0060 que já estenderam esse enum).
+- listUsersForResponsible (db.ts) agora retorna is_active e role de cada
+  conta vinculada, e um novo campo is_orphan (true quando o user_id não
+  bate com nenhuma linha real de users — LEFT JOIN sem match). Antes, um
+  vínculo órfão simplesmente teria nome/username/email undefined e a UI
+  não tinha como saber a diferença de "usuário sem nome cadastrado".
+- Nova procedure listEligibleUsersForResponsible: só contas com perfil
+  responsavel_financeiro, ativas, que ainda não têm vínculo com aquele
+  responsável específico — alimenta o seletor de "adicionar usuário de
+  acesso" (antes disso a tela usava trpc.admin.listUsers, sem filtro
+  nenhum de perfil).
+- unitFinancialReadiness ganhou 3 campos novos: responsible_starts_at,
+  responsible_user_count, responsible_has_invalid_link.
+
+4. O QUE MUDOU — TELA (FinanceConfiguracao.tsx, bloco ResponsavelPanel)
+
+- Quadro de estado da unidade sempre visível (não escondido atrás de um
+  toggle): nome do responsável ativo, "vigente desde" formatado, contagem
+  de usuários com acesso, aviso se ninguém consegue acessar ainda, aviso
+  se há vínculo inválido.
+- Terminologia da seção 5: "Responsável financeiro da unidade", "Usuários
+  com acesso financeiro", "Adicionar usuário de acesso", "Revogar acesso",
+  "Substituir responsável" (em vez de "Trocar"/"Vincular"/"Usuários").
+- "Novo" (criar responsável do zero) só aparece em destaque quando a
+  unidade não tem nenhum responsável ativo. Com um responsável já ativo,
+  criar um novo fica um link secundário dentro do fluxo de substituição,
+  atrás de uma confirmação com checkbox explicando que isso encerra a
+  vigência do responsável atual (não apaga nada, só encerra a vigência).
+- Revogar acesso passa por um passo de confirmação inline (não dispara a
+  mutation no clique do X): explica que a ação só revoga o login, não
+  apaga histórico; quando é o único usuário, o aviso muda de tom (vermelho,
+  texto mais direto) e passa confirmLastUser=true pro backend.
+- Linha de usuário com vínculo órfão mostra "Usuário removido ou vínculo
+  inválido" + o ID interno do vínculo, em vez de aparecer em branco.
+- Badge Ativo/Inativo em cada linha de usuário.
+- Mensagem explicativa ("esta ação concede acesso aos dados financeiros
+  das unidades vinculadas...") aparece assim que uma conta é selecionada
+  pra adicionar, antes do clique de confirmação.
+
+5. TESTES (server/audit-fixes-gestao-usuarios-responsavel.test.ts)
+
+10 casos, seguindo o mesmo padrão de audit-fixes-repasse-preco-externo.test.ts
+(mock de "./db" + appRouter.createCaller, nunca reimplementando a lógica da
+procedure no teste):
+- linkUser: rejeita perfil errado (e prova que linkUserToResponsible nunca
+  é chamado); rejeita conta inativa; concede acesso com os IDs exatos e
+  audita; traduz erro de chave duplicada; NÃO mascara um erro de banco
+  não relacionado à chave duplicada.
+- unlinkUser: exige confirmLastUser quando é o único usuário (e prova que
+  unlinkUserFromResponsible nunca é chamado sem isso); remove com
+  confirmLastUser=true e audita was_last_user; remove sem exigir
+  confirmação quando há mais de um usuário; FORBIDDEN pra quem não é
+  admin_master, sem consultar banco.
+- listUsersForResponsible (db.ts): marca is_orphan=true quando o LEFT
+  JOIN não encontra o user_id.
+
+Todos os 4 pontos centrais (checagem de perfil, tradução do erro de
+duplicidade, confirmação do último usuário, sinalização de órfão) foram
+provados por quebra deliberada de cada trecho relevante do código,
+confirmação de que o teste correspondente falha exatamente como esperado,
+e reversão — documentado no processo, não só alegado.
+
+6. VALIDAÇÃO NO SANDBOX DO CLAUDE
+
+- pnpm check: aprovado, sem erro TypeScript.
+- pnpm vitest run: 448 aprovados, 9 falhos, 1 ignorado (458 total). As 9
+  falhas estão nos mesmos 7 arquivos já documentados como baseline
+  preexistente em handoffs anteriores (exam-catalog-security, finance-v2-
+  dashboard, mediaProxy, pacs-desktop-download-progress, pacs.mobile-ui,
+  security.auth, study-priority-ui) — confirmei de novo agora, em cima do
+  main real (1b906ad), que finance-v2-dashboard.test.tsx já falha ao
+  carregar por causa de um mock de lucide-react desatualizado (falta
+  LayoutDashboard), sem relação com esta branch. Nenhuma falha nova.
+- pnpm vite build: aprovado.
+
+7. MIGRATION 0061
+
+drizzle/0061_financial_responsible_user_access_audit.sql — um único ALTER
+TABLE estendendo audit_log.action com os 2 valores novos, mesmo padrão
+simples das migrations 0015/0033/0049/0056 (sem necessidade do wrapper com
+preflight que a 0060 precisou, porque essa aqui não depende de nenhuma
+outra migration pendente). Aplicar direto:
+
+  mysql -h <host> -u pacs_user -p'SENHA' pacs_portal < drizzle/0061_financial_responsible_user_access_audit.sql
+
+8. PUBLICADA NO GITHUB
+
+Branch já publicada: claude/gestao-usuarios-responsavel-financeiro (o
+Alessandro me passou uma credencial pontual pra isso, então desta vez não
+precisa de patch — pode ir direto com git fetch + checkout).
+
+9. O QUE NÃO FOI FEITO NESTA BRANCH
+
+Não toquei em nenhuma tela além de FinanceConfiguracao.tsx. Não implementei
+nenhum mecanismo de "sugestão automática" de qual conta vincular — o
+administrador ainda escolhe manualmente entre as contas elegíveis. Não
+resolvi as 9 falhas de baseline preexistente (fora de escopo, já
+registradas). Não fiz o merge desta branch com as outras duas do módulo
+Financeiro ainda pendentes — ver seção 0.
+
+FIM DO HANDOFF

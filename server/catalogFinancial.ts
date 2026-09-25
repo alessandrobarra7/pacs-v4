@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   billing_catalog_study_events,
+  billing_doctor_exam_legend_prices,
   billing_doctor_modality_prices,
   billing_system_unit_prices,
   billing_unit_modality_prices,
@@ -49,7 +50,34 @@ export async function createCatalogEventsWhenComplete(input: { studyUid: string;
   ));
   if (existing.length) return { handled: true, created: 0 };
   const modality = normalizeDicomModality(selection.modality_snapshot);
-  const [doctorModalityRows, unitModalityRows, systemPriceRows] = await Promise.all([
+  // FIX (2026-09-24, AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO -- ponto novo
+  // encontrado navegando a tela "Preços por Legenda Canônica"): essa tela
+  // sempre permitiu configurar um preço por médico + unidade + legenda de
+  // exame específica (billing_doctor_exam_legend_prices, via
+  // setDoctorLegendPrice/listDoctorLegendPrices em financeSimple.ts), com
+  // texto explícito na UI dizendo "o valor é aplicado por evento financeiro
+  // da legenda". Isso nunca foi verdade: esta função (o único lugar que cria
+  // billing_catalog_study_events, que são exatamente os eventos "por
+  // legenda") nunca consultava essa tabela -- só usava preço por modalidade
+  // do médico, com fallback para preço por modalidade da UNIDADE (nem
+  // específico do médico). Ou seja, configurar um preço por legenda para um
+  // médico não tinha nenhum efeito no que ele recebia; a tela existia,
+  // salvava, mostrava "Configurado", mas era inerte.
+  //
+  // Corrigido adicionando billing_doctor_exam_legend_prices como fonte de
+  // MAIOR prioridade (mais específica: médico + unidade + exame exato) na
+  // hierarquia, antes do preço por modalidade. Quando não há preço de
+  // legenda configurado para aquele médico+unidade+exam_legend_id vigente na
+  // data da assinatura, o comportamento é idêntico ao anterior (modalidade
+  // do médico, depois modalidade da unidade) -- mudança aditiva e
+  // retrocompatível, não altera nenhum valor já calculado para quem nunca
+  // configurou preço por legenda.
+  const [doctorLegendRows, doctorModalityRows, unitModalityRows, systemPriceRows] = await Promise.all([
+    db.select().from(billing_doctor_exam_legend_prices).where(and(
+      eq(billing_doctor_exam_legend_prices.unit_id, input.unitId),
+      eq(billing_doctor_exam_legend_prices.doctor_user_id, input.doctorUserId),
+      eq(billing_doctor_exam_legend_prices.exam_legend_id, selection.exam_legend_id),
+    )),
     db.select().from(billing_doctor_modality_prices).where(and(
       eq(billing_doctor_modality_prices.unit_id, input.unitId),
       eq(billing_doctor_modality_prices.doctor_user_id, input.doctorUserId),
@@ -63,22 +91,49 @@ export async function createCatalogEventsWhenComplete(input: { studyUid: string;
       eq(billing_system_unit_prices.unit_id, input.unitId),
     )),
   ]);
+  // FIX (2026-09-24, bloqueio 1 da revisao Manus): billing_doctor_exam_legend_prices
+  // usa starts_at/ends_at do tipo `date` do MySQL (string "YYYY-MM-DD", sem
+  // horario). A primeira versao fazia `new Date(row.ends_at)`, que o
+  // JavaScript interpreta como 00:00:00.000 UTC daquele dia -- ou seja, um
+  // preco com ends_at = "2026-08-21" era tratado como encerrado a partir da
+  // MEIA-NOITE do proprio dia 21, e nao ao final dele. Uma assinatura as
+  // 12:00 UTC do dia 21 ja falhava a checagem de vigencia (`endsAt >= at`),
+  // caindo indevidamente para o preco por modalidade ou para pendente.
+  //
+  // Zona operacional adotada explicitamente aqui: UTC -- mesma convencao do
+  // resto do sistema (testes rodam com TZ=UTC, signed_at e armazenado em
+  // UTC, e todas as outras tabelas de vigencia do modulo financeiro tratam
+  // a data de negocio como o dia calendario em UTC). A correcao normaliza
+  // ends_at para o ULTIMO instante daquele dia calendario em UTC
+  // (23:59:59.999Z), preservando o dia inteiro de vigencia. starts_at
+  // permanece 00:00:00.000Z do dia (inicio do dia, ja correto por padrao).
+  const doctorLegendRowsNormalized = doctorLegendRows.map((row) => ({
+    ...row,
+    starts_at: new Date(`${row.starts_at}T00:00:00.000Z`),
+    ends_at: row.ends_at ? new Date(`${row.ends_at}T23:59:59.999Z`) : null,
+  }));
+  const doctorLegendPrice = selectActiveByVigency(doctorLegendRowsNormalized, input.signedAt);
   const doctorModalityPrice = selectActiveByVigency(doctorModalityRows, input.signedAt);
   const unitModalityPrice = selectActiveByVigency(unitModalityRows, input.signedAt);
   const systemPrice = selectActiveByVigency(systemPriceRows, input.signedAt);
+  const doctorLegendAmount = doctorLegendPrice
+    ? Number(doctorLegendPrice.price_per_event)
+    : null;
   const doctorModalityAmount = doctorModalityPrice
     ? Number(doctorModalityPrice.price_per_report)
     : null;
   const unitModalityAmount = unitModalityPrice
     ? Number(unitModalityPrice.price_per_event)
     : null;
-  const doctorPriceSource = doctorModalityPrice
-    ? "doctor_modality"
-    : unitModalityPrice
-      ? "unit_modality_fallback"
-      : null;
+  const doctorPriceSource = doctorLegendPrice
+    ? "doctor_legend"
+    : doctorModalityPrice
+      ? "doctor_modality"
+      : unitModalityPrice
+        ? "unit_modality_fallback"
+        : null;
   const systemAmount = systemPrice ? Number(systemPrice.price_per_report) : null;
-  const doctorAmount = doctorModalityAmount ?? unitModalityAmount;
+  const doctorAmount = doctorLegendAmount ?? doctorModalityAmount ?? unitModalityAmount;
   const pricingStatus = systemAmount !== null && doctorAmount !== null
     ? "ok" as const
     : systemAmount !== null

@@ -1,0 +1,468 @@
+HANDOFF PARA MANUS — CONSISTÊNCIA DE PREÇOS NO MÓDULO FINANCEIRO
+Branch: claude/financeiro-precos-consistencia
+Topo: 88c79cc
+Base: main @ 44eaa5d
+Autoria: Claude, sessão com Alessandro em 24/09/2026
+Publicado no GitHub: sim (branch já enviado, sem PR aberto)
+
+===============================================================================
+COMO CHEGAMOS AQUI
+===============================================================================
+
+Alessandro pediu para eu navegar o sistema como um funcionário que precisa
+responder três perguntas simples: quanto custa um exame para o cliente,
+quanto custa o laudo de cada médico, quanto se paga cada vez que um médico
+lauda um exame. Fiz isso ao vivo, logado ora como responsavel_financeiro
+(conta "erica"), ora como admin_master, navegando /financeiro/responsavel e
+/financeiro/configuracao em produção (lauds.com.br).
+
+Isso revelou 5 problemas concretos, cada um confirmado por leitura de código
+E por reprodução ao vivo na tela (não são hipóteses). Os 5 estão corrigidos,
+testados e neste branch. O objetivo deste documento é te dar tudo que você
+precisa para AUDITAR e PUBLICAR, sem precisar redesenhar nada — as decisões
+de produto e a implementação já foram tomadas e validadas comigo e com o
+Alessandro.
+
+===============================================================================
+ACHADO 1 — Card de unidade duplicado no painel do responsável
+===============================================================================
+
+Sintoma ao vivo: "Meu Painel Financeiro" (erica) mostrava HOSPITAL DA
+CRIANÇA duas vezes, cada card idêntico. Cabeçalho somava os dois:
+"4 laudos" / "R$4,00 pendente ao sistema" quando o real era 2 laudos / R$2,00.
+
+Causa raiz: server/routers/financeSimple.ts, myResponsavelSummary. A query
+em financial_responsible_units filtra só por (financial_responsible_id,
+ends_at IS NULL) — se existirem DUAS linhas ativas apontando para a mesma
+unidade (dado duplicado, provavelmente de uma reativação de vínculo que não
+encerrou o vínculo antigo), cada linha virava um card.
+
+Fix: dedupe por unit_id logo após a query, antes de qualquer agregação.
+Quando encontra duplicata, registra um console.warn (não bloqueia a
+resposta) — é só um sinal para você investigar o dado.
+
+⚠️ AÇÃO DE DADO PENDENTE (não é código): este fix esconde o sintoma na
+tela, mas os vínculos duplicados continuam existindo em
+financial_responsible_units. Rode esta query read-only em produção para
+achar todos os casos (não só o da erica):
+
+  SELECT financial_responsible_id, unit_id, COUNT(*) AS vinculos_ativos
+  FROM financial_responsible_units
+  WHERE ends_at IS NULL
+  GROUP BY financial_responsible_id, unit_id
+  HAVING COUNT(*) > 1;
+
+Se aparecer alguma linha, me avise qual financial_responsible_id/unit_id
+antes de decidirmos qual das duas linhas duplicadas encerrar (ends_at) —
+não fiz esse UPDATE porque é uma decisão sobre dado real de produção, não
+uma correção de código.
+
+Teste: server/audit-fixes-my-responsavel-summary.test.ts, describe
+"dedupe de unidade duplicada e unidade órfã", primeiro caso.
+
+===============================================================================
+ACHADO 2 — Unidade órfã disfarçada de unidade real ("Unidade")
+===============================================================================
+
+Causa raiz: mesmo endpoint, mesmo bloco. Quando unit_id em
+financial_responsible_units não tem correspondência em `units` (unidade
+excluída, ou vínculo criado com unit_id errado), o LEFT JOIN retorna
+unit_name = null, e o código substituía isso por "Unidade" — indistinguível
+de uma unidade real com esse nome, escondendo o problema.
+
+Fix: nome passa a ser "Unidade removida (ID {unit_id})" e a resposta ganha
+o campo unit_orphaned: boolean. No frontend (FinanceMeuResponsavel.tsx),
+adicionei um badge vermelho "dado inconsistente" ao lado do nome quando
+unit_orphaned é true.
+
+⚠️ AÇÃO DE DADO PENDENTE: se essa query devolver alguma linha, são vínculos
+órfãos reais em produção — quem são os responsáveis afetados, e qual o
+unit_id que não existe mais:
+
+  SELECT fru.financial_responsible_id, fru.unit_id
+  FROM financial_responsible_units fru
+  LEFT JOIN units u ON u.id = fru.unit_id
+  WHERE fru.ends_at IS NULL AND u.id IS NULL;
+
+Teste: mesmo describe do Achado 1, casos 2 e 3.
+
+===============================================================================
+ACHADO 3 — "R$/Laudo" matematicamente inconsistente com o "Total"
+===============================================================================
+
+Sintoma ao vivo, no modal "Ver médicos" (painel do responsável): Dra.
+Claudia Cipriano — 1 laudo, coluna R$/Laudo = R$1,00, coluna Total =
+R$10,00. Um laudo a R$1,00 não pode somar R$10,00.
+
+Causa raiz (duas procedures, dois bugs da mesma família):
+
+  a) doctorSummaryByUnit (financeSimple.ts ~968): price_per_report vinha de
+     billing_doctor_unit_prices — o preço CONFIGURADO AGORA — desacoplado
+     de doctor_total/total_laudos, que são a soma dos valores REALMENTE
+     aplicados nos eventos já faturados. Se o preço mudou depois do laudo
+     ser assinado (ex.: modalidade reconfigurada), as duas fontes divergem.
+
+  b) getResponsibleDebtByDoctor (financeSimple.ts ~4481): price_per_report
+     era fixado com o valor do PRIMEIRO evento de cada médico+unidade
+     encontrado no loop, enquanto reports/amount continuavam somando TODOS
+     os eventos seguintes. Se o preço mudou entre eventos do mesmo período,
+     o número exibido não representava nem o primeiro nem a média real.
+
+Fix: em ambos, price_per_report passa a ser derivado do total já calculado
+(doctor_total / total_laudos, ou amount / reports) — sempre consistente com
+a coluna Total por construção matemática, não por sorte. Em (a), quando não
+há nenhum laudo no ciclo (nada a derivar), cai de volta para o preço
+configurado atual — e esse valor continua disponível separadamente no novo
+campo configured_price_per_report, para quem quiser comparar os dois.
+
+Isso é só uma correção de EXIBIÇÃO — não escreve nada em billing_visit_events
+nem billing_catalog_study_events, não recalcula nem altera nenhum valor já
+cobrado ou pago. Baixo risco.
+
+Teste: server/audit-fixes-preco-por-laudo-consistente.test.ts (novo
+arquivo), 4 casos cobrindo as duas procedures, incluindo o caso "sem laudo
+no ciclo" para confirmar que o fallback não quebrou.
+
+===============================================================================
+ACHADO 4 — Modal "Preços Padrão" editável para quem não pode editar
+===============================================================================
+
+Sintoma ao vivo: logada como erica (responsavel_financeiro), a modal
+"Preços Padrão" mostrava os campos "Preço Sistema" e "Preço Médico" como
+inputs normais, editáveis, com botão "Salvar Preços" habilitado. Ao clicar
+Salvar, o backend corretamente rejeitava (setUnitDefaultPrices já era
+restrito a admin_master) — mas o toast mostrava o erro cru "FORBIDDEN", sem
+nenhuma explicação, depois de ela já ter editado o valor.
+
+Isso não é uma falha de autorização (o backend sempre bloqueou a escrita
+corretamente) — é uma UX que promete uma ação que nunca ia ser permitida.
+
+Fix (client/src/pages/finance/FinanceModals.tsx, PriceConfigModal):
+  - Usa useAuth() para checar o role local antes de renderizar.
+  - Quando role !== admin_master: campos viram texto somente leitura, sem
+    inputs nem botão Salvar, com aviso "Você pode consultar... mas somente
+    o administrador geral pode alterá-los."
+  - Mensagem de erro do backend também ficou amigável (mesmo texto, dos
+    dois lados) para qualquer chamada direta que ainda bata em FORBIDDEN.
+
+Também aproveitei para deixar explícito que "Preço Médico" (a
+default_doctor_price de `units`) é só um valor de referência — nenhum dos
+dois motores de faturamento (server/db.ts nem server/catalogFinancial.ts) o
+usa como fallback real do que o médico recebe. Isso já era assim antes
+desta sessão; só ficou documentado e visível na tela agora.
+
+⚠️ Sem teste automatizado: este repositório não tem testes de componente
+React (nenhum *.test.tsx sob client/). A verificação é visual — pedi para
+você confirmar ao vivo, logado como responsavel_financeiro, abrindo
+"Preços Padrão" em qualquer unidade: os campos devem aparecer como texto,
+sem inputs, sem botão Salvar, com o aviso amarelo. Logado como admin_master,
+deve continuar exatamente como antes (editável, Salvar funcionando).
+
+===============================================================================
+ACHADO 5 — Preço por legenda do médico nunca era usado no faturamento
+===============================================================================
+
+Este é o achado mais sério dos cinco, porque é um bug de lógica de
+faturamento, não só de exibição.
+
+A tela "Preços por Legenda Canônica" (dentro de Configuração Financeira,
+por médico) sempre permitiu configurar um preço específico por
+médico+unidade+exame ("JOELHO DIREITO", "TÓRAX LEITO" etc.), com o texto
+"o valor é aplicado por evento financeiro da legenda, isolado por médico e
+unidade" — e o backend (setDoctorLegendPrice/listDoctorLegendPrices em
+financeSimple.ts) salva e lista esses valores normalmente, tudo parecendo
+funcionar (mostra "Configurado" quando há valor).
+
+O problema: server/catalogFinancial.ts — o ÚNICO lugar que cria
+billing_catalog_study_events, que são exatamente os eventos "por legenda"
+— NUNCA consultava a tabela billing_doctor_exam_legend_prices. Usava só
+preço por modalidade do médico, com fallback para preço por modalidade da
+UNIDADE (nem específico do médico). Ou seja: configurar um preço por
+legenda para um médico não tinha absolutamente nenhum efeito no que ele
+recebia. A tela era decorativa.
+
+Fix: adicionei billing_doctor_exam_legend_prices como fonte de MAIOR
+prioridade na hierarquia de precificação (mais específica: médico + unidade
++ exame exato, vence sobre modalidade). Nova ordem:
+
+  1. preço por legenda do médico (billing_doctor_exam_legend_prices) — NOVO
+  2. preço por modalidade do médico (billing_doctor_modality_prices)
+  3. preço por modalidade da unidade (billing_unit_modality_prices) — fallback
+  4. pendente (pricing_status = pending_doctor_price)
+
+doctor_price_source ganha o valor novo "doctor_legend" quando essa fonte é
+usada (era varchar(40) livre, não precisou de migration no enum).
+
+IMPORTANTE PARA A SUA AUDITORIA — isto muda o valor calculado de EVENTOS
+FUTUROS (billing_catalog_study_events criados a partir do deploy) para
+qualquer médico que já tenha um preço por legenda configurado e vigente
+hoje. NÃO retroage — eventos já criados mantêm o price_applied que já
+tinham (não há nenhum UPDATE em eventos existentes neste branch). Antes de
+publicar, sugiro rodar esta query read-only em produção para saber o
+tamanho do impacto — quantos médicos têm preço por legenda ativo agora, e
+qual o valor comparado ao preço por modalidade que estava sendo usado até
+então:
+
+  SELECT unit_id, doctor_user_id, exam_legend_id, price_per_event, starts_at, ends_at
+  FROM billing_doctor_exam_legend_prices
+  WHERE ends_at IS NULL OR ends_at >= CURDATE();
+
+Se essa lista vier vazia, o Fix 5 é 100% inerte em produção até alguém
+configurar um preço por legenda pela primeira vez (comportamento
+retrocompatível, nada muda hoje). Se vier com linhas, o valor pago a esses
+médicos por esses exames específicos vai mudar a partir do deploy — quero
+que você confirme com o Alessandro se isso é esperado (a tela sempre disse
+que era assim, então tecnicamente é a correção do que já estava prometido)
+antes de publicar, dado o impacto financeiro direto.
+
+Teste: server/catalog-financial-pricing.test.ts, 3 casos novos (prioriza
+legenda vigente / ignora legenda vencida / fallback antigo intacto sem
+legenda configurada) + os 3 testes já existentes continuam passando
+inalterados (não regride o comportamento antigo). Também corrigi a
+sequência de mocks em server/catalog-financial-locking.test.ts (a nova
+query entrou no meio da cadeia de chamadas ao banco que aquele teste já
+mockava manualmente).
+
+===============================================================================
+VALIDAÇÕES JÁ EXECUTADAS
+===============================================================================
+
+| Verificação                          | Resultado                                    |
+|---------------------------------------|----------------------------------------------|
+| pnpm install --frozen-lockfile        | OK, sem alterar lockfile                      |
+| pnpm check (tsc --noEmit)             | OK, sem erros                                 |
+| Testes direcionados (15 novos)        | OK, 15/15 passando                            |
+| TZ=UTC pnpm test (suíte completa)     | 505 passam, 11 falham, 1 skip, de 517         |
+| Falhas == baseline conhecido?         | Sim — as mesmas 7 suítes já documentadas por  |
+|                                        | você (exam-catalog-security,                  |
+|                                        | finance-v2-dashboard [2], mediaProxy,         |
+|                                        | pacs-desktop-download-progress,               |
+|                                        | pacs.mobile-ui, security.auth,                |
+|                                        | study-priority-ui [4]) — nenhuma nova          |
+| pnpm build                            | OK, só o aviso preexistente de bundle grande  |
+| git diff --check main..HEAD           | OK, sem whitespace inválido                   |
+
+===============================================================================
+O QUE NÃO FOI ALTERADO
+===============================================================================
+
+- Nenhuma migration nova (doctor_price_source é varchar livre, não enum).
+- Nenhum UPDATE em dado de produção (as duas ações de dado pendentes acima
+  são só queries read-only sugeridas para você rodar e decidir comigo).
+- Nenhum evento de faturamento já criado é reescrito — Fix 5 só afeta
+  eventos criados DEPOIS do deploy.
+- setUnitSystemRate (a mutation que define quanto a unidade deve à Lauds)
+  não foi tocada — já estava corretamente restrita a admin_master.
+
+===============================================================================
+PRÓXIMO FLUXO RECOMENDADO
+===============================================================================
+
+1. Rodar as duas queries read-only acima (vínculos duplicados/órfãos, e
+   preços por legenda já configurados) e me reportar o que encontrar.
+2. Confirmar visualmente o Achado 4 (modal somente-leitura) logado como
+   responsavel_financeiro e como admin_master.
+3. Se tudo bater, seguir o mesmo fluxo já usado nas rodadas anteriores:
+   merge sem reescrever histórico, revalidar no sandbox, publicar main,
+   atualizar VM1 (sem migration nova desta vez — só código + restart PM2).
+
+===============================================================================
+ADENDO 2026-09-24 (mesmo dia) — RESPOSTA AO "PARECER DE REVISÃO"
+===============================================================================
+
+A Manus revisou o topo 2a2f41e e bloqueou merge/deploy por dois motivos.
+Os dois foram corrigidos nesta mesma branch (novo topo: ver `git log`).
+Resumo do que mudou e por quê, ponto a ponto.
+
+-------------------------------------------------------------------------------
+BLOQUEIO 1 — vigência de preço por legenda falhava no último dia
+-------------------------------------------------------------------------------
+
+Diagnóstico da Manus estava correto: billing_doctor_exam_legend_prices.ends_at
+é DATE (string "YYYY-MM-DD", sem horário). A conversão `new Date(row.ends_at)`
+produz 00:00:00.000 UTC daquele dia — um preço com ends_at = "2026-08-21" já
+era tratado como vencido a partir da MEIA-NOITE do próprio dia 21, não ao
+final dele. Qualquer assinatura depois das 00:00 do dia de encerramento
+perdia o preço por legenda indevidamente.
+
+Fix: ends_at agora é normalizado para 23:59:59.999Z (o último instante
+daquele dia calendário). starts_at continua 00:00:00.000Z (já estava
+correto). Zona operacional documentada explicitamente no código como UTC —
+mesma convenção do resto do sistema (testes rodam com TZ=UTC, signed_at é
+armazenado em UTC).
+
+Os 6 casos de fronteira pedidos pela revisão estão todos cobertos em
+server/catalog-financial-pricing.test.ts, describe "vigência do preço por
+legenda — casos de fronteira (dia inteiro, UTC)":
+  - starts_at igual ao dia da assinatura → já vigora
+  - ends_at igual ao dia da assinatura, horário != meia-noite → ainda
+    vigora (exatamente o cenário relatado pela revisão)
+  - preço encerrado no dia anterior → não vigora
+  - preço futuro (starts_at no futuro) → ainda não vigora
+  - escopo (médico/unidade/legenda) → teste inspeciona o argumento real
+    passado a .where() e confirma eq(unit_id) + eq(doctor_user_id) +
+    eq(exam_legend_id), não apenas a resposta mockada
+  - ausência de toda fonte médica → pending_doctor_price (já coberto pelo
+    teste pré-existente "preserva o evento pendente...")
+
+⚠️ AÇÃO PENDENTE PARA A MANUS antes de publicar: a consulta somente-leitura
+que pedi no handoff original estava incompleta — não filtrava starts_at,
+então um preço EXCLUSIVAMENTE FUTURO (ainda não vigente) apareceria como se
+já estivesse ativo. Versão corrigida, use esta:
+
+  SELECT unit_id, doctor_user_id, exam_legend_id, price_per_event, starts_at, ends_at
+  FROM billing_doctor_exam_legend_prices
+  WHERE starts_at <= CURDATE()
+    AND (ends_at IS NULL OR ends_at >= CURDATE());
+
+Lista vazia = fix inerte hoje. Lista com linhas = confirmar com Alessandro
+antes de publicar, mesmo raciocínio do handoff original.
+
+-------------------------------------------------------------------------------
+BLOQUEIO 2 — R$/Laudo (média) não garantia coerência nem honestidade
+-------------------------------------------------------------------------------
+
+Os dois problemas apontados pela revisão eram reais:
+
+(a) Denominador errado: total_laudos/reports incluíam laudos AINDA SEM
+    preço aplicado (pending_doctor_price), que entravam no cálculo como se
+    fossem preço zero — isso distorcia a média para baixo e escondia a
+    pendência de precificação em vez de sinalizá-la.
+
+(b) Acúmulo em float: em getResponsibleDebtByDoctor, `ue.amount += amt`
+    dentro de um loop podia divergir por erro de representação binária
+    (0.29 + 0.58 nem sempre fecha em 0.87 exato em ponto flutuante puro).
+
+Fix, mapeado item a item na lista da revisão:
+
+  1. Total histórico continua a fonte autoritativa — inalterado.
+  2. (item "pode exibir taxa única quando todos os eventos têm o mesmo
+     preço") — não implementado nesta rodada. Avaliei e decidi não fazer:
+     exigiria buscar os valores individuais de cada evento (não só a soma
+     agregada) para detectar "mesmo preço em todos", o que muda o padrão
+     de query dessas duas procedures de agregação pura para leitura
+     linha-a-linha, aumentando o custo e o raio de mudança sem resolver
+     nenhum dos dois bloqueios reais. Como a revisão usou "pode" (não
+     "deve") para este item, tratei como não-bloqueante — mas se você
+     achar que é necessário antes de aprovar, me avise que implemento.
+  3. price_per_report agora é sempre derivado dos laudos JÁ precificados
+     (nunca do total de laudos) e o frontend (FinanceMeuResponsavel.tsx)
+     renomeou a coluna de "R$/Laudo" para "Média/Laudo" — deixa de prometer
+     implicitamente uma tarifa fixa que multiplicada pela quantidade
+     reproduz o total exato.
+  4. Novos campos expostos nas duas procedures: priced_laudos_count /
+     priced_reports (quantos laudos entraram no cálculo da média) e
+     pending_price_count (quantos ainda não têm preço, excluídos do
+     denominador). O frontend mostra um badge "N sem preço" quando
+     pending_price_count > 0.
+  5. toMoney() (arredonda para o centavo mais próximo) aplicado a CADA soma
+     dentro do loop de getResponsibleDebtByDoctor, não só no resultado
+     final — evita que o erro de representação binária se acumule ao longo
+     de muitas iterações. Novo teste prova isso com o par 0.29 + 0.58 = 0.87
+     exato (server/audit-fixes-preco-por-laudo-consistente.test.ts).
+
+Também corrigi o teste "sem laudo no ciclo, cai para o preço configurado"
+que a revisão apontou como inválido (o GROUP BY nunca produz um médico com
+total_laudos = 0 — zero linhas agregadas simplesmente não incluem esse
+médico na lista). O novo teste cobre o caminho real, mais um cenário de
+laudos parcialmente pendentes de preço.
+
+-------------------------------------------------------------------------------
+VALIDAÇÕES DESTA RODADA
+-------------------------------------------------------------------------------
+
+  pnpm check ............................ OK, sem erros
+  8 testes novos direcionados ........... OK, 8/8 passando
+  TZ=UTC pnpm test (suíte completa) ..... 513 passam, 11 falham, 1 skip, de 525
+  Falhas == baseline conhecido? ......... Sim, as mesmas 7 suítes de sempre
+  pnpm build ............................. OK
+  git diff --check main..HEAD ........... OK
+
+-------------------------------------------------------------------------------
+CHECKLIST ATUALIZADO PARA A MANUS
+-------------------------------------------------------------------------------
+
+  [ ] Revisar o diff desta rodada (git log --oneline main..HEAD mostra 3
+      commits agora: fixes originais, handoff original, fixes dos 2
+      bloqueios).
+  [ ] Rodar a query de vigência CORRIGIDA acima (com starts_at <= CURDATE())
+      — a versão original do handoff estava incompleta.
+  [ ] Rodar também a query de vínculos duplicados/órfãos do handoff
+      original (Achados 1 e 2) — ainda pendente, independente destes 2
+      bloqueios.
+  [ ] Confirmar visualmente o Achado 4 (modal somente leitura x editável).
+  [ ] Rodar a suíte de testes e confirmar 513/11/1.
+  [ ] Se tudo bater: merge sem reescrever histórico, revalidar no sandbox,
+      publicar main, atualizar VM1 (sem migration nova — só código +
+      restart PM2).
+
+===============================================================================
+ADENDO 3, 2026-09-24 (mesmo dia) — RESPOSTA AO "PARECER CORRETIVO"
+===============================================================================
+
+A Manus revisou o topo 40b5594 e encontrou mais um bloqueio real, específico
+do cenário "médico com laudos no ciclo mas nenhum deles ainda precificado".
+
+Diagnóstico dela estava correto: em doctorSummaryByUnit, quando
+doctor_priced_count era zero, o código caía para priceMap.get(doctor_user_id)
+— o preço CONFIGURADO AGORA — e devolvia isso como price_per_report, o mesmo
+campo renderizado sob "Média/Laudo" no frontend. Não existe média nenhuma
+nesse cenário (denominador zero); mostrar o preço configurado ali podia
+passar a impressão de uma tarifa efetivamente praticada.
+
+Fix (novo topo: ver `git log`):
+
+  1. price_per_report agora é `null` sempre que doctor_priced_count é zero
+     — nunca mais cai para o preço configurado. configured_price_per_report
+     continua existindo como campo separado, exatamente como a Manus pediu.
+
+  2. A query de configured_price_per_report (priceMap) estava incompleta:
+     só filtrava `ends_at IS NULL`, sem checar `starts_at <= refDate`. Um
+     preço com início no futuro (ends_at ainda nulo) podia ser escolhido
+     como "o mais recente" e aparecer como vigente antes de começar a
+     valer. Corrigido: agora exige starts_at <= refDate E (ends_at IS NULL
+     OU ends_at >= refDate) — vigência real na data de referência do
+     resumo. (billing_doctor_unit_prices usa TIMESTAMP, não DATE — não tem
+     o mesmo problema de "meia-noite" do Bloqueio 1, então a comparação
+     direta com lte/gte já é suficiente aqui.)
+
+  3. Frontend (FinanceMeuResponsavel.tsx, DoctorsModal): "Média/Laudo"
+     mostra "— Sem preço aplicado" quando price_per_report é null (já era
+     o comportamento do "—" existente, só passou a disparar corretamente
+     agora que o backend não mente mais). O preço configurado, quando
+     vigente, aparece como linha secundária "Preço configurado: R$X",
+     rotulado explicitamente, nunca sob o cabeçalho de média.
+
+  4. Consumidores de doctorSummaryByUnit: confirmei via grep que
+     FinanceDashboard.tsx e FinancePagamentos.tsx também usam essa
+     procedure, mas nenhum dos dois renderiza price_per_report diretamente
+     — só o DoctorsModal em FinanceMeuResponsavel.tsx o faz. Não precisou
+     de ajuste adicional em nenhum dos dois.
+
+Testes novos, exatamente os dois pedidos pela revisão:
+  - todos os laudos pendentes de preço, com preço configurado vigente →
+    price_per_report null, configured_price_per_report com o valor
+  - todos os laudos pendentes de preço, com preço configurado
+    exclusivamente futuro → nem price_per_report nem
+    configured_price_per_report aparecem como vigentes (ambos null)
+
+Validações desta rodada: pnpm check OK, 2 testes novos passando (9/9 no
+arquivo todo), suíte completa 515 passam / 11 falham (mesmo baseline de
+sempre) / 1 skip de 527, pnpm build OK, git diff --check OK.
+
+-------------------------------------------------------------------------------
+CHECKLIST ATUALIZADO (3ª rodada)
+-------------------------------------------------------------------------------
+
+  [ ] git log --oneline main..HEAD deve mostrar 5 commits agora.
+  [ ] Confirmar que price_per_report é null (não o preço configurado)
+      quando doctor_priced_count = 0, em ambos os cenários (preço
+      configurado vigente / preço só futuro).
+  [ ] Rodar as 3 queries somente-leitura já listadas nos adendos
+      anteriores (vigência de preço por legenda, vínculos duplicados,
+      vínculos órfãos) — continuam pendentes, independentes deste fix.
+  [ ] Confirmar visualmente o Achado 4 (modal somente leitura x editável).
+  [ ] Rodar a suíte completa e confirmar 515/11/1.
+  [ ] Se tudo bater: merge sem reescrever histórico, revalidar no sandbox,
+      publicar main, atualizar VM1 (sem migration nova — só código +
+      restart PM2).

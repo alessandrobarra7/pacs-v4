@@ -886,7 +886,14 @@ export const adminRouter = router({
             }
 
             // Vincular o usuário ao responsável
-            await linkUserToResponsible(responsibleId, userId);
+            // CORRIGIDO (revisão Manus 2026-09-20): linkUserToResponsible agora
+            // exige um "actor" (grava vínculo + auditoria numa transação só —
+            // ver server/db.ts). Aqui o ator é o admin que está criando a conta.
+            await linkUserToResponsible(responsibleId, userId, {
+              user_id: ctx.user.id,
+              ip_address: ctx.req.ip,
+              user_agent: ctx.req.headers['user-agent'],
+            });
 
           } catch (err) {
             // Não bloqueia a criação do usuário — loga para investigação
