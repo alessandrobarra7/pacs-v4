@@ -2,6 +2,14 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { DEFAULT_LAYOUT_PREFERENCES } from "../../../shared/types";
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx } from "./pdfPageGeometry";
+import { measureTopLevelBlocks, splitBlocksIntoPages } from "./reportPagination";
+
+// CORREÇÃO (revisão Manus 2026-09-25, bloqueio "laudo único longo é
+// cortado no PDF financeiro"): reserva fixa de altura para o bloco de
+// assinatura/carimbo do médico, sempre presente na folha (vazia nas
+// páginas que não são a última do documento, preenchida na última) — ver
+// mecanismo completo no comentário grande logo abaixo de downloadFinancialReportPdf.
+const FOOTER_RESERVE_MM = 50;
 
 function absoluteUrl(value: string | null | undefined) {
   return value?.startsWith("/") ? `${window.location.origin}${value}` : value || "";
@@ -83,15 +91,38 @@ export async function downloadFinancialReportPdf(documentData: any) {
       ${documentData.signer?.crm ? `<span>CRM: ${escapeHtml(documentData.signer.crm)}</span>` : ""}
       ${signedAt ? `<span>Assinado em: ${escapeHtml(signedAt)}</span>` : ""}
     </div>`;
-  const pages = sections.map((section, index) => `
+  // CORREÇÃO (revisão Manus 2026-09-25, bloqueio "laudo único longo é
+  // cortado no PDF financeiro"): antes, cada seção virava exatamente UMA
+  // `.print-page` de altura fixa com `overflow:hidden` — uma seção cujo
+  // conteúdo excedesse a altura disponível simplesmente tinha o restante
+  // cortado, e a assinatura podia ficar sobreposta ao texto cortado na
+  // última página. A Manus reproduziu isso visualmente com um laudo
+  // sintético de seção única com 115 parágrafos: o PDF saiu com uma única
+  // página, cortada na seção 13, sem os parágrafos restantes.
+  //
+  // Agora o conteúdo de cada seção é PAGINADO ANTES da captura: medimos a
+  // altura real de cada bloco (parágrafo, título, tabela etc.) dentro do
+  // próprio iframe de renderização (mesma largura/fonte da captura final)
+  // e decidimos em qual folha física cada bloco entra, sem nunca cortar um
+  // bloco no meio (client/src/lib/reportPagination.ts). Cada seção pode
+  // virar uma ou mais folhas físicas — uma seção não é mais sinônimo de
+  // uma página. Cabeçalho e dados do paciente se repetem em toda folha
+  // gerada; a assinatura/carimbo do médico (`doctorFooter`) só aparece na
+  // ÚLTIMA folha física do documento inteiro, nunca sobreposta ao corpo,
+  // porque toda folha reserva o mesmo espaço fixo para ela
+  // (`.footer-reserve`, FOOTER_RESERVE_MM) esteja ou não preenchida — isso
+  // garante que a altura disponível para o corpo (medida uma única vez, a
+  // partir de uma folha-modelo vazia) seja idêntica em todas as folhas,
+  // vazias ou não.
+  const buildPageShell = (title: string, bodyHtml: string, footerReserveHtml: string) => `
     <article class="print-page" ${background ? `style="background-image:url('${background}')"` : ""}>
       <header>${logoHtml}<div class="header-spacer"></div></header>
       <section class="patient"><div>Nome do paciente: ${escapeHtml(patientName)}</div><div>Data de realização do exame: ${escapeHtml(studyDate)}</div><div>Modalidade: ${escapeHtml(report.modality || "—")}</div></section>
-      <h1>${escapeHtml(section.title || "Laudo")}</h1>
-      <main class="report-body">${withoutUnsupportedColors(section.body || "")}</main>
-      ${index === sections.length - 1 ? doctorFooter : ""}
+      <h1>${escapeHtml(title || "Laudo")}</h1>
+      <main class="report-body">${bodyHtml}</main>
+      <div class="footer-reserve">${footerReserveHtml}</div>
       ${footer ? `<img src="${footer}" class="unit-footer" alt="Rodapé" />` : ""}
-    </article>`).join("");
+    </article>`;
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
   // CORREÇÃO (auditoria independente 2026-09-25, Achado 2, confirmado pela
@@ -117,11 +148,56 @@ export async function downloadFinancialReportPdf(documentData: any) {
       .print-page { width:${paperWidth};height:${paperHeight};position:relative;overflow:hidden;padding:${marginTop}mm ${marginRight}mm ${marginBottom}mm ${marginLeft}mm;background:#fff center/cover no-repeat;page-break-after:always;font-size:${fontSize}pt;line-height:${lineHeight};display:flex;flex-direction:column; }
       .print-page:last-child { page-break-after:auto; } header { display:flex;align-items:center;gap:8px;min-height:18mm;border-bottom:1px solid #d0d0d0;padding-bottom:4mm; } header img { max-height:15mm;max-width:45mm;object-fit:contain; } .header-spacer { flex:1; }
       .patient { font-size:9.5pt;line-height:1.7;margin:5mm 0; } h1 { font-size:12pt;text-align:center;text-transform:uppercase;letter-spacing:.04em;margin:4mm 0 7mm; } .report-body { flex:1;min-height:0;overflow-wrap:anywhere; } .report-body p,.report-body div { margin-bottom:3pt; }
-      .doctor-footer { text-align:center;margin:auto auto 3mm;max-width:65mm;page-break-inside:avoid;font-size:9pt; } .doctor-footer span { display:block;margin-top:2pt;color:#444; } .signature,.stamp { display:block;object-fit:contain;margin:0 auto 2mm; } .signature { max-width:45mm;max-height:13mm; } .stamp { max-width:53mm;max-height:24mm; } .signature-line { border-top:1px solid #333;width:45mm;margin:0 auto 2mm; }
+      .footer-reserve { min-height:${FOOTER_RESERVE_MM}mm;display:flex;align-items:flex-end;justify-content:center; }
+      .doctor-footer { text-align:center;margin:0 auto 3mm;max-width:65mm;page-break-inside:avoid;font-size:9pt; } .doctor-footer span { display:block;margin-top:2pt;color:#444; } .signature,.stamp { display:block;object-fit:contain;margin:0 auto 2mm; } .signature { max-width:45mm;max-height:13mm; } .stamp { max-width:53mm;max-height:24mm; } .signature-line { border-top:1px solid #333;width:45mm;margin:0 auto 2mm; }
       .unit-footer { position:absolute;bottom:0;left:0;width:100%;max-height:28mm;object-fit:contain; }
-    </style></head><body>${pages}</body></html>`);
+    </style></head><body></body></html>`);
     doc.close();
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // ── Medir a altura disponível do corpo, uma única vez ──────────────
+    // Folha-modelo com header/dados do paciente/título reais e corpo
+    // vazio: o flex:1 do `.report-body` calcula sozinho o espaço restante
+    // dentro da altura FIXA real da página, já descontando o
+    // `.footer-reserve` (sempre presente, preenchido ou não).
+    const templateWrapper = doc.createElement("div");
+    templateWrapper.style.cssText = "position:absolute;visibility:hidden;left:-99999px;top:0;";
+    templateWrapper.innerHTML = buildPageShell(sections[0]?.title || "Laudo", "", doctorFooter);
+    doc.body.appendChild(templateWrapper);
+    const templateBodyEl = templateWrapper.querySelector<HTMLElement>(".report-body");
+    const availableBodyHeightPx = templateBodyEl?.getBoundingClientRect().height ?? 0;
+    doc.body.removeChild(templateWrapper);
+    if (availableBodyHeightPx <= 0) throw new Error("Não foi possível medir a área útil da página para paginação.");
+
+    // ── Paginar cada seção antes da captura ─────────────────────────────
+    // Mede a altura real de cada bloco de conteúdo (em fluxo livre, mesma
+    // largura/fonte da folha real) e decide em qual folha física cada
+    // bloco entra — nenhum bloco é cortado, uma seção pode virar 1+ folhas.
+    const physicalPages: Array<{ title: string; bodyHtml: string }> = [];
+    for (const section of sections) {
+      const measureWrapper = doc.createElement("div");
+      measureWrapper.style.cssText = "position:absolute;visibility:hidden;left:-99999px;top:0;";
+      measureWrapper.innerHTML = `<article class="print-page" style="height:auto;overflow:visible;"><main class="report-body" style="overflow:visible;">${withoutUnsupportedColors(section.body || "")}</main></article>`;
+      doc.body.appendChild(measureWrapper);
+      const sectionBodyEl = measureWrapper.querySelector<HTMLElement>(".report-body")!;
+      const blocks = measureTopLevelBlocks(sectionBodyEl);
+      doc.body.removeChild(measureWrapper);
+
+      const chunkedPages = blocks.length > 0
+        ? splitBlocksIntoPages(blocks, availableBodyHeightPx)
+        : [[withoutUnsupportedColors(section.body || "")]]; // conteúdo sem blocos de nível superior (texto solto) — 1 folha, sem paginação
+      for (const chunk of chunkedPages) {
+        physicalPages.push({ title: section.title, bodyHtml: chunk.join("") });
+      }
+    }
+    if (physicalPages.length === 0) physicalPages.push({ title: sections[0]?.title || "Laudo", bodyHtml: "" });
+
+    const pagesHtml = physicalPages
+      .map((page, index) => buildPageShell(page.title, page.bodyHtml, index === physicalPages.length - 1 ? doctorFooter : ""))
+      .join("");
+    doc.body.innerHTML = pagesHtml;
+
+    await new Promise((resolve) => setTimeout(resolve, 600));
     await Promise.all(Array.from(doc.images).map((image) => image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.onload = () => resolve(); image.onerror = () => resolve(); })));
     const sheetElements = Array.from(doc.querySelectorAll<HTMLElement>(".print-page"));
     if (!sheetElements.length) throw new Error("Não foi possível preparar as páginas do documento.");

@@ -13,6 +13,7 @@ import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx, resolvePdfPageElements } from "@/lib/pdfPageGeometry";
+import { measureTopLevelBlocks, splitBlocksIntoPages } from "@/lib/reportPagination";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -1798,6 +1799,102 @@ setSelectedStudy(study);
 
         // Aguardar carregamento de fontes e imagens
         await new Promise((resolve) => setTimeout(resolve, 800));
+
+        // CORREÇÃO (revisão Manus 2026-09-25, "PDFs multisseção e
+        // financeiro"): o Achado 1 acima resolveu "N seções JSON -> N
+        // páginas", mas uma ÚNICA seção cujo conteúdo seja mais alto do que
+        // uma folha física Letter/A4 ainda era cortada por
+        // `overflow:hidden` em `.print-page`, com a assinatura do médico
+        // sobreposta ao texto cortado (mesmo defeito estrutural já corrigido
+        // em financialReportPdfDownload.ts). Antes de capturar, medimos cada
+        // bloco de nível superior do corpo de cada seção e dividimos em
+        // quantas folhas físicas forem necessárias, sempre reservando uma
+        // faixa fixa no rodapé (idêntica em toda página) para a assinatura,
+        // preenchida somente na última folha. Isso NÃO altera a impressão
+        // nativa (fullHtml original, ainda usada pelo fallback de erro
+        // abaixo) — apenas reconstrói o DOM já escrito no iframe, momentos
+        // antes da captura.
+        let multiSectionParsed: Array<{ title: string; body: string }> | null = null;
+        try {
+          const parsedForPagination = JSON.parse(reportBody);
+          if (Array.isArray(parsedForPagination) && parsedForPagination.length > 1 && 'body' in parsedForPagination[0]) {
+            multiSectionParsed = parsedForPagination;
+          }
+        } catch { /* não é JSON multisseção */ }
+
+        if (multiSectionParsed) {
+          const FOOTER_RESERVE_MM_Q = 50;
+          const headerHtmlQ = `
+            <div class="header">
+              <div class="header-logo">${logoHtml}</div>
+              <div class="header-title">
+                <div class="clinic-name">${unitName}</div>
+                <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
+              </div>
+            </div>`;
+          const footerHtmlQ = lFooterUrl
+            ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
+            : `<div style="height:4mm;"></div>`;
+          const buildPageShellQ = (examTitle: string, bodyHtml: string, footerReserveHtml: string) => `
+            <div class="print-page">
+              ${headerHtmlQ}
+              <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
+                <div class="patient-data">${patientDataHtml}</div>
+                <div class="exam-title">${examTitle || ''}</div>
+                <div class="report-body" style="flex:1;overflow:hidden;">${bodyHtml}</div>
+                <div style="min-height:${FOOTER_RESERVE_MM_Q}mm;display:flex;align-items:flex-end;justify-content:center;">${footerReserveHtml}</div>
+              </div>
+              <div style="margin-top:auto;">${footerHtmlQ}</div>
+            </div>`;
+
+          // Medir a altura útil disponível para .report-body UMA vez, usando
+          // uma folha molde oculta com corpo vazio (a reserva de rodapé fixa
+          // garante que essa altura é igual em toda página, seja ela a
+          // última ou não).
+          const templateWrapperQ = doc.createElement('div');
+          templateWrapperQ.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
+          templateWrapperQ.innerHTML = buildPageShellQ(multiSectionParsed[0]?.title || '', '', doctorFooterHtml);
+          doc.body.appendChild(templateWrapperQ);
+          const templateBodyElQ = templateWrapperQ.querySelector<HTMLElement>('.report-body');
+          const availableBodyHeightPxQ = templateBodyElQ?.getBoundingClientRect().height ?? 0;
+          doc.body.removeChild(templateWrapperQ);
+
+          if (availableBodyHeightPxQ <= 0) {
+            throw new Error('Não foi possível medir a área útil da página para paginação.');
+          }
+
+          const physicalPagesQ: Array<{ title: string; bodyHtml: string }> = [];
+          for (const section of multiSectionParsed) {
+            const measureWrapperQ = doc.createElement('div');
+            measureWrapperQ.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
+            measureWrapperQ.innerHTML = `<div class="print-page" style="height:auto;overflow:visible;"><div class="report-body" style="overflow:visible;">${section.body || ''}</div></div>`;
+            doc.body.appendChild(measureWrapperQ);
+            const sectionBodyElQ = measureWrapperQ.querySelector<HTMLElement>('.report-body')!;
+            const blocksQ = measureTopLevelBlocks(sectionBodyElQ);
+            doc.body.removeChild(measureWrapperQ);
+
+            const chunkedPagesQ = blocksQ.length > 0
+              ? splitBlocksIntoPages(blocksQ, availableBodyHeightPxQ)
+              : [[section.body || '']];
+            for (const chunk of chunkedPagesQ) {
+              physicalPagesQ.push({ title: section.title, bodyHtml: chunk.join('') });
+            }
+          }
+          if (physicalPagesQ.length === 0) {
+            physicalPagesQ.push({ title: multiSectionParsed[0]?.title || '', bodyHtml: '' });
+          }
+
+          const pagesHtmlQ = physicalPagesQ
+            .map((page, index) => buildPageShellQ(page.title, page.bodyHtml, index === physicalPagesQ.length - 1 ? doctorFooterHtml : ''))
+            .join('');
+
+          const existingPagesQ = doc.querySelectorAll('.print-page');
+          existingPagesQ.forEach((el) => el.remove());
+          doc.body.insertAdjacentHTML('beforeend', pagesHtmlQ);
+
+          // Pequena espera adicional para o reflow do DOM reconstruído.
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
 
         const targetEls = resolvePdfPageElements(doc);
 
