@@ -5,11 +5,33 @@ import { buildPdfPageBatch, pageHeightPx, pageWidthPx } from "./pdfPageGeometry"
 import { paginateSectionIntoPages } from "./reportPagination";
 
 // CORREÇÃO (revisão Manus 2026-09-25, bloqueio "laudo único longo é
-// cortado no PDF financeiro"): reserva fixa de altura para o bloco de
+// cortado no PDF financeiro"): reserva de altura para o bloco de
 // assinatura/carimbo do médico, sempre presente na folha (vazia nas
 // páginas que não são a última do documento, preenchida na última) — ver
 // mecanismo completo no comentário grande logo abaixo de downloadFinancialReportPdf.
-const FOOTER_RESERVE_MM = 50;
+//
+// CORREÇÃO (Bloqueio 1, parecer corretivo da Manus, 2026-09-25): esta
+// reserva era um `min-height` — a folha usada para MEDIR a área útil
+// disponível (com a reserva vazia) media menos espaço ocupado do que a
+// folha REAL na última página (com carimbo+assinatura+nome+CRM+data
+// dentro), porque o conteúdo real podia crescer além do mínimo. Isso
+// aceitava conteúdo contra uma medição otimista, que depois não cabia de
+// verdade na última folha assinada. Agora a reserva é uma altura FIXA
+// (não mínima) com `overflow:hidden` própria — a área ocupada pela
+// reserva é EXATAMENTE a mesma na folha de medição (vazia) e na folha
+// real (preenchida), então a área útil medida para `.report-body` é
+// sempre a área real disponível, em toda folha, inclusive a última.
+//
+// Dimensionamento: carimbo (max-height 24mm) + assinatura (max-height
+// 13mm) + margens entre eles (2mm cada) + linha de assinatura (~2mm) +
+// nome (~4mm) + CRM (~4mm) + data assinatura (~4mm) + margem do bloco
+// (3mm) soma cerca de 56mm no pior caso (todos os campos preenchidos,
+// carimbo E assinatura presentes). 65mm dá folga confortável sem
+// depender de contagem exata; o `overflow:hidden` da própria reserva é
+// o limite de segurança final — mesmo se o conteúdo real excedesse essa
+// estimativa, ele seria cortado apenas dentro da reserva (nunca invade
+// `.report-body`), e não silenciosamente aceito como "coube".
+const FOOTER_RESERVE_MM = 65;
 
 function absoluteUrl(value: string | null | undefined) {
   return value?.startsWith("/") ? `${window.location.origin}${value}` : value || "";
@@ -148,7 +170,7 @@ export async function downloadFinancialReportPdf(documentData: any) {
       .print-page { width:${paperWidth};height:${paperHeight};position:relative;overflow:hidden;padding:${marginTop}mm ${marginRight}mm ${marginBottom}mm ${marginLeft}mm;background:#fff center/cover no-repeat;page-break-after:always;font-size:${fontSize}pt;line-height:${lineHeight};display:flex;flex-direction:column; }
       .print-page:last-child { page-break-after:auto; } header { display:flex;align-items:center;gap:8px;min-height:18mm;border-bottom:1px solid #d0d0d0;padding-bottom:4mm; } header img { max-height:15mm;max-width:45mm;object-fit:contain; } .header-spacer { flex:1; }
       .patient { font-size:9.5pt;line-height:1.7;margin:5mm 0; } h1 { font-size:12pt;text-align:center;text-transform:uppercase;letter-spacing:.04em;margin:4mm 0 7mm; } .report-body { flex:1;min-height:0;overflow-wrap:anywhere;overflow:hidden; } .report-body p,.report-body div { margin-bottom:3pt; }
-      .footer-reserve { min-height:${FOOTER_RESERVE_MM}mm;display:flex;align-items:flex-end;justify-content:center; }
+      .footer-reserve { height:${FOOTER_RESERVE_MM}mm;overflow:hidden;display:flex;align-items:flex-end;justify-content:center; }
       .doctor-footer { text-align:center;margin:0 auto 3mm;max-width:65mm;page-break-inside:avoid;font-size:9pt; } .doctor-footer span { display:block;margin-top:2pt;color:#444; } .signature,.stamp { display:block;object-fit:contain;margin:0 auto 2mm; } .signature { max-width:45mm;max-height:13mm; } .stamp { max-width:53mm;max-height:24mm; } .signature-line { border-top:1px solid #333;width:45mm;margin:0 auto 2mm; }
       .unit-footer { position:absolute;bottom:0;left:0;width:100%;max-height:28mm;object-fit:contain; }
     </style></head><body></body></html>`);

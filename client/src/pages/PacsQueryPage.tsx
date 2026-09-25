@@ -13,7 +13,7 @@ import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx, resolvePdfPageElements } from "@/lib/pdfPageGeometry";
-import { paginateSectionIntoPages } from "@/lib/reportPagination";
+import { ContentTooLargeForPageError, paginateSectionIntoPages } from "@/lib/reportPagination";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -1660,6 +1660,15 @@ setSelectedStudy(study);
   }
   .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .doctor-footer { text-align: center; margin: 14mm auto 0; max-width: 240px; page-break-inside: avoid; }
+  /* CORREÇÃO (Bloqueio 1, parecer corretivo da Manus, 2026-09-25): dentro
+     da reserva fixa de rodapé do download (.footer-reserve), o
+     margin-top:14mm acima somaria ao alinhamento por flex já feito pela
+     reserva, inflando a altura realmente ocupada além da altura FIXA
+     reservada — exatamente a divergência entre "folha de medição" e
+     "folha real" que causou o Bloqueio 1. Este override (mais específico)
+     zera esse espaçamento só dentro da reserva; a colocação original do
+     rodapé na impressão nativa (fora de .footer-reserve) não é afetada. */
+  .footer-reserve .doctor-footer { margin-top: 0; }
   .sig-img   { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
   .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
   .sig-line  { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
@@ -1765,6 +1774,17 @@ setSelectedStudy(study);
 
     if (actionType === 'download') {
       toast.loading('Gerando arquivo PDF para download...', { id: 'pdf-dl' });
+      // CORREÇÃO (Bloqueio 3, parecer corretivo da Manus, 2026-09-25): o
+      // iframe é declarado fora do try/catch e removido num `finally`
+      // (guardado por `parentNode`, então é seguro chamar mesmo se ele já
+      // tiver sido removido no caminho de sucesso) — antes, se qualquer
+      // erro acontecesse ANTES da remoção explícita no caminho feliz
+      // (ex.: ContentTooLargeForPageError durante a paginação), o iframe
+      // ficava orfão no DOM para sempre.
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.left = '-9999px';
+      iframe.style.top = '0';
       try {
         // CORREÇÃO (auditoria independente 2026-09-25, Achado 1, confirmado
         // pela Manus): o seletor `.sheet` nunca existiu no HTML gerado — o
@@ -1781,11 +1801,7 @@ setSelectedStudy(study);
         const pageWidthPxQ = pageWidthPx(pageSizeQ);
         const pageHeightPxQ = pageHeightPx(pageSizeQ);
 
-        // Criar iframe oculto para renderizar perfeitamente com CSS e imagens completas
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'fixed';
-        iframe.style.left = '-9999px';
-        iframe.style.top = '0';
+        // Configurar dimensões do iframe oculto para renderizar perfeitamente com CSS e imagens completas
         iframe.style.width = `${pageWidthPxQ}px`;
         iframe.style.height = `${pageHeightPxQ}px`;
         document.body.appendChild(iframe);
@@ -1839,7 +1855,16 @@ setSelectedStudy(study);
           sectionsForPdfQ = [{ title: reportTitle || '', body: bodyHtml }];
         }
 
-        const FOOTER_RESERVE_MM_Q = 50;
+        // CORREÇÃO (Bloqueio 1, parecer corretivo da Manus, 2026-09-25):
+        // era min-height — a folha de medição (rodapé vazio) media mais
+        // área disponível do que a folha real (última, com assinatura),
+        // podendo aceitar conteúdo que depois não cabia de verdade.
+        // Altura FIXA + overflow:hidden própria garante área idêntica na
+        // medição e na folha real, em toda página. Dimensionamento: ver
+        // comentário equivalente em financialReportPdfDownload.ts (~56mm
+        // no pior caso com carimbo+assinatura+nome+CRM+data; 65mm dá
+        // folga, overflow:hidden é o limite de segurança final).
+        const FOOTER_RESERVE_MM_Q = 65;
         const headerHtmlQ = `
           <div class="header">
             <div class="header-logo">${logoHtml}</div>
@@ -1858,7 +1883,7 @@ setSelectedStudy(study);
               <div class="patient-data">${patientDataHtml}</div>
               <div class="exam-title">${examTitle || ''}</div>
               <div class="report-body" style="flex:1;overflow:hidden;">${bodyHtml}</div>
-              <div style="min-height:${FOOTER_RESERVE_MM_Q}mm;display:flex;align-items:flex-end;justify-content:center;">${footerReserveHtml}</div>
+              <div style="height:${FOOTER_RESERVE_MM_Q}mm;overflow:hidden;display:flex;align-items:flex-end;justify-content:center;">${footerReserveHtml}</div>
             </div>
             <div style="margin-top:auto;">${footerHtmlQ}</div>
           </div>`;
@@ -1942,21 +1967,40 @@ setSelectedStudy(study);
           pdf.addImage(canvases[index].toDataURL('image/png'), 'PNG', entry.xOffset, 0, entry.width, entry.height);
         }
 
-        document.body.removeChild(iframe);
-
         pdf.save(`Laudo_${patientName.replace(/\s+/g, '_')}.pdf`);
         toast.dismiss('pdf-dl');
         toast.success('PDF baixado com sucesso!');
       } catch (err) {
         toast.dismiss('pdf-dl');
-        // Fallback seguro: se falhar o canvas, abrir a janela de impressão nativa onde o usuário pode escolher Salvar como PDF
-        const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-        const win = window.open(URL.createObjectURL(blob), '_blank');
-        if (win) {
-          toast.success('Visualização aberta. Selecione "Salvar como PDF" no menu de impressão.');
+        // CORREÇÃO (Bloqueio 3, parecer corretivo da Manus, 2026-09-25): um
+        // `catch` genérico capturava também ContentTooLargeForPageError (um
+        // bloco de conteúdo maior que a página, que a paginação real
+        // recusou de propósito — ver reportPagination.ts) e caía no mesmo
+        // fallback de "abrir fullHtml para impressão nativa" com uma
+        // mensagem de SUCESSO. Mas fullHtml usa as MESMAS folhas de altura
+        // fixa com overflow:hidden que rejeitaram esse bloco por não
+        // caber — abrir esse HTML como "pronto para salvar" apresentaria ao
+        // usuário um documento que também pode estar com conteúdo cortado,
+        // mascarado por uma mensagem de sucesso. Agora esse erro específico
+        // tem tratamento dedicado: mensagem clara de erro, SEM abrir o
+        // fallback. O fallback de impressão nativa continua existindo para
+        // as demais falhas (ex.: erro de captura do html2canvas, imagem que
+        // não carregou), que não implicam conteúdo comprovadamente maior
+        // que a página.
+        if (err instanceof ContentTooLargeForPageError) {
+          toast.error('Não foi possível gerar o PDF', { description: err.message });
         } else {
-          toast.error('Erro ao gerar PDF. Verifique os bloqueadores de pop-up.');
+          // Fallback seguro: se falhar o canvas, abrir a janela de impressão nativa onde o usuário pode escolher Salvar como PDF
+          const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+          const win = window.open(URL.createObjectURL(blob), '_blank');
+          if (win) {
+            toast.success('Visualização aberta. Selecione "Salvar como PDF" no menu de impressão.');
+          } else {
+            toast.error('Erro ao gerar PDF. Verifique os bloqueadores de pop-up.');
+          }
         }
+      } finally {
+        if (iframe.parentNode) iframe.remove();
       }
     } else {
       // Impressão direta sem abrir aba intermediária: usa iframe oculto que aciona window.print() automaticamente

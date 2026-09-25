@@ -23,10 +23,50 @@
 //        multisseção (JSON com 2+ seções); laudo de seção única
 //        continuava usando .print-shared-sheet sem paginação real.
 //
-// Este módulo (v2) resolve B1, B2 e B3. B4 é resolvido no arquivo que
-// consome este módulo (PacsQueryPage.tsx), tratando também a seção única
-// como uma "seção" de 1 item processada pela mesma pipeline — não é uma
-// mudança neste módulo.
+// A v2 resolveu B1, B2 e B3 aqui; B4 foi resolvido no arquivo que consome
+// este módulo (PacsQueryPage.tsx).
+//
+// A v2 foi revisada de novo pela Manus ("Parecer corretivo — paginação
+// dos PDFs de laudos", 2026-09-25), que encontrou 3 novos bloqueios,
+// desta vez com medição real em Chromium contra o próprio código da v2:
+//
+//   Bloqueio 1 — a folha usada para MEDIR a área útil disponível tinha a
+//        reserva de rodapé vazia, mas a folha REAL (a última, com
+//        assinatura/carimbo/nome/CRM/data) podia precisar de mais espaço
+//        do que o `min-height` da reserva — nesse caso a reserva cresce
+//        além do mínimo e REDUZ a área disponível para `.report-body`
+//        SÓ na última folha, depois que o conteúdo já foi aceito contra
+//        uma medição otimista. Como `.report-body` tem `overflow:hidden`,
+//        esse excedente podia ser cortado. A tolerância de "+1px" no
+//        teste de ajuste também podia mascarar overflow real.
+//   Bloqueio 2 — `paginateNodes` descartava qualquer nó de texto cujo
+//        `trim()` fosse vazio, incluindo espaços que são SEPARADORES
+//        SIGNIFICATIVOS entre elementos inline (`<span>A</span>
+//        <span>B</span>` virava "AB" sem o espaço). A fragmentação por
+//        palavra também normalizava espaçamento (`trim()` +
+//        `split(/\s+/)` + `join(" ")`), perdendo espaços múltiplos,
+//        iniciais/finais e quebras de linha intencionais.
+//   Bloqueio 3 — no download rápido (PacsQueryPage.tsx), um `catch`
+//        genérico capturava também `ContentTooLargeForPageError` e caía
+//        no fallback de abrir `fullHtml` para impressão nativa com
+//        mensagem de SUCESSO — mas `fullHtml` usa as mesmas folhas de
+//        altura fixa com `overflow:hidden` que rejeitaram o bloco por
+//        não caber, então o "fallback" podia apresentar ao usuário um
+//        documento truncado como se estivesse pronto. O iframe de
+//        captura também não era removido nesse caminho.
+//
+// Esta versão (v3) resolve os 3 bloqueios: a reserva de rodapé virou uma
+// altura FIXA (não `min-height`) generosamente dimensionada e com
+// `overflow:hidden` própria, garantindo que a área medida seja idêntica
+// à área real em toda folha, inclusive a última (Bloqueio 1); a
+// tolerância de ajuste foi reduzida ao mínimo necessário só para erro de
+// arredondamento subpixel; nós de texto só-espaço deixaram de ser
+// descartados (Bloqueio 2, resolvido aqui); e a fragmentação por palavra
+// passou a preservar espaçamento original exato via tokens
+// palavra/espaço em vez de normalizar com trim/split/join (Bloqueio 2,
+// resolvido aqui). O Bloqueio 3 é resolvido no arquivo consumidor
+// (PacsQueryPage.tsx), dando tratamento dedicado a
+// `ContentTooLargeForPageError` — não é uma mudança neste módulo.
 //
 // MECANISMO (B1 + B2): em vez de somar alturas pré-medidas, o algoritmo
 // insere incrementalmente CLONES REAIS dos nós filhos (elementos E nós de
@@ -93,21 +133,47 @@ export interface PageBuilder {
   html(): string;
 }
 
-const isEmptyWhitespaceText = (node: ChildNode): boolean =>
-  node.nodeType === Node.TEXT_NODE && !(node.textContent ?? "").trim();
+// CORREÇÃO (Bloqueio 2, parecer corretivo da Manus, 2026-09-25): a v2
+// descartava qualquer nó de texto cujo `trim()` fosse vazio — mas um nó
+// de texto só-espaço pode ser um SEPARADOR VISÍVEL entre dois elementos
+// inline (`<span>A</span> <span>B</span>`, onde o espaço central é um nó
+// de texto só-espaço e sua remoção junta as palavras: "AB"). A única
+// coisa segura de descartar é um nó REALMENTE vazio (comprimento zero —
+// não carrega conteúdo nenhum, nem espaço) ou um nó de comentário (nunca
+// visível). Qualquer nó de texto com pelo menos 1 caractere, incluindo
+// só espaço, é preservado e processado normalmente por `paginateNodes` —
+// incluí-lo é inofensivo (ocupa praticamente nenhuma altura real) e
+// omiti-lo pode alterar o texto renderizado.
+const isSkippableNode = (node: ChildNode): boolean => {
+  if (node.nodeType === Node.COMMENT_NODE) return true;
+  if (node.nodeType === Node.TEXT_NODE) return (node.textContent ?? "").length === 0;
+  return false;
+};
 
 /** Um nó é "fragmentável" por palavra se for um nó de texto solto, ou um
  * elemento cujo único conteúdo é texto (sem filhos-elemento aninhados) —
  * fragmentar um elemento com filhos aninhados por palavra quebraria a
  * marcação interna, então esses são tratados como não-fragmentáveis. */
 const isWordFragmentable = (node: ChildNode): boolean => {
-  if (node.nodeType === Node.TEXT_NODE) return !!(node.textContent ?? "").trim();
+  if (node.nodeType === Node.TEXT_NODE) return (node.textContent ?? "").length > 0;
   if (node.nodeType === Node.ELEMENT_NODE) {
     const el = node as Element;
-    return el.children.length === 0 && !!(el.textContent ?? "").trim();
+    return el.children.length === 0 && (el.textContent ?? "").length > 0;
   }
   return false;
 };
+
+/**
+ * Divide um texto em tokens alternando "sequência de não-espaço" e
+ * "sequência de espaço" (`/\S+|\s+/g`), preservando o espaçamento
+ * original exatamente — ao contrário de `trim()` + `split(/\s+/)` +
+ * `join(" ")` (usado na v2), que normalizava espaços múltiplos, iniciais/
+ * finais e quebras de linha para um único espaço simples (Bloqueio 2 do
+ * parecer corretivo). Reconstruir com `tokens.slice(0, n).join("")` (sem
+ * separador adicional, já que o espaçamento já está nos próprios tokens)
+ * reproduz o texto original byte a byte até o ponto de corte.
+ */
+export const tokenizePreservingWhitespace = (text: string): string[] => text.match(/\S+|\s+/g) ?? [];
 
 /**
  * Núcleo puro da decisão de paginação: para cada nó de `nodes` (na ordem),
@@ -121,14 +187,17 @@ const isWordFragmentable = (node: ChildNode): boolean => {
  * esta função inteira em jsdom com um builder falso.
  */
 export function paginateNodes(nodes: ChildNode[], createPage: () => PageBuilder): PageBuilder[] {
-  const meaningfulNodes = nodes.filter((n) => !isEmptyWhitespaceText(n));
+  // Só nós genuinamente vazios (texto de comprimento zero) ou comentários
+  // são descartados — um nó de texto só-espaço é preservado, porque pode
+  // ser um separador visível entre elementos inline (Bloqueio 2).
+  const relevantNodes = nodes.filter((n) => !isSkippableNode(n));
   const pages: PageBuilder[] = [];
   let page = createPage();
   pages.push(page);
 
-  if (meaningfulNodes.length === 0) return pages;
+  if (relevantNodes.length === 0) return pages;
 
-  const queue = [...meaningfulNodes];
+  const queue = [...relevantNodes];
   while (queue.length > 0) {
     const node = queue.shift()!;
 
@@ -175,7 +244,15 @@ export function paginateNodes(nodes: ChildNode[], createPage: () => PageBuilder)
  * de testabilidade no topo do arquivo.
  */
 export function createRealDomPageBuilder(body: HTMLElement): PageBuilder {
-  const fits = () => body.scrollHeight <= body.clientHeight + 1; // +1px de tolerância a arredondamento subpixel
+  // CORREÇÃO (Bloqueio 1, parecer corretivo da Manus, 2026-09-25): a v2
+  // aceitava até 1px de excesso ("+1px de tolerância"), o que numa área
+  // com `overflow:hidden` pode significar conteúdo real cortado e
+  // invisível no PDF. A tolerância agora é a MENOR possível — apenas o
+  // suficiente para absorver erro de arredondamento de ponto flutuante
+  // entre chamadas de layout (valores como 199.99999997 vs 200), nunca
+  // para aceitar overflow de conteúdo.
+  const SUBPIXEL_ROUNDING_TOLERANCE = 0.1;
+  const fits = () => body.scrollHeight <= body.clientHeight + SUBPIXEL_ROUNDING_TOLERANCE;
 
   const cloneShallowElement = (el: Element): Element => el.cloneNode(false) as Element;
 
@@ -189,22 +266,30 @@ export function createRealDomPageBuilder(body: HTMLElement): PageBuilder {
     },
 
     tryAppendPartialText(node) {
-      const fullText = (node.textContent ?? "").trim();
-      const words = fullText.split(/\s+/).filter(Boolean);
-      if (words.length === 0) return null;
+      // CORREÇÃO (Bloqueio 2, parecer corretivo da Manus): a v2 fazia
+      // `trim()` + `split(/\s+/)` + `join(" ")`, normalizando espaços
+      // múltiplos, iniciais/finais e quebras de linha para um único
+      // espaço — perdendo espaçamento original intencional. Agora
+      // tokenizamos preservando cada sequência de espaço exatamente como
+      // está, e reconstruímos concatenando os tokens sem separador
+      // adicional (o espaçamento já está nos próprios tokens).
+      const fullText = node.textContent ?? "";
+      const tokens = tokenizePreservingWhitespace(fullText);
+      if (tokens.length === 0) return null;
 
-      const makeCandidate = (wordCount: number): ChildNode => {
+      const makeCandidate = (tokenCount: number): ChildNode => {
+        const text = tokens.slice(0, tokenCount).join("");
         if (node.nodeType === Node.TEXT_NODE) {
-          return document.createTextNode(words.slice(0, wordCount).join(" "));
+          return document.createTextNode(text);
         }
         const el = cloneShallowElement(node as Element);
-        el.textContent = words.slice(0, wordCount).join(" ");
+        el.textContent = text;
         return el;
       };
 
-      // Busca binária pela maior quantidade de palavras que ainda cabe.
+      // Busca binária pela maior quantidade de tokens que ainda cabe.
       let lo = 1;
-      let hi = words.length;
+      let hi = tokens.length;
       let bestFitted = 0;
       while (lo <= hi) {
         const mid = Math.floor((lo + hi) / 2);
@@ -220,26 +305,25 @@ export function createRealDomPageBuilder(body: HTMLElement): PageBuilder {
         }
       }
 
-      if (bestFitted === 0) return null; // nem uma palavra coube
+      if (bestFitted === 0) return null; // nem um token coube
       body.appendChild(makeCandidate(bestFitted));
-      if (bestFitted >= words.length) return null; // coube inteiro, sem restante
-      return makeCandidateRemainder(node, words, bestFitted);
+      if (bestFitted >= tokens.length) return null; // coube inteiro, sem restante
+
+      const remainderText = tokens.slice(bestFitted).join("");
+      const remainder = node.nodeType === Node.TEXT_NODE
+        ? document.createTextNode(remainderText)
+        : (() => {
+            const el = cloneShallowElement(node as Element);
+            el.textContent = remainderText;
+            return el;
+          })();
+      return remainder;
     },
 
     html() {
       return body.innerHTML;
     },
   };
-
-  function makeCandidateRemainder(node: ChildNode, words: string[], fittedCount: number): ChildNode {
-    const remainderText = words.slice(fittedCount).join(" ");
-    if (node.nodeType === Node.TEXT_NODE) {
-      return document.createTextNode(remainderText);
-    }
-    const el = cloneShallowElement(node as Element);
-    el.textContent = remainderText;
-    return el;
-  }
 }
 
 /**

@@ -39,8 +39,10 @@
 import { describe, expect, it } from "vitest";
 import {
   ContentTooLargeForPageError,
+  createRealDomPageBuilder,
   paginateNodes,
   paginateSectionIntoPages,
+  tokenizePreservingWhitespace,
   type PageBuilder,
 } from "../client/src/lib/reportPagination";
 
@@ -138,10 +140,31 @@ describe("paginateNodes — núcleo de decisão da paginação real", () => {
     expect(combinedHtml).toContain("Texto final");
   });
 
-  it("nós de texto só-espaço em branco entre blocos são ignorados (não geram páginas vazias)", () => {
+  it("nós de texto só-espaço em branco não geram páginas vazias extras quando há orçamento sobrando", () => {
     const nodes: ChildNode[] = [el("p", "a"), document.createTextNode("   \n  "), el("p", "b")];
     const pages = paginateNodes(nodes, () => createFakeBuilder(1000));
     expect(pages).toHaveLength(1);
+  });
+
+  it("Bloqueio 2 (parecer corretivo, regressão): um nó de texto só-espaço ENTRE dois elementos NUNCA é descartado — é um separador visível, não lixo de formatação", () => {
+    // Reproduz exatamente o exemplo do parecer da Manus:
+    // <span>Primeiro</span> <span>Segundo</span> — o espaço central é um
+    // Text node cujo trim() é vazio. A v2 descartava esse nó
+    // (isEmptyWhitespaceText filtrava por trim()), e "PrimeiroSegundo"
+    // saía grudado na reconstrução. A v3 só descarta nós REALMENTE vazios
+    // (comprimento zero) ou comentários — o espaço é preservado.
+    const nodes: ChildNode[] = [el("span", "Primeiro"), document.createTextNode(" "), el("span", "Segundo")];
+    const pages = paginateNodes(nodes, () => createFakeBuilder(1000));
+    const combinedHtml = pages.map((p) => p.html()).join("");
+    expect(combinedHtml).toBe("<span>Primeiro</span> <span>Segundo</span>");
+    expect(combinedHtml).not.toContain("PrimeiroSegundo");
+  });
+
+  it("Bloqueio 2 (parecer corretivo, regressão): nó de texto genuinamente vazio (comprimento zero) é descartado sem gerar página vazia extra", () => {
+    const nodes: ChildNode[] = [el("p", "a"), document.createTextNode(""), el("p", "b")];
+    const pages = paginateNodes(nodes, () => createFakeBuilder(1000));
+    expect(pages).toHaveLength(1);
+    expect(pages[0].html()).toBe("<p>a</p><p>b</p>");
   });
 
   it("B1 (regressão conceitual): o custo de cada bloco é decidido inteiramente pelo PageBuilder — nenhuma soma pré-calculada é feita por paginateNodes, então qualquer fator (incluindo margens reais) que o builder real leve em conta é respeitado", () => {
@@ -230,6 +253,49 @@ describe("paginateSectionIntoPages — integração mínima (sem layout real)", 
   });
 });
 
+describe("tokenizePreservingWhitespace — Bloqueio 2 (parecer corretivo): fragmentação sem normalizar espaçamento", () => {
+  const cases: Array<[string, string]> = [
+    ["texto simples", "uma frase comum com espacos simples"],
+    ["espacos multiplos entre palavras", "uma   frase    com     espacos   multiplos"],
+    ["espaco inicial e final", "   frase com bordas   "],
+    ["tabs e quebras de linha", "linha1\tcom tab\nlinha2\ncom quebra"],
+    ["string vazia", ""],
+    ["só espaço", "   "],
+  ];
+
+  for (const [label, text] of cases) {
+    it(`reconstrói "${label}" byte a byte via tokens.join("")`, () => {
+      const tokens = tokenizePreservingWhitespace(text);
+      expect(tokens.join("")).toBe(text);
+    });
+  }
+
+  it("nunca produz um token que misture espaço e não-espaço (todo corte de página cai numa fronteira segura)", () => {
+    const tokens = tokenizePreservingWhitespace("Primeiro   Segundo\nTerceiro");
+    for (const token of tokens) {
+      const isAllWhitespace = /^\s+$/.test(token);
+      const isAllNonWhitespace = /^\S+$/.test(token);
+      expect(isAllWhitespace || isAllNonWhitespace).toBe(true);
+    }
+  });
+});
+
+describe("Bloqueio 2 (parecer corretivo, regressão em DOM real): tryAppend preserva espaçamento exato ao inserir o nó inteiro", () => {
+  it("um texto com espaços múltiplos e bordas é preservado exatamente quando cabe inteiro (jsdom real, sem depender de layout)", () => {
+    const body = document.createElement("div");
+    const builder = createRealDomPageBuilder(body);
+    const original = "  texto   com espacos   irregulares  ";
+    const node = document.createTextNode(original);
+    const fit = builder.tryAppend(node);
+    // jsdom sempre reporta scrollHeight/clientHeight como 0, então
+    // qualquer inserção "cabe" — isto não testa a decisão de layout (não
+    // testável sem navegador real), mas prova que a INSERÇÃO em si (via
+    // cloneNode) nunca normaliza ou perde espaçamento.
+    expect(fit).toBe(true);
+    expect(builder.html()).toBe(original);
+  });
+});
+
 // Confirmação estrutural (não substitui os testes de lógica pura acima,
 // mas garante que as duas vias de download — financeiro e impressão
 // rápida — de fato usam o mesmo módulo de paginação real, e que o
@@ -293,5 +359,33 @@ describe("wiring — as duas vias de download usam o mesmo módulo de paginaçã
     // agora cobre .print-shared-sheet também (a folha de seção única),
     // não só .print-page.
     expect(pacsQuerySource).toContain("'.print-page, .print-shared-sheet'");
+  });
+
+  it("Bloqueio 1 (parecer corretivo, regressão): a reserva de rodapé usa altura FIXA + overflow:hidden nas duas vias, não min-height", () => {
+    // A v3 corrige o Bloqueio 1: com min-height, a folha de MEDIÇÃO (rodapé
+    // vazio) podia medir uma área útil maior do que a folha REAL (última,
+    // com assinatura), que crescia além do mínimo. Altura fixa +
+    // overflow:hidden garante que a área ocupada pela reserva é idêntica
+    // nas duas, então a área útil medida é sempre a área real disponível.
+    expect(financialSource).not.toContain("min-height:${FOOTER_RESERVE_MM}mm");
+    expect(financialSource).toContain("height:${FOOTER_RESERVE_MM}mm;overflow:hidden");
+    expect(pacsQuerySource).not.toContain("min-height:${FOOTER_RESERVE_MM_Q}mm");
+    expect(pacsQuerySource).toContain("height:${FOOTER_RESERVE_MM_Q}mm;overflow:hidden");
+  });
+
+  it("Bloqueio 1 (parecer corretivo, regressão): a tolerância de ajuste não é mais de 1px inteiro (podia mascarar overflow real numa área com overflow:hidden)", () => {
+    const reportPaginationSource = readFileSync(
+      resolve(process.cwd(), "client/src/lib/reportPagination.ts"),
+      "utf8",
+    );
+    expect(reportPaginationSource).not.toContain("clientHeight + 1;");
+    expect(reportPaginationSource).toContain("SUBPIXEL_ROUNDING_TOLERANCE");
+  });
+
+  it("Bloqueio 3 (parecer corretivo, regressão): PacsQueryPage.tsx dá tratamento dedicado a ContentTooLargeForPageError — sem fallback de sucesso truncável, e remove o iframe em qualquer caminho", () => {
+    expect(pacsQuerySource).toContain("ContentTooLargeForPageError");
+    expect(pacsQuerySource).toContain("err instanceof ContentTooLargeForPageError");
+    // O iframe agora é removido num `finally`, não só no caminho feliz.
+    expect(pacsQuerySource).toContain("if (iframe.parentNode) iframe.remove();");
   });
 });
