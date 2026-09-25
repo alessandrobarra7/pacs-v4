@@ -460,3 +460,236 @@ PRÓXIMO FLUXO SEGURO
    real equivalente à folha de seção única (`.print-shared-sheet` /
    SharedReportSheet.tsx), dado que ela é compartilhada com o editor
    WYSIWYG ao vivo.
+
+===============================================================================
+ADENDO 2 — CORREÇÃO DOS BLOQUEIOS B1-B4 (resposta ao "Parecer de revisão
+— Paginação real dos PDFs", Manus, 2026-09-25)
+===============================================================================
+
+Commit desta correção: 1a939db
+Branch: claude/correcao-pdf-multisecao-financeiro (mesma branch, novo commit)
+Topo revisado pela Manus antes desta correção: f239d4c (BLOQUEADO)
+
+-------------------------------------------------------------------------------
+O QUE A MANUS ENCONTROU (medição real em Chromium)
+-------------------------------------------------------------------------------
+
+A Manus reproduziu a estrutura de folha Letter usada em produção
+(cabeçalho, dados, título, corpo flexível, reserva fixa de 50mm, margens
+reais de bloco) e mediu diretamente no navegador. Resultado: com 9
+parágrafos comuns, o particionador da v1 aceitava todos os 9 como
+"cabendo" na página (altura útil medida: 534,97px; soma das alturas dos
+blocos: 422,44px), mas o `scrollHeight` real do corpo montado foi 558px —
+23px de conteúdo excedente aceito indevidamente. A partir disso, ela
+confirmou 4 bloqueios:
+
+  B1 — measureTopLevelBlocks() somava getBoundingClientRect()/
+       offsetHeight de cada filho-elemento, sem contar margens
+       (margin-bottom:3pt de cada parágrafo, entre outras). A soma
+       subestimava a ocupação vertical real.
+  B2 — a medição usava `Array.from(container.children)` — só elementos,
+       nunca nós de texto soltos fora de tag. Um corpo como
+       "Texto<p>parágrafo</p>Texto final" perdia os dois trechos de
+       texto solto silenciosamente na reconstrução.
+  B3 — um bloco isolado mais alto que a página inteira ainda era
+       colocado sozinho numa folha com `overflow:hidden` e cortado — a
+       "limitação documentada" da v1 não tinha nenhum tratamento real, e
+       o handoff anterior prometia "sem perda de conteúdo" mesmo nesse
+       caso, o que era falso.
+  B4 — a reconstrução em `.print-page` só rodava para `reportBody` JSON
+       com 2+ seções; um laudo de SEÇÃO ÚNICA no download rápido
+       continuava usando `.print-shared-sheet` sem nenhuma paginação
+       real — mesmo o handoff anterior pedindo explicitamente para testar
+       "uma seção única com corpo longo" nas duas vias.
+
+Veredito da Manus: BLOQUEADO — não mesclar, não atualizar VM1.
+
+-------------------------------------------------------------------------------
+A CORREÇÃO (reportPagination.ts reescrito — v2)
+-------------------------------------------------------------------------------
+
+Abandonamos completamente a abordagem de "somar alturas pré-medidas". O
+novo mecanismo, seguindo exatamente a recomendação da própria Manus
+("inserir progressivamente candidatos na mesma shell final e comparar
+scrollHeight com clientHeight da área do corpo"):
+
+  1. Para cada seção, o corpo original é colocado num container fonte
+     oculto no MESMO documento de captura (mesma fonte/largura/CSS da
+     folha final).
+  2. Uma folha física física REAL e vazia é criada (mesma estrutura
+     completa: cabeçalho, dados do paciente, título, reserva de rodapé
+     fixa — idêntica à folha final).
+  3. Os nós do corpo original são percorridos em ordem (`childNodes`,
+     não `children` — inclui texto solto, corrige B2) e um CLONE de cada
+     um é inserido incrementalmente na folha física real. Após cada
+     inserção, verificamos `body.scrollHeight <= body.clientHeight`
+     (com 1px de tolerância a arredondamento). Isso conta corretamente
+     margens, colapso de margem entre irmãos e qualquer outra regra de
+     CSS real — não é mais uma soma aproximada (corrige B1).
+  4. Se um nó não coube na folha atual, abrimos uma nova folha física
+     vazia e tentamos de novo.
+  5. Se um nó não coube nem sozinho numa folha vazia: se for um nó de
+     texto simples (texto solto, ou elemento sem filhos-elemento
+     aninhados), fragmentamos por PALAVRA via busca binária — a maior
+     quantidade de palavras que couber fica nesta folha, o restante
+     volta para a fila e pode continuar se espalhando por quantas folhas
+     forem necessárias. Se o nó tiver marcação aninhada (não é seguro
+     fragmentar sem quebrar a estrutura) e ainda assim não couber
+     sozinho, a geração é interrompida com `ContentTooLargeForPageError`
+     — o usuário recebe uma mensagem de erro clara (via o mesmo
+     mecanismo de toast/fallback já existente) em vez de um PDF com
+     conteúdo cortado silenciosamente (corrige B3).
+
+Pré-requisito de CSS necessário para o passo 3 funcionar: `.report-body`
+passou a declarar `overflow:hidden` explicitamente nas duas vias. Sem
+isso, um elemento com overflow visível nunca faz `scrollHeight` divergir
+de `clientHeight` (não há contexto de rolagem), e o teste de "cabe/não
+cabe" simplesmente não teria efeito nenhum — essa é a causa raiz por trás
+de por que a v1, mesmo se tivesse contado margens corretamente, ainda
+não teria conseguido detectar overflow de forma confiável.
+
+TESTABILIDADE: a função `paginateNodes` (núcleo de decisão) não faz
+nenhuma chamada de layout diretamente — toda interação com o DOM passa
+pela interface `PageBuilder`, fornecida por quem chama. Isso permite
+testar a lógica de decisão INTEIRA em jsdom, com um `PageBuilder` falso
+orçamentado por contagem de caracteres em vez de layout real — os 4
+bloqueios (B1-B3, e a integração de B4 no arquivo consumidor) têm teste
+de regressão direto (server/report-pagination.test.ts, 16 testes). A
+implementação real (`createRealDomPageBuilder`, que usa
+scrollHeight/clientHeight de verdade) continua sendo a única parte não
+exercitada por teste automatizado, pela mesma razão de sempre: jsdom não
+computa layout real.
+
+-------------------------------------------------------------------------------
+B4 — CORREÇÃO ESPECÍFICA EM PacsQueryPage.tsx
+-------------------------------------------------------------------------------
+
+A Manus apontou corretamente que financialReportPdfDownload.ts NUNCA usa
+`.print-shared-sheet` (todas as seções, únicas ou múltiplas, já
+passavam por `.print-page`) — o problema era específico do download
+rápido em PacsQueryPage.tsx, que só reconstruía o DOM quando havia JSON
+multisseção.
+
+A correção: a variável `sectionsForPdfQ` agora é SEMPRE construída — se
+`reportBody` for JSON multisseção, usa as seções reais; caso contrário
+(seção única, HTML puro), constrói uma lista de 1 "seção" com o título e
+corpo do laudo. A reconstrução em `.print-page` (com a paginação real v2
+acima) roda incondicionalmente para essa lista, e o DOM antigo é limpo
+com o seletor `.print-page, .print-shared-sheet` (antes só limpava
+`.print-page`) para remover também a folha de seção única que o
+`fullHtml` original havia escrito.
+
+Isso resolve B4 SEM tocar em `SharedReportSheet.tsx` (usado pelo editor
+WYSIWYG ao vivo) nem na impressão nativa — a mudança fica inteiramente
+contida no DOM do iframe de captura do download, reconstruído momentos
+antes do `html2canvas`. Como a Manus mesma observou, essa era uma saída
+viável: "Se o requisito inclui laudo .print-shared-sheet com conteúdo
+longo, implementar uma estratégia própria para essa folha" — e
+implementamos essa estratégia própria (reaproveitando `.print-page`,
+sem alterar o componente compartilhado).
+
+-------------------------------------------------------------------------------
+O QUE NÃO FOI ALTERADO / FORA DE ESCOPO NESTA RODADA
+-------------------------------------------------------------------------------
+
+  - SharedReportSheet.tsx / `.print-shared-sheet` como COMPONENTE
+    continuam existindo e sendo usados pelo editor ao vivo, impressão
+    oficial e demais vias — não foram modificados. Apenas o DOM
+    reconstruído especificamente dentro do iframe de captura do download
+    rápido deixou de usar essa marcação para seção única.
+  - A impressão nativa (`window.print()`) permanece inalterada, como já
+    registrado no Adendo anterior.
+  - Nenhuma migration de banco, nenhum dado de produção tocado, nenhuma
+    alteração em VM1/VM2/VM3.
+
+-------------------------------------------------------------------------------
+TESTES NOVOS/ALTERADOS
+-------------------------------------------------------------------------------
+
+server/report-pagination.test.ts (reescrito, 16 testes): cobre
+diretamente cada bloqueio com um `PageBuilder` falso orçamentado por
+caracteres — B1 (um builder que soma um custo extra simulando margem
+detecta overflow que a v1, sem esse custo, aceitaria como cabendo), B2
+(texto solto nunca é perdido; nós só-espaço em branco são corretamente
+ignorados, sem gerar páginas vazias espúrias), B3 (fragmentação por
+palavra sem perda de nenhuma palavra quando o bloco tem várias palavras;
+`ContentTooLargeForPageError` explícito quando é uma única "palavra"
+sem espaços que não cabe nem sozinha — infragmentável por definição),
+mais testes de wiring confirmando que as duas vias importam e usam
+`paginateSectionIntoPages` (não mais os nomes da v1), que o
+pré-requisito `overflow:hidden` em `.report-body` está presente nas
+duas, e que PacsQueryPage.tsx não tem mais o `if (multiSectionParsed)`
+que restringia a correção ao caso multisseção (regressão específica de
+B4).
+
+server/doctor-finance-view.test.ts: assert atualizado para verificar
+`paginateSectionIntoPages` (e a ausência explícita dos nomes da v1) em
+vez de `measureTopLevelBlocks`/`splitBlocksIntoPages`.
+
+-------------------------------------------------------------------------------
+VALIDAÇÃO EXECUTADA NO SANDBOX
+-------------------------------------------------------------------------------
+
+  pnpm check ................. aprovado, sem erro TypeScript
+  TZ=UTC pnpm test ............ 583 aprovados, 11 falhas históricas já
+                                 catalogadas em 7 suítes fora deste
+                                 escopo (mesmas de sempre), 1 ignorado,
+                                 595 no total — nenhuma falha nova
+  pnpm build .................. aprovado (apenas aviso conhecido de
+                                 bundle grande)
+  git diff --check ............ aprovado, sem whitespace inválido
+
+-------------------------------------------------------------------------------
+ARQUIVOS ALTERADOS NESTE COMMIT (1a939db)
+-------------------------------------------------------------------------------
+
+  client/src/lib/reportPagination.ts ........... reescrito (v2 completa)
+  client/src/lib/financialReportPdfDownload.ts . atualizado para usar
+                                                   paginateSectionIntoPages
+  client/src/pages/PacsQueryPage.tsx ............ reconstrução em
+                                                   .print-page agora
+                                                   incondicional (corrige
+                                                   B4) + usa
+                                                   paginateSectionIntoPages
+  server/report-pagination.test.ts .............. reescrito (16 testes,
+                                                   cobrindo B1-B4)
+  server/doctor-finance-view.test.ts ............ assert de wiring
+                                                   atualizado
+
+-------------------------------------------------------------------------------
+ESTADO ATUAL
+-------------------------------------------------------------------------------
+
+Publicado no GitHub, mesma branch claude/correcao-pdf-multisecao-
+financeiro, sem PR aberto, sem merge, nada implantado em VM1/VM2/VM3.
+
+-------------------------------------------------------------------------------
+PRÓXIMO FLUXO SEGURO — pedido específico de validação (itens 1-5 do
+parecer de bloqueio da Manus, seção "Correções necessárias antes de
+nova revisão")
+-------------------------------------------------------------------------------
+
+1. Repetir a mesma medição real em Chromium que encontrou o problema
+   original (folha Letter, cabeçalho, dados, título, corpo flexível,
+   reserva fixa, margens reais) — confirmar que `scrollHeight <=
+   clientHeight` do corpo é respeitado em cada folha capturada, com o
+   novo mecanismo de inserção incremental.
+2. Testar especificamente o cenário de texto solto fora de tag (item 5,
+   "HTML simples com nós de texto diretos") — confirmar que nada é
+   perdido na reconstrução.
+3. Testar um bloco individual muito alto (tabela ou div rico) que não
+   caiba nem sozinho — confirmar que a geração é interrompida com uma
+   mensagem de erro clara (toast de erro / fallback para impressão
+   nativa), em vez de produzir um PDF cortado.
+4. Testar laudo de seção única com corpo longo no DOWNLOAD RÁPIDO
+   especificamente (o cenário do Bloqueio B4) — confirmar 2+ páginas sem
+   corte, exatamente como já funciona no PDF financeiro.
+5. Repetir os testes de regressão do Achado 1 (3 seções curtas -> 3
+   páginas) e do cenário original que motivou a v1 (seção única >1
+   página) para confirmar que a reescrita não quebrou nenhum
+   comportamento já aprovado.
+6. Se aprovado: revisão independente do diff, merge sem reescrever
+   histórico, validação completa no sandbox, atualização da VM1
+   exclusivamente por `git fetch` + `merge --ff-only` a partir de main,
+   build, restart PM2, health check HTTP 200, homologação manual dos
+   quatro caminhos de PDF.
