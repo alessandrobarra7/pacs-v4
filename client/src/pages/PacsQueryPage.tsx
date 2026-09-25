@@ -12,6 +12,9 @@ import { AppHeader } from "@/components/AppHeader";
 import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { buildPdfPageBatch, pageHeightPx, pageWidthPx, resolvePdfPageElements } from "@/lib/pdfPageGeometry";
+import { ContentTooLargeForPageError, paginateSectionIntoPages } from "@/lib/reportPagination";
+import { runControlledPrint } from "@/lib/printOrchestration";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -35,6 +38,22 @@ import {
 } from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+
+// CORRECAO (Bloqueio 3, parecer de revisao v3 da Manus, 2026-09-25): erro
+// dedicado para falhas de captura de imagem (html2canvas / carregamento de
+// imagem), que e a UNICA categoria de erro para a qual o fallback de
+// impressao nativa (fullHtml) continua sendo seguro abrir. Qualquer outro
+// erro no fluxo de download rapido (medicao de area util, paginacao,
+// montagem do documento, jsPDF, pdf.save) NAO deve abrir esse fallback,
+// porque fullHtml usa as mesmas folhas de altura fixa com overflow:hidden
+// que rejeitaram o conteudo - abri-lo como "pronto para salvar" poderia
+// apresentar ao usuario um PDF com conteudo cortado.
+class PdfCaptureError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'PdfCaptureError';
+  }
+}
 
 // P1: converte URL de imagem para base64 — necessário para janela de print (popup about:blank)
 async function fetchToBase64(url: string): Promise<string | null> {
@@ -1647,7 +1666,7 @@ setSelectedStudy(study);
   .clinic-sub { font-size: 10pt; color: #444; margin-top: 2pt; }
   .patient-data { font-size: 10pt; line-height: 1.7; margin-bottom: 12pt; }
   .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
-  .report-body { font-size: ${lSize}pt; line-height: ${lLine}; }
+  .report-body { font-size: ${lSize}pt; line-height: ${lLine}; overflow: hidden; }
   .report-body > p,
   .report-body > div { margin-bottom: 3pt; }
   .report-body strong, .report-body b { font-weight: 700; }
@@ -1658,6 +1677,25 @@ setSelectedStudy(study);
   }
   .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .doctor-footer { text-align: center; margin: 14mm auto 0; max-width: 240px; page-break-inside: avoid; }
+  /* CORREÇÃO (Bloqueio 1, parecer corretivo da Manus, 2026-09-25): dentro
+     da reserva fixa de rodapé do download (.footer-reserve), o
+     margin-top:14mm acima somaria ao alinhamento por flex já feito pela
+     reserva, inflando a altura realmente ocupada além da altura FIXA
+     reservada — exatamente a divergência entre "folha de medição" e
+     "folha real" que causou o Bloqueio 1. Este override (mais específico)
+     zera esse espaçamento só dentro da reserva; a colocação original do
+     rodapé na impressão nativa (fora de .footer-reserve) não é afetada.
+     CORREÇÃO (Bloqueio 1, parecer v3 da Manus, 2026-09-25): esta regra
+     nunca alcançava a folha real — o elemento div criado por
+     buildPageShellQ tinha a altura/overflow/flex certos em style inline,
+     mas NUNCA recebeu class="footer-reserve" (só o CSS declarava essa
+     classe; o HTML gerado não a usava). O seletor .footer-reserve
+     .doctor-footer não encontrava elemento nenhum, e o .doctor-footer
+     com margin:14mm auto 0 genérico continuava valendo dentro da
+     reserva de 65mm. A classe foi adicionada ao div real
+     (buildPageShellQ) — agora este override alcança o DOM efetivamente
+     capturado. */
+  .footer-reserve .doctor-footer { margin-top: 0; }
   .sig-img   { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
   .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
   .sig-line  { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
@@ -1752,30 +1790,222 @@ setSelectedStudy(study);
     });
   })()
   }
-    <script>
-      window.onload = function() {
-        if ("${actionType}" === "print") {
-          setTimeout(() => { window.print(); }, 400);
-        }
-      };
-    <\/script>
   </body></html>`;
+  // CORRECAO (relato tecnico "Bloqueio da impressao oficial", Manus,
+  // 2026-09-25): fullHtml continha um <script> de auto-impressao
+  // (window.onload -> setTimeout(window.print, 400) quando actionType
+  // === 'print'). A impressao oficial tentava remover esse script por
+  // regex antes de reconstruir as paginas, mas a regex nao reconhecia o
+  // "<\/script>" (com barra invertida escapada) realmente presente no
+  // HTML gerado pelo template literal — o script sobrevivia e disparava
+  // window.print() sozinho ~400ms depois do carregamento do iframe,
+  // ANTES da espera de 800ms e da reconstrucao paginada controlada, ou
+  // mesmo quando a reconstrucao falhava. A solucao adotada (mais robusta
+  // que corrigir a regex, como a propria Manus recomendou) e nunca gerar
+  // esse script: fullHtml agora NUNCA contem window.onload nem
+  // window.print() automatico, para nenhum actionType. A impressao
+  // oficial dispara print() por um unico caminho explicito e controlado
+  // — ver runControlledPrint mais abaixo — depois que a reconstrucao
+  // paginada tiver sucesso.
+
+    // CORREÇÃO (relato técnico "Bloqueio de fallback e impressão oficial",
+    // Manus, 2026-09-25): a reconstrução das páginas físicas paginadas
+    // (sectionsForPdfQ -> physicalPagesQ -> pagesHtmlQ -> substituição no
+    // DOM) era feita SÓ dentro do bloco de download, inline. Isso deixava
+    // dois outros caminhos usando fullHtml original (não paginado, com
+    // .print-shared-sheet de altura fixa e overflow:hidden, ou .print-page
+    // sem divisão de seção longa):
+    //   (a) o fallback aberto quando html2canvas falha no download — o
+    //       catch abria fullHtml num window.open, perdendo exatamente a
+    //       reconstrução que protege o conteúdo;
+    //   (b) a ação "Imprimir", que nunca executava a reconstrução — o
+    //       script embutido em fullHtml disparava window.print() sozinho
+    //       sobre o documento original.
+    // Agora a reconstrução é uma função compartilhada (reconstructPaginatedPages,
+    // fechamento sobre as variáveis já calculadas acima nesta função) chamada
+    // pelos dois caminhos, e tanto o fallback de captura quanto a impressão
+    // oficial usam o MESMO documento paginado que o download em PDF.
+    const pageWidthPxQ = pageWidthPx(pageSizeQ);
+    const pageHeightPxQ = pageHeightPx(pageSizeQ);
+
+    // Reconstrói, dentro de `doc` (documento de um iframe já com fullHtml
+    // escrito e carregado), as páginas físicas paginadas — substitui
+    // qualquer `.print-page`/`.print-shared-sheet` existente pelo resultado
+    // de `paginateSectionIntoPages`. É a MESMA lógica usada nas 3 rodadas
+    // anteriores para o download; extraída aqui para não duplicar entre
+    // download, impressão oficial e fallback de captura. Lança
+    // `ContentTooLargeForPageError` (conteúdo maior que a página) ou `Error`
+    // (falha de medição) quando a paginação não pode ser concluída com
+    // segurança — nenhum dos 3 caminhos deve tratar essas exceções como
+    // "documento pronto para uso".
+    const reconstructPaginatedPages = async (doc: Document): Promise<void> => {
+      // CORREÇÃO (revisão Manus 2026-09-25, "PDFs multisseção e
+      // financeiro", e "Parecer de revisão — Paginação real dos PDFs"):
+      // o Achado 1 resolveu "N seções JSON -> N páginas", mas (a) uma
+      // ÚNICA seção cujo conteúdo seja mais alto do que uma folha física
+      // ainda era cortada por `overflow:hidden` em `.print-page`, com a
+      // assinatura sobreposta ao texto cortado; e (b) a versão anterior
+      // desta correção só reconstruía o DOM quando `reportBody` era um
+      // JSON com 2+ seções — um laudo de SEÇÃO ÚNICA continuava usando
+      // `.print-shared-sheet` sem nenhuma paginação real (Bloqueio B4 do
+      // parecer da Manus). Agora TODO laudo (seção única ou múltipla)
+      // passa pela mesma reconstrução em `.print-page` antes da captura
+      // — uma seção única vira uma lista de 1 "seção" e segue o mesmo
+      // caminho. Isso só afeta o DOM já escrito no iframe recebido —
+      // nunca o componente compartilhado SharedReportSheet.tsx usado pelo
+      // editor ao vivo.
+      //
+      // A paginação em si também foi corrigida (Bloqueios B1/B2/B3): em
+      // vez de somar alturas pré-medidas (que ignorava margens dos
+      // blocos e perdia texto solto fora de tags), agora inserimos
+      // incrementalmente cada nó real do corpo numa folha física real e
+      // verificamos `scrollHeight <= clientHeight` após cada inserção —
+      // ver client/src/lib/reportPagination.ts (paginateSectionIntoPages)
+      // para o mecanismo completo, idêntico ao usado em
+      // financialReportPdfDownload.ts.
+      let sectionsForPdfQ: Array<{ title: string; body: string }>;
+      try {
+        const parsedForPagination = JSON.parse(reportBody);
+        if (Array.isArray(parsedForPagination) && parsedForPagination.length > 1 && 'body' in parsedForPagination[0]) {
+          sectionsForPdfQ = parsedForPagination;
+        } else {
+          sectionsForPdfQ = [{ title: reportTitle || '', body: bodyHtml }];
+        }
+      } catch {
+        // reportBody não é JSON multisseção — laudo de seção única, HTML puro.
+        sectionsForPdfQ = [{ title: reportTitle || '', body: bodyHtml }];
+      }
+
+      // CORREÇÃO (Bloqueio 1, parecer corretivo da Manus, 2026-09-25):
+      // era min-height — a folha de medição (rodapé vazio) media mais
+      // área disponível do que a folha real (última, com assinatura),
+      // podendo aceitar conteúdo que depois não cabia de verdade.
+      // Altura FIXA + overflow:hidden própria garante área idêntica na
+      // medição e na folha real, em toda página. Dimensionamento: ver
+      // comentário equivalente em financialReportPdfDownload.ts (~56mm
+      // no pior caso com carimbo+assinatura+nome+CRM+data; 65mm dá
+      // folga, overflow:hidden é o limite de segurança final).
+      const FOOTER_RESERVE_MM_Q = 65;
+      const headerHtmlQ = `
+          <div class="header">
+            <div class="header-logo">${logoHtml}</div>
+            <div class="header-title">
+              <div class="clinic-name">${unitName}</div>
+              <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
+            </div>
+          </div>`;
+      const footerHtmlQ = lFooterUrl
+        ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
+        : `<div style="height:4mm;"></div>`;
+      const buildPageShellQ = (examTitle: string, bodyHtml: string, footerReserveHtml: string) => `
+          <div class="print-page">
+            ${headerHtmlQ}
+            <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
+              <div class="patient-data">${patientDataHtml}</div>
+              <div class="exam-title">${examTitle || ''}</div>
+              <div class="report-body" style="flex:1;overflow:hidden;">${bodyHtml}</div>
+              <div class="footer-reserve" style="height:${FOOTER_RESERVE_MM_Q}mm;overflow:hidden;display:flex;align-items:flex-end;justify-content:center;">${footerReserveHtml}</div>
+            </div>
+            <div style="margin-top:auto;">${footerHtmlQ}</div>
+          </div>`;
+
+      // Checagem preventiva (não usada para decidir a paginação — só
+      // detecta cedo um layout mal configurado onde a área útil seria
+      // <= 0, o que faria a paginação real falhar de forma confusa).
+      const sanityWrapperQ = doc.createElement('div');
+      sanityWrapperQ.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
+      sanityWrapperQ.innerHTML = buildPageShellQ(sectionsForPdfQ[0]?.title || '', '', doctorFooterHtml);
+      doc.body.appendChild(sanityWrapperQ);
+      const sanityBodyElQ = sanityWrapperQ.querySelector<HTMLElement>('.report-body');
+      const sanityAvailableHeightPxQ = sanityBodyElQ?.getBoundingClientRect().height ?? 0;
+      doc.body.removeChild(sanityWrapperQ);
+      if (sanityAvailableHeightPxQ <= 0) {
+        throw new Error('Não foi possível medir a área útil da página para paginação.');
+      }
+
+      const physicalPagesQ: Array<{ title: string; bodyHtml: string }> = [];
+      for (const section of sectionsForPdfQ) {
+        const sourceContainerQ = doc.createElement('div');
+        sourceContainerQ.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
+        sourceContainerQ.innerHTML = section.body || '';
+        doc.body.appendChild(sourceContainerQ);
+
+        const measuringShellsQ: HTMLElement[] = [];
+        const pagesHtmlForSectionQ = paginateSectionIntoPages(sourceContainerQ, () => {
+          const shell = doc.createElement('div');
+          shell.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
+          shell.innerHTML = buildPageShellQ(section.title, '', '');
+          doc.body.appendChild(shell);
+          measuringShellsQ.push(shell);
+          return shell.querySelector<HTMLElement>('.report-body')!;
+        });
+        measuringShellsQ.forEach((shell) => doc.body.removeChild(shell));
+        doc.body.removeChild(sourceContainerQ);
+
+        for (const bodyHtmlForPage of pagesHtmlForSectionQ) {
+          physicalPagesQ.push({ title: section.title, bodyHtml: bodyHtmlForPage });
+        }
+      }
+      if (physicalPagesQ.length === 0) {
+        physicalPagesQ.push({ title: sectionsForPdfQ[0]?.title || '', bodyHtml: '' });
+      }
+
+      const pagesHtmlQ = physicalPagesQ
+        .map((page, index) => buildPageShellQ(page.title, page.bodyHtml, index === physicalPagesQ.length - 1 ? doctorFooterHtml : ''))
+        .join('');
+
+      const existingPagesQ = doc.querySelectorAll('.print-page, .print-shared-sheet');
+      existingPagesQ.forEach((el) => el.remove());
+      doc.body.insertAdjacentHTML('beforeend', pagesHtmlQ);
+
+      // Pequena espera adicional para o reflow do DOM reconstruído.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    };
 
     if (actionType === 'download') {
       toast.loading('Gerando arquivo PDF para download...', { id: 'pdf-dl' });
+      // CORREÇÃO (Bloqueio 3, parecer corretivo da Manus, 2026-09-25): o
+      // iframe é declarado fora do try/catch e removido num `finally`
+      // (guardado por `parentNode`, então é seguro chamar mesmo se ele já
+      // tiver sido removido no caminho de sucesso) — antes, se qualquer
+      // erro acontecesse ANTES da remoção explícita no caminho feliz
+      // (ex.: ContentTooLargeForPageError durante a paginação), o iframe
+      // ficava orfão no DOM para sempre.
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.left = '-9999px';
+      iframe.style.top = '0';
+      // CORREÇÃO (relato técnico "Bloqueio de fallback e impressão
+      // oficial", Manus, 2026-09-25): antes, o fallback de PdfCaptureError
+      // abria `fullHtml` (o HTML original, não paginado). Agora capturamos
+      // o HTML JÁ RECONSTRUÍDO E PAGINADO logo após reconstructPaginatedPages
+      // ter sucesso, e é ESSE HTML que o fallback abre — nunca o original.
+      // Permanece null até a reconstrução terminar; se um PdfCaptureError
+      // ocorrer antes disso (não deveria, já que a captura só começa depois
+      // da reconstrução), o catch não abre fallback nenhum, por segurança.
+      let paginatedHtmlForFallback: string | null = null;
       try {
-        // Criar iframe oculto para renderizar perfeitamente com CSS e imagens completas
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'fixed';
-        iframe.style.left = '-9999px';
-        iframe.style.top = '0';
-        iframe.style.width = '794px';
-        iframe.style.height = '1123px';
+        // CORREÇÃO (auditoria independente 2026-09-25, Achado 1, confirmado
+        // pela Manus): o seletor `.sheet` nunca existiu no HTML gerado — o
+        // HTML só produz `.print-page` (multisseção) ou `.print-shared-sheet`
+        // (seção única). O fallback `doc.body` capturava TODAS as folhas
+        // empilhadas como uma única imagem, inserida numa única página de
+        // PDF, sem `pdf.addPage()` nem proteção de altura — laudo
+        // multisseção saía com seções posteriores cortadas/ilegíveis, em A4
+        // ou Letter. Agora cada folha real é localizada e capturada
+        // individualmente, com uma página de PDF por folha, igual ao padrão
+        // já usado no download financeiro do editor
+        // (ReportEditorPage.tsx/handleFinancialPdfDownload) e no PDF do
+        // módulo Financeiro (financialReportPdfDownload.ts).
+
+        // Configurar dimensões do iframe oculto para renderizar perfeitamente com CSS e imagens completas
+        iframe.style.width = `${pageWidthPxQ}px`;
+        iframe.style.height = `${pageHeightPxQ}px`;
         document.body.appendChild(iframe);
 
         const doc = iframe.contentWindow?.document;
         if (!doc) throw new Error('Não foi possível inicializar o renderizador de PDF');
-        
+
         doc.open();
         doc.write(fullHtml);
         doc.close();
@@ -1783,71 +2013,189 @@ setSelectedStudy(study);
         // Aguardar carregamento de fontes e imagens
         await new Promise((resolve) => setTimeout(resolve, 800));
 
-        const targetEl = doc.querySelector('.sheet') || doc.body;
-        const canvas = await html2canvas(targetEl as HTMLElement, {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          windowWidth: 794,
-        });
+        await reconstructPaginatedPages(doc);
 
-        document.body.removeChild(iframe);
+        // Captura o documento JÁ paginado — é este HTML, não o `fullHtml`
+        // original, que o fallback de falha de captura abre abaixo.
+        paginatedHtmlForFallback = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
 
-        const imgData = canvas.toDataURL('image/png');
+        const targetEls = resolvePdfPageElements(doc);
+
         // CORREÇÃO (Bloqueio 1, auditoria Manus 2026-09-24): formato vinha
         // hardcoded como 'a4', ignorando pageSizeQ — uma unidade configurada
         // para Letter baixava um PDF A4 pela impressão rápida, divergente das
         // outras 3 vias de geração de PDF do mesmo laudo.
         const pdf = new jsPDF('p', 'mm', pageSizeQ.toLowerCase() as 'a4' | 'letter');
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-        
+        const pdfPageWidth = pdf.internal.pageSize.getWidth();
+        const pdfPageHeight = pdf.internal.pageSize.getHeight();
+
+        // CORRECAO (Bloqueio 3, parecer de revisao v3 da Manus, 2026-09-25):
+        // o loop de captura do html2canvas e a UNICA etapa deste fluxo cujo
+        // erro pode legitimamente cair no fallback de impressao nativa (por
+        // exemplo, falha ao carregar uma imagem referenciada no laudo). Por
+        // isso ele e envolvido para relancar como PdfCaptureError, que o
+        // catch abaixo trata de forma diferenciada de qualquer outro erro
+        // (medicao de area util, paginacao, montagem do documento, jsPDF,
+        // pdf.save), que devem apenas exibir erro sem abrir o fallback.
+        const canvases = [];
+        try {
+          for (let index = 0; index < targetEls.length; index += 1) {
+            const canvas = await html2canvas(targetEls[index], {
+              scale: 2,
+              useCORS: true,
+              logging: false,
+              windowWidth: pageWidthPxQ,
+            });
+            canvases.push(canvas);
+          }
+        } catch (captureErr) {
+          throw new PdfCaptureError(
+            captureErr instanceof Error ? captureErr.message : 'Falha ao capturar a imagem da página para o PDF.',
+            { cause: captureErr },
+          );
+        }
+        const batch = buildPdfPageBatch(canvases, pdfPageWidth, pdfPageHeight);
+        for (let index = 0; index < canvases.length; index += 1) {
+          const entry = batch[index];
+          if (entry.addPageBefore) pdf.addPage();
+          pdf.addImage(canvases[index].toDataURL('image/png'), 'PNG', entry.xOffset, 0, entry.width, entry.height);
+        }
+
         pdf.save(`Laudo_${patientName.replace(/\s+/g, '_')}.pdf`);
         toast.dismiss('pdf-dl');
         toast.success('PDF baixado com sucesso!');
       } catch (err) {
         toast.dismiss('pdf-dl');
-        // Fallback seguro: se falhar o canvas, abrir a janela de impressão nativa onde o usuário pode escolher Salvar como PDF
-        const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-        const win = window.open(URL.createObjectURL(blob), '_blank');
-        if (win) {
-          toast.success('Visualização aberta. Selecione "Salvar como PDF" no menu de impressão.');
+        // CORRECAO (Bloqueio 3, parecer corretivo da Manus, 2026-09-25): um
+        // `catch` generico capturava tambem ContentTooLargeForPageError (um
+        // bloco de conteudo maior que a pagina, que a paginacao real
+        // recusou de proposito — ver reportPagination.ts) e caia no mesmo
+        // fallback de "abrir fullHtml para impressao nativa" com uma
+        // mensagem de SUCESSO. Mas fullHtml usa as MESMAS folhas de altura
+        // fixa com overflow:hidden que rejeitaram esse bloco por nao
+        // caber — abrir esse HTML como "pronto para salvar" apresentaria ao
+        // usuario um documento que tambem pode estar com conteudo cortado,
+        // mascarado por uma mensagem de sucesso.
+        //
+        // CORRECAO (Bloqueio 3, parecer de revisao v3 da Manus, 2026-09-25):
+        // a rodada anterior corrigiu apenas ContentTooLargeForPageError, mas
+        // qualquer OUTRO erro (medicao de area util, paginacao interna,
+        // montagem do documento, construcao do jsPDF, pdf.save) ainda caia
+        // no mesmo fallback "amplo" — e esses erros tambem nao garantem que
+        // fullHtml esteja seguro para apresentar como pronto para salvar.
+        // Agora o fallback de impressao nativa fica restrito EXCLUSIVAMENTE
+        // a PdfCaptureError (falha classificada e isolada no loop de
+        // captura do html2canvas — ver acima). Qualquer outro erro, incluindo
+        // os nao reconhecidos, apenas exibe mensagem de erro, sem fallback.
+        //
+        // CORREÇÃO (relato técnico "Bloqueio de fallback e impressão
+        // oficial", Manus, 2026-09-25): o fallback agora abre
+        // `paginatedHtmlForFallback` (o documento JÁ reconstruído e
+        // paginado, capturado logo após reconstructPaginatedPages), nunca
+        // `fullHtml` original. Se por algum motivo a reconstrução não
+        // chegou a terminar (paginatedHtmlForFallback ainda null — não
+        // deveria acontecer, já que PdfCaptureError só é lançado depois da
+        // reconstrução, mas a guarda fica explícita por segurança), NÃO
+        // abrimos fallback nenhum: mostramos erro, porque não temos
+        // nenhuma versão do documento comprovadamente paginada disponível.
+        if (err instanceof ContentTooLargeForPageError) {
+          toast.error('Não foi possível gerar o PDF', { description: err.message });
+        } else if (err instanceof PdfCaptureError && paginatedHtmlForFallback) {
+          // Fallback seguro: só é aberto para falha de captura de imagem
+          // (ex.: html2canvas, imagem que não carregou), que não implica
+          // conteúdo comprovadamente maior que a página — e usando o
+          // documento já paginado, nunca o original.
+          const blob = new Blob([paginatedHtmlForFallback], { type: 'text/html;charset=utf-8' });
+          const win = window.open(URL.createObjectURL(blob), '_blank');
+          if (win) {
+            toast.success('Visualização aberta. Selecione "Salvar como PDF" no menu de impressão.');
+          } else {
+            toast.error('Erro ao gerar PDF. Verifique os bloqueadores de pop-up.');
+          }
         } else {
-          toast.error('Erro ao gerar PDF. Verifique os bloqueadores de pop-up.');
+          // Erro de medição, paginação, montagem do documento, jsPDF ou
+          // salvamento — ou uma falha de captura sem documento paginado
+          // disponível: não há garantia de que algum HTML esteja seguro
+          // para abrir, então não abrimos fallback nenhum, apenas
+          // informamos o erro.
+          toast.error('Não foi possível gerar o PDF', {
+            description: err instanceof Error ? err.message : 'Ocorreu um erro inesperado ao gerar o PDF.',
+          });
         }
+      } finally {
+        if (iframe.parentNode) iframe.remove();
       }
     } else {
-      // Impressão direta sem abrir aba intermediária: usa iframe oculto que aciona window.print() automaticamente
+      // CORREÇÃO (relato técnico "Bloqueio da impressão oficial de laudos
+      // PDF", Manus, 2026-09-25): a rodada anterior tentava remover o
+      // script de auto-print de fullHtml por regex antes de reconstruir as
+      // páginas, mas a regex não reconhecia o script real gerado pelo
+      // template literal — ele sobrevivia no HTML escrito no iframe e
+      // disparava window.print() sozinho ~400ms depois do carregamento,
+      // ANTES da espera de 800ms e da reconstrução paginada controlada
+      // abaixo, ou mesmo quando essa reconstrução falhava. Correção
+      // definitiva (a que a própria Manus recomendou como mais robusta):
+      // fullHtml NUNCA mais contém esse script — não há nada para
+      // remover. A impressão oficial dispara print() por um único caminho
+      // explícito, via runControlledPrint (client/src/lib/
+      // printOrchestration.ts, extraída para ser testável com funções
+      // injetadas): print() só é chamado se reconstructPaginatedPages
+      // resolver sem lançar, e é chamado no máximo uma vez.
       const printIframe = document.createElement('iframe');
       printIframe.style.position = 'fixed';
       printIframe.style.left = '-9999px';
       printIframe.style.top = '0';
-      printIframe.style.width = '0';
-      printIframe.style.height = '0';
+      printIframe.style.width = `${pageWidthPxQ}px`;
+      printIframe.style.height = `${pageHeightPxQ}px`;
       document.body.appendChild(printIframe);
 
-      const pDoc = printIframe.contentWindow?.document;
-      if (!pDoc) {
-        toast.error('Não foi possível iniciar a impressão.');
-        document.body.removeChild(printIframe);
-        return;
+      try {
+        const pDoc = printIframe.contentWindow?.document;
+        if (!pDoc) throw new Error('Não foi possível iniciar a impressão.');
+
+        pDoc.open();
+        pDoc.write(fullHtml);
+        pDoc.close();
+
+        // Aguardar carregamento de fontes e imagens, igual ao download.
+        await new Promise((resolve) => setTimeout(resolve, 800));
+
+        const printResult = await runControlledPrint({
+          reconstruct: () => reconstructPaginatedPages(pDoc),
+          print: () => {
+            toast.success('Abrindo diálogo de impressoras...');
+            printIframe.contentWindow?.print();
+          },
+        });
+
+        if (!printResult.printed) {
+          throw printResult.error;
+        }
+      } catch (err) {
+        // Mesma postura do download: erro de medição, paginação ou
+        // conteúdo maior que a página não deve abrir o diálogo de
+        // impressão sobre um documento potencialmente cortado — só
+        // informamos o erro. runControlledPrint garante que print() nunca
+        // foi chamado neste caminho.
+        if (err instanceof ContentTooLargeForPageError) {
+          toast.error('Não foi possível preparar a impressão', { description: err.message });
+        } else {
+          toast.error('Não foi possível preparar a impressão.', {
+            description: err instanceof Error ? err.message : 'Ocorreu um erro inesperado ao preparar a impressão.',
+          });
+        }
+      } finally {
+        // Remover o iframe após a impressão (ou após a falha) — mesmo
+        // atraso de 10s já usado antes, para dar tempo ao diálogo nativo
+        // de impressão de terminar de ler o conteúdo do iframe.
+        setTimeout(() => {
+          try {
+            if (printIframe.parentNode) {
+              document.body.removeChild(printIframe);
+            }
+          } catch (e) {}
+        }, 10000);
       }
-
-      pDoc.open();
-      pDoc.write(fullHtml.replace('window.onload = () => { window.print(); }', 'window.onload = () => { setTimeout(() => { window.print(); }, 400); }'));
-      pDoc.close();
-
-      toast.success('Abrindo diálogo de impressoras...');
-      
-      // Remover o iframe após a impressão
-      setTimeout(() => {
-        try {
-          if (printIframe.parentNode) {
-            document.body.removeChild(printIframe);
-          }
-        } catch (e) {}
-      }, 10000);
     }
   };
 

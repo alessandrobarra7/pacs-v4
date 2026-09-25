@@ -42,7 +42,23 @@ describe("visão financeira individual do médico", () => {
     expect(downloadSource).toContain("pdf.save(");
     expect(downloadSource).not.toContain("window.open(");
     expect(downloadSource).toContain("display:flex;flex-direction:column");
-    expect(downloadSource).toContain(".doctor-footer { text-align:center;margin:auto auto 3mm");
+    // CORREÇÃO (paginação real, 2026-09-25): a margem do .doctor-footer
+    // mudou de "auto auto 3mm" (empurrado pelo auto-margin do flex) para
+    // "0 auto 3mm", porque o rodapé/assinatura agora ocupa uma faixa
+    // .footer-reserve de altura fixa (align-items:flex-end), reservada em
+    // toda página — não depende mais de um auto-margin para ficar no fim
+    // da folha. Ver client/src/lib/reportPagination.ts e
+    // server/report-pagination.test.ts.
+    expect(downloadSource).toContain(".doctor-footer { text-align:center;margin:0 auto 3mm");
+    expect(downloadSource).toContain("footer-reserve");
+    // CORREÇÃO (Parecer de revisão da Manus, 2026-09-25): a v1 da
+    // paginação (measureTopLevelBlocks/splitBlocksIntoPages, soma de
+    // alturas pré-medidas) foi substituída pela v2
+    // (paginateSectionIntoPages, inserção incremental real + scrollHeight/
+    // clientHeight) — ver server/report-pagination.test.ts.
+    expect(downloadSource).toContain("paginateSectionIntoPages");
+    expect(downloadSource).not.toContain("measureTopLevelBlocks");
+    expect(downloadSource).not.toContain("splitBlocksIntoPages");
     expect(routerSource).toContain("myReportDownload:");
     expect(routerSource).toContain("Sem permissão para baixar este documento.");
     expect(editorSource).toContain("financialDocumentView");
