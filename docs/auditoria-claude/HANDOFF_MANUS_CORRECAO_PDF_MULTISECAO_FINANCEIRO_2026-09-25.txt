@@ -1205,3 +1205,240 @@ parecer v3, seção "Escopo de uma nova revisão")
    exclusivamente por `git fetch` + `merge --ff-only` a partir de main,
    build, restart PM2, health check HTTP 200, homologação manual dos
    quatro caminhos de PDF.
+
+===============================================================================
+ADENDO 5 — FALLBACK DE CAPTURA E IMPRESSÃO OFICIAL USAM A MESMA
+RECONSTRUÇÃO PAGINADA DO DOWNLOAD (resposta ao "Relato técnico —
+Bloqueio de fallback e impressão oficial dos PDFs", Manus, 2026-09-25)
+===============================================================================
+
+Commit desta correção: 35d39d4
+Branch: claude/correcao-pdf-multisecao-financeiro (mesma branch, novo commit)
+Topo revisado pela Manus antes desta correção: 67f634f (BLOQUEADO)
+Correção de código avaliada pela Manus nesta rodada: 250a0ad
+
+-------------------------------------------------------------------------------
+CONFIRMAÇÃO IMPORTANTE DA MANUS NESTA RODADA
+-------------------------------------------------------------------------------
+
+A Manus confirmou que a estrutura de paginação corrigida no commit
+250a0ad está coerente para o caminho NORMAL de download: o rodapé de
+assinatura recebe a classe footer-reserve corretamente, paginateSectionIntoPages
+não confirma página antes de receber conteúdo (sem folha física vazia),
+a fragmentação conserva whitespace relevante, e o PDF financeiro não
+abre fallback nenhum quando falha. Os testes técnicos (pnpm check, 51
+testes direcionados, build, diff --check) todos aprovados.
+
+O bloqueio desta rodada foi um problema NOVO, não coberto pelas 4
+rodadas anteriores: dois caminhos que não são o download normal ainda
+usavam o HTML original (fullHtml), sem a reconstrução paginada.
+
+-------------------------------------------------------------------------------
+O QUE A MANUS ENCONTROU
+-------------------------------------------------------------------------------
+
+1. Fallback de falha de captura do download rápido — quando html2canvas
+   falha (classificado como PdfCaptureError desde o commit 250a0ad), o
+   catch abria:
+
+     const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+     window.open(URL.createObjectURL(blob), '_blank');
+
+   `fullHtml` foi criado ANTES da reconstrução paginada. Para laudo de
+   seção única longa, contém uma única .print-shared-sheet de altura
+   fixa e overflow:hidden. Para múltiplas seções, contém apenas uma
+   .print-page por seção, sem dividir uma seção longa. O fallback
+   perdia exatamente a reconstrução que protege o conteúdo — uma falha
+   de html2canvas podia ocorrer DEPOIS de pagesHtmlQ já estar pronto, e
+   mesmo assim o fallback abria o documento não paginado.
+
+2. Impressão oficial (ação "Imprimir") não usa paginação real — a ação
+   actionType === 'print' escrevia fullHtml num iframe e deixava o
+   script embutido nele (window.onload -> window.print(), disparado
+   porque fullHtml foi gerado com actionType === 'print') acionar a
+   impressão sozinho, sem executar o bloco que cria physicalPagesQ e
+   pagesHtmlQ. Download normal, impressão oficial e fallback de captura
+   tinham 3 fontes de verdade diferentes para o mesmo documento.
+
+-------------------------------------------------------------------------------
+CORREÇÃO APLICADA
+-------------------------------------------------------------------------------
+
+A reconstrução (antes só inline dentro do bloco `if (actionType ===
+'download')`) foi extraída para uma função compartilhada,
+`reconstructPaginatedPages(doc: Document): Promise<void>`, declarada
+UMA ÚNICA VEZ antes da ramificação download/impressão (fechamento sobre
+as variáveis de layout já calculadas na função `executePrintAction`).
+Ela contém exatamente o mesmo algoritmo das 4 rodadas anteriores
+(sectionsForPdfQ -> physicalPagesQ -> pagesHtmlQ -> substituição de
+.print-page/.print-shared-sheet no DOM), sem nenhuma mudança de lógica
+— só o local onde vive o código.
+
+Download (client/src/pages/PacsQueryPage.tsx, bloco `if (actionType ===
+'download')`):
+  - `let paginatedHtmlForFallback: string | null = null;` declarada
+    antes do try, como a Manus sugeriu na seção 5.2 do relato.
+  - Logo após `await reconstructPaginatedPages(doc)` ter sucesso, o
+    HTML já reconstruído é capturado: `paginatedHtmlForFallback =
+    \`<!DOCTYPE html>\n${doc.documentElement.outerHTML}\`;` — ANTES de
+    qualquer chamada a html2canvas.
+  - O ramo de PdfCaptureError no catch agora exige
+    `paginatedHtmlForFallback` (`err instanceof PdfCaptureError &&
+    paginatedHtmlForFallback`) e abre essa variável no Blob, nunca mais
+    `fullHtml`. Se a variável ainda for null quando PdfCaptureError for
+    lançado — não deveria acontecer, já que a captura só começa depois
+    da reconstrução, mas a guarda fica explícita por segurança — cai no
+    ramo `else` (mostra erro, sem abrir fallback nenhum).
+
+Impressão oficial (mesmo arquivo, bloco `else` de `executePrintAction`):
+  - O script de auto-print embutido em fullHtml é removido do HTML
+    antes de escrevê-lo no iframe (`printHtmlWithoutAutoPrint =
+    fullHtml.replace(/<script>\s*window\.onload[\s\S]*?<\/script>/,
+    '')`), para não competir com o fluxo controlado abaixo.
+  - Depois de escrever o documento e aguardar carregamento de
+    fontes/imagens (mesmo padrão de 800ms do download), a impressão
+    chama `await reconstructPaginatedPages(pDoc)` sobre o PRÓPRIO
+    documento que será impresso.
+  - Só depois da reconstrução ter sucesso, `printIframe.contentWindow?.print()`
+    é chamado explicitamente — nunca mais a partir do script automático.
+  - Um `try/catch` ao redor de toda a operação garante que qualquer
+    falha na reconstrução (ContentTooLargeForPageError ou erro de
+    medição/montagem) mostra um toast de erro e NÃO chama print() —
+    o diálogo de impressão nunca abre sobre um documento potencialmente
+    cortado.
+  - O iframe de impressão agora também é dimensionado com
+    `pageWidthPxQ`/`pageHeightPxQ` (as mesmas dimensões físicas usadas
+    pelo download, calculadas uma única vez antes da ramificação),
+    garantindo que a área útil medida durante a reconstrução seja
+    consistente com a do download.
+
+-------------------------------------------------------------------------------
+O QUE NÃO FOI ALTERADO
+-------------------------------------------------------------------------------
+
+A lógica de paginação em si (client/src/lib/reportPagination.ts) não
+foi tocada nesta rodada. O PDF financeiro (financialReportPdfDownload.ts)
+não foi tocado — não tem fallback de impressão nativa, então o problema
+desta rodada não se aplica a ele. Nenhuma alteração em autorização,
+dados de estudo, dados clínicos, assinaturas, logotipos, preferências
+de layout, migrations ou banco. A remoção do iframe de download no
+`finally` foi preservada sem alteração; a impressão manteve o mesmo
+atraso de 10s já existente antes de remover o iframe (agora dentro de
+um `finally` que cobre também o caminho de erro). Continua sem fallback
+para ContentTooLargeForPageError, erro de medição, erro de paginação,
+erro de jsPDF ou erro de pdf.save — só PdfCaptureError pode acionar o
+fallback do download, e nenhum erro aciona print() na impressão.
+
+-------------------------------------------------------------------------------
+TESTES NOVOS
+-------------------------------------------------------------------------------
+
+server/pacs-print-fallback-shared-pagination.test.ts (5 testes novos,
+todos de wiring/leitura de fonte — ver nota de limitação de
+testabilidade abaixo):
+
+  1. reconstructPaginatedPages é declarada uma única vez, ANTES da
+     ramificação download/impressão, e chamada exatamente 2 vezes
+     (uma por caminho).
+  2. paginatedHtmlForFallback é declarada, capturada logo após
+     reconstructPaginatedPages(doc) ter sucesso, e é essa variável
+     (não fullHtml) que o ramo de PdfCaptureError abre no Blob — sem
+     nenhum `new Blob([fullHtml]...)` residual no arquivo.
+  3. A ação "Imprimir" contém printHtmlWithoutAutoPrint, chama
+     reconstructPaginatedPages(pDoc) e printIframe.contentWindow?.print()
+     NESSA ORDEM (reconstrução antes de print()).
+  4. O catch da ação "Imprimir" nunca chama .print() — um erro de
+     preparo não abre o diálogo de impressão.
+  5. Download e impressão compartilham pageWidthPxQ/pageHeightPxQ
+     (cada um declarado uma única vez no arquivo), e o iframe de
+     impressão agora é dimensionado com as mesmas dimensões físicas.
+
+NOTA DE LIMITAÇÃO DE TESTABILIDADE (documentada também no cabeçalho do
+arquivo de teste): `executePrintAction` é um handler inline extenso
+dentro de um componente React, com dependências de tRPC, sessionStorage
+e DOM/layout reais, sem extração para funções puras testáveis com um
+DOM real. Os testes desta rodada são de wiring (confirmam que a
+estrutura do código implementa a correção descrita), seguindo o mesmo
+padrão já aceito pela Manus nas rodadas anteriores para os Bloqueios 1
+e 3 do parecer v3. Eles NÃO substituem a validação visual real em
+Chromium que a Manus pediu explicitamente na seção 6 do relato: forçar
+rejeição de html2canvas após a reconstrução de um laudo longo e
+confirmar que o HTML entregue a window.open contém múltiplas .print-page
+(não a .print-shared-sheet original); confirmar que a ação "Imprimir"
+de fato reconstrói antes de imprimir; e observar a impressão real para
+seção única longa, múltiplas seções, margens não padrão e Letter.
+
+-------------------------------------------------------------------------------
+VALIDAÇÃO EXECUTADA NO SANDBOX
+-------------------------------------------------------------------------------
+
+  pnpm check ................. aprovado, sem erro TypeScript
+  Testes direcionados ......... 56 aprovados em 4 arquivos:
+                                 report-pagination.test.ts (36),
+                                 pdf-multipage-fix.test.ts (11),
+                                 doctor-finance-view.test.ts (4),
+                                 pacs-print-fallback-shared-pagination.test.ts (5, novo)
+  TZ=UTC pnpm test ............ 608 aprovados, 11 falhas históricas já
+                                 catalogadas nas mesmas 7 suítes de
+                                 sempre, 1 ignorado — nenhuma falha nova
+                                 atribuível a esta branch
+  pnpm build .................. aprovado (apenas aviso preexistente de
+                                 bundle grande)
+  git diff --check ............ aprovado, sem whitespace inválido
+
+-------------------------------------------------------------------------------
+ARQUIVOS ALTERADOS NESTE COMMIT (35d39d4)
+-------------------------------------------------------------------------------
+
+  client/src/pages/PacsQueryPage.tsx .............. reconstrução
+                                                      paginada extraída
+                                                      para função
+                                                      compartilhada
+                                                      (reconstructPaginatedPages);
+                                                      fallback de
+                                                      PdfCaptureError usa
+                                                      paginatedHtmlForFallback
+                                                      em vez de fullHtml;
+                                                      ação "Imprimir"
+                                                      reconstrói antes de
+                                                      chamar print()
+                                                      explicitamente
+  server/pacs-print-fallback-shared-pagination.test.ts ... novo, 5
+                                                             testes de
+                                                             wiring
+
+-------------------------------------------------------------------------------
+ESTADO ATUAL
+-------------------------------------------------------------------------------
+
+Publicado no GitHub, mesma branch claude/correcao-pdf-multisecao-
+financeiro, sem PR aberto, sem merge, nada implantado em VM1/VM2/VM3.
+
+-------------------------------------------------------------------------------
+PRÓXIMO FLUXO SEGURO — pedido específico de validação (itens 1-6 da
+seção 6 do relato técnico, "Testes e evidência exigidos na correção")
+-------------------------------------------------------------------------------
+
+1. Forçar rejeição de html2canvas após a reconstrução de um laudo
+   longo. Verificar que o HTML entregue a window.open contém múltiplas
+   .print-page e não a .print-shared-sheet original.
+2. Confirmar que o fallback não abre janela quando a reconstrução
+   paginada não foi concluída.
+3. Confirmar que a ação "Imprimir" reconstrói as páginas com o mesmo
+   algoritmo do download antes de chamar print().
+4. Cobrir documento de seção única longa e documento com múltiplas
+   seções, nos dois caminhos.
+5. Repetir pnpm check, os testes de paginação/PDF e TZ=UTC pnpm test
+   completo (já executados no sandbox nesta rodada — ver seção de
+   validação acima; a Manus deve confirmar de forma independente).
+6. Evidência real em Chromium para download rápido, PDF financeiro e
+   impressão oficial, usando conteúdo sintético longo, margens não
+   padrão e Letter. Validar quantidade de folhas, continuidade do
+   texto, rodapé final e ausência de folhas físicas vazias — esta é a
+   validação que os testes automatizados desta rodada explicitamente
+   NÃO substituem.
+7. Se aprovado: revisão independente do diff, merge sem reescrever
+   histórico, validação completa no sandbox, atualização da VM1
+   exclusivamente por `git fetch` + `merge --ff-only` a partir de main,
+   build, restart PM2, health check HTTP 200, homologação manual dos
+   três caminhos de PDF (download, impressão oficial, PDF financeiro).
