@@ -70,3 +70,42 @@ describe("SharedReportSheet print contract", () => {
     expect(markup).toContain("padding:0mm 0mm 0mm 0mm");
   });
 });
+
+describe("SharedReportSheet — logo px (auditoria claude/corrige-logo-px-editor-vs-pdf)", () => {
+  /**
+   * Regressão: o editor de layout salva Largura(px)/Altura(px) por logo, mas
+   * o componente compartilhado (usado tanto no preview do editor quanto na
+   * geração de PDF/impressão) nunca aplicava esses valores — a imagem sempre
+   * esticava para 100%/100% da caixa de posição percentual, tornando o campo
+   * numérico configurado sem nenhum efeito no resultado entregue.
+   */
+  it("aplica width/height em px configurados no logo, não apenas 100% da caixa", () => {
+    const markup = renderSharedReportSheetHtml({
+      positions: {
+        logo1: { x: 2, y: 2, w: 26, h: 11, visible: true },
+      },
+      logos: [{ url: "data:image/png;base64,logo", width: 230, height: 60, label: "Logo 1" }],
+      patientName: "TESTE",
+      body: createElement("div", null, "corpo"),
+    });
+
+    expect(markup).toContain("width:230px");
+    expect(markup).toContain("height:60px");
+  });
+
+  it("mantém retrocompatibilidade (100%/100%) quando o logo não tem width/height salvos", () => {
+    const markup = renderSharedReportSheetHtml({
+      positions: {
+        logo1: { x: 2, y: 2, w: 26, h: 11, visible: true },
+      },
+      logos: [{ url: "data:image/png;base64,logo", width: 0, height: 0, label: "Logo antigo" }],
+      patientName: "TESTE",
+      body: createElement("div", null, "corpo"),
+    });
+
+    const logoBlockMatch = markup.match(/data-layout-block="logo1"[\s\S]*?<\/div>/);
+    expect(logoBlockMatch).not.toBeNull();
+    expect(logoBlockMatch![0]).toContain("width:100%");
+    expect(logoBlockMatch![0]).toContain("height:100%");
+  });
+});

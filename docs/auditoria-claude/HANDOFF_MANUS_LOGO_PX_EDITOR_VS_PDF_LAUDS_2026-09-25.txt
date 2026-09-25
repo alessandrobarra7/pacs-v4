@@ -1,0 +1,174 @@
+HANDOFF TECNICO PARA A MANUS — LOGO DO LAUDO: CAMPO PX MORTO, SEM EFEITO NO EDITOR NEM NO PDF
+Projeto: PACS Portal / LAUDS
+Repositorio: alessandrobarra7/pacs-v4
+Branch: claude/corrige-logo-px-editor-vs-pdf
+Commit base (origin/main no momento da criacao do branch): d391278
+Commit topo do branch: c4b6b9d
+Destinatario: Manus (agente com acesso real as VMs de producao). Qualquer outro
+agente/engenheiro com acesso ao repositorio tambem pode agir a partir deste
+documento.
+
+1. COMO CHEGAR NO CODIGO REAL
+
+  git fetch origin
+  git checkout claude/corrige-logo-px-editor-vs-pdf
+  git diff d391278..HEAD
+
+Dois arquivos alterados:
+  - client/src/components/SharedReportSheet.tsx (a correcao)
+  - server/shared-report-print.test.ts (2 casos de regressao novos)
+
+2. COMO O PROBLEMA FOI REPRODUZIDO (nao foi so leitura de codigo)
+
+O Alessandro pediu reproducao ao vivo em producao (lauds.com.br), com a conta
+de administrador dele, autenticada no navegador Chrome real dele via extensao
+Claude in Chrome (nao no sandbox). Passos executados:
+
+  1. /admin/layouts/20 (unidade "Hospital da Crianca"): Logo 1 alterado de
+     150px para 230px de largura (altura mantida 60px); Logo 2 mantido em
+     120x60px. "Salvar Layout" -> toast "Layout salvo com sucesso".
+  2. Confirmado via DOM (JS exec no proprio navegador) que os campos "Largura
+     (px)" / "Altura (px)" da unidade 20 estavam persistidos exatamente como
+     230/60 e 120/60 apos reload da pagina do admin.
+  3. /reports/create/... (tela real do laudo, mesma unidade): inspecao do DOM
+     dos elementos <img> de logo mostrou renderizacao em 122.34x87.23px e
+     239.05x87.23px — nenhum dos dois bate com 230x60 nem com 120x60. Ambos
+     compartilham a MESMA altura renderizada (~87.23px), o que so faz sentido
+     se a altura vier da caixa de posicao percentual do bloco (nao do campo
+     "Altura (px)").
+  4. Criado um laudo de teste explicitamente marcado ("TESTE - NAO CLINICO",
+     autorizado pelo Alessandro em conversa, salvo so como rascunho, nunca
+     assinado) e baixado o PDF pela lista (/studies -> icone "Imp." -> "Baixar
+     em PDF") — concluido com sucesso (toast "PDF baixado com sucesso!").
+
+3. MECANISMO DO PROBLEMA
+
+O laudo tem DOIS controles de tamanho de logo, independentes entre si, na
+mesma tela de admin (LayoutEditorPage.tsx):
+
+  a) Campos numericos "Largura (px)" / "Altura (px)" no painel lateral
+     (handleLogoResize, linha ~273) — escrevem em logos[i].width/height,
+     que sao enviados ao backend e persistidos (confirmado no passo 2 acima).
+
+  b) Alcas de arraste (ew-resize / ns-resize) no canvas do preview, que
+     alteram positions.logoN.w/h — um percentual (0-100) da area util da
+     pagina, guardado em UnitLayout.blockPositions.
+
+O componente que renderiza o logo de fato — tanto no PREVIEW do editor quanto
+na GERACAO REAL do PDF/impressao (via renderSharedReportSheetHtml, chamado a
+partir de client/src/pages/PacsQueryPage.tsx e do fluxo financeiro) — e o
+MESMO componente: client/src/components/SharedReportSheet.tsx. Antes desta
+correcao, o bloco de renderizacao do logo era:
+
+  {["logo1", "logo2", "logo3"].map((id, index) => {
+    const position = merged[id];
+    const logo = logos[index];
+    if (!position?.visible || !logo) return null;
+    return (
+      <div ... style={{ ...blockStyle(position, fallbackPositions[id]), ... }}>
+        <img src={logo.url} ... style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+      </div>
+    );
+  })}
+
+A <img> sempre esticava para 100%/100% da caixa de posicao PERCENTUAL (item
+"b" acima) com object-fit:contain. Os campos width/height do objeto `logo`
+(item "a" acima, o que o operador realmente preenche na tela "Largura (px)" /
+"Altura (px)") nunca eram lidos em lugar nenhum deste componente.
+
+Conclusao importante para a Manus: NAO e uma divergencia entre "o que o
+editor mostra" e "o que o PDF entrega" — os dois usam o mesmo componente e o
+mesmo bug. E um campo de configuracao morto: preenchido, salvo, exibido de
+volta ao reabrir a tela (prova de que o backend/schema estao corretos), mas
+sem nenhum efeito em NENHUM dos dois lugares onde o laudo aparece. O
+Alessandro relatou como "a configuracao da pagina de laudo nao bate com o que
+e entregue no download" porque, na pratica, o tamanho visivel do logo e
+inteiramente governado pela alca de arraste (percentual), que ele nao
+associa mentalmente ao campo numerico que preencheu.
+
+4. CORRECAO APLICADA
+
+Em SharedReportSheet.tsx, a <img> do logo passa a usar width/height
+explicitos em px a partir de logo.width/logo.height quando presentes e
+maiores que zero:
+
+  <img
+    src={logo.url}
+    alt={logo.label || `Logo ${index + 1}`}
+    style={{
+      width: logo.width ? `${logo.width}px` : "100%",
+      height: logo.height ? `${logo.height}px` : "100%",
+      maxWidth: "100%",
+      maxHeight: "100%",
+      objectFit: "contain",
+      display: "block",
+    }}
+  />
+
+- Quando logo.width/height existem (todo layout salvo pelo LayoutEditorPage
+  atual sempre envia esses campos, ver linha ~420-432 de LayoutEditorPage.tsx),
+  o px configurado passa a ser o tamanho-alvo real, respeitado de forma
+  IDENTICA no preview do editor e no PDF/impressao — porque e o mesmo
+  componente, a mesma folha fisica definida em mm (paperWidthMm/paperHeightMm,
+  DPI-independente), sem nenhuma escala de zoom divergente confirmada nas
+  duas telas inspecionadas em producao.
+- maxWidth/maxHeight:100% preserva o comportamento de nao invadir blocos
+  vizinhos: se o operador arrastar a caixa de posicao menor que o px
+  configurado, o logo e limitado pela caixa (nunca vaza), exatamente como
+  antes.
+- Quando logo.width/height NAO existem (layouts antigos, caso exista algum
+  registro legado sem esses campos no banco), o fallback continua 100%/100%
+  da caixa — retrocompatibilidade total, sem regressao visual para unidades
+  que nunca tocaram nos campos numericos.
+
+Fora de escopo, deixado como esta: as duas alcas de controle (campo numerico
+e alca de arraste) continuam coexistindo — nao foi removida a alca de
+arraste nem os dois foram sincronizados um com o outro (ex.: arrastar nao
+atualiza os campos "Largura (px)"/"Altura (px)" na tela, e vice-versa). Isso
+e uma decisao de UX/produto (unificar os dois controles, ou deixar claro na
+UI que o campo numerico agora e a fonte de verdade do tamanho e a caixa
+percentual so controla POSICAO e um limite maximo) que cabe ao Alessandro
+decidir, nao foi feita unilateralmente aqui.
+
+5. VALIDACAO EXECUTADA (sandbox local, sem acesso a producao)
+
+- pnpm install --frozen-lockfile: aprovado.
+- pnpm check (tsc --noEmit): aprovado, sem erros.
+- Testes direcionados (server/shared-report-print.test.ts +
+  server/report-editor-mobile-ui.test.ts): 20 aprovados, incluindo os 2 casos
+  novos ("aplica width/height em px configurados no logo, nao apenas 100% da
+  caixa" e "mantem retrocompatibilidade quando o logo nao tem width/height
+  salvos").
+- TZ=UTC pnpm test (suite completa): 618 aprovados, 11 falhas em 7 arquivos,
+  1 ignorado (630 total). As 11 falhas sao a linha de base conhecida e
+  pre-existente deste repositorio (exam-catalog-security.test.ts,
+  finance-v2-dashboard.test.tsx x2, mediaProxy.test.ts,
+  pacs-desktop-download-progress.test.ts, pacs.mobile-ui.test.ts,
+  security.auth.test.ts, study-priority-ui.test.ts x4) — confirmadas arquivo
+  a arquivo contra a lista conhecida, nenhuma falha nova atribuivel a esta
+  branch.
+- pnpm build: aprovado. Resta apenas o aviso preexistente de bundle grande
+  (dist/public/assets/index-*.js > 500kB), sem relacao com esta mudanca.
+- git diff --check: aprovado, sem whitespace/conflito residual.
+
+6. O QUE FICOU FORA DE ESCOPO (decisao de produto pendente)
+
+- Unificacao ou sincronizacao visual entre o campo numerico px e a alca de
+  arraste percentual — hoje sao dois controles independentes que o operador
+  pode preencher de forma inconsistente entre si. Nao alterado aqui.
+- Nao foi feita nenhuma migracao de dado: os valores width/height ja
+  persistidos em producao (incluindo o 230x60 / 120x60 salvos durante a
+  reproducao nesta unidade "Hospital da Crianca", id 20) permanecem como
+  estao — a correcao apenas passa a APLICA-LOS de fato, o que muda o tamanho
+  visivel do logo dessa unidade assim que a branch for implantada (o logo 1
+  vai ficar visivelmente maior do que estava ate agora, pois o valor salvo
+  230px nunca tinha sido aplicado). Isso e esperado e e o proprio objetivo da
+  correcao, mas a Manus deve avisar o Alessandro que, apos o deploy, o logo
+  da unidade 20 vai mudar de tamanho na tela e no PDF (para o valor que ele
+  mesmo configurou).
+
+7. ESTADO ATUAL
+
+Codigo publicado apenas no branch claude/corrige-logo-px-editor-vs-pdf, sem
+push ainda (ver secao de push abaixo se aplicavel), sem PR aberto, sem merge
+em main, nada implantado em VM1/VM2/VM3. Commit topo: c4b6b9d.
