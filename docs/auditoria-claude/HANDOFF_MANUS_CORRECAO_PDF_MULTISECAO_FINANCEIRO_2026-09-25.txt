@@ -919,3 +919,289 @@ parecer corretivo, seção "Critérios para uma nova revisão")
    exclusivamente por `git fetch` + `merge --ff-only` a partir de main,
    build, restart PM2, health check HTTP 200, homologação manual dos
    quatro caminhos de PDF.
+
+===============================================================================
+ADENDO 4 — CORREÇÃO DOS BLOQUEIOS 1-3 (resposta ao "Parecer de revisão —
+Paginação dos PDFs de laudos v3", Manus, 2026-09-25)
+===============================================================================
+
+Commit desta correção: 250a0ad
+Branch: claude/correcao-pdf-multisecao-financeiro (mesma branch, novo commit)
+Topo revisado pela Manus antes desta correção: 79f6225 (BLOQUEADO)
+Correção de código avaliada pela Manus nesta rodada: aee18fd (a do ADENDO 3)
+
+-------------------------------------------------------------------------------
+CONFIRMAÇÕES IMPORTANTES DA MANUS NESTA RODADA
+-------------------------------------------------------------------------------
+
+A Manus confirmou nesta rodada que a reserva fixa de 65mm está aplicada
+corretamente no PDF financeiro, que o processamento de whitespace passa
+a preservar corretamente o exemplo `<span>Primeiro</span>
+<span>Segundo</span>`, e que o download rápido passou a distinguir
+ContentTooLargeForPageError do caminho de sucesso. Confirmou também que
+a nova tokenização (sequências alternadas não-espaço/whitespace,
+reconstruídas por concatenação direta) preserva espaços múltiplos, tabs,
+quebras de linha e espaços de borda — "essa parte, isoladamente, está
+correta; o bloqueio 2 decorre da criação de página vazia, não da perda
+do espaço central." A tolerância de layout de 0,1px também foi
+confirmada como correta na intenção.
+
+Os 3 bloqueios desta rodada são, portanto, refinamentos pontuais sobre
+uma base já majoritariamente correta, não uma rejeição da abordagem.
+
+-------------------------------------------------------------------------------
+BLOQUEIO 1 — o seletor CSS do rodapé não corresponde à folha capturada
+-------------------------------------------------------------------------------
+
+O que a Manus encontrou: a regra `.footer-reserve .doctor-footer {
+margin-top: 0; }`, adicionada para eliminar o `margin-top: 14mm` do
+rodapé médico dentro da reserva fixa do download rápido, não encontrava
+nenhum elemento na folha final. O HTML criado por `buildPageShellQ`
+(client/src/pages/PacsQueryPage.tsx) criava o div de reserva só com
+estilos inline de altura/overflow/flex, sem atribuir a classe
+`footer-reserve` a ele — diferente do que já acontecia corretamente no
+PDF financeiro (financialReportPdfDownload.ts). A regra geral
+`.doctor-footer { margin: 14mm auto 0; }` continuava sendo a única
+aplicada, então a assinatura final ainda recebia 14mm de margem dentro
+de uma reserva de 65mm — em cenários com carimbo completo, isso podia
+deslocar ou cortar internamente a assinatura/nome/CRM/data.
+
+Correção: adicionada a classe `class="footer-reserve"` ao div criado por
+`buildPageShellQ`, sem alterar nenhum outro estilo ou comportamento da
+impressão nativa. A regra `.footer-reserve .doctor-footer { margin-top:
+0; }` agora alcança o elemento real capturado, exatamente como já
+acontecia no PDF financeiro.
+
+Arquivo alterado: client/src/pages/PacsQueryPage.tsx (1 linha, a
+declaração do div de reserva dentro de buildPageShellQ).
+
+Teste novo: "Bloqueio 1 (parecer de revisão v3, regressão)" em
+server/report-pagination.test.ts confirma via leitura de fonte que
+`class="footer-reserve"` está presente no arquivo e que a regra CSS
+`.footer-reserve .doctor-footer { margin-top: 0; }` também está — a
+combinação garante que o seletor tem um alvo real. (Um teste de fonte
+não substitui a validação visual em Chromium; ver seção de próximo fluxo
+abaixo.)
+
+-------------------------------------------------------------------------------
+BLOQUEIO 2 — um primeiro texto fragmentável longo gera uma página vazia
+-------------------------------------------------------------------------------
+
+O que a Manus encontrou: `paginateNodes` (client/src/lib/
+reportPagination.ts) sempre criava e ARMAZENAVA (`pages.push`) uma
+página antes de tentar inserir qualquer conteúdo nela. Quando o primeiro
+nó da fila não cabia inteiro e precisava ser fragmentado por palavra, o
+fluxo criava uma SEGUNDA página e colocava o primeiro fragmento nela — a
+primeira página, que permanecia vazia, nunca era removida da lista
+retornada. Os dois consumidores (financialReportPdfDownload.ts e
+PacsQueryPage.tsx) adicionam toda página retornada à lista física sem
+filtrar `bodyHtml` vazio, então essa página fantasma virava uma folha
+real e uma página do PDF, em ambas as vias.
+
+Correção: `paginateNodes` foi reescrita para o padrão "commit-on-
+content" — uma variável `currentPage` é mantida fora do array `pages`, e
+só é adicionada a `pages` (via `commitCurrentPage()`) no momento exato
+em que recebe conteúdo pela primeira vez, seja por `tryAppend` bem-
+sucedido, seja por `tryAppendPartialText` bem-sucedido. Nenhuma página
+"candidata" é registrada antecipadamente, então não há como uma folha
+vazia sobrar na saída. A lógica de decisão em si (o que cabe onde,
+quando fragmentar, quando lançar ContentTooLargeForPageError) não foi
+alterada — só o momento em que uma página passa a existir no resultado.
+
+A correção preserva explicitamente o comportamento já corrigido no
+ADENDO 3 (Bloqueio 2 daquela rodada): um nó de texto só-espaço ENTRE
+dois elementos continua sendo preservado como separador visível, não é
+descartado por essa mudança.
+
+Arquivo alterado: client/src/lib/reportPagination.ts (função
+`paginateNodes` reescrita).
+
+Testes novos em server/report-pagination.test.ts (4 testes, todos no
+describe "paginateNodes"):
+  - primeiro nó fragmentável maior que uma página não deixa página vazia
+    à frente do resultado (reproduz exatamente o cenário do parecer v3);
+  - primeiro nó com espaços iniciais, internos e finais preservado
+    corretamente quando fragmentado logo de cara, sem perder nenhuma
+    palavra;
+  - nenhuma página com `html()` vazio aparece em nenhum dos cenários de
+    fragmentação testados (asserção geral pedida pela Manus: "ausência
+    de página vazia no resultado");
+  - texto completo é preservado (palavra por palavra, na ordem original)
+    após reunir todas as páginas, mesmo quando a primeira página só
+    recebe conteúdo por fragmentação.
+
+Os 29 testes pré-existentes do módulo continuam passando sem alteração,
+confirmando que a reescrita não regrediu nenhum caso já coberto
+(incluindo os cenários B1-B3 da primeira rodada e o Bloqueio 2 do parecer
+corretivo).
+
+-------------------------------------------------------------------------------
+BLOQUEIO 3 — o tratamento seguro ainda não cobria os dois caminhos
+-------------------------------------------------------------------------------
+
+Download rápido (PacsQueryPage.tsx):
+
+O que a Manus encontrou: o tratamento dedicado de
+ContentTooLargeForPageError (do ADENDO 3) funcionava corretamente e
+evitava abrir fullHtml nesse caso específico. Mas o `else` do mesmo
+catch ainda cobria QUALQUER outro erro — incluindo erro de medição da
+área útil, erro de paginação interna, erro na montagem/reconstrução do
+documento, erro na construção do jsPDF ou no `pdf.save` — e abria a
+impressão nativa (fullHtml) com mensagem de SUCESSO. Como fullHtml usa
+as mesmas folhas de altura fixa com overflow:hidden que rejeitaram o
+conteúdo original, esse fallback não era comprovadamente seguro para
+essa categoria ampla de erros; só é seguro para uma falha de captura de
+imagem em si (html2canvas ou carregamento de imagem), que não implica
+conteúdo maior que a página.
+
+Correção: introduzida uma classe de erro dedicada, `PdfCaptureError`,
+que envolve EXCLUSIVAMENTE o loop de captura do html2canvas (o único
+trecho cuja falha é seguramente não relacionada a conteúdo maior que a
+página). Qualquer exceção lançada dentro desse loop é relançada como
+`PdfCaptureError`. O `catch` externo foi restruturado em 3 ramos:
+  1. `ContentTooLargeForPageError` → toast.error, sem fallback (já
+     existia desde o ADENDO 3);
+  2. `PdfCaptureError` → mantém o fallback nativo existente (fullHtml +
+     window.open), exatamente como antes;
+  3. qualquer outro erro (medição, paginação, montagem, jsPDF,
+     pdf.save, e qualquer tipo não reconhecido) → toast.error com a
+     mensagem do erro, SEM abrir fallback.
+
+PDF financeiro (financialReportPdfDownload.ts):
+
+O que a Manus encontrou: o iframe era removido corretamente no
+`finally`, mas ContentTooLargeForPageError não era tratada
+explicitamente — a exceção simplesmente propagava para a tela chamadora
+(FinanceMeuFinanceiro.tsx), que só exibia uma mensagem genérica ("Não
+foi possível baixar o PDF."), sem contexto sobre a causa real. Este
+arquivo não tem fallback de impressão nativa (não há risco de abrir um
+documento truncável), mas a exigência da rodada era tratamento claro do
+erro nas duas vias.
+
+Correção: adicionado um `catch (err)` explícito em
+`downloadFinancialReportPdf`, antes do `finally` já existente.
+`ContentTooLargeForPageError` é tratada com uma mensagem prefixada que
+explica a causa ("o conteúdo do laudo não coube na página"), incluindo a
+mensagem original do erro. Qualquer outro erro também é relançado com um
+prefixo mais informativo ("Não foi possível gerar o PDF: ..."). O
+`finally { iframe.remove(); }` foi preservado sem alteração — a limpeza
+do iframe continua incondicional, em qualquer caminho de saída.
+
+Arquivos alterados:
+  - client/src/pages/PacsQueryPage.tsx (classe `PdfCaptureError`
+    declarada no topo do arquivo; loop de captura do html2canvas
+    envolvido em try/catch que relança como PdfCaptureError; catch
+    externo restruturado em 3 ramos).
+  - client/src/lib/financialReportPdfDownload.ts (import de
+    ContentTooLargeForPageError; catch explícito adicionado antes do
+    finally já existente).
+
+Testes novos em server/report-pagination.test.ts (2 testes, no describe
+de wiring):
+  - PacsQueryPage.tsx declara `PdfCaptureError`, usa `err instanceof
+    PdfCaptureError` no catch, relança falhas do loop de captura como
+    PdfCaptureError, e o `else` genérico anterior (que abria o fallback
+    para "qualquer erro diferente de ContentTooLargeForPageError") não
+    está mais presente;
+  - financialReportPdfDownload.ts contém `err instanceof
+    ContentTooLargeForPageError` e o bloco `catch (err) { ... } finally
+    { iframe.remove(); }` está estruturalmente presente (o catch
+    precede o finally, cobrindo toda a função).
+
+-------------------------------------------------------------------------------
+O QUE NÃO FOI ALTERADO NESTA CORREÇÃO
+-------------------------------------------------------------------------------
+
+A lógica de decisão de paginação (o que cabe em cada página, quando
+fragmentar por palavra, quando lançar ContentTooLargeForPageError) não
+foi tocada — só o momento em que uma página passa a existir na lista
+retornada (Bloqueio 2) e o tratamento de erro ao redor da chamada
+(Bloqueio 3). A tokenização que preserva espaçamento exato
+(tokenizePreservingWhitespace, corrigida no ADENDO 3) não foi alterada.
+A reserva de rodapé com altura fixa + overflow:hidden (corrigida no
+ADENDO 3) não foi alterada — só o seletor CSS que a referencia no
+download rápido (Bloqueio 1). O problema separado de "Configuração
+Financeira" (seletor de unidade vazio para responsavel_financeiro,
+apontado pela Manus como observação à parte) não foi tocado, conforme a
+própria Manus recomendou — deve ir em branch própria de diagnóstico.
+
+-------------------------------------------------------------------------------
+VALIDAÇÃO EXECUTADA NO SANDBOX
+-------------------------------------------------------------------------------
+
+  pnpm check ................. aprovado, sem erro TypeScript
+  Testes direcionados ......... 36/36 aprovados em
+                                 server/report-pagination.test.ts
+                                 (29 pré-existentes + 8 novos: 4 para o
+                                 Bloqueio 2 v3, 4 para os Bloqueios 1 e
+                                 3 v3 combinados)
+  TZ=UTC pnpm test ............ 603 aprovados, 11 falhas históricas já
+                                 catalogadas nas mesmas 7 suítes de
+                                 sempre (catálogo de exames, painel
+                                 financeiro v2, proxy de mídia, progresso
+                                 de download desktop, interface PACS
+                                 móvel, autorização de anamnese,
+                                 prioridade clínica), 1 ignorado — nenhuma
+                                 falha nova atribuível a esta branch
+  pnpm build .................. aprovado (apenas aviso preexistente de
+                                 bundle grande)
+  git diff --check ............ aprovado, sem whitespace inválido
+
+-------------------------------------------------------------------------------
+ARQUIVOS ALTERADOS NESTE COMMIT (250a0ad)
+-------------------------------------------------------------------------------
+
+  client/src/lib/reportPagination.ts ............ paginateNodes
+                                                    reescrita para padrão
+                                                    commit-on-content
+                                                    (Bloqueio 2)
+  client/src/lib/financialReportPdfDownload.ts .. catch explícito para
+                                                    ContentTooLargeForPageError
+                                                    antes do finally
+                                                    existente (Bloqueio 3)
+  client/src/pages/PacsQueryPage.tsx ............. classe footer-reserve
+                                                     no div de reserva
+                                                     (Bloqueio 1);
+                                                     PdfCaptureError +
+                                                     catch restruturado
+                                                     em 3 ramos
+                                                     (Bloqueio 3)
+  server/report-pagination.test.ts ............... 8 testes novos
+
+-------------------------------------------------------------------------------
+ESTADO ATUAL
+-------------------------------------------------------------------------------
+
+Publicado no GitHub, mesma branch claude/correcao-pdf-multisecao-
+financeiro, sem PR aberto, sem merge, nada implantado em VM1/VM2/VM3.
+
+-------------------------------------------------------------------------------
+PRÓXIMO FLUXO SEGURO — pedido específico de validação (itens 1-4 do
+parecer v3, seção "Escopo de uma nova revisão")
+-------------------------------------------------------------------------------
+
+1. Confirmar por inspeção estática (já parcialmente coberto pelos testes
+   de wiring desta rodada, mas a Manus deve confirmar de forma
+   independente) que o seletor `.footer-reserve .doctor-footer` do
+   rodapé encontra o elemento real capturado no download rápido.
+2. Confirmar por inspeção estática que a paginação não retorna folhas
+   vazias — os testes desta rodada cobrem a lógica pura
+   (`paginateNodes`), mas a Manus deve confirmar que os dois
+   consumidores (que chamam `paginateSectionIntoPages`, a camada acima)
+   também não geram páginas vazias em cenários reais de DOM/layout.
+3. Confirmar que os dois caminhos (download rápido e PDF financeiro)
+   mostram erro seguro e compreensível para conteúdo irpaginável, e que
+   o download rápido não abre fallback nesses casos.
+4. Confirmar que o fallback rápido está limitado a falhas de captura
+   comprovadamente seguras (só PdfCaptureError, não qualquer erro).
+5. Repetir a captura real em Chromium cobrindo: seção única longa,
+   assinatura completa na última folha (agora com a classe
+   footer-reserve corrigida), três seções curtas, whitespace irregular
+   e bloco não fragmentável — em ambos os downloads. Esta é a validação
+   que os testes automatizados desta rodada explicitamente NÃO
+   substituem, porque jsdom não computa scrollHeight/clientHeight reais.
+6. Se aprovado: revisão independente do diff, merge sem reescrever
+   histórico, validação completa no sandbox, atualização da VM1
+   exclusivamente por `git fetch` + `merge --ff-only` a partir de main,
+   build, restart PM2, health check HTTP 200, homologação manual dos
+   quatro caminhos de PDF.
