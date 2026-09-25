@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { DEFAULT_LAYOUT_PREFERENCES } from "../../../shared/types";
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx } from "./pdfPageGeometry";
-import { paginateSectionIntoPages } from "./reportPagination";
+import { ContentTooLargeForPageError, paginateSectionIntoPages } from "./reportPagination";
 
 // CORREÇÃO (revisão Manus 2026-09-25, bloqueio "laudo único longo é
 // cortado no PDF financeiro"): reserva de altura para o bloco de
@@ -263,6 +263,25 @@ export async function downloadFinancialReportPdf(documentData: any) {
       pdf.addImage(canvases[index].toDataURL("image/png"), "PNG", entry.xOffset, 0, entry.width, entry.height);
     }
     pdf.save(`Laudo_${patientName.replace(/[^a-zA-Z0-9]+/g, "_") || "entregue"}.pdf`);
+  } catch (err) {
+    // CORRECAO (Bloqueio 3, parecer de revisao v3 da Manus, 2026-09-25):
+    // antes, qualquer erro (incluindo ContentTooLargeForPageError, lancado
+    // de proposito pela paginacao real quando um bloco nao fragmentavel nao
+    // cabe em uma folha - ver reportPagination.ts) propagava sem tratamento
+    // ate a tela chamadora (FinanceMeuFinanceiro.tsx), que so exibia uma
+    // mensagem generica de "Nao foi possivel baixar o PDF.". Isso nao dava
+    // ao medico uma explicacao clara do motivo real da falha. Agora
+    // ContentTooLargeForPageError recebe uma mensagem dedicada, clara sobre
+    // a causa (conteudo maior que a folha), e qualquer outro erro tambem e
+    // relancado com uma mensagem prefixada e mais informativa. Este arquivo
+    // nao tem fallback de impressao nativa (diferente do download rapido em
+    // PacsQueryPage.tsx), entao nao ha risco de abrir um documento
+    // potencialmente truncado - o unico requisito aqui e um erro tratado e
+    // compreensivel para o chamador.
+    if (err instanceof ContentTooLargeForPageError) {
+      throw new Error(`Não foi possível gerar o PDF: o conteúdo do laudo não coube na página. ${err.message}`);
+    }
+    throw new Error(`Não foi possível gerar o PDF: ${err instanceof Error ? err.message : "erro inesperado."}`);
   } finally {
     iframe.remove();
   }

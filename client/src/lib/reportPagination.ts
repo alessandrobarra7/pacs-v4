@@ -55,18 +55,34 @@
 //        documento truncado como se estivesse pronto. O iframe de
 //        captura também não era removido nesse caminho.
 //
-// Esta versão (v3) resolve os 3 bloqueios: a reserva de rodapé virou uma
-// altura FIXA (não `min-height`) generosamente dimensionada e com
-// `overflow:hidden` própria, garantindo que a área medida seja idêntica
-// à área real em toda folha, inclusive a última (Bloqueio 1); a
-// tolerância de ajuste foi reduzida ao mínimo necessário só para erro de
-// arredondamento subpixel; nós de texto só-espaço deixaram de ser
-// descartados (Bloqueio 2, resolvido aqui); e a fragmentação por palavra
-// passou a preservar espaçamento original exato via tokens
-// palavra/espaço em vez de normalizar com trim/split/join (Bloqueio 2,
-// resolvido aqui). O Bloqueio 3 é resolvido no arquivo consumidor
-// (PacsQueryPage.tsx), dando tratamento dedicado a
-// `ContentTooLargeForPageError` — não é uma mudança neste módulo.
+// A v3 resolveu os 3 bloqueios daquela rodada: reserva de rodapé com
+// altura FIXA (não `min-height`) e `overflow:hidden` própria; tolerância
+// de ajuste reduzida ao mínimo subpixel; nós de texto só-espaço deixaram
+// de ser descartados; fragmentação por palavra preservando espaçamento
+// exato via tokens palavra/espaço.
+//
+// A v3 foi revisada de novo pela Manus ("Parecer de revisão — Paginação
+// dos PDFs de laudos v3", 2026-09-25), que confirmou a preservação de
+// espaço entre elementos inline como corrigida, mas encontrou 1 bloqueio
+// NESTE módulo (os outros 2 — seletor CSS e tratamento de erro por
+// caminho — foram nos arquivos consumidores):
+//
+//   Bloqueio 2 (v3) — `paginateNodes` criava e EMPURRAVA
+//        (`pages.push`) uma página antes de saber se ela receberia
+//        qualquer conteúdo. Quando o primeiro nó da fila não cabia nem
+//        na página inicial nem numa página nova recém-criada (cenário
+//        que aciona a fragmentação por palavra), a fragmentação
+//        colocava o resultado na SEGUNDA página — e a primeira, que
+//        nunca recebeu nada, sobrava na lista retornada como uma folha
+//        física vazia. Os dois consumidores transformavam essa folha
+//        vazia numa página real do PDF.
+//
+// Esta versão (v4) resolve isso: uma página só é adicionada à lista de
+// retorno no momento em que efetivamente recebe conteúdo pela primeira
+// vez (via `tryAppend` ou `tryAppendPartialText` bem-sucedidos) — nenhuma
+// página "candidata" vazia é registrada antecipadamente. Ver
+// `paginateNodes` abaixo para o mecanismo completo (padrão
+// commit-on-content).
 //
 // MECANISMO (B1 + B2): em vez de somar alturas pré-medidas, o algoritmo
 // insere incrementalmente CLONES REAIS dos nós filhos (elementos E nós de
@@ -189,34 +205,73 @@ export const tokenizePreservingWhitespace = (text: string): string[] => text.mat
 export function paginateNodes(nodes: ChildNode[], createPage: () => PageBuilder): PageBuilder[] {
   // Só nós genuinamente vazios (texto de comprimento zero) ou comentários
   // são descartados — um nó de texto só-espaço é preservado, porque pode
-  // ser um separador visível entre elementos inline (Bloqueio 2).
+  // ser um separador visível entre elementos inline (Bloqueio 2, parecer
+  // corretivo).
   const relevantNodes = nodes.filter((n) => !isSkippableNode(n));
-  const pages: PageBuilder[] = [];
-  let page = createPage();
-  pages.push(page);
 
-  if (relevantNodes.length === 0) return pages;
+  // Contrato: uma seção sem nenhum nó relevante ainda produz 1 página
+  // (vazia) — mantém o comportamento já esperado pelos dois consumidores
+  // (financialReportPdfDownload.ts / PacsQueryPage.tsx), que sempre
+  // esperam ao menos 1 folha física por seção.
+  if (relevantNodes.length === 0) return [createPage()];
+
+  // CORREÇÃO (Bloqueio 2, parecer v3 da Manus, 2026-09-25): a versão
+  // anterior criava e EMPURRAVA (`pages.push`) uma página antes de saber
+  // se ela receberia qualquer conteúdo. Quando o primeiro nó da fila não
+  // cabia nem na página inicial nem numa página nova recém-criada (e
+  // precisava ser fragmentado), a fragmentação colocava o resultado na
+  // SEGUNDA página — e a primeira, que nunca chegou a receber nada,
+  // permanecia na lista retornada como uma folha física vazia. Os dois
+  // consumidores transformavam essa folha vazia numa página real do PDF.
+  //
+  // Agora uma página só é adicionada à lista de retorno (`pages`) no
+  // momento em que ela efetivamente recebe conteúdo pela primeira vez —
+  // via `tryAppend` bem-sucedido ou `tryAppendPartialText` bem-sucedido.
+  // Nenhuma página "candidata" vazia é registrada antecipadamente, então
+  // não há como uma folha vazia sobrar na saída.
+  const pages: PageBuilder[] = [];
+  let currentPage = createPage();
+  let currentPageHasContent = false;
+
+  const commitCurrentPage = () => {
+    if (!currentPageHasContent) {
+      pages.push(currentPage);
+      currentPageHasContent = true;
+    }
+  };
 
   const queue = [...relevantNodes];
   while (queue.length > 0) {
     const node = queue.shift()!;
 
-    if (page.tryAppend(node)) continue;
+    if (currentPage.tryAppend(node)) {
+      commitCurrentPage();
+      continue;
+    }
 
-    // Não coube na página atual (que pode já ter conteúdo prévio) — abrir
-    // uma nova página vazia e tentar de novo.
-    page = createPage();
-    pages.push(page);
-    if (page.tryAppend(node)) continue;
+    if (currentPageHasContent) {
+      // A página atual já tem conteúdo — ela fica como está (já
+      // registrada) e abrimos uma página nova para tentar de novo.
+      currentPage = createPage();
+      currentPageHasContent = false;
+      if (currentPage.tryAppend(node)) {
+        commitCurrentPage();
+        continue;
+      }
+    }
+    // Se chegamos aqui, `currentPage` é uma página vazia (nunca recebeu
+    // conteúdo) — seja a primeira página do documento, seja uma recém-
+    // aberta — e o nó não coube nem sozinho nela. Não adianta tentar de
+    // novo (o resultado seria idêntico); seguimos direto para
+    // fragmentação ou erro.
 
-    // Não coube nem sozinho numa página vazia.
     if (!isWordFragmentable(node)) {
       throw new ContentTooLargeForPageError(
         "Um bloco de conteúdo do laudo (tabela, imagem ou elemento com marcação aninhada) é maior do que uma página inteira e não pode ser dividido com segurança. Revise o conteúdo do laudo ou aumente a área útil da página.",
       );
     }
 
-    const remainder = page.tryAppendPartialText(node);
+    const remainder = currentPage.tryAppendPartialText(node);
     if (remainder === null) {
       // tryAppendPartialText só retorna null quando o nó inteiro coube
       // (sem restante) OU quando nem uma palavra coube. Como já sabemos
@@ -226,6 +281,8 @@ export function paginateNodes(nodes: ChildNode[], createPage: () => PageBuilder)
         "Não foi possível encaixar nenhuma palavra de um bloco de texto do laudo em uma página vazia — a área útil configurada para o laudo é menor do que o necessário.",
       );
     }
+    // A fragmentação colocou parte do conteúdo em currentPage — registrar.
+    commitCurrentPage();
     queue.unshift(remainder);
   }
 

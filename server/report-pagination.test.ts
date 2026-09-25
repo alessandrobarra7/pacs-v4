@@ -239,6 +239,72 @@ describe("paginateNodes — núcleo de decisão da paginação real", () => {
     const nodes = [el("p", "curto"), el("p", "xxxxxxxxxxxxxxxxxxxx"), el("p", "curto2")];
     expect(() => paginateNodes(nodes, () => createFakeBuilder(12))).toThrow(ContentTooLargeForPageError);
   });
+
+  it("Bloqueio 2 (parecer de revisão v3, regressão): primeiro nó fragmentável maior que uma página não deixa uma página vazia à frente do resultado", () => {
+    // Reproduz exatamente o cenário do parecer v3: o PRIMEIRO nó da fila
+    // não cabe nem sozinho numa página vazia e precisa ser fragmentado.
+    // Antes (v3 anterior a esta correção), o fluxo criava e empurrava uma
+    // página vazia antes de descobrir isso, e o fragmento ia para uma
+    // SEGUNDA página criada depois — a primeira, vazia, sobrava no
+    // resultado. Agora nenhuma página é registrada até receber conteúdo.
+    const longText = Array.from({ length: 15 }, (_, i) => `palavra${i}`).join(" ");
+    const nodes = [el("p", longText)];
+    const pages = paginateNodes(nodes, () => createFakeBuilder(30));
+    expect(pages.length).toBeGreaterThan(1);
+    for (const page of pages) {
+      expect(page.html()).not.toBe("");
+    }
+  });
+
+  it("Bloqueio 2 (parecer de revisão v3, regressão): primeiro nó com espaços iniciais, internos e finais é preservado corretamente quando fragmentado logo de cara", () => {
+    const original = "  palavraum   palavradois palavratres  ";
+    const nodes: ChildNode[] = [document.createTextNode(original)];
+    const pages = paginateNodes(nodes, () => createFakeBuilder(15));
+    expect(pages.length).toBeGreaterThanOrEqual(1);
+    for (const page of pages) {
+      expect(page.html()).not.toBe("");
+    }
+    // A fragmentação por palavra (tryAppendPartialText do fake builder)
+    // usa join(" ") sobre palavras não vazias — não é o tokenizador exato
+    // de produção (esse é testado à parte, abaixo), mas garante aqui que
+    // nenhuma palavra desaparece e nenhuma página fica vazia mesmo quando
+    // o texto de origem tem espaçamento irregular nas bordas.
+    const combinedText = pages.map((p) => p.html()).join(" ");
+    expect(combinedText).toContain("palavraum");
+    expect(combinedText).toContain("palavradois");
+    expect(combinedText).toContain("palavratres");
+  });
+
+  it("Bloqueio 2 (parecer de revisão v3, regressão): nenhum resultado de paginateNodes contém página com html() vazio, em nenhum cenário de fragmentação testado acima", () => {
+    // Asswinatura geral pedida pela Manus: "ausência de página vazia no
+    // resultado". Reexecuta um conjunto de cenários que antes podiam gerar
+    // página fantasma e verifica a ausência de qualquer página com html()
+    // vazio.
+    const scenarios: Array<{ nodes: ChildNode[]; budget: number }> = [
+      { nodes: [el("p", Array.from({ length: 15 }, (_, i) => `p${i}`).join(" "))], budget: 20 },
+      { nodes: [document.createTextNode("  a b c d e f g h  ")], budget: 6 },
+      { nodes: [el("p", "curto"), el("p", "palavra1 palavra2 palavra3 palavra4 palavra5"), el("p", "curto2")], budget: 12 },
+    ];
+    for (const { nodes, budget } of scenarios) {
+      const pages = paginateNodes(nodes, () => createFakeBuilder(budget));
+      for (const page of pages) {
+        expect(page.html()).not.toBe("");
+      }
+    }
+  });
+
+  it("Bloqueio 2 (parecer de revisão v3, regressão): texto completo é preservado após reunir todas as páginas, mesmo quando a primeira página só recebe conteúdo por fragmentação", () => {
+    const words = Array.from({ length: 12 }, (_, i) => `w${i}`);
+    const longText = words.join(" ");
+    const nodes = [el("p", longText)];
+    const pages = paginateNodes(nodes, () => createFakeBuilder(15));
+    const combinedWords = pages
+      .map((p) => p.html())
+      .join(" ")
+      .split(/\s+/)
+      .filter(Boolean);
+    expect(combinedWords).toEqual(words);
+  });
 });
 
 describe("paginateSectionIntoPages — integração mínima (sem layout real)", () => {
@@ -387,5 +453,37 @@ describe("wiring — as duas vias de download usam o mesmo módulo de paginaçã
     expect(pacsQuerySource).toContain("err instanceof ContentTooLargeForPageError");
     // O iframe agora é removido num `finally`, não só no caminho feliz.
     expect(pacsQuerySource).toContain("if (iframe.parentNode) iframe.remove();");
+  });
+
+  it("Bloqueio 1 (parecer de revisão v3, regressão): o div de reserva de rodapé criado por buildPageShellQ carrega a classe footer-reserve, para que o seletor .footer-reserve .doctor-footer alcance o DOM real capturado", () => {
+    // Antes: o div era criado só com estilos inline (height/overflow/
+    // flex), sem a classe — a regra CSS `.footer-reserve .doctor-footer {
+    // margin-top: 0; }` não encontrava nenhum elemento na folha final, e a
+    // assinatura ainda recebia a margem de 14mm da regra geral
+    // `.doctor-footer { margin: 14mm auto 0; }` dentro de uma reserva
+    // limitada.
+    expect(pacsQuerySource).toContain('class="footer-reserve"');
+    expect(pacsQuerySource).toContain(".footer-reserve .doctor-footer { margin-top: 0; }");
+  });
+
+  it("Bloqueio 3 (parecer de revisão v3, regressão): PacsQueryPage.tsx restringe o fallback de impressão nativa a um erro de captura explicitamente classificado, não a 'qualquer erro diferente de ContentTooLargeForPageError'", () => {
+    // Antes: o `else` do catch cobria QUALQUER erro que não fosse
+    // ContentTooLargeForPageError — incluindo erro de medição de área
+    // útil, paginação interna, montagem do documento, construção do
+    // jsPDF ou pdf.save — e abria fullHtml como se fosse seguro. Agora só
+    // um tipo de erro isolado e específico (falha de captura do
+    // html2canvas / carregamento de imagem) pode abrir o fallback.
+    expect(pacsQuerySource).toContain("class PdfCaptureError extends Error");
+    expect(pacsQuerySource).toContain("err instanceof PdfCaptureError");
+    expect(pacsQuerySource).not.toMatch(/if \(err instanceof ContentTooLargeForPageError\) \{[^}]*\} else \{\s*\/\/ Fallback seguro/);
+    // O loop de captura do html2canvas relança qualquer falha como
+    // PdfCaptureError — é a única via que pode acionar o fallback.
+    expect(pacsQuerySource).toContain("throw new PdfCaptureError(");
+  });
+
+  it("Bloqueio 3 (parecer de revisão v3, regressão): financialReportPdfDownload.ts trata ContentTooLargeForPageError explicitamente (não deixa propagar sem contexto) e preserva a limpeza incondicional do iframe", () => {
+    expect(financialSource).toContain("ContentTooLargeForPageError");
+    expect(financialSource).toContain("err instanceof ContentTooLargeForPageError");
+    expect(financialSource).toMatch(/catch \(err\) \{[\s\S]*?\} finally \{\s*iframe\.remove\(\);\s*\}/);
   });
 });
