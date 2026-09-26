@@ -14,6 +14,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx, resolvePdfPageElements } from "@/lib/pdfPageGeometry";
 import { ContentTooLargeForPageError, paginateSectionIntoPages } from "@/lib/reportPagination";
+import { renderLogoLayerHtml } from "@/lib/reportLogoLayer";
 import { runControlledPrint } from "@/lib/printOrchestration";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { toast } from "sonner";
@@ -1469,11 +1470,26 @@ setSelectedStudy(study);
       const absoluteUrl = toAbsUrl(logo.url);
       return { ...logo, url: (absoluteUrl ? await fetchToBase64(absoluteUrl) : null) || absoluteUrl };
     }));
-    // Logos HTML: até 3 logos lado a lado
-    const logosHtml = lLogos.filter((l: any) => l.url).length > 0
-      ? lLogos.filter((l: any) => l.url).map((l: any) => `<img src="${l.url}" alt="Logo" style="max-height:${l.height||60}px;max-width:${l.width||180}px;object-fit:contain;margin-right:6px;" />`).join('')
-      : (logoUrl ? `<img src="${logoUrl}" alt="Logo" style="max-height:60px;max-width:180px;object-fit:contain;" />` : `<p style="font-size:9pt;color:#888;">Logo da unidade</p>`);
-    const logoHtml = logosHtml;
+    // CORRECAO (achado ao vivo em producao, 2026-09-25, pedido do
+    // Alessandro -- reproducao apos a correcao anterior de logo.width/
+    // logo.height em SharedReportSheet.tsx): o PDF baixado pela lista
+    // continuava com um cabecalho totalmente diferente do editor --
+    // logos concatenados numa unica linha ao lado de um titulo com o
+    // nome da unidade, sem nenhuma relacao com a posicao x/y configurada
+    // por logo. Causa: reconstructPaginatedPages (mais abaixo nesta
+    // funcao) SEMPRE reconstroi as paginas fisicas via buildPageShellQ
+    // para download e impressao -- inclusive quando o conteudo inicial ja
+    // tinha sido montado com o layout correto (renderSharedReportSheetHtml,
+    // logo abaixo). O cabecalho de buildPageShellQ usava um template
+    // antigo, hardcoded, que nunca foi atualizado para o sistema de
+    // blockPositions (logo1/logo2/logo3) do editor de layout.
+    // blockPositionsQ e logoLayerHtmlQ (client/src/lib/reportLogoLayer.ts)
+    // sao calculados aqui -- no escopo externo a funcao -- para estarem
+    // disponiveis tanto no HTML inicial quanto dentro de
+    // reconstructPaginatedPages/buildPageShellQ, que e o que realmente e
+    // entregue no download e na impressao.
+    const blockPositionsQ = ((unitLayout as any)?.block_positions || {}) as Record<string, { x: number; y: number; w: number; h: number; visible: boolean }>;
+    const logoLayerHtmlQ = renderLogoLayerHtml(blockPositionsQ, printLogosQ);
 
     // P7: converter imagens para base64
     const convertImgsQ = async (html: string): Promise<string> => {
@@ -1712,20 +1728,20 @@ setSelectedStudy(study);
   <div class="page-number-fixed"></div>
   <!-- SYNC ReportEditorPage: multi-seção = div.print-page por exame; único = tabela com thead repetível -->
   ${(() => {
-    const headerHtml = `
-      <div class="header">
-        <div class="header-logo">${logoHtml}</div>
-        <div class="header-title">
-          <div class="clinic-name">${unitName}</div>
-          <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
-        </div>
-      </div>`;
+    // CORRECAO (achado ao vivo em producao, 2026-09-25): o cabecalho fixo
+    // (logos concatenados + nome da unidade) foi substituido pela mesma
+    // camada de logos posicionados (x/y/w/h + px) que o editor de laudo
+    // mostra -- ver logoLayerHtmlQ, calculado no escopo externo desta
+    // funcao a partir de blockPositionsQ e printLogosQ. Sem cabecalho fixo
+    // de texto (nome da unidade), porque esse texto nunca existiu como
+    // bloco editavel no editor de layout.
+    const logoOverlayHtml = `<div style="position:absolute;inset:0;pointer-events:none;z-index:2;">${logoLayerHtmlQ}</div>`;
     const footerHtml = lFooterUrl
       ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
       : `<div style="height:4mm;"></div>`;
     const makePage = (content: string) => `
       <div class="print-page">
-        ${headerHtml}
+        ${logoOverlayHtml}
         <div style="flex:1;">
           <div class="patient-data">${patientDataHtml}</div>
           ${content}
@@ -1747,7 +1763,7 @@ setSelectedStudy(study);
       }
     } catch { /* não é JSON */ }
     // Página única: a marcação é produzida pelo mesmo componente React usado no admin e no médico.
-    const blockPositionsQ = ((unitLayout as any)?.block_positions || {}) as Record<string, { x: number; y: number; w: number; h: number; visible: boolean }>;
+    // blockPositionsQ já foi calculado no escopo externo desta função (ver comentário acima, junto de printLogosQ).
     const printBodyQ = bodyHtml
       ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
       : <div className="report-body"><p style={{ color: "#9ca3af", fontStyle: "italic" }}>Sem conteúdo para visualizar.</p></div>;
@@ -1886,20 +1902,26 @@ setSelectedStudy(study);
       // no pior caso com carimbo+assinatura+nome+CRM+data; 65mm dá
       // folga, overflow:hidden é o limite de segurança final).
       const FOOTER_RESERVE_MM_Q = 65;
-      const headerHtmlQ = `
-          <div class="header">
-            <div class="header-logo">${logoHtml}</div>
-            <div class="header-title">
-              <div class="clinic-name">${unitName}</div>
-              <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
-            </div>
-          </div>`;
+      // CORRECAO (achado ao vivo em producao, 2026-09-25): este era o
+      // cabecalho REALMENTE entregue no download e na impressao --
+      // reconstructPaginatedPages sempre chama buildPageShellQ para as
+      // duas acoes, substituindo qualquer conteudo inicial (inclusive o
+      // que ja vinha correto de renderSharedReportSheetHtml). O antigo
+      // headerHtmlQ concatenava os logos numa linha e acrescentava um
+      // titulo com o nome da unidade que nunca existiu no editor de
+      // layout -- por isso o PDF entregue nunca batia com o que o editor
+      // mostra, mesmo depois da correcao anterior de logo.width/height em
+      // SharedReportSheet.tsx. Agora usa a mesma camada de logos
+      // posicionados (logoLayerHtmlQ, calculada no escopo externo desta
+      // funcao a partir de blockPositionsQ + printLogosQ), sem titulo de
+      // unidade fixo.
+      const logoOverlayHtmlQ = `<div style="position:absolute;inset:0;pointer-events:none;z-index:2;">${logoLayerHtmlQ}</div>`;
       const footerHtmlQ = lFooterUrl
         ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
         : `<div style="height:4mm;"></div>`;
       const buildPageShellQ = (examTitle: string, bodyHtml: string, footerReserveHtml: string) => `
           <div class="print-page">
-            ${headerHtmlQ}
+            ${logoOverlayHtmlQ}
             <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
               <div class="patient-data">${patientDataHtml}</div>
               <div class="exam-title">${examTitle || ''}</div>
