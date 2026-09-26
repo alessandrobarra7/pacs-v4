@@ -16,6 +16,9 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { SharedReportSheet } from "@/components/SharedReportSheet";
 import { toast } from "sonner";
+import { DEFAULT_LAYOUT_PREFERENCES, type LayoutPreferences } from "../../../shared/types";
+import { pageHeightMm, pageWidthMm } from "@/lib/pdfPageGeometry";
+import { getAreaUtilWrapperStyle, getCanvasOuterStyle, pointerDeltaToPercent } from "@/lib/layoutEditorAreaUtil";
 import {
   ArrowLeft, Save, RotateCcw, Upload, Image as ImageIcon,
   Move, Eye, EyeOff, Loader2, X, Plus,
@@ -130,6 +133,16 @@ export default function LayoutEditorPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
+  // Preferências de página/margens (pageSize + 4 margens) — mesma fonte usada
+  // pelo fluxo real de PDF/impressão (layoutData.preferences), para que o
+  // canvas do editor deixe de ser uma folha A4 fixa e passe a refletir a
+  // folha física realmente entregue (parecer Manus 2026-09-25,
+  // "equivalência editor/PDF").
+  const [layoutPrefs, setLayoutPrefs] = useState<Partial<LayoutPreferences> | null>(null);
+  const effectiveLayoutPrefs: LayoutPreferences = { ...DEFAULT_LAYOUT_PREFERENCES, ...(layoutPrefs ?? {}) };
+  const paperWidthMmValue = pageWidthMm(effectiveLayoutPrefs.pageSize);
+  const paperHeightMmValue = pageHeightMm(effectiveLayoutPrefs.pageSize);
+
   const dragging = useRef<{
     block: BlockId;
     startX: number;
@@ -138,6 +151,11 @@ export default function LayoutEditorPage() {
     origY: number;
   } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  // Wrapper interno com a mesma caixa de padding (mm) usada por
+  // SharedReportSheet — representa a ÁREA ÚTIL real renderizada na tela,
+  // usada para converter movimento de ponteiro em percentuais corretos
+  // (Bloqueio C do parecer).
+  const usableAreaRef = useRef<HTMLDivElement>(null);
 
   const { data: unitData } = trpc.units.getById.useQuery({ id: unitId }, { enabled: unitId > 0 });
   const { data: layoutData, refetch: refetchLayout } = trpc.layouts.getByUnit.useQuery(
@@ -151,6 +169,10 @@ export default function LayoutEditorPage() {
   // ── Inicializar a partir do banco ──────────────────────────────────────────
   useEffect(() => {
     if (!layoutData) return;
+
+    if ((layoutData as { preferences?: unknown }).preferences && typeof (layoutData as { preferences?: unknown }).preferences === "object") {
+      setLayoutPrefs((layoutData as { preferences?: Partial<LayoutPreferences> }).preferences ?? null);
+    }
 
     if (layoutData.background_image_url) {
       setBgUrl(layoutData.background_image_url);
@@ -320,12 +342,16 @@ export default function LayoutEditorPage() {
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     const drag = dragging.current;
-    const canvas = canvasRef.current;
-    if (!drag || !canvas) return;
+    // Bloqueio C (parecer Manus 2026-09-25): o percentual arrastado deve ser
+    // relativo à ÁREA ÚTIL (folha menos margens), não à folha inteira —
+    // usableAreaRef é o wrapper com a mesma caixa de padding em mm usada por
+    // SharedReportSheet, então seu retângulo real já é a área útil.
+    const usable = usableAreaRef.current;
+    if (!drag || !usable) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const dx = ((e.clientX - drag.startX) / rect.width) * 100;
-    const dy = ((e.clientY - drag.startY) / rect.height) * 100;
+    const rect = usable.getBoundingClientRect();
+    const dx = pointerDeltaToPercent(e.clientX - drag.startX, rect.width);
+    const dy = pointerDeltaToPercent(e.clientY - drag.startY, rect.height);
     const { block, origX, origY } = drag;
 
     setPositions(prev => {
@@ -778,7 +804,11 @@ export default function LayoutEditorPage() {
                   <div
                     ref={canvasRef}
                     className="bg-white shadow-2xl relative overflow-hidden"
-                    style={{ width: 595, height: 842, userSelect: "none", touchAction: "none" }}
+                    style={{
+                      ...getCanvasOuterStyle(effectiveLayoutPrefs.pageSize),
+                      userSelect: "none",
+                      touchAction: "none",
+                    }}
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
                     onPointerCancel={handlePointerUp}
@@ -817,9 +847,20 @@ export default function LayoutEditorPage() {
                         </div>
                       }
                       footer={<div style={{ textAlign: "center", fontSize: "9pt" }}>Dr. Nome do Medico - CRM 12345</div>}
-                      style={{ width: 595, height: 842, minHeight: 842 }}
+                      pageSize={effectiveLayoutPrefs.pageSize}
+                      marginTop={effectiveLayoutPrefs.marginTop}
+                      marginRight={effectiveLayoutPrefs.marginRight}
+                      marginBottom={effectiveLayoutPrefs.marginBottom}
+                      marginLeft={effectiveLayoutPrefs.marginLeft}
+                      style={{ width: "100%", height: "100%" }}
                     />
 
+                    {/* Camada de interação: mesma caixa de padding (mm) que SharedReportSheet usa
+                        internamente, para que os overlays de arrastar/redimensionar fiquem
+                        exatamente sobre a ÁREA ÚTIL real, e não sobre a folha inteira
+                        (Bloqueio C, parecer Manus 2026-09-25). */}
+                    <div style={getAreaUtilWrapperStyle(effectiveLayoutPrefs)}>
+                      <div ref={usableAreaRef} style={{ position: "relative", width: "100%", height: "100%" }}>
                     {/* Overlays transparentes para selecionar, arrastar e redimensionar blocos. */}
                     {activeBlockIds.map(block => {
                       const pos = positions[block];
@@ -843,6 +884,7 @@ export default function LayoutEditorPage() {
                             border: `${isActive ? 2 : 1}px ${isActive ? 'solid' : 'dashed'} ${isActive ? info.color : `${info.color}66`}`,
                             background: isActive ? `${info.color}12` : "transparent",
                             cursor: "grab",
+                            pointerEvents: "auto",
                             zIndex: isActive ? 20 : 2,
                             borderRadius: 4,
                             display: "flex", alignItems: "center", justifyContent: "center",
@@ -865,8 +907,11 @@ export default function LayoutEditorPage() {
                                   try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* captura indisponível */ }
                                   const startX = e.clientX;
                                   const startW = pos.w;
+                                  // Bloqueio C: redimensionar como % da área útil real (não um
+                                  // divisor fixo em px que ignorava pageSize/margens).
+                                  const usableWidthPx = usableAreaRef.current?.getBoundingClientRect().width || 1;
                                   const onMove = (me: PointerEvent) => {
-                                    const dw = ((me.clientX - startX) / 450) * 100;
+                                    const dw = pointerDeltaToPercent(me.clientX - startX, usableWidthPx);
                                     setPositions(prev => {
                                       const current = prev[block];
                                       if (!current) return prev;
@@ -893,8 +938,10 @@ export default function LayoutEditorPage() {
                                   try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* captura indisponível */ }
                                   const startY = e.clientY;
                                   const startH = pos.h;
+                                  // Bloqueio C: mesmo ajuste para a alça de altura.
+                                  const usableHeightPx = usableAreaRef.current?.getBoundingClientRect().height || 1;
                                   const onMove = (me: PointerEvent) => {
-                                    const dh = ((me.clientY - startY) / 600) * 100;
+                                    const dh = pointerDeltaToPercent(me.clientY - startY, usableHeightPx);
                                     setPositions(prev => {
                                       const current = prev[block];
                                       if (!current) return prev;
@@ -921,9 +968,13 @@ export default function LayoutEditorPage() {
                         </div>
                       );
                     })}
+                      </div>
+                    </div>
                     <div style={{ position: "absolute", inset: 0, border: "1px solid #e5e7eb", pointerEvents: "none", zIndex: 0 }} />
                   </div>
-                  <p className="text-xs text-gray-500 text-center mt-2">Canvas A4 (595 x 842 px) - arraste os blocos para reposicionar</p>
+                  <p className="text-xs text-gray-500 text-center mt-2">
+                    Canvas {effectiveLayoutPrefs.pageSize} ({paperWidthMmValue}mm x {paperHeightMmValue}mm) - arraste os blocos para reposicionar
+                  </p>
                 </>
               ) : (
                 <>
@@ -959,7 +1010,12 @@ export default function LayoutEditorPage() {
                       </div>
                     }
                     footer={<div style={{ textAlign: "center", fontSize: "9pt" }}>Dr. Nome do Medico - CRM 12345</div>}
-                    style={{ width: 595, height: 842, minHeight: 842 }}
+                    pageSize={effectiveLayoutPrefs.pageSize}
+                    marginTop={effectiveLayoutPrefs.marginTop}
+                    marginRight={effectiveLayoutPrefs.marginRight}
+                    marginBottom={effectiveLayoutPrefs.marginBottom}
+                    marginLeft={effectiveLayoutPrefs.marginLeft}
+                    style={{ width: "100%", maxWidth: `${paperWidthMmValue}mm`, minHeight: `${paperHeightMmValue}mm` }}
                   />
                   <p className="text-xs text-gray-500 text-center mt-2">Previa real da pagina com os blocos aplicados</p>
                 </>
