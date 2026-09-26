@@ -477,7 +477,27 @@ export default function ReportEditorPage() {
   // vazio/parcial, apagando o conteúdo original. Agora grava em AMBAS as
   // árvores sempre, mantendo-as em sincronia desde a carga inicial.
   useEffect(() => {
-    if (!existingReport?.body) return;
+    if (!existingReport) return;
+    if (!existingReport.body) {
+      // FIX (Alessandro, reprodução 2026-09-26): quando uma nova ocorrência
+      // é criada em branco (ex.: "Nova laudagem" após cancelamento), o
+      // contentEditable NÃO é limpo automaticamente pelo React ao trocar
+      // apenas os dados da query — o texto do laudo anterior permanecia
+      // visível e editável no DOM, dando a falsa impressão de que o exame
+      // já estava laudado. Limpa explicitamente todas as árvores do editor
+      // para que o ambiente volte a ficar pendente, como se nunca tivesse
+      // sido laudado.
+      if (isMultiSection) {
+        examNames.forEach((_, i) => {
+          if (sectionRefs.current[i]) sectionRefs.current[i]!.innerHTML = "";
+          if (mobileSectionRefs.current[i]) mobileSectionRefs.current[i]!.innerHTML = "";
+        });
+      } else {
+        if (docRef.current) docRef.current.innerHTML = "";
+        if (mobileDocRef.current) mobileDocRef.current.innerHTML = "";
+      }
+      return;
+    }
     if (isMultiSection && (sectionRefs.current.length > 0 || mobileSectionRefs.current.length > 0)) {
       const setSectionHtml = (i: number, html: string) => {
         if (sectionRefs.current[i]) sectionRefs.current[i]!.innerHTML = html;
@@ -509,7 +529,7 @@ export default function ReportEditorPage() {
       if (docRef.current) docRef.current.innerHTML = html;
       if (mobileDocRef.current) mobileDocRef.current.innerHTML = html;
     }
-  }, [existingReport, isMultiSection]);
+  }, [existingReport, isMultiSection, examNames]);
 
   // Recalcula a guia visual depois que o conteúdo existente foi aplicado via DOM.
   useEffect(() => {
@@ -683,9 +703,16 @@ export default function ReportEditorPage() {
   const handleNewOccurrence = useCallback(async () => {
     if (!existingReport || !isCancelled) return;
     try {
+      // FIX (Alessandro, reprodução 2026-09-26): esta chamada enviava
+      // body: existingReport.body — copiando o texto do laudo CANCELADO
+      // como conteúdo inicial da nova ocorrência. Isso contradiz o próprio
+      // propósito do cancelamento: o exame deve voltar a ficar pendente,
+      // como se nunca tivesse sido laudado, não reabrir com o texto antigo
+      // (possivelmente o motivo do cancelamento) já preenchido. A nova
+      // ocorrência agora sempre começa com body em branco.
       await createReport.mutateAsync({
         study_instance_uid: studyUid,
-        body: existingReport.body || "",
+        body: "",
         unit_id: studyInfo?.unitId ?? undefined,
         document_key: documentKey,
         document_label_snapshot: documentLabelFromRoute || examTitle || studyInfo?.studyDescription || undefined,
@@ -1851,6 +1878,12 @@ export default function ReportEditorPage() {
                       }
                       body={
                         <>
+                          {i === 0 && isCancelled && !financialDocumentView && (
+                            <div style={{ background: "#fee2e2", border: "1px solid #ef4444", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#991b1b", display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                              <X style={{ width: 14, height: 14, flexShrink: 0 }} />
+                              <span>Laudo <strong>cancelado</strong> — o texto abaixo é apenas o laudo anterior, mantido para auditoria. Clique em <strong>Nova laudagem</strong> para começar um laudo em branco.</span>
+                            </div>
+                          )}
                           {i === 0 && isSigned && !isRevising && !financialDocumentView && (
                             <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                               <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
@@ -1997,6 +2030,12 @@ export default function ReportEditorPage() {
                 }
                 body={
                   <>
+                    {isCancelled && !financialDocumentView && (
+                      <div style={{ background: "#fee2e2", border: "1px solid #ef4444", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#991b1b", display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexShrink: 0 }}>
+                        <X style={{ width: 14, height: 14, flexShrink: 0 }} />
+                        <span>Laudo <strong>cancelado</strong> — o texto abaixo é apenas o laudo anterior, mantido para auditoria. Clique em <strong>Nova laudagem</strong> para começar um laudo em branco.</span>
+                      </div>
+                    )}
                     {isSigned && !isRevising && !financialDocumentView && (
                       <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "7px 12px", fontSize: "10pt", color: "#92400e", display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexShrink: 0 }}>
                         <CheckCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
@@ -2178,6 +2217,12 @@ export default function ReportEditorPage() {
               </div>
             )}
 
+            {isCancelled && (
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 relative z-10">
+                <X className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Laudo <strong>cancelado</strong> — texto anterior mantido só para auditoria. Toque em <strong>Novo</strong> para começar em branco.</span>
+              </div>
+            )}
             {isSigned && !isRevising && (
               <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 relative z-10">
                 <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />

@@ -532,3 +532,93 @@ apos a escolha.
 
 Estado atual: mesma branch claude/corrige-logo-px-editor-vs-pdf, sem PR
 aberto, sem merge em main, nada implantado em VM1/VM2/VM3.
+
+============================================================
+ADENDO 5 (2026-09-26) — LAUDO CANCELADO NAO VOLTAVA A FICAR PENDENTE
+============================================================
+
+ORIGEM: Alessandro cancelou o proprio laudo assinado do paciente
+RAIMUNDO NESTOR SERPA MORAES (23/09/2026, unidade Hospital da Crianca) —
+o mesmo caso do ADENDO 4 — e reportou que, apos o cancelamento, "o
+ambiente" nao ficou como deveria: ele esperava que o exame voltasse a
+ficar pendente, como se nunca tivesse sido laudado.
+
+REPRODUCAO: a lista de Estudos ja mostrava corretamente "Laudo cancelado
+/ Assinatura cancelada — nova laudagem necessaria". Ao entrar em
+"Laudar" (como medica, usuario claudia), o editor abria com o CORPO
+INTEIRO do laudo cancelado ja carregado no contentEditable — tecnica,
+achados e impressao diagnostica identicos ao laudo original — sem
+nenhum aviso visual de que aquele conteudo era de um laudo cancelado.
+Confirmado por inspecao de rede: a resposta de reports.getByStudyUid
+trazia o registro com status:"cancelled" e o body completo do laudo
+assinado antes do cancelamento.
+
+CAUSA RAIZ (confirmada no codigo): em
+client/src/pages/ReportEditorPage.tsx:
+
+1. O efeito que popula o editor a partir de existingReport.body rodava
+   incondicionalmente sempre que existingReport.body existisse — sem
+   checar isCancelled. Como o cancelamento (server/routers/reports.ts,
+   delete/cancelPreview) so marca status='cancelled' na linha existente
+   (mantendo o body para auditoria), o editor sempre recarregava o texto
+   antigo, dando a falsa impressao de que o exame ja estava laudado.
+2. O botao "Nova laudagem" (handleNewOccurrence) criava a nova ocorrencia
+   com `body: existingReport.body || ""` — ou seja, mesmo ao iniciar
+   deliberadamente uma nova laudagem, o texto do laudo CANCELADO (o
+   motivo do cancelamento, em muitos casos) era copiado como conteudo
+   inicial da nova ocorrencia, em vez de comecar em branco.
+3. Mesmo corrigindo (2), o contentEditable de um componente React nao e
+   limpo automaticamente so porque os dados da query mudaram — o
+   useEffect que popula o editor tinha `if (!existingReport?.body)
+   return;`, entao ao criar a nova ocorrencia com body vazio o efeito
+   simplesmente nao fazia nada, deixando o texto antigo VISUALMENTE
+   ainda no DOM (contentEditable), pronto para ser assinado por engano.
+
+CORRECAO:
+
+- handleNewOccurrence agora sempre envia body: "" (nunca mais copia o
+  body do laudo cancelado).
+- O efeito de carregamento agora trata explicitamente o caso
+  "existingReport existe mas body esta vazio" (rascunho/nova ocorrencia
+  em branco): limpa o innerHTML de docRef, mobileDocRef e de todas as
+  sectionRefs/mobileSectionRefs (multi-secao), garantindo que o ambiente
+  volte a ficar de fato pendente — sem residuo do texto anterior no DOM.
+- Adicionados avisos visuais explicitos de "Laudo cancelado" nos 3 pontos
+  onde o corpo do documento e renderizado (desktop multi-secao, desktop
+  secao unica, mobile), deixando claro que o texto exibido (quando
+  isCancelled) e apenas o laudo anterior mantido para auditoria, e que
+  "Nova laudagem"/"Novo" inicia um laudo em branco.
+
+VALIDACAO EXECUTADA:
+
+- pnpm check (tsc --noEmit): aprovado.
+- Novo teste de wiring
+  server/report-editor-cancelled-reset-wiring.test.ts (5 casos): confirma
+  que handleNewOccurrence nao copia mais o body antigo, que o efeito
+  limpa o DOM (docRef/mobileDocRef/sectionRefs/mobileSectionRefs) quando
+  o body esta vazio, que a dependencia examNames foi adicionada, e que
+  os 3 avisos de "Laudo cancelado" existem e usam isCancelled como
+  condicao.
+- TZ=UTC pnpm test (suite completa): 661 aprovados, 11 falhas em 7
+  arquivos, 1 ignorado — confirmadas arquivo a arquivo contra a linha de
+  base historica ja conhecida; nenhuma falha nova.
+- pnpm build: aprovado; resta apenas o aviso preexistente de bundle
+  grande.
+- git diff --check: aprovado.
+
+IMPORTANTE — nao executado neste sandbox por seguranca: NAO cliquei em
+"Nova laudagem" no ambiente de producao (lauds.com.br) durante a
+reproducao, pois o codigo la ainda e o antigo (sem esta correcao) e essa
+acao criaria uma ocorrencia real no banco de producao para o laudo do
+RAIMUNDO NESTOR. A confirmacao do bug foi feita por leitura de codigo
+(ambas as causas acima) e inspecao da resposta de rede real de
+reports.getByStudyUid (body do laudo cancelado presente na resposta).
+
+PENDENTE (fora deste sandbox): apos o deploy, repetir a reproducao
+(medica claudia ou admin, "Laudar" no mesmo estudo cancelado) e clicar em
+"Nova laudagem"/"Novo", confirmando que o editor abre em branco (com o
+aviso vermelho "Laudo cancelado" visivel antes do clique) e que a nova
+ocorrencia criada realmente comeca sem o texto anterior.
+
+Estado atual: mesma branch claude/corrige-logo-px-editor-vs-pdf, sem PR
+aberto, sem merge em main, nada implantado em VM1/VM2/VM3.
