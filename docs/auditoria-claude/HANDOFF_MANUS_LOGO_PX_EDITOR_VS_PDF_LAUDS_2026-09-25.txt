@@ -310,3 +310,118 @@ decidir, nao foi feita unilateralmente aqui.
 Codigo publicado apenas no branch claude/corrige-logo-px-editor-vs-pdf, sem
 push ainda (ver secao de push abaixo se aplicavel), sem PR aberto, sem merge
 em main, nada implantado em VM1/VM2/VM3. Commit topo: c4b6b9d.
+
+================================================================================
+ADENDO 3 (2026-09-25) — resposta ao RELATO_BLOQUEIO_EQUIVALENCIA_EDITOR_PDF_LOGOS
+================================================================================
+
+Contexto: apos os 4 bloqueios da rodada anterior (coordenadas, fallback de
+logo legado, positions.logo legado, injecao HTML) terem sido corrigidos e
+validados pela Manus em Chromium real (commit bf1c327 / adendo 2, 9cfff46),
+a Manus confirmou que reportLogoLayer.ts e a reconstrucao em
+PacsQueryPage.tsx estao fisicamente corretos, mas encontrou um bloqueio
+NOVO e distinto: o canvas do editor de layout (LayoutEditorPage.tsx) nunca
+consumia pageSize/margens da unidade, desenhando sempre uma folha A4 fixa
+de 595x842px — inclusive para unidades configuradas com pageSize=Letter,
+que apareciam desenhadas/rotuladas como A4 no editor. Isso quebrava o
+proprio objetivo da correcao: o PDF/impressao ja refletia a folha real
+configurada, mas o editor que orienta o operador nao.
+
+Correcao aplicada (commit d66258c), escopada exclusivamente a
+LayoutEditorPage.tsx, sem tocar em reportLogoLayer.ts ou PacsQueryPage.tsx:
+
+A. Preferencias efetivas — LayoutEditorPage passou a ler
+   layoutData.preferences (a mesma fonte ja usada por ReportEditorPage.tsx
+   e por todo o fluxo de PDF/impressao) e mesclar com
+   DEFAULT_LAYOUT_PREFERENCES, expondo pageSize + as 4 margens efetivas.
+
+B. Folha fisica dinamica — o canvas passou a usar pageWidthMm/pageHeightMm
+   (A4=210x297mm, Letter=216x279mm) com aspect-ratio, em vez do estilo
+   fixo width:595/height:842px. As duas chamadas de SharedReportSheet
+   ("Editar blocos" e "Previa real") agora recebem pageSize e as 4
+   margens efetivas. O rotulo abaixo do canvas ("Canvas A4 (595 x 842
+   px)...") foi trocado por um rotulo dinamico que mostra o pageSize e as
+   dimensoes fisicas reais em mm.
+
+C. Camada de interacao sobre a area util — os overlays transparentes de
+   arrastar/redimensionar calculavam left/top/width/height em % sobre a
+   folha inteira (o mesmo tipo de bug ja corrigido no lado do PDF na
+   rodada 3, Bloqueio 1). A alca de redimensionamento, alem disso, usava
+   divisores de px fixos (450 para largura, 600 para altura) que ignoravam
+   pageSize e margens por completo. Corrigido: a camada de interacao
+   agora usa a MESMA caixa de padding em mm que SharedReportSheet.tsx
+   aplica de fato na folha real (mesma expressao:
+   `${marginTop}mm ${marginRight}mm ${marginBottom}mm ${marginLeft}mm`),
+   e a conversao de deslocamento do ponteiro para percentual usa a area
+   util medida de verdade via getBoundingClientRect() do wrapper interno,
+   nao mais um divisor fixo. Os valores persistidos continuam sendo
+   percentuais da area util, sem nenhuma migracao ou reinterpretacao dos
+   dados ja salvos.
+
+D. Contratos preservados — nao alterado: logos em px (width/height +
+   maxWidth/maxHeight:100%), pageSize/margens no PDF real, compatibilidade
+   positions.logo, fallback de units.logo_url, escape/validacao de URL.
+   reportLogoLayer.ts e PacsQueryPage.tsx nao foram tocados.
+
+Modulo novo, puro e testavel: client/src/lib/layoutEditorAreaUtil.ts
+(getCanvasOuterStyle, getAreaUtilWrapperStyle, pointerDeltaToPercent),
+usado tanto pelo componente quanto pelos testes.
+
+TESTES NOVOS (reais, nao apenas leitura de codigo-fonte):
+
+- server/layout-editor-area-util.test.ts (10 casos): dimensoes fisicas de
+  A4 vs Letter; os dois cenarios de margem assimetrica citados no
+  parecer (A4 17/22/19/25mm; Letter 13/19/23/27mm); um teste de
+  EQUIVALENCIA que compara, byte a byte, o padding gerado pelo editor com
+  a mesma expressao usada de fato em SharedReportSheet.tsx (a folha que
+  gera o PDF real) para varios cenarios de margem, incluindo margens
+  zeradas; e regressao explicita provando que a conversao de
+  ponteiro-para-percentual depende da area util real (nao mais dos
+  divisores fixos antigos 450/600), alem de protecao contra area util
+  invalida (0, negativa, NaN).
+- server/layout-editor-page-wiring.test.ts (7 casos): confirma, lendo a
+  fonte real de LayoutEditorPage.tsx, que o hardcode 595/842 foi
+  removido, que AMBAS as chamadas de SharedReportSheet recebem pageSize e
+  as 4 margens efetivas, que o rotulo do canvas deixou de ser fixo, que a
+  camada de interacao usa os helpers de area util (nao mais % sobre a
+  folha inteira), e que os contratos existentes (positions.logo legado,
+  handlers de logo px) continuam presentes.
+
+VALIDACAO EXECUTADA:
+
+- pnpm check (tsc --noEmit): aprovado.
+- Testes direcionados (server/shared-report-print.test.ts,
+  server/report-editor-mobile-ui.test.ts, server/report-logo-layer.test.ts,
+  server/pacs-print-logo-layer-wiring.test.ts,
+  server/report-editor-dom-real.test.ts,
+  server/layout-editor-area-util.test.ts,
+  server/layout-editor-page-wiring.test.ts,
+  server/layouts-security.test.ts): 69 casos aprovados em 8 arquivos.
+- TZ=UTC pnpm test (suite completa): 650 aprovados, 11 falhas em 7
+  arquivos, 1 ignorado — confirmadas arquivo a arquivo contra a linha de
+  base historica ja conhecida deste repositorio (exam-catalog-security,
+  finance-v2-dashboard x2, mediaProxy, pacs-desktop-download-progress,
+  pacs.mobile-ui, security.auth, study-priority-ui x4); nenhuma falha
+  nova. (Durante o desenvolvimento, uma alteracao intermediaria chegou a
+  quebrar um teste adicional, server/admin-mobile-ui.test.ts, por remover
+  um comentario JSX que o teste buscava por string; corrigido antes deste
+  commit, restaurando o comentario — a suite completa final confirma
+  exatamente os 11/7 da linha de base, nenhuma falha extra.)
+- pnpm build: aprovado; resta apenas o aviso preexistente de bundle
+  grande.
+- git diff --check: aprovado.
+
+PENDENTE (fora do que pode ser feito neste sandbox, pedido explicito da
+Manus): homologacao visual em Chromium real — abrir o editor com
+cenarios sinteticos A4 e Letter com margens assimetricas nao nulas e dois
+logos distintos, medir os logos na previa e no iframe reconstruido das
+acoes Imprimir/Baixar em PDF, confirmar visualmente que a folha Letter
+nao continua desenhada/rotulada como A4, confirmar que um arraste de
+handle persiste os mesmos percentuais de area util, e confirmar os PDFs
+A4/Letter com tamanho e numero de paginas corretos — antes de decidir
+sobre merge em main e implantacao em VM1/VM2/VM3. Nenhuma dessas acoes
+foi realizada a partir daqui.
+
+Estado atual: codigo no branch claude/corrige-logo-px-editor-vs-pdf,
+commit topo d66258c, sem PR aberto, sem merge em main, nada implantado em
+VM1/VM2/VM3.
