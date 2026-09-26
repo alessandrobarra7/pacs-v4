@@ -391,7 +391,12 @@ export type CanonicalSigner = {
   status: CanonicalReportStatus;
 };
 
-function escapeHtmlText(value: string): string {
+/** Exportado para reuso em client/src/lib/reportDocumentRenderer.tsx (Fase 2
+ * da unificação) — mesma função de escaping usada em buildDoctorFooterHtml,
+ * agora também usada para os blocos de nome/dados do paciente construídos
+ * pela fábrica canônica de páginas físicas, para nunca ter 2 implementações
+ * divergentes de escaping de HTML nos 3 caminhos. */
+export function escapeHtmlText(value: string): string {
   return value.replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char] ?? char));
 }
 
