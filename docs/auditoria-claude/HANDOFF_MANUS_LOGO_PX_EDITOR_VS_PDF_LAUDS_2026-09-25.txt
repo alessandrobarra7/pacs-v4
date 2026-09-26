@@ -1,5 +1,75 @@
 HANDOFF TECNICO PARA A MANUS — LOGO DO LAUDO: CAMPO PX MORTO, SEM EFEITO NO EDITOR NEM NO PDF
 
+ADENDO 2 (2026-09-25) — resposta ao parecer de bloqueio (4 bloqueios confirmados e corrigidos)
+
+A Manus revisou o commit a9041c7 (ADENDO 1 acima) e bloqueou merge/VM1 com
+4 achados reais, todos confirmados e corrigidos no commit bf1c327 (mesma
+branch, topo atual):
+
+BLOQUEIO 1 — sistema de coordenadas diferente do editor. O overlay de
+logos usava `position:absolute;inset:0` dentro de `.print-page`, que
+referencia a borda externa do padding (a folha inteira), nao a area util
+(folha menos margens) que SharedReportSheet.tsx usa como referencia para
+x/y em %. Reproducao matematica da Manus: A4 com margens de 20mm, logo
+x=2%/y=2% aparecia ~19mm deslocado para cima/esquerda em relacao ao
+editor — exatamente o problema que a correcao original deveria eliminar.
+Corrigido: o overlay agora usa as 4 margens efetivas como offset
+(top/right/bottom/left = lMT/lMR/lMB/lML), nos dois lugares onde e
+montado (makePage e buildPageShellQ).
+
+BLOQUEIO 2 — regressao do fallback de logo legado (units.logo_url).
+printLogosQ (introduzido no commit a9041c7) so lia model_layouts.logos,
+perdendo o fallback anterior para unidades sem layout novo configurado —
+elas passavam a baixar/imprimir sem logo nenhum. Corrigido com
+printLogosWithFallbackQ: so quando nao ha nenhum logo valido no layout,
+usa logo_url como um logo1 unico, na posicao de fabrica.
+
+BLOQUEIO 3 — `block_positions.logo` (chave legada, layouts antigos sem
+logo1/logo2/logo3) era ignorada por reportLogoLayer.ts, embora
+SharedReportSheet.tsx tenha compatibilidade explicita para essa chave.
+Layouts antigos com essa chave voltavam a divergir entre editor e PDF.
+Corrigido com expandLegacyLogoPosition, reproduzindo o mesmo algoritmo do
+componente React (comentario cruzado nos dois arquivos pedindo sincronia
+manual — nao ha modulo comum entre um componente React e um gerador de
+string HTML puro).
+
+BLOQUEIO 4 — injecao de HTML/atributo via URL de logo. renderLogoLayerHtml
+gerava `<img src="${logo.url}">` por interpolacao direta, sem escapar
+aspas nem validar o esquema da URL; uma URL como
+`https://x" onerror="window.__x=1` produzia um atributo de evento
+executavel no HTML gerado (a Manus reproduziu isso sem executar codigo).
+Corrigido com escapeHtmlAttribute (escapa & " ' < >), isSafeImageUrl (so
+aceita data:image/... ou http(s)://, rejeita qualquer outro esquema) e
+clampFinite (normaliza x/y/w/h/width/height para numeros finitos dentro de
+limites antes de serializar em CSS).
+
+Cobertura de teste adicionada, conforme pedido no parecer: 6 testes novos
+em server/report-logo-layer.test.ts (Bloqueios 3 e 4) e um novo arquivo,
+server/pacs-print-logo-layer-wiring.test.ts, com 4 testes de wiring que
+leem a fonte real de PacsQueryPage.tsx e confirmam: buildPageShellQ usa
+logoOverlayHtmlQ; nao resta nenhum residuo de clinic-name/clinic-sub/
+titulo fixo (as classes CSS correspondentes tambem foram removidas, por
+nao terem mais uso); o overlay usa as margens em vez de inset:0 nos dois
+lugares; e o fallback printLogosWithFallbackQ esta presente.
+
+Validacao apos esta correcao: pnpm check aprovado. TZ=UTC pnpm test
+completo: 633 aprovados (+10 desde o commit anterior desta branch), 11
+falhas em 7 suites — mesma linha de base conhecida e pre-existente,
+confirmada arquivo a arquivo, nenhuma nova. pnpm build aprovado, so o
+aviso preexistente de bundle grande. git diff --check aprovado.
+
+Pendencia explicita, mencionada no parecer e ainda nao resolvida: a
+Homologacao Necessaria Depois da Correcao descrita no parecer (unidades
+sintéticas A4/Letter com margens nao nulas e 2 logos distintos, comparando
+origem/caixa entre editor e DOM reconstruido em Chromium real) ainda
+depende de ambiente com navegador real — os testes adicionados aqui sao
+de logica pura (reportLogoLayer.ts) e de wiring por leitura de fonte
+(PacsQueryPage.tsx), nao substituem essa validacao visual em Chromium.
+
+Nada implantado. Sem PR, sem merge em main. Commit topo da branch agora:
+bf1c327 (era 99081fa no ADENDO 1).
+
+
 ADENDO (2026-09-25) — cabecalho REALMENTE entregue nao usava block positions
 
 O Alessandro repetiu o teste em producao apos a correcao original deste
