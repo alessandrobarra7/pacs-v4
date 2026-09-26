@@ -6,6 +6,7 @@ import { assertDicomFileAccess, canAccessUnit } from "../authorization";
 import { createAuditLog, getDb, resolveEffectiveUnitId } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { studyInstanceUidSchema } from "../routerUtils";
+import { PACS_MAX_RESULTS } from "../../shared/const";
 
 const prioritySchema = z.enum(["urgencia", "prioridade_maxima"]);
 
@@ -21,7 +22,11 @@ function assertPriorityAuthorRole(role: string) {
 export const studyPriorityRouter = router({
   /** Retorna as sinalizações da unidade selecionada para os estudos já autorizados na tela. */
   getBatch: protectedProcedure
-    .input(z.object({ studyInstanceUids: z.array(studyInstanceUidSchema).max(100), unit_id: z.number().optional() }))
+    // BLOQUEIO Manus (parecer 2026-09-26): mesmo teto de 100 que afetava
+    // studyExamLegend.getBatch — a lista compartilhada de UIDs no cliente
+    // (antes priorityStudyUids, agora studyContextUids) pode ter até
+    // PACS_MAX_RESULTS (500) estudos.
+    .input(z.object({ studyInstanceUids: z.array(studyInstanceUidSchema).max(PACS_MAX_RESULTS), unit_id: z.number().optional() }))
     .query(async ({ input, ctx }) => {
       if (!input.studyInstanceUids.length) return [];
       const unitId = ctx.user.role === "admin_master"

@@ -25,6 +25,7 @@ import { AudioReportsModal } from "@/components/AudioReportsModal";
 import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 import { canAccessAdmin, type UserRole } from "../../../shared/permissions";
 import { DEFAULT_LAYOUT_PREFERENCES } from "../../../shared/types";
+import { PACS_MAX_RESULTS } from "../../../shared/const";
 
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -749,21 +750,32 @@ const isAdminMaster = user?.role === 'admin_master';
   const [queryResults, setQueryResults] = useState<any[]>(() => {
     try { return JSON.parse(localStorage.getItem(cacheKey) || '[]'); } catch { return []; }
   });
-  const priorityStudyUids = useMemo(
-    () => Array.from(new Set(queryResults.map((study: any) => study.studyInstanceUid).filter(Boolean))).slice(0, 100),
+  // BLOQUEIO Manus (parecer 2026-09-26, revisão de 94444b9/207a599): esta
+  // lista era usada tanto para prioridade clínica quanto para carregar as
+  // seleções de legenda/documento clínico (legendSelectionsByStudyUid), mas
+  // era cortada em 100 UIDs mesmo a busca do PACS podendo devolver até
+  // PACS_MAX_RESULTS (500) e a tela mostrando todos. Estudos do índice
+  // 101-500 nunca ganhavam seleção de legenda carregada, e executePrintAction
+  // caía no fallback documentKey='primary' — o mesmo bug que 94444b9 corrigiu,
+  // só que reaberto para qualquer estudo além do 100º. Renomeada para
+  // studyContextUids (reflete o uso compartilhado) e o corte segue
+  // PACS_MAX_RESULTS, o mesmo teto já usado na busca DICOM em si — não expõe
+  // mais UIDs do que a busca já poderia devolver.
+  const studyContextUids = useMemo(
+    () => Array.from(new Set(queryResults.map((study: any) => study.studyInstanceUid).filter(Boolean))).slice(0, PACS_MAX_RESULTS),
     [queryResults],
   );
   const { data: studyPriorityFlags = [] } = trpc.studyPriority.getBatch.useQuery(
-    { studyInstanceUids: priorityStudyUids, unit_id: effectiveUnitId || undefined },
-    { enabled: Boolean(user?.id && effectiveUnitId && priorityStudyUids.length) },
+    { studyInstanceUids: studyContextUids, unit_id: effectiveUnitId || undefined },
+    { enabled: Boolean(user?.id && effectiveUnitId && studyContextUids.length) },
   );
   const priorityByStudyUid = useMemo(
     () => new Map(studyPriorityFlags.map((flag) => [flag.study_instance_uid, flag])),
     [studyPriorityFlags],
   );
   const { data: studyLegendSelections = [] } = trpc.studyExamLegend.getBatch.useQuery(
-    { unit_id: effectiveUnitId || 0, studyInstanceUids: priorityStudyUids },
-    { enabled: Boolean(user?.id && effectiveUnitId && priorityStudyUids.length) },
+    { unit_id: effectiveUnitId || 0, studyInstanceUids: studyContextUids },
+    { enabled: Boolean(user?.id && effectiveUnitId && studyContextUids.length) },
   );
   const legendSelectionsByStudyUid = useMemo(() => {
     const grouped = new Map<string, any[]>();

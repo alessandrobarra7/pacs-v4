@@ -622,3 +622,84 @@ ocorrencia criada realmente comeca sem o texto anterior.
 
 Estado atual: mesma branch claude/corrige-logo-px-editor-vs-pdf, sem PR
 aberto, sem merge em main, nada implantado em VM1/VM2/VM3.
+
+============================================================
+ADENDO 6 (2026-09-26) — RESPOSTA AO BLOQUEIO DA MANUS: LIMITE DE 100
+ESTUDOS EM priorityStudyUids (94444b9/207a599)
+============================================================
+
+PARECER RECEBIDO: Manus revisou 94444b9 e 207a599 (topo 207a599) e
+aprovou funcionalmente os dois cenários testados em Chromium sintético,
+mas BLOQUEOU merge/VM1 por um achado de escala: a lista usada tanto para
+studyPriority.getBatch quanto para studyExamLegend.getBatch (a fonte de
+legendSelectionsByStudyUid, consultada por executePrintAction para
+resolver o documentKey) era cortada em 100 UIDs
+(`priorityStudyUids.slice(0, 100)`), mesmo a busca do PACS podendo
+devolver ate PACS_MAX_RESULTS=500 estudos e a tela mostrando todos. Para
+qualquer estudo do indice 101 em diante, a composicao clinica nunca era
+carregada, e executePrintAction caia no fallback documentKey='primary'
+para esses estudos — reabrindo exatamente o bug do ADENDO 4, so que fora
+dos primeiros 100.
+
+CORRECAO (na raiz, sem reduzir a busca DICOM, seguindo a sugestao da
+propria Manus):
+
+1. client/src/pages/PacsQueryPage.tsx: `priorityStudyUids` renomeada
+   para `studyContextUids` (reflete o uso compartilhado entre prioridade
+   clinica e composicao de documentos), e o corte passou de
+   `.slice(0, 100)` para `.slice(0, PACS_MAX_RESULTS)` — o mesmo teto ja
+   usado na busca DICOM em si, entao nunca expoe mais UIDs do que a
+   busca poderia devolver.
+2. server/routers/studyExamLegend.ts (getBatch) e
+   server/routers/studyPriority.ts (getBatch): o schema de entrada
+   (`z.array(studyInstanceUidSchema).max(...)`) teve o teto elevado de
+   100 para PACS_MAX_RESULTS (500), importado de shared/const.ts — a
+   mesma constante usada pela busca DICOM (server/dicom.service.ts).
+3. A checagem de autorizacao por unidade (`canAccessUnit(...,
+   "view_studies")`) nos dois procedimentos foi mantida sem alteracao —
+   so o teto de tamanho do lote mudou.
+4. Nenhum outro procedimento em lote usado por PacsQueryPage.tsx
+   (reports.statusByStudyUids, studyMetadata.getBatch,
+   anamnesisSimple.getStatusBatch, annotations.getAttachmentsStatusBatch,
+   audioReports.getStatusBatch, sla.getBatchStatus) usa
+   priorityStudyUids/studyContextUids — todos ja usam `studyUids`, a
+   lista COMPLETA (sem corte) derivada direto de queryResults. Conferido
+   um a um; nenhum deles tinha o mesmo problema.
+
+TESTES NOVOS: server/pacs-study-context-uids-500-limit.test.ts (10
+casos) — wiring (confirma que o corte de 100 nao existe mais, que
+PACS_MAX_RESULTS e importado e usado no cliente e nos dois routers, que
+a checagem de autorizacao continua presente) e um teste comportamental
+REAL (nao wiring): reconstroi o mesmo schema zod usado pelos dois
+procedimentos e comprova a fronteira pedida pela Manus — 500 estudos
+aceitos (incluindo explicitamente os indices 100 e 101), 501 rejeitado, e
+confirma que o estudo na posicao 101 sobrevive ao parse (o que nao
+acontecia com o corte antigo de 100 no cliente).
+
+Os cenarios de "documentKey nao-primario no estudo 101" e "composicao
+multipla no estudo 101 abre o seletor" pedidos pela Manus nao precisaram
+de um teste separado: a logica de resolucao de documentKey em
+executePrintAction (ja coberta por
+server/pacs-print-document-key-wiring.test.ts, ADENDO 4) e agnostica a
+posicao — ela so depende de legendSelectionsByStudyUid conter a entrada
+do estudo, e e exatamente isso que este ADENDO garante para qualquer
+estudo ate a posicao 500.
+
+VALIDACAO EXECUTADA:
+
+- pnpm check (tsc --noEmit): aprovado.
+- TZ=UTC pnpm test (suite completa): 671 aprovados, 11 falhas em 7
+  arquivos, 1 ignorado — confirmadas arquivo a arquivo contra a linha de
+  base historica ja conhecida; nenhuma falha nova.
+- pnpm build: aprovado; resta apenas o aviso preexistente de bundle
+  grande.
+- git diff --check: aprovado.
+
+PENDENTE (pedido explicito da Manus, nao feito neste sandbox):
+reexecutar a homologacao Chromium completa para o caso de estudo na
+posicao 101 e composicao multipla (incluindo PDF baixado e impressao
+oficial), e a homologacao visual A4/Letter do ADENDO 3, apos esta versao
+estar disponivel.
+
+Estado atual: mesma branch claude/corrige-logo-px-editor-vs-pdf, sem PR
+aberto, sem merge em main, nada implantado em VM1/VM2/VM3.
