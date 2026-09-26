@@ -1,4 +1,72 @@
 HANDOFF TECNICO PARA A MANUS — LOGO DO LAUDO: CAMPO PX MORTO, SEM EFEITO NO EDITOR NEM NO PDF
+
+ADENDO (2026-09-25) — cabecalho REALMENTE entregue nao usava block positions
+
+O Alessandro repetiu o teste em producao apos a correcao original deste
+handoff (commit c4b6b9d) ja estar visivel no editor (confirmado por ele:
+o campo px passou a aparecer aplicado no DOM do editor). Ele trouxe um PDF
+real baixado pela lista (studies -> "Imp." -> "Baixar em PDF") mostrando
+que o cabecalho entregue AINDA nao batia com o editor: os logos apareciam
+concatenados numa unica linha, ao lado de um titulo grande com o nome da
+unidade ("HOSPITAL DA CRIANCA") + subtitulo "Laudo de Interpretacao
+Radiologica" -- nenhum dos dois existe em lugar nenhum do editor de laudo.
+
+Causa raiz (mais profunda que a do handoff original): reconstructPaginatedPages,
+em client/src/pages/PacsQueryPage.tsx, roda SEM EXCECAO para as duas acoes
+(download e impressao oficial) e SEMPRE substitui qualquer .print-page/
+.print-shared-sheet existente pelas paginas fisicas de buildPageShellQ --
+mesmo quando o conteudo inicial ja tinha sido montado corretamente via
+renderSharedReportSheetHtml (o componente corrigido no commit c4b6b9d). O
+cabecalho de buildPageShellQ (e da funcao makePage, usada no HTML inicial
+para laudos multissecao) usava um template antigo e hardcoded --
+div.header com os logos concatenados + clinic-name/clinic-sub -- que nunca
+foi atualizado para o sistema de blockPositions (logo1/logo2/logo3, x/y/w/h
+em %) usado pelo editor de layout desde que SharedReportSheet foi
+introduzido. Ou seja: a correcao original deste handoff era real e
+necessaria (o px do logo agora tem efeito), mas insuficiente -- o
+cabecalho que o download/impressao REALMENTE entrega nunca passava por
+SharedReportSheet nem pelos block positions, porque a reconstrucao
+paginada sempre reescrevia por cima com esse template separado, todas as
+vezes, para os dois actionType.
+
+Correcao (commit a9041c7, mesma branch): novo modulo
+client/src/lib/reportLogoLayer.ts (puro, testavel, sem dependencia de
+React/DOM) extrai a mesma logica de posicionamento de logo que
+SharedReportSheet.tsx usa no navegador -- posicao x/y/w/h em % da area
+util da pagina + largura/altura em px do logo, limitado por
+maxWidth/maxHeight:100% para nao invadir blocos vizinhos -- para uma
+funcao pura que gera o HTML absolutely-positioned equivalente
+(renderLogoLayerHtml). blockPositionsQ, que antes so existia dentro de uma
+IIFE local sem alcance para o resto da funcao, foi hospedado no escopo
+externo de executePrintAction, junto de printLogosQ (calculo dos logos em
+base64). logoLayerHtmlQ (a camada de logos posicionados, calculada uma vez
+a partir de blockPositionsQ + printLogosQ) e usada tanto no HTML inicial
+(makePage, caminho multissecao) quanto -- o que importa de fato, porque e
+o que sobrevive ate a captura -- dentro de buildPageShellQ, como um
+overlay absolutamente posicionado (position:absolute;inset:0) inserido
+como primeiro filho de cada .print-page, substituindo o antigo cabecalho
+de texto fixo. Nenhum titulo de unidade fixo permanece no cabecalho,
+porque esse texto nunca foi um bloco editavel no editor de layout -- se o
+Alessandro quiser um titulo de unidade visivel no papel, isso precisa
+virar um bloco editavel do proprio layout (decisao de produto, fora de
+escopo aqui).
+
+Validacao apos esta correcao: pnpm check aprovado. Novo modulo com 5
+testes de regressao (server/report-logo-layer.test.ts): posicionamento
+x/y/w/h por logo, aplicacao do px do logo (mesma garantia da correcao
+anterior, agora tambem no cabecalho entregue), ausencia de qualquer texto
+fixo de titulo/unidade, omissao de logo sem url ou bloco marcado como nao
+visivel, retrocompatibilidade com layouts sem block_positions salvos
+(usa as posicoes padrao de fabrica logo1/logo2/logo3). TZ=UTC pnpm test
+completo: 623 aprovados (+5 desde o commit anterior desta branch), 11
+falhas em 7 suites -- mesma linha de base conhecida e pre-existente do
+handoff original, confirmada arquivo a arquivo, nenhuma nova. pnpm build
+aprovado, so o aviso preexistente de bundle grande. git diff --check
+aprovado.
+
+Nada implantado. Sem PR, sem merge em main. Commit topo da branch agora:
+a9041c7 (era c4b6b9d/f2cee7e no handoff original).
+
 Projeto: PACS Portal / LAUDS
 Repositorio: alessandrobarra7/pacs-v4
 Branch: claude/corrige-logo-px-editor-vs-pdf
