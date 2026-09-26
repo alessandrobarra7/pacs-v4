@@ -81,16 +81,29 @@ describe("ReportEditorPage — experiência mobile", () => {
   });
 
   it("usa o mesmo SharedReportSheet no editor clínico e na exportação", () => {
+    // ReportEditorPage.tsx ainda não foi migrado para a fábrica canônica
+    // (Fase 3, 3/3 — pendente): continua chamando renderSharedReportSheetHtml
+    // diretamente com os componentes clínicos (ClinicalPatientDetails/
+    // ClinicalPatientName).
     expect(editorSource).toContain("ClinicalPatientDetails");
     expect(editorSource).toContain("patientNameContent: <ClinicalPatientName patientName={patientName} />");
-    expect(pacsSource).toContain("ClinicalPatientDetails");
-    expect(pacsSource).toContain("patientNameContent: <ClinicalPatientName patientName={patientName} />");
     expect(editorSource).toContain("renderSharedReportSheetHtml");
     expect(editorSource).toContain("positions: layoutBlockPos");
     expect(editorSource).toContain("footerImageUrl: footerBase64 || layoutFooterUrl");
-    expect(pacsSource).toContain("renderSharedReportSheetHtml");
-    expect(pacsSource).toContain("positions: blockPositionsQ");
-    expect(pacsSource).toContain("footerImageUrl: footerBase64Q || lFooterUrl");
+    // PacsQueryPage.tsx (Fase 3, 2/3 — migrado) não chama mais
+    // renderSharedReportSheetHtml diretamente — delega para a fábrica
+    // canônica (reportDocumentRenderer.tsx), que é quem efetivamente chama
+    // renderSharedReportSheetHtml internamente. Confirma que os dois
+    // caminhos convergem no MESMO componente SharedReportSheet, mesmo que
+    // um o chame direto e o outro através da fábrica.
+    expect(pacsSource).toContain('from "@/lib/reportDocumentRenderer"');
+    expect(pacsSource).toContain("renderAllPhysicalPagesHtml(");
+    expect(pacsSource).not.toContain("renderSharedReportSheetHtml");
+    const rendererSource = readFileSync(
+      resolve(process.cwd(), "client/src/lib/reportDocumentRenderer.tsx"),
+      "utf8",
+    );
+    expect(rendererSource).toContain("renderSharedReportSheetHtml");
     expect(sharedPrintSource).toContain("renderToStaticMarkup");
     expect(sharedPrintSource).toContain("createElement(SharedReportSheet, props)");
   });
@@ -139,17 +152,27 @@ describe("ReportEditorPage — experiência mobile", () => {
   it("as 4 vias de impressão/PDF repassam pageSize e margens efetivas ao SharedReportSheet", () => {
     // Via 1: impressão oficial / impressão rápida de laudo único
     // (renderPrintSheet, usado tanto para multi-seção quanto para página
-    // única dentro de handlePrint em ReportEditorPage.tsx).
+    // única dentro de handlePrint em ReportEditorPage.tsx — ainda não
+    // migrado para a fábrica canônica, Fase 3/3 pendente).
     expect(editorSource).toContain("marginTop: lMT");
     expect(editorSource).toContain("marginRight: lMR");
     expect(editorSource).toContain("marginBottom: lMB");
     expect(editorSource).toContain("marginLeft: lML");
-    // Via 2: impressão rápida da lista de exames (PacsQueryPage.tsx) — usa
-    // as mesmas variáveis com sufixo Q.
-    expect(pacsSource).toContain("marginTop: lMT");
-    expect(pacsSource).toContain("marginRight: lMR");
-    expect(pacsSource).toContain("marginBottom: lMB");
-    expect(pacsSource).toContain("marginLeft: lML");
+    // Via 2 (Fase 3, migrado): impressão rápida da lista de exames
+    // (PacsQueryPage.tsx) não define mais suas próprias variáveis de
+    // margem — resolveEffectivePageGeometry (reportDocumentRenderer.tsx)
+    // lê pageSize/margens efetivas do MESMO layout resolvido
+    // (resolveEffectiveReportLayout) e a fábrica repassa geometry.marginTop/
+    // Right/Bottom/Left ao SharedReportSheet internamente.
+    expect(pacsSource).toContain("resolveEffectivePageGeometry(effectiveLayoutQ)");
+    const rendererSource = readFileSync(
+      resolve(process.cwd(), "client/src/lib/reportDocumentRenderer.tsx"),
+      "utf8",
+    );
+    expect(rendererSource).toContain("marginTop: geometry.marginTop");
+    expect(rendererSource).toContain("marginRight: geometry.marginRight");
+    expect(rendererSource).toContain("marginBottom: geometry.marginBottom");
+    expect(rendererSource).toContain("marginLeft: geometry.marginLeft");
     // Via 3: a folha em tela (WYSIWYG do editor clínico) também recebe as
     // preferências efetivas — é ela que o download financeiro rasteriza via
     // html2canvas, então precisa nascer já no tamanho/margem corretos.

@@ -67,7 +67,15 @@ export const pageHeightPx = (pageSize: PageSize): number => Math.round(pageHeigh
  * única imagem, inserida numa única página de PDF.
  */
 export const resolvePdfPageElements = (doc: Document): HTMLElement[] => {
-  const pages = Array.from(doc.querySelectorAll<HTMLElement>(".print-page, .print-shared-sheet"));
+  // FASE 3 DA UNIFICACAO DOS GERADORES DE PDF (26/09/2026): adicionado
+  // "[data-shared-report-sheet]" -- atributo que SharedReportSheet.tsx
+  // sempre define no elemento raiz de cada folha fisica, independente da
+  // className recebida -- para reconhecer as paginas produzidas pela
+  // fabrica canonica (reportDocumentRenderer.tsx), que nao usa mais as
+  // classes ".print-page"/".print-shared-sheet". Os seletores antigos
+  // permanecem (aditivo, nao substituido) para nao quebrar nenhum outro
+  // consumidor existente deste helper (ver server/pdf-multipage-fix.test.ts).
+  const pages = Array.from(doc.querySelectorAll<HTMLElement>(".print-page, .print-shared-sheet, [data-shared-report-sheet]"));
   return pages.length > 0 ? pages : [doc.body];
 };
 

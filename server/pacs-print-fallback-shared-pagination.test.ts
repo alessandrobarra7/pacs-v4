@@ -44,59 +44,66 @@ const pacsQuerySource = readFileSync(
 );
 
 describe("Relato técnico — fallback de captura e impressão oficial usam a mesma reconstrução paginada do download", () => {
-  it("reconstructPaginatedPages é declarada uma única vez, ANTES da ramificação download/impressão, e usada pelos dois caminhos", () => {
-    const declarationCount = (pacsQuerySource.match(/const reconstructPaginatedPages = async/g) ?? []).length;
-    expect(declarationCount).toBe(1);
+  it("FASE 3 (26/09/2026): a reconstrução paginada (antes uma função local reconstructPaginatedPages) foi substituída pela fábrica canônica renderAllPhysicalPagesHtml, chamada pelos dois caminhos (download e impressão)", () => {
+    // A extração compartilhada `reconstructPaginatedPages` (que existia só
+    // dentro de PacsQueryPage.tsx) deixou de existir: a reconstrução real
+    // agora é `renderAllPhysicalPagesHtml` (client/src/lib/
+    // reportDocumentRenderer.tsx, Fase 2), a MESMA função usada por
+    // financialReportPdfDownload.ts — não uma cópia local.
+    expect(pacsQuerySource).not.toContain("const reconstructPaginatedPages = async");
+    expect(pacsQuerySource).toContain('from "@/lib/reportDocumentRenderer"');
 
-    const declarationIndex = pacsQuerySource.indexOf("const reconstructPaginatedPages = async");
     const branchIndex = pacsQuerySource.indexOf("if (actionType === 'download')");
-    expect(declarationIndex).toBeGreaterThan(0);
-    expect(branchIndex).toBeGreaterThan(declarationIndex);
+    expect(branchIndex).toBeGreaterThan(0);
 
-    // Duas chamadas: uma no download (await direto), outra na impressão
-    // oficial (passada como callback `reconstruct` para runControlledPrint
-    // — ver server/print-orchestration.test.ts para a cobertura
-    // comportamental completa desse caminho).
-    const callCount = (pacsQuerySource.match(/reconstructPaginatedPages\(doc\)|reconstructPaginatedPages\(pDoc\)/g) ?? []).length;
-    expect(callCount).toBe(2);
+    // Duas chamadas: uma no download (renderAllPhysicalPagesHtml(doc, ...)),
+    // outra na impressão oficial (renderAllPhysicalPagesHtml(pDoc, ...),
+    // dentro do callback `reconstruct` passado a runControlledPrint — ver
+    // server/print-orchestration.test.ts para a cobertura comportamental
+    // completa desse caminho).
+    expect(pacsQuerySource).toContain("renderAllPhysicalPagesHtml(doc, modelQ)");
+    expect(pacsQuerySource).toContain("renderAllPhysicalPagesHtml(pDoc, modelQ)");
   });
 
-  it("o fallback de PdfCaptureError abre o HTML JÁ paginado (paginatedHtmlForFallback), nunca mais o fullHtml original", () => {
+  it("o fallback de PdfCaptureError abre o HTML JÁ paginado (paginatedHtmlForFallback), nunca o shell mínimo original", () => {
     expect(pacsQuerySource).toContain("let paginatedHtmlForFallback: string | null = null;");
-    // A captura acontece logo após reconstructPaginatedPages ter sucesso.
+    // A captura acontece logo após renderAllPhysicalPagesHtml(doc, ...) ter
+    // sido escrito no DOM (equivalente, na nova arquitetura, ao antigo
+    // "reconstructPaginatedPages ter sucesso").
     expect(pacsQuerySource).toMatch(
-      /await reconstructPaginatedPages\(doc\);[\s\S]{0,300}paginatedHtmlForFallback = `<!DOCTYPE html>\\n\$\{doc\.documentElement\.outerHTML\}`;/,
+      /doc\.body\.innerHTML = `\$\{draftWatermarkHtmlQ\}[\s\S]{0,900}paginatedHtmlForFallback = `<!DOCTYPE html>\\n\$\{doc\.documentElement\.outerHTML\}`;/,
     );
     // O ramo de PdfCaptureError agora exige paginatedHtmlForFallback e usa
-    // exatamente essa variável no Blob — não `fullHtml`.
+    // exatamente essa variável no Blob — não o shell mínimo original.
     expect(pacsQuerySource).toContain("err instanceof PdfCaptureError && paginatedHtmlForFallback");
     expect(pacsQuerySource).toContain("new Blob([paginatedHtmlForFallback]");
-    // Não deve sobrar nenhum caminho que abra `fullHtml` cru num Blob de
-    // fallback (o único uso de fullHtml em Blob deve ser o paginado).
-    expect(pacsQuerySource).not.toContain("new Blob([fullHtml], { type: 'text/html;charset=utf-8' })");
+    // Não deve sobrar nenhum caminho que abra minimalShellHtmlQ cru num
+    // Blob de fallback (o único uso em Blob deve ser o já paginado).
+    expect(pacsQuerySource).not.toContain("new Blob([minimalShellHtmlQ]");
   });
 
-  it("a ação 'Imprimir' não remove mais nada por regex — fullHtml nunca contém o script de auto-print, e print() é disparado via runControlledPrint depois de reconstructPaginatedPages", () => {
-    // CORREÇÃO (relato técnico "Bloqueio da impressão oficial de laudos
-    // PDF", Manus, 2026-09-25): a versão anterior deste teste checava a
-    // PRESENÇA de uma remoção por regex (printHtmlWithoutAutoPrint) — mas
-    // essa regex não reconhecia o script real gerado pelo template
-    // literal e o bloqueio persistia na prática. A correção definitiva
-    // eliminou o script na origem; ver server/print-orchestration.test.ts
-    // para a cobertura comportamental completa (runControlledPrint) e a
-    // confirmação de que fullHtml não contém mais window.onload/print().
+  it("a ação 'Imprimir' não remove mais nada por regex — o shell mínimo nunca contém script de auto-print, e print() é disparado via runControlledPrint depois da reconstrução (renderAllPhysicalPagesHtml)", () => {
+    // A correção original eliminou o script de auto-print na origem; ver
+    // server/print-orchestration.test.ts para a cobertura comportamental
+    // completa (runControlledPrint) e a confirmação de que o shell mínimo
+    // não contém window.onload/print(). Nesta migração (Fase 3), o passo
+    // de "reconstrução" deixou de ser uma função nomeada
+    // (reconstructPaginatedPages) e passou a ser um closure inline que
+    // chama renderAllPhysicalPagesHtml — a garantia de ordem (reconstruir
+    // antes de print()) é a mesma.
     const elseBranchIndex = pacsQuerySource.indexOf("    } else {", pacsQuerySource.indexOf("if (actionType === 'download')"));
     expect(elseBranchIndex).toBeGreaterThan(0);
     const elseBranchSlice = pacsQuerySource.slice(elseBranchIndex, elseBranchIndex + 4000);
 
     expect(elseBranchSlice).not.toContain("printHtmlWithoutAutoPrint");
-    expect(elseBranchSlice).toContain("pDoc.write(fullHtml);");
+    expect(elseBranchSlice).toContain("pDoc.write(minimalShellHtmlQ);");
     expect(elseBranchSlice).toContain("runControlledPrint({");
-    expect(elseBranchSlice).toContain("reconstruct: () => reconstructPaginatedPages(pDoc),");
+    expect(elseBranchSlice).toContain("reconstruct: async () => {");
+    expect(elseBranchSlice).toContain("renderAllPhysicalPagesHtml(pDoc, modelQ)");
     expect(elseBranchSlice).toContain("printIframe.contentWindow?.print();");
 
     // A chamada de print() (dentro do callback `print`) deve vir DEPOIS
-    // da chamada a runControlledPrint que recebe reconstructPaginatedPages.
+    // da chamada a runControlledPrint que recebe o closure `reconstruct`.
     const runCallIdx = elseBranchSlice.indexOf("runControlledPrint({");
     const printCallIdx = elseBranchSlice.indexOf("printIframe.contentWindow?.print();");
     expect(runCallIdx).toBeGreaterThan(0);

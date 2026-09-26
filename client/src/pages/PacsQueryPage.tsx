@@ -9,14 +9,20 @@ import {
   Download, Loader2, CalendarDays, Mic, Volume2, AlertTriangle, Siren, CircleDotDashed,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
-import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx, resolvePdfPageElements } from "@/lib/pdfPageGeometry";
-import { ContentTooLargeForPageError, paginateSectionIntoPages } from "@/lib/reportPagination";
-import { renderLogoLayerHtml } from "@/lib/reportLogoLayer";
+import { ContentTooLargeForPageError } from "@/lib/reportPagination";
 import { runControlledPrint } from "@/lib/printOrchestration";
-import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
+import {
+  resolveEffectiveReportLayout,
+  normalizeCanonicalLogos,
+  buildCanonicalPatient,
+  buildDoctorFooterHtml,
+  type CanonicalReportStatus,
+  type CanonicalLogo,
+} from "@/lib/reportDocumentModel";
+import { renderAllPhysicalPagesHtml, resolveEffectivePageGeometry, type ReportDocumentRenderModel } from "@/lib/reportDocumentRenderer";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
@@ -24,7 +30,6 @@ import { PatientAttachmentsModal } from "@/components/PatientAttachmentsModal";
 import { AudioReportsModal } from "@/components/AudioReportsModal";
 import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 import { canAccessAdmin, type UserRole } from "../../../shared/permissions";
-import { DEFAULT_LAYOUT_PREFERENCES } from "../../../shared/types";
 import { PACS_MAX_RESULTS } from "../../../shared/const";
 
 import { Calendar } from "@/components/ui/calendar";
@@ -1447,6 +1452,7 @@ setSelectedStudy(study);
     let doctorSignatureUrl: string | null = null;
     let reportStatus = '';
     let signedAt: Date | null = null;
+    let reportLayoutSnapshot: any = null;
     try {
       const result = await trpcUtils.reports.getByStudyUidWithDoctor.fetch({
         studyInstanceUid: study.studyInstanceUid,
@@ -1461,113 +1467,124 @@ setSelectedStudy(study);
       doctorSignatureUrl = result?.doctorSignatureUrl || null;
       reportStatus = result?.status || '';
       signedAt = result?.signedAt ? new Date(result.signedAt) : null;
+      // FASE 3 DA UNIFICACAO (26/09/2026): captura o layout congelado no
+      // momento da assinatura (layout_snapshot), ja disponivel neste mesmo
+      // retorno (server/routers/reports.ts, getByStudyUidWithDoctor) mas
+      // nunca lido aqui antes -- esta tela sempre usava o layout ATUAL da
+      // unidade, mesmo para laudos assinados ha muito tempo sob uma
+      // configuracao diferente. resolveEffectiveReportLayout() decide,
+      // olhando o status, se usa isto ou o layout vigente da unidade.
+      reportLayoutSnapshot = result?.layout_snapshot ?? null;
     } catch (e) {
       // laudo não encontrado — imprime com mensagem
     }
     toast.dismiss('print-loading');
 
-    // ── Layout da unidade ──
-    // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf):
-    // Este bloco está marcado no código como "SYNC ReportEditorPage" — uma
-    // cópia manual do mesmo bloco em ReportEditorPage.tsx.handlePrint. Mas os
-    // fallbacks já tinham divergido: aqui marginLeft/marginRight caíam para
-    // 20 quando não configurados, contra 18 no ReportEditorPage e 25 em
-    // DEFAULT_LAYOUT_PREFERENCES (shared/types.ts) — o mesmo laudo saía com
-    // margens diferentes dependendo de qual tela imprimisse. Agora usa o
-    // mesmo merge com DEFAULT_LAYOUT_PREFERENCES que ReportDocument.tsx (a
-    // tela que o médico vê ao editar) e ReportEditorPage.tsx já usam.
-    const effectivePrefsQ = { ...DEFAULT_LAYOUT_PREFERENCES, ...((unitLayout?.preferences as any) ?? {}) };
-    // P8: mapeamento de fontes com fallback seguro
-    const SAFE_FONTS_Q: Record<string, string> = {
-      'Arial':           'Arial, Helvetica, sans-serif',
-      'Calibri':         'Calibri, "Gill Sans", sans-serif',
-      'Times New Roman': '"Times New Roman", Times, serif',
-      'Georgia':         'Georgia, "Times New Roman", serif',
-      'Helvetica':       '"Helvetica Neue", Helvetica, Arial, sans-serif',
-      'Verdana':         'Verdana, Geneva, sans-serif',
+    // FASE 3 DA UNIFICACAO DOS GERADORES DE PDF (26/09/2026, plano aprovado
+    // pela Manus, Fase 2 ja revisada): esta funcao deixou de construir seu
+    // proprio shell HTML (CSS de pagina fixo, camada de logos separada via
+    // modulo separado de camada de logos, bloco de dados do paciente sem nenhuma relacao
+    // com block_positions, reconstrucao paginada duplicada em
+    // um template de shell separado) e passou a usar exclusivamente a fabrica canonica
+    // (client/src/lib/reportDocumentRenderer.tsx), a mesma que o editor do
+    // medico e o download financeiro ja usam.
+    //
+    // Isto resolve DOIS problemas de uma vez:
+    //   1. O bug ao vivo relatado por Alessandro (logo sobrepondo o texto
+    //      de data do exame do paciente) -- a causa raiz era exatamente
+    //      `patientDataHtml`, um bloco solto sem nenhuma relacao com as
+    //      posicoes configuradas no Editor de Layout, usado tanto no HTML
+    //      inicial quanto (o que realmente importa) dentro de
+    //      um template de shell/reconstrucao locais -- SEMPRE reescrito
+    //      por cima de qualquer HTML inicial, para download E impressao.
+    //   2. Um segundo bug, encontrado durante esta migracao: esta tela
+    //      nunca lia `result?.layout_snapshot` (agora capturado acima em
+    //      `reportLayoutSnapshot`) -- um laudo assinado ha muito tempo,
+    //      sob uma configuracao de layout diferente da atual da unidade,
+    //      saia aqui com o layout ATUAL, divergente do que foi realmente
+    //      assinado (e do que o editor do medico mostra para esse laudo).
+    //
+    // Mudancas de comportamento (intencionais, ja decididas com
+    // Alessandro/Manus nas Fases 1/2): logos, dados do paciente e rodape
+    // do medico (carimbo/assinatura/nome/CRM/data) agora aparecem em TODA
+    // pagina fisica, nao so na ultima -- antes, a reserva fixa de rodape
+    // (a reserva de altura antiga) so recebia o rodape na ultima pagina.
+    const canonicalStatus: CanonicalReportStatus = (reportStatus === 'signed' || reportStatus === 'revised')
+      ? (reportStatus as CanonicalReportStatus)
+      : 'draft';
+
+    // Unico ponto de entrada de layout (Fase 1/2): nunca reimplementar
+    // merge de snapshot/unidade aqui -- resolveEffectiveReportLayout ja
+    // decide. Uma unidade que nunca configurou o Editor de Layout ainda
+    // deve continuar permitindo download/impressao (com aparencia
+    // padrao) -- mesmo comportamento de antes desta migracao.
+    // resolveEffectiveReportLayout() so retorna null quando NAO ha
+    // absolutamente nenhuma fonte (nem unidade, nem snapshot); usamos um
+    // layout vazio como fallback final para esse caso.
+    const effectiveLayoutQ = resolveEffectiveReportLayout({
+      status: canonicalStatus,
+      unitLayout: (unitLayout as any) ?? null,
+      reportLayoutSnapshot,
+    }) ?? {
+      source: 'unit' as const,
+      preferences: {},
+      header_html: null,
+      footer_html: null,
+      background_image_url: null,
+      background_opacity: 1,
+      background_size: 'cover',
+      footer_image_url: null,
+      logos: null,
+      block_positions: null,
     };
-    const rawFontQ = effectivePrefsQ.fontFamily || 'Arial';
-    const fontStackQ = SAFE_FONTS_Q[rawFontQ] ?? `${rawFontQ}, Arial, sans-serif`;
-    const lSize = effectivePrefsQ.fontSize || 11;
-    const lLine = effectivePrefsQ.lineHeight || 1.6;
-    const lMT = effectivePrefsQ.marginTop;
-    // P5: reservar margem inferior para o rodapé
-    const toAbsUrl = (u: string) => u && u.startsWith('/') ? `${window.location.origin}${u}` : u;
-    const lFooterUrl = toAbsUrl((unitLayout as any)?.footer_image_url || '');
-    const footerBase64Q = lFooterUrl ? await fetchToBase64(lFooterUrl) : null;
-    const footerReservedMmQ = lFooterUrl ? 30 : 0;
-    const lMB = effectivePrefsQ.marginBottom + footerReservedMmQ;
-    const lML = effectivePrefsQ.marginLeft;
-    const lMR = effectivePrefsQ.marginRight;
-    const lBorderColor = effectivePrefsQ.headerBorderColor || '#d0d0d0';
-    const lBgUrl = toAbsUrl((unitLayout as any)?.background_image_url || '');
-    const lBgOpacity = parseFloat((unitLayout as any)?.background_opacity ?? '1.0');
-    const lBgSize = (unitLayout as any)?.background_size ?? 'cover';
-    const pageSizeQ = effectivePrefsQ.pageSize ?? 'A4';
-    // OPÇÃO 1: dimensões físicas do papel (mm) — 100vw/100vh != A4 na janela popup
+    const geometryQ = resolveEffectivePageGeometry(effectiveLayoutQ);
+    const pageSizeQ = geometryQ.pageSize;
     const paperW = pageSizeQ === 'Letter' ? '216mm' : '210mm';
     const paperH = pageSizeQ === 'Letter' ? '279mm' : '297mm';
-    // FUNDO: base64 + background-image no body com dimensões físicas da folha
-    const bgBase64Q = lBgUrl ? await fetchToBase64(lBgUrl) : null;
-    // FIX: converter assinatura e carimbo para base64 (mesma razão do ReportEditorPage)
-    const sigBase64Q   = doctorSignatureUrl ? await fetchToBase64(doctorSignatureUrl) : null;
-    const stampBase64Q = doctorStampUrl     ? await fetchToBase64(doctorStampUrl)     : null;
-    // FIX: overlay de opacidade via div position:fixed com dimensões em mm
-    const overlayAlphaQ = Math.round((1 - lBgOpacity) * 100) / 100;
-    const bgLayerQ = (bgBase64Q && overlayAlphaQ > 0) ? `
-      <div style="
-        position: fixed;
-        top: 0; left: 0;
-        width: ${paperW}; height: ${paperH};
-        background: rgba(255,255,255,${overlayAlphaQ});
-        z-index: 0;
-        pointer-events: none;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      "></div>
-    ` : '';
-    const lLogos: Array<{url:string;width:number;height:number;label?:string}> = (unitLayout as any)?.logos || [];
-    const printLogosQ = await Promise.all(lLogos.slice(0, 3).filter((logo: any) => logo?.url).map(async (logo: any) => {
-      const absoluteUrl = toAbsUrl(logo.url);
-      return { ...logo, url: (absoluteUrl ? await fetchToBase64(absoluteUrl) : null) || absoluteUrl };
-    }));
-    // CORRECAO (Bloqueio 2, parecer de bloqueio da Manus, 2026-09-25):
-    // antes do commit a9041c7, quando a unidade nao tinha nenhum logo
-    // configurado em model_layouts.logos, o download/impressao caia no
-    // fallback units.logo_url (variavel logoUrl, ja calculada acima).
-    // Esse fallback ficou orfao depois que printLogosQ passou a alimentar
-    // logoLayerHtmlQ -- unidades que so tinham logo_url (sem nunca ter
-    // usado o editor de layout novo) passavam a gerar PDF sem logo
-    // nenhum. Preserva o comportamento anterior: só quando não há nenhum
-    // logo valido em model_layouts.logos, usa logo_url como um logo1
-    // unico, na posicao de fabrica (ver FALLBACK_LOGO_POSITIONS em
-    // reportLogoLayer.ts), sem width/height fixos (mantém 100%/100% da
-    // caixa, igual ao comportamento legado).
-    const printLogosWithFallbackQ = printLogosQ.length > 0
-      ? printLogosQ
-      : (logoUrl ? [{ url: (await fetchToBase64(logoUrl)) || logoUrl, width: 0, height: 0, label: 'Logo' }] : []);
-    // CORRECAO (achado ao vivo em producao, 2026-09-25, pedido do
-    // Alessandro -- reproducao apos a correcao anterior de logo.width/
-    // logo.height em SharedReportSheet.tsx): o PDF baixado pela lista
-    // continuava com um cabecalho totalmente diferente do editor --
-    // logos concatenados numa unica linha ao lado de um titulo com o
-    // nome da unidade, sem nenhuma relacao com a posicao x/y configurada
-    // por logo. Causa: reconstructPaginatedPages (mais abaixo nesta
-    // funcao) SEMPRE reconstroi as paginas fisicas via buildPageShellQ
-    // para download e impressao -- inclusive quando o conteudo inicial ja
-    // tinha sido montado com o layout correto (renderSharedReportSheetHtml,
-    // logo abaixo). O cabecalho de buildPageShellQ usava um template
-    // antigo, hardcoded, que nunca foi atualizado para o sistema de
-    // blockPositions (logo1/logo2/logo3) do editor de layout.
-    // blockPositionsQ e logoLayerHtmlQ (client/src/lib/reportLogoLayer.ts)
-    // sao calculados aqui -- no escopo externo a funcao -- para estarem
-    // disponiveis tanto no HTML inicial quanto dentro de
-    // reconstructPaginatedPages/buildPageShellQ, que e o que realmente e
-    // entregue no download e na impressao.
-    const blockPositionsQ = ((unitLayout as any)?.block_positions || {}) as Record<string, { x: number; y: number; w: number; h: number; visible: boolean }>;
-    const logoLayerHtmlQ = renderLogoLayerHtml(blockPositionsQ, printLogosWithFallbackQ);
 
-    // P7: converter imagens para base64
+    // URLs do MinIO/S3 nao carregam sem autenticacao dentro do iframe de
+    // captura -- todo recurso externo (logos, fundo, rodape, assinatura,
+    // carimbo) precisa ser convertido para base64 antes da renderizacao.
+    const toAbsUrl = (u: string) => u && u.startsWith('/') ? `${window.location.origin}${u}` : u;
+    const rawLogosQ = normalizeCanonicalLogos(effectiveLayoutQ.logos, logoUrl || null);
+    const [bgBase64Q, footerBase64Q, sigBase64Q, stampBase64Q, ...logoBase64ListQ] = await Promise.all([
+      effectiveLayoutQ.background_image_url ? fetchToBase64(toAbsUrl(effectiveLayoutQ.background_image_url)) : Promise.resolve(null),
+      effectiveLayoutQ.footer_image_url ? fetchToBase64(toAbsUrl(effectiveLayoutQ.footer_image_url)) : Promise.resolve(null),
+      doctorSignatureUrl ? fetchToBase64(toAbsUrl(doctorSignatureUrl)) : Promise.resolve(null),
+      doctorStampUrl ? fetchToBase64(toAbsUrl(doctorStampUrl)) : Promise.resolve(null),
+      ...rawLogosQ.map((logo) => fetchToBase64(toAbsUrl(logo.url))),
+    ]);
+    const logosQ: CanonicalLogo[] = rawLogosQ.map((logo, index) => ({ ...logo, url: logoBase64ListQ[index] || logo.url }));
+    const layoutForRenderQ = {
+      ...effectiveLayoutQ,
+      background_image_url: bgBase64Q || null,
+      footer_image_url: footerBase64Q || null,
+    };
+
+    // Dados clinicos do paciente pelo formatador unico (Fase 1) -- recebe
+    // as strings BRUTAS (DICOM AAAAMMDD) e deixa formatClinicalDate validar
+    // e formatar, em vez da fatiacao manual usada antes aqui.
+    const patientQ = buildCanonicalPatient({
+      name: patientName,
+      birthDate: birthDateRaw,
+      sex: studyData.patientSex || study.patientSex || '',
+      studyDate: study.studyDate || studyData.studyDate || '',
+      modality: study.modality || studyData.modality || null,
+      accessionNumber: null,
+    });
+
+    const doctorFooterHtmlQ = buildDoctorFooterHtml({
+      name: doctorName || null,
+      crm: doctorCrm || null,
+      stampDataUrl: stampBase64Q || null,
+      signatureDataUrl: sigBase64Q || null,
+      signedAtFormatted: signedAt
+        ? signedAt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : null,
+      status: canonicalStatus,
+    });
+
+    // P7: converter imagens do corpo para base64 (mesma logica de antes).
     const convertImgsQ = async (html: string): Promise<string> => {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
@@ -1587,488 +1604,59 @@ setSelectedStudy(study);
       return doc.body.innerHTML;
     };
 
-    // P1: detectar multi-seção e renderizar corretamente
-    let bodyHtml = reportBody || '(Laudo não encontrado ou ainda não elaborado)';
-    if (reportBody) {
-      try {
-        const parsed = JSON.parse(reportBody);
-        if (Array.isArray(parsed) && parsed.length > 0 && 'body' in parsed[0]) {
-          bodyHtml = parsed.map((section: { title: string; body: string }, i: number) => `
-            <div class="exam-section" style="margin-bottom:18px;${i > 0 ? 'page-break-before:auto;' : ''}">
-              <div class="section-title">${section.title || ''}</div>
-              <div class="section-body">${section.body || ''}</div>
-            </div>
-          `).join('');
-        }
-      } catch {
-        // Não é JSON — body é HTML puro, usar como está
-      }
-    }
-    // P7: converter imagens do corpo para base64
-    bodyHtml = await convertImgsQ(bodyHtml);
-
-    // Rodapé do médico assinante
-    const signedAtFormatted = signedAt
-      ? signedAt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-      : '';
-    const isSignedOrRevised = reportStatus === 'signed' || reportStatus === 'revised';
-
-    const unitName = unitData?.name || '';
-    const sexFormatted = sex === 'M' ? 'Masculino' : sex === 'F' ? 'Feminino' : sex;
-
-    // Bloco de dados do paciente em lista vertical
-    const patientDataHtml = `
-      <div style="margin-bottom:14px;font-size:9.5pt;line-height:1.8;">
-        <div>Nome do paciente: ${patientName}</div>
-        ${birthDateFormatted ? `<div>Data de nascimento: ${birthDateFormatted}</div>` : ''}
-        ${sexFormatted ? `<div>Sexo: ${sexFormatted}</div>` : ''}
-        ${studyDate !== '-' ? `<div>Data de realização do exame: ${studyDate}</div>` : ''}
-      </div>
-    `;
-
-    // P9: marca d'água RASCUNHO para laudos não assinados
-    const draftWatermarkQ = !isSignedOrRevised ? `
-      <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);font-size:72pt;font-weight:900;color:rgba(200,50,50,0.10);pointer-events:none;user-select:none;white-space:nowrap;font-family:Arial,sans-serif;letter-spacing:0.1em;-webkit-print-color-adjust:exact;print-color-adjust:exact;">RASCUNHO</div>
-      <div style="background:#fef3c7;border:1.5px solid #f59e0b;padding:6px 12px;border-radius:4px;margin-bottom:12px;font-size:9pt;color:#92400e;text-align:center;">⚠ LAUDO EM RASCUNHO — Não assinado — Não é um documento válido</div>
-    ` : '';
-
-    // Rodapé do médico (bloco reutilizado em todas as páginas do multi-seção)
-    const doctorFooterHtml = isSignedOrRevised && doctorName ? `
-      <div class="doctor-footer">
-        ${stampBase64Q ? `<img src="${stampBase64Q}" alt="Carimbo"    class="stamp-img" />` : ''}
-        ${sigBase64Q   ? `<img src="${sigBase64Q}"   alt="Assinatura" class="sig-img" />` : ''}
-        <div class="sig-line"></div>
-        <div class="sig-name">${doctorName}${reportStatus === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
-        ${doctorCrm ? `<div class="sig-crm">CRM: ${doctorCrm}</div>` : ''}
-        ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
-      </div>` : '';
-
-        const fullHtml = `<!DOCTYPE html>
-	<html lang="pt-BR"><head><meta charset="UTF-8"><title>Laudo_${patientName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf</title>
-<style>
-  /* SYNC ReportEditorPage: full-bleed — @page margin:0 → body = folha inteira */
-  @page {
-    size: ${pageSizeQ} portrait;
-    margin: 0;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html {
-    width: ${paperW};
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-  body {
-    /* SYNC: body sem padding/background — cada div.print-page gerencia seu próprio espaço */
-    margin: 0;
-    padding: 0;
-    font-family: ${fontStackQ};
-    font-size: ${lSize}pt;
-    color: #111;
-    line-height: ${lLine};
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    overflow: hidden;
-  }
-  /* div.print-page = uma folha A4 completa com padding, fundo e conteúdo */
-  .print-page {
-    width: ${paperW};
-    height: ${paperH};
-    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-    box-sizing: border-box;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    ${bgBase64Q ? `
-    background-image: url('${bgBase64Q}');
-    background-size: cover;
-    background-position: center center;
-    background-repeat: no-repeat;
-    ` : ''}
-  }
-  .print-shared-sheet {
-    width: ${paperW};
-    height: ${paperH};
-    /* Margens efetivas — antes ausente, ignorando a unidade (Bloqueio 1,
-       auditoria Manus 2026-09-24). O valor real vem do style inline do
-       componente (maior precedência); mantido aqui só por coerência. */
-    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-    box-sizing: border-box;
-    position: relative;
-    overflow: hidden;
-    background: #fff;
-    color: #111;
-    font-family: ${fontStackQ};
-    font-size: ${lSize}pt;
-    line-height: ${lLine};
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-  @media print {
-    .print-page {
-      page-break-after: always;
-      break-after: page;
-    }
-    .print-page:last-child {
-      page-break-after: avoid;
-      break-after: avoid;
-    }
-    .print-shared-sheet {
-      page-break-after: avoid;
-      break-after: avoid;
-    }
-  }
-  /* SYNC BUG-2: CSS counter nativo para número de página */
-  .page-number-fixed {
-    position: fixed;
-    z-index: 3;
-    bottom: ${Math.max(lMB - 8, 4)}mm;
-    right: ${lMR}mm;
-    font-size: 8pt;
-    color: #888;
-    font-family: Arial, sans-serif;
-  }
-  .page-number-fixed::after {
-    content: 'Página ' counter(page) ' de ' counter(pages);
-  }
-  /* Tabela fallback (laudo único longo — cabeçalho repetível) */
-  table.print-layout {
-    position: relative;
-    z-index: 2;
-    width: 100%;
-    height: 100%;
-    border-collapse: collapse;
-    vertical-align: top;
-  }
-  table.print-layout td, table.print-layout th { background: transparent !important; vertical-align: top; }
-  thead { display: table-header-group; }
-  tfoot { display: table-footer-group; }
-  tbody { display: table-row-group; }
-  /* CORRECAO (achado ao vivo em producao + Bloqueio 1-4, Manus,
-     2026-09-25): as regras do cabecalho antigo (logos concatenados lado
-     a lado + nome da unidade em destaque) foram removidas daqui -- esse
-     cabecalho foi substituido pela camada de logos posicionados
-     (renderLogoLayerHtml, ver logoOverlayHtml/logoOverlayHtmlQ mais
-     abaixo). As classes CSS correspondentes nao tem mais nenhum uso. */
-  .patient-data { font-size: 10pt; line-height: 1.7; margin-bottom: 12pt; }
-  .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
-  .report-body { font-size: ${lSize}pt; line-height: ${lLine}; overflow: hidden; }
-  .report-body > p,
-  .report-body > div { margin-bottom: 3pt; }
-  .report-body strong, .report-body b { font-weight: 700; }
-  .section-title {
-    font-size: 11pt; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.06em; text-align: center;
-    padding: 6px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 10px;
-  }
-  .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
-  .doctor-footer { text-align: center; margin: 14mm auto 0; max-width: 240px; page-break-inside: avoid; }
-  /* CORREÇÃO (Bloqueio 1, parecer corretivo da Manus, 2026-09-25): dentro
-     da reserva fixa de rodapé do download (.footer-reserve), o
-     margin-top:14mm acima somaria ao alinhamento por flex já feito pela
-     reserva, inflando a altura realmente ocupada além da altura FIXA
-     reservada — exatamente a divergência entre "folha de medição" e
-     "folha real" que causou o Bloqueio 1. Este override (mais específico)
-     zera esse espaçamento só dentro da reserva; a colocação original do
-     rodapé na impressão nativa (fora de .footer-reserve) não é afetada.
-     CORREÇÃO (Bloqueio 1, parecer v3 da Manus, 2026-09-25): esta regra
-     nunca alcançava a folha real — o elemento div criado por
-     buildPageShellQ tinha a altura/overflow/flex certos em style inline,
-     mas NUNCA recebeu class="footer-reserve" (só o CSS declarava essa
-     classe; o HTML gerado não a usava). O seletor .footer-reserve
-     .doctor-footer não encontrava elemento nenhum, e o .doctor-footer
-     com margin:14mm auto 0 genérico continuava valendo dentro da
-     reserva de 65mm. A classe foi adicionada ao div real
-     (buildPageShellQ) — agora este override alcança o DOM efetivamente
-     capturado. */
-  .footer-reserve .doctor-footer { margin-top: 0; }
-  .sig-img   { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .sig-line  { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
-  .sig-name  { font-weight: 700; font-size: 10pt; }
-  .sig-crm   { font-size: 9pt; color: #444; margin-top: 1pt; }
-  .sig-date  { font-size: 8pt; color: #666; margin-top: 3pt; }
-  .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 5px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
-  @media print {
-    body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    .doctor-footer { page-break-inside: avoid; }
-  }
-</style></head><body>
-  ${draftWatermarkQ}
-  <div class="page-number-fixed"></div>
-  <!-- SYNC ReportEditorPage: multi-seção = div.print-page por exame; único = tabela com thead repetível -->
-  ${(() => {
-    // CORRECAO (achado ao vivo em producao, 2026-09-25): o cabecalho fixo
-    // (logos concatenados + nome da unidade) foi substituido pela mesma
-    // camada de logos posicionados (x/y/w/h + px) que o editor de laudo
-    // mostra -- ver logoLayerHtmlQ, calculado no escopo externo desta
-    // funcao a partir de blockPositionsQ e printLogosQ. Sem cabecalho fixo
-    // de texto (nome da unidade), porque esse texto nunca existiu como
-    // bloco editavel no editor de layout.
-    // CORRECAO (Bloqueio 1, parecer de bloqueio da Manus, 2026-09-25):
-    // inset:0 posiciona a camada a partir da borda EXTERNA do padding de
-    // .print-page (a folha inteira), nao da area util (folha menos
-    // margens) que SharedReportSheet.tsx usa como referencia para x/y em
-    // % (merged[id] eh medido dentro de .shared-report-sheet-content,
-    // que e 100%/100% do content-box do pai, ja descontadas as margens).
-    // Com inset:0, um logo com x=2%/y=2% aparecia deslocado ~19mm para
-    // cima/esquerda em relacao ao editor, numa unidade com margens de
-    // 20mm (reproduzido matematicamente pela Manus). Corrigido usando as
-    // 4 margens efetivas como offset (top/right/bottom/left), igual ao
-    // padding real de .print-page -- a camada passa a ocupar exatamente
-    // a mesma area util que o editor usa.
-    const logoOverlayHtml = `<div style="position:absolute;top:${lMT}mm;right:${lMR}mm;bottom:${lMB}mm;left:${lML}mm;pointer-events:none;z-index:2;">${logoLayerHtmlQ}</div>`;
-    const footerHtml = lFooterUrl
-      ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
-      : `<div style="height:4mm;"></div>`;
-    const makePage = (content: string) => `
-      <div class="print-page">
-        ${logoOverlayHtml}
-        <div style="flex:1;">
-          <div class="patient-data">${patientDataHtml}</div>
-          ${content}
-        </div>
-        <div style="margin-top:auto;">${footerHtml}</div>
-      </div>`;
-    // Tentar parsear seções multi-exame
+    // P1: detectar multi-secao (mesma deteccao de sempre); cada secao vira
+    // uma entrada { title, bodyHtml } para a fabrica canonica.
+    let sectionsQ: Array<{ title: string; bodyHtml: string }>;
     try {
       const parsed = JSON.parse(reportBody);
-      if (Array.isArray(parsed) && parsed.length > 1 && 'body' in parsed[0]) {
-        return parsed.map((sec: { title: string; body: string }, i: number) => {
-          const isLast = i === parsed.length - 1;
-          const secContent = `
-            <div class="exam-title">${sec.title || ''}</div>
-            <div class="report-body">${sec.body || ''}</div>
-            ${isLast ? doctorFooterHtml : ''}`;
-          return makePage(secContent);
-        }).join('');
+      if (Array.isArray(parsed) && parsed.length > 0 && 'body' in parsed[0]) {
+        sectionsQ = await Promise.all(parsed.map(async (section: { title: string; body: string }) => ({
+          title: section.title || '',
+          bodyHtml: await convertImgsQ(section.body || ''),
+        })));
+      } else {
+        sectionsQ = [{ title: reportTitle || '', bodyHtml: await convertImgsQ(reportBody || '(Laudo não encontrado ou ainda não elaborado)') }];
       }
-    } catch { /* não é JSON */ }
-    // Página única: a marcação é produzida pelo mesmo componente React usado no admin e no médico.
-    // blockPositionsQ já foi calculado no escopo externo desta função (ver comentário acima, junto de printLogosQ).
-    const printBodyQ = bodyHtml
-      ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
-      : <div className="report-body"><p style={{ color: "#9ca3af", fontStyle: "italic" }}>Sem conteúdo para visualizar.</p></div>;
-    return renderSharedReportSheetHtml({
-      className: "print-shared-sheet",
-      pageSize: pageSizeQ,
-      marginTop: lMT,
-      marginRight: lMR,
-      marginBottom: lMB,
-      marginLeft: lML,
-      positions: blockPositionsQ,
-      logos: printLogosQ,
-      backgroundUrl: bgBase64Q || lBgUrl,
-      backgroundOpacity: lBgOpacity,
-      backgroundSize: lBgSize,
-      footerImageUrl: footerBase64Q || lFooterUrl,
-      fontFamily: fontStackQ,
-      fontSize: lSize,
-      lineHeight: lLine,
-      patientName,
-      patientNameContent: <ClinicalPatientName patientName={patientName} />,
-      patientInfo: (
-        <ClinicalPatientDetails
-          birthDate={birthDateFormatted || "—"}
-          sex={sexFormatted || "—"}
-          studyDate={studyDate || "—"}
-          modality={study.modality || studyData.modality || undefined}
-          unitName={unitName || undefined}
-        />
-      ),
-      title: (
-        <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
-          {reportTitle || "—"}
-        </div>
-      ),
-      body: printBodyQ,
-      footer: (
-        <div style={{ width: "100%" }} dangerouslySetInnerHTML={{ __html: doctorFooterHtml || '<div style="height:4mm;"></div>' }} />
-      ),
-    });
-  })()
-  }
-  </body></html>`;
-  // CORRECAO (relato tecnico "Bloqueio da impressao oficial", Manus,
-  // 2026-09-25): fullHtml continha um <script> de auto-impressao
-  // (window.onload -> setTimeout(window.print, 400) quando actionType
-  // === 'print'). A impressao oficial tentava remover esse script por
-  // regex antes de reconstruir as paginas, mas a regex nao reconhecia o
-  // "<\/script>" (com barra invertida escapada) realmente presente no
-  // HTML gerado pelo template literal — o script sobrevivia e disparava
-  // window.print() sozinho ~400ms depois do carregamento do iframe,
-  // ANTES da espera de 800ms e da reconstrucao paginada controlada, ou
-  // mesmo quando a reconstrucao falhava. A solucao adotada (mais robusta
-  // que corrigir a regex, como a propria Manus recomendou) e nunca gerar
-  // esse script: fullHtml agora NUNCA contem window.onload nem
-  // window.print() automatico, para nenhum actionType. A impressao
-  // oficial dispara print() por um unico caminho explicito e controlado
-  // — ver runControlledPrint mais abaixo — depois que a reconstrucao
-  // paginada tiver sucesso.
+    } catch {
+      sectionsQ = [{ title: reportTitle || '', bodyHtml: await convertImgsQ(reportBody || '(Laudo não encontrado ou ainda não elaborado)') }];
+    }
 
-    // CORREÇÃO (relato técnico "Bloqueio de fallback e impressão oficial",
-    // Manus, 2026-09-25): a reconstrução das páginas físicas paginadas
-    // (sectionsForPdfQ -> physicalPagesQ -> pagesHtmlQ -> substituição no
-    // DOM) era feita SÓ dentro do bloco de download, inline. Isso deixava
-    // dois outros caminhos usando fullHtml original (não paginado, com
-    // .print-shared-sheet de altura fixa e overflow:hidden, ou .print-page
-    // sem divisão de seção longa):
-    //   (a) o fallback aberto quando html2canvas falha no download — o
-    //       catch abria fullHtml num window.open, perdendo exatamente a
-    //       reconstrução que protege o conteúdo;
-    //   (b) a ação "Imprimir", que nunca executava a reconstrução — o
-    //       script embutido em fullHtml disparava window.print() sozinho
-    //       sobre o documento original.
-    // Agora a reconstrução é uma função compartilhada (reconstructPaginatedPages,
-    // fechamento sobre as variáveis já calculadas acima nesta função) chamada
-    // pelos dois caminhos, e tanto o fallback de captura quanto a impressão
-    // oficial usam o MESMO documento paginado que o download em PDF.
+    const modelQ: ReportDocumentRenderModel = {
+      layout: layoutForRenderQ,
+      logos: logosQ,
+      patient: patientQ,
+      doctorFooterHtml: doctorFooterHtmlQ,
+      sections: sectionsQ,
+    };
+
+    // P9: marca d'agua RASCUNHO para laudos nao assinados -- preservada
+    // como camada fixa (nao mais dentro do shell de cada pagina; a folha
+    // fisica agora vem inteiramente de renderAllPhysicalPagesHtml).
+    const draftWatermarkHtmlQ = canonicalStatus !== 'signed' && canonicalStatus !== 'revised' ? `
+      <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);font-size:72pt;font-weight:900;color:rgba(200,50,50,0.10);pointer-events:none;user-select:none;white-space:nowrap;font-family:Arial,sans-serif;letter-spacing:0.1em;-webkit-print-color-adjust:exact;print-color-adjust:exact;z-index:5;">RASCUNHO</div>
+    ` : '';
+
+    // Reset minimo -- a geometria fisica (tamanho de papel, margens,
+    // posicao de cada bloco) vem inteiramente do SharedReportSheet
+    // (estilos inline por elemento, via renderAllPhysicalPagesHtml).
+    // page-break-after garante que a impressao nativa quebre corretamente
+    // entre folhas fisicas (o SharedReportSheet nao aplica isso sozinho).
+    const minimalShellHtmlQ = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo_${patientName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf</title>
+<style>
+  @page { size: ${pageSizeQ} portrait; margin: 0; }
+  * { box-sizing: border-box; }
+  html { width: ${paperW}; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  .report-body p, .report-body div { margin-bottom: 3pt; }
+  [data-shared-report-sheet] { page-break-after: always; break-after: page; }
+  [data-shared-report-sheet]:last-of-type { page-break-after: avoid; break-after: avoid; }
+  .page-number-fixed { position: fixed; z-index: 3; bottom: 4mm; right: 8mm; font-size: 8pt; color: #888; font-family: Arial, sans-serif; }
+  .page-number-fixed::after { content: 'Página ' counter(page) ' de ' counter(pages); }
+  @media print { .doctor-footer { page-break-inside: avoid; } }
+</style></head><body></body></html>`;
+
     const pageWidthPxQ = pageWidthPx(pageSizeQ);
     const pageHeightPxQ = pageHeightPx(pageSizeQ);
-
-    // Reconstrói, dentro de `doc` (documento de um iframe já com fullHtml
-    // escrito e carregado), as páginas físicas paginadas — substitui
-    // qualquer `.print-page`/`.print-shared-sheet` existente pelo resultado
-    // de `paginateSectionIntoPages`. É a MESMA lógica usada nas 3 rodadas
-    // anteriores para o download; extraída aqui para não duplicar entre
-    // download, impressão oficial e fallback de captura. Lança
-    // `ContentTooLargeForPageError` (conteúdo maior que a página) ou `Error`
-    // (falha de medição) quando a paginação não pode ser concluída com
-    // segurança — nenhum dos 3 caminhos deve tratar essas exceções como
-    // "documento pronto para uso".
-    const reconstructPaginatedPages = async (doc: Document): Promise<void> => {
-      // CORREÇÃO (revisão Manus 2026-09-25, "PDFs multisseção e
-      // financeiro", e "Parecer de revisão — Paginação real dos PDFs"):
-      // o Achado 1 resolveu "N seções JSON -> N páginas", mas (a) uma
-      // ÚNICA seção cujo conteúdo seja mais alto do que uma folha física
-      // ainda era cortada por `overflow:hidden` em `.print-page`, com a
-      // assinatura sobreposta ao texto cortado; e (b) a versão anterior
-      // desta correção só reconstruía o DOM quando `reportBody` era um
-      // JSON com 2+ seções — um laudo de SEÇÃO ÚNICA continuava usando
-      // `.print-shared-sheet` sem nenhuma paginação real (Bloqueio B4 do
-      // parecer da Manus). Agora TODO laudo (seção única ou múltipla)
-      // passa pela mesma reconstrução em `.print-page` antes da captura
-      // — uma seção única vira uma lista de 1 "seção" e segue o mesmo
-      // caminho. Isso só afeta o DOM já escrito no iframe recebido —
-      // nunca o componente compartilhado SharedReportSheet.tsx usado pelo
-      // editor ao vivo.
-      //
-      // A paginação em si também foi corrigida (Bloqueios B1/B2/B3): em
-      // vez de somar alturas pré-medidas (que ignorava margens dos
-      // blocos e perdia texto solto fora de tags), agora inserimos
-      // incrementalmente cada nó real do corpo numa folha física real e
-      // verificamos `scrollHeight <= clientHeight` após cada inserção —
-      // ver client/src/lib/reportPagination.ts (paginateSectionIntoPages)
-      // para o mecanismo completo, idêntico ao usado em
-      // financialReportPdfDownload.ts.
-      let sectionsForPdfQ: Array<{ title: string; body: string }>;
-      try {
-        const parsedForPagination = JSON.parse(reportBody);
-        if (Array.isArray(parsedForPagination) && parsedForPagination.length > 1 && 'body' in parsedForPagination[0]) {
-          sectionsForPdfQ = parsedForPagination;
-        } else {
-          sectionsForPdfQ = [{ title: reportTitle || '', body: bodyHtml }];
-        }
-      } catch {
-        // reportBody não é JSON multisseção — laudo de seção única, HTML puro.
-        sectionsForPdfQ = [{ title: reportTitle || '', body: bodyHtml }];
-      }
-
-      // CORREÇÃO (Bloqueio 1, parecer corretivo da Manus, 2026-09-25):
-      // era min-height — a folha de medição (rodapé vazio) media mais
-      // área disponível do que a folha real (última, com assinatura),
-      // podendo aceitar conteúdo que depois não cabia de verdade.
-      // Altura FIXA + overflow:hidden própria garante área idêntica na
-      // medição e na folha real, em toda página. Dimensionamento: ver
-      // comentário equivalente em financialReportPdfDownload.ts (~56mm
-      // no pior caso com carimbo+assinatura+nome+CRM+data; 65mm dá
-      // folga, overflow:hidden é o limite de segurança final).
-      const FOOTER_RESERVE_MM_Q = 65;
-      // CORRECAO (achado ao vivo em producao, 2026-09-25): este era o
-      // cabecalho REALMENTE entregue no download e na impressao --
-      // reconstructPaginatedPages sempre chama buildPageShellQ para as
-      // duas acoes, substituindo qualquer conteudo inicial (inclusive o
-      // que ja vinha correto de renderSharedReportSheetHtml). O antigo
-      // headerHtmlQ concatenava os logos numa linha e acrescentava um
-      // titulo com o nome da unidade que nunca existiu no editor de
-      // layout -- por isso o PDF entregue nunca batia com o que o editor
-      // mostra, mesmo depois da correcao anterior de logo.width/height em
-      // SharedReportSheet.tsx. Agora usa a mesma camada de logos
-      // posicionados (logoLayerHtmlQ, calculada no escopo externo desta
-      // funcao a partir de blockPositionsQ + printLogosQ), sem titulo de
-      // unidade fixo.
-      // CORRECAO (Bloqueio 1, parecer de bloqueio da Manus, 2026-09-25):
-      // mesma correcao de logoOverlayHtml acima -- ver comentario lá.
-      // Este eh o overlay que REALMENTE chega ao download/impressao
-      // (buildPageShellQ), entao o bloqueio era mais grave aqui.
-      const logoOverlayHtmlQ = `<div style="position:absolute;top:${lMT}mm;right:${lMR}mm;bottom:${lMB}mm;left:${lML}mm;pointer-events:none;z-index:2;">${logoLayerHtmlQ}</div>`;
-      const footerHtmlQ = lFooterUrl
-        ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
-        : `<div style="height:4mm;"></div>`;
-      const buildPageShellQ = (examTitle: string, bodyHtml: string, footerReserveHtml: string) => `
-          <div class="print-page">
-            ${logoOverlayHtmlQ}
-            <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
-              <div class="patient-data">${patientDataHtml}</div>
-              <div class="exam-title">${examTitle || ''}</div>
-              <div class="report-body" style="flex:1;overflow:hidden;">${bodyHtml}</div>
-              <div class="footer-reserve" style="height:${FOOTER_RESERVE_MM_Q}mm;overflow:hidden;display:flex;align-items:flex-end;justify-content:center;">${footerReserveHtml}</div>
-            </div>
-            <div style="margin-top:auto;">${footerHtmlQ}</div>
-          </div>`;
-
-      // Checagem preventiva (não usada para decidir a paginação — só
-      // detecta cedo um layout mal configurado onde a área útil seria
-      // <= 0, o que faria a paginação real falhar de forma confusa).
-      const sanityWrapperQ = doc.createElement('div');
-      sanityWrapperQ.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
-      sanityWrapperQ.innerHTML = buildPageShellQ(sectionsForPdfQ[0]?.title || '', '', doctorFooterHtml);
-      doc.body.appendChild(sanityWrapperQ);
-      const sanityBodyElQ = sanityWrapperQ.querySelector<HTMLElement>('.report-body');
-      const sanityAvailableHeightPxQ = sanityBodyElQ?.getBoundingClientRect().height ?? 0;
-      doc.body.removeChild(sanityWrapperQ);
-      if (sanityAvailableHeightPxQ <= 0) {
-        throw new Error('Não foi possível medir a área útil da página para paginação.');
-      }
-
-      const physicalPagesQ: Array<{ title: string; bodyHtml: string }> = [];
-      for (const section of sectionsForPdfQ) {
-        const sourceContainerQ = doc.createElement('div');
-        sourceContainerQ.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
-        sourceContainerQ.innerHTML = section.body || '';
-        doc.body.appendChild(sourceContainerQ);
-
-        const measuringShellsQ: HTMLElement[] = [];
-        const pagesHtmlForSectionQ = paginateSectionIntoPages(sourceContainerQ, () => {
-          const shell = doc.createElement('div');
-          shell.style.cssText = 'position:absolute;visibility:hidden;left:-99999px;top:0;';
-          shell.innerHTML = buildPageShellQ(section.title, '', '');
-          doc.body.appendChild(shell);
-          measuringShellsQ.push(shell);
-          return shell.querySelector<HTMLElement>('.report-body')!;
-        });
-        measuringShellsQ.forEach((shell) => doc.body.removeChild(shell));
-        doc.body.removeChild(sourceContainerQ);
-
-        for (const bodyHtmlForPage of pagesHtmlForSectionQ) {
-          physicalPagesQ.push({ title: section.title, bodyHtml: bodyHtmlForPage });
-        }
-      }
-      if (physicalPagesQ.length === 0) {
-        physicalPagesQ.push({ title: sectionsForPdfQ[0]?.title || '', bodyHtml: '' });
-      }
-
-      const pagesHtmlQ = physicalPagesQ
-        .map((page, index) => buildPageShellQ(page.title, page.bodyHtml, index === physicalPagesQ.length - 1 ? doctorFooterHtml : ''))
-        .join('');
-
-      const existingPagesQ = doc.querySelectorAll('.print-page, .print-shared-sheet');
-      existingPagesQ.forEach((el) => el.remove());
-      doc.body.insertAdjacentHTML('beforeend', pagesHtmlQ);
-
-      // Pequena espera adicional para o reflow do DOM reconstruído.
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    };
 
     if (actionType === 'download') {
       toast.loading('Gerando arquivo PDF para download...', { id: 'pdf-dl' });
@@ -2076,37 +1664,14 @@ setSelectedStudy(study);
       // iframe é declarado fora do try/catch e removido num `finally`
       // (guardado por `parentNode`, então é seguro chamar mesmo se ele já
       // tiver sido removido no caminho de sucesso) — antes, se qualquer
-      // erro acontecesse ANTES da remoção explícita no caminho feliz
-      // (ex.: ContentTooLargeForPageError durante a paginação), o iframe
-      // ficava orfão no DOM para sempre.
+      // erro acontecesse ANTES da remoção explícita no caminho feliz, o
+      // iframe ficava órfão no DOM para sempre. Preservado nesta migração.
       const iframe = document.createElement('iframe');
       iframe.style.position = 'fixed';
       iframe.style.left = '-9999px';
       iframe.style.top = '0';
-      // CORREÇÃO (relato técnico "Bloqueio de fallback e impressão
-      // oficial", Manus, 2026-09-25): antes, o fallback de PdfCaptureError
-      // abria `fullHtml` (o HTML original, não paginado). Agora capturamos
-      // o HTML JÁ RECONSTRUÍDO E PAGINADO logo após reconstructPaginatedPages
-      // ter sucesso, e é ESSE HTML que o fallback abre — nunca o original.
-      // Permanece null até a reconstrução terminar; se um PdfCaptureError
-      // ocorrer antes disso (não deveria, já que a captura só começa depois
-      // da reconstrução), o catch não abre fallback nenhum, por segurança.
       let paginatedHtmlForFallback: string | null = null;
       try {
-        // CORREÇÃO (auditoria independente 2026-09-25, Achado 1, confirmado
-        // pela Manus): o seletor `.sheet` nunca existiu no HTML gerado — o
-        // HTML só produz `.print-page` (multisseção) ou `.print-shared-sheet`
-        // (seção única). O fallback `doc.body` capturava TODAS as folhas
-        // empilhadas como uma única imagem, inserida numa única página de
-        // PDF, sem `pdf.addPage()` nem proteção de altura — laudo
-        // multisseção saía com seções posteriores cortadas/ilegíveis, em A4
-        // ou Letter. Agora cada folha real é localizada e capturada
-        // individualmente, com uma página de PDF por folha, igual ao padrão
-        // já usado no download financeiro do editor
-        // (ReportEditorPage.tsx/handleFinancialPdfDownload) e no PDF do
-        // módulo Financeiro (financialReportPdfDownload.ts).
-
-        // Configurar dimensões do iframe oculto para renderizar perfeitamente com CSS e imagens completas
         iframe.style.width = `${pageWidthPxQ}px`;
         iframe.style.height = `${pageHeightPxQ}px`;
         document.body.appendChild(iframe);
@@ -2115,36 +1680,42 @@ setSelectedStudy(study);
         if (!doc) throw new Error('Não foi possível inicializar o renderizador de PDF');
 
         doc.open();
-        doc.write(fullHtml);
+        doc.write(minimalShellHtmlQ);
         doc.close();
 
-        // Aguardar carregamento de fontes e imagens
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
-        await reconstructPaginatedPages(doc);
+        // Decide as paginas fisicas (paginacao real, medicao de DOM) e
+        // monta o HTML final e completo de cada uma -- client/src/lib/
+        // reportDocumentRenderer.tsx (Fase 2 da unificacao). Substitui
+        // inteiramente a reconstrucao/o template de shell que existiam antes so aqui.
+        const pagesHtmlQ = renderAllPhysicalPagesHtml(doc, modelQ);
+        doc.body.innerHTML = `${draftWatermarkHtmlQ}<div class="page-number-fixed"></div>${pagesHtmlQ.join('')}`;
 
-        // Captura o documento JÁ paginado — é este HTML, não o `fullHtml`
-        // original, que o fallback de falha de captura abre abaixo.
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        await Promise.all(
+          Array.from(doc.images).map((image) =>
+            image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.onload = () => resolve(); image.onerror = () => resolve(); }),
+          ),
+        );
+
+        // CORREÇÃO (relato técnico "Bloqueio de fallback e impressão
+        // oficial", Manus, 2026-09-25): capturamos o HTML JÁ RECONSTRUÍDO E
+        // PAGINADO, nunca o HTML original — é ESSE HTML que o fallback de
+        // falha de captura abre, preservado nesta migração.
         paginatedHtmlForFallback = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
 
+        // FASE 3: resolvePdfPageElements (client/src/lib/pdfPageGeometry.ts)
+        // agora tambem reconhece [data-shared-report-sheet] (atributo que
+        // SharedReportSheet sempre define), alem dos antigos seletores de
+        // classe .print-page/.print-shared-sheet (mantidos para nao quebrar
+        // nenhum outro consumidor ja existente desse helper).
         const targetEls = resolvePdfPageElements(doc);
 
-        // CORREÇÃO (Bloqueio 1, auditoria Manus 2026-09-24): formato vinha
-        // hardcoded como 'a4', ignorando pageSizeQ — uma unidade configurada
-        // para Letter baixava um PDF A4 pela impressão rápida, divergente das
-        // outras 3 vias de geração de PDF do mesmo laudo.
         const pdf = new jsPDF('p', 'mm', pageSizeQ.toLowerCase() as 'a4' | 'letter');
         const pdfPageWidth = pdf.internal.pageSize.getWidth();
         const pdfPageHeight = pdf.internal.pageSize.getHeight();
 
-        // CORRECAO (Bloqueio 3, parecer de revisao v3 da Manus, 2026-09-25):
-        // o loop de captura do html2canvas e a UNICA etapa deste fluxo cujo
-        // erro pode legitimamente cair no fallback de impressao nativa (por
-        // exemplo, falha ao carregar uma imagem referenciada no laudo). Por
-        // isso ele e envolvido para relancar como PdfCaptureError, que o
-        // catch abaixo trata de forma diferenciada de qualquer outro erro
-        // (medicao de area util, paginacao, montagem do documento, jsPDF,
-        // pdf.save), que devem apenas exibir erro sem abrir o fallback.
         const canvases = [];
         try {
           for (let index = 0; index < targetEls.length; index += 1) {
@@ -2174,45 +1745,9 @@ setSelectedStudy(study);
         toast.success('PDF baixado com sucesso!');
       } catch (err) {
         toast.dismiss('pdf-dl');
-        // CORRECAO (Bloqueio 3, parecer corretivo da Manus, 2026-09-25): um
-        // `catch` generico capturava tambem ContentTooLargeForPageError (um
-        // bloco de conteudo maior que a pagina, que a paginacao real
-        // recusou de proposito — ver reportPagination.ts) e caia no mesmo
-        // fallback de "abrir fullHtml para impressao nativa" com uma
-        // mensagem de SUCESSO. Mas fullHtml usa as MESMAS folhas de altura
-        // fixa com overflow:hidden que rejeitaram esse bloco por nao
-        // caber — abrir esse HTML como "pronto para salvar" apresentaria ao
-        // usuario um documento que tambem pode estar com conteudo cortado,
-        // mascarado por uma mensagem de sucesso.
-        //
-        // CORRECAO (Bloqueio 3, parecer de revisao v3 da Manus, 2026-09-25):
-        // a rodada anterior corrigiu apenas ContentTooLargeForPageError, mas
-        // qualquer OUTRO erro (medicao de area util, paginacao interna,
-        // montagem do documento, construcao do jsPDF, pdf.save) ainda caia
-        // no mesmo fallback "amplo" — e esses erros tambem nao garantem que
-        // fullHtml esteja seguro para apresentar como pronto para salvar.
-        // Agora o fallback de impressao nativa fica restrito EXCLUSIVAMENTE
-        // a PdfCaptureError (falha classificada e isolada no loop de
-        // captura do html2canvas — ver acima). Qualquer outro erro, incluindo
-        // os nao reconhecidos, apenas exibe mensagem de erro, sem fallback.
-        //
-        // CORREÇÃO (relato técnico "Bloqueio de fallback e impressão
-        // oficial", Manus, 2026-09-25): o fallback agora abre
-        // `paginatedHtmlForFallback` (o documento JÁ reconstruído e
-        // paginado, capturado logo após reconstructPaginatedPages), nunca
-        // `fullHtml` original. Se por algum motivo a reconstrução não
-        // chegou a terminar (paginatedHtmlForFallback ainda null — não
-        // deveria acontecer, já que PdfCaptureError só é lançado depois da
-        // reconstrução, mas a guarda fica explícita por segurança), NÃO
-        // abrimos fallback nenhum: mostramos erro, porque não temos
-        // nenhuma versão do documento comprovadamente paginada disponível.
         if (err instanceof ContentTooLargeForPageError) {
           toast.error('Não foi possível gerar o PDF', { description: err.message });
         } else if (err instanceof PdfCaptureError && paginatedHtmlForFallback) {
-          // Fallback seguro: só é aberto para falha de captura de imagem
-          // (ex.: html2canvas, imagem que não carregou), que não implica
-          // conteúdo comprovadamente maior que a página — e usando o
-          // documento já paginado, nunca o original.
           const blob = new Blob([paginatedHtmlForFallback], { type: 'text/html;charset=utf-8' });
           const win = window.open(URL.createObjectURL(blob), '_blank');
           if (win) {
@@ -2221,11 +1756,6 @@ setSelectedStudy(study);
             toast.error('Erro ao gerar PDF. Verifique os bloqueadores de pop-up.');
           }
         } else {
-          // Erro de medição, paginação, montagem do documento, jsPDF ou
-          // salvamento — ou uma falha de captura sem documento paginado
-          // disponível: não há garantia de que algum HTML esteja seguro
-          // para abrir, então não abrimos fallback nenhum, apenas
-          // informamos o erro.
           toast.error('Não foi possível gerar o PDF', {
             description: err instanceof Error ? err.message : 'Ocorreu um erro inesperado ao gerar o PDF.',
           });
@@ -2234,21 +1764,12 @@ setSelectedStudy(study);
         if (iframe.parentNode) iframe.remove();
       }
     } else {
-      // CORREÇÃO (relato técnico "Bloqueio da impressão oficial de laudos
-      // PDF", Manus, 2026-09-25): a rodada anterior tentava remover o
-      // script de auto-print de fullHtml por regex antes de reconstruir as
-      // páginas, mas a regex não reconhecia o script real gerado pelo
-      // template literal — ele sobrevivia no HTML escrito no iframe e
-      // disparava window.print() sozinho ~400ms depois do carregamento,
-      // ANTES da espera de 800ms e da reconstrução paginada controlada
-      // abaixo, ou mesmo quando essa reconstrução falhava. Correção
-      // definitiva (a que a própria Manus recomendou como mais robusta):
-      // fullHtml NUNCA mais contém esse script — não há nada para
-      // remover. A impressão oficial dispara print() por um único caminho
-      // explícito, via runControlledPrint (client/src/lib/
-      // printOrchestration.ts, extraída para ser testável com funções
-      // injetadas): print() só é chamado se reconstructPaginatedPages
-      // resolver sem lançar, e é chamado no máximo uma vez.
+      // A impressão oficial dispara print() por um único caminho
+      // explícito e controlado — runControlledPrint (client/src/lib/
+      // printOrchestration.ts) — print() só é chamado se a reconstrução
+      // das páginas físicas (agora renderAllPhysicalPagesHtml) resolver
+      // sem lançar, e no máximo uma vez. Preservado integralmente desta
+      // migração — só o passo de "reconstruct" mudou de implementação.
       const printIframe = document.createElement('iframe');
       printIframe.style.position = 'fixed';
       printIframe.style.left = '-9999px';
@@ -2262,14 +1783,22 @@ setSelectedStudy(study);
         if (!pDoc) throw new Error('Não foi possível iniciar a impressão.');
 
         pDoc.open();
-        pDoc.write(fullHtml);
+        pDoc.write(minimalShellHtmlQ);
         pDoc.close();
 
-        // Aguardar carregamento de fontes e imagens, igual ao download.
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
         const printResult = await runControlledPrint({
-          reconstruct: () => reconstructPaginatedPages(pDoc),
+          reconstruct: async () => {
+            const pagesHtmlQ = renderAllPhysicalPagesHtml(pDoc, modelQ);
+            pDoc.body.innerHTML = `${draftWatermarkHtmlQ}<div class="page-number-fixed"></div>${pagesHtmlQ.join('')}`;
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            await Promise.all(
+              Array.from(pDoc.images).map((image) =>
+                image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.onload = () => resolve(); image.onerror = () => resolve(); }),
+              ),
+            );
+          },
           print: () => {
             toast.success('Abrindo diálogo de impressoras...');
             printIframe.contentWindow?.print();
@@ -2280,11 +1809,6 @@ setSelectedStudy(study);
           throw printResult.error;
         }
       } catch (err) {
-        // Mesma postura do download: erro de medição, paginação ou
-        // conteúdo maior que a página não deve abrir o diálogo de
-        // impressão sobre um documento potencialmente cortado — só
-        // informamos o erro. runControlledPrint garante que print() nunca
-        // foi chamado neste caminho.
         if (err instanceof ContentTooLargeForPageError) {
           toast.error('Não foi possível preparar a impressão', { description: err.message });
         } else {
@@ -2293,9 +1817,6 @@ setSelectedStudy(study);
           });
         }
       } finally {
-        // Remover o iframe após a impressão (ou após a falha) — mesmo
-        // atraso de 10s já usado antes, para dar tempo ao diálogo nativo
-        // de impressão de terminar de ler o conteúdo do iframe.
         setTimeout(() => {
           try {
             if (printIframe.parentNode) {
