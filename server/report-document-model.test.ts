@@ -30,7 +30,16 @@ describe("resolveEffectiveReportLayout — snapshot vs. layout atual da unidade 
     footer_image_url: "/unit-footer.png",
     logos: [{ url: "/unit-logo.png", width: 200, height: 50 }],
     block_positions: { logo1: { x: 2, y: 2, w: 26, h: 11, visible: true } },
-    preferences: { pageSize: "Letter" as const, marginTop: 17, marginRight: 20, marginBottom: 25, marginLeft: 20, fontSize: 12, lineHeight: 1.6 },
+    preferences: {
+      pageSize: "Letter" as const,
+      marginTop: 17,
+      marginRight: 20,
+      marginBottom: 25,
+      marginLeft: 20,
+      fontSize: 12,
+      lineHeight: 1.6,
+      blockOrder: ["header_unit", "report_body"],
+    },
   };
 
   it("laudo assinado com snapshot parcial preserva os campos de preferences ausentes no snapshot (o próprio bug reproduzido pela Manus)", () => {
@@ -47,6 +56,7 @@ describe("resolveEffectiveReportLayout — snapshot vs. layout atual da unidade 
       marginLeft: 20,
       fontSize: 10, // snapshot venceu
       lineHeight: 1.6, // preservado da unidade — não desapareceu
+      blockOrder: ["header_unit", "report_body"], // preservado da unidade
     });
   });
 
@@ -134,10 +144,96 @@ describe("resolveEffectiveReportLayout — snapshot vs. layout atual da unidade 
     expect(resolveEffectiveReportLayout({ status: "draft", unitLayout: null, reportLayoutSnapshot: null })).toBeNull();
   });
 
-  it("não muta os objetos de entrada", () => {
+  it("não muta os objetos de entrada durante a execução normal", () => {
     const unitCopy = JSON.parse(JSON.stringify(unitLayout));
     resolveEffectiveReportLayout({ status: "signed", unitLayout, reportLayoutSnapshot: { preferences: { fontSize: 10 } } });
     expect(unitLayout).toEqual(unitCopy);
+  });
+
+  // Bloqueio residual (Parecer corretivo — Fase 1, Manus, 26/09/2026): o
+  // teste acima só compara a entrada logo após executar a função — não
+  // tenta MUTAR o objeto retornado. A reprodução independente da Manus
+  // mostrou que `resolved.logos`, `resolved.block_positions` e
+  // `resolved.preferences.blockOrder` eram as MESMAS referências dos
+  // inputs, então mutá-los também mutava `unitLayout`/o snapshot. Os
+  // testes abaixo isolam exatamente esse cenário: mutam o RESULTADO e
+  // conferem que a unidade/o snapshot originais não mudam.
+  it("isolamento real: mutar result.logos não afeta unitLayout.logos (não são a mesma referência)", () => {
+    const result = resolveEffectiveReportLayout({ status: "signed", unitLayout, reportLayoutSnapshot: {} });
+    expect(result?.logos).not.toBe(unitLayout.logos);
+    result!.logos!.push({ url: "/mutated.png" });
+    expect(unitLayout.logos).toHaveLength(1);
+    expect(unitLayout.logos[0].url).toBe("/unit-logo.png");
+  });
+
+  it("isolamento real: mutar result.block_positions não afeta unitLayout.block_positions (não são a mesma referência)", () => {
+    const result = resolveEffectiveReportLayout({ status: "signed", unitLayout, reportLayoutSnapshot: {} });
+    expect(result?.block_positions).not.toBe(unitLayout.block_positions);
+    result!.block_positions!.logo1!.x = 99;
+    expect(unitLayout.block_positions.logo1.x).toBe(2);
+  });
+
+  it("isolamento real: mutar result.preferences.blockOrder não afeta unitLayout.preferences.blockOrder (não são a mesma referência)", () => {
+    const result = resolveEffectiveReportLayout({ status: "signed", unitLayout, reportLayoutSnapshot: {} });
+    expect(result?.preferences.blockOrder).not.toBe(unitLayout.preferences.blockOrder);
+    (result!.preferences.blockOrder as string[]).push("signature");
+    expect(unitLayout.preferences.blockOrder).toEqual(["header_unit", "report_body"]);
+  });
+
+  it("isolamento real: reprodução exata do cenário da Manus (logos + block_positions + blockOrder mutados em conjunto)", () => {
+    const unit = {
+      preferences: { pageSize: "Letter" as const, blockOrder: ["header_unit", "report_body"] },
+      logos: [{ url: "/unit-logo.png" }],
+      block_positions: { logo1: { x: 1, y: 1, w: 20, h: 10, visible: true } },
+    };
+    const resolved = resolveEffectiveReportLayout({
+      status: "signed",
+      unitLayout: unit,
+      reportLayoutSnapshot: {},
+    });
+    resolved!.logos!.push({ url: "/mutated.png" });
+    resolved!.block_positions!.logo1!.x = 99;
+    (resolved!.preferences.blockOrder as string[]).push("signature");
+
+    expect(unit.logos).toEqual([{ url: "/unit-logo.png" }]);
+    expect(unit.block_positions.logo1.x).toBe(1);
+    expect(unit.preferences.blockOrder).toEqual(["header_unit", "report_body"]);
+  });
+
+  it("isolamento real: cada campo do reportLayoutSnapshot também é imutável no resultado, não só o da unidade", () => {
+    const snapshot = {
+      logos: [{ url: "/snapshot-logo.png" }],
+      block_positions: { logo1: { x: 5, y: 5, w: 30, h: 15, visible: true } },
+      preferences: { pageSize: "A4" as const, blockOrder: ["snapshot_header"] },
+    };
+    const result = resolveEffectiveReportLayout({ status: "signed", unitLayout, reportLayoutSnapshot: snapshot });
+
+    expect(result?.logos).not.toBe(snapshot.logos);
+    expect(result?.block_positions).not.toBe(snapshot.block_positions);
+    expect(result?.preferences.blockOrder).not.toBe(snapshot.preferences.blockOrder);
+
+    result!.logos!.push({ url: "/mutated.png" });
+    result!.block_positions!.logo1!.x = 999;
+    (result!.preferences.blockOrder as string[]).push("mutated");
+
+    expect(snapshot.logos).toEqual([{ url: "/snapshot-logo.png" }]);
+    expect(snapshot.block_positions.logo1.x).toBe(5);
+    expect(snapshot.preferences.blockOrder).toEqual(["snapshot_header"]);
+  });
+
+  it("isolamento real: no caminho 'unit' (sem snapshot), o resultado também não compartilha referências com unitLayout", () => {
+    const result = resolveEffectiveReportLayout({ status: "draft", unitLayout, reportLayoutSnapshot: null });
+    expect(result?.logos).not.toBe(unitLayout.logos);
+    expect(result?.block_positions).not.toBe(unitLayout.block_positions);
+    expect(result?.preferences.blockOrder).not.toBe(unitLayout.preferences.blockOrder);
+
+    result!.logos!.push({ url: "/mutated.png" });
+    result!.block_positions!.logo1!.x = 999;
+    (result!.preferences.blockOrder as string[]).push("mutated");
+
+    expect(unitLayout.logos).toHaveLength(1);
+    expect(unitLayout.block_positions.logo1.x).toBe(2);
+    expect(unitLayout.preferences.blockOrder).toEqual(["header_unit", "report_body"]);
   });
 });
 

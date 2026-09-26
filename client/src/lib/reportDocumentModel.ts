@@ -120,21 +120,75 @@ const ATOMIC_LAYOUT_KEYS = [
 ] as const;
 type AtomicLayoutKey = (typeof ATOMIC_LAYOUT_KEYS)[number];
 
+/**
+ * Correção do bloqueio residual (Parecer corretivo — Fase 1, Manus,
+ * 26/09/2026): resolveEffectiveReportLayout() devolvia `logos`,
+ * `block_positions` e campos aninhados de `preferences` (ex.:
+ * `blockOrder`) como as MESMAS referências de array/objeto recebidas em
+ * `unitLayout`/`reportLayoutSnapshot` — mutar o resultado (ex.:
+ * `resolved.logos.push(...)`) mutava também o layout em cache da unidade
+ * ou o snapshot do laudo. Este helper devolve sempre uma cópia
+ * estruturalmente independente (novo array/objeto em cada nível), nunca
+ * compartilhada com os inputs. Usa `structuredClone` quando disponível
+ * (Node ≥17, todos os runtimes de teste/produção deste projeto) e cai
+ * para clonagem via JSON como reforço — os valores aqui são sempre dados
+ * de layout serializáveis (nunca HTML de navegador nem funções), então a
+ * volta e ida por JSON é segura e não introduz serialização indevida. */
+function deepCloneValue<T>(value: T): T {
+  if (value === null || typeof value !== "object") return value;
+  if (typeof structuredClone === "function") {
+    try {
+      return structuredClone(value);
+    } catch {
+      // cai para o fallback abaixo em runtimes sem suporte completo
+    }
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 /** Escolhe um campo "atômico" (nunca mesclado internamente — logos e
  * block_positions são substituídos como um todo, nunca combinados item a
  * item entre unidade e snapshot): usa o valor do snapshot quando a chave
  * EXISTE no objeto do snapshot (`hasOwnProperty`, não apenas "!= null" —
  * um snapshot que capturou explicitamente "sem logos" não deve herdar os
- * logos atuais da unidade), senão cai no valor da unidade. */
+ * logos atuais da unidade), senão cai no valor da unidade. Sempre devolve
+ * uma cópia independente para logos/block_positions — nunca a referência
+ * crua do input. */
+function cloneLogos(logos: CanonicalLogo[] | null): CanonicalLogo[] | null {
+  return logos ? deepCloneValue(logos) : null;
+}
+
+function cloneBlockPositions(positions: CanonicalBlockPositions | null): CanonicalBlockPositions | null {
+  return positions ? deepCloneValue(positions) : null;
+}
+
+/** Mescla `preferences` campo a campo (snapshot sobrescreve unidade) e
+ * devolve sempre um objeto novo, com todo array/objeto aninhado (ex.:
+ * `blockOrder`) também clonado — nunca a referência original de
+ * `unit.preferences`/`snapshot.preferences`. */
+function mergePreferences(
+  unitPreferences: LayoutPreferencesLike | null | undefined,
+  snapshotPreferences: LayoutPreferencesLike | null | undefined,
+): LayoutPreferencesLike {
+  return deepCloneValue({ ...(unitPreferences ?? {}), ...(snapshotPreferences ?? {}) });
+}
+
 function pickAtomicField<K extends AtomicLayoutKey>(
   unit: LayoutLike | null,
   snapshot: Partial<LayoutLike> | null,
   key: K,
 ): EffectiveReportLayout[K] {
-  if (snapshot && Object.prototype.hasOwnProperty.call(snapshot, key)) {
-    return (snapshot[key] ?? null) as EffectiveReportLayout[K];
-  }
-  return (unit?.[key] ?? null) as EffectiveReportLayout[K];
+  const raw =
+    snapshot && Object.prototype.hasOwnProperty.call(snapshot, key)
+      ? (snapshot[key] ?? null)
+      : (unit?.[key] ?? null);
+  // `logos` e `block_positions` são objetos/arrays — nunca devolver a
+  // referência crua do input (ver deepCloneValue acima); os demais campos
+  // atômicos (header_html, footer_html, background_*, footer_image_url)
+  // são primitivos e passam direto.
+  if (key === "logos") return cloneLogos(raw as CanonicalLogo[] | null) as EffectiveReportLayout[K];
+  if (key === "block_positions") return cloneBlockPositions(raw as CanonicalBlockPositions | null) as EffectiveReportLayout[K];
+  return raw as EffectiveReportLayout[K];
 }
 
 /**
@@ -170,15 +224,15 @@ export function resolveEffectiveReportLayout(input: {
     if (!unit) return null;
     return {
       source: "unit",
-      preferences: { ...(unit.preferences ?? {}) },
+      preferences: mergePreferences(unit.preferences, null),
       header_html: unit.header_html ?? null,
       footer_html: unit.footer_html ?? null,
       background_image_url: unit.background_image_url ?? null,
       background_opacity: unit.background_opacity ?? null,
       background_size: unit.background_size ?? null,
       footer_image_url: unit.footer_image_url ?? null,
-      logos: unit.logos ?? null,
-      block_positions: unit.block_positions ?? null,
+      logos: cloneLogos(unit.logos ?? null),
+      block_positions: cloneBlockPositions(unit.block_positions ?? null),
     };
   }
 
@@ -191,7 +245,7 @@ export function resolveEffectiveReportLayout(input: {
     // apenas as chaves que de fato tiver — um campo novo, inexistente no
     // snapshot antigo, permanece com o valor (atual) da unidade em vez de
     // desaparecer.
-    preferences: { ...(unit?.preferences ?? {}), ...(snapshot.preferences ?? {}) },
+    preferences: mergePreferences(unit?.preferences, snapshot.preferences),
     header_html: pickAtomicField(unit, snapshot, "header_html"),
     footer_html: pickAtomicField(unit, snapshot, "footer_html"),
     background_image_url: pickAtomicField(unit, snapshot, "background_image_url"),
