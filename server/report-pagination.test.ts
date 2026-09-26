@@ -381,9 +381,16 @@ describe("wiring — as duas vias de download usam o mesmo módulo de paginaçã
     "utf8",
   );
 
-  it("financialReportPdfDownload.ts importa e usa paginateSectionIntoPages", () => {
-    expect(financialSource).toContain('from "./reportPagination"');
-    expect(financialSource).toContain("paginateSectionIntoPages(");
+  it("financialReportPdfDownload.ts usa a fábrica canônica (Fase 3, 26/09/2026), que por sua vez usa paginateSectionIntoPages — nunca reimplementa paginação local", () => {
+    // Migração da Fase 3: este arquivo deixou de importar reportPagination
+    // diretamente e passou a delegar inteiramente para
+    // reportDocumentRenderer.tsx (renderAllPhysicalPagesHtml), que é quem
+    // chama paginateSectionIntoPages internamente — ver
+    // server/report-document-renderer.test.ts para a cobertura direta
+    // dessa função.
+    expect(financialSource).toContain('from "./reportDocumentRenderer"');
+    expect(financialSource).toContain("renderAllPhysicalPagesHtml(");
+    expect(financialSource).not.toContain("paginateSectionIntoPages(");
     expect(financialSource).not.toContain("measureTopLevelBlocks");
     expect(financialSource).not.toContain("splitBlocksIntoPages");
   });
@@ -395,23 +402,19 @@ describe("wiring — as duas vias de download usam o mesmo módulo de paginaçã
     expect(pacsQuerySource).not.toContain("splitBlocksIntoPages");
   });
 
-  it("B1: .report-body tem overflow:hidden nas duas vias (pré-requisito para scrollHeight refletir overflow real)", () => {
-    // NOTA: o CSS real é gerado por template literal e contém `${lSize}`/
-    // `${lLine}` — chaves LITERAIS dentro da própria regra, antes de
-    // "overflow: hidden". Uma regex "balanceada por chaves" (tipo
-    // /\.report-body\s*\{[^}]*overflow:hidden/) pararia no primeiro `}`
-    // (o de `${lSize}`) e nunca chegaria a "overflow". Por isso localizamos
-    // a regra pela substring inicial e conferimos que "overflow: hidden"
-    // aparece logo depois, na mesma regra, sem depender de contagem de
-    // chaves.
+  it("B1: PacsQueryPage.tsx (ainda não migrado para a fábrica canônica) mantém overflow:hidden em .report-body (pré-requisito para scrollHeight refletir overflow real)", () => {
     const assertReportBodyHasOverflowHidden = (source: string, label: string) => {
       const ruleStart = source.indexOf(".report-body {");
       expect(ruleStart, `${label}: regra .report-body { ... } não encontrada`).toBeGreaterThanOrEqual(0);
       const ruleSnippet = source.slice(ruleStart, ruleStart + 200);
       expect(ruleSnippet).toMatch(/overflow:\s*hidden/);
     };
-    assertReportBodyHasOverflowHidden(financialSource, "financialReportPdfDownload.ts");
     assertReportBodyHasOverflowHidden(pacsQuerySource, "PacsQueryPage.tsx");
+  });
+
+  it("financialReportPdfDownload.ts (Fase 3): o bloco de corpo agora é um bloco posicionado de forma independente (block_positions.body), não mais uma reserva de rodapé com altura estimada — a fábrica canônica mede a área útil real por bloco", () => {
+    expect(financialSource).not.toContain("FOOTER_RESERVE_MM");
+    expect(financialSource).not.toContain("footer-reserve");
   });
 
   it("B4: PacsQueryPage.tsx não restringe mais a reconstrução em .print-page a laudo multisseção — laudo de seção única também é reconstruído antes da captura", () => {
@@ -427,14 +430,16 @@ describe("wiring — as duas vias de download usam o mesmo módulo de paginaçã
     expect(pacsQuerySource).toContain("'.print-page, .print-shared-sheet'");
   });
 
-  it("Bloqueio 1 (parecer corretivo, regressão): a reserva de rodapé usa altura FIXA + overflow:hidden nas duas vias, não min-height", () => {
+  it("Bloqueio 1 (parecer corretivo, regressão — PacsQueryPage.tsx, ainda não migrado): a reserva de rodapé usa altura FIXA + overflow:hidden, não min-height", () => {
     // A v3 corrige o Bloqueio 1: com min-height, a folha de MEDIÇÃO (rodapé
     // vazio) podia medir uma área útil maior do que a folha REAL (última,
     // com assinatura), que crescia além do mínimo. Altura fixa +
     // overflow:hidden garante que a área ocupada pela reserva é idêntica
     // nas duas, então a área útil medida é sempre a área real disponível.
-    expect(financialSource).not.toContain("min-height:${FOOTER_RESERVE_MM}mm");
-    expect(financialSource).toContain("height:${FOOTER_RESERVE_MM}mm;overflow:hidden");
+    // financialReportPdfDownload.ts não tem mais esse mecanismo (Fase 3):
+    // cada bloco (corpo, rodapé) ocupa uma posição percentual própria e
+    // fixa (block_positions), então a área do corpo nunca depende de o
+    // rodapé estar preenchido ou não — ver teste acima.
     expect(pacsQuerySource).not.toContain("min-height:${FOOTER_RESERVE_MM_Q}mm");
     expect(pacsQuerySource).toContain("height:${FOOTER_RESERVE_MM_Q}mm;overflow:hidden");
   });
