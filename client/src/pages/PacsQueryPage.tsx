@@ -1470,6 +1470,21 @@ setSelectedStudy(study);
       const absoluteUrl = toAbsUrl(logo.url);
       return { ...logo, url: (absoluteUrl ? await fetchToBase64(absoluteUrl) : null) || absoluteUrl };
     }));
+    // CORRECAO (Bloqueio 2, parecer de bloqueio da Manus, 2026-09-25):
+    // antes do commit a9041c7, quando a unidade nao tinha nenhum logo
+    // configurado em model_layouts.logos, o download/impressao caia no
+    // fallback units.logo_url (variavel logoUrl, ja calculada acima).
+    // Esse fallback ficou orfao depois que printLogosQ passou a alimentar
+    // logoLayerHtmlQ -- unidades que so tinham logo_url (sem nunca ter
+    // usado o editor de layout novo) passavam a gerar PDF sem logo
+    // nenhum. Preserva o comportamento anterior: só quando não há nenhum
+    // logo valido em model_layouts.logos, usa logo_url como um logo1
+    // unico, na posicao de fabrica (ver FALLBACK_LOGO_POSITIONS em
+    // reportLogoLayer.ts), sem width/height fixos (mantém 100%/100% da
+    // caixa, igual ao comportamento legado).
+    const printLogosWithFallbackQ = printLogosQ.length > 0
+      ? printLogosQ
+      : (logoUrl ? [{ url: (await fetchToBase64(logoUrl)) || logoUrl, width: 0, height: 0, label: 'Logo' }] : []);
     // CORRECAO (achado ao vivo em producao, 2026-09-25, pedido do
     // Alessandro -- reproducao apos a correcao anterior de logo.width/
     // logo.height em SharedReportSheet.tsx): o PDF baixado pela lista
@@ -1489,7 +1504,7 @@ setSelectedStudy(study);
     // reconstructPaginatedPages/buildPageShellQ, que e o que realmente e
     // entregue no download e na impressao.
     const blockPositionsQ = ((unitLayout as any)?.block_positions || {}) as Record<string, { x: number; y: number; w: number; h: number; visible: boolean }>;
-    const logoLayerHtmlQ = renderLogoLayerHtml(blockPositionsQ, printLogosQ);
+    const logoLayerHtmlQ = renderLogoLayerHtml(blockPositionsQ, printLogosWithFallbackQ);
 
     // P7: converter imagens para base64
     const convertImgsQ = async (html: string): Promise<string> => {
@@ -1668,18 +1683,12 @@ setSelectedStudy(study);
   thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
   tbody { display: table-row-group; }
-  .header {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding-bottom: 8pt;
-    border-bottom: 2px solid ${lBorderColor};
-    margin-bottom: 4mm;
-  }
-  .header-logo { flex-shrink: 0; }
-  .header-title { flex: 1; text-align: center; }
-  .clinic-name { font-size: 14pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
-  .clinic-sub { font-size: 10pt; color: #444; margin-top: 2pt; }
+  /* CORRECAO (achado ao vivo em producao + Bloqueio 1-4, Manus,
+     2026-09-25): as regras do cabecalho antigo (logos concatenados lado
+     a lado + nome da unidade em destaque) foram removidas daqui -- esse
+     cabecalho foi substituido pela camada de logos posicionados
+     (renderLogoLayerHtml, ver logoOverlayHtml/logoOverlayHtmlQ mais
+     abaixo). As classes CSS correspondentes nao tem mais nenhum uso. */
   .patient-data { font-size: 10pt; line-height: 1.7; margin-bottom: 12pt; }
   .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
   .report-body { font-size: ${lSize}pt; line-height: ${lLine}; overflow: hidden; }
@@ -1735,7 +1744,19 @@ setSelectedStudy(study);
     // funcao a partir de blockPositionsQ e printLogosQ. Sem cabecalho fixo
     // de texto (nome da unidade), porque esse texto nunca existiu como
     // bloco editavel no editor de layout.
-    const logoOverlayHtml = `<div style="position:absolute;inset:0;pointer-events:none;z-index:2;">${logoLayerHtmlQ}</div>`;
+    // CORRECAO (Bloqueio 1, parecer de bloqueio da Manus, 2026-09-25):
+    // inset:0 posiciona a camada a partir da borda EXTERNA do padding de
+    // .print-page (a folha inteira), nao da area util (folha menos
+    // margens) que SharedReportSheet.tsx usa como referencia para x/y em
+    // % (merged[id] eh medido dentro de .shared-report-sheet-content,
+    // que e 100%/100% do content-box do pai, ja descontadas as margens).
+    // Com inset:0, um logo com x=2%/y=2% aparecia deslocado ~19mm para
+    // cima/esquerda em relacao ao editor, numa unidade com margens de
+    // 20mm (reproduzido matematicamente pela Manus). Corrigido usando as
+    // 4 margens efetivas como offset (top/right/bottom/left), igual ao
+    // padding real de .print-page -- a camada passa a ocupar exatamente
+    // a mesma area util que o editor usa.
+    const logoOverlayHtml = `<div style="position:absolute;top:${lMT}mm;right:${lMR}mm;bottom:${lMB}mm;left:${lML}mm;pointer-events:none;z-index:2;">${logoLayerHtmlQ}</div>`;
     const footerHtml = lFooterUrl
       ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
       : `<div style="height:4mm;"></div>`;
@@ -1915,7 +1936,11 @@ setSelectedStudy(study);
       // posicionados (logoLayerHtmlQ, calculada no escopo externo desta
       // funcao a partir de blockPositionsQ + printLogosQ), sem titulo de
       // unidade fixo.
-      const logoOverlayHtmlQ = `<div style="position:absolute;inset:0;pointer-events:none;z-index:2;">${logoLayerHtmlQ}</div>`;
+      // CORRECAO (Bloqueio 1, parecer de bloqueio da Manus, 2026-09-25):
+      // mesma correcao de logoOverlayHtml acima -- ver comentario lá.
+      // Este eh o overlay que REALMENTE chega ao download/impressao
+      // (buildPageShellQ), entao o bloqueio era mais grave aqui.
+      const logoOverlayHtmlQ = `<div style="position:absolute;top:${lMT}mm;right:${lMR}mm;bottom:${lMB}mm;left:${lML}mm;pointer-events:none;z-index:2;">${logoLayerHtmlQ}</div>`;
       const footerHtmlQ = lFooterUrl
         ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
         : `<div style="height:4mm;"></div>`;

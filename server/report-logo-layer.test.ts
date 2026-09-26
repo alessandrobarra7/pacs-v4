@@ -70,3 +70,82 @@ describe("renderLogoLayerHtml (achado ao vivo, 2026-09-25)", () => {
     expect(html).toContain("left:2%;top:2%;width:26%;height:11%");
   });
 });
+
+// Regressão (parecer de bloqueio da Manus, 2026-09-25) — Bloqueio 3:
+// SharedReportSheet.tsx expande a chave legada `positions.logo` (layouts
+// antigos, sem logo1/logo2/logo3) para os 3 slots; reportLogoLayer.ts não
+// reproduzia essa regra, então um layout com essa chave legada divergia
+// de novo entre o editor e o PDF entregue.
+describe("renderLogoLayerHtml — compatibilidade com positions.logo legado (Bloqueio 3, Manus 2026-09-25)", () => {
+  it("expande positions.logo para logo1 quando logo1/logo2/logo3 não existem", () => {
+    const html = renderLogoLayerHtml(
+      { logo: { x: 55, y: 6, w: 30, h: 15, visible: true } },
+      [{ url: "data:image/png;base64,logo", width: 100, height: 50 }],
+    );
+
+    expect(html).toContain("left:55%;top:6%;width:30%;height:15%");
+  });
+
+  it("não usa a chave legada quando logo1 já existe explicitamente (a posição nova tem prioridade)", () => {
+    const html = renderLogoLayerHtml(
+      {
+        logo: { x: 55, y: 6, w: 30, h: 15, visible: true },
+        logo1: { x: 10, y: 10, w: 20, h: 8, visible: true },
+      },
+      [{ url: "data:image/png;base64,logo", width: 100, height: 50 }],
+    );
+
+    expect(html).toContain("left:10%;top:10%;width:20%;height:8%");
+    expect(html).not.toContain("left:55%;top:6%;width:30%;height:15%");
+  });
+});
+
+// Regressão (parecer de bloqueio da Manus, 2026-09-25) — Bloqueio 4: a
+// função gerava `<img src="${logo.url}">` por interpolação direta, sem
+// escapar aspas nem validar o esquema da URL. Uma URL com um atributo de
+// evento embutido produzia HTML executável.
+describe("renderLogoLayerHtml — sanitização de URL e atributos (Bloqueio 4, Manus 2026-09-25)", () => {
+  it("nunca produz um atributo onerror/event-handler REAL a partir de uma URL maliciosa (só texto escapado dentro do valor do atributo src)", () => {
+    const html = renderLogoLayerHtml(
+      { logo1: { x: 2, y: 2, w: 26, h: 11, visible: true } },
+      [{ url: 'https://example.invalid/x" onerror="window.__logoInjection=1', width: 100, height: 50 }],
+    );
+
+    // O `"` que fecharia o atributo src e abriria um onerror= real precisa
+    // estar escapado como &quot; — não pode sobrar um `"` cru seguido de
+    // onerror=, que é o que tornaria o atributo executável de verdade.
+    expect(html).not.toMatch(/"\s*onerror\s*=\s*"/);
+    expect(html).toContain("&quot; onerror=&quot;");
+  });
+
+  it("rejeita esquemas de URL que não sejam data:image/... ou http(s)://", () => {
+    const html = renderLogoLayerHtml(
+      { logo1: { x: 2, y: 2, w: 26, h: 11, visible: true } },
+      [{ url: "javascript:alert(1)", width: 100, height: 50 }],
+    );
+
+    expect(html).toBe("");
+  });
+
+  it("escapa aspas e caracteres de marcação no label do logo", () => {
+    const html = renderLogoLayerHtml(
+      { logo1: { x: 2, y: 2, w: 26, h: 11, visible: true } },
+      [{ url: "data:image/png;base64,logo", width: 100, height: 50, label: '"><script>alert(1)</script>' }],
+    );
+
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain('alt="">');
+  });
+
+  it("posição inválida (NaN, Infinity ou fora de 0-100) não escapa para o style — cai no valor de fábrica", () => {
+    const html = renderLogoLayerHtml(
+      { logo1: { x: Number.NaN, y: Infinity, w: 999, h: -50, visible: true } },
+      [{ url: "data:image/png;base64,logo", width: 100, height: 50 }],
+    );
+
+    expect(html).not.toContain("NaN");
+    expect(html).not.toContain("Infinity");
+    expect(html).not.toContain("width:999%");
+    expect(html).not.toContain("height:-50%");
+  });
+});
