@@ -790,6 +790,11 @@ const isAdminMaster = user?.role === 'admin_master';
   const [reportStudy, setReportStudy] = useState<any>(null);
   const [reportDocumentOptions, setReportDocumentOptions] = useState<Array<{ document_key: string; document_label: string; examLegendId: number; examName: string }>>([]);
   const [isReportDocumentsModalOpen, setIsReportDocumentsModalOpen] = useState(false);
+  // FIX (auditoria claude/corrige-logo-px-editor-vs-pdf): quando a composição
+  // tem mais de um documento clínico, o modal de escolha acima também precisa
+  // ser reaberto a partir de "Baixar em PDF"/"Imprimir Laudo" — sem isso o
+  // download/impressão sempre buscava documentKey='primary' e retornava nulo.
+  const [pendingPrintAction, setPendingPrintAction] = useState<'print' | 'download' | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, { label: string; detail: string | null; signerNames: string[]; signedAt: Date | null }>>({});
   // Pré-download automático: configuração por unidade
@@ -1359,8 +1364,48 @@ setSelectedStudy(study);
     setIsPrintModalOpen(true);
   };
 
-  const executePrintAction = async (study: any, actionType: 'print' | 'download') => {
+  const executePrintAction = async (
+    study: any,
+    actionType: 'print' | 'download',
+    explicitDocument?: { document_key: string; document_label: string },
+  ) => {
     if (!study.studyInstanceUid) return;
+
+    // FIX (auditoria claude/corrige-logo-px-editor-vs-pdf): esta função buscava
+    // o laudo com reports.getByStudyUidWithDoctor.fetch({ studyInstanceUid })
+    // sem documentKey — o servidor assume documentKey='primary' por padrão, o
+    // que retorna null para qualquer estudo que use o sistema de legenda/
+    // catálogo (document_key tipo 'legend_228_document_27'), fazendo o
+    // download/impressão a partir da lista de Estudos exibir
+    // "(Laudo não encontrado ou ainda não elaborado)" mesmo para laudos já
+    // assinados. Resolve o documentKey com a MESMA lógica de handleReport:
+    // se a composição tiver mais de um documento clínico, abre o mesmo modal
+    // de escolha (agora também usado pelo fluxo de impressão/download) antes
+    // de prosseguir; nunca adivinha em caso de ambiguidade.
+    let resolvedDocumentKey = 'primary';
+    if (explicitDocument) {
+      resolvedDocumentKey = explicitDocument.document_key;
+    } else {
+      const selections = legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? [];
+      if (selections.length) {
+        const documents = selections.flatMap((selection) => selection.documents_snapshot.map((document: { key: string; label: string }) => ({
+          document_key: document.key,
+          document_label: document.label,
+          examLegendId: selection.exam_legend_id,
+          examName: selection.exam_name_snapshot,
+        })));
+        if (documents.length > 1) {
+          setPendingPrintAction(actionType);
+          setReportStudy(study);
+          setReportDocumentOptions(documents);
+          setIsReportDocumentsModalOpen(true);
+          return;
+        }
+        if (documents.length === 1) {
+          resolvedDocumentKey = documents[0].document_key;
+        }
+      }
+    }
     const storedStudy = sessionStorage.getItem(`study_${study.studyInstanceUid}`);
     const studyData = storedStudy ? JSON.parse(storedStudy) : study;
     const patientName = (studyData.patientName || study.patientName || 'Não informado').replace(/\^/g, ' ').trim();
@@ -1391,7 +1436,11 @@ setSelectedStudy(study);
     let reportStatus = '';
     let signedAt: Date | null = null;
     try {
-      const result = await trpcUtils.reports.getByStudyUidWithDoctor.fetch({ studyInstanceUid: study.studyInstanceUid });
+      const result = await trpcUtils.reports.getByStudyUidWithDoctor.fetch({
+        studyInstanceUid: study.studyInstanceUid,
+        documentKey: resolvedDocumentKey,
+        unit_id: effectiveUnitId ? Number(effectiveUnitId) : undefined,
+      });
       reportBody = result?.body || '';
       reportTitle = examLabel;
       doctorName = result?.doctorName || '';
@@ -3188,6 +3237,7 @@ setSelectedStudy(study);
             setIsReportDocumentsModalOpen(false);
             setReportStudy(null);
             setReportDocumentOptions([]);
+            setPendingPrintAction(null);
           }
         }}>
           <DialogContent className="max-w-lg bg-white border border-gray-200 shadow-xl rounded-xl p-6">
@@ -3208,10 +3258,20 @@ setSelectedStudy(study);
                   type="button"
                   onClick={() => {
                     const study = reportStudy;
+                    const pending = pendingPrintAction;
                     setIsReportDocumentsModalOpen(false);
                     setReportStudy(null);
                     setReportDocumentOptions([]);
-                    openReportDocument(study, document);
+                    setPendingPrintAction(null);
+                    // FIX: quando o modal foi aberto a partir de "Baixar em
+                    // PDF"/"Imprimir Laudo" (documento ambíguo), retoma essa
+                    // mesma ação com o documento escolhido, em vez de sempre
+                    // navegar para o editor de laudo.
+                    if (pending) {
+                      executePrintAction(study, pending, document);
+                    } else {
+                      openReportDocument(study, document);
+                    }
                   }}
                   className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-left transition-colors hover:border-amber-400 hover:bg-amber-50"
                 >
@@ -3221,7 +3281,7 @@ setSelectedStudy(study);
               ))}
             </div>
             <DialogFooter>
-              <button type="button" onClick={() => { setIsReportDocumentsModalOpen(false); setReportStudy(null); setReportDocumentOptions([]); }} className="rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">Cancelar</button>
+              <button type="button" onClick={() => { setIsReportDocumentsModalOpen(false); setReportStudy(null); setReportDocumentOptions([]); setPendingPrintAction(null); }} className="rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">Cancelar</button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

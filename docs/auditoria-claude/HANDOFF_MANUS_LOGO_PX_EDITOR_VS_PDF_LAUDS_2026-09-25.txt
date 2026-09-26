@@ -425,3 +425,110 @@ foi realizada a partir daqui.
 Estado atual: codigo no branch claude/corrige-logo-px-editor-vs-pdf,
 commit topo d66258c, sem PR aberto, sem merge em main, nada implantado em
 VM1/VM2/VM3.
+
+============================================================
+ADENDO 4 (2026-09-26) — BUG DISTINTO ENCONTRADO NA REPRODUCAO PEDIDA
+PELO ALESSANDRO: documentKey ausente em "Baixar em PDF"/"Imprimir Laudo"
+============================================================
+
+ORIGEM: Alessandro pediu reproducao ao vivo, com registro completo ANTES
+de qualquer alteracao de codigo: configurar a pagina de laudo da unidade
+Hospital da Crianca, verificar o laudo ja assinado do paciente RAIMUNDO
+NESTOR SERPA MORAES (exame de 23/09/2026), comparar o laudo visto/baixado
+pelo admin (root), pela medica (usuario claudia) e pelo setor financeiro.
+
+REPRODUCAO (registrada antes de qualquer correcao):
+
+1. Admin (root) — Laudar / ReportEditorPage.tsx: laudo exibido
+   corretamente, assinado, com o layout configurado.
+2. Admin (root) — "Baixar em PDF" a partir da lista de Estudos
+   (PacsQueryPage.tsx): PDF baixado mostrava "(Laudo nao encontrado ou
+   ainda nao elaborado)" e um cabecalho antigo/legado, mesmo com o laudo
+   assinado. Confirmado por inspecao de rede: a chamada
+   reports.getByStudyUidWithDoctor retornava null.
+3. Medica (usuario claudia) — mesmo paciente, mesma data, mesmo botao
+   "Baixar em PDF": identico ao item 2 — null, mesmo laudo legado.
+4. Financeiro — financeSimple.myReportDownload: laudo baixado
+   corretamente, com o conteudo real assinado.
+
+CAUSA RAIZ (confirmada no codigo, nao apenas na rede): em
+client/src/pages/PacsQueryPage.tsx, a funcao executePrintAction (chamada
+pelos botoes "Baixar em PDF" e "Imprimir Laudo" do modal "Opcoes de
+Laudo") chamava:
+
+    trpcUtils.reports.getByStudyUidWithDoctor.fetch({ studyInstanceUid: study.studyInstanceUid })
+
+sem o parametro documentKey. Em server/routers/reports.ts, esse
+procedimento assume documentKey='primary' por padrao. Esta unidade usa o
+sistema de legenda/catalogo de documentos clinicos
+(study_exam_legend_selections -> documents_snapshot), onde o
+document_key real e algo como "legend_228_document_27" — nunca
+'primary'. Por isso a busca sempre retornava null para este e para
+qualquer outro estudo no mesmo sistema, e o catch silencioso do bloco
+("// laudo nao encontrado — imprime com mensagem") deixava o download/
+impressao prosseguir com reportBody vazio e o cabecalho antigo, sem
+avisar o usuario do motivo real.
+
+Este bug e INDEPENDENTE do bloqueio de equivalencia editor/PDF (ADENDO 3)
+— e uma funcao diferente (executePrintAction), acionada por botoes
+diferentes (lista de Estudos), afetando apenas os dois botoes do modal
+"Opcoes de Laudo"; o "Laudar" (ReportEditorPage.tsx) e o download
+financeiro ja resolviam documentKey/unit_id corretamente e nunca tiveram
+este problema.
+
+CORRECAO:
+
+- executePrintAction agora resolve documentKey ANTES de buscar o laudo,
+  com a mesma logica ja usada em handleReport: le
+  legendSelectionsByStudyUid.get(uid), monta a lista de documentos
+  clinicos (documents_snapshot); se houver exatamente um documento, usa
+  o document_key dele; se nao houver nenhum (estudo legado), usa
+  'primary'; se houver mais de um (composicao ambigua), NAO adivinha —
+  abre o mesmo modal de escolha de documento ja usado por "Laudar"
+  (isReportDocumentsModalOpen), guardando a acao pendente em um novo
+  estado pendingPrintAction ('print' | 'download').
+- A chamada ao tRPC passou a ser:
+    trpcUtils.reports.getByStudyUidWithDoctor.fetch({
+      studyInstanceUid: study.studyInstanceUid,
+      documentKey: resolvedDocumentKey,
+      unit_id: effectiveUnitId ? Number(effectiveUnitId) : undefined,
+    })
+  espelhando exatamente o padrao ja usado em ReportEditorPage.tsx.
+- O modal de escolha de documento (compartilhado com handleReport) agora
+  verifica pendingPrintAction ao clicar em uma opcao: se havia uma acao
+  de impressao/download pendente, retoma executePrintAction com o
+  documento escolhido (em vez de sempre navegar para o editor de
+  laudo); pendingPrintAction e limpo em todos os pontos de saida do
+  modal (escolha, cancelar, fechar).
+
+VALIDACAO EXECUTADA:
+
+- pnpm check (tsc --noEmit): aprovado.
+- Novo teste de wiring server/pacs-print-document-key-wiring.test.ts (6
+  casos): confirma que a chamada antiga (studyInstanceUid isolado) nao
+  existe mais, que resolvedDocumentKey e unit_id sao de fato passados ao
+  fetch, que o caso ambiguo abre o modal em vez de adivinhar, que
+  executePrintAction aceita um documento explicito para retomar a acao,
+  e que pendingPrintAction e sempre limpo nos pontos de saida do modal.
+- TZ=UTC pnpm test (suite completa): 656 aprovados, 11 falhas em 7
+  arquivos, 1 ignorado — confirmadas arquivo a arquivo contra a linha de
+  base historica ja conhecida (exam-catalog-security,
+  finance-v2-dashboard x2, mediaProxy, pacs-desktop-download-progress,
+  pacs.mobile-ui, security.auth, study-priority-ui x4); nenhuma falha
+  nova.
+- pnpm build: aprovado; resta apenas o aviso preexistente de bundle
+  grande.
+- git diff --check: aprovado.
+
+PENDENTE (fora deste sandbox): homologacao visual em producao — repetir
+exatamente os passos 2 e 3 da reproducao acima (admin e medica claudia,
+"Baixar em PDF" do mesmo laudo RAIMUNDO NESTOR SERPA MORAES) apos o
+deploy da branch, confirmando que o PDF baixado passa a mostrar o
+conteudo real assinado e o layout configurado, igual ao que ja aparecia
+em "Laudar" e no financeiro; e testar tambem o caso de composicao com
+mais de um documento clinico, confirmando que o modal de escolha abre a
+partir de "Baixar em PDF"/"Imprimir Laudo" e retoma a acao corretamente
+apos a escolha.
+
+Estado atual: mesma branch claude/corrige-logo-px-editor-vs-pdf, sem PR
+aberto, sem merge em main, nada implantado em VM1/VM2/VM3.
