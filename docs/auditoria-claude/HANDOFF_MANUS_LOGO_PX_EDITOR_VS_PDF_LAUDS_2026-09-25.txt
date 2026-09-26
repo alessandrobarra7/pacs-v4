@@ -1,4 +1,142 @@
 HANDOFF TECNICO PARA A MANUS — LOGO DO LAUDO: CAMPO PX MORTO, SEM EFEITO NO EDITOR NEM NO PDF
+
+ADENDO 2 (2026-09-25) — resposta ao parecer de bloqueio (4 bloqueios confirmados e corrigidos)
+
+A Manus revisou o commit a9041c7 (ADENDO 1 acima) e bloqueou merge/VM1 com
+4 achados reais, todos confirmados e corrigidos no commit bf1c327 (mesma
+branch, topo atual):
+
+BLOQUEIO 1 — sistema de coordenadas diferente do editor. O overlay de
+logos usava `position:absolute;inset:0` dentro de `.print-page`, que
+referencia a borda externa do padding (a folha inteira), nao a area util
+(folha menos margens) que SharedReportSheet.tsx usa como referencia para
+x/y em %. Reproducao matematica da Manus: A4 com margens de 20mm, logo
+x=2%/y=2% aparecia ~19mm deslocado para cima/esquerda em relacao ao
+editor — exatamente o problema que a correcao original deveria eliminar.
+Corrigido: o overlay agora usa as 4 margens efetivas como offset
+(top/right/bottom/left = lMT/lMR/lMB/lML), nos dois lugares onde e
+montado (makePage e buildPageShellQ).
+
+BLOQUEIO 2 — regressao do fallback de logo legado (units.logo_url).
+printLogosQ (introduzido no commit a9041c7) so lia model_layouts.logos,
+perdendo o fallback anterior para unidades sem layout novo configurado —
+elas passavam a baixar/imprimir sem logo nenhum. Corrigido com
+printLogosWithFallbackQ: so quando nao ha nenhum logo valido no layout,
+usa logo_url como um logo1 unico, na posicao de fabrica.
+
+BLOQUEIO 3 — `block_positions.logo` (chave legada, layouts antigos sem
+logo1/logo2/logo3) era ignorada por reportLogoLayer.ts, embora
+SharedReportSheet.tsx tenha compatibilidade explicita para essa chave.
+Layouts antigos com essa chave voltavam a divergir entre editor e PDF.
+Corrigido com expandLegacyLogoPosition, reproduzindo o mesmo algoritmo do
+componente React (comentario cruzado nos dois arquivos pedindo sincronia
+manual — nao ha modulo comum entre um componente React e um gerador de
+string HTML puro).
+
+BLOQUEIO 4 — injecao de HTML/atributo via URL de logo. renderLogoLayerHtml
+gerava `<img src="${logo.url}">` por interpolacao direta, sem escapar
+aspas nem validar o esquema da URL; uma URL como
+`https://x" onerror="window.__x=1` produzia um atributo de evento
+executavel no HTML gerado (a Manus reproduziu isso sem executar codigo).
+Corrigido com escapeHtmlAttribute (escapa & " ' < >), isSafeImageUrl (so
+aceita data:image/... ou http(s)://, rejeita qualquer outro esquema) e
+clampFinite (normaliza x/y/w/h/width/height para numeros finitos dentro de
+limites antes de serializar em CSS).
+
+Cobertura de teste adicionada, conforme pedido no parecer: 6 testes novos
+em server/report-logo-layer.test.ts (Bloqueios 3 e 4) e um novo arquivo,
+server/pacs-print-logo-layer-wiring.test.ts, com 4 testes de wiring que
+leem a fonte real de PacsQueryPage.tsx e confirmam: buildPageShellQ usa
+logoOverlayHtmlQ; nao resta nenhum residuo de clinic-name/clinic-sub/
+titulo fixo (as classes CSS correspondentes tambem foram removidas, por
+nao terem mais uso); o overlay usa as margens em vez de inset:0 nos dois
+lugares; e o fallback printLogosWithFallbackQ esta presente.
+
+Validacao apos esta correcao: pnpm check aprovado. TZ=UTC pnpm test
+completo: 633 aprovados (+10 desde o commit anterior desta branch), 11
+falhas em 7 suites — mesma linha de base conhecida e pre-existente,
+confirmada arquivo a arquivo, nenhuma nova. pnpm build aprovado, so o
+aviso preexistente de bundle grande. git diff --check aprovado.
+
+Pendencia explicita, mencionada no parecer e ainda nao resolvida: a
+Homologacao Necessaria Depois da Correcao descrita no parecer (unidades
+sintéticas A4/Letter com margens nao nulas e 2 logos distintos, comparando
+origem/caixa entre editor e DOM reconstruido em Chromium real) ainda
+depende de ambiente com navegador real — os testes adicionados aqui sao
+de logica pura (reportLogoLayer.ts) e de wiring por leitura de fonte
+(PacsQueryPage.tsx), nao substituem essa validacao visual em Chromium.
+
+Nada implantado. Sem PR, sem merge em main. Commit topo da branch agora:
+bf1c327 (era 99081fa no ADENDO 1).
+
+
+ADENDO (2026-09-25) — cabecalho REALMENTE entregue nao usava block positions
+
+O Alessandro repetiu o teste em producao apos a correcao original deste
+handoff (commit c4b6b9d) ja estar visivel no editor (confirmado por ele:
+o campo px passou a aparecer aplicado no DOM do editor). Ele trouxe um PDF
+real baixado pela lista (studies -> "Imp." -> "Baixar em PDF") mostrando
+que o cabecalho entregue AINDA nao batia com o editor: os logos apareciam
+concatenados numa unica linha, ao lado de um titulo grande com o nome da
+unidade ("HOSPITAL DA CRIANCA") + subtitulo "Laudo de Interpretacao
+Radiologica" -- nenhum dos dois existe em lugar nenhum do editor de laudo.
+
+Causa raiz (mais profunda que a do handoff original): reconstructPaginatedPages,
+em client/src/pages/PacsQueryPage.tsx, roda SEM EXCECAO para as duas acoes
+(download e impressao oficial) e SEMPRE substitui qualquer .print-page/
+.print-shared-sheet existente pelas paginas fisicas de buildPageShellQ --
+mesmo quando o conteudo inicial ja tinha sido montado corretamente via
+renderSharedReportSheetHtml (o componente corrigido no commit c4b6b9d). O
+cabecalho de buildPageShellQ (e da funcao makePage, usada no HTML inicial
+para laudos multissecao) usava um template antigo e hardcoded --
+div.header com os logos concatenados + clinic-name/clinic-sub -- que nunca
+foi atualizado para o sistema de blockPositions (logo1/logo2/logo3, x/y/w/h
+em %) usado pelo editor de layout desde que SharedReportSheet foi
+introduzido. Ou seja: a correcao original deste handoff era real e
+necessaria (o px do logo agora tem efeito), mas insuficiente -- o
+cabecalho que o download/impressao REALMENTE entrega nunca passava por
+SharedReportSheet nem pelos block positions, porque a reconstrucao
+paginada sempre reescrevia por cima com esse template separado, todas as
+vezes, para os dois actionType.
+
+Correcao (commit a9041c7, mesma branch): novo modulo
+client/src/lib/reportLogoLayer.ts (puro, testavel, sem dependencia de
+React/DOM) extrai a mesma logica de posicionamento de logo que
+SharedReportSheet.tsx usa no navegador -- posicao x/y/w/h em % da area
+util da pagina + largura/altura em px do logo, limitado por
+maxWidth/maxHeight:100% para nao invadir blocos vizinhos -- para uma
+funcao pura que gera o HTML absolutely-positioned equivalente
+(renderLogoLayerHtml). blockPositionsQ, que antes so existia dentro de uma
+IIFE local sem alcance para o resto da funcao, foi hospedado no escopo
+externo de executePrintAction, junto de printLogosQ (calculo dos logos em
+base64). logoLayerHtmlQ (a camada de logos posicionados, calculada uma vez
+a partir de blockPositionsQ + printLogosQ) e usada tanto no HTML inicial
+(makePage, caminho multissecao) quanto -- o que importa de fato, porque e
+o que sobrevive ate a captura -- dentro de buildPageShellQ, como um
+overlay absolutamente posicionado (position:absolute;inset:0) inserido
+como primeiro filho de cada .print-page, substituindo o antigo cabecalho
+de texto fixo. Nenhum titulo de unidade fixo permanece no cabecalho,
+porque esse texto nunca foi um bloco editavel no editor de layout -- se o
+Alessandro quiser um titulo de unidade visivel no papel, isso precisa
+virar um bloco editavel do proprio layout (decisao de produto, fora de
+escopo aqui).
+
+Validacao apos esta correcao: pnpm check aprovado. Novo modulo com 5
+testes de regressao (server/report-logo-layer.test.ts): posicionamento
+x/y/w/h por logo, aplicacao do px do logo (mesma garantia da correcao
+anterior, agora tambem no cabecalho entregue), ausencia de qualquer texto
+fixo de titulo/unidade, omissao de logo sem url ou bloco marcado como nao
+visivel, retrocompatibilidade com layouts sem block_positions salvos
+(usa as posicoes padrao de fabrica logo1/logo2/logo3). TZ=UTC pnpm test
+completo: 623 aprovados (+5 desde o commit anterior desta branch), 11
+falhas em 7 suites -- mesma linha de base conhecida e pre-existente do
+handoff original, confirmada arquivo a arquivo, nenhuma nova. pnpm build
+aprovado, so o aviso preexistente de bundle grande. git diff --check
+aprovado.
+
+Nada implantado. Sem PR, sem merge em main. Commit topo da branch agora:
+a9041c7 (era c4b6b9d/f2cee7e no handoff original).
+
 Projeto: PACS Portal / LAUDS
 Repositorio: alessandrobarra7/pacs-v4
 Branch: claude/corrige-logo-px-editor-vs-pdf
@@ -172,3 +310,396 @@ decidir, nao foi feita unilateralmente aqui.
 Codigo publicado apenas no branch claude/corrige-logo-px-editor-vs-pdf, sem
 push ainda (ver secao de push abaixo se aplicavel), sem PR aberto, sem merge
 em main, nada implantado em VM1/VM2/VM3. Commit topo: c4b6b9d.
+
+================================================================================
+ADENDO 3 (2026-09-25) — resposta ao RELATO_BLOQUEIO_EQUIVALENCIA_EDITOR_PDF_LOGOS
+================================================================================
+
+Contexto: apos os 4 bloqueios da rodada anterior (coordenadas, fallback de
+logo legado, positions.logo legado, injecao HTML) terem sido corrigidos e
+validados pela Manus em Chromium real (commit bf1c327 / adendo 2, 9cfff46),
+a Manus confirmou que reportLogoLayer.ts e a reconstrucao em
+PacsQueryPage.tsx estao fisicamente corretos, mas encontrou um bloqueio
+NOVO e distinto: o canvas do editor de layout (LayoutEditorPage.tsx) nunca
+consumia pageSize/margens da unidade, desenhando sempre uma folha A4 fixa
+de 595x842px — inclusive para unidades configuradas com pageSize=Letter,
+que apareciam desenhadas/rotuladas como A4 no editor. Isso quebrava o
+proprio objetivo da correcao: o PDF/impressao ja refletia a folha real
+configurada, mas o editor que orienta o operador nao.
+
+Correcao aplicada (commit d66258c), escopada exclusivamente a
+LayoutEditorPage.tsx, sem tocar em reportLogoLayer.ts ou PacsQueryPage.tsx:
+
+A. Preferencias efetivas — LayoutEditorPage passou a ler
+   layoutData.preferences (a mesma fonte ja usada por ReportEditorPage.tsx
+   e por todo o fluxo de PDF/impressao) e mesclar com
+   DEFAULT_LAYOUT_PREFERENCES, expondo pageSize + as 4 margens efetivas.
+
+B. Folha fisica dinamica — o canvas passou a usar pageWidthMm/pageHeightMm
+   (A4=210x297mm, Letter=216x279mm) com aspect-ratio, em vez do estilo
+   fixo width:595/height:842px. As duas chamadas de SharedReportSheet
+   ("Editar blocos" e "Previa real") agora recebem pageSize e as 4
+   margens efetivas. O rotulo abaixo do canvas ("Canvas A4 (595 x 842
+   px)...") foi trocado por um rotulo dinamico que mostra o pageSize e as
+   dimensoes fisicas reais em mm.
+
+C. Camada de interacao sobre a area util — os overlays transparentes de
+   arrastar/redimensionar calculavam left/top/width/height em % sobre a
+   folha inteira (o mesmo tipo de bug ja corrigido no lado do PDF na
+   rodada 3, Bloqueio 1). A alca de redimensionamento, alem disso, usava
+   divisores de px fixos (450 para largura, 600 para altura) que ignoravam
+   pageSize e margens por completo. Corrigido: a camada de interacao
+   agora usa a MESMA caixa de padding em mm que SharedReportSheet.tsx
+   aplica de fato na folha real (mesma expressao:
+   `${marginTop}mm ${marginRight}mm ${marginBottom}mm ${marginLeft}mm`),
+   e a conversao de deslocamento do ponteiro para percentual usa a area
+   util medida de verdade via getBoundingClientRect() do wrapper interno,
+   nao mais um divisor fixo. Os valores persistidos continuam sendo
+   percentuais da area util, sem nenhuma migracao ou reinterpretacao dos
+   dados ja salvos.
+
+D. Contratos preservados — nao alterado: logos em px (width/height +
+   maxWidth/maxHeight:100%), pageSize/margens no PDF real, compatibilidade
+   positions.logo, fallback de units.logo_url, escape/validacao de URL.
+   reportLogoLayer.ts e PacsQueryPage.tsx nao foram tocados.
+
+Modulo novo, puro e testavel: client/src/lib/layoutEditorAreaUtil.ts
+(getCanvasOuterStyle, getAreaUtilWrapperStyle, pointerDeltaToPercent),
+usado tanto pelo componente quanto pelos testes.
+
+TESTES NOVOS (reais, nao apenas leitura de codigo-fonte):
+
+- server/layout-editor-area-util.test.ts (10 casos): dimensoes fisicas de
+  A4 vs Letter; os dois cenarios de margem assimetrica citados no
+  parecer (A4 17/22/19/25mm; Letter 13/19/23/27mm); um teste de
+  EQUIVALENCIA que compara, byte a byte, o padding gerado pelo editor com
+  a mesma expressao usada de fato em SharedReportSheet.tsx (a folha que
+  gera o PDF real) para varios cenarios de margem, incluindo margens
+  zeradas; e regressao explicita provando que a conversao de
+  ponteiro-para-percentual depende da area util real (nao mais dos
+  divisores fixos antigos 450/600), alem de protecao contra area util
+  invalida (0, negativa, NaN).
+- server/layout-editor-page-wiring.test.ts (7 casos): confirma, lendo a
+  fonte real de LayoutEditorPage.tsx, que o hardcode 595/842 foi
+  removido, que AMBAS as chamadas de SharedReportSheet recebem pageSize e
+  as 4 margens efetivas, que o rotulo do canvas deixou de ser fixo, que a
+  camada de interacao usa os helpers de area util (nao mais % sobre a
+  folha inteira), e que os contratos existentes (positions.logo legado,
+  handlers de logo px) continuam presentes.
+
+VALIDACAO EXECUTADA:
+
+- pnpm check (tsc --noEmit): aprovado.
+- Testes direcionados (server/shared-report-print.test.ts,
+  server/report-editor-mobile-ui.test.ts, server/report-logo-layer.test.ts,
+  server/pacs-print-logo-layer-wiring.test.ts,
+  server/report-editor-dom-real.test.ts,
+  server/layout-editor-area-util.test.ts,
+  server/layout-editor-page-wiring.test.ts,
+  server/layouts-security.test.ts): 69 casos aprovados em 8 arquivos.
+- TZ=UTC pnpm test (suite completa): 650 aprovados, 11 falhas em 7
+  arquivos, 1 ignorado — confirmadas arquivo a arquivo contra a linha de
+  base historica ja conhecida deste repositorio (exam-catalog-security,
+  finance-v2-dashboard x2, mediaProxy, pacs-desktop-download-progress,
+  pacs.mobile-ui, security.auth, study-priority-ui x4); nenhuma falha
+  nova. (Durante o desenvolvimento, uma alteracao intermediaria chegou a
+  quebrar um teste adicional, server/admin-mobile-ui.test.ts, por remover
+  um comentario JSX que o teste buscava por string; corrigido antes deste
+  commit, restaurando o comentario — a suite completa final confirma
+  exatamente os 11/7 da linha de base, nenhuma falha extra.)
+- pnpm build: aprovado; resta apenas o aviso preexistente de bundle
+  grande.
+- git diff --check: aprovado.
+
+PENDENTE (fora do que pode ser feito neste sandbox, pedido explicito da
+Manus): homologacao visual em Chromium real — abrir o editor com
+cenarios sinteticos A4 e Letter com margens assimetricas nao nulas e dois
+logos distintos, medir os logos na previa e no iframe reconstruido das
+acoes Imprimir/Baixar em PDF, confirmar visualmente que a folha Letter
+nao continua desenhada/rotulada como A4, confirmar que um arraste de
+handle persiste os mesmos percentuais de area util, e confirmar os PDFs
+A4/Letter com tamanho e numero de paginas corretos — antes de decidir
+sobre merge em main e implantacao em VM1/VM2/VM3. Nenhuma dessas acoes
+foi realizada a partir daqui.
+
+Estado atual: codigo no branch claude/corrige-logo-px-editor-vs-pdf,
+commit topo d66258c, sem PR aberto, sem merge em main, nada implantado em
+VM1/VM2/VM3.
+
+============================================================
+ADENDO 4 (2026-09-26) — BUG DISTINTO ENCONTRADO NA REPRODUCAO PEDIDA
+PELO ALESSANDRO: documentKey ausente em "Baixar em PDF"/"Imprimir Laudo"
+============================================================
+
+ORIGEM: Alessandro pediu reproducao ao vivo, com registro completo ANTES
+de qualquer alteracao de codigo: configurar a pagina de laudo da unidade
+Hospital da Crianca, verificar o laudo ja assinado do paciente RAIMUNDO
+NESTOR SERPA MORAES (exame de 23/09/2026), comparar o laudo visto/baixado
+pelo admin (root), pela medica (usuario claudia) e pelo setor financeiro.
+
+REPRODUCAO (registrada antes de qualquer correcao):
+
+1. Admin (root) — Laudar / ReportEditorPage.tsx: laudo exibido
+   corretamente, assinado, com o layout configurado.
+2. Admin (root) — "Baixar em PDF" a partir da lista de Estudos
+   (PacsQueryPage.tsx): PDF baixado mostrava "(Laudo nao encontrado ou
+   ainda nao elaborado)" e um cabecalho antigo/legado, mesmo com o laudo
+   assinado. Confirmado por inspecao de rede: a chamada
+   reports.getByStudyUidWithDoctor retornava null.
+3. Medica (usuario claudia) — mesmo paciente, mesma data, mesmo botao
+   "Baixar em PDF": identico ao item 2 — null, mesmo laudo legado.
+4. Financeiro — financeSimple.myReportDownload: laudo baixado
+   corretamente, com o conteudo real assinado.
+
+CAUSA RAIZ (confirmada no codigo, nao apenas na rede): em
+client/src/pages/PacsQueryPage.tsx, a funcao executePrintAction (chamada
+pelos botoes "Baixar em PDF" e "Imprimir Laudo" do modal "Opcoes de
+Laudo") chamava:
+
+    trpcUtils.reports.getByStudyUidWithDoctor.fetch({ studyInstanceUid: study.studyInstanceUid })
+
+sem o parametro documentKey. Em server/routers/reports.ts, esse
+procedimento assume documentKey='primary' por padrao. Esta unidade usa o
+sistema de legenda/catalogo de documentos clinicos
+(study_exam_legend_selections -> documents_snapshot), onde o
+document_key real e algo como "legend_228_document_27" — nunca
+'primary'. Por isso a busca sempre retornava null para este e para
+qualquer outro estudo no mesmo sistema, e o catch silencioso do bloco
+("// laudo nao encontrado — imprime com mensagem") deixava o download/
+impressao prosseguir com reportBody vazio e o cabecalho antigo, sem
+avisar o usuario do motivo real.
+
+Este bug e INDEPENDENTE do bloqueio de equivalencia editor/PDF (ADENDO 3)
+— e uma funcao diferente (executePrintAction), acionada por botoes
+diferentes (lista de Estudos), afetando apenas os dois botoes do modal
+"Opcoes de Laudo"; o "Laudar" (ReportEditorPage.tsx) e o download
+financeiro ja resolviam documentKey/unit_id corretamente e nunca tiveram
+este problema.
+
+CORRECAO:
+
+- executePrintAction agora resolve documentKey ANTES de buscar o laudo,
+  com a mesma logica ja usada em handleReport: le
+  legendSelectionsByStudyUid.get(uid), monta a lista de documentos
+  clinicos (documents_snapshot); se houver exatamente um documento, usa
+  o document_key dele; se nao houver nenhum (estudo legado), usa
+  'primary'; se houver mais de um (composicao ambigua), NAO adivinha —
+  abre o mesmo modal de escolha de documento ja usado por "Laudar"
+  (isReportDocumentsModalOpen), guardando a acao pendente em um novo
+  estado pendingPrintAction ('print' | 'download').
+- A chamada ao tRPC passou a ser:
+    trpcUtils.reports.getByStudyUidWithDoctor.fetch({
+      studyInstanceUid: study.studyInstanceUid,
+      documentKey: resolvedDocumentKey,
+      unit_id: effectiveUnitId ? Number(effectiveUnitId) : undefined,
+    })
+  espelhando exatamente o padrao ja usado em ReportEditorPage.tsx.
+- O modal de escolha de documento (compartilhado com handleReport) agora
+  verifica pendingPrintAction ao clicar em uma opcao: se havia uma acao
+  de impressao/download pendente, retoma executePrintAction com o
+  documento escolhido (em vez de sempre navegar para o editor de
+  laudo); pendingPrintAction e limpo em todos os pontos de saida do
+  modal (escolha, cancelar, fechar).
+
+VALIDACAO EXECUTADA:
+
+- pnpm check (tsc --noEmit): aprovado.
+- Novo teste de wiring server/pacs-print-document-key-wiring.test.ts (6
+  casos): confirma que a chamada antiga (studyInstanceUid isolado) nao
+  existe mais, que resolvedDocumentKey e unit_id sao de fato passados ao
+  fetch, que o caso ambiguo abre o modal em vez de adivinhar, que
+  executePrintAction aceita um documento explicito para retomar a acao,
+  e que pendingPrintAction e sempre limpo nos pontos de saida do modal.
+- TZ=UTC pnpm test (suite completa): 656 aprovados, 11 falhas em 7
+  arquivos, 1 ignorado — confirmadas arquivo a arquivo contra a linha de
+  base historica ja conhecida (exam-catalog-security,
+  finance-v2-dashboard x2, mediaProxy, pacs-desktop-download-progress,
+  pacs.mobile-ui, security.auth, study-priority-ui x4); nenhuma falha
+  nova.
+- pnpm build: aprovado; resta apenas o aviso preexistente de bundle
+  grande.
+- git diff --check: aprovado.
+
+PENDENTE (fora deste sandbox): homologacao visual em producao — repetir
+exatamente os passos 2 e 3 da reproducao acima (admin e medica claudia,
+"Baixar em PDF" do mesmo laudo RAIMUNDO NESTOR SERPA MORAES) apos o
+deploy da branch, confirmando que o PDF baixado passa a mostrar o
+conteudo real assinado e o layout configurado, igual ao que ja aparecia
+em "Laudar" e no financeiro; e testar tambem o caso de composicao com
+mais de um documento clinico, confirmando que o modal de escolha abre a
+partir de "Baixar em PDF"/"Imprimir Laudo" e retoma a acao corretamente
+apos a escolha.
+
+Estado atual: mesma branch claude/corrige-logo-px-editor-vs-pdf, sem PR
+aberto, sem merge em main, nada implantado em VM1/VM2/VM3.
+
+============================================================
+ADENDO 5 (2026-09-26) — LAUDO CANCELADO NAO VOLTAVA A FICAR PENDENTE
+============================================================
+
+ORIGEM: Alessandro cancelou o proprio laudo assinado do paciente
+RAIMUNDO NESTOR SERPA MORAES (23/09/2026, unidade Hospital da Crianca) —
+o mesmo caso do ADENDO 4 — e reportou que, apos o cancelamento, "o
+ambiente" nao ficou como deveria: ele esperava que o exame voltasse a
+ficar pendente, como se nunca tivesse sido laudado.
+
+REPRODUCAO: a lista de Estudos ja mostrava corretamente "Laudo cancelado
+/ Assinatura cancelada — nova laudagem necessaria". Ao entrar em
+"Laudar" (como medica, usuario claudia), o editor abria com o CORPO
+INTEIRO do laudo cancelado ja carregado no contentEditable — tecnica,
+achados e impressao diagnostica identicos ao laudo original — sem
+nenhum aviso visual de que aquele conteudo era de um laudo cancelado.
+Confirmado por inspecao de rede: a resposta de reports.getByStudyUid
+trazia o registro com status:"cancelled" e o body completo do laudo
+assinado antes do cancelamento.
+
+CAUSA RAIZ (confirmada no codigo): em
+client/src/pages/ReportEditorPage.tsx:
+
+1. O efeito que popula o editor a partir de existingReport.body rodava
+   incondicionalmente sempre que existingReport.body existisse — sem
+   checar isCancelled. Como o cancelamento (server/routers/reports.ts,
+   delete/cancelPreview) so marca status='cancelled' na linha existente
+   (mantendo o body para auditoria), o editor sempre recarregava o texto
+   antigo, dando a falsa impressao de que o exame ja estava laudado.
+2. O botao "Nova laudagem" (handleNewOccurrence) criava a nova ocorrencia
+   com `body: existingReport.body || ""` — ou seja, mesmo ao iniciar
+   deliberadamente uma nova laudagem, o texto do laudo CANCELADO (o
+   motivo do cancelamento, em muitos casos) era copiado como conteudo
+   inicial da nova ocorrencia, em vez de comecar em branco.
+3. Mesmo corrigindo (2), o contentEditable de um componente React nao e
+   limpo automaticamente so porque os dados da query mudaram — o
+   useEffect que popula o editor tinha `if (!existingReport?.body)
+   return;`, entao ao criar a nova ocorrencia com body vazio o efeito
+   simplesmente nao fazia nada, deixando o texto antigo VISUALMENTE
+   ainda no DOM (contentEditable), pronto para ser assinado por engano.
+
+CORRECAO:
+
+- handleNewOccurrence agora sempre envia body: "" (nunca mais copia o
+  body do laudo cancelado).
+- O efeito de carregamento agora trata explicitamente o caso
+  "existingReport existe mas body esta vazio" (rascunho/nova ocorrencia
+  em branco): limpa o innerHTML de docRef, mobileDocRef e de todas as
+  sectionRefs/mobileSectionRefs (multi-secao), garantindo que o ambiente
+  volte a ficar de fato pendente — sem residuo do texto anterior no DOM.
+- Adicionados avisos visuais explicitos de "Laudo cancelado" nos 3 pontos
+  onde o corpo do documento e renderizado (desktop multi-secao, desktop
+  secao unica, mobile), deixando claro que o texto exibido (quando
+  isCancelled) e apenas o laudo anterior mantido para auditoria, e que
+  "Nova laudagem"/"Novo" inicia um laudo em branco.
+
+VALIDACAO EXECUTADA:
+
+- pnpm check (tsc --noEmit): aprovado.
+- Novo teste de wiring
+  server/report-editor-cancelled-reset-wiring.test.ts (5 casos): confirma
+  que handleNewOccurrence nao copia mais o body antigo, que o efeito
+  limpa o DOM (docRef/mobileDocRef/sectionRefs/mobileSectionRefs) quando
+  o body esta vazio, que a dependencia examNames foi adicionada, e que
+  os 3 avisos de "Laudo cancelado" existem e usam isCancelled como
+  condicao.
+- TZ=UTC pnpm test (suite completa): 661 aprovados, 11 falhas em 7
+  arquivos, 1 ignorado — confirmadas arquivo a arquivo contra a linha de
+  base historica ja conhecida; nenhuma falha nova.
+- pnpm build: aprovado; resta apenas o aviso preexistente de bundle
+  grande.
+- git diff --check: aprovado.
+
+IMPORTANTE — nao executado neste sandbox por seguranca: NAO cliquei em
+"Nova laudagem" no ambiente de producao (lauds.com.br) durante a
+reproducao, pois o codigo la ainda e o antigo (sem esta correcao) e essa
+acao criaria uma ocorrencia real no banco de producao para o laudo do
+RAIMUNDO NESTOR. A confirmacao do bug foi feita por leitura de codigo
+(ambas as causas acima) e inspecao da resposta de rede real de
+reports.getByStudyUid (body do laudo cancelado presente na resposta).
+
+PENDENTE (fora deste sandbox): apos o deploy, repetir a reproducao
+(medica claudia ou admin, "Laudar" no mesmo estudo cancelado) e clicar em
+"Nova laudagem"/"Novo", confirmando que o editor abre em branco (com o
+aviso vermelho "Laudo cancelado" visivel antes do clique) e que a nova
+ocorrencia criada realmente comeca sem o texto anterior.
+
+Estado atual: mesma branch claude/corrige-logo-px-editor-vs-pdf, sem PR
+aberto, sem merge em main, nada implantado em VM1/VM2/VM3.
+
+============================================================
+ADENDO 6 (2026-09-26) — RESPOSTA AO BLOQUEIO DA MANUS: LIMITE DE 100
+ESTUDOS EM priorityStudyUids (94444b9/207a599)
+============================================================
+
+PARECER RECEBIDO: Manus revisou 94444b9 e 207a599 (topo 207a599) e
+aprovou funcionalmente os dois cenários testados em Chromium sintético,
+mas BLOQUEOU merge/VM1 por um achado de escala: a lista usada tanto para
+studyPriority.getBatch quanto para studyExamLegend.getBatch (a fonte de
+legendSelectionsByStudyUid, consultada por executePrintAction para
+resolver o documentKey) era cortada em 100 UIDs
+(`priorityStudyUids.slice(0, 100)`), mesmo a busca do PACS podendo
+devolver ate PACS_MAX_RESULTS=500 estudos e a tela mostrando todos. Para
+qualquer estudo do indice 101 em diante, a composicao clinica nunca era
+carregada, e executePrintAction caia no fallback documentKey='primary'
+para esses estudos — reabrindo exatamente o bug do ADENDO 4, so que fora
+dos primeiros 100.
+
+CORRECAO (na raiz, sem reduzir a busca DICOM, seguindo a sugestao da
+propria Manus):
+
+1. client/src/pages/PacsQueryPage.tsx: `priorityStudyUids` renomeada
+   para `studyContextUids` (reflete o uso compartilhado entre prioridade
+   clinica e composicao de documentos), e o corte passou de
+   `.slice(0, 100)` para `.slice(0, PACS_MAX_RESULTS)` — o mesmo teto ja
+   usado na busca DICOM em si, entao nunca expoe mais UIDs do que a
+   busca poderia devolver.
+2. server/routers/studyExamLegend.ts (getBatch) e
+   server/routers/studyPriority.ts (getBatch): o schema de entrada
+   (`z.array(studyInstanceUidSchema).max(...)`) teve o teto elevado de
+   100 para PACS_MAX_RESULTS (500), importado de shared/const.ts — a
+   mesma constante usada pela busca DICOM (server/dicom.service.ts).
+3. A checagem de autorizacao por unidade (`canAccessUnit(...,
+   "view_studies")`) nos dois procedimentos foi mantida sem alteracao —
+   so o teto de tamanho do lote mudou.
+4. Nenhum outro procedimento em lote usado por PacsQueryPage.tsx
+   (reports.statusByStudyUids, studyMetadata.getBatch,
+   anamnesisSimple.getStatusBatch, annotations.getAttachmentsStatusBatch,
+   audioReports.getStatusBatch, sla.getBatchStatus) usa
+   priorityStudyUids/studyContextUids — todos ja usam `studyUids`, a
+   lista COMPLETA (sem corte) derivada direto de queryResults. Conferido
+   um a um; nenhum deles tinha o mesmo problema.
+
+TESTES NOVOS: server/pacs-study-context-uids-500-limit.test.ts (10
+casos) — wiring (confirma que o corte de 100 nao existe mais, que
+PACS_MAX_RESULTS e importado e usado no cliente e nos dois routers, que
+a checagem de autorizacao continua presente) e um teste comportamental
+REAL (nao wiring): reconstroi o mesmo schema zod usado pelos dois
+procedimentos e comprova a fronteira pedida pela Manus — 500 estudos
+aceitos (incluindo explicitamente os indices 100 e 101), 501 rejeitado, e
+confirma que o estudo na posicao 101 sobrevive ao parse (o que nao
+acontecia com o corte antigo de 100 no cliente).
+
+Os cenarios de "documentKey nao-primario no estudo 101" e "composicao
+multipla no estudo 101 abre o seletor" pedidos pela Manus nao precisaram
+de um teste separado: a logica de resolucao de documentKey em
+executePrintAction (ja coberta por
+server/pacs-print-document-key-wiring.test.ts, ADENDO 4) e agnostica a
+posicao — ela so depende de legendSelectionsByStudyUid conter a entrada
+do estudo, e e exatamente isso que este ADENDO garante para qualquer
+estudo ate a posicao 500.
+
+VALIDACAO EXECUTADA:
+
+- pnpm check (tsc --noEmit): aprovado.
+- TZ=UTC pnpm test (suite completa): 671 aprovados, 11 falhas em 7
+  arquivos, 1 ignorado — confirmadas arquivo a arquivo contra a linha de
+  base historica ja conhecida; nenhuma falha nova.
+- pnpm build: aprovado; resta apenas o aviso preexistente de bundle
+  grande.
+- git diff --check: aprovado.
+
+PENDENTE (pedido explicito da Manus, nao feito neste sandbox):
+reexecutar a homologacao Chromium completa para o caso de estudo na
+posicao 101 e composicao multipla (incluindo PDF baixado e impressao
+oficial), e a homologacao visual A4/Letter do ADENDO 3, apos esta versao
+estar disponivel.
+
+Estado atual: mesma branch claude/corrige-logo-px-editor-vs-pdf, sem PR
+aberto, sem merge em main, nada implantado em VM1/VM2/VM3.

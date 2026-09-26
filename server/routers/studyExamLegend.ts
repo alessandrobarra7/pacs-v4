@@ -13,6 +13,7 @@ import { createAuditLog, getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getSingleStudyModality, normalizeDicomModality } from "../../shared/modality";
 import { studyInstanceUidSchema } from "../routerUtils";
+import { PACS_MAX_RESULTS } from "../../shared/const";
 
 const selectableRoles = new Set(["operador", "atendente", "medico", "admin_master"]);
 type LegendRow = typeof exam_legends.$inferSelect;
@@ -198,7 +199,12 @@ export const studyExamLegendRouter = router({
     }),
 
   getBatch: protectedProcedure
-    .input(z.object({ unit_id: z.number().int().positive(), studyInstanceUids: z.array(studyInstanceUidSchema).max(100) }))
+    // BLOQUEIO Manus (parecer 2026-09-26, revisão de 94444b9/207a599): a
+    // busca do PACS pode devolver até PACS_MAX_RESULTS (500) estudos, e a
+    // tela mostra todos — um teto de 100 aqui deixava os estudos 101-500
+    // sem seleção de legenda carregada, fazendo a impressão/download cair
+    // no fallback documentKey='primary' exatamente para esses estudos.
+    .input(z.object({ unit_id: z.number().int().positive(), studyInstanceUids: z.array(studyInstanceUidSchema).max(PACS_MAX_RESULTS) }))
     .query(async ({ input, ctx }) => {
       if (!input.studyInstanceUids.length) return [];
       // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria):

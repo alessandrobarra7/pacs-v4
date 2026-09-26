@@ -14,6 +14,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx, resolvePdfPageElements } from "@/lib/pdfPageGeometry";
 import { ContentTooLargeForPageError, paginateSectionIntoPages } from "@/lib/reportPagination";
+import { renderLogoLayerHtml } from "@/lib/reportLogoLayer";
 import { runControlledPrint } from "@/lib/printOrchestration";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { toast } from "sonner";
@@ -24,6 +25,7 @@ import { AudioReportsModal } from "@/components/AudioReportsModal";
 import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 import { canAccessAdmin, type UserRole } from "../../../shared/permissions";
 import { DEFAULT_LAYOUT_PREFERENCES } from "../../../shared/types";
+import { PACS_MAX_RESULTS } from "../../../shared/const";
 
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -748,21 +750,32 @@ const isAdminMaster = user?.role === 'admin_master';
   const [queryResults, setQueryResults] = useState<any[]>(() => {
     try { return JSON.parse(localStorage.getItem(cacheKey) || '[]'); } catch { return []; }
   });
-  const priorityStudyUids = useMemo(
-    () => Array.from(new Set(queryResults.map((study: any) => study.studyInstanceUid).filter(Boolean))).slice(0, 100),
+  // BLOQUEIO Manus (parecer 2026-09-26, revisão de 94444b9/207a599): esta
+  // lista era usada tanto para prioridade clínica quanto para carregar as
+  // seleções de legenda/documento clínico (legendSelectionsByStudyUid), mas
+  // era cortada em 100 UIDs mesmo a busca do PACS podendo devolver até
+  // PACS_MAX_RESULTS (500) e a tela mostrando todos. Estudos do índice
+  // 101-500 nunca ganhavam seleção de legenda carregada, e executePrintAction
+  // caía no fallback documentKey='primary' — o mesmo bug que 94444b9 corrigiu,
+  // só que reaberto para qualquer estudo além do 100º. Renomeada para
+  // studyContextUids (reflete o uso compartilhado) e o corte segue
+  // PACS_MAX_RESULTS, o mesmo teto já usado na busca DICOM em si — não expõe
+  // mais UIDs do que a busca já poderia devolver.
+  const studyContextUids = useMemo(
+    () => Array.from(new Set(queryResults.map((study: any) => study.studyInstanceUid).filter(Boolean))).slice(0, PACS_MAX_RESULTS),
     [queryResults],
   );
   const { data: studyPriorityFlags = [] } = trpc.studyPriority.getBatch.useQuery(
-    { studyInstanceUids: priorityStudyUids, unit_id: effectiveUnitId || undefined },
-    { enabled: Boolean(user?.id && effectiveUnitId && priorityStudyUids.length) },
+    { studyInstanceUids: studyContextUids, unit_id: effectiveUnitId || undefined },
+    { enabled: Boolean(user?.id && effectiveUnitId && studyContextUids.length) },
   );
   const priorityByStudyUid = useMemo(
     () => new Map(studyPriorityFlags.map((flag) => [flag.study_instance_uid, flag])),
     [studyPriorityFlags],
   );
   const { data: studyLegendSelections = [] } = trpc.studyExamLegend.getBatch.useQuery(
-    { unit_id: effectiveUnitId || 0, studyInstanceUids: priorityStudyUids },
-    { enabled: Boolean(user?.id && effectiveUnitId && priorityStudyUids.length) },
+    { unit_id: effectiveUnitId || 0, studyInstanceUids: studyContextUids },
+    { enabled: Boolean(user?.id && effectiveUnitId && studyContextUids.length) },
   );
   const legendSelectionsByStudyUid = useMemo(() => {
     const grouped = new Map<string, any[]>();
@@ -789,6 +802,11 @@ const isAdminMaster = user?.role === 'admin_master';
   const [reportStudy, setReportStudy] = useState<any>(null);
   const [reportDocumentOptions, setReportDocumentOptions] = useState<Array<{ document_key: string; document_label: string; examLegendId: number; examName: string }>>([]);
   const [isReportDocumentsModalOpen, setIsReportDocumentsModalOpen] = useState(false);
+  // FIX (auditoria claude/corrige-logo-px-editor-vs-pdf): quando a composição
+  // tem mais de um documento clínico, o modal de escolha acima também precisa
+  // ser reaberto a partir de "Baixar em PDF"/"Imprimir Laudo" — sem isso o
+  // download/impressão sempre buscava documentKey='primary' e retornava nulo.
+  const [pendingPrintAction, setPendingPrintAction] = useState<'print' | 'download' | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [reportStatusMap, setReportStatusMap] = useState<Record<string, { label: string; detail: string | null; signerNames: string[]; signedAt: Date | null }>>({});
   // Pré-download automático: configuração por unidade
@@ -1358,8 +1376,48 @@ setSelectedStudy(study);
     setIsPrintModalOpen(true);
   };
 
-  const executePrintAction = async (study: any, actionType: 'print' | 'download') => {
+  const executePrintAction = async (
+    study: any,
+    actionType: 'print' | 'download',
+    explicitDocument?: { document_key: string; document_label: string },
+  ) => {
     if (!study.studyInstanceUid) return;
+
+    // FIX (auditoria claude/corrige-logo-px-editor-vs-pdf): esta função buscava
+    // o laudo com reports.getByStudyUidWithDoctor.fetch({ studyInstanceUid })
+    // sem documentKey — o servidor assume documentKey='primary' por padrão, o
+    // que retorna null para qualquer estudo que use o sistema de legenda/
+    // catálogo (document_key tipo 'legend_228_document_27'), fazendo o
+    // download/impressão a partir da lista de Estudos exibir
+    // "(Laudo não encontrado ou ainda não elaborado)" mesmo para laudos já
+    // assinados. Resolve o documentKey com a MESMA lógica de handleReport:
+    // se a composição tiver mais de um documento clínico, abre o mesmo modal
+    // de escolha (agora também usado pelo fluxo de impressão/download) antes
+    // de prosseguir; nunca adivinha em caso de ambiguidade.
+    let resolvedDocumentKey = 'primary';
+    if (explicitDocument) {
+      resolvedDocumentKey = explicitDocument.document_key;
+    } else {
+      const selections = legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? [];
+      if (selections.length) {
+        const documents = selections.flatMap((selection) => selection.documents_snapshot.map((document: { key: string; label: string }) => ({
+          document_key: document.key,
+          document_label: document.label,
+          examLegendId: selection.exam_legend_id,
+          examName: selection.exam_name_snapshot,
+        })));
+        if (documents.length > 1) {
+          setPendingPrintAction(actionType);
+          setReportStudy(study);
+          setReportDocumentOptions(documents);
+          setIsReportDocumentsModalOpen(true);
+          return;
+        }
+        if (documents.length === 1) {
+          resolvedDocumentKey = documents[0].document_key;
+        }
+      }
+    }
     const storedStudy = sessionStorage.getItem(`study_${study.studyInstanceUid}`);
     const studyData = storedStudy ? JSON.parse(storedStudy) : study;
     const patientName = (studyData.patientName || study.patientName || 'Não informado').replace(/\^/g, ' ').trim();
@@ -1390,7 +1448,11 @@ setSelectedStudy(study);
     let reportStatus = '';
     let signedAt: Date | null = null;
     try {
-      const result = await trpcUtils.reports.getByStudyUidWithDoctor.fetch({ studyInstanceUid: study.studyInstanceUid });
+      const result = await trpcUtils.reports.getByStudyUidWithDoctor.fetch({
+        studyInstanceUid: study.studyInstanceUid,
+        documentKey: resolvedDocumentKey,
+        unit_id: effectiveUnitId ? Number(effectiveUnitId) : undefined,
+      });
       reportBody = result?.body || '';
       reportTitle = examLabel;
       doctorName = result?.doctorName || '';
@@ -1469,11 +1531,41 @@ setSelectedStudy(study);
       const absoluteUrl = toAbsUrl(logo.url);
       return { ...logo, url: (absoluteUrl ? await fetchToBase64(absoluteUrl) : null) || absoluteUrl };
     }));
-    // Logos HTML: até 3 logos lado a lado
-    const logosHtml = lLogos.filter((l: any) => l.url).length > 0
-      ? lLogos.filter((l: any) => l.url).map((l: any) => `<img src="${l.url}" alt="Logo" style="max-height:${l.height||60}px;max-width:${l.width||180}px;object-fit:contain;margin-right:6px;" />`).join('')
-      : (logoUrl ? `<img src="${logoUrl}" alt="Logo" style="max-height:60px;max-width:180px;object-fit:contain;" />` : `<p style="font-size:9pt;color:#888;">Logo da unidade</p>`);
-    const logoHtml = logosHtml;
+    // CORRECAO (Bloqueio 2, parecer de bloqueio da Manus, 2026-09-25):
+    // antes do commit a9041c7, quando a unidade nao tinha nenhum logo
+    // configurado em model_layouts.logos, o download/impressao caia no
+    // fallback units.logo_url (variavel logoUrl, ja calculada acima).
+    // Esse fallback ficou orfao depois que printLogosQ passou a alimentar
+    // logoLayerHtmlQ -- unidades que so tinham logo_url (sem nunca ter
+    // usado o editor de layout novo) passavam a gerar PDF sem logo
+    // nenhum. Preserva o comportamento anterior: só quando não há nenhum
+    // logo valido em model_layouts.logos, usa logo_url como um logo1
+    // unico, na posicao de fabrica (ver FALLBACK_LOGO_POSITIONS em
+    // reportLogoLayer.ts), sem width/height fixos (mantém 100%/100% da
+    // caixa, igual ao comportamento legado).
+    const printLogosWithFallbackQ = printLogosQ.length > 0
+      ? printLogosQ
+      : (logoUrl ? [{ url: (await fetchToBase64(logoUrl)) || logoUrl, width: 0, height: 0, label: 'Logo' }] : []);
+    // CORRECAO (achado ao vivo em producao, 2026-09-25, pedido do
+    // Alessandro -- reproducao apos a correcao anterior de logo.width/
+    // logo.height em SharedReportSheet.tsx): o PDF baixado pela lista
+    // continuava com um cabecalho totalmente diferente do editor --
+    // logos concatenados numa unica linha ao lado de um titulo com o
+    // nome da unidade, sem nenhuma relacao com a posicao x/y configurada
+    // por logo. Causa: reconstructPaginatedPages (mais abaixo nesta
+    // funcao) SEMPRE reconstroi as paginas fisicas via buildPageShellQ
+    // para download e impressao -- inclusive quando o conteudo inicial ja
+    // tinha sido montado com o layout correto (renderSharedReportSheetHtml,
+    // logo abaixo). O cabecalho de buildPageShellQ usava um template
+    // antigo, hardcoded, que nunca foi atualizado para o sistema de
+    // blockPositions (logo1/logo2/logo3) do editor de layout.
+    // blockPositionsQ e logoLayerHtmlQ (client/src/lib/reportLogoLayer.ts)
+    // sao calculados aqui -- no escopo externo a funcao -- para estarem
+    // disponiveis tanto no HTML inicial quanto dentro de
+    // reconstructPaginatedPages/buildPageShellQ, que e o que realmente e
+    // entregue no download e na impressao.
+    const blockPositionsQ = ((unitLayout as any)?.block_positions || {}) as Record<string, { x: number; y: number; w: number; h: number; visible: boolean }>;
+    const logoLayerHtmlQ = renderLogoLayerHtml(blockPositionsQ, printLogosWithFallbackQ);
 
     // P7: converter imagens para base64
     const convertImgsQ = async (html: string): Promise<string> => {
@@ -1652,18 +1744,12 @@ setSelectedStudy(study);
   thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
   tbody { display: table-row-group; }
-  .header {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding-bottom: 8pt;
-    border-bottom: 2px solid ${lBorderColor};
-    margin-bottom: 4mm;
-  }
-  .header-logo { flex-shrink: 0; }
-  .header-title { flex: 1; text-align: center; }
-  .clinic-name { font-size: 14pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
-  .clinic-sub { font-size: 10pt; color: #444; margin-top: 2pt; }
+  /* CORRECAO (achado ao vivo em producao + Bloqueio 1-4, Manus,
+     2026-09-25): as regras do cabecalho antigo (logos concatenados lado
+     a lado + nome da unidade em destaque) foram removidas daqui -- esse
+     cabecalho foi substituido pela camada de logos posicionados
+     (renderLogoLayerHtml, ver logoOverlayHtml/logoOverlayHtmlQ mais
+     abaixo). As classes CSS correspondentes nao tem mais nenhum uso. */
   .patient-data { font-size: 10pt; line-height: 1.7; margin-bottom: 12pt; }
   .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
   .report-body { font-size: ${lSize}pt; line-height: ${lLine}; overflow: hidden; }
@@ -1712,20 +1798,32 @@ setSelectedStudy(study);
   <div class="page-number-fixed"></div>
   <!-- SYNC ReportEditorPage: multi-seção = div.print-page por exame; único = tabela com thead repetível -->
   ${(() => {
-    const headerHtml = `
-      <div class="header">
-        <div class="header-logo">${logoHtml}</div>
-        <div class="header-title">
-          <div class="clinic-name">${unitName}</div>
-          <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
-        </div>
-      </div>`;
+    // CORRECAO (achado ao vivo em producao, 2026-09-25): o cabecalho fixo
+    // (logos concatenados + nome da unidade) foi substituido pela mesma
+    // camada de logos posicionados (x/y/w/h + px) que o editor de laudo
+    // mostra -- ver logoLayerHtmlQ, calculado no escopo externo desta
+    // funcao a partir de blockPositionsQ e printLogosQ. Sem cabecalho fixo
+    // de texto (nome da unidade), porque esse texto nunca existiu como
+    // bloco editavel no editor de layout.
+    // CORRECAO (Bloqueio 1, parecer de bloqueio da Manus, 2026-09-25):
+    // inset:0 posiciona a camada a partir da borda EXTERNA do padding de
+    // .print-page (a folha inteira), nao da area util (folha menos
+    // margens) que SharedReportSheet.tsx usa como referencia para x/y em
+    // % (merged[id] eh medido dentro de .shared-report-sheet-content,
+    // que e 100%/100% do content-box do pai, ja descontadas as margens).
+    // Com inset:0, um logo com x=2%/y=2% aparecia deslocado ~19mm para
+    // cima/esquerda em relacao ao editor, numa unidade com margens de
+    // 20mm (reproduzido matematicamente pela Manus). Corrigido usando as
+    // 4 margens efetivas como offset (top/right/bottom/left), igual ao
+    // padding real de .print-page -- a camada passa a ocupar exatamente
+    // a mesma area util que o editor usa.
+    const logoOverlayHtml = `<div style="position:absolute;top:${lMT}mm;right:${lMR}mm;bottom:${lMB}mm;left:${lML}mm;pointer-events:none;z-index:2;">${logoLayerHtmlQ}</div>`;
     const footerHtml = lFooterUrl
       ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
       : `<div style="height:4mm;"></div>`;
     const makePage = (content: string) => `
       <div class="print-page">
-        ${headerHtml}
+        ${logoOverlayHtml}
         <div style="flex:1;">
           <div class="patient-data">${patientDataHtml}</div>
           ${content}
@@ -1747,7 +1845,7 @@ setSelectedStudy(study);
       }
     } catch { /* não é JSON */ }
     // Página única: a marcação é produzida pelo mesmo componente React usado no admin e no médico.
-    const blockPositionsQ = ((unitLayout as any)?.block_positions || {}) as Record<string, { x: number; y: number; w: number; h: number; visible: boolean }>;
+    // blockPositionsQ já foi calculado no escopo externo desta função (ver comentário acima, junto de printLogosQ).
     const printBodyQ = bodyHtml
       ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
       : <div className="report-body"><p style={{ color: "#9ca3af", fontStyle: "italic" }}>Sem conteúdo para visualizar.</p></div>;
@@ -1886,20 +1984,30 @@ setSelectedStudy(study);
       // no pior caso com carimbo+assinatura+nome+CRM+data; 65mm dá
       // folga, overflow:hidden é o limite de segurança final).
       const FOOTER_RESERVE_MM_Q = 65;
-      const headerHtmlQ = `
-          <div class="header">
-            <div class="header-logo">${logoHtml}</div>
-            <div class="header-title">
-              <div class="clinic-name">${unitName}</div>
-              <div class="clinic-sub">Laudo de Interpretação Radiológica</div>
-            </div>
-          </div>`;
+      // CORRECAO (achado ao vivo em producao, 2026-09-25): este era o
+      // cabecalho REALMENTE entregue no download e na impressao --
+      // reconstructPaginatedPages sempre chama buildPageShellQ para as
+      // duas acoes, substituindo qualquer conteudo inicial (inclusive o
+      // que ja vinha correto de renderSharedReportSheetHtml). O antigo
+      // headerHtmlQ concatenava os logos numa linha e acrescentava um
+      // titulo com o nome da unidade que nunca existiu no editor de
+      // layout -- por isso o PDF entregue nunca batia com o que o editor
+      // mostra, mesmo depois da correcao anterior de logo.width/height em
+      // SharedReportSheet.tsx. Agora usa a mesma camada de logos
+      // posicionados (logoLayerHtmlQ, calculada no escopo externo desta
+      // funcao a partir de blockPositionsQ + printLogosQ), sem titulo de
+      // unidade fixo.
+      // CORRECAO (Bloqueio 1, parecer de bloqueio da Manus, 2026-09-25):
+      // mesma correcao de logoOverlayHtml acima -- ver comentario lá.
+      // Este eh o overlay que REALMENTE chega ao download/impressao
+      // (buildPageShellQ), entao o bloqueio era mais grave aqui.
+      const logoOverlayHtmlQ = `<div style="position:absolute;top:${lMT}mm;right:${lMR}mm;bottom:${lMB}mm;left:${lML}mm;pointer-events:none;z-index:2;">${logoLayerHtmlQ}</div>`;
       const footerHtmlQ = lFooterUrl
         ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
         : `<div style="height:4mm;"></div>`;
       const buildPageShellQ = (examTitle: string, bodyHtml: string, footerReserveHtml: string) => `
           <div class="print-page">
-            ${headerHtmlQ}
+            ${logoOverlayHtmlQ}
             <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
               <div class="patient-data">${patientDataHtml}</div>
               <div class="exam-title">${examTitle || ''}</div>
@@ -3141,6 +3249,7 @@ setSelectedStudy(study);
             setIsReportDocumentsModalOpen(false);
             setReportStudy(null);
             setReportDocumentOptions([]);
+            setPendingPrintAction(null);
           }
         }}>
           <DialogContent className="max-w-lg bg-white border border-gray-200 shadow-xl rounded-xl p-6">
@@ -3161,10 +3270,20 @@ setSelectedStudy(study);
                   type="button"
                   onClick={() => {
                     const study = reportStudy;
+                    const pending = pendingPrintAction;
                     setIsReportDocumentsModalOpen(false);
                     setReportStudy(null);
                     setReportDocumentOptions([]);
-                    openReportDocument(study, document);
+                    setPendingPrintAction(null);
+                    // FIX: quando o modal foi aberto a partir de "Baixar em
+                    // PDF"/"Imprimir Laudo" (documento ambíguo), retoma essa
+                    // mesma ação com o documento escolhido, em vez de sempre
+                    // navegar para o editor de laudo.
+                    if (pending) {
+                      executePrintAction(study, pending, document);
+                    } else {
+                      openReportDocument(study, document);
+                    }
                   }}
                   className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-left transition-colors hover:border-amber-400 hover:bg-amber-50"
                 >
@@ -3174,7 +3293,7 @@ setSelectedStudy(study);
               ))}
             </div>
             <DialogFooter>
-              <button type="button" onClick={() => { setIsReportDocumentsModalOpen(false); setReportStudy(null); setReportDocumentOptions([]); }} className="rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">Cancelar</button>
+              <button type="button" onClick={() => { setIsReportDocumentsModalOpen(false); setReportStudy(null); setReportDocumentOptions([]); setPendingPrintAction(null); }} className="rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">Cancelar</button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
