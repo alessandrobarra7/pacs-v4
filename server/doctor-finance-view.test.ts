@@ -41,26 +41,24 @@ describe("visão financeira individual do médico", () => {
     expect(downloadSource).toContain('document.createElement("iframe")');
     expect(downloadSource).toContain("pdf.save(");
     expect(downloadSource).not.toContain("window.open(");
-    // FASE 3 DA UNIFICAÇÃO (26/09/2026): este arquivo deixou de montar seu
-    // próprio shell HTML (CSS de página fixo, .footer-reserve com altura
-    // estimada) e passou a delegar inteiramente para a fábrica canônica
-    // (reportDocumentRenderer.tsx, Fase 2) — a mesma usada pelo editor do
-    // médico e (quando migrada) pela lista de Estudos. Isso resolve a
-    // divergência visual original reportada por Alessandro (2026-09-26):
-    // o mesmo laudo saía diferente aqui, no editor e na lista.
-    expect(downloadSource).toContain('from "./reportDocumentRenderer"');
-    expect(downloadSource).toContain("renderAllPhysicalPagesHtml(");
-    expect(downloadSource).toContain("resolveEffectiveReportLayout(");
-    expect(downloadSource).not.toContain("FOOTER_RESERVE_MM");
-    expect(downloadSource).not.toContain("footer-reserve");
-    expect(downloadSource).not.toContain("paginateSectionIntoPages");
+    expect(downloadSource).toContain("display:flex;flex-direction:column");
+    // CORREÇÃO (paginação real, 2026-09-25): a margem do .doctor-footer
+    // mudou de "auto auto 3mm" (empurrado pelo auto-margin do flex) para
+    // "0 auto 3mm", porque o rodapé/assinatura agora ocupa uma faixa
+    // .footer-reserve de altura fixa (align-items:flex-end), reservada em
+    // toda página — não depende mais de um auto-margin para ficar no fim
+    // da folha. Ver client/src/lib/reportPagination.ts e
+    // server/report-pagination.test.ts.
+    expect(downloadSource).toContain(".doctor-footer { text-align:center;margin:0 auto 3mm");
+    expect(downloadSource).toContain("footer-reserve");
+    // CORREÇÃO (Parecer de revisão da Manus, 2026-09-25): a v1 da
+    // paginação (measureTopLevelBlocks/splitBlocksIntoPages, soma de
+    // alturas pré-medidas) foi substituída pela v2
+    // (paginateSectionIntoPages, inserção incremental real + scrollHeight/
+    // clientHeight) — ver server/report-pagination.test.ts.
+    expect(downloadSource).toContain("paginateSectionIntoPages");
     expect(downloadSource).not.toContain("measureTopLevelBlocks");
     expect(downloadSource).not.toContain("splitBlocksIntoPages");
-    // Regra de repetição (decisão de Alessandro, Fase 1): o rodapé do
-    // médico não pode mais estar condicionado a "última página" — este
-    // arquivo nunca decide isso sozinho; ele delega a
-    // shouldRepeatOnPhysicalPage() via a fábrica canônica.
-    expect(downloadSource).not.toMatch(/index === physicalPages\.length - 1 \? doctorFooter/);
     expect(routerSource).toContain("myReportDownload:");
     expect(routerSource).toContain("Sem permissão para baixar este documento.");
     expect(editorSource).toContain("financialDocumentView");

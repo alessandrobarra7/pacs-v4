@@ -92,24 +92,20 @@ describe("wiring — fullHtml não contém mais nenhum script de auto-print, e a
     "utf8",
   );
 
-  it("minimalShellHtmlQ (Fase 3: substitui o antigo fullHtml) não contém window.onload nem window.print() em nenhum lugar do template", () => {
-    // FASE 3 DA UNIFICAÇÃO (26/09/2026): o template HTML escrito no iframe
-    // deixou de ser fullHtml (um shell gigante com CSS/cabeçalho/corpo
-    // escritos à mão) e passou a ser minimalShellHtmlQ — um reset mínimo;
-    // o conteúdo real (páginas físicas) é escrito depois, via
-    // doc.body.innerHTML = ..., a partir de renderAllPhysicalPagesHtml
-    // (reportDocumentRenderer.tsx). A garantia original permanece: nenhum
-    // <script>/window.onload/window.print() é gerado em nenhum template.
-    const startIdx = pacsQuerySource.indexOf("const minimalShellHtmlQ = `<!doctype html>");
+  it("fullHtml não contém window.onload nem window.print() em nenhum lugar do template", () => {
+    // Localiza o template literal de fullHtml e confirma que, do início ao
+    // fim dele, não existe window.onload nem window.print() — nenhuma
+    // regex de remoção é necessária porque o script nunca é gerado.
+    const startIdx = pacsQuerySource.indexOf("const fullHtml = `<!DOCTYPE html>");
     expect(startIdx).toBeGreaterThan(0);
     const endMarker = "</body></html>`;";
     const endIdx = pacsQuerySource.indexOf(endMarker, startIdx);
     expect(endIdx).toBeGreaterThan(startIdx);
-    const shellTemplate = pacsQuerySource.slice(startIdx, endIdx + endMarker.length);
+    const fullHtmlTemplate = pacsQuerySource.slice(startIdx, endIdx + endMarker.length);
 
-    expect(shellTemplate).not.toContain("window.onload");
-    expect(shellTemplate).not.toContain("window.print()");
-    expect(shellTemplate).not.toMatch(/<script>/);
+    expect(fullHtmlTemplate).not.toContain("window.onload");
+    expect(fullHtmlTemplate).not.toContain("window.print()");
+    expect(fullHtmlTemplate).not.toMatch(/<script>/);
   });
 
   it("nenhuma tentativa de remover script por regex sobrevive no arquivo (a causa raiz do bloqueio foi eliminada, não remendada)", () => {
@@ -117,16 +113,11 @@ describe("wiring — fullHtml não contém mais nenhum script de auto-print, e a
     expect(pacsQuerySource).not.toMatch(/fullHtml\.replace\(/);
   });
 
-  it("a ação 'Imprimir' escreve o shell mínimo (sem transformação) e delega tanto a reconstrução quanto o disparo de print() a runControlledPrint", () => {
+  it("a ação 'Imprimir' escreve fullHtml diretamente (sem transformação) e delega o disparo de print() a runControlledPrint", () => {
     expect(pacsQuerySource).toContain('import { runControlledPrint } from "@/lib/printOrchestration";');
-    expect(pacsQuerySource).toContain("pDoc.write(minimalShellHtmlQ);");
+    expect(pacsQuerySource).toContain("pDoc.write(fullHtml);");
     expect(pacsQuerySource).toContain("const printResult = await runControlledPrint({");
-    // FASE 3: a reconstrução agora é feita por um closure inline (não mais
-    // uma função `reconstructPaginatedPages` compartilhada) que chama
-    // renderAllPhysicalPagesHtml sobre pDoc — mesma garantia de sempre:
-    // reconstruir ANTES de print() ser sequer considerado.
-    expect(pacsQuerySource).toContain("reconstruct: async () => {");
-    expect(pacsQuerySource).toContain("renderAllPhysicalPagesHtml(pDoc, modelQ)");
+    expect(pacsQuerySource).toContain("reconstruct: () => reconstructPaginatedPages(pDoc),");
     // print() só é acionado dentro do callback passado a runControlledPrint,
     // nunca mais como uma chamada solta logo após a reconstrução.
     const callbackIdx = pacsQuerySource.indexOf("print: () => {");

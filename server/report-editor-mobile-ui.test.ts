@@ -81,32 +81,16 @@ describe("ReportEditorPage — experiência mobile", () => {
   });
 
   it("usa o mesmo SharedReportSheet no editor clínico e na exportação", () => {
-    // FASE 3 (3/3, 27/09/2026): handlePrint/handleFinancialPdfDownload em
-    // ReportEditorPage.tsx deixaram de chamar renderSharedReportSheetHtml
-    // diretamente — assim como PacsQueryPage.tsx (Fase 3, 2/3), delegam
-    // para a fábrica canônica (reportDocumentRenderer.tsx), que é quem
-    // efetivamente chama renderSharedReportSheetHtml internamente. A folha
-    // EM TELA (WYSIWYG, editável) continua usando ClinicalPatientDetails/
-    // ClinicalPatientName + <SharedReportSheet> diretamente como componente
-    // React — isso é esperado e correto, pois é uma superfície de edição
-    // ao vivo, não um gerador de PDF/impressão (as 3 vias de saída — lista
-    // de Estudos, financeiro, e agora também o editor — é que precisavam
-    // convergir num único caminho).
     expect(editorSource).toContain("ClinicalPatientDetails");
-    expect(editorSource).toContain('patientNameContent={<ClinicalPatientName patientName={patientName} />}');
-    expect(editorSource).not.toContain("renderSharedReportSheetHtml");
-    expect(editorSource).toContain('from "@/lib/reportDocumentRenderer"');
-    expect(editorSource).toContain("renderAllPhysicalPagesHtml(");
-    // PacsQueryPage.tsx (Fase 3, 2/3 — migrado) também não chama mais
-    // renderSharedReportSheetHtml diretamente.
-    expect(pacsSource).toContain('from "@/lib/reportDocumentRenderer"');
-    expect(pacsSource).toContain("renderAllPhysicalPagesHtml(");
-    expect(pacsSource).not.toContain("renderSharedReportSheetHtml");
-    const rendererSource = readFileSync(
-      resolve(process.cwd(), "client/src/lib/reportDocumentRenderer.tsx"),
-      "utf8",
-    );
-    expect(rendererSource).toContain("renderSharedReportSheetHtml");
+    expect(editorSource).toContain("patientNameContent: <ClinicalPatientName patientName={patientName} />");
+    expect(pacsSource).toContain("ClinicalPatientDetails");
+    expect(pacsSource).toContain("patientNameContent: <ClinicalPatientName patientName={patientName} />");
+    expect(editorSource).toContain("renderSharedReportSheetHtml");
+    expect(editorSource).toContain("positions: layoutBlockPos");
+    expect(editorSource).toContain("footerImageUrl: footerBase64 || layoutFooterUrl");
+    expect(pacsSource).toContain("renderSharedReportSheetHtml");
+    expect(pacsSource).toContain("positions: blockPositionsQ");
+    expect(pacsSource).toContain("footerImageUrl: footerBase64Q || lFooterUrl");
     expect(sharedPrintSource).toContain("renderToStaticMarkup");
     expect(sharedPrintSource).toContain("createElement(SharedReportSheet, props)");
   });
@@ -153,32 +137,22 @@ describe("ReportEditorPage — experiência mobile", () => {
    * unidade (nunca mais um valor hardcoded independente da configuração).
    */
   it("as 4 vias de impressão/PDF repassam pageSize e margens efetivas ao SharedReportSheet", () => {
-    // Via 1 (Fase 3, 3/3 — migrada, 27/09/2026): impressão oficial
-    // (handlePrint) e download financeiro (handleFinancialPdfDownload) em
-    // ReportEditorPage.tsx não definem mais suas próprias variáveis de
-    // margem (lMT/lMR/lMB/lML) — assim como a Via 2, chamam
-    // resolveEffectivePageGeometry sobre o mesmo layout resolvido.
-    expect(editorSource).not.toContain("const lMT = effectivePrefs.marginTop");
-    expect(editorSource).toContain("resolveEffectivePageGeometry(effectiveLayout)");
-    // Via 2 (Fase 3, migrada): impressão rápida da lista de exames
-    // (PacsQueryPage.tsx) não define mais suas próprias variáveis de
-    // margem — resolveEffectivePageGeometry (reportDocumentRenderer.tsx)
-    // lê pageSize/margens efetivas do MESMO layout resolvido
-    // (resolveEffectiveReportLayout) e a fábrica repassa geometry.marginTop/
-    // Right/Bottom/Left ao SharedReportSheet internamente.
-    expect(pacsSource).toContain("resolveEffectivePageGeometry(effectiveLayoutQ)");
-    const rendererSource = readFileSync(
-      resolve(process.cwd(), "client/src/lib/reportDocumentRenderer.tsx"),
-      "utf8",
-    );
-    expect(rendererSource).toContain("marginTop: geometry.marginTop");
-    expect(rendererSource).toContain("marginRight: geometry.marginRight");
-    expect(rendererSource).toContain("marginBottom: geometry.marginBottom");
-    expect(rendererSource).toContain("marginLeft: geometry.marginLeft");
-    // Via 3: a folha em tela (WYSIWYG do editor clínico) continua recebendo
-    // as preferências efetivas diretamente como props React — isso não
-    // muda com a migração, pois é uma superfície de edição ao vivo, não um
-    // gerador de PDF/impressão (ver teste "usa o mesmo SharedReportSheet...").
+    // Via 1: impressão oficial / impressão rápida de laudo único
+    // (renderPrintSheet, usado tanto para multi-seção quanto para página
+    // única dentro de handlePrint em ReportEditorPage.tsx).
+    expect(editorSource).toContain("marginTop: lMT");
+    expect(editorSource).toContain("marginRight: lMR");
+    expect(editorSource).toContain("marginBottom: lMB");
+    expect(editorSource).toContain("marginLeft: lML");
+    // Via 2: impressão rápida da lista de exames (PacsQueryPage.tsx) — usa
+    // as mesmas variáveis com sufixo Q.
+    expect(pacsSource).toContain("marginTop: lMT");
+    expect(pacsSource).toContain("marginRight: lMR");
+    expect(pacsSource).toContain("marginBottom: lMB");
+    expect(pacsSource).toContain("marginLeft: lML");
+    // Via 3: a folha em tela (WYSIWYG do editor clínico) também recebe as
+    // preferências efetivas — é ela que o download financeiro rasteriza via
+    // html2canvas, então precisa nascer já no tamanho/margem corretos.
     expect(editorSource).toContain("pageSize={effectiveLayoutPrefs.pageSize}");
     expect(editorSource).toContain("marginTop={effectiveLayoutPrefs.marginTop}");
     // Via 4 (PDF do financeiro, client/src/lib/financialReportPdfDownload.ts)

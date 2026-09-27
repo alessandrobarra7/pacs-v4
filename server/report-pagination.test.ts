@@ -381,70 +381,62 @@ describe("wiring — as duas vias de download usam o mesmo módulo de paginaçã
     "utf8",
   );
 
-  it("financialReportPdfDownload.ts usa a fábrica canônica (Fase 3, 26/09/2026), que por sua vez usa paginateSectionIntoPages — nunca reimplementa paginação local", () => {
-    // Migração da Fase 3: este arquivo deixou de importar reportPagination
-    // diretamente e passou a delegar inteiramente para
-    // reportDocumentRenderer.tsx (renderAllPhysicalPagesHtml), que é quem
-    // chama paginateSectionIntoPages internamente — ver
-    // server/report-document-renderer.test.ts para a cobertura direta
-    // dessa função.
-    expect(financialSource).toContain('from "./reportDocumentRenderer"');
-    expect(financialSource).toContain("renderAllPhysicalPagesHtml(");
-    expect(financialSource).not.toContain("paginateSectionIntoPages(");
+  it("financialReportPdfDownload.ts importa e usa paginateSectionIntoPages", () => {
+    expect(financialSource).toContain('from "./reportPagination"');
+    expect(financialSource).toContain("paginateSectionIntoPages(");
     expect(financialSource).not.toContain("measureTopLevelBlocks");
     expect(financialSource).not.toContain("splitBlocksIntoPages");
   });
 
-  it("PacsQueryPage.tsx (Fase 3, 26/09/2026) foi migrado para a fábrica canônica — usa renderAllPhysicalPagesHtml, que por sua vez usa paginateSectionIntoPages, e não reimplementa paginação local", () => {
-    // Migração da Fase 3 (mesmo padrão já aplicado a financialReportPdfDownload.ts
-    // acima): este arquivo deixou de chamar paginateSectionIntoPages diretamente
-    // (e todo o mecanismo reconstructPaginatedPages/buildPageShellQ que existia
-    // só aqui) e passou a delegar inteiramente para reportDocumentRenderer.tsx.
-    expect(pacsQuerySource).toContain('from "@/lib/reportDocumentRenderer"');
-    expect(pacsQuerySource).toContain("renderAllPhysicalPagesHtml(");
-    expect(pacsQuerySource).not.toContain("paginateSectionIntoPages(");
+  it("PacsQueryPage.tsx (download da impressão rápida) importa e usa o mesmo módulo", () => {
+    expect(pacsQuerySource).toContain('from "@/lib/reportPagination"');
+    expect(pacsQuerySource).toContain("paginateSectionIntoPages(");
     expect(pacsQuerySource).not.toContain("measureTopLevelBlocks");
     expect(pacsQuerySource).not.toContain("splitBlocksIntoPages");
   });
 
-  it("B1: PacsQueryPage.tsx (Fase 3): não tem mais CSS próprio de .report-body — a área do corpo agora é um bloco posicionado de forma independente (block_positions.body) na fábrica canônica, igual ao download financeiro (ver teste equivalente acima)", () => {
-    // Antes da Fase 3, esta tela definia sua PRÓPRIA regra ".report-body {
-    // overflow:hidden }" (mecanismo de reserva de rodapé com altura
-    // estimada). Migrada para a fábrica canônica, o corpo do laudo é
-    // medido/posicionado por SharedReportSheet (client/src/components/
-    // SharedReportSheet.tsx), não mais por uma regra CSS local — nenhuma
-    // versão local de ".report-body {" deve sobreviver aqui.
-    expect(pacsQuerySource).not.toContain(".report-body {");
-    expect(pacsQuerySource).not.toContain("FOOTER_RESERVE_MM_Q");
-    expect(pacsQuerySource).not.toContain("footer-reserve");
+  it("B1: .report-body tem overflow:hidden nas duas vias (pré-requisito para scrollHeight refletir overflow real)", () => {
+    // NOTA: o CSS real é gerado por template literal e contém `${lSize}`/
+    // `${lLine}` — chaves LITERAIS dentro da própria regra, antes de
+    // "overflow: hidden". Uma regex "balanceada por chaves" (tipo
+    // /\.report-body\s*\{[^}]*overflow:hidden/) pararia no primeiro `}`
+    // (o de `${lSize}`) e nunca chegaria a "overflow". Por isso localizamos
+    // a regra pela substring inicial e conferimos que "overflow: hidden"
+    // aparece logo depois, na mesma regra, sem depender de contagem de
+    // chaves.
+    const assertReportBodyHasOverflowHidden = (source: string, label: string) => {
+      const ruleStart = source.indexOf(".report-body {");
+      expect(ruleStart, `${label}: regra .report-body { ... } não encontrada`).toBeGreaterThanOrEqual(0);
+      const ruleSnippet = source.slice(ruleStart, ruleStart + 200);
+      expect(ruleSnippet).toMatch(/overflow:\s*hidden/);
+    };
+    assertReportBodyHasOverflowHidden(financialSource, "financialReportPdfDownload.ts");
+    assertReportBodyHasOverflowHidden(pacsQuerySource, "PacsQueryPage.tsx");
   });
 
-  it("financialReportPdfDownload.ts (Fase 3): o bloco de corpo agora é um bloco posicionado de forma independente (block_positions.body), não mais uma reserva de rodapé com altura estimada — a fábrica canônica mede a área útil real por bloco", () => {
-    expect(financialSource).not.toContain("FOOTER_RESERVE_MM");
-    expect(financialSource).not.toContain("footer-reserve");
-  });
-
-  it("B4 (Fase 3): PacsQueryPage.tsx não restringe mais a paginação real a laudo multisseção — laudo de seção única passa pelo mesmo caminho (sectionsQ sempre com 1+ seções), via renderAllPhysicalPagesHtml", () => {
-    // O Bloqueio B4 original (if (multiSectionParsed) pulando a
-    // reconstrução para seção única) não existe mais — sectionsQ é
-    // sempre construído (1 ou mais seções) e renderAllPhysicalPagesHtml
-    // decide a paginação real da mesma forma para os dois casos, sem
-    // nenhum ramo condicional por quantidade de seções.
-    expect(pacsQuerySource).toContain("sectionsQ");
+  it("B4: PacsQueryPage.tsx não restringe mais a reconstrução em .print-page a laudo multisseção — laudo de seção única também é reconstruído antes da captura", () => {
+    // Regressão específica do Bloqueio B4: a versão anterior tinha um
+    // `if (multiSectionParsed)` que pulava inteiramente a reconstrução
+    // para seção única. Agora sectionsForPdfQ é sempre construído (com 1
+    // ou mais seções) e a reconstrução roda incondicionalmente.
+    expect(pacsQuerySource).toContain("sectionsForPdfQ");
     expect(pacsQuerySource).not.toContain("if (multiSectionParsed)");
-    expect(pacsQuerySource).toContain("renderAllPhysicalPagesHtml(doc, modelQ)");
-    expect(pacsQuerySource).toContain("renderAllPhysicalPagesHtml(pDoc, modelQ)");
+    // A remoção de folhas antigas do DOM antes de reinserir as páginas
+    // agora cobre .print-shared-sheet também (a folha de seção única),
+    // não só .print-page.
+    expect(pacsQuerySource).toContain("'.print-page, .print-shared-sheet'");
   });
 
-  it("Bloqueio 1 (parecer corretivo, regressão — resolvido pela migração da Fase 3): PacsQueryPage.tsx não usa mais nenhuma reserva de rodapé com altura estimada (min-height ou fixa)", () => {
-    // A causa raiz do Bloqueio 1 (folha de medição com rodapé vazio
-    // medindo área diferente da folha real) deixou de existir nesta tela
-    // com a migração para a fábrica canônica: cada bloco (corpo, rodapé)
-    // ocupa uma posição percentual própria e fixa (block_positions),
-    // igual ao download financeiro (ver teste equivalente acima) — não há
-    // mais nenhuma reserva de altura estimada para o rodapé.
-    expect(pacsQuerySource).not.toContain("FOOTER_RESERVE_MM_Q");
+  it("Bloqueio 1 (parecer corretivo, regressão): a reserva de rodapé usa altura FIXA + overflow:hidden nas duas vias, não min-height", () => {
+    // A v3 corrige o Bloqueio 1: com min-height, a folha de MEDIÇÃO (rodapé
+    // vazio) podia medir uma área útil maior do que a folha REAL (última,
+    // com assinatura), que crescia além do mínimo. Altura fixa +
+    // overflow:hidden garante que a área ocupada pela reserva é idêntica
+    // nas duas, então a área útil medida é sempre a área real disponível.
+    expect(financialSource).not.toContain("min-height:${FOOTER_RESERVE_MM}mm");
+    expect(financialSource).toContain("height:${FOOTER_RESERVE_MM}mm;overflow:hidden");
     expect(pacsQuerySource).not.toContain("min-height:${FOOTER_RESERVE_MM_Q}mm");
+    expect(pacsQuerySource).toContain("height:${FOOTER_RESERVE_MM_Q}mm;overflow:hidden");
   });
 
   it("Bloqueio 1 (parecer corretivo, regressão): a tolerância de ajuste não é mais de 1px inteiro (podia mascarar overflow real numa área com overflow:hidden)", () => {
@@ -463,14 +455,15 @@ describe("wiring — as duas vias de download usam o mesmo módulo de paginaçã
     expect(pacsQuerySource).toContain("if (iframe.parentNode) iframe.remove();");
   });
 
-  it("Bloqueio 1 (parecer de revisão v3, regressão — resolvido pela migração da Fase 3): a classe footer-reserve e o seletor .footer-reserve .doctor-footer não existem mais em PacsQueryPage.tsx", () => {
-    // Este mecanismo (div.footer-reserve com CSS dedicado para zerar a
-    // margem do rodapé dentro da reserva) só existia por causa da reserva
-    // de altura estimada do Bloqueio 1 original — removida nesta migração
-    // (ver teste acima). O rodapé do médico agora é um bloco posicionado
-    // (block_positions.footer) com sua própria margem, sem reserva.
-    expect(pacsQuerySource).not.toContain('class="footer-reserve"');
-    expect(pacsQuerySource).not.toContain(".footer-reserve .doctor-footer");
+  it("Bloqueio 1 (parecer de revisão v3, regressão): o div de reserva de rodapé criado por buildPageShellQ carrega a classe footer-reserve, para que o seletor .footer-reserve .doctor-footer alcance o DOM real capturado", () => {
+    // Antes: o div era criado só com estilos inline (height/overflow/
+    // flex), sem a classe — a regra CSS `.footer-reserve .doctor-footer {
+    // margin-top: 0; }` não encontrava nenhum elemento na folha final, e a
+    // assinatura ainda recebia a margem de 14mm da regra geral
+    // `.doctor-footer { margin: 14mm auto 0; }` dentro de uma reserva
+    // limitada.
+    expect(pacsQuerySource).toContain('class="footer-reserve"');
+    expect(pacsQuerySource).toContain(".footer-reserve .doctor-footer { margin-top: 0; }");
   });
 
   it("Bloqueio 3 (parecer de revisão v3, regressão): PacsQueryPage.tsx restringe o fallback de impressão nativa a um erro de captura explicitamente classificado, não a 'qualquer erro diferente de ContentTooLargeForPageError'", () => {
