@@ -6,6 +6,7 @@ Commit base (origin/main no momento deste handoff): a825cb59757685cf22fb0b8db739
 Commit topo (original deste handoff): c0887eb849d338c662c0bf40a7a8b945007df521
 Commit topo (apos o ADENDO de 27/09, sobreposicao rodape/assinatura): c79f778
 Commit topo (apos o ADENDO 2, Fase 3 3/3 completa): b5723f5
+Commit topo (apos o ADENDO 3, assinatura cortada no bloco rodape): 7ca5dde
 Destinataria: Manus (e qualquer outro agente/engenheiro com acesso a VM1/VM2/VM3)
 Autor: Claude (sandbox, sem acesso a producao)
 
@@ -141,6 +142,75 @@ limitacao ja registrada em handoffs anteriores desta pasta). A partir deste
 ADENDO, o trabalho de codigo da unificacao esta concluido do lado do Claude;
 o proximo passo e essa validacao visual (manual ou pela Manus, que tem acesso
 a um ambiente com navegador real) antes da decisao de merge/VM1.
+
+ADENDO 3 (27/09/2026) — resposta ao parecer de bloqueio da Manus, revisao 2
+
+A Manus revisou o topo f418ad9 (apos o ADENDO 2) e confirmou que o Bloqueio 1
+(sobreposicao imagem de rodape x assinatura, corrigido no commit c79f778) foi
+resolvido corretamente, e que a migracao do Editor (Fase 3 3/3, commit b5723f5)
+esta correta. Validacao tecnica completa (pnpm check, 137/137 testes
+direcionados, suite integral 736/11/1 no mesmo baseline conhecido, pnpm build,
+git diff --check) -- tudo aprovado. Porem a homologacao visual em Chromium
+(fixture sintetico A4/Letter, 3 paginas, margens nao padrao) encontrou um
+SEGUNDO defeito real: com footerImageUrl configurada, a assinatura/carimbo do
+medico era cortada pelo limite do proprio bloco "footer" (doctorClipped:true
+medido nas 3 paginas, ambas geometrias).
+
+Causa: a primeira correcao (empilhamento vertical) fixava a altura do bloco em
+blockPositions.footer.h% com overflow:hidden, e reservava ate 55% dessa altura
+FIXA para a imagem, independente do quanto a assinatura realmente precisava.
+No caso medido pela Manus: bloco ~85px, imagem consumindo ~47px, sobrando so
+~38px para uma assinatura que precisava de ~68px -- cortada. A Manus avisou
+explicitamente que so remover overflow:hidden nao bastaria, pois o conteudo
+poderia invadir a margem fisica, o corpo do laudo ou a pagina seguinte.
+
+Corrigido no commit 7ca5dde (mesma branch, topo atual), em duas camadas,
+ambas puramente CSS (sem medicao JS, validas em qualquer motor de renderizacao
+real):
+
+1) Prioridade de espaco invertida: o conteudo do medico agora ocupa sua altura
+   NATURAL (flex "0 0 auto", nunca comprimido pelo flex-shrink) e vem por
+   ultimo no eixo vertical. A imagem de rodape e quem cede espaco (flex "0 1
+   auto"), com um teto calculado em mm (nao em % do proprio bloco, que nao tem
+   mais altura fixa) a partir da altura configurada -- preservando a intencao
+   do admin sem nunca sacrificar a assinatura. Isso sozinho ja resolve o caso
+   relatado pela Manus (85px de bloco, 68px de assinatura -- cabem os dois
+   quando a imagem para de reservar 55% fixo e passa a ceder espaco).
+
+2) Rede de seguranca contra invasao (so entra em acao no caso extremo em que o
+   conteudo do medico sozinho, sem nenhuma imagem, ainda assim nao coubesse na
+   altura configurada): o bloco passa a ser ANCORADO PELA BORDA INFERIOR
+   (bottom, nao top) -- se precisar crescer, cresce sempre PARA CIMA, nunca em
+   direcao a margem fisica ou a pagina seguinte, que ficam abaixo dele. O
+   crescimento tem um teto rigido (max-height) calculado a partir da borda
+   inferior do bloco "body" com folga de seguranca -- o rodape nunca sobrepoe
+   o corpo do laudo. overflow:hidden permanece como ultima garantia dentro
+   desses dois limites fisicos (nunca abaixo, nunca sobre o corpo).
+
+Cobertura de teste (item "teste de regressao para nao clipping" pedido pela
+Manus): 2 novos testes em server/shared-report-print.test.ts, alem do teste de
+nao-sobreposicao ja existente (ajustado so na assercao do teto da imagem, que
+agora e em mm). Os novos testes provam estruturalmente que (a) o conteudo do
+medico tem flex "0 0 auto" (nunca comprimido) enquanto a imagem tem flex "0 1
+auto" (cede espaco), e que o bloco usa min-height/max-height em vez de height
+fixo; (b) o bloco e bottom-anchored (nao top) e o teto de crescimento nunca
+ultrapassa a borda inferior do bloco "body". Mesma limitacao ja documentada
+nesta pasta (jsdom nao calcula geometria/overlap real em pixels) -- por isso os
+testes prova a ausencia estrutural do defeito, nao uma medicao de pixels.
+
+Validacao apos a correcao: pnpm check limpo; testes direcionados (shared-
+report-print, report-editor-mobile-ui, pacs-print-fallback-shared-pagination,
+report-pagination) 66/66 aprovados, sem regressao; TZ=UTC pnpm test completo
+retorna exatamente o mesmo baseline conhecido (7 suites/11 falhas pre-
+existentes, nenhuma nova) -- 738 aprovados (+2 pelos novos testes, contra 736
+no commit revisado pela Manus); pnpm build ok; git diff --check limpo.
+
+Este ADENDO 3 resolve especificamente o segundo achado bloqueante (assinatura
+cortada). A homologacao visual real em Chromium (A4 e Letter, 3 paginas,
+margens nao padrao, medicao explicita de que a assinatura esta integralmente
+dentro do bloco e da folha fisica) continua fora do alcance deste sandbox --
+depende de confirmacao da Manus ou de homologacao manual, exatamente como
+pedido na secao "Condicao para nova revisao" do parecer da Manus.
 
 ATENCAO — ESTE HANDOFF E DE ORIENTACAO, NAO DE INTEGRACAO FINAL. O Alessandro
 pediu explicitamente, apos a Fase 1 ter sido revisada e aprovada pela Manus:
