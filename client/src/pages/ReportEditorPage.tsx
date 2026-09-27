@@ -5,7 +5,6 @@ import html2canvas from 'html2canvas';
 import { DEFAULT_LAYOUT_PREFERENCES, type LayoutPreferences, type LayoutSnapshot } from '../../../shared/types';
 import { SharedReportBodyGuide, SharedReportSheet } from "@/components/SharedReportSheet";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
-import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import {
@@ -14,7 +13,18 @@ import {
   pickActiveRef,
   rangeBelongsToTarget,
 } from "@/lib/reportEditorDom";
-import { clampImageToPage, pageHeightMm, pageWidthMm } from "@/lib/pdfPageGeometry";
+import { clampImageToPage, pageHeightMm, pageWidthMm, pageHeightPx, pageWidthPx } from "@/lib/pdfPageGeometry";
+import { ContentTooLargeForPageError } from "@/lib/reportPagination";
+import { runControlledPrint } from "@/lib/printOrchestration";
+import {
+  resolveEffectiveReportLayout,
+  normalizeCanonicalLogos,
+  buildCanonicalPatient,
+  buildDoctorFooterHtml,
+  type CanonicalReportStatus,
+  type CanonicalLogo,
+} from "@/lib/reportDocumentModel";
+import { renderAllPhysicalPagesHtml, resolveEffectivePageGeometry, type ReportDocumentRenderModel } from "@/lib/reportDocumentRenderer";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -147,16 +157,6 @@ function formatDicomDate(dateStr: string | undefined) {
 }
 
 // ─── Utilitários de impressão (fora do componente para evitar re-criação a cada render) ─
-
-// P8/P4: mapeamento de fontes com fallback seguro
-const SAFE_FONTS: Record<string, string> = {
-  'Arial':           'Arial, Helvetica, sans-serif',
-  'Calibri':         'Calibri, "Gill Sans", sans-serif',
-  'Times New Roman': '"Times New Roman", Times, serif',
-  'Georgia':         'Georgia, "Times New Roman", serif',
-  'Helvetica':       '"Helvetica Neue", Helvetica, Arial, sans-serif',
-  'Verdana':         'Verdana, Geneva, sans-serif',
-};
 
 // P1/P2: converte uma URL de imagem para base64 — necessário para janela de print (popup)
 async function fetchToBase64(url: string): Promise<string | null> {
@@ -879,12 +879,6 @@ export default function ReportEditorPage() {
   const bpLogo   = layoutBlockPos?.["logo"]   ?? { x:2,  y:1,  w:20, h:10, visible:true };
   const bpTitle  = layoutBlockPos?.["title"]  ?? { x:2,  y:13, w:96, h:6,  visible:true };
   const bpFooter = layoutBlockPos?.["footer"] ?? { x:2,  y:88, w:96, h:8,  visible:true };
-  // Largura do bloco logo em px (w% de 595px canvas A4)
-  const logoWidthPx = Math.round((bpLogo.w / 100) * 595);
-  // Alinhamento horizontal do logo: x < 30% = esquerda, 30–70% = centro, > 70% = direita
-  const logoAlign: "left" | "center" | "right" =
-    bpLogo.x < 30 ? "left" : bpLogo.x > 70 ? "right" : "center";
-  const logoJustify = logoAlign === "left" ? "flex-start" : logoAlign === "right" ? "flex-end" : "center";
   const layoutFooterUrl: string | null = toAbsUrl((rawLayout?.["footer_image_url"] as string | null) ?? null);
   // CORREÇÃO (Bloqueio 1, revisão corretiva Manus 2026-09-24): as vias de
   // impressão/PDF (handlePrint, PacsQueryPage, financialReportPdfDownload)
@@ -900,435 +894,208 @@ export default function ReportEditorPage() {
   const patientName = formatPatientName(studyInfo?.patientName || "");
 
   const handlePrint = useCallback(async (renderInCurrentWindow = false) => {
-    const birthDate = studyInfo?.birthDate || '';
-    const studyDateFormatted = studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : '';
-    const sexFormatted = studyInfo?.sex ? (studyInfo.sex.toUpperCase() === 'M' ? 'Masculino' : studyInfo.sex.toUpperCase() === 'F' ? 'Feminino' : studyInfo.sex) : '';
+    // FASE 3 DA UNIFICACAO DOS GERADORES DE PDF (27/09/2026, plano aprovado
+    // pela Manus apos o bloqueio de sobreposicao rodape/assinatura na Fase
+    // 2 -- ver parecer "Avaliacao tecnica -- Fase 2", item 4): esta funcao
+    // deixou de construir seu proprio shell HTML (CSS de pagina fixo,
+    // camada de logos com alinhamento calculado a mao, bloco de dados do
+    // paciente sem formatacao real de data, reserva fixa de margem para o
+    // rodape, e um <script> de auto-impressao via window.onload/
+    // window.print()) e passou a usar exclusivamente a fabrica canonica
+    // (client/src/lib/reportDocumentRenderer.tsx), a mesma que a lista de
+    // Estudos e o download financeiro ja usam desde a Fase 3 (1/3 e 2/3).
+    //
+    // Mudancas de comportamento (intencionais, mesmas ja aplicadas aos
+    // outros 2 consumidores nas Fases 1/2/3):
+    //   - Logos, dados do paciente e rodape do medico (carimbo/assinatura/
+    //     nome/CRM/data) agora aparecem em TODA pagina fisica, nao so na
+    //     ultima.
+    //   - pageSize/margens/logos/fundo/imagem de rodape vem do MESMO
+    //     layout resolvido (resolveEffectiveReportLayout) usado pelas
+    //     outras 2 vias -- nao mais de um merge local duplicado
+    //     (activeLayoutRecord, calculado no escopo do componente, e ainda
+    //     usado pela folha em tela -- ver comentario acima, inalterado).
+    //   - Data de nascimento passa a ser formatada de verdade
+    //     (buildCanonicalPatient/formatClinicalDate, com validacao real de
+    //     calendario) -- antes ia crua (formato DICOM AAAAMMDD) direto
+    //     para ClinicalPatientDetails, que so exibe a string recebida sem
+    //     formatar, um bug pre-existente corrigido de bandeja por esta
+    //     migracao.
+    //   - Nenhum <script> de auto-impressao mais: a impressao oficial
+    //     dispara print() por um unico caminho explicito e controlado --
+    //     runControlledPrint (client/src/lib/printOrchestration.ts), ja
+    //     usado por PacsQueryPage.tsx -- print() so e chamado depois que a
+    //     reconstrucao das paginas fisicas tiver sucesso, no maximo uma
+    //     vez.
+    //
+    // REMOVIDO POR COMPLETO (nao apenas contornado): logoHtml/logoWidthPrint/
+    // logoAlignPrint (substituidos por normalizeCanonicalLogos + a camada de
+    // logos posicionados que SharedReportSheet ja desenha), patientDataHtml
+    // (variavel morta -- nunca era lida em lugar nenhum do HTML gerado; a
+    // fabrica canonica usa ClinicalPatientDetails/ClinicalPatientName via
+    // buildReportSheetProps), footerReservedMm/lMB com reserva manual
+    // (a geometria agora vem inteiramente de resolveEffectivePageGeometry),
+    // e o fallback de avatar colorido com a inicial da unidade quando nao
+    // ha nem logo do layout nem logo_url da unidade -- esse fallback so
+    // existia aqui, divergente das outras 2 vias (nenhuma delas desenha um
+    // avatar), e por isso removido para as 3 vias ficarem realmente iguais.
     const isSignedOrRevised = existingReport?.status === 'signed' || existingReport?.status === 'revised';
-    const signedAtFormatted = existingReport?.signedAt
-      ? new Date(existingReport.signedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-      : '';
-    const unitName = medCtx?.unitName || '';
+    const canonicalStatus: CanonicalReportStatus = isSignedOrRevised
+      ? (existingReport!.status as CanonicalReportStatus)
+      : 'draft';
 
-    // P1: detectar multi-seção e renderizar cada seção como bloco separado
-    const rawBody = collectBody();
-    let bodyHtml: string;
-    if (isMultiSection) {
-      try {
-        const sections: { title: string; body: string }[] = JSON.parse(rawBody);
-        bodyHtml = sections.map((sec, i) => `
-          <div class="exam-section" style="margin-bottom:18px;${i > 0 ? 'page-break-before:auto;' : ''}">
-            <div class="section-title">${sec.title}</div>
-            <div class="section-body">${sec.body}</div>
-          </div>
-        `).join('');
-      } catch {
-        bodyHtml = rawBody; // fallback seguro
-      }
-    } else {
-      bodyHtml = rawBody;
-    }
-
-    // P7: converter imagens do corpo para base64
-    bodyHtml = await convertImagesToBase64(bodyHtml);
-
-    // Logos do layout (até 3) têm prioridade; fallback para logo da unidade ou inicial
-    const logoHtml = layoutLogos.length > 0
-      ? layoutLogos.map(l => `<img src="${l.url}" alt="${l.label || 'Logo'}" style="max-height:${l.height}px;max-width:${l.width}px;object-fit:contain;display:inline-block;margin:0 4px;" />`).join('')
-      : medCtx?.unitLogoUrl
-        ? `<img src="${medCtx.unitLogoUrl}" alt="${unitName}" style="max-height:70px;max-width:155px;object-fit:contain;display:block;" />`
-        : `<div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#1a6b8a 0%,#6fb7c5 100%);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20pt;font-weight:700;font-family:Arial,sans-serif;">${(unitName || 'U').charAt(0).toUpperCase()}</div>`;
-
-    // Bloco de dados do paciente em lista vertical
-    const patientDataHtml = `
-      <div style="margin-bottom:14px;font-size:9.5pt;line-height:1.8;">
-        <div>Nome do paciente: ${patientName || '—'}</div>
-        ${birthDate ? `<div>Data de nascimento: ${birthDate}</div>` : ''}
-        ${sexFormatted ? `<div>Sexo: ${sexFormatted}</div>` : ''}
-        ${studyDateFormatted ? `<div>Data de realização do exame: ${studyDateFormatted}</div>` : ''}
-        ${studyInfo?.accessionNumber ? `<div>Número de requisição: ${studyInfo.accessionNumber}</div>` : ''}
-      </div>
-    `;
-
-    // FIX: converter assinatura e carimbo para base64
-    // URLs do MinIO não carregam na janela de impressão (sem autenticação)
-    const sigBase64   = signedDoctorSignatureUrl ? await fetchToBase64(signedDoctorSignatureUrl) : null;
-    const stampBase64 = signedDoctorStampUrl     ? await fetchToBase64(signedDoctorStampUrl)     : null;
-
-    const doctorFooterHtml = isSignedOrRevised && signedDoctorName ? `
-      <div class="doctor-footer">
-        ${sigBase64   ? `<img src="${sigBase64}"   alt="Assinatura" class="sig-img" />` : ''}
-        ${stampBase64 ? `<img src="${stampBase64}" alt="Carimbo"    class="stamp-img" />` : ''}
-        <div class="sig-line"></div>
-        <div class="sig-name">${signedDoctorName}${existingReport?.status === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
-        ${signedDoctorCrm ? `<div class="sig-crm">CRM: ${signedDoctorCrm}</div>` : ''}
-        ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
-      </div>
-    ` : '';
-
-    // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf):
-    // Antes, cada campo de layoutPrefs tinha seu próprio fallback "?? valor"
-    // reimplementado à mão neste arquivo — e esses valores (20/20/18/18) NÃO
-    // batiam com DEFAULT_LAYOUT_PREFERENCES (20/25/25/25, em shared/types.ts),
-    // nem com PacsQueryPage.tsx (20/20/20/20), nem com o que o médico via na
-    // tela em ReportDocument.tsx (que já mesclava corretamente com
-    // DEFAULT_LAYOUT_PREFERENCES). Um mesmo laudo podia sair com margem
-    // esquerda/direita diferente dependendo de qual tela o gerou. Agora usamos
-    // o mesmo merge que ReportDocument.tsx já faz — uma única fonte de
-    // verdade para os valores padrão.
-    const effectivePrefs: LayoutPreferences = { ...DEFAULT_LAYOUT_PREFERENCES, ...(layoutPrefs ?? {}) };
-    // P3: margens do @page a partir das preferências do layout
-    const lMT = effectivePrefs.marginTop;
-    // P5: reservar margem inferior para o rodapé (estimativa de 30mm se houver imagem)
-    const footerReservedMm = layoutFooterUrl ? 30 : 0;
-    const lMB = effectivePrefs.marginBottom + footerReservedMm;
-    const lML = effectivePrefs.marginLeft;
-    const lMR = effectivePrefs.marginRight;
-    // P8: usar stack de fontes com fallback seguro
-    const rawFont = effectivePrefs.fontFamily || 'Arial';
-    const fontStack = SAFE_FONTS[rawFont] ?? `${rawFont}, Arial, sans-serif`;
-    const lSize = effectivePrefs.fontSize || 11;
-    const lLine = effectivePrefs.lineHeight ?? 1.6;
-    const lBorderColor = effectivePrefs.headerBorderColor ?? '#1a6b8a';
-    const pageSize = effectivePrefs.pageSize ?? 'A4';
-    // OPÇÃO 1: dimensões físicas do papel (mm) — 100vw/100vh != A4 na janela popup
+    const effectiveLayout = resolveEffectiveReportLayout({
+      status: canonicalStatus,
+      unitLayout: (unitLayout as any) ?? null,
+      reportLayoutSnapshot: (existingReport?.layout_snapshot as any) ?? null,
+    }) ?? {
+      source: 'unit' as const,
+      preferences: {},
+      header_html: null,
+      footer_html: null,
+      background_image_url: null,
+      background_opacity: 1,
+      background_size: 'cover',
+      footer_image_url: null,
+      logos: null,
+      block_positions: null,
+    };
+    const geometry = resolveEffectivePageGeometry(effectiveLayout);
+    const pageSize = geometry.pageSize;
     const paperW = pageSize === 'Letter' ? '216mm' : '210mm';
     const paperH = pageSize === 'Letter' ? '279mm' : '297mm';
 
-    // P9: marca d'água RASCUNHO para laudos não assinados
-    const draftWatermark = !isSignedOrRevised ? `
-      <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);font-size:72pt;font-weight:900;color:rgba(200,50,50,0.10);pointer-events:none;user-select:none;white-space:nowrap;font-family:Arial,sans-serif;letter-spacing:0.1em;-webkit-print-color-adjust:exact;print-color-adjust:exact;">RASCUNHO</div>
-      <div style="background:#fef3c7;border:1.5px solid #f59e0b;padding:6px 12px;border-radius:4px;margin-bottom:12px;font-size:9pt;color:#92400e;text-align:center;">⚠ LAUDO EM RASCUNHO — Não assinado — Não é um documento válido</div>
-    ` : '';
-
-    // FUNDO: base64 + background-image no body com dimensões físicas da folha
-    const bgBase64 = layoutBgUrl ? await fetchToBase64(layoutBgUrl) : null;
-    const footerBase64 = layoutFooterUrl ? await fetchToBase64(layoutFooterUrl) : null;
-    const printLogos = await Promise.all(layoutLogos.map(async (logo) => {
-      const absoluteUrl = toAbsUrl(logo.url) || logo.url;
-      return { ...logo, url: (absoluteUrl ? await fetchToBase64(absoluteUrl) : null) || absoluteUrl };
-    }));
-    // FIX: aplicar block_positions no print — mesma lógica do WYSIWYG
-    const logoWidthPrint   = Math.round((bpLogo.w / 100) * 210); // mm (papel = 210mm)
-    const logoAlignPrint   = bpLogo.x < 30 ? "left" : bpLogo.x > 70 ? "right" : "center";
-    const logoJustifyPrint = logoAlignPrint === "left" ? "flex-start"
-                           : logoAlignPrint === "right" ? "flex-end" : "center";
-    // FIX: overlay de opacidade via div position:fixed com dimensões em mm
-    // body::after não é confiável em print — div com mm é mais preciso
-    const overlayAlpha = Math.round((1 - layoutBgOpacity) * 100) / 100;
-    const bgLayer = (bgBase64 && overlayAlpha > 0) ? `
-      <div style="
-        position: fixed;
-        top: 0; left: 0;
-        width: ${paperW}; height: ${paperH};
-        background: rgba(255,255,255,${overlayAlpha});
-        z-index: 0;
-        pointer-events: none;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      "></div>
-    ` : '';
-
-    const html = `<!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
-<style>
-  /* FIX full-bleed: margin:0 no @page → body representa a folha INTEIRA */
-  /* Margens do layout são simuladas via padding no body */
-  @page {
-    size: ${pageSize} portrait;
-    margin: 0;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html {
-    width: ${paperW};
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-  body {
-    /* MULTI-EXAME: body sem padding/background — cada div.print-page gerencia seu próprio espaço */
-    margin: 0;
-    padding: 0;
-    font-family: ${fontStack};
-    font-size: ${lSize}pt;
-    color: #111;
-    line-height: ${lLine};
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    /* FIX BUG-3: sem min-height — evita página em branco extra */
-    overflow: hidden;
-  }
-  /* div.print-page = uma folha A4 completa com padding, fundo e conteúdo */
-  .print-page {
-    width: ${paperW};
-    height: ${paperH};
-    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-    box-sizing: border-box;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    ${bgBase64 ? `
-    background-image: url('${bgBase64}');
-    background-size: cover;
-    background-position: center center;
-    background-repeat: no-repeat;
-    ` : ''}
-  }
-  .print-shared-sheet {
-    width: ${paperW};
-    height: ${paperH};
-    /* Margens efetivas — antes fixo em 0, ignorando a unidade (Bloqueio 1,
-       auditoria Manus 2026-09-24). O valor real já vem no style inline do
-       componente (maior precedência); este bloco existe só para manter a
-       folha de estilos coerente com o que é de fato renderizado. */
-    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-    box-sizing: border-box;
-    position: relative;
-    overflow: hidden;
-    display: block;
-    background: #fff;
-    color: #111;
-    font-family: ${fontStack};
-    font-size: ${lSize}pt;
-    line-height: ${lLine};
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-  .shared-report-page-break {
-    page-break-after: always;
-    break-after: page;
-  }
-  .shared-report-page-break:last-of-type {
-    page-break-after: avoid;
-    break-after: avoid;
-  }
-  .draft-watermark {
-    position: absolute;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%) rotate(-45deg);
-    font: 900 72pt Arial, sans-serif;
-    color: rgba(200,50,50,.10);
-    white-space: nowrap;
-    pointer-events: none;
-    z-index: 5;
-  }
-  @media print {
-    .print-page {
-      page-break-after: always;
-      break-after: page;
-    }
-    .print-page:last-child {
-      page-break-after: avoid;
-      break-after: avoid;
-    }
-    .print-shared-sheet {
-      page-break-after: avoid;
-      break-after: avoid;
-    }
-  }
-  /* Número de página via div position:fixed (substitui @bottom-right que requer @page margin) */
-  /* FIX BUG-2: CSS counter nativo para número de página correto por página */
-  .page-number-fixed {
-    position: fixed;
-    z-index: 3;                              /* FIX: acima de tudo */
-    bottom: ${Math.max(lMB - 8, 4)}mm;
-    right: ${lMR}mm;
-    font-size: 8pt;
-    color: #888;
-    font-family: Arial, sans-serif;
-  }
-  .page-number-fixed::after {
-    content: "Página " counter(page) " de " counter(pages);
-  }
-  /* P4: cabeçalho repetível em múltiplas páginas via thead */
-  table.print-layout {
-    position: relative;                      /* FIX: cria stacking context */
-    z-index: 2;                              /* FIX: acima do overlay branco (z:0) */
-    width: 100%;
-    border-collapse: collapse;
-    height: 100%;                            /* FIX BUG-3: tabela usa toda a altura disponível */
-  }
-  table.print-layout td, table.print-layout th { background: transparent !important; }
-  table.print-layout tbody tr td { vertical-align: top; }
-  thead { display: table-header-group; }
-  tfoot { display: table-footer-group; }
-  tbody { display: table-row-group; }
-  .header {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding-bottom: 8pt;
-    border-bottom: 2px solid ${lBorderColor};
-    margin-bottom: 4mm;
-  }
-  .header-logo { flex-shrink: 0; width: ${logoWidthPrint}mm; display: flex; align-items: center; justify-content: ${logoJustifyPrint}; }
-  .header-title { flex: 1; text-align: center; }
-  .clinic-name { font-size: 14pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
-  .clinic-sub { font-size: 10pt; color: #444; margin-top: 2pt; }
-  .patient-data { font-size: 10pt; line-height: 1.7; margin-bottom: 12pt; }
-  .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
-  .report-body { font-size: ${lSize}pt; line-height: ${lLine}; }
-  .report-body > p,
-  .report-body > div:not(.exam-section) { margin-bottom: 6pt; line-height: 1.7; }
-  .report-body h1,
-  .report-body h2,
-  .report-body h3,
-  .report-body h4 {
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-size: ${lSize}pt !important;
-    margin: 14pt 0 4pt 0;
-  }
-  .report-body h1:first-child,
-  .report-body h2:first-child,
-  .report-body h3:first-child,
-  .report-body h4:first-child { margin-top: 0; }
-  .report-body strong, .report-body b { font-weight: 700; }
-  /* P1: seções multi-exame */
-  .exam-section { break-inside: avoid-page; margin-bottom: 18px; }
-  .section-title {
-    font-size: 11pt; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.06em; text-align: center;
-    padding: 6px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 10px;
-  }
-  .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
-  .doctor-footer { text-align: center; margin: 14mm auto 0; max-width: 240px; page-break-inside: avoid; }
-  .sig-img   { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .sig-line  { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
-  .sig-name  { font-weight: 700; font-size: 10pt; }
-  .sig-role  { font-size: 9pt; color: #444; margin-top: 1pt; letter-spacing: 0.03em; }
-  .sig-crm   { font-size: 9pt; color: #444; margin-top: 1pt; }
-  .sig-date  { font-size: 8pt; color: #666; margin-top: 3pt; }
-  .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 5px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
-  @media print {
-    body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    .doctor-footer { page-break-inside: avoid; }
-  }
-</style></head><body>
-  ${bgLayer}
-  ${draftWatermark}
-  <!-- Número de página via div.page-number-fixed (substitui @bottom-right que precisa de @page margin) -->
-  <!-- FIX BUG-2: conteúdo via CSS counter(page)/counter(pages) -->
-  <div class="page-number-fixed"></div>
-  <!-- MULTI-EXAME: cada exame = div.print-page com height:297mm e page-break-after:always -->
-  <!-- Abordagem div-por-página é mais confiável que múltiplas tabelas no Chrome -->
-  ${(() => {
-    const renderPrintSheet = (sectionTitle: string, sectionBodyHtml: string, isLastPage: boolean) => {
-      const sectionBody = sectionBodyHtml.trim()
-        ? <div className="report-body" dangerouslySetInnerHTML={{ __html: sectionBodyHtml }} />
-        : <SharedReportBodyGuide />;
-      const markup = renderSharedReportSheetHtml({
-        className: "print-shared-sheet",
-        pageSize,
-        marginTop: lMT,
-        marginRight: lMR,
-        marginBottom: lMB,
-        marginLeft: lML,
-        positions: layoutBlockPos,
-        logos: printLogos,
-        backgroundUrl: bgBase64 || layoutBgUrl,
-        backgroundOpacity: layoutBgOpacity,
-        backgroundSize: layoutBgSize,
-        footerImageUrl: isLastPage ? (footerBase64 || layoutFooterUrl) : null,
-        fontFamily: fontStack,
-        fontSize: lSize,
-        lineHeight: lLine,
-        patientName,
-        patientNameContent: <ClinicalPatientName patientName={patientName} />,
-        patientInfo: (
-          <ClinicalPatientDetails
-            birthDate={birthDate || "—"}
-            sex={sexFormatted || "—"}
-            studyDate={studyDateFormatted || "—"}
-            modality={studyInfo?.modality}
-            unitName={medCtx?.unitName}
-          />
-        ),
-        title: (
-          <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
-            {sectionTitle || "—"}
-          </div>
-        ),
-        body: sectionBody,
-        footer: isLastPage
-          ? <div style={{ width: "100%" }} dangerouslySetInnerHTML={{ __html: doctorFooterHtml || '<div style="height:4mm;"></div>' }} />
-          : <div />,
-      });
-      return `<div class="shared-report-page-break">${markup}</div>`;
+    const rawLogos = normalizeCanonicalLogos(effectiveLayout.logos, medCtx?.unitLogoUrl ? toAbsUrl(medCtx.unitLogoUrl) : null);
+    const [bgBase64, footerBase64, sigBase64, stampBase64, ...logoBase64List] = await Promise.all([
+      effectiveLayout.background_image_url ? fetchToBase64(toAbsUrl(effectiveLayout.background_image_url)!) : Promise.resolve(null),
+      effectiveLayout.footer_image_url ? fetchToBase64(toAbsUrl(effectiveLayout.footer_image_url)!) : Promise.resolve(null),
+      signedDoctorSignatureUrl ? fetchToBase64(signedDoctorSignatureUrl) : Promise.resolve(null),
+      signedDoctorStampUrl ? fetchToBase64(signedDoctorStampUrl) : Promise.resolve(null),
+      ...rawLogos.map((logo) => fetchToBase64(toAbsUrl(logo.url) || logo.url)),
+    ]);
+    const logos: CanonicalLogo[] = rawLogos.map((logo, index) => ({ ...logo, url: logoBase64List[index] || logo.url }));
+    const layoutForRender = {
+      ...effectiveLayout,
+      background_image_url: bgBase64 || null,
+      footer_image_url: footerBase64 || null,
     };
-    // Tentar parsear seções multi-exame usando uma folha compartilhada por seção.
+
+    const patient = buildCanonicalPatient({
+      name: patientName,
+      birthDate: studyInfo?.birthDate,
+      sex: studyInfo?.sex,
+      studyDate: studyInfo?.studyDate,
+      modality: studyInfo?.modality,
+      accessionNumber: studyInfo?.accessionNumber,
+    });
+
+    const signedAtFormatted = existingReport?.signedAt
+      ? new Date(existingReport.signedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : null;
+    const doctorFooterHtml = buildDoctorFooterHtml({
+      name: signedDoctorName || null,
+      crm: signedDoctorCrm || null,
+      stampDataUrl: stampBase64 || null,
+      signatureDataUrl: sigBase64 || null,
+      signedAtFormatted,
+      status: canonicalStatus,
+    });
+
+    // P1: detectar multi-secao (mesma deteccao de sempre); cada secao vira
+    // uma entrada { title, bodyHtml } para a fabrica canonica, com
+    // conversao de imagens para base64 aplicada POR SECAO -- a versao
+    // anterior so convertia o corpo inteiro (bodyHtml) usado no fallback
+    // de pagina unica; o caminho multissecao (renderPrintSheet) usava
+    // sec.body cru, sem conversao, um bug latente (imagens do corpo podiam
+    // nao carregar na janela de impressao por falta de autenticacao) que
+    // esta migracao corrige de bandeja, aplicando a mesma conversao usada
+    // em PacsQueryPage.tsx/financialReportPdfDownload.ts.
+    const rawBody = collectBody();
+    let sections: Array<{ title: string; bodyHtml: string }>;
     try {
-      const rawBodyForSplit = collectBody();
-      const secs: { title: string; body: string }[] = JSON.parse(rawBodyForSplit);
-      if (secs && secs.length > 1) {
-        return secs.map((sec, i) => renderPrintSheet(sec.title, sec.body, i === secs.length - 1)).join('');
+      const parsed = JSON.parse(rawBody);
+      if (Array.isArray(parsed) && parsed.length > 0 && 'body' in parsed[0]) {
+        sections = await Promise.all(parsed.map(async (sec: { title: string; body: string }) => ({
+          title: sec.title || '',
+          bodyHtml: await convertImagesToBase64(sec.body || ''),
+        })));
+      } else {
+        sections = [{ title: examTitle || '', bodyHtml: await convertImagesToBase64(rawBody || '') }];
       }
-    } catch {}
-    // Página única: a marcação é produzida pelo mesmo componente React usado no editor.
-    const printBody = bodyHtml
-      ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
-      : <SharedReportBodyGuide />;
-    return renderSharedReportSheetHtml({
-      className: "print-shared-sheet",
-      pageSize,
-      marginTop: lMT,
-      marginRight: lMR,
-      marginBottom: lMB,
-      marginLeft: lML,
-      positions: layoutBlockPos,
-      logos: printLogos,
-      backgroundUrl: bgBase64 || layoutBgUrl,
-      backgroundOpacity: layoutBgOpacity,
-      backgroundSize: layoutBgSize,
-      footerImageUrl: footerBase64 || layoutFooterUrl,
-      fontFamily: fontStack,
-      fontSize: lSize,
-      lineHeight: lLine,
-      patientName,
-      patientNameContent: <ClinicalPatientName patientName={patientName} />,
-        patientInfo: (
-          <ClinicalPatientDetails
-            birthDate={birthDate || "—"}
-            sex={sexFormatted || "—"}
-            studyDate={studyDateFormatted || "—"}
-            modality={studyInfo?.modality}
-            unitName={medCtx?.unitName}
-          />
-        ),
-      title: (
-        <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
-          {examTitle || "—"}
-        </div>
-      ),
-      body: printBody,
-      footer: (
-        <div style={{ width: "100%" }} dangerouslySetInnerHTML={{ __html: doctorFooterHtml || '<div style="height:4mm;"></div>' }} />
-      ),
-    });
-  })()}
-  <!-- P5: rodapé via tfoot (renderiza em todas as páginas, compatível com PDF) -->
-<script>
-  window.onload = function() {
-    var pages = document.querySelectorAll('.print-page');
-    var total = pages.length || 1;
-    var counters = document.querySelectorAll('.page-number-fixed');
-    counters.forEach(function(el, i) {
-      el.textContent = 'Página ' + (i + 1) + ' de ' + total;
-    });
-    window.print();
-    window.onafterprint = function() { window.close(); };
-  };
-<\/script>
-</body></html>`;
+    } catch {
+      sections = [{ title: examTitle || '', bodyHtml: await convertImagesToBase64(rawBody || '') }];
+    }
+
+    const model: ReportDocumentRenderModel = { layout: layoutForRender, logos, patient, doctorFooterHtml, sections };
+
+    // P9: marca d'agua RASCUNHO para laudos nao assinados -- preservada
+    // como camada fixa (mesma abordagem ja usada em PacsQueryPage.tsx).
+    const draftWatermarkHtml = canonicalStatus !== 'signed' && canonicalStatus !== 'revised' ? `
+      <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);font-size:72pt;font-weight:900;color:rgba(200,50,50,0.10);pointer-events:none;user-select:none;white-space:nowrap;font-family:Arial,sans-serif;letter-spacing:0.1em;-webkit-print-color-adjust:exact;print-color-adjust:exact;z-index:5;">RASCUNHO</div>
+    ` : '';
+
+    // Reset minimo -- a geometria fisica (tamanho de papel, margens,
+    // posicao de cada bloco) vem inteiramente do SharedReportSheet, via
+    // renderAllPhysicalPagesHtml. page-break-after garante que a
+    // impressao nativa quebre corretamente entre folhas fisicas.
+    const minimalShellHtml = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
+<style>
+  @page { size: ${pageSize} portrait; margin: 0; }
+  * { box-sizing: border-box; }
+  html { width: ${paperW}; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  .report-body p, .report-body div { margin-bottom: 3pt; }
+  [data-shared-report-sheet] { page-break-after: always; break-after: page; }
+  [data-shared-report-sheet]:last-of-type { page-break-after: avoid; break-after: avoid; }
+  .page-number-fixed { position: fixed; z-index: 3; bottom: 4mm; right: 8mm; font-size: 8pt; color: #888; font-family: Arial, sans-serif; }
+  .page-number-fixed::after { content: 'Página ' counter(page) ' de ' counter(pages); }
+  @media print { .doctor-footer { page-break-inside: avoid; } }
+</style></head><body></body></html>`;
+
     const win = renderInCurrentWindow ? window : window.open('', '_blank', 'width=850,height=1100');
     if (!win) {
       toast.error('Bloqueador de pop-up impediu a abertura da janela de impressão. Por favor, permita pop-ups para este site.');
       return;
     }
-    win.document.write(html);
-    win.document.close();
-  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
+
+    try {
+      win.document.open();
+      win.document.write(minimalShellHtml);
+      win.document.close();
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const printResult = await runControlledPrint({
+        reconstruct: async () => {
+          const pagesHtml = renderAllPhysicalPagesHtml(win.document, model);
+          win.document.body.innerHTML = `${draftWatermarkHtml}<div class="page-number-fixed"></div>${pagesHtml.join('')}`;
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          await Promise.all(
+            Array.from(win.document.images).map((image) =>
+              image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.onload = () => resolve(); image.onerror = () => resolve(); }),
+            ),
+          );
+        },
+        print: () => {
+          win.onafterprint = () => { if (!renderInCurrentWindow) win.close(); };
+          win.print();
+        },
+      });
+
+      if (!printResult.printed) {
+        throw printResult.error;
+      }
+    } catch (err) {
+      if (err instanceof ContentTooLargeForPageError) {
+        toast.error('Não foi possível preparar a impressão', { description: err.message });
+      } else {
+        toast.error('Não foi possível preparar a impressão.', {
+          description: err instanceof Error ? err.message : 'Ocorreu um erro inesperado ao preparar a impressão.',
+        });
+      }
+      if (!renderInCurrentWindow) win.close();
+    }
+  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, unitLayout, sectionRefs, examNames, isMultiSection, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
 
   useEffect(() => {
     if (!printOnOpen || autoPrintTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
@@ -1337,57 +1104,152 @@ export default function ReportEditorPage() {
   }, [printOnOpen, studyInfo, existingReport?.id, isSigned, handlePrint]);
 
   const handleFinancialPdfDownload = useCallback(async () => {
-    const pages = Array.from(document.querySelectorAll<HTMLElement>(".report-page"));
-    if (pages.length === 0) {
-      toast.error("O documento final ainda não está pronto para download.");
-      return;
-    }
-
+    // FASE 3 DA UNIFICACAO DOS GERADORES DE PDF (27/09/2026): esta funcao
+    // deixou de capturar via html2canvas os elementos ".report-page" JA
+    // RENDERIZADOS NA TELA (a folha WYSIWYG ao vivo, com a regra antiga de
+    // "imagem de rodape so na ultima pagina" e a reserva de margem
+    // screenFooterReservedMm) e passou a construir seu proprio documento
+    // offscreen a partir da fabrica canonica -- exatamente o mesmo padrao
+    // ja usado por financialReportPdfDownload.ts e por PacsQueryPage.tsx
+    // (Fase 3, 1/3 e 2/3). O PDF baixado por este botao agora tem sempre a
+    // mesma aparencia dos outros 2 caminhos (logos/rodape do medico em
+    // toda pagina fisica), independente do que esteja ou nao visivel na
+    // tela do editor no momento do clique.
     toast.loading("Gerando PDF configurado...", { id: "financial-pdf-download" });
+    const isSignedOrRevised = existingReport?.status === 'signed' || existingReport?.status === 'revised';
+    const canonicalStatus: CanonicalReportStatus = isSignedOrRevised
+      ? (existingReport!.status as CanonicalReportStatus)
+      : 'draft';
+
+    const effectiveLayout = resolveEffectiveReportLayout({
+      status: canonicalStatus,
+      unitLayout: (unitLayout as any) ?? null,
+      reportLayoutSnapshot: (existingReport?.layout_snapshot as any) ?? null,
+    }) ?? {
+      source: 'unit' as const,
+      preferences: {},
+      header_html: null,
+      footer_html: null,
+      background_image_url: null,
+      background_opacity: 1,
+      background_size: 'cover',
+      footer_image_url: null,
+      logos: null,
+      block_positions: null,
+    };
+    const geometry = resolveEffectivePageGeometry(effectiveLayout);
+
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    const framePxWidth = pageWidthPx(geometry.pageSize);
+    const framePxHeight = pageHeightPx(geometry.pageSize);
+    iframe.style.cssText = `position:fixed;left:-10000px;top:0;width:${framePxWidth}px;height:${framePxHeight}px;border:0;visibility:hidden;`;
+    document.body.appendChild(iframe);
     try {
-      // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf): o formato do PDF
-      // vinha hardcoded como "a4", ignorando por completo layoutPrefs.pageSize.
-      // Uma unidade configurada para "Letter" gerava um laudo Letter na
-      // impressão oficial (handlePrint) mas um PDF A4 neste download — o
-      // mesmo documento com tamanho de página diferente dependendo de qual
-      // botão o usuário clicasse. Agora lê o mesmo pageSize, com o mesmo
-      // default (DEFAULT_LAYOUT_PREFERENCES) usado em handlePrint.
-      const effectivePageSize = (layoutPrefs?.pageSize ?? DEFAULT_LAYOUT_PREFERENCES.pageSize) as "A4" | "Letter";
-      const pdf = new jsPDF("p", "mm", effectivePageSize.toLowerCase() as "a4" | "letter");
+      const rawLogos = normalizeCanonicalLogos(effectiveLayout.logos, medCtx?.unitLogoUrl ? toAbsUrl(medCtx.unitLogoUrl) : null);
+      const [bgBase64, footerBase64, sigBase64, stampBase64, ...logoBase64List] = await Promise.all([
+        effectiveLayout.background_image_url ? fetchToBase64(toAbsUrl(effectiveLayout.background_image_url)!) : Promise.resolve(null),
+        effectiveLayout.footer_image_url ? fetchToBase64(toAbsUrl(effectiveLayout.footer_image_url)!) : Promise.resolve(null),
+        signedDoctorSignatureUrl ? fetchToBase64(signedDoctorSignatureUrl) : Promise.resolve(null),
+        signedDoctorStampUrl ? fetchToBase64(signedDoctorStampUrl) : Promise.resolve(null),
+        ...rawLogos.map((logo) => fetchToBase64(toAbsUrl(logo.url) || logo.url)),
+      ]);
+      const logos: CanonicalLogo[] = rawLogos.map((logo, index) => ({ ...logo, url: logoBase64List[index] || logo.url }));
+      const layoutForRender = {
+        ...effectiveLayout,
+        background_image_url: bgBase64 || null,
+        footer_image_url: footerBase64 || null,
+      };
+
+      const patient = buildCanonicalPatient({
+        name: patientName,
+        birthDate: studyInfo?.birthDate,
+        sex: studyInfo?.sex,
+        studyDate: studyInfo?.studyDate,
+        modality: studyInfo?.modality,
+        accessionNumber: studyInfo?.accessionNumber,
+      });
+
+      const signedAtFormatted = existingReport?.signedAt
+        ? new Date(existingReport.signedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : null;
+      const doctorFooterHtml = buildDoctorFooterHtml({
+        name: signedDoctorName || null,
+        crm: signedDoctorCrm || null,
+        stampDataUrl: stampBase64 || null,
+        signatureDataUrl: sigBase64 || null,
+        signedAtFormatted,
+        status: canonicalStatus,
+      });
+
+      const rawBody = collectBody();
+      let sections: Array<{ title: string; bodyHtml: string }>;
+      try {
+        const parsed = JSON.parse(rawBody);
+        if (Array.isArray(parsed) && parsed.length > 0 && 'body' in parsed[0]) {
+          sections = await Promise.all(parsed.map(async (sec: { title: string; body: string }) => ({
+            title: sec.title || '',
+            bodyHtml: await convertImagesToBase64(sec.body || ''),
+          })));
+        } else {
+          sections = [{ title: examTitle || '', bodyHtml: await convertImagesToBase64(rawBody || '') }];
+        }
+      } catch {
+        sections = [{ title: examTitle || '', bodyHtml: await convertImagesToBase64(rawBody || '') }];
+      }
+
+      const model: ReportDocumentRenderModel = { layout: layoutForRender, logos, patient, doctorFooterHtml, sections };
+
+      const doc = iframe.contentWindow?.document;
+      if (!doc) throw new Error("Não foi possível inicializar o renderizador de PDF.");
+      doc.open();
+      doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>
+        @page { size: ${geometry.pageSize} portrait; margin: 0; }
+        * { box-sizing:border-box; } html,body { margin:0;padding:0;background:#fff; }
+        .report-body p, .report-body div { margin-bottom:3pt; }
+        @media print { .doctor-footer { page-break-inside: avoid; } }
+      </style></head><body></body></html>`);
+      doc.close();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const pagesHtml = renderAllPhysicalPagesHtml(doc, model);
+      doc.body.innerHTML = pagesHtml.join("");
+
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      await Promise.all(
+        Array.from(doc.images).map((image) =>
+          image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.onload = () => resolve(); image.onerror = () => resolve(); }),
+        ),
+      );
+      const sheetElements = Array.from(doc.querySelectorAll<HTMLElement>("[data-shared-report-sheet]"));
+      if (!sheetElements.length) throw new Error("Não foi possível preparar as páginas do documento.");
+
+      const pdf = new jsPDF("p", "mm", geometry.pageSize.toLowerCase() as "a4" | "letter");
       const pdfPageWidth = pdf.internal.pageSize.getWidth();
       const pdfPageHeight = pdf.internal.pageSize.getHeight();
-      for (let index = 0; index < pages.length; index += 1) {
-        const canvas = await html2canvas(pages[index], {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          backgroundColor: "#ffffff",
-        });
+      for (let index = 0; index < sheetElements.length; index += 1) {
+        const canvas = await html2canvas(sheetElements[index], { scale: 2, useCORS: true, logging: false, backgroundColor: "#ffffff", windowWidth: framePxWidth });
         const imageData = canvas.toDataURL("image/png");
         let width = pdfPageWidth;
         let height = (canvas.height * width) / canvas.width;
-        // CORREÇÃO (Bloqueio 1, revisão corretiva Manus 2026-09-24): com o
-        // container multisseção agora na largura física correta (ver
-        // md:w-[...] dinâmico logo abaixo), altura e largura da folha
-        // capturada já devem bater com a página de destino — mas mantemos
-        // este clamp como salvaguarda: se por qualquer motivo (fonte não
-        // carregada, imagem de rodapé maior que o esperado, arredondamento
-        // do navegador) a altura calculada ainda ultrapassar a altura física
-        // da página, reduz proporcionalmente width/height para caber inteira
-        // numa página (nunca corta conteúdo), centralizando horizontalmente.
         const clamped = clampImageToPage(width, height, pdfPageWidth, pdfPageHeight);
         width = clamped.width;
         height = clamped.height;
-        const xOffset = clamped.xOffset;
         if (index > 0) pdf.addPage();
-        pdf.addImage(imageData, "PNG", xOffset, 0, width, height);
+        pdf.addImage(imageData, "PNG", clamped.xOffset, 0, width, height);
       }
       pdf.save(`Laudo_${(patientName || "assinado").replace(/\s+/g, "_")}.pdf`);
       toast.success("PDF baixado com sucesso!", { id: "financial-pdf-download" });
-    } catch {
-      toast.error("Não foi possível gerar o PDF. Tente novamente.", { id: "financial-pdf-download" });
+    } catch (err) {
+      if (err instanceof ContentTooLargeForPageError) {
+        toast.error("Não foi possível gerar o PDF", { description: err.message, id: "financial-pdf-download" });
+      } else {
+        toast.error("Não foi possível gerar o PDF. Tente novamente.", { id: "financial-pdf-download" });
+      }
+    } finally {
+      iframe.remove();
     }
-  }, [patientName, layoutPrefs]);
+  }, [patientName, layoutPrefs, unitLayout, existingReport, medCtx, studyInfo, examTitle, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
 
   useEffect(() => {
     if (!downloadOnOpen || !financialDocumentView || autoDownloadTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
