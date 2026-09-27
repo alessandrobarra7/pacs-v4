@@ -1,0 +1,151 @@
+HANDOFF TECNICO PARA A MANUS — INVESTIGACAO DO INCIDENTE DE PDF (POS-REVERT)
+Projeto: PACS Portal / LAUDS
+Repositorio: alessandrobarra7/pacs-v4
+Branch: claude/investigacao-incidente-pdf-2026-09-27 (baseada no commit
+        be7fe6a, topo da arquitetura unificada revertida em produção)
+main atual (producao, intocado por este handoff): 41d252c
+Commit desta investigacao: d1026cb
+Destinataria: Manus (unica com acesso a Chromium real comprovado neste
+              projeto, via as homologacoes visuais das rodadas anteriores)
+Autor: Claude (sandbox, sem acesso a VM nem a navegador real)
+
+ATENCAO — ESTE HANDOFF E UM PEDIDO DE EXECUCAO DE TESTE, NAO DE MERGE.
+
+Nao ha, e nao havera, nenhum codigo de producao mudando por causa deste
+handoff. main permanece em 41d252c (a reversao ja publicada e estavel). O
+que se pede aqui e que a Manus RODE um teste especifico num navegador
+real e reporte METRICAS (nao dados clinicos) de volta.
+
+
+1. CONTEXTO
+
+O RELATORIO_COMPLETO_INCIDENTE_UNIFICACAO_PDF_2026-09-27.txt (anexado pelo
+Alessandro) documentou que a unificacao dos geradores de PDF, aprovada
+tecnicamente por este mesmo processo (ADENDO 4, commit 59a95cf), causou um
+defeito real no laudo baixado em producao (arquivo
+Laudo_RAIMUNDO_NESTOR_SERPA_MORAES(1).pdf: 8 paginas, conteudo clinico
+defeituoso) e foi corretamente revertida pela propria Manus (commit
+41d252c, arvore identica a a825cb5 — confirmado por hash de arvore Git
+neste lado tambem).
+
+O relatorio do incidente concluiu que o erro principal foi de processo:
+nenhuma homologacao visual, em nenhuma das rodadas anteriores, usou um
+payload no MESMO FORMATO E TAMANHO de um laudo real — todas usaram
+fixtures sinteticos pequenos, construidos a mao. O relatorio propos um
+plano de investigacao em 8 passos (Passo 1: congelar producao; Passo 2:
+fixture fiel; Passo 3: instrumentar sem expor dado clinico; Passo 4:
+comparar os 3 fluxos; Passo 5: isolar a primeira divergencia; Passo 6:
+corrigir um unico ponto; Passo 7: homologar em Chromium; Passo 8: avaliar
+mudanca arquitetural separada).
+
+O Alessandro pediu para eu (Claude) comecar essa investigacao (Passos
+1-5). Fiz a parte que o sandbox permite; este handoff pede a Manus a parte
+que exige navegador real.
+
+
+2. O QUE JA FOI FEITO NESTE SANDBOX (Passos 2-5, parcial)
+
+Commit d1026cb (branch acima), arquivo
+server/investigacao-incidente-pdf-real.test.ts:
+
+- Confirmado por leitura direta do codigo (nao suposicao) o formato real
+  de report.body: client/src/pages/ReportEditorPage.tsx `collectBody()`
+  produz OU uma string HTML simples (secao unica) OU
+  `JSON.stringify([{title, body}, ...])` (multissecao, quando
+  examNames.length > 1).
+- Construidos 3 fixtures sinteticos NESSE FORMATO EXATO, sem nenhum dado
+  clinico real: (a) secao unica, HTML puro, dimensionado para volume de
+  texto equivalente a ~8 paginas fisicas (mesma ordem de grandeza do PDF
+  real problematico); (b) multissecao, 5 secoes; (c) caso-limite, array
+  JSON de 1 unico elemento.
+- Testado (4/4 aprovados): o parsing (JSON.parse) + a construcao das
+  secoes do modelo canonico preservam 100% do texto de entrada, na ordem
+  correta, medido por tamanho de texto extraido e SHA-256 (nunca o
+  conteudo em si). Tambem confirmado que renderAllPhysicalPagesHtml
+  recebe o HTML de TODAS as secoes antes da paginacao real acontecer.
+- Achado colateral (nao e a causa do incidente, mas relevante para o
+  futuro): dentro da arquitetura RESTAURADA (main atual, 41d252c),
+  client/src/pages/PacsQueryPage.tsx tem DOIS limiares diferentes de
+  deteccao de multissecao no MESMO arquivo (`length > 0` na tela,
+  `length > 1` no PDF real) — pre-existente, nao introduzido nem
+  resolvido por nenhuma das duas arquiteturas.
+
+=> Isso responde SIM as 3 primeiras perguntas do Passo 5 ("o corpo chegou
+   correto? o parser preservou o conteudo? a fabrica colocou o conteudo
+   no DOM?"), para os casos testados. Torna menos provavel que a causa do
+   defeito esteja nessa etapa inicial.
+
+
+3. O QUE NAO PODE SER TESTADO NESTE SANDBOX (e por isso este pedido)
+
+client/src/lib/reportPagination.ts documenta, no proprio codigo, que
+`createRealDomPageBuilder` depende de `scrollHeight`/`clientHeight`, que o
+jsdom SEMPRE retorna como 0 — a paginacao real por folhas fisicas nunca
+foi exercitada por teste automatizado, em nenhuma rodada desta unificacao.
+Da mesma forma, html2canvas (HTML -> canvas -> PNG) e jsPDF.addImage
+exigem um motor de renderizacao/Canvas real, que nao existe neste sandbox
+(confirmado: nao ha Playwright/Puppeteer/canvas em package.json).
+
+As 3 ultimas perguntas do Passo 5 ficam sem resposta neste sandbox:
+  - a paginacao manteve os blocos (sem perda/duplicacao de conteudo) numa
+    folha fisica real?
+  - o html2canvas capturou os pixels corretamente (nao produziu canvas em
+    branco, cortado, ou deformado)?
+  - o jsPDF recebeu o canvas correto (paginas na ordem certa, sem
+    duplicacao, com as dimensoes esperadas)?
+
+E exatamente aqui, muito provavelmente, que esta a causa real do defeito
+reportado no laudo RAIMUNDO NESTOR — a etapa que NENHUMA homologacao
+anterior testou com conteudo do tamanho/formato real.
+
+
+4. PEDIDO CONCRETO
+
+Pedimos que a Manus, no seu ambiente com Chromium real:
+
+  a) Faca checkout do commit d1026cb (branch
+     claude/investigacao-incidente-pdf-2026-09-27, que parte de be7fe6a —
+     a arquitetura unificada revertida, ainda intacta neste branch para
+     fins de investigacao, NAO em main);
+  b) Rode (ou adapte, se preferir um fixture proprio maior/mais fiel) o
+     mesmo fixture de server/investigacao-incidente-pdf-real.test.ts
+     atraves da cadeia REAL: paginateSectionIntoPages -> html2canvas ->
+     jsPDF, num navegador real (nao jsdom);
+  c) Reporte, por pagina fisica gerada, so METRICAS (nunca conteudo real):
+     - contagem de paginas fisicas produzidas (esperado: multiplas, dado
+       o volume do fixture — o PDF real teve 8);
+     - dimensoes do canvas capturado por pagina (largura/altura em px);
+     - proporcao aproximada de pixels nao-brancos por pagina (indicador
+       de conteudo real vs pagina em branco/corrompida);
+     - contagem de nos de texto que a paginacao real efetivamente colocou
+       em cada folha fisica (comparado ao total esperado da secao de
+       entrada);
+     - qualquer excecao/erro lancado durante a cadeia (ex.:
+       ContentTooLargeForPageError).
+  d) Se possivel, repita com um fixture AINDA MAIOR (mais proximo do
+     volume real de 8 paginas A4 completas) para maximizar a chance de
+     reproduzir o defeito original.
+
+Isso e exatamente o instrumental que o Passo 3 do relatorio do incidente
+pede: hashes/metricas, nunca o conteudo clinico.
+
+
+5. FORA DE ESCOPO DESTE HANDOFF
+
+- Nenhuma correcao de codigo esta sendo proposta aqui — so instrumentacao
+  e medicao.
+- Nenhuma alteracao em main, nenhum merge, nenhum deploy, nenhuma
+  alteracao de VM.
+- Nenhum dado clinico real deve ser usado nesta rodada de testes (mesma
+  regra ja seguida em todas as homologacoes visuais anteriores desta
+  unificacao).
+- A decisao de retomar ou nao a unificacao, e quando, continua sendo do
+  Alessandro (e da Manus, quanto a viabilidade tecnica), nunca do Claude.
+
+
+6. SEGURANCA OPERACIONAL
+
+- main permanece em 41d252c durante e apos este handoff.
+- Nenhum merge foi feito.
+- Nenhum deploy ou alteracao de VM foi feito.
+- Nenhum dado clinico real foi usado na investigacao ate aqui.
