@@ -8,6 +8,7 @@ Commit topo (apos o ADENDO de 27/09, sobreposicao rodape/assinatura): c79f778
 Commit topo (apos o ADENDO 2, Fase 3 3/3 completa): b5723f5
 Commit topo (apos o ADENDO 3, assinatura cortada no bloco rodape): 7ca5dde
 Commit topo (aprovado pela Manus, ADENDO 4): 59a95cf
+Commit topo (secoes desatualizadas marcadas, doc-only): be7fe6a
 Destinataria: Manus (e qualquer outro agente/engenheiro com acesso a VM1/VM2/VM3)
 Autor: Claude (sandbox, sem acesso a producao)
 
@@ -258,6 +259,57 @@ esta tecnica E visualmente aprovada pela Manus. O trabalho de codigo desta
 frente esta concluido do lado do Claude. O proximo passo (merge/deploy/VM1)
 e uma decisao do Alessandro, feita com ou sem a Manus, fora do escopo do que
 o Claude executa neste sandbox.
+
+ADENDO 5 (27/09/2026) — PEDIDO: homologacao visual em producao pos-implantacao
+
+Confirmado neste momento: `origin/main` esta em `be7fe6a`, o mesmo topo desta
+branch (`claude/unificacao-geradores-pdf-laudo`) ja aprovado pela Manus no
+ADENDO 4 -- ou seja, o merge em main ja aconteceu e, segundo o Alessandro, a
+implantacao ja foi feita (VM). Reexecutei localmente, contra este mesmo
+commit, toda a validacao automatizada de codigo (pnpm check, TZ=UTC pnpm test
+completo, pnpm build, git status): tudo permanece exatamente no mesmo estado
+aprovado -- 738 aprovados, 11 falhas na mesma baseline historica conhecida (as
+7 suites ja documentadas em handoffs anteriores), nenhuma regressao nova,
+build limpo, working tree limpo.
+
+O que falta agora e a verificacao visual real POS-IMPLANTACAO, com dados de
+producao (nao mais o fixture sintetico usado nas revisoes anteriores) -- o
+Alessandro pediu explicitamente para confirmar que:
+
+  (a) todos os 4 caminhos de geracao/visualizacao do laudo (editor ao vivo /
+      WYSIWYG, impressao rapida pela lista de Estudos, download financeiro,
+      impressao/download pelo proprio editor) usam a MESMA configuracao
+      efetiva de layout da unidade (logos, posicoes de bloco, imagem de
+      rodape, assinatura/carimbo do medico, pageSize, margens) -- ou seja,
+      que o que o admin configura no Layout Editor de uma unidade real fica
+      visualmente identico nos 4 lugares, para o MESMO laudo assinado;
+  (b) a correcao do rodape (ADENDOS 1 e 3 -- sem sobreposicao, sem corte da
+      assinatura, rodape sempre abaixo do corpo) se sustenta com layouts REAIS
+      configurados por unidades reais, nao so com o fixture sintetico usado
+      na homologacao anterior;
+  (c) a repeticao de logo/paciente/assinatura/rodape em TODAS as paginas
+      fisicas (nao so a ultima) funciona corretamente em laudos reais
+      multipagina.
+
+Esta verificacao esta fora do alcance do Claude neste sandbox por duas
+razoes: (1) o sandbox nao tem acesso a VM1/VM2/VM3 nem a dados reais de
+producao; (2) mesmo que tivesse uma URL acessivel, a regra de seguranca desta
+sessao proibe o Claude de inserir credenciais/senha de login em qualquer
+ambiente que nao seja um host de desenvolvimento local do proprio Claude --
+login em producao, mesmo com a senha fornecida pelo Alessandro em chat, nao e
+uma excecao permitida. Por isso o proprio Alessandro decidiu, entre as
+opcoes apresentadas, pedir que a MANUS faca esta verificacao agora -- ela ja
+tem acesso a VM e ja fez a homologacao visual sintetica nas revisoes
+anteriores (Chromium, medicao de overlap/clipping/posicao).
+
+Pedido concreto a Manus: repetir a mesma homologacao visual ja documentada
+nos ADENDOS 1, 3 e 4 (overlap=false, doctorClipped=false, footerBelowBody=
+true), mas agora contra a instancia implantada e, se possivel, com laudos e
+configuracoes de layout REAIS de pelo menos uma unidade (nao mais so o
+fixture sintetico), comparando os 4 caminhos citados acima para o MESMO
+laudo/unidade, em A4 e Letter conforme a unidade estiver configurada, e
+confirmando explicitamente que a configuracao usada e a mesma (mesmo layout
+efetivo resolvido) nos 4 lugares.
 
 ATENCAO — ESTE HANDOFF E DE ORIENTACAO, NAO DE INTEGRACAO FINAL. O Alessandro
 pediu explicitamente, apos a Fase 1 ter sido revisada e aprovada pela Manus:
