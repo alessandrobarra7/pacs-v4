@@ -259,3 +259,81 @@ describe("renderPaginatedReportPages / renderAllPhysicalPagesHtml — composiç�
     expect(pagesHtml.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe("renderPaginatedReportPages — largura física da folha de medição (investigação do incidente pós-reversão, 27/09/2026)", () => {
+  /**
+   * Regressão: a investigação do incidente que causou a reversão da
+   * unificação em produção (RELATORIO_COMPLETO_INCIDENTE_UNIFICACAO_PDF_
+   * 2026-09-27.txt + "Parecer técnico — investigação pós-reversão do
+   * incidente de PDF", Manus) confirmou em Chromium real que a folha de
+   * medição usada por renderPaginatedReportPages() não tinha `width`
+   * própria — como fica fora da viewport (position:absolute;
+   * left:-99999px) e a folha interna (SharedReportSheet) usa largura
+   * percentual, o Chromium media essa folha com 0px de largura, o corpo
+   * de medição ficava com ~24px, e um laudo de 6 parágrafos sintéticos
+   * era fragmentado em 24 páginas físicas (deveriam ser 2) — a causa
+   * mais provável do defeito real relatado em produção.
+   *
+   * jsdom não calcula layout real (mesma limitação documentada em toda
+   * esta suíte), então este teste não mede scrollHeight/clientHeight —
+   * ele prova ESTRUTURALMENTE que a folha de medição recebe a MESMA
+   * largura física (em mm) que a folha final vai usar, capturando o
+   * elemento de fato criado por makeEmptyBody() através de um paginador
+   * fake injetado (mesmo padrão de fakePaginateReturning acima).
+   */
+  function capturingFakePaginate(capturedShells: HTMLElement[]) {
+    return (_source: HTMLElement, makeEmptyBody: () => HTMLElement): string[] => {
+      const body = makeEmptyBody();
+      // O wrapper de medição criado por renderPaginatedReportPages() é o
+      // elemento anexado diretamente a document.body (position:absolute;
+      // left:-99999px) — sobe a árvore a partir do corpo do laudo
+      // (data-layout-block="body") até encontrar esse elemento, em vez de
+      // assumir um número fixo de níveis (a folha física tem estrutura
+      // interna própria: .shared-report-sheet > .shared-report-sheet-
+      // content > ... > body).
+      let el: HTMLElement | null = body;
+      while (el && el.parentElement !== document.body) {
+        el = el.parentElement;
+      }
+      if (el) capturedShells.push(el);
+      return ["<div>pagina-fake</div>"];
+    };
+  }
+
+  it("A4: a folha de medição recebe width:210mm (mesma largura física da folha final)", () => {
+    const model = makeModel({ layout: makeLayout({ preferences: { pageSize: "A4", marginTop: 20, marginRight: 25, marginBottom: 25, marginLeft: 25, fontFamily: "Arial", fontSize: 11, lineHeight: 1.6 } }) });
+    const capturedShells: HTMLElement[] = [];
+    renderPaginatedReportPages(document, model, capturingFakePaginate(capturedShells) as any);
+
+    expect(capturedShells.length).toBeGreaterThan(0);
+    capturedShells.forEach((shell) => {
+      expect(shell.style.width).toBe("210mm");
+    });
+  });
+
+  it("Letter: a folha de medição recebe width:216mm (não fica fixa em A4)", () => {
+    const model = makeModel({ layout: makeLayout({ preferences: { pageSize: "Letter", marginTop: 20, marginRight: 25, marginBottom: 25, marginLeft: 25, fontFamily: "Arial", fontSize: 11, lineHeight: 1.6 } }) });
+    const capturedShells: HTMLElement[] = [];
+    renderPaginatedReportPages(document, model, capturingFakePaginate(capturedShells) as any);
+
+    expect(capturedShells.length).toBeGreaterThan(0);
+    capturedShells.forEach((shell) => {
+      expect(shell.style.width).toBe("216mm");
+    });
+  });
+
+  it("a folha de medição NUNCA fica sem width (regressão direta do bug: width ausente => 0px medido pelo navegador)", () => {
+    const model = makeModel({ sections: [
+      { title: "Seção 1", bodyHtml: "<p>a</p>" },
+      { title: "Seção 2", bodyHtml: "<p>b</p>" },
+    ] });
+    const capturedShells: HTMLElement[] = [];
+    renderPaginatedReportPages(document, model, capturingFakePaginate(capturedShells) as any);
+
+    expect(capturedShells.length).toBe(2); // 1 folha de medição por seção
+    capturedShells.forEach((shell) => {
+      expect(shell.style.width).not.toBe("");
+      expect(shell.style.width).not.toBe("auto");
+    });
+  });
+});

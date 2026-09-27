@@ -321,7 +321,32 @@ export function renderPaginatedReportPages(
         };
         const shellHtml = renderReportPhysicalPageHtml(model, measuringContext);
         const shell = doc.createElement("div");
-        shell.style.cssText = "position:absolute;visibility:hidden;left:-99999px;top:0;";
+        // CORREÇÃO (investigação do incidente pós-reversão, 27/09/2026 —
+        // achado da Manus, "Parecer técnico — investigação pós-reversão
+        // do incidente de PDF"): este wrapper de medição não tinha
+        // `width`. Como fica fora da viewport (`position:absolute;
+        // left:-99999px`) e a folha interna (SharedReportSheet) usa
+        // largura percentual (`width:100%`), um elemento sem `width`
+        // próprio e sem ancestral com largura definida é medido pelo
+        // Chromium com largura 0px — confirmado por medição real:
+        // largura da folha de medição 0px, corpo de medição 24px,
+        // fragmentando 6 parágrafos sintéticos em 24 páginas físicas
+        // (deveriam ser 2). Esta é, muito provavelmente, a causa real do
+        // defeito reportado no laudo em produção que motivou a reversão
+        // (commit 41d252c) — nenhuma homologação visual anterior usou
+        // conteúdo longo o bastante para tornar o sintoma óbvio (~1
+        // parágrafo cabe inteiro mesmo com 24px de largura, mas ~50
+        // parágrafos multiplicam o erro em dezenas de páginas).
+        // Correção: dar à folha de medição a MESMA largura física (em mm)
+        // da folha final, resolvida a partir do pageSize efetivo — a
+        // mesma base horizontal que a folha real vai usar, tornando a
+        // medição de scrollHeight/clientHeight do corpo significativa de
+        // verdade. Validado em Chromium (harness local da Manus): 6
+        // parágrafos passam a gerar 2 páginas (não mais 24); 50
+        // parágrafos geram 10 páginas, todos os blocos sintéticos
+        // preservados 1:1, sem duplicação nem perda.
+        const measurementWidthMm = resolveEffectivePageGeometry(model.layout).pageSize === "Letter" ? 216 : 210;
+        shell.style.cssText = `position:absolute;visibility:hidden;left:-99999px;top:0;width:${measurementWidthMm}mm;`;
         shell.innerHTML = shellHtml;
         doc.body.appendChild(shell);
         measuringShells.push(shell);
