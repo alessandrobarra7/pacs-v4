@@ -291,6 +291,10 @@ Commits desta branch, em ordem:
   c0887eb  Fase 3 (2/3) — migra PacsQueryPage.tsx  [topo atual]
 
 Pendente (nao commitado ainda): Fase 3 (3/3) — migrar ReportEditorPage.tsx.
+[NOTA DE ATUALIZACAO — ver ADENDO 2, 3 e 4 acima: esta pendencia foi
+concluida no commit b5723f5 e aprovada pela Manus no ADENDO 4. Esta linha
+e mantida como registro historico do estado no momento em que este
+handoff foi originalmente escrito, nao reflete o estado atual da branch.]
 
 
 2. O PROBLEMA ORIGINAL E POR QUE ELE EXISTIA (MECANISMO)
@@ -450,17 +454,18 @@ FASE 3 — migracao dos 3 consumidores reais para chamar exclusivamente
     ~500 linhas liquidas de HTML/CSS/logica duplicada foram removidas desta
     tela (897 linhas alteradas no diff, com saldo fortemente negativo).
 
-  (3/3) ReportEditorPage.tsx — AINDA NAO INICIADO nesta sessao. Este e o
-    editor de laudo do medico: alem da visualizacao WYSIWYG (que ja usa
-    SharedReportSheet.tsx diretamente e nao muda), tem seu proprio caminho
-    de impressao/download financeiro (handlePrint) que ainda constroi HTML
-    de pagina a mao, com a MESMA restricao de "rodape do medico so na
-    ultima pagina fisica" que ja foi removida dos outros 2 caminhos — este
-    e provavelmente o ultimo lugar do sistema onde essa regra de produto
-    (jah corrigida em todo o resto) ainda nao foi aplicada. A migracao
-    deste arquivo segue o mesmo padrao ja usado nos outros 2: substituir a
-    construcao manual de HTML por chamadas a resolveEffectiveReportLayout +
-    resolveEffectivePageGeometry + renderAllPhysicalPagesHtml.
+  (3/3) ReportEditorPage.tsx — AINDA NAO INICIADO nesta sessao [NOTA DE
+    ATUALIZACAO: concluido no commit b5723f5, ver ADENDO 2 — este bloco
+    descreve o estado no momento original da escrita, nao o estado atual].
+    Este e o editor de laudo do medico: alem da visualizacao WYSIWYG (que ja
+    usa SharedReportSheet.tsx diretamente e nao muda), tinha seu proprio
+    caminho de impressao/download financeiro (handlePrint) que ainda
+    construia HTML de pagina a mao, com a MESMA restricao de "rodape do
+    medico so na ultima pagina fisica" que ja tinha sido removida dos
+    outros 2 caminhos. A migracao deste arquivo seguiu o mesmo padrao ja
+    usado nos outros 2: substituir a construcao manual de HTML por chamadas
+    a resolveEffectiveReportLayout + resolveEffectivePageGeometry +
+    renderAllPhysicalPagesHtml — feito e aprovado, ver ADENDO 2 e 4.
 
 
 4. TESTES DE WIRING ATUALIZADOS NESTA MIGRACAO (NAO SO NOVOS TESTES — TAMBEM
@@ -489,8 +494,10 @@ de regressao em forma equivalente:
 
 Se a Manus, ao revisar a integracao final, encontrar um teste de wiring que
 pareca testar comportamento antigo e nao tiver sido atualizado — provavelmente
-e um teste que ainda aponta para ReportEditorPage.tsx (Fase 3, 3/3, pendente) e
-sera corrigido junto com essa ultima migracao, seguindo o mesmo padrao.
+e um teste que ainda aponta para ReportEditorPage.tsx (Fase 3, 3/3). [NOTA DE
+ATUALIZACAO: essa migracao ja foi concluida (commit b5723f5) e os testes de
+server/report-editor-mobile-ui.test.ts ja foram reescritos para a nova
+arquitetura, ver ADENDO 2.]
 
 
 5. VALIDACAO EXECUTADA APOS CADA COMMIT DESTA BRANCH (ATE O TOPO ATUAL)
@@ -530,7 +537,10 @@ sera corrigido junto com essa ultima migracao, seguindo o mesmo padrao.
     (reportDocumentModel.ts), nao mais 3 arquivos.
   - ReportEditorPage.tsx (Fase 3, 3/3) permanece na arquitetura antiga ate a
     proxima sessao de trabalho — a regra de "rodape so na ultima pagina"
-    ainda esta ativa la.
+    ainda esta ativa la. [NOTA DE ATUALIZACAO: isso foi resolvido no commit
+    b5723f5 — ReportEditorPage.tsx ja usa a fabrica canonica e a regra de
+    repeticao em toda pagina, ver ADENDO 2. Este item nao esta mais fora de
+    escopo por estar pendente; foi concluido.]
 
 
 7. ESTADO ATUAL E PROXIMOS PASSOS (ATUALIZADO PELO ADENDO 2 — VER ACIMA)
