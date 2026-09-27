@@ -248,7 +248,7 @@ export function SharedReportSheet({
         </div>
       )}
 
-      {merged.footer?.visible && (
+      {merged.footer?.visible && (() => {
         // CORREÇÃO (parecer de bloqueio da Manus, Fase 2 da unificação de
         // PDF, 27/09/2026): a imagem de rodapé era posicionada como fundo
         // absoluto cobrindo 100% do bloco, com a assinatura/carimbo do
@@ -261,26 +261,97 @@ export function SharedReportSheet({
         // margem extra reservada (screenFooterReservedMm) — a unificação
         // (Fase 2/3) apenas tornou visível em todas as páginas físicas o
         // que já era um problema latente do componente compartilhado.
-        // Decisão do Alessandro (27/09/2026): empilhar verticalmente —
-        // a imagem ocupa uma faixa própria dentro do bloco (limitada a no
-        // máximo 55% da altura, nunca mais que isso), e a assinatura fica
-        // sempre abaixo dela, numa faixa separada que nunca é coberta pela
-        // imagem. Nenhuma reconfiguração é exigida das unidades que já
-        // configuraram os dois — passam a ver as duas coisas lado a lado
-        // em vez de uma por cima da outra.
-        <div data-layout-block="footer" style={{ ...blockStyle(merged.footer, fallbackPositions.footer), display: "flex", flexDirection: "column", alignItems: "center", justifyContent: footerImageUrl ? "flex-start" : "center", overflow: "hidden", zIndex: 4 }}>
-          {footerImageUrl && (
-            <img
-              src={footerImageUrl}
-              alt="Rodapé"
-              style={{ width: "100%", maxHeight: "55%", objectFit: "contain", display: "block", flexShrink: 0 }}
-            />
-          )}
-          <div style={{ width: "100%", flex: footerImageUrl ? "1 1 auto" : undefined, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-            {footer}
+        // Decisão do Alessandro (27/09/2026): empilhar verticalmente — a
+        // imagem ocupa uma faixa própria acima, a assinatura fica sempre
+        // abaixo dela.
+        //
+        // CORREÇÃO 2 (parecer de bloqueio da Manus, revisão 2,
+        // 27/09/2026): o primeiro empilhamento fixava a altura do bloco
+        // em blockPositions.footer.h% com overflow:hidden, e a imagem
+        // limitada a max-height:55% *desse bloco fixo*. Quando a
+        // assinatura/carimbo do médico precisava de mais espaço que os
+        // 45% restantes, ela era cortada (doctorClipped:true, confirmado
+        // por medição DOM em Chromium nas 3 páginas, A4 e Letter) — o
+        // bloco padrão simplesmente não era alto o bastante para imagem
+        // + assinatura completa ao mesmo tempo. A Manus explicitamente
+        // avisou que só remover overflow:hidden não bastaria, pois o
+        // conteúdo poderia invadir a margem física, o corpo do laudo ou
+        // a página seguinte.
+        //
+        // Correção (duas camadas, sem medição JS — CSS puro, válido em
+        // qualquer motor de renderização real):
+        // 1) Prioridade de espaço: o conteúdo do médico (assinatura/
+        //    carimbo/nome/CRM) ocupa sua altura NATURAL (flex "0 0 auto",
+        //    nunca comprimido) e vem por ÚLTIMO no eixo vertical. A
+        //    imagem de rodapé é o elemento flexível — ocupa o que sobra,
+        //    com um teto calculado em mm (não em %, pois o bloco não tem
+        //    mais altura fixa) a partir da altura configurada do bloco,
+        //    preservando a intenção do admin de que a imagem não domine
+        //    o rodapé, mas cedendo espaço à assinatura sempre que
+        //    necessário. Isso sozinho já resolve o caso relatado (bloco
+        //    ~85px, assinatura ~68px — cabem os dois quando a imagem para
+        //    de reservar 55% fixo e passa a ceder espaço).
+        // 2) Rede de segurança contra invasão (só entra em ação se o
+        //    conteúdo do médico sozinho, sem nenhuma imagem, ainda assim
+        //    não couber na altura configurada — configuração extrema):
+        //    o bloco é ANCORADO PELA BORDA INFERIOR (bottom, não top),
+        //    então, se precisar crescer, cresce SEMPRE PARA CIMA — nunca
+        //    invade a margem física nem a página seguinte, que ficam
+        //    abaixo dele. E o crescimento para cima tem um teto rígido
+        //    (maxHeight) calculado a partir da borda inferior do bloco
+        //    "body", com uma folga de segurança — o bloco de rodapé
+        //    jamais sobrepõe o corpo do laudo. Dentro desses dois limites
+        //    físicos (nunca abaixo, nunca sobre o corpo), overflow:hidden
+        //    permanece como última garantia.
+        const footerPos = merged.footer ?? fallbackPositions.footer;
+        const bodyPos = merged.body ?? fallbackPositions.body;
+        const usableHeightMm = Math.max(1, paperHeightMm - marginTop - marginBottom);
+        const footerBlockHeightMm = (footerPos.h / 100) * usableHeightMm;
+        const footerImageMaxHeightMm = footerImageUrl ? Math.max(6, footerBlockHeightMm * 0.55) : 0;
+        // Distância fixa da borda inferior da área útil até a borda
+        // inferior do bloco de rodapé configurado — preservada como
+        // âncora (o bloco nunca desce além do que o admin configurou).
+        const footerBottomPercent = Math.max(0, 100 - footerPos.y - footerPos.h);
+        // Teto de crescimento (para cima): do topo configurado do rodapé
+        // até 1% abaixo da borda inferior do bloco "body", nunca menor
+        // que a altura já configurada (nunca encolhe o que já funcionava).
+        const bodyBottomPercent = bodyPos.y + bodyPos.h;
+        const footerMaxHeightPercent = Math.max(
+          footerPos.h,
+          footerPos.y + footerPos.h - bodyBottomPercent - 1
+        );
+        return (
+          <div
+            data-layout-block="footer"
+            style={{
+              position: "absolute",
+              left: `${footerPos.x}%`,
+              bottom: `${footerBottomPercent}%`,
+              width: `${footerPos.w}%`,
+              minHeight: `${footerPos.h}%`,
+              maxHeight: `${footerMaxHeightPercent}%`,
+              boxSizing: "border-box",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: footerImageUrl ? "flex-start" : "center",
+              overflow: "hidden",
+              zIndex: 4,
+            }}
+          >
+            {footerImageUrl && (
+              <img
+                src={footerImageUrl}
+                alt="Rodapé"
+                style={{ width: "100%", flex: "0 1 auto", minHeight: 0, maxHeight: `${footerImageMaxHeightMm}mm`, objectFit: "contain", display: "block" }}
+              />
+            )}
+            <div style={{ width: "100%", flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {footer}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {children}
       </div>
