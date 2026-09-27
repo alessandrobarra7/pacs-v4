@@ -4,7 +4,8 @@ Repositorio: alessandrobarra7/pacs-v4
 Branch: claude/unificacao-geradores-pdf-laudo
 Commit base (origin/main no momento deste handoff): a825cb59757685cf22fb0b8db73922d2210ff4a7
 Commit topo (original deste handoff): c0887eb849d338c662c0bf40a7a8b945007df521
-Commit topo (apos o ADENDO abaixo): c79f778
+Commit topo (apos o ADENDO de 27/09, sobreposicao rodape/assinatura): c79f778
+Commit topo (apos o ADENDO 2, Fase 3 3/3 completa): b5723f5
 Destinataria: Manus (e qualquer outro agente/engenheiro com acesso a VM1/VM2/VM3)
 Autor: Claude (sandbox, sem acesso a producao)
 
@@ -66,6 +67,80 @@ inalterada. Este ADENDO resolve especificamente o achado bloqueante de
 sobreposicao visual; nao e, por si so, um pedido de nova aprovacao de
 merge/VM1 (essa continua condicionada tambem a Fase 3 3/3 estar completa,
 conforme a secao 7).
+
+ADENDO 2 (27/09/2026) — Fase 3 (3/3) completa: ReportEditorPage.tsx migrado
+
+O item 4 do parecer da Manus ("Migrar o ReportEditorPage.tsx para
+renderAllPhysicalPagesHtml antes de declarar a unificacao dos tres geradores
+concluida") esta resolvido no commit b5723f5 (topo atual desta branch).
+
+O que foi feito: handlePrint e handleFinancialPdfDownload em
+ReportEditorPage.tsx deixaram de usar o gerador manual (template HTML proprio,
+CSS proprio, matematica manual de margem/rodape, fallback de logo em avatar
+colorido, e o padrao de auto-impressao via
+<script>window.onload{...window.print()...}</script>) e passaram a usar a
+mesma fabrica canonica ja usada pelos outros 2 consumidores:
+resolveEffectiveReportLayout, resolveEffectivePageGeometry,
+normalizeCanonicalLogos, buildCanonicalPatient, buildDoctorFooterHtml,
+renderAllPhysicalPagesHtml, e runControlledPrint (esse ultimo elimina o
+window.onload/window.print() embutido no HTML, igual ja feito em
+PacsQueryPage.tsx). handleFinancialPdfDownload passou de capturar via
+html2canvas os elementos ja renderizados na tela (WYSIWYG, com o
+comportamento antigo de rodape so-na-ultima-pagina) para construir seu proprio
+documento offscreen (iframe oculto) com o mesmo modelo canonico, no mesmo
+padrao ja usado por financialReportPdfDownload.ts.
+
+A visualizacao WYSIWYG multi-secao em tela (area de edicao ao vivo do laudo)
+foi deliberadamente NAO tocada — continua usando SharedReportSheet como
+componente React diretamente. Essa e uma superfície de edicao, nao um
+gerador de documento, e e a distincao que o proprio parecer da Manus fazia
+("gerador manual" vs. editor).
+
+Dois bugs latentes foram corrigidos como efeito colateral da migracao: (a)
+handlePrint passava a data de nascimento do paciente crua/sem formatacao para
+o componente clinico, diferente da tela on-screen que ja formatava
+corretamente — agora ambos passam pelo mesmo buildCanonicalPatient; (b) o
+caminho multi-secao de handlePrint nunca convertia as imagens de cada secao
+para base64 (so a secao unica de fallback recebia essa conversao) — agora
+todas as secoes recebem a mesma conversao, igual ao padrao ja usado em
+PacsQueryPage.tsx.
+
+Mudanca de comportamento deliberada: o fallback de logo em avatar colorido
+com iniciais (usado so quando nenhum logo estava configurado) foi removido
+de ReportEditorPage.tsx para consistencia com os outros 2 consumidores, que
+ja nao tinham esse fallback.
+
+Teste de regressao: os 2 testes em server/report-editor-mobile-ui.test.ts que
+antes afirmavam explicitamente "ReportEditorPage.tsx ainda nao foi migrado"
+(escritos em rodada anterior, antecipando esta migracao) foram reescritos
+para afirmar a nova arquitetura (ausencia do gerador manual antigo, presenca
+de renderAllPhysicalPagesHtml/resolveEffectivePageGeometry). A parte do
+arquivo que cobre a tela on-screen (Via 3) nao foi alterada.
+
+Validacao: pnpm check limpo; npx vitest run
+server/report-editor-mobile-ui.test.ts 15/15 aprovados; TZ=UTC pnpm test
+completo retorna exatamente a mesma linha de base conhecida (7 arquivos/11
+falhas pre-existentes, nenhuma nova) — 736 aprovados; pnpm build ok; git diff
+--check origin/main..HEAD limpo.
+
+Com isso, os 3 consumidores de PDF/impressao (financialReportPdfDownload.ts,
+PacsQueryPage.tsx, ReportEditorPage.tsx) e a fabrica canonica
+(reportDocumentRenderer.tsx) estao completos e usando o mesmo caminho unico,
+conforme a meta original do Alessandro. O item 6 da secao "O QUE FICA
+DELIBERADAMENTE FORA DO ESCOPO" abaixo, que mencionava ReportEditorPage.tsx
+como pendente, esta desatualizado por este ADENDO — ReportEditorPage.tsx
+NAO esta mais na arquitetura antiga.
+
+O que continua pendente, sem mudanca, e exatamente o que a secao 7 (abaixo)
+ja previa como proximo passo apos a Fase 3 3/3 estar completa: homologacao
+visual real em Chromium das 4 telas (editor, impressao rapida da lista de
+Estudos, download financeiro, e a visualizacao WYSIWYG em si) confirmando que
+todas produzem, para o MESMO laudo assinado, a mesma imagem — isso o Claude
+nao pode fazer neste sandbox (sem motor de layout/renderizacao real, mesma
+limitacao ja registrada em handoffs anteriores desta pasta). A partir deste
+ADENDO, o trabalho de codigo da unificacao esta concluido do lado do Claude;
+o proximo passo e essa validacao visual (manual ou pela Manus, que tem acesso
+a um ambiente com navegador real) antes da decisao de merge/VM1.
 
 ATENCAO — ESTE HANDOFF E DE ORIENTACAO, NAO DE INTEGRACAO FINAL. O Alessandro
 pediu explicitamente, apos a Fase 1 ter sido revisada e aprovada pela Manus:
@@ -341,18 +416,19 @@ sera corrigido junto com essa ultima migracao, seguindo o mesmo padrao.
     ainda esta ativa la.
 
 
-7. ESTADO ATUAL E PROXIMOS PASSOS
+7. ESTADO ATUAL E PROXIMOS PASSOS (ATUALIZADO PELO ADENDO 2 — VER ACIMA)
 
 Publicado no GitHub (branch claude/unificacao-geradores-pdf-laudo, commit
-c0887eb no momento deste handoff), sem PR aberto, sem merge em main, nada
-implantado em nenhuma VM. Por instrucao explicita do Alessandro, a Manus NAO
-deve revisar nem bloquear este trabalho agora — o proximo passo do lado do
-Claude e migrar ReportEditorPage.tsx (Fase 3, 3/3). So depois que essa ultima
-migracao estiver commitada, validada (mesmo checklist do item 5 acima) e as 4
-telas (editor, lista de Estudos, financeiro, e a visualizacao WYSIWYG) tiverem
-sido confirmadas visualmente equivalentes para o mesmo laudo, a integracao
-final sera formalmente entregue a Manus, com um handoff de fechamento que
-resume as 3 fases e pede especificamente:
+b5723f5 no momento deste ADENDO 2), sem PR aberto, sem merge em main, nada
+implantado em nenhuma VM. Diferente da redacao original desta secao (que
+previa a migracao de ReportEditorPage.tsx como proximo passo do Claude), essa
+migracao ja foi feita e validada — ver ADENDO 2 acima. As 3 fases de codigo
+estao completas. Por instrucao explicita do Alessandro, a Manus NAO deve
+revisar nem bloquear este trabalho por conta propria antes de ser
+formalmente chamada — o que falta agora e a homologacao visual (item 7-a
+abaixo), depois da qual a integracao final sera formalmente entregue a
+Manus, com um handoff de fechamento que resume as 3 fases e pede
+especificamente:
   (a) validacao visual real em Chromium (a mesma limitacao ja registrada nos
       handoffs anteriores desta pasta — os testes deste repositorio nao
       substituem observacao visual num navegador real, so confirmam
