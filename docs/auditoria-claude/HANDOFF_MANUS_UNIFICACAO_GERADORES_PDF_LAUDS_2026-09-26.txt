@@ -3,9 +3,69 @@ Projeto: PACS Portal / LAUDS
 Repositorio: alessandrobarra7/pacs-v4
 Branch: claude/unificacao-geradores-pdf-laudo
 Commit base (origin/main no momento deste handoff): a825cb59757685cf22fb0b8db73922d2210ff4a7
-Commit topo (neste handoff): c0887eb849d338c662c0bf40a7a8b945007df521
+Commit topo (original deste handoff): c0887eb849d338c662c0bf40a7a8b945007df521
+Commit topo (apos o ADENDO abaixo): c79f778
 Destinataria: Manus (e qualquer outro agente/engenheiro com acesso a VM1/VM2/VM3)
 Autor: Claude (sandbox, sem acesso a producao)
+
+ADENDO (27/09/2026) — resposta ao parecer de bloqueio da Manus sobre a Fase 2
+
+A Manus revisou o commit c0887eb (topo no momento do handoff original acima)
+e emitiu "Avaliação técnica — Fase 2 da unificação dos geradores de PDF/laudos",
+com veredito NAO APROVADA para merge/Fase 3/implantação, por um achado real e
+confirmado no código: no bloco "footer" de SharedReportSheet.tsx, a imagem de
+rodape configuravel (footerImageUrl) era renderizada como fundo absoluto
+cobrindo 100%/100% do bloco, com a assinatura/carimbo do medico (footer)
+centralizada por cima na MESMA area via z-index. A homologacao visual da Manus
+em Chromium (fixture sintetico, A4 e Letter, 3 paginas, margens nao padrao)
+confirmou overlap:true nas 3 paginas, em ambas as geometrias.
+
+Investigacao adicional (Claude, apos o parecer): esse comportamento nao foi
+introduzido pela Fase 2 -- ja existia no componente compartilhado SharedReportSheet.tsx
+usado pelo editor ao vivo (ReportEditorPage.tsx, linhas 1854/1961/1991/2104),
+que sempre passou footerImageUrl e footer juntos. Ficava mascarado la por so
+se manifestar na ultima pagina (regra "so ultima pagina", ainda vigente no
+editor, pendente da Fase 3 3/3) e por uma margem extra reservada
+(screenFooterReservedMm) que so empurra o bloco inteiro para baixo, sem
+resolver a sobreposicao interna. A unificacao (Fase 2/3) apenas tornou visivel,
+em toda pagina fisica dos 2 consumidores ja migrados, um problema que ja era
+latente no componente ha mais tempo.
+
+Decisao apresentada ao Alessandro (3 opcoes: empilhar verticalmente / fundo com
+contraste controlado / separar em dois blocos configuraveis) -- ele escolheu
+empilhar verticalmente. Corrigido no commit c79f778 (mesma branch, topo atual):
+o bloco "footer" de SharedReportSheet.tsx passou de position:absolute+z-index
+para display:flex;flex-direction:column -- a imagem de rodape (quando presente)
+ocupa no maximo 55% da altura do bloco (object-fit:contain, nao mais cover), e
+o conteudo do medico fica sempre abaixo dela, em flex:1 1 auto, numa faixa que
+a imagem nunca cobre. Nenhuma unidade precisa reconfigurar nada. Sem imagem de
+rodape configurada, o comportamento permanece exatamente o mesmo de antes.
+
+Cobertura de teste (item 5 do parecer da Manus, "adicionar teste de regressao
+que detecte a composicao escolhida e impeca retorno a sobreposicao"): 2 novos
+testes em server/shared-report-print.test.ts. Como jsdom nao calcula
+layout/geometria real (mesma limitacao ja documentada para reportPagination.ts
+nesta pasta -- nao e possivel medir overlap real de pixels em jsdom), os testes
+provam a AUSENCIA ESTRUTURAL da sobreposicao: confirmam que a imagem nao e mais
+position:absolute;inset:0 nem object-fit:cover cobrindo o bloco inteiro, que
+tem altura maxima garantindo espaco para o conteudo abaixo, que aparece em
+ordem de documento antes do texto do medico dentro de um container
+flex-direction:column (a unica forma de garantir so por CSS que um nunca fique
+atras do outro), e que o comportamento sem imagem de rodape configurada
+permanece inalterado.
+
+Validacao apos a correcao: pnpm check limpo; TZ=UTC pnpm test completo retorna
+exatamente a mesma linha de base conhecida (7 arquivos/11 falhas pre-existentes,
+nenhuma nova) -- 736 aprovados (+2 pelos novos testes, contra 734 no commit
+revisado pela Manus); pnpm build ok; git diff --check limpo.
+
+O restante do parecer da Manus permanece de pe e ainda pendente, sem mudanca:
+o item 4 (migrar ReportEditorPage.tsx / Fase 3 3/3) continua sendo o proximo
+passo antes de qualquer nova revisao de integracao final -- ver secao 7 abaixo,
+inalterada. Este ADENDO resolve especificamente o achado bloqueante de
+sobreposicao visual; nao e, por si so, um pedido de nova aprovacao de
+merge/VM1 (essa continua condicionada tambem a Fase 3 3/3 estar completa,
+conforme a secao 7).
 
 ATENCAO — ESTE HANDOFF E DE ORIENTACAO, NAO DE INTEGRACAO FINAL. O Alessandro
 pediu explicitamente, apos a Fase 1 ter sido revisada e aprovada pela Manus:
