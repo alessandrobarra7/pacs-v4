@@ -249,9 +249,36 @@ export function SharedReportSheet({
       )}
 
       {merged.footer?.visible && (
-        <div data-layout-block="footer" style={{ ...blockStyle(merged.footer, fallbackPositions.footer), display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", zIndex: 4 }}>
-          {footerImageUrl && <img src={footerImageUrl} alt="Rodapé" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
-          <div style={{ position: "relative", zIndex: 1, width: "100%" }}>{footer}</div>
+        // CORREÇÃO (parecer de bloqueio da Manus, Fase 2 da unificação de
+        // PDF, 27/09/2026): a imagem de rodapé era posicionada como fundo
+        // absoluto cobrindo 100% do bloco, com a assinatura/carimbo do
+        // médico centralizada POR CIMA dela na mesma área — a homologação
+        // visual em Chromium confirmou sobreposição real (overlap: true)
+        // nas 3 páginas testadas, em A4 e Letter, tornando o texto da
+        // assinatura ilegível sobre o banner. Esse comportamento já
+        // existia mesmo no editor ao vivo (ReportEditorPage.tsx), só
+        // ficava mascarado por só aparecer na última página e por uma
+        // margem extra reservada (screenFooterReservedMm) — a unificação
+        // (Fase 2/3) apenas tornou visível em todas as páginas físicas o
+        // que já era um problema latente do componente compartilhado.
+        // Decisão do Alessandro (27/09/2026): empilhar verticalmente —
+        // a imagem ocupa uma faixa própria dentro do bloco (limitada a no
+        // máximo 55% da altura, nunca mais que isso), e a assinatura fica
+        // sempre abaixo dela, numa faixa separada que nunca é coberta pela
+        // imagem. Nenhuma reconfiguração é exigida das unidades que já
+        // configuraram os dois — passam a ver as duas coisas lado a lado
+        // em vez de uma por cima da outra.
+        <div data-layout-block="footer" style={{ ...blockStyle(merged.footer, fallbackPositions.footer), display: "flex", flexDirection: "column", alignItems: "center", justifyContent: footerImageUrl ? "flex-start" : "center", overflow: "hidden", zIndex: 4 }}>
+          {footerImageUrl && (
+            <img
+              src={footerImageUrl}
+              alt="Rodapé"
+              style={{ width: "100%", maxHeight: "55%", objectFit: "contain", display: "block", flexShrink: 0 }}
+            />
+          )}
+          <div style={{ width: "100%", flex: footerImageUrl ? "1 1 auto" : undefined, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+            {footer}
+          </div>
         </div>
       )}
 
