@@ -7,6 +7,7 @@ Commit topo (original deste handoff): c0887eb849d338c662c0bf40a7a8b945007df521
 Commit topo (apos o ADENDO de 27/09, sobreposicao rodape/assinatura): c79f778
 Commit topo (apos o ADENDO 2, Fase 3 3/3 completa): b5723f5
 Commit topo (apos o ADENDO 3, assinatura cortada no bloco rodape): 7ca5dde
+Commit topo (aprovado pela Manus, ADENDO 4): 59a95cf
 Destinataria: Manus (e qualquer outro agente/engenheiro com acesso a VM1/VM2/VM3)
 Autor: Claude (sandbox, sem acesso a producao)
 
@@ -211,6 +212,52 @@ margens nao padrao, medicao explicita de que a assinatura esta integralmente
 dentro do bloco e da folha fisica) continua fora do alcance deste sandbox --
 depende de confirmacao da Manus ou de homologacao manual, exatamente como
 pedido na secao "Condicao para nova revisao" do parecer da Manus.
+
+ADENDO 4 (27/09/2026) — Manus APROVOU tecnicamente e visualmente (Fases 2 e 3)
+
+A Manus revisou o topo 59a95cf (apos o ADENDO 3) e emitiu "Aprovacao tecnica
+-- Fases 2 e 3 da unificacao dos geradores de PDF/laudos", com veredito:
+"APROVADA tecnicamente e visualmente para ser considerada em um merge futuro."
+A propria Manus deixa explicito que a aprovacao e do codigo revisado e que
+NENHUM merge, deploy ou alteracao de VM foi realizado por ela.
+
+Validacao tecnica confirmada pela Manus: pnpm check aprovado; testes
+direcionados (shared-report-print, report-editor-mobile-ui, pacs-print-
+fallback-shared-pagination, report-pagination) 66/66 aprovados; TZ=UTC pnpm
+test completo em 738 aprovados/11 falhas/1 ignorado, exatamente a mesma
+baseline historica conhecida (as 7 suites ja documentadas, nenhuma nova);
+pnpm build aprovado; git diff --check limpo. Nenhuma regressao nova atribuida
+a branch.
+
+Homologacao visual real em Chromium (o item que faltava, pedido nos ADENDOS 2
+e 3): fixture sintetico com 3 paginas fisicas, A4 e Letter, margens
+assimetricas nao padrao, logo configuravel, imagem de rodape configuravel e
+assinatura/carimbo sintetico repetido em todas as paginas. Resultado, em
+AMBAS as geometrias e nas 3 paginas: overlap=false, doctorClipped=false,
+footerBelowBody=true -- ou seja, a assinatura ficou integralmente contida no
+rodape, a imagem nao cobriu o conteudo medico, e o rodape permaneceu sempre
+abaixo do corpo do laudo. Os dois bloqueios reportados nas revisoes anteriores
+(sobreposicao imagem x assinatura, e depois assinatura cortada) estao
+confirmados como resolvidos por medicao visual real, nao so por teste
+estrutural em jsdom.
+
+A Manus delimitou explicitamente o escopo desta aprovacao: contrato canonico
+da Fase 1 (ja aprovado antes), fabrica de paginas fisicas, migracao dos tres
+consumidores, paginacao multipagina, repeticao de logos/paciente/assinatura/
+rodape em toda pagina, A4/Letter/margens customizadas no cenario sintetico, e
+a correcao estrutural de sobreposicao e clipping. A Manus tambem deixa
+explicito que "a aprovacao nao autoriza automaticamente merge, deploy ou
+execucao em VM; essas acoes permanecem separadas e dependem da autorizacao
+operacional do responsavel" -- ou seja, do Alessandro e/ou da propria Manus
+quando ela decidir agir sobre producao, nunca do Claude (que nunca edita
+main, nunca faz merge, nunca implanta, conforme regra permanente desta
+parceria).
+
+Com este ADENDO 4, a unificacao dos 3 geradores de PDF/impressao do LAUDS
+esta tecnica E visualmente aprovada pela Manus. O trabalho de codigo desta
+frente esta concluido do lado do Claude. O proximo passo (merge/deploy/VM1)
+e uma decisao do Alessandro, feita com ou sem a Manus, fora do escopo do que
+o Claude executa neste sandbox.
 
 ATENCAO — ESTE HANDOFF E DE ORIENTACAO, NAO DE INTEGRACAO FINAL. O Alessandro
 pediu explicitamente, apos a Fase 1 ter sido revisada e aprovada pela Manus:
