@@ -1,0 +1,116 @@
+HANDOFF TECNICO PARA A MANUS — CORRECAO COMMITADA (largura da folha de medicao)
+Projeto: PACS Portal / LAUDS
+Repositorio: alessandrobarra7/pacs-v4
+Branch: claude/fix-largura-folha-medicao-paginacao (baseada em be7fe6a,
+        topo da arquitetura unificada revertida)
+main atual (producao, intocado por este handoff): 41d252c
+Commit desta correcao: 47bfc83
+Branch de investigacao anterior (achado original): claude/investigacao-
+        incidente-pdf-2026-09-27 (commit 7dce7c3, pedido de execucao)
+Destinataria: Manus
+Autor: Claude (sandbox, sem acesso a VM nem a navegador real)
+
+ATENCAO — ESTE HANDOFF FORMALIZA EM COMMIT UMA CORRECAO QUE A MANUS JA
+VALIDOU LOCALMENTE (SEM COMMIT). NAO E PEDIDO DE MERGE/DEPLOY.
+
+main permanece em 41d252c. Este handoff pede que a Manus repita, contra
+ESTE COMMIT (nao mais o worktree local dela), a mesma validacao Chromium
+que ja fez — agora que a correcao esta commitada, revisavel e com teste
+de regressao no repositorio.
+
+
+1. O QUE ACONTECEU
+
+A Manus investigou o incidente (branch claude/investigacao-incidente-
+pdf-2026-09-27, commit 7dce7c3) e encontrou, com medicao real em
+Chromium, a causa exata do defeito que motivou a reversao da unificacao
+em producao: a folha de medicao usada por
+`renderPaginatedReportPages()` (client/src/lib/reportDocumentRenderer.tsx)
+nao tinha `width` propria, era medida pelo Chromium com 0px de largura, e
+fragmentava conteudo curto em dezenas de paginas (6 paragrafos sinteticos
+geravam 24 paginas / ~96,3 MB de PDF). A Manus aplicou e validou
+localmente uma correcao de uma linha (fixar a largura da folha de medicao
+em mm, igual a folha final), mas deixou explicito no proprio parecer que
+essa correcao "existe somente no worktree isolado, sem commit" e que a
+proxima acao deveria ser pequena e isolada, incluindo formalizar a
+correcao em commit e adicionar teste de regressao — exatamente o que
+este handoff faz.
+
+
+2. O QUE FOI FEITO NESTE COMMIT (47bfc83)
+
+- Portada a correcao exata que a Manus validou:
+    const measurementWidthMm = resolveEffectivePageGeometry(model.layout).pageSize === "Letter" ? 216 : 210;
+    shell.style.cssText = `position:absolute;visibility:hidden;left:-99999px;top:0;width:${measurementWidthMm}mm;`;
+- Adicionados 3 testes de regressao em server/report-document-renderer.
+  test.ts, injetando um paginador fake (mesmo padrao ja usado nessa
+  suite) que captura o elemento real criado por makeEmptyBody() e
+  verifica: width:210mm para A4; width:216mm para Letter (nao fica presa
+  a A4); a folha de medicao nunca fica sem width (nem vazio, nem "auto")
+  — essa ultima e a regressao direta do bug original.
+- jsdom nao calcula layout real (mesma limitacao documentada em toda a
+  suite), entao estes testes provam ESTRUTURALMENTE que a largura correta
+  e aplicada — nao substituem a medicao em pixels que so a Manus pode
+  fazer em Chromium real.
+
+
+3. VALIDACAO JA EXECUTADA NESTE SANDBOX (SEM CHROMIUM)
+
+  pnpm check: aprovado
+  npx vitest run (report-document-renderer + report-pagination +
+    pacs-print-fallback-shared-pagination + report-editor-mobile-ui +
+    shared-report-print): 82/82 aprovados (16 no arquivo modificado, 3
+    novos)
+  TZ=UTC pnpm test (suite completa): 741 aprovados, 11 falhas, 1 ignorado
+    — mesma linha de base historica conhecida (7 suites ja documentadas em
+    handoffs anteriores), nenhuma falha nova
+  pnpm build: aprovado
+  git status: limpo apos o commit
+
+
+4. PEDIDO CONCRETO A MANUS
+
+Pedimos que a Manus repita, contra o commit 47bfc83 (nao mais o worktree
+local sem commit dela), a mesma validacao Chromium que ja fez, e
+complete os cenarios que o proprio parecer dela listou como "ainda nao
+aprovado para producao":
+
+  a) Confirmar que a correcao commitada produz o MESMO resultado que a
+     correcao local validada (6 paragrafos -> 2 paginas; 50 paragrafos ->
+     10 paginas; multissecao 5/25 blocos -> 5 paginas, sem duplicacao nem
+     perda) — deve ser identico, ja que e o mesmo trecho de codigo, agora
+     so commitado.
+  b) Repetir a validacao Chromium com A4, Letter, margens NAO padrao,
+     logos, imagem de rodape e assinatura/carimbo — cenarios que a
+     investigacao original nao cobriu (o parecer da Manus listou isso
+     explicitamente como pendente).
+  c) Exercitar os 3 consumidores reais (financialReportPdfDownload.ts,
+     PacsQueryPage.tsx, ReportEditorPage.tsx) com o mesmo corpo sintetico
+     longo, atraves de seus caminhos de codigo reais — nao so a fabrica
+     isoladamente.
+  d) Reportar as mesmas metricas de antes (paginas fisicas, dimensoes de
+     canvas, proporcao de pixels nao-brancos, blocos sinteticos
+     preservados) para cada cenario, sem dado clinico real.
+
+
+5. FORA DE ESCOPO DESTE HANDOFF
+
+- Nenhuma correcao adicional de codigo esta sendo proposta aqui — so a
+  formalizacao em commit da correcao que a Manus ja validou, mais o
+  pedido de repetir/completar a validacao Chromium contra o commit.
+- Nenhuma alteracao em main, nenhum merge, nenhum deploy, nenhuma
+  alteracao de VM.
+- A decisao de quando (e se) reintroduzir a unificacao de forma faseada e
+  controlada continua sendo do Alessandro, com a validacao tecnica da
+  Manus — nunca uma decisao unilateral do Claude.
+- A caracteristica historica de PDF rasterizado (sem texto pesquisavel)
+  permanece, como o proprio parecer da Manus registrou, uma decisao
+  arquitetural separada, fora do escopo desta correcao pontual.
+
+
+6. SEGURANCA OPERACIONAL
+
+- main permanece em 41d252c durante e apos este handoff.
+- Nenhum merge foi feito.
+- Nenhum deploy ou alteracao de VM foi feito.
+- Nenhum dado clinico real foi usado.
