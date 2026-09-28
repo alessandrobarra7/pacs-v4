@@ -67,6 +67,34 @@ const fallbackPositions: SharedBlockPositions = {
   footer: { x: 2, y: 88, w: 96, h: 9, visible: true },
 };
 
+/**
+ * Normaliza as posições históricas antes de decidir se um bloco será
+ * desenhado. Layouts e snapshots antigos podem guardar somente `x/y/w/h`,
+ * pois precedem a chave `visible` do editor.
+ *
+ * Uma mesclagem superficial substitui o fallback inteiro e deixa `visible`
+ * como `undefined`; os condicionais da folha ocultam então paciente, título,
+ * corpo e assinatura, restando apenas artes independentes de fundo. Ausência
+ * significa visível por retrocompatibilidade; somente `false` explícito
+ * oculta um bloco.
+ */
+function mergeBlockPositions(positions: SharedBlockPositions | null | undefined): SharedBlockPositions {
+  const merged: SharedBlockPositions = { ...fallbackPositions };
+
+  for (const [id, defaults] of Object.entries(fallbackPositions)) {
+    const saved = positions?.[id];
+    if (!saved) continue;
+
+    merged[id] = {
+      ...defaults,
+      ...saved,
+      visible: saved.visible !== false,
+    };
+  }
+
+  return merged;
+}
+
 function blockStyle(position: SharedBlockPosition | undefined, defaults: SharedBlockPosition): CSSProperties {
   const p = position ?? defaults;
   return {
@@ -129,7 +157,7 @@ export function SharedReportSheet({
   marginBottom = 0,
   marginLeft = 0,
 }: SharedReportSheetProps) {
-  const merged: SharedBlockPositions = { ...fallbackPositions, ...(positions ?? {}) };
+  const merged = mergeBlockPositions(positions);
   // Compatibilidade: layouts antigos persistiam uma única chave `logo`.
   // A folha canônica expande esse bloco para logo1/2/3 somente quando as
   // posições novas ainda não existem, evitando divergência entre admin e clínico.

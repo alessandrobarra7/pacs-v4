@@ -99,6 +99,36 @@ describe("renderer visual físico canônico de laudos", () => {
     expect(html).toContain('https://assets.invalid/footer.png');
   });
 
+  it("renderiza conteúdo clínico quando snapshot legado não tem visible nas posições", () => {
+    const layout = buildLayout();
+    layout.block_positions = {
+      patientInfo: { x: 4, y: 16, w: 91, h: 8 },
+      patientName: { x: 4, y: 25, w: 91, h: 5 },
+      title: { x: 4, y: 31, w: 91, h: 6 },
+      body: { x: 4, y: 38, w: 91, h: 45 },
+      footer: { x: 4, y: 86, w: 91, h: 10 },
+    } as never;
+
+    const html = createPhysicalReportSheetRenderer({
+      layout,
+      patient: { name: "Paciente de Snapshot Legado" },
+    })({
+      title: "Laudo Histórico",
+      bodyHtml: "<p>Conteúdo clínico preservado.</p>",
+      footerHtml: "<strong>Assinatura histórica</strong>",
+      isLast: true,
+    });
+
+    expect(html).toContain('data-layout-block="patientInfo"');
+    expect(html).toContain('data-layout-block="patientName"');
+    expect(html).toContain('data-layout-block="title"');
+    expect(html).toContain('data-layout-block="body"');
+    expect(html).toContain('data-layout-block="footer"');
+    expect(html).toContain("Paciente de Snapshot Legado");
+    expect(html).toContain("Conteúdo clínico preservado.");
+    expect(html).toContain("Assinatura histórica");
+  });
+
   it("permite somente na migração legada restringir a arte de rodapé à última página", () => {
     const renderPage = createPhysicalReportSheetRenderer({
       layout: buildLayout(),

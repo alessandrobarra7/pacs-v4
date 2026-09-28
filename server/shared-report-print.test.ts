@@ -69,6 +69,48 @@ describe("SharedReportSheet print contract", () => {
     expect(markup).toContain("max-width:210mm");
     expect(markup).toContain("padding:0mm 0mm 0mm 0mm");
   });
+
+  it("mantém os blocos clínicos visíveis para coordenadas legadas sem o campo visible", () => {
+    // Layouts já existentes podem ter sido persistidos antes do controle de
+    // visibilidade. A ausência da chave não pode ser lida como `false`, pois
+    // isso gera uma folha com somente fundo/rodapé e sem conteúdo clínico.
+    const legacyPositions = {
+      patientInfo: { x: 2, y: 15, w: 96, h: 9 },
+      patientName: { x: 2, y: 25, w: 96, h: 5 },
+      title: { x: 2, y: 31, w: 96, h: 6 },
+      body: { x: 2, y: 38, w: 96, h: 48 },
+      footer: { x: 2, y: 88, w: 96, h: 9 },
+    };
+    const markup = renderSharedReportSheetHtml({
+      positions: legacyPositions as never,
+      patientName: "PACIENTE LEGADO",
+      patientInfo: createElement("span", null, "Dados legados"),
+      title: createElement("strong", null, "TÍTULO LEGADO"),
+      body: createElement("div", null, "CONTEÚDO CLÍNICO LEGADO"),
+      footer: createElement("span", null, "ASSINATURA LEGADA"),
+    });
+
+    expect(markup).toContain('data-layout-block="patientInfo"');
+    expect(markup).toContain('data-layout-block="patientName"');
+    expect(markup).toContain('data-layout-block="title"');
+    expect(markup).toContain('data-layout-block="body"');
+    expect(markup).toContain('data-layout-block="footer"');
+    expect(markup).toContain("PACIENTE LEGADO");
+    expect(markup).toContain("CONTEÚDO CLÍNICO LEGADO");
+    expect(markup).toContain("ASSINATURA LEGADA");
+  });
+
+  it("mantém explicitamente oculto somente o bloco com visible=false", () => {
+    const markup = renderSharedReportSheetHtml({
+      positions: {
+        body: { x: 2, y: 38, w: 96, h: 48, visible: false },
+      },
+      body: createElement("div", null, "CONTEÚDO QUE DEVE FICAR OCULTO"),
+    });
+
+    expect(markup).not.toContain('data-layout-block="body"');
+    expect(markup).not.toContain("CONTEÚDO QUE DEVE FICAR OCULTO");
+  });
 });
 
 describe("SharedReportSheet — logo px (auditoria claude/corrige-logo-px-editor-vs-pdf)", () => {
