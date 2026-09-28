@@ -2,10 +2,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { FinanceShell } from "./FinanceShell";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
-import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
-import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { downloadFinancialReportPdf } from "@/lib/financialReportPdfDownload";
 import { toast } from "sonner";
 import {
@@ -36,84 +32,6 @@ function fmtCalendarDate(value: string | null | undefined) {
 
 function displayPatient(value: string | null | undefined) {
   return value?.replace(/\^/g, " ").replace(/\s+/g, " ").trim() || "Paciente não identificado";
-}
-
-function absoluteMediaUrl(value: string | null | undefined) {
-  return value?.startsWith("/") ? `${window.location.origin}${value}` : value || null;
-}
-
-async function waitForReportImages(container: HTMLElement) {
-  await Promise.all(Array.from(container.querySelectorAll("img")).map((image) => new Promise<void>((resolve) => {
-    if (image.complete) return resolve();
-    image.addEventListener("load", () => resolve(), { once: true });
-    image.addEventListener("error", () => resolve(), { once: true });
-  })));
-}
-
-async function downloadFinancialPdf(documentData: any) {
-  const report = documentData.report;
-  const layout = { ...(documentData.layout ?? {}), ...(report.layout_snapshot ?? {}) } as Record<string, any>;
-  const preferences = (layout.preferences ?? {}) as Record<string, any>;
-  const positions = (layout.block_positions ?? null) as Record<string, { x: number; y: number; w: number; h: number; visible: boolean }> | null;
-  const logos = Array.isArray(layout.logos) ? layout.logos.map((logo: any) => ({ ...logo, url: absoluteMediaUrl(logo.url) ?? "" })).filter((logo: any) => Boolean(logo.url)) : [];
-  const patientName = displayPatient(report.patient_name);
-  const studyDate = fmtCalendarDate(report.study_date ? String(report.study_date).slice(0, 10) : null);
-  const signedAt = report.signed_at ? new Date(report.signed_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
-  const signature = absoluteMediaUrl(documentData.signer.signature_url);
-  const stamp = absoluteMediaUrl(documentData.signer.stamp_url);
-  const signerFooter = (
-    <div style={{ width: "100%", textAlign: "center", marginTop: 24 }}>
-      {stamp ? <img src={stamp} alt="Carimbo" style={{ maxHeight: 90, maxWidth: 200, objectFit: "contain", display: "block", margin: "0 auto 8px" }} /> : null}
-      {signature ? <img src={signature} alt="Assinatura" style={{ maxHeight: 48, maxWidth: 170, objectFit: "contain", display: "block", margin: "0 auto 8px" }} /> : null}
-      <div style={{ borderTop: "1px solid #333", width: 170, margin: "0 auto 8px" }} />
-      <div style={{ fontWeight: 700, fontSize: "10pt" }}>{documentData.signer.name}{report.status === "revised" ? " — RETIFICADO" : ""}</div>
-      {documentData.signer.crm ? <div style={{ fontSize: "9pt", color: "#444", marginTop: 2 }}>CRM: {documentData.signer.crm}</div> : null}
-      {signedAt ? <div style={{ fontSize: "8pt", color: "#666", marginTop: 4 }}>Assinado em: {signedAt}</div> : null}
-    </div>
-  );
-  const patientInfo = <ClinicalPatientDetails birthDate="—" sex="—" studyDate={studyDate} modality={report.modality ?? "—"} />;
-  const makeSheet = (title: string, body: string, isLast: boolean) => renderSharedReportSheetHtml({
-    positions,
-    logos,
-    backgroundUrl: absoluteMediaUrl(layout.background_image_url),
-    backgroundOpacity: Number(layout.background_opacity ?? 1),
-    backgroundSize: layout.background_size ?? "cover",
-    footerImageUrl: isLast ? absoluteMediaUrl(layout.footer_image_url) : null,
-    fontFamily: preferences.fontFamily ? `'${preferences.fontFamily}', sans-serif` : "Arial, Helvetica, sans-serif",
-    fontSize: Number(preferences.fontSize ?? 11),
-    lineHeight: Number(preferences.lineHeight ?? 1.6),
-    patientName,
-    patientNameContent: <ClinicalPatientName patientName={patientName} />,
-    patientInfo,
-    title: <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>{title || "—"}</div>,
-    body: <div className="report-body" dangerouslySetInnerHTML={{ __html: body }} />,
-    footer: isLast ? signerFooter : <div />,
-  });
-  let sections: Array<{ title: string; body: string }> = [{ title: report.document_label ?? report.study_description ?? "Laudo", body: report.body }];
-  try {
-    const parsed = JSON.parse(report.body);
-    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((item) => item && typeof item.body === "string")) sections = parsed;
-  } catch { /* relatório em HTML simples */ }
-  const staging = document.createElement("div");
-  staging.setAttribute("aria-hidden", "true");
-  staging.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;z-index:-1;background:#fff;";
-  staging.innerHTML = sections.map((section, index) => makeSheet(section.title, section.body, index === sections.length - 1)).join("");
-  document.body.appendChild(staging);
-  try {
-    await waitForReportImages(staging);
-    const pages = Array.from(staging.querySelectorAll<HTMLElement>("[data-shared-report-sheet]"));
-    if (pages.length === 0) throw new Error("Não foi possível preparar as páginas do documento.");
-    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    for (let index = 0; index < pages.length; index += 1) {
-      const page = pages[index];
-      const canvas = await html2canvas(page, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
-      if (index > 0) pdf.addPage();
-      pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, 210, 297);
-    }
-    pdf.save(`Laudo_${patientName.replace(/[^a-zA-Z0-9]+/g, "_") || "entregue"}.pdf`);
-  } finally {
-    staging.remove();
-  }
 }
 
 function statusMeta(status: string | null | undefined) {

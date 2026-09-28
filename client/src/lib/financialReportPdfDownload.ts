@@ -1,6 +1,9 @@
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { DEFAULT_LAYOUT_PREFERENCES } from "../../../shared/types";
+import {
+  resolveEffectiveReportLayout,
+  type ReportLayoutSource,
+} from "../../../shared/reportLayout";
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx } from "./pdfPageGeometry";
 import { ContentTooLargeForPageError, paginateSectionIntoPages } from "./reportPagination";
 
@@ -62,34 +65,42 @@ async function fetchToBase64(url: string) {
   }
 }
 
+/**
+ * Resolve a única fonte de layout do PDF financeiro. O download só é aceito
+ * para laudos assinados/retificados, portanto o snapshot clínico vence quando
+ * existe; documentos históricos sem snapshot continuam usando a unidade.
+ */
+export function resolveFinancialReportLayout(documentData: {
+  layout?: unknown;
+  report?: { status?: string | null; layout_snapshot?: unknown };
+}) {
+  return resolveEffectiveReportLayout({
+    status: documentData.report?.status,
+    unitLayout: documentData.layout as ReportLayoutSource | null | undefined,
+    reportLayoutSnapshot: documentData.report?.layout_snapshot as ReportLayoutSource | null | undefined,
+  });
+}
+
 export async function downloadFinancialReportPdf(documentData: any) {
   const report = documentData.report;
-  const layout = { ...(documentData.layout ?? {}), ...(report.layout_snapshot ?? {}) } as Record<string, any>;
-  const preferences = (layout.preferences ?? {}) as Record<string, any>;
-  // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf): este arquivo lia
-  // pageSize/fontFamily/fontSize/lineHeight das preferências, mas as margens
-  // do laudo (marginTop/marginBottom/marginLeft/marginRight) nunca eram
-  // lidas — o CSS abaixo usava "padding:16mm 18mm 30mm" fixo, sempre, para
-  // qualquer unidade, mesmo quando o administrador configurava margens
-  // diferentes no editor de layout. Agora todas as preferências (incluindo
-  // margens) vêm do mesmo merge com DEFAULT_LAYOUT_PREFERENCES usado em
-  // ReportDocument.tsx, ReportEditorPage.tsx e PacsQueryPage.tsx.
-  const effPrefs = { ...DEFAULT_LAYOUT_PREFERENCES, ...preferences };
+  const effectiveLayout = resolveFinancialReportLayout(documentData);
+  const effPrefs = effectiveLayout.preferences;
   const pageSize = effPrefs.pageSize === "Letter" ? "Letter" : "A4";
   const paperWidth = pageSize === "Letter" ? "216mm" : "210mm";
   const paperHeight = pageSize === "Letter" ? "279mm" : "297mm";
   const fontFamily = effPrefs.fontFamily || "Arial";
   const fontSize = Number(effPrefs.fontSize ?? 11);
   const lineHeight = Number(effPrefs.lineHeight ?? 1.6);
-  const footerReservedMm = layout.footer_image_url ? 30 : 0;
+  const backgroundSize = effectiveLayout.background_size === "contain" ? "contain" : "cover";
+  const footerReservedMm = effectiveLayout.footer_image_url ? 30 : 0;
   const marginTop = Number(effPrefs.marginTop);
   const marginRight = Number(effPrefs.marginRight);
   const marginBottom = Number(effPrefs.marginBottom) + footerReservedMm;
   const marginLeft = Number(effPrefs.marginLeft);
-  const logos = Array.isArray(layout.logos) ? layout.logos.filter((logo: any) => logo?.url).slice(0, 3) : [];
+  const logos = (effectiveLayout.logos ?? []).filter((logo) => logo?.url).slice(0, 3);
   const [background, footer, signature, stamp, ...logoUrls] = await Promise.all([
-    fetchToBase64(absoluteUrl(layout.background_image_url)),
-    fetchToBase64(absoluteUrl(layout.footer_image_url)),
+    fetchToBase64(absoluteUrl(effectiveLayout.background_image_url)),
+    fetchToBase64(absoluteUrl(effectiveLayout.footer_image_url)),
     fetchToBase64(absoluteUrl(documentData.signer?.signature_url)),
     fetchToBase64(absoluteUrl(documentData.signer?.stamp_url)),
     ...logos.map((logo: any) => fetchToBase64(absoluteUrl(logo.url))),
@@ -137,7 +148,7 @@ export async function downloadFinancialReportPdf(documentData: any) {
   // partir de uma folha-modelo vazia) seja idêntica em todas as folhas,
   // vazias ou não.
   const buildPageShell = (title: string, bodyHtml: string, footerReserveHtml: string) => `
-    <article class="print-page" ${background ? `style="background-image:url('${background}')"` : ""}>
+    <article class="print-page" ${background ? `style="background-image:url('${background}');background-size:${backgroundSize};background-position:center;background-repeat:no-repeat"` : ""}>
       <header>${logoHtml}<div class="header-spacer"></div></header>
       <section class="patient"><div>Nome do paciente: ${escapeHtml(patientName)}</div><div>Data de realização do exame: ${escapeHtml(studyDate)}</div><div>Modalidade: ${escapeHtml(report.modality || "—")}</div></section>
       <h1>${escapeHtml(title || "Laudo")}</h1>
