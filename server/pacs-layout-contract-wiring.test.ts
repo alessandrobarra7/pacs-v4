@@ -21,14 +21,17 @@ describe("PacsQueryPage — contrato canônico de layout", () => {
     expect(source).not.toContain("DEFAULT_LAYOUT_PREFERENCES");
   });
 
-  it("alimenta folhas, captura e paginação com os campos resolvidos", () => {
-    expect(source).toContain("effectiveReportLayoutQ.footer_image_url");
-    expect(source).toContain("effectiveReportLayoutQ.background_image_url");
-    expect(source).toContain("effectiveReportLayoutQ.logos ?? []");
-    expect(source).toContain("const blockPositionsQ = effectiveReportLayoutQ.block_positions ?? {};");
-    expect(source).toContain("const logoLayerHtmlQ = renderLogoLayerHtml(blockPositionsQ, printLogosWithFallbackQ);");
+  it("alimenta a única folha visual, captura e paginação com os campos resolvidos", () => {
+    expect(source).toContain('from "@/lib/reportPhysicalSheetRenderer"');
+    expect(source).toContain("const renderPhysicalPageQ = createPhysicalReportSheetRenderer({");
+    expect(source).toContain("layout: effectiveReportLayoutQ,");
+    expect(source).toContain("logos: printLogosWithFallbackQ,");
+    expect(source).toContain("backgroundUrl: bgBase64Q || lBgUrl,");
+    expect(source).toContain("footerImageUrl: footerBase64Q || lFooterUrl,");
     expect(source).toContain("renderPage: renderPhysicalPageQ,");
     expect(source).toContain("materializePhysicalReportPages({");
+    expect(source).toContain("bodySelector: REPORT_PHYSICAL_BODY_SELECTOR,");
+    expect(source).not.toContain("renderLogoLayerHtml");
   });
 
   it("preserva logo legado somente fora de um snapshot clínico explícito", () => {

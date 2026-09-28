@@ -84,18 +84,22 @@ describe("ReportEditorPage — experiência mobile", () => {
     expect(sharedSheetSource).toContain('top: `${p.y}%`');
   });
 
-  it("usa o renderer físico comum para a impressão do Editor", () => {
+  it("usa o renderer físico comum para a impressão do Editor e da Lista PACS", () => {
     expect(editorSource).toContain("ClinicalPatientDetails");
-    expect(pacsSource).toContain("ClinicalPatientDetails");
     expect(editorSource).toContain('from "@/lib/reportPhysicalSheetRenderer"');
     expect(editorSource).toContain("const renderEditorPhysicalPage = createPhysicalReportSheetRenderer({");
     expect(editorSource).toContain("layout: effectiveReportLayout,");
     expect(editorSource).toContain("footerImageUrl: footerBase64 || layoutFooterUrl,");
     expect(editorSource).toContain("bodySelector: REPORT_PHYSICAL_BODY_SELECTOR,");
     expect(editorSource).not.toContain("renderSharedReportSheetHtml");
+    expect(pacsSource).toContain('from "@/lib/reportPhysicalSheetRenderer"');
+    expect(pacsSource).toContain("const renderPhysicalPageQ = createPhysicalReportSheetRenderer({");
+    expect(pacsSource).toContain("layout: effectiveReportLayoutQ,");
+    expect(pacsSource).toContain("footerImageUrl: footerBase64Q || lFooterUrl,");
     expect(pacsSource).toContain("materializePhysicalReportPages({");
     expect(pacsSource).toContain("renderPage: renderPhysicalPageQ,");
-    expect(pacsSource).toContain("const logoLayerHtmlQ = renderLogoLayerHtml(blockPositionsQ, printLogosWithFallbackQ);");
+    expect(pacsSource).toContain("bodySelector: REPORT_PHYSICAL_BODY_SELECTOR,");
+    expect(pacsSource).not.toContain("renderLogoLayerHtml");
     expect(sharedPrintSource).toContain("renderToStaticMarkup");
     expect(sharedPrintSource).toContain("createElement(SharedReportSheet, props)");
   });
@@ -148,8 +152,10 @@ describe("ReportEditorPage — experiência mobile", () => {
     expect(physicalRendererSource).toContain("marginBottom: preferences.marginBottom");
     expect(physicalRendererSource).toContain("marginLeft: preferences.marginLeft");
     expect(physicalRendererSource).toContain("pageSize,");
-    // PACS: o adaptador mantém a área útil deslocada pelas quatro margens.
-    expect(pacsSource).toContain("top:${lMT}mm;right:${lMR}mm;bottom:${lMB}mm;left:${lML}mm");
+    // PACS: delega à mesma fábrica, sem uma segunda geometria manual.
+    expect(pacsSource).toContain("const renderPhysicalPageQ = createPhysicalReportSheetRenderer({");
+    expect(pacsSource).toContain("layout: effectiveReportLayoutQ,");
+    expect(pacsSource).toContain("bodySelector: REPORT_PHYSICAL_BODY_SELECTOR,");
     // A folha em tela (WYSIWYG do editor clínico) também recebe as
     // preferências efetivas — é ela que o download financeiro rasteriza via
     // html2canvas, então precisa nascer já no tamanho/margem corretos.

@@ -380,6 +380,14 @@ describe("wiring — as duas vias de download usam a fábrica canônica de pági
     resolve(process.cwd(), "client/src/pages/PacsQueryPage.tsx"),
     "utf8",
   );
+  const physicalRendererSource = readFileSync(
+    resolve(process.cwd(), "client/src/lib/reportPhysicalSheetRenderer.tsx"),
+    "utf8",
+  );
+  const sharedSheetSource = readFileSync(
+    resolve(process.cwd(), "client/src/components/SharedReportSheet.tsx"),
+    "utf8",
+  );
 
   it("financialReportPdfDownload.ts delega a medição e paginação à fábrica", () => {
     expect(financialSource).toContain('from "./reportPhysicalPageFactory"');
@@ -397,7 +405,7 @@ describe("wiring — as duas vias de download usam a fábrica canônica de pági
     expect(pacsQuerySource).not.toContain("splitBlocksIntoPages");
   });
 
-  it("B1: .report-body tem overflow:hidden nas duas vias (pré-requisito para scrollHeight refletir overflow real)", () => {
+  it("B1: o corpo medido tem overflow:hidden nas duas vias (pré-requisito para scrollHeight refletir overflow real)", () => {
     // NOTA: o CSS real é gerado por template literal e contém `${lSize}`/
     // `${lLine}` — chaves LITERAIS dentro da própria regra, antes de
     // "overflow: hidden". Uma regex "balanceada por chaves" (tipo
@@ -413,7 +421,11 @@ describe("wiring — as duas vias de download usam a fábrica canônica de pági
       expect(ruleSnippet).toMatch(/overflow:\s*hidden/);
     };
     assertReportBodyHasOverflowHidden(financialSource, "financialReportPdfDownload.ts");
-    assertReportBodyHasOverflowHidden(pacsQuerySource, "PacsQueryPage.tsx");
+    // A Lista PACS não mantém uma segunda regra CSS: ela usa o corpo interno
+    // da mesma folha visual canônica que o Editor.
+    expect(pacsQuerySource).toContain('from "@/lib/reportPhysicalSheetRenderer"');
+    expect(physicalRendererSource).toContain('className: "report-body"');
+    expect(physicalRendererSource).toContain('style: { flex: 1, minHeight: 0, overflow: "hidden" }');
   });
 
   it("B4: PacsQueryPage.tsx não restringe mais a reconstrução em .print-page a laudo multisseção — laudo de seção única também é reconstruído antes da captura", () => {
@@ -429,7 +441,7 @@ describe("wiring — as duas vias de download usam a fábrica canônica de pági
     expect(pacsQuerySource).toContain("'.print-page, .print-shared-sheet'");
   });
 
-  it("Bloqueio 1 (parecer corretivo, regressão): a reserva de rodapé usa altura FIXA + overflow:hidden nas duas vias, não min-height", () => {
+  it("Bloqueio 1 (parecer corretivo, regressão): a reserva de rodapé tem dimensão fixa e overflow oculto", () => {
     // A v3 corrige o Bloqueio 1: com min-height, a folha de MEDIÇÃO (rodapé
     // vazio) podia medir uma área útil maior do que a folha REAL (última,
     // com assinatura), que crescia além do mínimo. Altura fixa +
@@ -437,8 +449,13 @@ describe("wiring — as duas vias de download usam a fábrica canônica de pági
     // nas duas, então a área útil medida é sempre a área real disponível.
     expect(financialSource).not.toContain("min-height:${FOOTER_RESERVE_MM}mm");
     expect(financialSource).toContain("height:${FOOTER_RESERVE_MM}mm;overflow:hidden");
-    expect(pacsQuerySource).not.toContain("min-height:${FOOTER_RESERVE_MM_Q}mm");
-    expect(pacsQuerySource).toContain("height:${FOOTER_RESERVE_MM_Q}mm;overflow:hidden");
+    // A Lista PACS delega a reserva ao bloco `footer` do SharedReportSheet.
+    // blockStyle fixa a altura percentual do bloco e o componente limita o
+    // conteúdo, inclusive a assinatura, com overflow oculto.
+    expect(pacsQuerySource).toContain("const renderPhysicalPageQ = createPhysicalReportSheetRenderer({");
+    expect(physicalRendererSource).toContain("footer: footerHtml");
+    expect(sharedSheetSource).toContain('data-layout-block="footer"');
+    expect(sharedSheetSource).toContain('overflow: "hidden", zIndex: 4');
   });
 
   it("Bloqueio 1 (parecer corretivo, regressão): a tolerância de ajuste não é mais de 1px inteiro (podia mascarar overflow real numa área com overflow:hidden)", () => {
@@ -457,15 +474,14 @@ describe("wiring — as duas vias de download usam a fábrica canônica de pági
     expect(pacsQuerySource).toContain("if (iframe.parentNode) iframe.remove();");
   });
 
-  it("Bloqueio 1 (parecer de revisão v3, regressão): o div de reserva de rodapé criado por buildPageShellQ carrega a classe footer-reserve, para que o seletor .footer-reserve .doctor-footer alcance o DOM real capturado", () => {
-    // Antes: o div era criado só com estilos inline (height/overflow/
-    // flex), sem a classe — a regra CSS `.footer-reserve .doctor-footer {
-    // margin-top: 0; }` não encontrava nenhum elemento na folha final, e a
-    // assinatura ainda recebia a margem de 14mm da regra geral
-    // `.doctor-footer { margin: 14mm auto 0; }` dentro de uma reserva
-    // limitada.
-    expect(pacsQuerySource).toContain('class="footer-reserve"');
-    expect(pacsQuerySource).toContain(".footer-reserve .doctor-footer { margin-top: 0; }");
+  it("Bloqueio 1 (regressão): a Lista PACS usa o bloco de rodapé do SharedReportSheet, não uma reserva HTML paralela", () => {
+    // A casca manual foi removida de propósito: a assinatura é inserida no
+    // bloco `footer` da folha visual canônica, que a centraliza acima da arte
+    // de rodapé e preserva a mesma geometria do Editor.
+    expect(pacsQuerySource).toContain("const renderPhysicalPageQ = createPhysicalReportSheetRenderer({");
+    expect(pacsQuerySource).toContain("finalFooterHtml: doctorFooterHtml");
+    expect(physicalRendererSource).toContain("footerImagePageScope = \"all\"");
+    expect(sharedSheetSource).toContain('data-layout-block="footer"');
   });
 
   it("Bloqueio 3 (parecer de revisão v3, regressão): PacsQueryPage.tsx restringe o fallback de impressão nativa a um erro de captura explicitamente classificado, não a 'qualquer erro diferente de ContentTooLargeForPageError'", () => {

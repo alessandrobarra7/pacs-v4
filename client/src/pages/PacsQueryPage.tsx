@@ -17,9 +17,11 @@ import {
   materializePhysicalReportPages,
   normalizeReportSections,
 } from "@/lib/reportPhysicalPageFactory";
-import { renderLogoLayerHtml } from "@/lib/reportLogoLayer";
+import {
+  createPhysicalReportSheetRenderer,
+  REPORT_PHYSICAL_BODY_SELECTOR,
+} from "@/lib/reportPhysicalSheetRenderer";
 import { runControlledPrint } from "@/lib/printOrchestration";
-import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { AnamnesisModal } from "@/components/AnamnesisModal";
@@ -1483,99 +1485,29 @@ setSelectedStudy(study);
       reportLayoutSnapshot,
     });
     const effectivePrefsQ = effectiveReportLayoutQ.preferences;
-    // P8: mapeamento de fontes com fallback seguro
-    const SAFE_FONTS_Q: Record<string, string> = {
-      'Arial':           'Arial, Helvetica, sans-serif',
-      'Calibri':         'Calibri, "Gill Sans", sans-serif',
-      'Times New Roman': '"Times New Roman", Times, serif',
-      'Georgia':         'Georgia, "Times New Roman", serif',
-      'Helvetica':       '"Helvetica Neue", Helvetica, Arial, sans-serif',
-      'Verdana':         'Verdana, Geneva, sans-serif',
-    };
-    const rawFontQ = effectivePrefsQ.fontFamily || 'Arial';
-    const fontStackQ = SAFE_FONTS_Q[rawFontQ] ?? `${rawFontQ}, Arial, sans-serif`;
     const lSize = effectivePrefsQ.fontSize || 11;
     const lLine = effectivePrefsQ.lineHeight || 1.6;
-    const lMT = effectivePrefsQ.marginTop;
-    // P5: reservar margem inferior para o rodapé
     const toAbsUrl = (u: string | null | undefined) => u && u.startsWith('/') ? `${window.location.origin}${u}` : (u || null);
     const lFooterUrl = toAbsUrl(effectiveReportLayoutQ.footer_image_url);
     const footerBase64Q = lFooterUrl ? await fetchToBase64(lFooterUrl) : null;
-    const footerReservedMmQ = lFooterUrl ? 30 : 0;
-    const lMB = effectivePrefsQ.marginBottom + footerReservedMmQ;
-    const lML = effectivePrefsQ.marginLeft;
     const lMR = effectivePrefsQ.marginRight;
-    const lBorderColor = effectivePrefsQ.headerBorderColor || '#d0d0d0';
     const lBgUrl = toAbsUrl(effectiveReportLayoutQ.background_image_url);
-    const lBgOpacity = parseFloat(String(effectiveReportLayoutQ.background_opacity ?? '1.0'));
-    const lBgSize = effectiveReportLayoutQ.background_size ?? 'cover';
     const pageSizeQ = effectivePrefsQ.pageSize ?? 'A4';
-    // OPÇÃO 1: dimensões físicas do papel (mm) — 100vw/100vh != A4 na janela popup
-    const paperW = pageSizeQ === 'Letter' ? '216mm' : '210mm';
-    const paperH = pageSizeQ === 'Letter' ? '279mm' : '297mm';
-    // FUNDO: base64 + background-image no body com dimensões físicas da folha
     const bgBase64Q = lBgUrl ? await fetchToBase64(lBgUrl) : null;
     // FIX: converter assinatura e carimbo para base64 (mesma razão do ReportEditorPage)
     const sigBase64Q   = doctorSignatureUrl ? await fetchToBase64(doctorSignatureUrl) : null;
     const stampBase64Q = doctorStampUrl     ? await fetchToBase64(doctorStampUrl)     : null;
-    // FIX: overlay de opacidade via div position:fixed com dimensões em mm
-    const overlayAlphaQ = Math.round((1 - lBgOpacity) * 100) / 100;
-    const bgLayerQ = (bgBase64Q && overlayAlphaQ > 0) ? `
-      <div style="
-        position: fixed;
-        top: 0; left: 0;
-        width: ${paperW}; height: ${paperH};
-        background: rgba(255,255,255,${overlayAlphaQ});
-        z-index: 0;
-        pointer-events: none;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      "></div>
-    ` : '';
     const lLogos = effectiveReportLayoutQ.logos ?? [];
     const printLogosQ = await Promise.all(lLogos.slice(0, 3).filter((logo: any) => logo?.url).map(async (logo: any) => {
       const absoluteUrl = toAbsUrl(logo.url);
       return { ...logo, url: (absoluteUrl ? await fetchToBase64(absoluteUrl) : null) || absoluteUrl };
     }));
-    // CORRECAO (Bloqueio 2, parecer de bloqueio da Manus, 2026-09-25):
-    // antes do commit a9041c7, quando a unidade nao tinha nenhum logo
-    // configurado em model_layouts.logos, o download/impressao caia no
-    // fallback units.logo_url (variavel logoUrl, ja calculada acima).
-    // Esse fallback ficou orfao depois que printLogosQ passou a alimentar
-    // logoLayerHtmlQ -- unidades que so tinham logo_url (sem nunca ter
-    // usado o editor de layout novo) passavam a gerar PDF sem logo
-    // nenhum. Preserva o comportamento anterior: só quando não há nenhum
-    // logo valido em model_layouts.logos, usa logo_url como um logo1
-    // unico, na posicao de fabrica (ver FALLBACK_LOGO_POSITIONS em
-    // reportLogoLayer.ts), sem width/height fixos (mantém 100%/100% da
-    // caixa, igual ao comportamento legado).
-    // Um snapshot explícito com logos: null deve continuar sem logo; só os
-    // documentos que efetivamente usam o layout corrente preservam o logo
-    // legado units.logo_url quando o editor de layout ainda não tem logos.
+    // O fallback de logo antigo só é permitido no layout atual da unidade;
+    // um snapshot clínico explícito com logos nulos continua sem logo.
     const allowLegacyUnitLogoFallbackQ = effectiveReportLayoutQ.source === 'unitLayout';
     const printLogosWithFallbackQ = printLogosQ.length > 0
       ? printLogosQ
       : (allowLegacyUnitLogoFallbackQ && logoUrl ? [{ url: (await fetchToBase64(logoUrl)) || logoUrl, width: 0, height: 0, label: 'Logo' }] : []);
-    // CORRECAO (achado ao vivo em producao, 2026-09-25, pedido do
-    // Alessandro -- reproducao apos a correcao anterior de logo.width/
-    // logo.height em SharedReportSheet.tsx): o PDF baixado pela lista
-    // continuava com um cabecalho totalmente diferente do editor --
-    // logos concatenados numa unica linha ao lado de um titulo com o
-    // nome da unidade, sem nenhuma relacao com a posicao x/y configurada
-    // por logo. Causa: reconstructPaginatedPages (mais abaixo nesta
-    // funcao) SEMPRE reconstroi as paginas fisicas via buildPageShellQ
-    // para download e impressao -- inclusive quando o conteudo inicial ja
-    // tinha sido montado com o layout correto (renderSharedReportSheetHtml,
-    // logo abaixo). O cabecalho de buildPageShellQ usava um template
-    // antigo, hardcoded, que nunca foi atualizado para o sistema de
-    // blockPositions (logo1/logo2/logo3) do editor de layout.
-    // blockPositionsQ e logoLayerHtmlQ (client/src/lib/reportLogoLayer.ts)
-    // sao calculados aqui -- no escopo externo a funcao -- para estarem
-    // disponiveis tanto no HTML inicial quanto dentro de
-    // reconstructPaginatedPages/buildPageShellQ, que e o que realmente e
-    // entregue no download e na impressao.
-    const blockPositionsQ = effectiveReportLayoutQ.block_positions ?? {};
-    const logoLayerHtmlQ = renderLogoLayerHtml(blockPositionsQ, printLogosWithFallbackQ);
 
     // P7: converter imagens para base64
     const convertImgsQ = async (html: string): Promise<string> => {
@@ -1608,19 +1540,9 @@ setSelectedStudy(study);
     const unitName = unitData?.name || '';
     const sexFormatted = sex === 'M' ? 'Masculino' : sex === 'F' ? 'Feminino' : sex;
 
-    // Bloco de dados do paciente em lista vertical
-    const patientDataHtml = `
-      <div style="margin-bottom:14px;font-size:9.5pt;line-height:1.8;">
-        <div>Nome do paciente: ${patientName}</div>
-        ${birthDateFormatted ? `<div>Data de nascimento: ${birthDateFormatted}</div>` : ''}
-        ${sexFormatted ? `<div>Sexo: ${sexFormatted}</div>` : ''}
-        ${studyDate !== '-' ? `<div>Data de realização do exame: ${studyDate}</div>` : ''}
-      </div>
-    `;
-
     // P9: marca d'água RASCUNHO para laudos não assinados
     const draftWatermarkQ = !isSignedOrRevised ? `
-      <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);font-size:72pt;font-weight:900;color:rgba(200,50,50,0.10);pointer-events:none;user-select:none;white-space:nowrap;font-family:Arial,sans-serif;letter-spacing:0.1em;-webkit-print-color-adjust:exact;print-color-adjust:exact;">RASCUNHO</div>
+      <div class="draft-watermark">RASCUNHO</div>
       <div style="background:#fef3c7;border:1.5px solid #f59e0b;padding:6px 12px;border-radius:4px;margin-bottom:12px;font-size:9pt;color:#92400e;text-align:center;">⚠ LAUDO EM RASCUNHO — Não assinado — Não é um documento válido</div>
     ` : '';
 
@@ -1635,25 +1557,32 @@ setSelectedStudy(study);
         ${signedAtFormatted ? `<div class="sig-date">Assinado em: ${signedAtFormatted}</div>` : ''}
       </div>` : '';
 
-        const fullHtml = `<!DOCTYPE html>
-	<html lang="pt-BR"><head><meta charset="UTF-8"><title>Laudo_${patientName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf</title>
+    const renderPhysicalPageQ = createPhysicalReportSheetRenderer({
+      layout: effectiveReportLayoutQ,
+      patient: {
+        name: patientName,
+        birthDate: birthDateFormatted || '—',
+        sex: sexFormatted || '—',
+        studyDate: studyDate !== '-' ? studyDate : '—',
+        modality: studyData.modality || study.modality || undefined,
+        unitName,
+      },
+      assets: {
+        logos: printLogosWithFallbackQ,
+        backgroundUrl: bgBase64Q || lBgUrl,
+        footerImageUrl: footerBase64Q || lFooterUrl,
+      },
+    });
+
+    const fullHtml = `<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"><title>Laudo_${patientName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf</title>
 <style>
-  /* SYNC ReportEditorPage: full-bleed — @page margin:0 → body = folha inteira */
-  @page {
-    size: ${pageSizeQ} portrait;
-    margin: 0;
-  }
+  @page { size: ${pageSizeQ} portrait; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html {
-    width: ${paperW};
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
+  html { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   body {
-    /* SYNC: body sem padding/background — cada div.print-page gerencia seu próprio espaço */
     margin: 0;
     padding: 0;
-    font-family: ${fontStackQ};
     font-size: ${lSize}pt;
     color: #111;
     line-height: ${lLine};
@@ -1661,125 +1590,67 @@ setSelectedStudy(study);
     print-color-adjust: exact !important;
     overflow: hidden;
   }
-  /* div.print-page = uma folha A4 completa com padding, fundo e conteúdo */
+  /* A casca de cada folha é exclusivamente SharedReportSheet. */
   .print-page {
-    width: ${paperW};
-    height: ${paperH};
-    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-    box-sizing: border-box;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    ${bgBase64Q ? `
-    background-image: url('${bgBase64Q}');
-    background-size: cover;
-    background-position: center center;
-    background-repeat: no-repeat;
-    ` : ''}
-  }
-  .print-shared-sheet {
-    width: ${paperW};
-    height: ${paperH};
-    /* Margens efetivas — antes ausente, ignorando a unidade (Bloqueio 1,
-       auditoria Manus 2026-09-24). O valor real vem do style inline do
-       componente (maior precedência); mantido aqui só por coerência. */
-    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-    box-sizing: border-box;
-    position: relative;
-    overflow: hidden;
-    background: #fff;
-    color: #111;
-    font-family: ${fontStackQ};
-    font-size: ${lSize}pt;
-    line-height: ${lLine};
+    page-break-after: always;
+    break-after: page;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
-  @media print {
-    .print-page {
-      page-break-after: always;
-      break-after: page;
-    }
-    .print-page:last-child {
-      page-break-after: avoid;
-      break-after: avoid;
-    }
-    .print-shared-sheet {
-      page-break-after: avoid;
-      break-after: avoid;
-    }
+  .print-page:last-child { page-break-after: avoid; break-after: avoid; }
+  .print-page [data-layout-block="body"] { overflow: hidden !important; }
+  .draft-watermark {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) rotate(-45deg);
+    font: 900 72pt Arial, sans-serif;
+    color: rgba(200,50,50,.10);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 5;
   }
-  /* SYNC BUG-2: CSS counter nativo para número de página */
   .page-number-fixed {
     position: fixed;
-    z-index: 3;
-    bottom: ${Math.max(lMB - 8, 4)}mm;
+    z-index: 5;
+    bottom: ${Math.max(effectivePrefsQ.marginBottom - 8, 4)}mm;
     right: ${lMR}mm;
     font-size: 8pt;
     color: #888;
     font-family: Arial, sans-serif;
   }
-  .page-number-fixed::after {
-    content: 'Página ' counter(page) ' de ' counter(pages);
-  }
-  /* Tabela fallback (laudo único longo — cabeçalho repetível) */
-  table.print-layout {
-    position: relative;
-    z-index: 2;
-    width: 100%;
-    height: 100%;
-    border-collapse: collapse;
-    vertical-align: top;
-  }
-  table.print-layout td, table.print-layout th { background: transparent !important; vertical-align: top; }
-  thead { display: table-header-group; }
-  tfoot { display: table-footer-group; }
-  tbody { display: table-row-group; }
-  /* CORRECAO (achado ao vivo em producao + Bloqueio 1-4, Manus,
-     2026-09-25): as regras do cabecalho antigo (logos concatenados lado
-     a lado + nome da unidade em destaque) foram removidas daqui -- esse
-     cabecalho foi substituido pela camada de logos posicionados
-     (renderLogoLayerHtml, ver logoOverlayHtml/logoOverlayHtmlQ mais
-     abaixo). As classes CSS correspondentes nao tem mais nenhum uso. */
-  .patient-data { font-size: 10pt; line-height: 1.7; margin-bottom: 12pt; }
-  .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
-  .report-body { font-size: ${lSize}pt; line-height: ${lLine}; overflow: hidden; }
+  .page-number-fixed::after { content: 'Página ' counter(page) ' de ' counter(pages); }
+  .report-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .report-body > p,
-  .report-body > div { margin-bottom: 3pt; }
+  .report-body > div:not(.exam-section) { margin-bottom: 6pt; line-height: 1.7; }
+  .report-body h1,
+  .report-body h2,
+  .report-body h3,
+  .report-body h4 {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    font-size: ${lSize}pt !important;
+    margin: 14pt 0 4pt;
+  }
+  .report-body h1:first-child,
+  .report-body h2:first-child,
+  .report-body h3:first-child,
+  .report-body h4:first-child { margin-top: 0; }
   .report-body strong, .report-body b { font-weight: 700; }
+  .exam-section { break-inside: avoid-page; margin-bottom: 18px; }
   .section-title {
     font-size: 11pt; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.06em; text-align: center;
+    letter-spacing: .06em; text-align: center;
     padding: 6px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 10px;
   }
   .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .doctor-footer { text-align: center; margin: 14mm auto 0; max-width: 240px; page-break-inside: avoid; }
-  /* CORREÇÃO (Bloqueio 1, parecer corretivo da Manus, 2026-09-25): dentro
-     da reserva fixa de rodapé do download (.footer-reserve), o
-     margin-top:14mm acima somaria ao alinhamento por flex já feito pela
-     reserva, inflando a altura realmente ocupada além da altura FIXA
-     reservada — exatamente a divergência entre "folha de medição" e
-     "folha real" que causou o Bloqueio 1. Este override (mais específico)
-     zera esse espaçamento só dentro da reserva; a colocação original do
-     rodapé na impressão nativa (fora de .footer-reserve) não é afetada.
-     CORREÇÃO (Bloqueio 1, parecer v3 da Manus, 2026-09-25): esta regra
-     nunca alcançava a folha real — o elemento div criado por
-     buildPageShellQ tinha a altura/overflow/flex certos em style inline,
-     mas NUNCA recebeu class="footer-reserve" (só o CSS declarava essa
-     classe; o HTML gerado não a usava). O seletor .footer-reserve
-     .doctor-footer não encontrava elemento nenhum, e o .doctor-footer
-     com margin:14mm auto 0 genérico continuava valendo dentro da
-     reserva de 65mm. A classe foi adicionada ao div real
-     (buildPageShellQ) — agora este override alcança o DOM efetivamente
-     capturado. */
-  .footer-reserve .doctor-footer { margin-top: 0; }
-  .sig-img   { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .sig-img { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
   .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .sig-line  { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
-  .sig-name  { font-weight: 700; font-size: 10pt; }
-  .sig-crm   { font-size: 9pt; color: #444; margin-top: 1pt; }
-  .sig-date  { font-size: 8pt; color: #666; margin-top: 3pt; }
+  .sig-line { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
+  .sig-name { font-weight: 700; font-size: 10pt; }
+  .sig-crm { font-size: 9pt; color: #444; margin-top: 1pt; }
+  .sig-date { font-size: 8pt; color: #666; margin-top: 3pt; }
   .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 5px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
   @media print {
     body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -1788,9 +1659,8 @@ setSelectedStudy(study);
 </style></head><body>
   ${draftWatermarkQ}
   <div class="page-number-fixed"></div>
-  <!-- Folhas físicas injetadas pela fábrica única após a abertura do iframe. -->
   <div data-physical-report-root></div>
-  </body></html>`;
+</body></html>`;
   // CORRECAO (relato tecnico "Bloqueio da impressao oficial", Manus,
   // 2026-09-25): fullHtml continha um <script> de auto-impressao
   // (window.onload -> setTimeout(window.print, 400) quando actionType
@@ -1870,55 +1740,15 @@ setSelectedStudy(study);
         })),
       );
 
-      // CORREÇÃO (Bloqueio 1, parecer corretivo da Manus, 2026-09-25):
-      // era min-height — a folha de medição (rodapé vazio) media mais
-      // área disponível do que a folha real (última, com assinatura),
-      // podendo aceitar conteúdo que depois não cabia de verdade.
-      // Altura FIXA + overflow:hidden própria garante área idêntica na
-      // medição e na folha real, em toda página. Dimensionamento: ver
-      // comentário equivalente em financialReportPdfDownload.ts (~56mm
-      // no pior caso com carimbo+assinatura+nome+CRM+data; 65mm dá
-      // folga, overflow:hidden é o limite de segurança final).
-      const FOOTER_RESERVE_MM_Q = 65;
-      // CORRECAO (achado ao vivo em producao, 2026-09-25): este era o
-      // cabecalho REALMENTE entregue no download e na impressao --
-      // reconstructPaginatedPages sempre chama buildPageShellQ para as
-      // duas acoes, substituindo qualquer conteudo inicial (inclusive o
-      // que ja vinha correto de renderSharedReportSheetHtml). O antigo
-      // headerHtmlQ concatenava os logos numa linha e acrescentava um
-      // titulo com o nome da unidade que nunca existiu no editor de
-      // layout -- por isso o PDF entregue nunca batia com o que o editor
-      // mostra, mesmo depois da correcao anterior de logo.width/height em
-      // SharedReportSheet.tsx. Agora usa a mesma camada de logos
-      // posicionados (logoLayerHtmlQ, calculada no escopo externo desta
-      // funcao a partir de blockPositionsQ + printLogosQ), sem titulo de
-      // unidade fixo.
-      // CORRECAO (Bloqueio 1, parecer de bloqueio da Manus, 2026-09-25):
-      // mesma correcao de logoOverlayHtml acima -- ver comentario lá.
-      // Este eh o overlay que REALMENTE chega ao download/impressao
-      // (buildPageShellQ), entao o bloqueio era mais grave aqui.
-      const logoOverlayHtmlQ = `<div style="position:absolute;top:${lMT}mm;right:${lMR}mm;bottom:${lMB}mm;left:${lML}mm;pointer-events:none;z-index:2;">${logoLayerHtmlQ}</div>`;
-      const footerHtmlQ = lFooterUrl
-        ? `<img src="${lFooterUrl}" alt="Rodapé" style="width:100%;display:block;max-height:30mm;object-fit:contain;" />`
-        : `<div style="height:4mm;"></div>`;
-      const renderPhysicalPageQ = ({ title: examTitle, bodyHtml, footerHtml }: { title: string; bodyHtml: string; footerHtml: string }) => `
-          <div class="print-page">
-            ${logoOverlayHtmlQ}
-            <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
-              <div class="patient-data">${patientDataHtml}</div>
-              <div class="exam-title">${examTitle || ''}</div>
-              <div class="report-body" style="flex:1;overflow:hidden;">${bodyHtml}</div>
-              <div class="footer-reserve" style="height:${FOOTER_RESERVE_MM_Q}mm;overflow:hidden;display:flex;align-items:flex-end;justify-content:center;">${footerHtml}</div>
-            </div>
-            <div style="margin-top:auto;">${footerHtmlQ}</div>
-          </div>`;
-
+      // A mesma função de renderização constrói a folha de medição e a folha
+      // final, de modo que a posição dos blocos e a largura útil não divergem.
       materializePhysicalReportPages({
         doc,
         sections: sectionsForPdfQ,
         renderPage: renderPhysicalPageQ,
         finalFooterHtml: doctorFooterHtml,
         replaceSelector: '.print-page, .print-shared-sheet',
+        bodySelector: REPORT_PHYSICAL_BODY_SELECTOR,
       });
 
       // Pequena espera adicional para o reflow do DOM reconstruído.
