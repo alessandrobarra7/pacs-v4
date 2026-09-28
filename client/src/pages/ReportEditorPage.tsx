@@ -1,8 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import DOMPurify from 'dompurify';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { DEFAULT_LAYOUT_PREFERENCES, type LayoutPreferences, type LayoutSnapshot } from '../../../shared/types';
+import {
+  buildLayoutSnapshot,
+  resolveEffectiveReportLayout,
+  type ReportLayoutSource,
+} from '../../../shared/reportLayout';
 import { SharedReportBodyGuide, SharedReportSheet } from "@/components/SharedReportSheet";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
 import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
@@ -749,22 +753,12 @@ export default function ReportEditorPage() {
         // Atualizar o corpo do laudo antes de assinar
         await updateReport.mutateAsync({ id: reportId, body });
       }
-      // Assinar + registrar evento financeiro atômico no backend
-      // FIX GAP-1: construir snapshot do layout no momento da assinatura
-      // Congela as configurações visuais para que alterações futuras na unidade
-      // não afetem laudos já assinados
-      const layoutSnapshot: LayoutSnapshot | null = unitLayout ? {
-        preferences:  unitLayout.preferences as LayoutPreferences,
-        header_html:  unitLayout.header_html ?? null,
-        footer_html:  unitLayout.footer_html ?? null,
-        background_image_url: unitLayout.background_image_url ?? null,
-        background_opacity: unitLayout.background_opacity ?? null,
-        background_size: unitLayout.background_size ?? null,
-        footer_image_url: unitLayout.footer_image_url ?? null,
-        logos: Array.isArray(unitLayout.logos) ? unitLayout.logos : null,
-        block_positions: (unitLayout.block_positions as LayoutSnapshot["block_positions"]) ?? null,
-        capturedAt:   new Date().toISOString(),
-      } : null;
+      // Assinar + registrar evento financeiro atômico no backend. A captura
+      // do layout é canônica e clona os campos mutáveis antes do envio.
+      const layoutSnapshot = buildLayoutSnapshot(
+        unitLayout as ReportLayoutSource | null | undefined,
+        new Date().toISOString(),
+      );
 
       const signResult = await signReport.mutateAsync({
         id: reportId,
@@ -790,7 +784,7 @@ export default function ReportEditorPage() {
     } catch (e: any) {
       toast.error(e.message || "Erro ao assinar");
     }
-  }, [existingReport, studyUid, studyInfo, createReport, updateReport, signReport, navigate, collectBody, documentKey, documentLabelFromRoute, examTitle]);
+  }, [existingReport, studyUid, studyInfo, createReport, updateReport, signReport, navigate, collectBody, documentKey, documentLabelFromRoute, examTitle, unitLayout]);
 
   // ── Retificar laudo assinado ─────────────────────────────────────────────
   const handleRevise = useCallback(async () => {
@@ -844,37 +838,20 @@ export default function ReportEditorPage() {
     }
   }, [existingReport, deleteReport, navigate, isAdminMaster, deleteReason]);
 
-  // FIX GAP-2: usar snapshot quando laudo já está assinado, caso contrário usar layout atual da unidade
-  const layoutSource = (isSigned && existingReport?.layout_snapshot)
-    ? existingReport.layout_snapshot as unknown as LayoutSnapshot
-    : unitLayout ? {
-        preferences:  unitLayout.preferences as LayoutPreferences,
-        header_html:  unitLayout.header_html ?? null,
-        footer_html:  unitLayout.footer_html ?? null,
-      } as LayoutSnapshot
-    : null;
-  const layoutPrefs = layoutSource?.preferences;
-  // Bloqueio 1 (auditoria Manus 2026-09-24): pageSize/margens efetivos,
-  // com o mesmo merge com DEFAULT_LAYOUT_PREFERENCES usado em todo o resto
-  // do arquivo — agora também repassados ao SharedReportSheet em tela, para
-  // que a folha que o médico vê (e que o download financeiro rasteriza via
-  // html2canvas) já nasça no tamanho/margem corretos, em vez de sempre A4
-  // sem margem.
-  const effectiveLayoutPrefs: LayoutPreferences = { ...DEFAULT_LAYOUT_PREFERENCES, ...(layoutPrefs ?? {}) };
-  // GAP-BACKGROUND: a mesma fonte visual alimenta o desktop e o PDF.
-  // Laudos assinados usam o snapshot; campos ausentes em snapshots antigos
-  // recebem fallback do layout atual para preservar compatibilidade.
-  type BlockPos = { x: number; y: number; w: number; h: number; visible: boolean };
-  const activeLayoutRecord = (isSigned && existingReport?.layout_snapshot)
-    ? { ...(unitLayout as Record<string, unknown> | null ?? {}), ...(existingReport.layout_snapshot as unknown as Record<string, unknown>) }
-    : (unitLayout as Record<string, unknown> | null | undefined);
-  const rawLayout = activeLayoutRecord;
+  // Uma única resolução alimenta tela, assinatura, impressão e PDF. Em
+  // documentos assinados/retificados, snapshot vence; snapshots legados
+  // incompletos recebem fallback apenas das chaves ausentes da unidade.
+  const effectiveReportLayout = useMemo(() => resolveEffectiveReportLayout({
+    status: existingReport?.status,
+    unitLayout: unitLayout as ReportLayoutSource | null | undefined,
+    reportLayoutSnapshot: existingReport?.layout_snapshot as ReportLayoutSource | null | undefined,
+  }), [existingReport?.status, existingReport?.layout_snapshot, unitLayout]);
+  const effectiveLayoutPrefs = effectiveReportLayout.preferences;
   const toAbsUrl = (u: string | null | undefined) => u && u.startsWith('/') ? `${window.location.origin}${u}` : (u || null);
-  const layoutBgUrl: string | null = toAbsUrl((rawLayout?.["background_image_url"] as string | null) ?? null);
-  const layoutBgOpacity: number = parseFloat((rawLayout?.["background_opacity"] as string | null) ?? '1.0');
-  const layoutBgSize: string = (rawLayout?.["background_size"] as string | null) ?? 'cover';
-  const layoutBlockPos: Record<string, BlockPos> | null =
-    (rawLayout?.["block_positions"] as Record<string, BlockPos> | null) ?? null;
+  const layoutBgUrl = toAbsUrl(effectiveReportLayout.background_image_url);
+  const layoutBgOpacity = parseFloat(String(effectiveReportLayout.background_opacity ?? '1.0'));
+  const layoutBgSize = effectiveReportLayout.background_size ?? 'cover';
+  const layoutBlockPos = effectiveReportLayout.block_positions;
   // Helpers para ler as posições dos blocos configuradas pelo admin
   const bpLogo   = layoutBlockPos?.["logo"]   ?? { x:2,  y:1,  w:20, h:10, visible:true };
   const bpTitle  = layoutBlockPos?.["title"]  ?? { x:2,  y:13, w:96, h:6,  visible:true };
@@ -885,7 +862,7 @@ export default function ReportEditorPage() {
   const logoAlign: "left" | "center" | "right" =
     bpLogo.x < 30 ? "left" : bpLogo.x > 70 ? "right" : "center";
   const logoJustify = logoAlign === "left" ? "flex-start" : logoAlign === "right" ? "flex-end" : "center";
-  const layoutFooterUrl: string | null = toAbsUrl((rawLayout?.["footer_image_url"] as string | null) ?? null);
+  const layoutFooterUrl = toAbsUrl(effectiveReportLayout.footer_image_url);
   // CORREÇÃO (Bloqueio 1, revisão corretiva Manus 2026-09-24): as vias de
   // impressão/PDF (handlePrint, PacsQueryPage, financialReportPdfDownload)
   // sempre somaram 30mm à margem inferior quando há imagem de rodapé
@@ -894,8 +871,7 @@ export default function ReportEditorPage() {
   // essa reserva, então a área útil em tela ficava maior que a das outras
   // vias no mesmo cenário. Agora a folha em tela usa a mesma reserva.
   const screenFooterReservedMm = layoutFooterUrl ? 30 : 0;
-  const layoutLogos: Array<{ url: string; width: number; height: number; label: string }> =
-    Array.isArray(rawLayout?.["logos"]) ? (rawLayout!["logos"] as Array<{ url: string; width: number; height: number; label: string }>) : [];
+  const layoutLogos = effectiveReportLayout.logos ?? [];
   // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
   const patientName = formatPatientName(studyInfo?.patientName || "");
 
@@ -965,31 +941,20 @@ export default function ReportEditorPage() {
       </div>
     ` : '';
 
-    // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf):
-    // Antes, cada campo de layoutPrefs tinha seu próprio fallback "?? valor"
-    // reimplementado à mão neste arquivo — e esses valores (20/20/18/18) NÃO
-    // batiam com DEFAULT_LAYOUT_PREFERENCES (20/25/25/25, em shared/types.ts),
-    // nem com PacsQueryPage.tsx (20/20/20/20), nem com o que o médico via na
-    // tela em ReportDocument.tsx (que já mesclava corretamente com
-    // DEFAULT_LAYOUT_PREFERENCES). Um mesmo laudo podia sair com margem
-    // esquerda/direita diferente dependendo de qual tela o gerou. Agora usamos
-    // o mesmo merge que ReportDocument.tsx já faz — uma única fonte de
-    // verdade para os valores padrão.
-    const effectivePrefs: LayoutPreferences = { ...DEFAULT_LAYOUT_PREFERENCES, ...(layoutPrefs ?? {}) };
     // P3: margens do @page a partir das preferências do layout
-    const lMT = effectivePrefs.marginTop;
+    const lMT = effectiveLayoutPrefs.marginTop;
     // P5: reservar margem inferior para o rodapé (estimativa de 30mm se houver imagem)
     const footerReservedMm = layoutFooterUrl ? 30 : 0;
-    const lMB = effectivePrefs.marginBottom + footerReservedMm;
-    const lML = effectivePrefs.marginLeft;
-    const lMR = effectivePrefs.marginRight;
+    const lMB = effectiveLayoutPrefs.marginBottom + footerReservedMm;
+    const lML = effectiveLayoutPrefs.marginLeft;
+    const lMR = effectiveLayoutPrefs.marginRight;
     // P8: usar stack de fontes com fallback seguro
-    const rawFont = effectivePrefs.fontFamily || 'Arial';
+    const rawFont = effectiveLayoutPrefs.fontFamily || 'Arial';
     const fontStack = SAFE_FONTS[rawFont] ?? `${rawFont}, Arial, sans-serif`;
-    const lSize = effectivePrefs.fontSize || 11;
-    const lLine = effectivePrefs.lineHeight ?? 1.6;
-    const lBorderColor = effectivePrefs.headerBorderColor ?? '#1a6b8a';
-    const pageSize = effectivePrefs.pageSize ?? 'A4';
+    const lSize = effectiveLayoutPrefs.fontSize || 11;
+    const lLine = effectiveLayoutPrefs.lineHeight ?? 1.6;
+    const lBorderColor = effectiveLayoutPrefs.headerBorderColor ?? '#1a6b8a';
+    const pageSize = effectiveLayoutPrefs.pageSize ?? 'A4';
     // OPÇÃO 1: dimensões físicas do papel (mm) — 100vw/100vh != A4 na janela popup
     const paperW = pageSize === 'Letter' ? '216mm' : '210mm';
     const paperH = pageSize === 'Letter' ? '279mm' : '297mm';
@@ -1328,7 +1293,7 @@ export default function ReportEditorPage() {
     }
     win.document.write(html);
     win.document.close();
-  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, layoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
+  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, effectiveLayoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
 
   useEffect(() => {
     if (!printOnOpen || autoPrintTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
@@ -1345,14 +1310,7 @@ export default function ReportEditorPage() {
 
     toast.loading("Gerando PDF configurado...", { id: "financial-pdf-download" });
     try {
-      // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf): o formato do PDF
-      // vinha hardcoded como "a4", ignorando por completo layoutPrefs.pageSize.
-      // Uma unidade configurada para "Letter" gerava um laudo Letter na
-      // impressão oficial (handlePrint) mas um PDF A4 neste download — o
-      // mesmo documento com tamanho de página diferente dependendo de qual
-      // botão o usuário clicasse. Agora lê o mesmo pageSize, com o mesmo
-      // default (DEFAULT_LAYOUT_PREFERENCES) usado em handlePrint.
-      const effectivePageSize = (layoutPrefs?.pageSize ?? DEFAULT_LAYOUT_PREFERENCES.pageSize) as "A4" | "Letter";
+      const effectivePageSize = effectiveLayoutPrefs.pageSize as "A4" | "Letter";
       const pdf = new jsPDF("p", "mm", effectivePageSize.toLowerCase() as "a4" | "letter");
       const pdfPageWidth = pdf.internal.pageSize.getWidth();
       const pdfPageHeight = pdf.internal.pageSize.getHeight();
@@ -1387,7 +1345,7 @@ export default function ReportEditorPage() {
     } catch {
       toast.error("Não foi possível gerar o PDF. Tente novamente.", { id: "financial-pdf-download" });
     }
-  }, [patientName, layoutPrefs]);
+  }, [patientName, effectiveLayoutPrefs]);
 
   useEffect(() => {
     if (!downloadOnOpen || !financialDocumentView || autoDownloadTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
@@ -1852,9 +1810,9 @@ export default function ReportEditorPage() {
                       backgroundOpacity={layoutBgOpacity}
                       backgroundSize={layoutBgSize}
                       footerImageUrl={isLastPage ? layoutFooterUrl : null}
-                      fontFamily={layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "'Times New Roman', Times, serif"}
-                      fontSize={layoutPrefs?.fontSize ?? 11}
-                      lineHeight={layoutPrefs?.lineHeight ?? 1.6}
+                      fontFamily={`'${effectiveLayoutPrefs.fontFamily}', sans-serif`}
+                      fontSize={effectiveLayoutPrefs.fontSize}
+                      lineHeight={effectiveLayoutPrefs.lineHeight}
                       pageSize={effectiveLayoutPrefs.pageSize}
                       marginTop={effectiveLayoutPrefs.marginTop}
                       marginRight={effectiveLayoutPrefs.marginRight}
@@ -1989,9 +1947,9 @@ export default function ReportEditorPage() {
                 backgroundOpacity={layoutBgOpacity}
                 backgroundSize={layoutBgSize}
                 footerImageUrl={layoutFooterUrl}
-                fontFamily={layoutPrefs?.fontFamily ? `'${layoutPrefs.fontFamily}', sans-serif` : "Arial, Helvetica, sans-serif"}
-                fontSize={layoutPrefs?.fontSize ?? 11}
-                lineHeight={layoutPrefs?.lineHeight ?? 1.6}
+                fontFamily={`'${effectiveLayoutPrefs.fontFamily}', sans-serif`}
+                fontSize={effectiveLayoutPrefs.fontSize}
+                lineHeight={effectiveLayoutPrefs.lineHeight}
                 pageSize={effectiveLayoutPrefs.pageSize}
                 marginTop={effectiveLayoutPrefs.marginTop}
                 marginRight={effectiveLayoutPrefs.marginRight}
