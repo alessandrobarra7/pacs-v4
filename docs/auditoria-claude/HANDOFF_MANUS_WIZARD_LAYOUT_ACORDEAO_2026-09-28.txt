@@ -2,6 +2,65 @@ HANDOFF MANUS — PACS Portal / LAUDS (alessandrobarra7/pacs-v4)
 Editor de Layout: reestruturação em acordeão + 3 bugs conhecidos corrigidos
 Data: 2026-09-28
 
+================================================================================
+ADENDO (2026-09-28) — Parecer técnico da Manus: APROVADO para merge e implantação
+================================================================================
+
+A Manus revisou este branch de forma independente (commit base cdb1459, topo
+ad17b47 — confirmado, é o mesmo topo publicado aqui) e devolveu o parecer
+"Parecer técnico — Wizard de Layout de Laudos em Acordeão" (2026-09-28),
+veredito: APROVADO para merge e implantação, quando autorizado pelo
+responsável operacional.
+
+Validação independente da Manus (rodada própria, em ambiente dela):
+  - pnpm install --frozen-lockfile: aprovado.
+  - pnpm check: aprovado, sem erros TypeScript.
+  - Testes focados de layout/PDF: 41 aprovados em 5 arquivos.
+  - Testes de segurança/preservação de layouts: 4 aprovados em 2 arquivos.
+  - TZ=UTC pnpm test: 726 aprovados, 11 falhas históricas (mesmos 7 arquivos
+    pré-existentes já documentados na seção 6 acima), 1 skip — nenhuma falha
+    nova ligada a layout.
+  - pnpm build: aprovado (mesmo aviso pré-existente de bundle grande).
+  - git diff --check github/main..HEAD: aprovado.
+
+Homologação visual adicional (Chromium, fora do que eu tinha feito aqui):
+  - A4 com margens 20/25/25/25mm: largura 793,69px, proporção 210/297,
+    altura 1122,5px, todos os blocos clínicos visíveis, sem overflow
+    horizontal.
+  - Letter com margens 30/20/28/18mm: largura 816px, proporção 216/279,
+    altura 1054px, padding efetivo batendo com as margens configuradas,
+    todos os blocos visíveis, sem overflow horizontal.
+  - Acordeão: as 3 seções abrem/recolhem corretamente; Formato e margens
+    edita de verdade.
+  - Troca Editar blocos / Prévia real: legenda atualiza, folha física
+    preservada.
+
+A Manus reforça corretamente o limite de escopo que eu já tinha registrado na
+seção 7 (Fora do escopo) deste handoff: este branch é uma melhoria isolada do
+Editor de Layout administrativo — não altera motor de PDF, assinatura de
+laudos, PACS, Financeiro, schema ou migrations, e por isso não resolve sozinho
+todo o histórico de divergência visual entre os consumidores (Editor, Lista
+PACS, Financeiro); ele corrige a FONTE de configuração (pageSize/margens/
+blocos) que esses fluxos já consomem.
+
+Recomendação operacional da Manus, sem nenhum ponto em aberto ou correção
+pedida:
+  1. Integrar somente claude/wizard-layout-laudos-acordeao — confirma que o
+     branch antigo claude/fix-layout-editor-previa-real-largura está obsoleto
+     e não deve ser mesclado (mesma conclusão que eu já tinha registrado).
+  2. Atualizar a VM1 por git fetch + git merge --ff-only a partir de main,
+     nunca a partir do branch Claude diretamente.
+  3. Não executar migration (nenhuma é necessária).
+  4. Depois de implantar: abrir /admin/layouts/<id-da-unidade> com um admin,
+     conferir A4/Letter e margens, salvar um layout de teste e confirmar que
+     a alteração aparece na prévia do Editor antes de usar em configuração
+     clínica definitiva.
+
+Nenhuma correção de código foi necessária em resposta a este parecer — é uma
+aprovação, sem bloqueio. Nada foi mesclado ou implantado por mim; a decisão de
+integrar (quando, em qual VM) continua sendo da Manus/Alessandro, conforme o
+passo 2 da recomendação acima.
+
 Branch:       claude/wizard-layout-laudos-acordeao
 Commit base:  cdb14594e0cad9f8fb7f884084993e7d2bc4cd4b  (origin/main no momento do checkout)
 Commit topo:  df67961377b5d7988244370129111f6b63491b1f
