@@ -24,7 +24,10 @@ import { PatientAttachmentsModal } from "@/components/PatientAttachmentsModal";
 import { AudioReportsModal } from "@/components/AudioReportsModal";
 import SlaCountdown, { type ReadinessData } from "@/components/SlaCountdown";
 import { canAccessAdmin, type UserRole } from "../../../shared/permissions";
-import { DEFAULT_LAYOUT_PREFERENCES } from "../../../shared/types";
+import {
+  resolveEffectiveReportLayout,
+  type ReportLayoutSource,
+} from "../../../shared/reportLayout";
 import { PACS_MAX_RESULTS } from "../../../shared/const";
 
 import { Calendar } from "@/components/ui/calendar";
@@ -1447,6 +1450,7 @@ setSelectedStudy(study);
     let doctorSignatureUrl: string | null = null;
     let reportStatus = '';
     let signedAt: Date | null = null;
+    let reportLayoutSnapshot: ReportLayoutSource | null = null;
     try {
       const result = await trpcUtils.reports.getByStudyUidWithDoctor.fetch({
         studyInstanceUid: study.studyInstanceUid,
@@ -1461,22 +1465,21 @@ setSelectedStudy(study);
       doctorSignatureUrl = result?.doctorSignatureUrl || null;
       reportStatus = result?.status || '';
       signedAt = result?.signedAt ? new Date(result.signedAt) : null;
+      reportLayoutSnapshot = result?.layout_snapshot as ReportLayoutSource | null | undefined ?? null;
     } catch (e) {
       // laudo não encontrado — imprime com mensagem
     }
     toast.dismiss('print-loading');
 
-    // ── Layout da unidade ──
-    // CORREÇÃO (auditoria claude/correcao-paginas-laudo-pdf):
-    // Este bloco está marcado no código como "SYNC ReportEditorPage" — uma
-    // cópia manual do mesmo bloco em ReportEditorPage.tsx.handlePrint. Mas os
-    // fallbacks já tinham divergido: aqui marginLeft/marginRight caíam para
-    // 20 quando não configurados, contra 18 no ReportEditorPage e 25 em
-    // DEFAULT_LAYOUT_PREFERENCES (shared/types.ts) — o mesmo laudo saía com
-    // margens diferentes dependendo de qual tela imprimisse. Agora usa o
-    // mesmo merge com DEFAULT_LAYOUT_PREFERENCES que ReportDocument.tsx (a
-    // tela que o médico vê ao editar) e ReportEditorPage.tsx já usam.
-    const effectivePrefsQ = { ...DEFAULT_LAYOUT_PREFERENCES, ...((unitLayout?.preferences as any) ?? {}) };
+    // Um único resolvedor alimenta a Lista de Estudos: rascunhos usam a
+    // unidade; assinados/retificados preferem o snapshot clínico. Snapshots
+    // legados incompletos só recebem fallback para chaves ausentes.
+    const effectiveReportLayoutQ = resolveEffectiveReportLayout({
+      status: reportStatus,
+      unitLayout: unitLayout as ReportLayoutSource | null | undefined,
+      reportLayoutSnapshot,
+    });
+    const effectivePrefsQ = effectiveReportLayoutQ.preferences;
     // P8: mapeamento de fontes com fallback seguro
     const SAFE_FONTS_Q: Record<string, string> = {
       'Arial':           'Arial, Helvetica, sans-serif',
@@ -1492,17 +1495,17 @@ setSelectedStudy(study);
     const lLine = effectivePrefsQ.lineHeight || 1.6;
     const lMT = effectivePrefsQ.marginTop;
     // P5: reservar margem inferior para o rodapé
-    const toAbsUrl = (u: string) => u && u.startsWith('/') ? `${window.location.origin}${u}` : u;
-    const lFooterUrl = toAbsUrl((unitLayout as any)?.footer_image_url || '');
+    const toAbsUrl = (u: string | null | undefined) => u && u.startsWith('/') ? `${window.location.origin}${u}` : (u || null);
+    const lFooterUrl = toAbsUrl(effectiveReportLayoutQ.footer_image_url);
     const footerBase64Q = lFooterUrl ? await fetchToBase64(lFooterUrl) : null;
     const footerReservedMmQ = lFooterUrl ? 30 : 0;
     const lMB = effectivePrefsQ.marginBottom + footerReservedMmQ;
     const lML = effectivePrefsQ.marginLeft;
     const lMR = effectivePrefsQ.marginRight;
     const lBorderColor = effectivePrefsQ.headerBorderColor || '#d0d0d0';
-    const lBgUrl = toAbsUrl((unitLayout as any)?.background_image_url || '');
-    const lBgOpacity = parseFloat((unitLayout as any)?.background_opacity ?? '1.0');
-    const lBgSize = (unitLayout as any)?.background_size ?? 'cover';
+    const lBgUrl = toAbsUrl(effectiveReportLayoutQ.background_image_url);
+    const lBgOpacity = parseFloat(String(effectiveReportLayoutQ.background_opacity ?? '1.0'));
+    const lBgSize = effectiveReportLayoutQ.background_size ?? 'cover';
     const pageSizeQ = effectivePrefsQ.pageSize ?? 'A4';
     // OPÇÃO 1: dimensões físicas do papel (mm) — 100vw/100vh != A4 na janela popup
     const paperW = pageSizeQ === 'Letter' ? '216mm' : '210mm';
@@ -1526,7 +1529,7 @@ setSelectedStudy(study);
         print-color-adjust: exact;
       "></div>
     ` : '';
-    const lLogos: Array<{url:string;width:number;height:number;label?:string}> = (unitLayout as any)?.logos || [];
+    const lLogos = effectiveReportLayoutQ.logos ?? [];
     const printLogosQ = await Promise.all(lLogos.slice(0, 3).filter((logo: any) => logo?.url).map(async (logo: any) => {
       const absoluteUrl = toAbsUrl(logo.url);
       return { ...logo, url: (absoluteUrl ? await fetchToBase64(absoluteUrl) : null) || absoluteUrl };
@@ -1543,9 +1546,13 @@ setSelectedStudy(study);
     // unico, na posicao de fabrica (ver FALLBACK_LOGO_POSITIONS em
     // reportLogoLayer.ts), sem width/height fixos (mantém 100%/100% da
     // caixa, igual ao comportamento legado).
+    // Um snapshot explícito com logos: null deve continuar sem logo; só os
+    // documentos que efetivamente usam o layout corrente preservam o logo
+    // legado units.logo_url quando o editor de layout ainda não tem logos.
+    const allowLegacyUnitLogoFallbackQ = effectiveReportLayoutQ.source === 'unitLayout';
     const printLogosWithFallbackQ = printLogosQ.length > 0
       ? printLogosQ
-      : (logoUrl ? [{ url: (await fetchToBase64(logoUrl)) || logoUrl, width: 0, height: 0, label: 'Logo' }] : []);
+      : (allowLegacyUnitLogoFallbackQ && logoUrl ? [{ url: (await fetchToBase64(logoUrl)) || logoUrl, width: 0, height: 0, label: 'Logo' }] : []);
     // CORRECAO (achado ao vivo em producao, 2026-09-25, pedido do
     // Alessandro -- reproducao apos a correcao anterior de logo.width/
     // logo.height em SharedReportSheet.tsx): o PDF baixado pela lista
@@ -1564,7 +1571,7 @@ setSelectedStudy(study);
     // disponiveis tanto no HTML inicial quanto dentro de
     // reconstructPaginatedPages/buildPageShellQ, que e o que realmente e
     // entregue no download e na impressao.
-    const blockPositionsQ = ((unitLayout as any)?.block_positions || {}) as Record<string, { x: number; y: number; w: number; h: number; visible: boolean }>;
+    const blockPositionsQ = effectiveReportLayoutQ.block_positions ?? {};
     const logoLayerHtmlQ = renderLogoLayerHtml(blockPositionsQ, printLogosWithFallbackQ);
 
     // P7: converter imagens para base64
@@ -1857,7 +1864,7 @@ setSelectedStudy(study);
       marginBottom: lMB,
       marginLeft: lML,
       positions: blockPositionsQ,
-      logos: printLogosQ,
+      logos: printLogosWithFallbackQ,
       backgroundUrl: bgBase64Q || lBgUrl,
       backgroundOpacity: lBgOpacity,
       backgroundSize: lBgSize,
