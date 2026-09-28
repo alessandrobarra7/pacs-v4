@@ -399,9 +399,20 @@ export default function LayoutEditorPage() {
   }, []);
 
   const handleReset = useCallback(() => {
+    // CORRECAO (auditoria claude/fix-layout-editor-previa-real-largura): o botao
+    // "Resetar" descartava as posicoes customizadas de TODOS os blocos sem
+    // nenhuma confirmacao (um clique acidental apagava o posicionamento manual
+    // ja ajustado, sem chance de desfazer) e o rotulo nao deixava claro que o
+    // escopo era so posicao — largura/altura de logo, fundo e rodape nao sao
+    // tocados por este botao, o que pode confundir quem espera um reset total.
+    // Correcao: exigir confirmacao explicita antes de aplicar, e tornar o
+    // escopo explicito na mensagem de confirmacao e no toast.
+    if (!window.confirm("Resetar as posições de todos os blocos para o padrão? Isso descarta o posicionamento manual já ajustado (largura/altura dos logos, fundo e rodapé não são afetados). Esta ação não pode ser desfeita.")) {
+      return;
+    }
     setPositions(DEFAULT_POSITIONS);
     setIsDirty(true);
-    toast.info("Posições resetadas para o padrão.");
+    toast.info("Posições dos blocos resetadas para o padrão (logos, fundo e rodapé não foram alterados).");
   }, []);
 
   // ── Upload helper ──────────────────────────────────────────────────────────
@@ -523,8 +534,8 @@ export default function LayoutEditorPage() {
           {showPreview ? <EyeOff className="h-4 w-4 mr-1" /> : <Eye className="h-4 w-4 mr-1" />}
           {showPreview ? "Ocultar preview" : "Mostrar preview"}
         </Button>
-        <Button variant="outline" size="sm" onClick={handleReset}>
-          <RotateCcw className="h-4 w-4 mr-1" /> Resetar
+        <Button variant="outline" size="sm" onClick={handleReset} title="Reseta apenas as posições dos blocos (não afeta logos, fundo ou rodapé)">
+          <RotateCcw className="h-4 w-4 mr-1" /> Resetar posições
         </Button>
         <Button size="sm" onClick={handleSave} disabled={isSaving || isUploading} className="bg-blue-600 hover:bg-blue-700 text-white">
           {(isSaving || isUploading) ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
@@ -770,7 +781,22 @@ export default function LayoutEditorPage() {
         {showPreview && (
           <div className="flex-1 overflow-auto bg-gray-300 flex items-start justify-center p-8">
             <div>
-              <div className="mb-3 flex items-center justify-center gap-3 flex-wrap">
+              {/* CORRECAO (auditoria claude/fix-layout-editor-previa-real-largura):
+                  o <span> de legenda ficava na MESMA linha, com o mesmo espacamento
+                  (gap-3) e tamanho de fonte (text-xs) dos dois <button> reais do
+                  grupo, dentro do mesmo container flex centralizado — visualmente
+                  indistinguivel de uma terceira aba clicavel ("Editar blocos" |
+                  "Previa real" | [Modo de posicionamento]), mas e so texto estatico
+                  sem onClick, sem cursor:pointer e sem nenhuma acao associada.
+                  Reproduzido em producao: cliques repetidos nesse texto nao fazem
+                  nada, sem erro no console — exatamente o "comando que nao responde"
+                  relatado. Correcao: mover a legenda para FORA do grupo de botoes,
+                  como uma linha propria abaixo, em itálico e entre parenteses, para
+                  que fique claro que e uma descricao do estado atual, nao uma opcao
+                  clicavel adicional. Nenhuma funcionalidade nova foi criada aqui —
+                  um "modo de posicionamento" separado nunca existiu; posicionar os
+                  blocos ja acontece por arrastar diretamente em "Editar blocos". */}
+              <div className="mb-1 flex items-center justify-center">
                 <div className="inline-flex overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
                   <button
                     type="button"
@@ -787,10 +813,10 @@ export default function LayoutEditorPage() {
                     Previa real
                   </button>
                 </div>
-                <span className="text-xs text-gray-600">
-                  {previewMode === "real" ? "Visualizacao limpa da pagina" : "Modo de posicionamento"}
-                </span>
               </div>
+              <p className="mb-3 text-center text-[11px] italic text-gray-400">
+                {previewMode === "real" ? "(visualização limpa da página, sem alças de arrastar)" : "(arraste os blocos diretamente nesta visualização para posicioná-los)"}
+              </p>
 
               {previewMode === "editor" ? (
                 <>
@@ -979,6 +1005,28 @@ export default function LayoutEditorPage() {
                 </>
               ) : (
                 <>
+                  {/* CORRECAO (auditoria claude/fix-layout-editor-previa-real-largura):
+                      diferente do modo "editor", que envolve o SharedReportSheet num
+                      wrapper com getCanvasOuterStyle() (width:100% + maxWidth em mm +
+                      aspectRatio, dando ao navegador uma largura FISICA definida), o
+                      modo "real" passava o style diretamente para o SharedReportSheet
+                      dentro de uma <div> sem nenhuma largura propria (filho de um
+                      container flex com justify-content:center e sem flex-basis
+                      definido). Sem aspectRatio nem largura definida no ancestral,
+                      o navegador nao consegue resolver width:100% de forma estavel e
+                      a folha colapsa para uma largura minima (~o conteudo mais
+                      estreito), quebrando cada palavra numa linha e sobrepondo blocos
+                      — reproduzido visualmente em producao (unidade HOSPITAL DA
+                      CRIANCA, layout 20): "Achados" sobrepondo "Dr. Nome do Medico /
+                      CRM", logo redimensionado (200->300px) renderizando minusculo e
+                      fora do bloco. Mesma classe de bug ja documentada pela Manus na
+                      investigacao do incidente de paginacao de PDF (folha de medicao
+                      sem largura fisica -> 0px), agora reproduzida numa tela
+                      diferente. Correcao: envolver o SharedReportSheet no MESMO
+                      wrapper getCanvasOuterStyle() que o modo "editor" ja usa
+                      corretamente, garantindo paridade estrutural entre os dois
+                      modos. */}
+                  <div style={getCanvasOuterStyle(effectiveLayoutPrefs.pageSize)}>
                   <SharedReportSheet
                     positions={positions}
                     logos={logos.filter(logo => Boolean(logo.preview)).map(logo => ({
@@ -1016,8 +1064,9 @@ export default function LayoutEditorPage() {
                     marginRight={effectiveLayoutPrefs.marginRight}
                     marginBottom={effectiveLayoutPrefs.marginBottom}
                     marginLeft={effectiveLayoutPrefs.marginLeft}
-                    style={{ width: "100%", maxWidth: `${paperWidthMmValue}mm`, minHeight: `${paperHeightMmValue}mm` }}
+                    style={{ width: "100%", height: "100%" }}
                   />
+                  </div>
                   <p className="text-xs text-gray-500 text-center mt-2">Previa real da pagina com os blocos aplicados</p>
                 </>
               )}
