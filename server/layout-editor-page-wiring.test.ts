@@ -64,4 +64,13 @@ describe("LayoutEditorPage.tsx — wiring de pageSize/margens (Manus 2026-09-25)
     expect(source).toContain("handleLogoResize");
     expect(source).toContain("LOGO_BLOCK_IDS");
   });
+
+  it("preserva preferences efetivas ao salvar o layout", () => {
+    const saveStart = source.indexOf("const handleSave = useCallback");
+    const saveEnd = source.indexOf("const unitName =", saveStart);
+    const saveHandler = source.slice(saveStart, saveEnd);
+
+    expect(saveHandler).toContain("preferences:        effectiveLayoutPrefs");
+    expect(saveHandler).toContain("effectiveLayoutPrefs]);");
+  });
 });

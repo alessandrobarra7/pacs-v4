@@ -471,6 +471,7 @@ export default function LayoutEditorPage() {
         footerImageUrl:     finalFooterUrl ?? undefined,
         logos:              finalLogos.length > 0 ? finalLogos : undefined,
         blockPositions:     positions as unknown as Record<string, unknown>,
+        preferences:        effectiveLayoutPrefs,
       });
 
       setIsDirty(false);
@@ -495,7 +496,7 @@ export default function LayoutEditorPage() {
       setIsSaving(false);
       setIsUploading(false);
     }
-  }, [bgFile, bgOpacity, bgSizeOption, bgUrl, footerFile, footerUrl, logos, positions, unitId, uploadImage, upsertLayout, refetchLayout]);
+  }, [bgFile, bgOpacity, bgSizeOption, bgUrl, footerFile, footerUrl, logos, positions, unitId, uploadImage, upsertLayout, refetchLayout, effectiveLayoutPrefs]);
 
   const unitName = unitData?.name ?? `Unidade #${unitId}`;
   const activeBlockIds: BlockId[] = [...LOGO_BLOCK_IDS.slice(0, logos.length), ...STATIC_BLOCK_IDS];

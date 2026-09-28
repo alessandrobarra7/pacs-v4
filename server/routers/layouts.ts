@@ -38,6 +38,35 @@ const layoutInputSchema = z.object({
   blockPositions:     z.record(z.string(), z.unknown()).optional().nullable(),
 });
 
+type LayoutUpsertInput = z.infer<typeof layoutInputSchema>;
+
+/**
+ * Produz os campos atualizáveis do layout sem transformar a ausência de
+ * preferences em uma limpeza do valor existente. O create continua podendo
+ * iniciar a coluna como null; no update, undefined significa "não alterar".
+ */
+export function buildLayoutUpdateValues(
+  input: LayoutUpsertInput,
+  safeHeaderHtml: string | null,
+  safeFooterHtml: string | null,
+) {
+  const sharedValues = {
+    header_html:          safeHeaderHtml,
+    footer_html:          safeFooterHtml,
+    background_image_url: input.backgroundImageUrl ?? null,
+    background_opacity:   input.backgroundOpacity != null ? String(input.backgroundOpacity) : '1.00',
+    background_size:      input.backgroundSize ?? 'cover',
+    footer_image_url:     input.footerImageUrl ?? null,
+    logos:                input.logos ?? null,
+    block_positions:      input.blockPositions ?? null,
+    updatedAt:            new Date(),
+  };
+
+  return input.preferences === undefined
+    ? sharedValues
+    : { ...sharedValues, preferences: input.preferences };
+}
+
 export const layoutsRouter = router({
 
   /**
@@ -115,18 +144,7 @@ export const layoutsRouter = router({
         });
       } else {
         await db.update(model_layouts)
-          .set({
-            header_html:          safeHeaderHtml,
-            footer_html:          safeFooterHtml,
-            preferences:          input.preferences ?? null,
-            background_image_url: input.backgroundImageUrl ?? null,
-            background_opacity:   input.backgroundOpacity != null ? String(input.backgroundOpacity) : '1.00',
-            background_size:      input.backgroundSize ?? 'cover',
-            footer_image_url:     input.footerImageUrl ?? null,
-            logos:                input.logos ?? null,
-            block_positions:      input.blockPositions ?? null,
-            updatedAt:            new Date(),
-          })
+          .set(buildLayoutUpdateValues(input, safeHeaderHtml, safeFooterHtml))
           .where(eq(model_layouts.unit_id, input.unitId));
       }
 
