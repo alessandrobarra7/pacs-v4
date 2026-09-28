@@ -989,9 +989,24 @@ export default function ReportEditorPage() {
       footerHtml,
       isLast,
     }: { title: string; bodyHtml: string; footerHtml: string; isLast: boolean }) => {
-      const body = bodyHtml.trim()
-        ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
-        : <SharedReportBodyGuide />;
+      // CORRECAO (orientacao tecnica externa verificada contra o repositorio,
+      // 2026-09-28 — "ORDEM 1"): esta funcao e usada tanto para a folha de
+      // MEDICAO (materializePhysicalReportPages chama renderPage varias
+      // vezes durante a fragmentacao) quanto para as folhas FINAIS
+      // realmente impressas/exportadas. Quando um fragmento de secao
+      // resultava em bodyHtml vazio (ex.: sobra de fragmentacao no limite
+      // de uma pagina), o SharedReportBodyGuide — um guia visual com texto
+      // de exemplo ("Tecnica: Digite a tecnica do exame...", "Achados:
+      // Descreva os achados radiologicos...", "Conclusao: Registre a
+      // impressao diagnostica...") — entrava na medicao/paginacao real,
+      // podendo alterar a altura medida e, no pior caso, aparecer na folha
+      // fisica final entregue para impressao ou PDF. O guia deve existir
+      // SOMENTE na superficie de edicao em tela (onde ja existe, embutido
+      // separadamente mais abaixo neste arquivo, atras de
+      // showSectionBodyGuide/showBodyGuide) — nunca na folha fisica.
+      // Correcao: a folha fisica sempre renderiza um container de corpo
+      // real, vazio quando bodyHtml for vazio, nunca o guia.
+      const body = <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />;
       return renderSharedReportSheetHtml({
         className: "print-page",
         pageSize,
