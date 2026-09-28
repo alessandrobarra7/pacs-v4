@@ -1,0 +1,277 @@
+HANDOFF PARA MANUS — Correção: "Prévia real" colapsando, legenda enganosa e
+reset sem confirmação no Editor de Layout
+==============================================================================
+
+Projeto: PACS Portal / LAUDS
+Repositório: alessandrobarra7/pacs-v4
+Branch: claude/fix-layout-editor-previa-real-largura
+Commit base: 130afc1efa100e8811a79c829655ef0d600b17e2 (origin/main, topo no
+  momento em que este branch foi criado — inclui os commits da própria Manus
+  de hoje, "refactor(pdf): unificar fábrica de páginas físicas" e o resto da
+  série "contrato canônico de layout")
+Commit topo deste branch: b891815b583aee01d67221126762b9d59a444179
+Destinatário: Manus (e qualquer outro agente/engenheiro com acesso à VM de
+  produção)
+
+------------------------------------------------------------------------------
+1. COMO CHEGAR NO CÓDIGO REAL
+------------------------------------------------------------------------------
+
+    git fetch origin
+    git fetch origin claude/fix-layout-editor-previa-real-largura:refs/remotes/origin/claude/fix-layout-editor-previa-real-largura
+    git checkout claude/fix-layout-editor-previa-real-largura
+    git diff 130afc1..HEAD
+
+Dois arquivos alterados:
+  - client/src/pages/LayoutEditorPage.tsx (3 correções, comentadas inline
+    com "CORRECAO (auditoria claude/fix-layout-editor-previa-real-largura)")
+  - server/layout-editor-previa-real-fix.test.ts (novo — 10 testes de
+    regressão para as 3 correções)
+
+------------------------------------------------------------------------------
+2. ORIGEM DO ACHADO
+------------------------------------------------------------------------------
+
+O Alessandro pediu para eu acessar seu navegador real (Claude in Chrome, ele
+mesmo fez o login com as credenciais dele) e abrir
+lauds.com.br/admin/layouts/20 — o Editor de Layout da unidade HOSPITAL DA
+CRIANÇA — porque relatou dificuldade para editar o layout ali, com "alguns
+comandos que não respondem". Reproduzi ao vivo, em produção, lendo o DOM
+renderizado, o console e a rede da página, e depois confirmei cada achado
+lendo o código-fonte real de LayoutEditorPage.tsx nesta mesma tarde (após o
+merge de hoje do "contrato canônico de layout"). Nenhuma alteração foi salva
+em produção durante a reprodução — não cliquei em "Salvar Layout" na sessão
+de investigação.
+
+------------------------------------------------------------------------------
+3. MECANISMO DO PROBLEMA 1 (o mais grave): "Prévia real" colapsando
+------------------------------------------------------------------------------
+
+A tela tem dois modos reais, alternados por dois <button>: "Editar blocos" e
+"Previa real". Os dois renderizam o mesmo <SharedReportSheet /> com os mesmos
+dados de exemplo (REAL_PREVIEW_SAMPLE), positions, logos, pageSize e margens
+— a diferença deveria ser só a camada de interação (arrastar/redimensionar),
+que só aparece em "Editar blocos".
+
+No modo "Editar blocos", o SharedReportSheet fica dentro de:
+
+    <div ref={canvasRef} style={{ ...getCanvasOuterStyle(effectiveLayoutPrefs.pageSize), ... }}>
+      <SharedReportSheet ... style={{ width: "100%", height: "100%" }} />
+      ...camada de interação...
+    </div>
+
+`getCanvasOuterStyle()` (client/src/lib/layoutEditorAreaUtil.ts) devolve:
+
+    { width: "100%", maxWidth: `${widthMm}mm`, aspectRatio: `${widthMm} / ${heightMm}` }
+
+O `aspectRatio` é o que dá ao navegador uma forma de resolver a largura de
+forma determinística mesmo dentro de um flex item sem largura própria — o
+`canvasRef` acaba herdando `maxWidth` (210mm/216mm conforme A4/Letter) como
+sua largura real, porque o par width:100%+aspectRatio força o algoritmo de
+sizing do flexbox a tratar a largura como definida.
+
+No modo "Previa real" (antes da correção), o SharedReportSheet ficava
+DIRETO dentro do container flex externo, sem nenhum wrapper equivalente:
+
+    <SharedReportSheet ... style={{ width: "100%", maxWidth: `${paperWidthMmValue}mm`, minHeight: `${paperHeightMmValue}mm` }} />
+
+Sem `aspectRatio` (nem qualquer outro mecanismo de largura definida) em
+NENHUM ancestral entre o componente e o container flex externo (que por sua
+vez também não tem largura própria — é `<div>{tabs}{sheet}</div>` dentro de
+`<div className="flex-1 ... flex items-start justify-center p-8">`), o
+navegador não consegue resolver a cadeia de `width:100%` de forma estável.
+Resultado observado ao vivo: a folha colapsa para uma largura mínima —
+efetivamente o conteúdo mais estreito que cabe sem quebrar mais — e cada
+palavra do corpo do laudo passa a ocupar uma linha própria. Consequências
+visuais reproduzidas e fotografadas:
+
+  - Texto sobreposto: "Achados" (do corpo do laudo) sobrepondo "Dr. Nome do
+    Médico / CRM" (do rodapé), porque as alturas dos blocos dependem também
+    da largura colapsada.
+  - Um logo cujo campo "Largura (px)" eu alterei de 200 para 300 no painel
+    esquerdo renderizou MINÚSCULO (~20px visíveis) e deslocado para dentro
+    do texto "Data de nascimento:", em vez de aparecer no bloco do logo.
+  - Nenhum erro no console do navegador — a quebra é inteiramente
+    silenciosa, só visual.
+
+Isto é a MESMA classe de bug que a Manus já documentou e corrigiu na
+investigação do incidente de paginação de PDF ("folha de medição sem largura
+física → medida como 0px"), mas aqui é uma ocorrência DIFERENTE, numa tela
+diferente (o próprio Editor de Layout, não o pipeline de geração de PDF), e
+está atualmente ao vivo em produção — não depende de nenhum branch revertido.
+
+CORREÇÃO aplicada: envolver o SharedReportSheet do modo "real" no MESMO
+`getCanvasOuterStyle(effectiveLayoutPrefs.pageSize)` que o modo "editor" já
+usa corretamente, e trocar o style do SharedReportSheet para
+`{ width: "100%", height: "100%" }` (a largura física passa a vir do
+wrapper, não do componente) — paridade estrutural total entre os dois modos.
+Ver client/src/pages/LayoutEditorPage.tsx, bloco `previewMode === "real"`.
+
+------------------------------------------------------------------------------
+4. MECANISMO DO PROBLEMA 2: legenda de texto fingindo ser uma terceira aba
+------------------------------------------------------------------------------
+
+Acima do canvas, o grupo de abas tinha esta estrutura:
+
+    <div className="mb-3 flex items-center justify-center gap-3 flex-wrap">
+      <div className="inline-flex ... shadow-sm">
+        <button>Editar blocos</button>
+        <button>Previa real</button>
+      </div>
+      <span className="text-xs text-gray-600">
+        {previewMode === "real" ? "Visualizacao limpa da pagina" : "Modo de posicionamento"}
+      </span>
+    </div>
+
+O `<span>` ficava na MESMA linha (mesmo flex container), com o MESMO
+`gap-3` e o MESMO `text-xs text-gray-600` de tamanho/cor próximos aos
+botões — visual e posicionalmente indistinguível de uma terceira opção de
+aba. Mas é só texto: sem `onClick`, sem `cursor:pointer` (computado como
+`auto`), sem handler algum. Confirmei isso tanto visualmente (cliques
+repetidos não mudam nada) quanto lendo o DOM renderizado via JavaScript no
+navegador (nenhum elemento com esse texto tem onclick/role=button, e
+`getComputedStyle(el).cursor` retorna `"auto"`).
+
+Isso é exatamente o "comando que não responde" que o Alessandro relatou:
+alguém vê "Editar blocos | Previa real | Modo de posicionamento" e tenta
+clicar na terceira, esperando entrar num modo dedicado de posicionamento —
+e nada acontece, sem nenhum feedback de que aquilo nunca foi clicável.
+
+Importante: um "modo de posicionamento" separado NÃO precisa ser criado.
+Reposicionar os blocos já funciona hoje, por arrastar diretamente dentro de
+"Editar blocos" — confirmei lendo `handlePointerDown`/`handlePointerMove`/
+`handlePointerUp`, que usam Pointer Events reais (mouse, caneta e toque) e
+estão corretamente implementados, incluindo os cálculos de
+Bloqueio C (área útil real, não a folha inteira) já corrigidos numa rodada
+anterior. O problema é só a legenda que sugere uma funcionalidade separada
+que nunca existiu.
+
+CORREÇÃO aplicada: mover a legenda para fora do grupo de botões, como um
+`<p>` próprio, em itálico e entre parênteses, logo abaixo:
+
+    <p className="mb-3 text-center text-[11px] italic text-gray-400">
+      {previewMode === "real"
+        ? "(visualização limpa da página, sem alças de arrastar)"
+        : "(arraste os blocos diretamente nesta visualização para posicioná-los)"}
+    </p>
+
+Isso deixa claro, por contraste visual (itálico, cinza mais claro, fora da
+"pílula" dos botões) e por conteúdo (parênteses, texto descritivo em vez de
+nome de "modo"), que é uma descrição do estado atual — não uma opção
+adicional.
+
+------------------------------------------------------------------------------
+5. MECANISMO DO PROBLEMA 3: "Resetar" destrutivo sem confirmação
+------------------------------------------------------------------------------
+
+O handler original:
+
+    const handleReset = useCallback(() => {
+      setPositions(DEFAULT_POSITIONS);
+      setIsDirty(true);
+      toast.info("Posições resetadas para o padrão.");
+    }, []);
+
+Um único clique no botão "Resetar" (sem diálogo de confirmação) descartava
+TODAS as posições customizadas dos blocos — inclusive qualquer ajuste manual
+feito minutos antes — sem chance de desfazer. Testei ao vivo: cliquei, e o
+layout (que eu tinha alterado, e que já vinha com posições ajustadas para
+essa unidade) pulou instantaneamente para o arranjo padrão (os dois logos
+lado a lado no topo, blocos redistribuídos). O toast "Posições resetadas
+para o padrão" aparece DEPOIS do fato consumado — não é uma confirmação,
+é só um aviso do que já aconteceu.
+
+Além disso, "Resetar" resetava só `positions` — os campos de largura/altura
+de cada logo (`logos[].width/height`), a imagem de fundo e o rodapé não são
+tocados. Isso é uma decisão de escopo razoável (evita perder uploads), mas
+o rótulo genérico "Resetar" não deixava isso explícito, o que pode levar
+alguém a esperar um reset total e se surpreender que logo/fundo/rodapé
+continuam como estavam.
+
+CORREÇÃO aplicada:
+
+    const handleReset = useCallback(() => {
+      if (!window.confirm("Resetar as posições de todos os blocos para o padrão? Isso descarta o posicionamento manual já ajustado (largura/altura dos logos, fundo e rodapé não são afetados). Esta ação não pode ser desfeita.")) {
+        return;
+      }
+      setPositions(DEFAULT_POSITIONS);
+      setIsDirty(true);
+      toast.info("Posições dos blocos resetadas para o padrão (logos, fundo e rodapé não foram alterados).");
+    }, []);
+
+E o botão no header passou de "Resetar" para "Resetar posições", com
+`title` explicando o escopo no hover.
+
+------------------------------------------------------------------------------
+6. VALIDAÇÃO EXECUTADA
+------------------------------------------------------------------------------
+
+  - pnpm check (tsc --noEmit): aprovado, sem erros.
+  - Testes direcionados:
+      server/layout-editor-previa-real-fix.test.ts .... 10/10 aprovados (novo)
+      server/layout-editor-page-wiring.test.ts ......... 8/8 aprovados
+      server/layout-editor-area-util.test.ts ........... 10/10 aprovados
+      Total direcionado: 28/28 aprovados.
+  - Prova de que o teste novo de fato detecta regressão: revertido SÓ o
+    código-fonte (client/src/pages/LayoutEditorPage.tsx, via `git stash`),
+    mantendo o arquivo de teste novo — 8 dos 10 testes novos falharam como
+    esperado (2 continuaram passando porque testam propriedades que já
+    existiam antes desta rodada, como os dois botões reais de aba).
+    Restaurado o fix (`git stash pop`), os 28/28 voltaram a passar.
+  - TZ=UTC pnpm test (suíte completa): 711 aprovados, 11 falhas, 1 ignorado
+    (723 total). As 11 falhas são EXATAMENTE a linha de base conhecida deste
+    projeto, nos mesmos 7 arquivos de sempre:
+      server/exam-catalog-security.test.ts
+      server/finance-v2-dashboard.test.tsx
+      server/mediaProxy.test.ts
+      server/pacs-desktop-download-progress.test.ts
+      server/pacs.mobile-ui.test.ts
+      server/security.auth.test.ts
+      server/study-priority-ui.test.ts
+    Nenhuma falha nova atribuível a este branch.
+  - pnpm build: aprovado (só o aviso preexistente de chunk JS grande,
+    5.4MB minificado — não relacionado a este branch).
+  - git diff --check: limpo.
+
+------------------------------------------------------------------------------
+7. O QUE FICOU FORA DO ESCOPO, E POR QUÊ
+------------------------------------------------------------------------------
+
+  a) Não fiz nenhuma homologação visual em Chromium real deste fix — este
+     sandbox não tem acesso a um Chromium instrumentado como o seu. A
+     reprodução do bug foi feita ao vivo, no Chrome real do Alessandro
+     (via extensão), mas a CORREÇÃO em si só foi validada por leitura de
+     código e pelos testes de regressão (source-string, no padrão já
+     estabelecido para este arquivo — jsdom não calcula layout CSS de
+     verdade, como o próprio server/layout-editor-page-wiring.test.ts já
+     documenta). Peço que você repita a reprodução no seu Chromium real:
+     abrir /admin/layouts/:id de qualquer unidade, alternar para "Previa
+     real" e confirmar que a folha agora tem a largura física correta
+     (210mm A4 / 216mm Letter), sem palavras quebrando uma por linha e sem
+     sobreposição de blocos — em A4 e Letter, com e sem margens não padrão,
+     com e sem logo/rodapé configurados.
+
+  b) Não investiguei se esse MESMO padrão de bug (wrapper sem largura
+     física) se repete em outras telas do "contrato canônico de layout"
+     que você mesclou hoje (899da96..130afc1). Dado que causou esse
+     problema aqui, vale conferir se `reportDocumentRenderer.tsx`,
+     `PacsQueryPage.tsx` e `ReportEditorPage.tsx` — que agora usam a mesma
+     fábrica canônica — não têm um ponto de renderização equivalente sem
+     largura física definida.
+
+  c) Não toquei em nenhuma outra parte da tela do Editor de Layout além
+     dos 3 pontos descritos. Não fiz uma auditoria completa de toda a
+     tela — só o que foi reproduzido e confirmado nesta sessão.
+
+------------------------------------------------------------------------------
+8. ESTADO ATUAL
+------------------------------------------------------------------------------
+
+Commit topo deste branch: b891815b583aee01d67221126762b9d59a444179.
+Publicado no GitHub: PENDENTE — este sandbox não tem credencial de push
+configurada nesta sessão (limitação recorrente já documentada em rodadas
+anteriores). O Alessandro vai fornecer um token para publicar, ou você pode
+puxar o branch localmente a partir do commit acima assim que ele estiver no
+remoto. Nenhum merge, deploy, reinício de serviço ou migration foi feito.
+Nada foi alterado em produção — inclusive a reprodução visual do bug foi
+feita sem clicar em "Salvar Layout".
