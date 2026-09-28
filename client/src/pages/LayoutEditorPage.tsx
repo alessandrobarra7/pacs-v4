@@ -133,6 +133,19 @@ export default function LayoutEditorPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
+  // Painel esquerdo em acordeão (auditoria claude/wizard-layout-laudos-acordeao):
+  // antes as seções (Logos, Fundo, Rodapé, Blocos) ficavam todas abertas ao mesmo
+  // tempo numa única coluna com scroll longo. Agrupamos em 3 seções recolhíveis —
+  // "Formato e margens" (nova, ver abaixo), "Logos, fundo e rodapé" (as 3 seções
+  // antigas) e "Blocos do laudo" (igual antes) — para reduzir a rolagem sem tirar
+  // nenhuma funcionalidade. O posicionamento dos blocos continua 100% livre por
+  // arraste/redimensionamento direto na folha; a seção "Blocos do laudo" é apenas
+  // um atalho de navegação/seleção (clicar nela ativa o bloco no canvas), nunca
+  // uma restrição de grade.
+  type PanelSection = "papel" | "identidade" | "blocos";
+  const [openSection, setOpenSection] = useState<PanelSection>("blocos");
+  const toggleSection = (section: PanelSection) => setOpenSection(prev => prev === section ? ("" as PanelSection) : section);
+
   // Preferências de página/margens (pageSize + 4 margens) — mesma fonte usada
   // pelo fluxo real de PDF/impressão (layoutData.preferences), para que o
   // canvas do editor deixe de ser uma folha A4 fixa e passe a refletir a
@@ -398,7 +411,28 @@ export default function LayoutEditorPage() {
     setIsDirty(true);
   }, []);
 
+  // ── Handlers: formato e margens (NOVO — auditoria claude/wizard-layout-laudos-acordeao) ──
+  // Antes desta correção, pageSize/margens só podiam ser gravados chamando
+  // trpc.layouts.upsert diretamente (nenhuma tela do sistema os editava — nem
+  // esta, nem ReportEditorPage, nem PacsQueryPage, que só LEEM effectiveLayoutPrefs).
+  // O schema (shared/types.ts:layoutPreferencesSchema) já aceita esses campos e o
+  // handleSave já envia `preferences: effectiveLayoutPrefs` no upsert, então esta é
+  // uma adição puramente aditiva no frontend — nenhuma migration ou mudança de
+  // contrato de backend foi necessária.
+  const updatePreference = useCallback(<K extends keyof LayoutPreferences>(key: K, value: LayoutPreferences[K]) => {
+    setLayoutPrefs(prev => ({ ...(prev ?? {}), [key]: value }));
+    setIsDirty(true);
+  }, []);
+
   const handleReset = useCallback(() => {
+    // CORREÇÃO (auditoria claude/wizard-layout-laudos-acordeao): o botão
+    // "Resetar" apagava todo o posicionamento customizado dos 8 blocos sem
+    // nenhuma confirmação — um clique acidental descartava minutos de ajuste
+    // fino sem chance de desfazer (a mudança só vira permanente ao clicar em
+    // "Salvar Layout", mas o estado em tela já era perdido na hora).
+    if (!window.confirm("Resetar todas as posições dos blocos para o padrão de fábrica? Isso descarta o posicionamento atual em tela (só é definitivo depois de Salvar).")) {
+      return;
+    }
     setPositions(DEFAULT_POSITIONS);
     setIsDirty(true);
     toast.info("Posições resetadas para o padrão.");
@@ -523,8 +557,8 @@ export default function LayoutEditorPage() {
           {showPreview ? <EyeOff className="h-4 w-4 mr-1" /> : <Eye className="h-4 w-4 mr-1" />}
           {showPreview ? "Ocultar preview" : "Mostrar preview"}
         </Button>
-        <Button variant="outline" size="sm" onClick={handleReset}>
-          <RotateCcw className="h-4 w-4 mr-1" /> Resetar
+        <Button variant="outline" size="sm" onClick={handleReset} title="Restaura o posicionamento padrão dos 8 blocos (pede confirmação)">
+          <RotateCcw className="h-4 w-4 mr-1" /> Resetar posições
         </Button>
         <Button size="sm" onClick={handleSave} disabled={isSaving || isUploading} className="bg-blue-600 hover:bg-blue-700 text-white">
           {(isSaving || isUploading) ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
@@ -535,6 +569,82 @@ export default function LayoutEditorPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* Painel esquerdo */}
         <div className="w-80 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0 p-4 space-y-5">
+
+          {/* ── Formato e margens (NOVO) ─────────────────────────────────── */}
+          <section>
+            <button
+              type="button"
+              onClick={() => toggleSection("papel")}
+              className="flex w-full items-center justify-between text-left"
+            >
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Formato e margens</h2>
+              <span className="text-gray-400 text-xs">{openSection === "papel" ? "−" : "+"}</span>
+            </button>
+            {openSection === "papel" && (
+              <div className="pt-3 space-y-3">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Formato da página</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(["A4", "Letter"] as const).map(size => (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => updatePreference("pageSize", size)}
+                        className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${effectiveLayoutPrefs.pageSize === size ? "border-blue-400 bg-blue-50 text-blue-700" : "border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300"}`}
+                      >
+                        {size}
+                        <span className="block text-[10px] font-normal text-gray-400">{size === "A4" ? "210 × 297 mm" : "215,9 × 279,4 mm"}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Margens (mm)</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      ["marginTop", "Topo"],
+                      ["marginRight", "Direita"],
+                      ["marginBottom", "Base"],
+                      ["marginLeft", "Esquerda"],
+                    ] as const).map(([field, label]) => (
+                      <label key={field} className="block">
+                        <span className="block text-[10px] font-medium text-gray-500 mb-0.5">{label}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={60}
+                          step={1}
+                          value={effectiveLayoutPrefs[field]}
+                          onChange={e => {
+                            const raw = parseFloat(e.target.value);
+                            if (!Number.isFinite(raw)) return;
+                            updatePreference(field, Math.max(0, Math.min(60, raw)));
+                          }}
+                          className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-[11px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">0 a 60mm. Margens muito pequenas (abaixo de ~8mm) podem cortar conteúdo em algumas impressoras.</p>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <hr className="border-gray-100" />
+
+          {/* ── Logos, fundo e rodapé (antes 3 seções sempre abertas; agora um único acordeão) ── */}
+          <section>
+            <button
+              type="button"
+              onClick={() => toggleSection("identidade")}
+              className="flex w-full items-center justify-between text-left"
+            >
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Logos, fundo e rodapé</h2>
+              <span className="text-gray-400 text-xs">{openSection === "identidade" ? "−" : "+"}</span>
+            </button>
+            {openSection === "identidade" && (
+            <div className="pt-3 space-y-5">
 
           {/* ── Logos ─────────────────────────────────────────────────────── */}
           <section>
@@ -698,14 +808,27 @@ export default function LayoutEditorPage() {
             <p className="text-xs text-gray-400 mt-2">Onda, assinatura ou rodapé institucional. Aparece na parte inferior do laudo.</p>
           </section>
 
+            </div>
+            )}
+          </section>
+
           <hr className="border-gray-100" />
 
-          {/* ── Blocos ────────────────────────────────────────────────────── */}
+          {/* ── Blocos (acordeão; aberto por padrão, igual comportamento anterior) ── */}
           <section>
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-              <Move className="h-3.5 w-3.5" /> Blocos do Laudo
-            </h2>
-            <p className="text-xs text-gray-400 mb-3">Arraste os blocos no preview ou ajuste posição e tamanho abaixo.</p>
+            <button
+              type="button"
+              onClick={() => toggleSection("blocos")}
+              className="flex w-full items-center justify-between text-left mb-3"
+            >
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                <Move className="h-3.5 w-3.5" /> Blocos do Laudo
+              </h2>
+              <span className="text-gray-400 text-xs">{openSection === "blocos" ? "−" : "+"}</span>
+            </button>
+            {openSection === "blocos" && (
+            <>
+            <p className="text-xs text-gray-400 mb-3">Arraste os blocos no preview ou ajuste posição e tamanho abaixo (a lista abaixo é só um atalho para selecionar; a posição continua livre, sem grade).</p>
             <div className="space-y-3">
               {activeBlockIds.map(block => {
                 const info = BLOCK_LABELS[block];
@@ -752,6 +875,8 @@ export default function LayoutEditorPage() {
                 );
               })}
             </div>
+            </>
+            )}
           </section>
 
           <hr className="border-gray-100" />
@@ -770,7 +895,7 @@ export default function LayoutEditorPage() {
         {showPreview && (
           <div className="flex-1 overflow-auto bg-gray-300 flex items-start justify-center p-8">
             <div>
-              <div className="mb-3 flex items-center justify-center gap-3 flex-wrap">
+              <div className="mb-1 flex items-center justify-center">
                 <div className="inline-flex overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
                   <button
                     type="button"
@@ -787,10 +912,17 @@ export default function LayoutEditorPage() {
                     Previa real
                   </button>
                 </div>
-                <span className="text-xs text-gray-600">
-                  {previewMode === "real" ? "Visualizacao limpa da pagina" : "Modo de posicionamento"}
-                </span>
               </div>
+              {/* CORREÇÃO (auditoria claude/wizard-layout-laudos-acordeao): a legenda
+                  estava com o texto das duas abas trocado/genérico ("Visualizacao limpa
+                  da pagina" para Prévia real, "Modo de posicionamento" só quando editor
+                  estava ativo) — não dizia o que cada aba realmente faz nem que a Prévia
+                  real não tem alças de arrastar. */}
+              <p className="mb-3 text-center text-[11px] italic text-gray-400">
+                {previewMode === "real"
+                  ? "Prévia real: mostra a página como sairá impressa, sem alças de arrastar."
+                  : "Modo de posicionamento: arraste, redimensione e ajuste X/Y/Larg./Alt. dos blocos."}
+              </p>
 
               {previewMode === "editor" ? (
                 <>
@@ -979,6 +1111,17 @@ export default function LayoutEditorPage() {
                 </>
               ) : (
                 <>
+                  {/* CORREÇÃO (auditoria claude/wizard-layout-laudos-acordeao): o modo
+                      "Prévia real" aplicava style={{ maxWidth: `${mm}mm` }} diretamente
+                      no componente da folha (SharedReportSheet), sem nenhum ancestral flex com largura
+                      definida e sem aspectRatio — como o item ficava dentro de um flex
+                      column (a coluna "previewMode===editor ? ... : <>...</>"), o
+                      navegador não tinha base para resolver maxWidth e a folha colapsava
+                      para largura ~0 (só a altura mínima aparecia). getCanvasOuterStyle()
+                      já resolve isso no modo "editor" combinando width:100% + maxWidth +
+                      aspectRatio; envolver a folha real no mesmo wrapper resolve aqui
+                      também, mantendo a folha 100% fiel ao pageSize/margens configurados. */}
+                  <div style={getCanvasOuterStyle(effectiveLayoutPrefs.pageSize)}>
                   <SharedReportSheet
                     positions={positions}
                     logos={logos.filter(logo => Boolean(logo.preview)).map(logo => ({
@@ -1016,8 +1159,9 @@ export default function LayoutEditorPage() {
                     marginRight={effectiveLayoutPrefs.marginRight}
                     marginBottom={effectiveLayoutPrefs.marginBottom}
                     marginLeft={effectiveLayoutPrefs.marginLeft}
-                    style={{ width: "100%", maxWidth: `${paperWidthMmValue}mm`, minHeight: `${paperHeightMmValue}mm` }}
+                    style={{ width: "100%", height: "100%" }}
                   />
+                  </div>
                   <p className="text-xs text-gray-500 text-center mt-2">Previa real da pagina com os blocos aplicados</p>
                 </>
               )}
