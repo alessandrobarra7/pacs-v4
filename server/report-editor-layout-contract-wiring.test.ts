@@ -34,4 +34,14 @@ describe("ReportEditorPage — contrato canônico de layout", () => {
     expect(source).toContain("positions={layoutBlockPos}");
     expect(source).toContain("logos={layoutLogos}");
   });
+
+  it("materializa a impressão a partir da fábrica única antes de chamar print", () => {
+    expect(source).toContain('from "@/lib/reportPhysicalPageFactory"');
+    expect(source).toContain("materializePhysicalReportPages({");
+    expect(source).toContain("normalizeReportSections(rawBody, examTitle || \"Laudo\")");
+    expect(source).toContain("renderPage: renderEditorPhysicalPage,");
+    expect(source).toContain("win.print();");
+    expect(source.indexOf("materializePhysicalReportPages({")).toBeLessThan(source.indexOf("win.print();"));
+    expect(source).not.toContain("window.onload = function()");
+  });
 });

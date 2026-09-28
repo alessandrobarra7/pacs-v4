@@ -80,17 +80,16 @@ describe("ReportEditorPage — experiência mobile", () => {
     expect(sharedSheetSource).toContain('top: `${p.y}%`');
   });
 
-  it("usa o mesmo SharedReportSheet no editor clínico e na exportação", () => {
+  it("usa SharedReportSheet no Editor e a fábrica física canônica nos demais consumidores", () => {
     expect(editorSource).toContain("ClinicalPatientDetails");
     expect(editorSource).toContain("patientNameContent: <ClinicalPatientName patientName={patientName} />");
     expect(pacsSource).toContain("ClinicalPatientDetails");
-    expect(pacsSource).toContain("patientNameContent: <ClinicalPatientName patientName={patientName} />");
     expect(editorSource).toContain("renderSharedReportSheetHtml");
     expect(editorSource).toContain("positions: layoutBlockPos");
-    expect(editorSource).toContain("footerImageUrl: footerBase64 || layoutFooterUrl");
-    expect(pacsSource).toContain("renderSharedReportSheetHtml");
-    expect(pacsSource).toContain("positions: blockPositionsQ");
-    expect(pacsSource).toContain("footerImageUrl: footerBase64Q || lFooterUrl");
+    expect(editorSource).toContain("footerImageUrl: isLast ? (footerBase64 || layoutFooterUrl) : null");
+    expect(pacsSource).toContain("materializePhysicalReportPages({");
+    expect(pacsSource).toContain("renderPage: renderPhysicalPageQ,");
+    expect(pacsSource).toContain("const logoLayerHtmlQ = renderLogoLayerHtml(blockPositionsQ, printLogosWithFallbackQ);");
     expect(sharedPrintSource).toContain("renderToStaticMarkup");
     expect(sharedPrintSource).toContain("createElement(SharedReportSheet, props)");
   });
@@ -136,27 +135,21 @@ describe("ReportEditorPage — experiência mobile", () => {
    * impressão/PDF agora repassam pageSize e as 4 margens efetivas da
    * unidade (nunca mais um valor hardcoded independente da configuração).
    */
-  it("as 4 vias de impressão/PDF repassam pageSize e margens efetivas ao SharedReportSheet", () => {
-    // Via 1: impressão oficial / impressão rápida de laudo único
-    // (renderPrintSheet, usado tanto para multi-seção quanto para página
-    // única dentro de handlePrint em ReportEditorPage.tsx).
+  it("os adaptadores físicos preservam pageSize e margens efetivas", () => {
+    // Editor: o adaptador SharedReportSheet recebe as quatro margens.
     expect(editorSource).toContain("marginTop: lMT");
     expect(editorSource).toContain("marginRight: lMR");
     expect(editorSource).toContain("marginBottom: lMB");
     expect(editorSource).toContain("marginLeft: lML");
-    // Via 2: impressão rápida da lista de exames (PacsQueryPage.tsx) — usa
-    // as mesmas variáveis com sufixo Q.
-    expect(pacsSource).toContain("marginTop: lMT");
-    expect(pacsSource).toContain("marginRight: lMR");
-    expect(pacsSource).toContain("marginBottom: lMB");
-    expect(pacsSource).toContain("marginLeft: lML");
-    // Via 3: a folha em tela (WYSIWYG do editor clínico) também recebe as
+    // PACS: o adaptador mantém a área útil deslocada pelas quatro margens.
+    expect(pacsSource).toContain("top:${lMT}mm;right:${lMR}mm;bottom:${lMB}mm;left:${lML}mm");
+    // A folha em tela (WYSIWYG do editor clínico) também recebe as
     // preferências efetivas — é ela que o download financeiro rasteriza via
     // html2canvas, então precisa nascer já no tamanho/margem corretos.
     expect(editorSource).toContain("pageSize={effectiveLayoutPrefs.pageSize}");
     expect(editorSource).toContain("marginTop={effectiveLayoutPrefs.marginTop}");
-    // Via 4 (PDF do financeiro, client/src/lib/financialReportPdfDownload.ts)
-    // já lia pageSize/margens corretamente antes desta correção — mantido.
+    // O Financeiro mantém pageSize/margens no seu adaptador, mas a sequência
+    // de páginas físicas é comum aos três consumidores.
   });
 
   /**

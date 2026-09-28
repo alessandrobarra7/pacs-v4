@@ -5,7 +5,11 @@ import {
   type ReportLayoutSource,
 } from "../../../shared/reportLayout";
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx } from "./pdfPageGeometry";
-import { ContentTooLargeForPageError, paginateSectionIntoPages } from "./reportPagination";
+import { ContentTooLargeForPageError } from "./reportPagination";
+import {
+  materializePhysicalReportPages,
+  normalizeReportSections,
+} from "./reportPhysicalPageFactory";
 
 // CORREÇÃO (revisão Manus 2026-09-25, bloqueio "laudo único longo é
 // cortado no PDF financeiro"): reserva de altura para o bloco de
@@ -109,11 +113,10 @@ export async function downloadFinancialReportPdf(documentData: any) {
   const rawDate = report.study_date ? String(report.study_date).slice(0, 10) : "";
   const studyDate = rawDate.includes("-") ? rawDate.split("-").reverse().join("/") : "—";
   const signedAt = report.signed_at ? new Date(report.signed_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
-  let sections: Array<{ title: string; body: string }> = [{ title: report.document_label || report.study_description || "Laudo", body: report.body || "" }];
-  try {
-    const parsed = JSON.parse(report.body);
-    if (Array.isArray(parsed) && parsed.length && parsed.every((section) => section && typeof section.body === "string")) sections = parsed;
-  } catch { /* documento HTML simples */ }
+  const sections = normalizeReportSections(
+    report.body,
+    report.document_label || report.study_description || "Laudo",
+  );
   const logoHtml = logoUrls.filter(Boolean).map((url, index) => `<img src="${url}" alt="Logo ${index + 1}" />`).join("");
   const doctorFooter = `
     <div class="doctor-footer">
@@ -147,13 +150,13 @@ export async function downloadFinancialReportPdf(documentData: any) {
   // garante que a altura disponível para o corpo (medida uma única vez, a
   // partir de uma folha-modelo vazia) seja idêntica em todas as folhas,
   // vazias ou não.
-  const buildPageShell = (title: string, bodyHtml: string, footerReserveHtml: string) => `
+  const renderPhysicalPage = ({ title, bodyHtml, footerHtml }: { title: string; bodyHtml: string; footerHtml: string }) => `
     <article class="print-page" ${background ? `style="background-image:url('${background}');background-size:${backgroundSize};background-position:center;background-repeat:no-repeat"` : ""}>
       <header>${logoHtml}<div class="header-spacer"></div></header>
       <section class="patient"><div>Nome do paciente: ${escapeHtml(patientName)}</div><div>Data de realização do exame: ${escapeHtml(studyDate)}</div><div>Modalidade: ${escapeHtml(report.modality || "—")}</div></section>
       <h1>${escapeHtml(title || "Laudo")}</h1>
       <main class="report-body">${bodyHtml}</main>
-      <div class="footer-reserve">${footerReserveHtml}</div>
+      <div class="footer-reserve">${footerHtml}</div>
       ${footer ? `<img src="${footer}" class="unit-footer" alt="Rodapé" />` : ""}
     </article>`;
   const iframe = document.createElement("iframe");
@@ -195,65 +198,13 @@ export async function downloadFinancialReportPdf(documentData: any) {
     // configurado, CSS não carregado etc.) faria a paginação real falhar
     // de forma confusa (todo conteúdo pareceria "maior que a página");
     // verificar aqui dá um erro claro e cedo.
-    const sanityWrapper = doc.createElement("div");
-    sanityWrapper.style.cssText = "position:absolute;visibility:hidden;left:-99999px;top:0;";
-    sanityWrapper.innerHTML = buildPageShell(sections[0]?.title || "Laudo", "", doctorFooter);
-    doc.body.appendChild(sanityWrapper);
-    const sanityBodyEl = sanityWrapper.querySelector<HTMLElement>(".report-body");
-    const sanityAvailableHeightPx = sanityBodyEl?.getBoundingClientRect().height ?? 0;
-    doc.body.removeChild(sanityWrapper);
-    if (sanityAvailableHeightPx <= 0) throw new Error("Não foi possível medir a área útil da página para paginação.");
-
-    // ── Paginar cada seção antes da captura ─────────────────────────────
-    // CORREÇÃO (Parecer de revisão da Manus, 2026-09-25, bloqueios B1/B2/
-    // B3): a versão anterior somava alturas pré-medidas de cada
-    // filho-elemento, sem contar margens, e ignorava nós de texto soltos
-    // (fora de tag) — a Manus mediu 23px de conteúdo excedente aceito
-    // indevidamente com esse método. Agora, em vez de somar alturas,
-    // inserimos incrementalmente clones reais de CADA nó do corpo
-    // (elementos e texto solto) numa folha física real e verificamos
-    // `scrollHeight <= clientHeight` após cada inserção — isso conta
-    // corretamente margens, colapso de margem e qualquer regra de CSS
-    // real, e nunca perde texto solto. Um bloco que não caiba nem sozinho
-    // numa página vazia é fragmentado por palavra (parágrafo/texto
-    // simples) ou interrompe a geração com um erro explícito — nunca
-    // produz um PDF com conteúdo cortado silenciosamente. Ver
-    // client/src/lib/reportPagination.ts (paginateSectionIntoPages) para
-    // o mecanismo completo.
-    const physicalPages: Array<{ title: string; bodyHtml: string }> = [];
-    for (const section of sections) {
-      const sourceContainer = doc.createElement("div");
-      sourceContainer.style.cssText = "position:absolute;visibility:hidden;left:-99999px;top:0;";
-      sourceContainer.innerHTML = withoutUnsupportedColors(section.body || "");
-      doc.body.appendChild(sourceContainer);
-
-      const measuringShells: HTMLElement[] = [];
-      const pagesHtmlForSection = paginateSectionIntoPages(sourceContainer, () => {
-        const shell = doc.createElement("div");
-        shell.style.cssText = "position:absolute;visibility:hidden;left:-99999px;top:0;";
-        // Mesma estrutura/CSS da folha final (altura fixa, footer-reserve
-        // presente) — é o que torna scrollHeight/clientHeight do corpo
-        // significativos. footerReserveHtml fica vazio aqui: a reserva já
-        // tem altura mínima fixa (FOOTER_RESERVE_MM) independente de estar
-        // preenchida, então não afeta a área útil medida.
-        shell.innerHTML = buildPageShell(section.title, "", "");
-        doc.body.appendChild(shell);
-        measuringShells.push(shell);
-        return shell.querySelector<HTMLElement>(".report-body")!;
-      });
-      measuringShells.forEach((shell) => doc.body.removeChild(shell));
-      doc.body.removeChild(sourceContainer);
-
-      for (const bodyHtml of pagesHtmlForSection) {
-        physicalPages.push({ title: section.title, bodyHtml });
-      }
-    }
-    if (physicalPages.length === 0) physicalPages.push({ title: sections[0]?.title || "Laudo", bodyHtml: "" });
-
-    const pagesHtml = physicalPages
-      .map((page, index) => buildPageShell(page.title, page.bodyHtml, index === physicalPages.length - 1 ? doctorFooter : ""))
-      .join("");
-    doc.body.innerHTML = pagesHtml;
+    materializePhysicalReportPages({
+      doc,
+      sections: sections.map((section) => ({ ...section, body: withoutUnsupportedColors(section.body) })),
+      renderPage: renderPhysicalPage,
+      finalFooterHtml: doctorFooter,
+      replaceSelector: ".print-page, .print-shared-sheet",
+    });
 
     await new Promise((resolve) => setTimeout(resolve, 600));
     await Promise.all(Array.from(doc.images).map((image) => image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.onload = () => resolve(); image.onerror = () => resolve(); })));

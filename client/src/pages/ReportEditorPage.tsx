@@ -19,6 +19,10 @@ import {
   rangeBelongsToTarget,
 } from "@/lib/reportEditorDom";
 import { clampImageToPage, pageHeightMm, pageWidthMm } from "@/lib/pdfPageGeometry";
+import {
+  materializePhysicalReportPages,
+  normalizeReportSections,
+} from "@/lib/reportPhysicalPageFactory";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -885,27 +889,13 @@ export default function ReportEditorPage() {
       : '';
     const unitName = medCtx?.unitName || '';
 
-    // P1: detectar multi-seção e renderizar cada seção como bloco separado
     const rawBody = collectBody();
-    let bodyHtml: string;
-    if (isMultiSection) {
-      try {
-        const sections: { title: string; body: string }[] = JSON.parse(rawBody);
-        bodyHtml = sections.map((sec, i) => `
-          <div class="exam-section" style="margin-bottom:18px;${i > 0 ? 'page-break-before:auto;' : ''}">
-            <div class="section-title">${sec.title}</div>
-            <div class="section-body">${sec.body}</div>
-          </div>
-        `).join('');
-      } catch {
-        bodyHtml = rawBody; // fallback seguro
-      }
-    } else {
-      bodyHtml = rawBody;
-    }
-
-    // P7: converter imagens do corpo para base64
-    bodyHtml = await convertImagesToBase64(bodyHtml);
+    const sectionsForPhysicalPages = await Promise.all(
+      normalizeReportSections(rawBody, examTitle || "Laudo").map(async (section) => ({
+        ...section,
+        body: await convertImagesToBase64(section.body),
+      })),
+    );
 
     // Logos do layout (até 3) têm prioridade; fallback para logo da unidade ou inicial
     const logoHtml = layoutLogos.length > 0
@@ -993,6 +983,54 @@ export default function ReportEditorPage() {
       "></div>
     ` : '';
 
+    const renderEditorPhysicalPage = ({
+      title,
+      bodyHtml,
+      footerHtml,
+      isLast,
+    }: { title: string; bodyHtml: string; footerHtml: string; isLast: boolean }) => {
+      const body = bodyHtml.trim()
+        ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+        : <SharedReportBodyGuide />;
+      return renderSharedReportSheetHtml({
+        className: "print-page",
+        pageSize,
+        marginTop: lMT,
+        marginRight: lMR,
+        marginBottom: lMB,
+        marginLeft: lML,
+        positions: layoutBlockPos,
+        logos: printLogos,
+        backgroundUrl: bgBase64 || layoutBgUrl,
+        backgroundOpacity: layoutBgOpacity,
+        backgroundSize: layoutBgSize,
+        footerImageUrl: isLast ? (footerBase64 || layoutFooterUrl) : null,
+        fontFamily: fontStack,
+        fontSize: lSize,
+        lineHeight: lLine,
+        patientName,
+        patientNameContent: <ClinicalPatientName patientName={patientName} />,
+        patientInfo: (
+          <ClinicalPatientDetails
+            birthDate={birthDate || "—"}
+            sex={sexFormatted || "—"}
+            studyDate={studyDateFormatted || "—"}
+            modality={studyInfo?.modality}
+            unitName={medCtx?.unitName}
+          />
+        ),
+        title: (
+          <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
+            {title || "—"}
+          </div>
+        ),
+        body,
+        footer: footerHtml
+          ? <div style={{ width: "100%" }} dangerouslySetInnerHTML={{ __html: footerHtml }} />
+          : <div />,
+      });
+    };
+
     const html = `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
 <style>
@@ -1058,6 +1096,7 @@ export default function ReportEditorPage() {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
+  .print-page [data-layout-block="body"] { overflow: hidden !important; }
   .shared-report-page-break {
     page-break-after: always;
     break-after: page;
@@ -1176,115 +1215,10 @@ export default function ReportEditorPage() {
   <!-- Número de página via div.page-number-fixed (substitui @bottom-right que precisa de @page margin) -->
   <!-- FIX BUG-2: conteúdo via CSS counter(page)/counter(pages) -->
   <div class="page-number-fixed"></div>
-  <!-- MULTI-EXAME: cada exame = div.print-page com height:297mm e page-break-after:always -->
-  <!-- Abordagem div-por-página é mais confiável que múltiplas tabelas no Chrome -->
-  ${(() => {
-    const renderPrintSheet = (sectionTitle: string, sectionBodyHtml: string, isLastPage: boolean) => {
-      const sectionBody = sectionBodyHtml.trim()
-        ? <div className="report-body" dangerouslySetInnerHTML={{ __html: sectionBodyHtml }} />
-        : <SharedReportBodyGuide />;
-      const markup = renderSharedReportSheetHtml({
-        className: "print-shared-sheet",
-        pageSize,
-        marginTop: lMT,
-        marginRight: lMR,
-        marginBottom: lMB,
-        marginLeft: lML,
-        positions: layoutBlockPos,
-        logos: printLogos,
-        backgroundUrl: bgBase64 || layoutBgUrl,
-        backgroundOpacity: layoutBgOpacity,
-        backgroundSize: layoutBgSize,
-        footerImageUrl: isLastPage ? (footerBase64 || layoutFooterUrl) : null,
-        fontFamily: fontStack,
-        fontSize: lSize,
-        lineHeight: lLine,
-        patientName,
-        patientNameContent: <ClinicalPatientName patientName={patientName} />,
-        patientInfo: (
-          <ClinicalPatientDetails
-            birthDate={birthDate || "—"}
-            sex={sexFormatted || "—"}
-            studyDate={studyDateFormatted || "—"}
-            modality={studyInfo?.modality}
-            unitName={medCtx?.unitName}
-          />
-        ),
-        title: (
-          <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
-            {sectionTitle || "—"}
-          </div>
-        ),
-        body: sectionBody,
-        footer: isLastPage
-          ? <div style={{ width: "100%" }} dangerouslySetInnerHTML={{ __html: doctorFooterHtml || '<div style="height:4mm;"></div>' }} />
-          : <div />,
-      });
-      return `<div class="shared-report-page-break">${markup}</div>`;
-    };
-    // Tentar parsear seções multi-exame usando uma folha compartilhada por seção.
-    try {
-      const rawBodyForSplit = collectBody();
-      const secs: { title: string; body: string }[] = JSON.parse(rawBodyForSplit);
-      if (secs && secs.length > 1) {
-        return secs.map((sec, i) => renderPrintSheet(sec.title, sec.body, i === secs.length - 1)).join('');
-      }
-    } catch {}
-    // Página única: a marcação é produzida pelo mesmo componente React usado no editor.
-    const printBody = bodyHtml
-      ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
-      : <SharedReportBodyGuide />;
-    return renderSharedReportSheetHtml({
-      className: "print-shared-sheet",
-      pageSize,
-      marginTop: lMT,
-      marginRight: lMR,
-      marginBottom: lMB,
-      marginLeft: lML,
-      positions: layoutBlockPos,
-      logos: printLogos,
-      backgroundUrl: bgBase64 || layoutBgUrl,
-      backgroundOpacity: layoutBgOpacity,
-      backgroundSize: layoutBgSize,
-      footerImageUrl: footerBase64 || layoutFooterUrl,
-      fontFamily: fontStack,
-      fontSize: lSize,
-      lineHeight: lLine,
-      patientName,
-      patientNameContent: <ClinicalPatientName patientName={patientName} />,
-        patientInfo: (
-          <ClinicalPatientDetails
-            birthDate={birthDate || "—"}
-            sex={sexFormatted || "—"}
-            studyDate={studyDateFormatted || "—"}
-            modality={studyInfo?.modality}
-            unitName={medCtx?.unitName}
-          />
-        ),
-      title: (
-        <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
-          {examTitle || "—"}
-        </div>
-      ),
-      body: printBody,
-      footer: (
-        <div style={{ width: "100%" }} dangerouslySetInnerHTML={{ __html: doctorFooterHtml || '<div style="height:4mm;"></div>' }} />
-      ),
-    });
-  })()}
+  <!-- Folhas físicas injetadas pela fábrica única após o documento abrir. -->
+  <div data-physical-report-root></div>
   <!-- P5: rodapé via tfoot (renderiza em todas as páginas, compatível com PDF) -->
-<script>
-  window.onload = function() {
-    var pages = document.querySelectorAll('.print-page');
-    var total = pages.length || 1;
-    var counters = document.querySelectorAll('.page-number-fixed');
-    counters.forEach(function(el, i) {
-      el.textContent = 'Página ' + (i + 1) + ' de ' + total;
-    });
-    window.print();
-    window.onafterprint = function() { window.close(); };
-  };
-<\/script>
+
 </body></html>`;
     const win = renderInCurrentWindow ? window : window.open('', '_blank', 'width=850,height=1100');
     if (!win) {
@@ -1293,6 +1227,32 @@ export default function ReportEditorPage() {
     }
     win.document.write(html);
     win.document.close();
+    try {
+      await new Promise((resolve) => win.setTimeout(resolve, 200));
+      materializePhysicalReportPages({
+        doc: win.document,
+        sections: sectionsForPhysicalPages,
+        renderPage: renderEditorPhysicalPage,
+        finalFooterHtml: doctorFooterHtml,
+        replaceSelector: ".print-page, .print-shared-sheet",
+        bodySelector: '[data-layout-block="body"]',
+      });
+      await Promise.all(Array.from(win.document.images).map((image) => image.complete
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            image.addEventListener("load", () => resolve(), { once: true });
+            image.addEventListener("error", () => resolve(), { once: true });
+          })));
+      win.print();
+      win.onafterprint = () => {
+        if (!renderInCurrentWindow) win.close();
+      };
+    } catch (error) {
+      toast.error("Não foi possível preparar a impressão sem risco de corte.", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+      if (!renderInCurrentWindow) win.close();
+    }
   }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, effectiveLayoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
 
   useEffect(() => {

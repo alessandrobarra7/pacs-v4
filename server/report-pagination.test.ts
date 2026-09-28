@@ -371,7 +371,7 @@ describe("Bloqueio 2 (parecer corretivo, regressão em DOM real): tryAppend pres
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-describe("wiring — as duas vias de download usam o mesmo módulo de paginação real (v2)", () => {
+describe("wiring — as duas vias de download usam a fábrica canônica de páginas físicas", () => {
   const financialSource = readFileSync(
     resolve(process.cwd(), "client/src/lib/financialReportPdfDownload.ts"),
     "utf8",
@@ -381,16 +381,18 @@ describe("wiring — as duas vias de download usam o mesmo módulo de paginaçã
     "utf8",
   );
 
-  it("financialReportPdfDownload.ts importa e usa paginateSectionIntoPages", () => {
-    expect(financialSource).toContain('from "./reportPagination"');
-    expect(financialSource).toContain("paginateSectionIntoPages(");
+  it("financialReportPdfDownload.ts delega a medição e paginação à fábrica", () => {
+    expect(financialSource).toContain('from "./reportPhysicalPageFactory"');
+    expect(financialSource).toContain("materializePhysicalReportPages({");
+    expect(financialSource).toContain("normalizeReportSections(");
     expect(financialSource).not.toContain("measureTopLevelBlocks");
     expect(financialSource).not.toContain("splitBlocksIntoPages");
   });
 
-  it("PacsQueryPage.tsx (download da impressão rápida) importa e usa o mesmo módulo", () => {
-    expect(pacsQuerySource).toContain('from "@/lib/reportPagination"');
-    expect(pacsQuerySource).toContain("paginateSectionIntoPages(");
+  it("PacsQueryPage.tsx delega à mesma fábrica da impressão e do download", () => {
+    expect(pacsQuerySource).toContain('from "@/lib/reportPhysicalPageFactory"');
+    expect(pacsQuerySource).toContain("materializePhysicalReportPages({");
+    expect(pacsQuerySource).toContain("normalizeReportSections(");
     expect(pacsQuerySource).not.toContain("measureTopLevelBlocks");
     expect(pacsQuerySource).not.toContain("splitBlocksIntoPages");
   });

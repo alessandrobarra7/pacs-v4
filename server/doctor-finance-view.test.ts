@@ -51,12 +51,11 @@ describe("visão financeira individual do médico", () => {
     // server/report-pagination.test.ts.
     expect(downloadSource).toContain(".doctor-footer { text-align:center;margin:0 auto 3mm");
     expect(downloadSource).toContain("footer-reserve");
-    // CORREÇÃO (Parecer de revisão da Manus, 2026-09-25): a v1 da
-    // paginação (measureTopLevelBlocks/splitBlocksIntoPages, soma de
-    // alturas pré-medidas) foi substituída pela v2
-    // (paginateSectionIntoPages, inserção incremental real + scrollHeight/
-    // clientHeight) — ver server/report-pagination.test.ts.
-    expect(downloadSource).toContain("paginateSectionIntoPages");
+    // A decisão de páginas físicas está centralizada na fábrica, não no
+    // consumidor financeiro: ela mede, fragmenta e materializa com a mesma
+    // casca antes de este fluxo fazer a captura/jsPDF.
+    expect(downloadSource).toContain("materializePhysicalReportPages({");
+    expect(downloadSource).toContain("normalizeReportSections(");
     expect(downloadSource).not.toContain("measureTopLevelBlocks");
     expect(downloadSource).not.toContain("splitBlocksIntoPages");
     expect(routerSource).toContain("myReportDownload:");

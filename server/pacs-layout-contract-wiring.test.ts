@@ -26,7 +26,9 @@ describe("PacsQueryPage — contrato canônico de layout", () => {
     expect(source).toContain("effectiveReportLayoutQ.background_image_url");
     expect(source).toContain("effectiveReportLayoutQ.logos ?? []");
     expect(source).toContain("const blockPositionsQ = effectiveReportLayoutQ.block_positions ?? {};");
-    expect(source).toContain("logos: printLogosWithFallbackQ,");
+    expect(source).toContain("const logoLayerHtmlQ = renderLogoLayerHtml(blockPositionsQ, printLogosWithFallbackQ);");
+    expect(source).toContain("renderPage: renderPhysicalPageQ,");
+    expect(source).toContain("materializePhysicalReportPages({");
   });
 
   it("preserva logo legado somente fora de um snapshot clínico explícito", () => {
