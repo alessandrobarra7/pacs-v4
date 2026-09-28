@@ -1,0 +1,272 @@
+HANDOFF MANUS — PACS Portal / LAUDS (alessandrobarra7/pacs-v4)
+Editor de Layout: reestruturação em acordeão + 3 bugs conhecidos corrigidos
+Data: 2026-09-28
+
+Branch:       claude/wizard-layout-laudos-acordeao
+Commit base:  cdb14594e0cad9f8fb7f884084993e7d2bc4cd4b  (origin/main no momento do checkout)
+Commit topo:  df67961377b5d7988244370129111f6b63491b1f
+Destinatário: Manus (execução na VM/produção). Alessandro está no loop e já viu
+              o mockup visual que originou este branch.
+
+Estado atual: publicado no GitHub, SEM pull request, SEM merge, NADA implantado.
+Decisão de integrar (quando, em qual VM, em que ordem em relação a outros
+branches claude/* pendentes) é da Manus/Alessandro.
+
+================================================================================
+1. COMO CHEGAR NO CÓDIGO REAL
+================================================================================
+
+  git fetch origin
+  git checkout claude/wizard-layout-laudos-acordeao
+  git diff cdb14594e0cad9f8fb7f884084993e7d2bc4cd4b..HEAD
+
+Únicos 2 arquivos tocados:
+  - client/src/pages/LayoutEditorPage.tsx   (292 inserções / 12 remoções)
+  - server/layout-editor-acordeao-wiring.test.ts   (novo, 13 casos)
+
+Nenhum arquivo de schema, migration, router tRPC ou componente compartilhado
+(SharedReportSheet.tsx, ReportDocument.tsx, layoutEditorAreaUtil.ts) foi
+alterado. Este branch é 100% frontend, aditivo, sem mudança de contrato.
+
+================================================================================
+2. ORIGEM DA TAREFA
+================================================================================
+
+Alessandro pediu 3 mockups de redesign do Editor de Layout "grounded na
+realidade do código" (sem inventar campos que o backend não suporta). Eu gerei
+3 JPGs (painel em abas / acordeão com lista de blocos / canvas-first com painel
+contextual) e ele escolheu o "Modelo 2" (acordeão), confirmando que o
+posicionamento dos blocos precisa continuar 100% livre por arraste — a lista
+lateral é só um atalho de seleção, nunca uma grade.
+
+Em seguida ele colou um documento técnico ("Mapped wizard state to payload for
+upsert") descrevendo como uma tela em wizard mapearia estado para
+trpc.layouts.upsert, e pediu para eu preparar um branch para a Manus, avisando
+que a versão atualmente em produção tem bugs que NÃO podem ser replicados no
+redesenho. As seções 3 e 4 abaixo cobrem, respectivamente, a verificação desse
+documento e os bugs identificados.
+
+================================================================================
+3. VERIFICAÇÃO DO DOCUMENTO EXTERNO ("Mapped wizard state to payload for upsert")
+================================================================================
+
+Esse documento não foi implementado como está — verifiquei cada campo citado
+contra o código real antes de decidir o que aproveitar. Resultado:
+
+CORRETO (bate com o código real, linha por linha):
+  - layoutPreferencesSchema (shared/types.ts:12-37): fontFamily, fontSize
+    (8-18), lineHeight (1-3), marginTop/Right/Bottom/Left (0-60, default
+    20/25/25/25 — o documento citou exatamente esses defaults), headerBorderColor/
+    headerTextColor/accentBgColor/accentBorderColor (hex), logoHeight (20-150),
+    logoAlign (left/center/right), signaturePosition (bottom-right/left/center),
+    showStamp, showCrm, showHeaderDivider, showPatientTable, pageSize (A4/Letter),
+    blockOrder (array de 6 enums) — todos existem exatamente como descritos.
+  - layoutInputSchema (server/routers/layouts.ts:28-38): unitId, headerHtml,
+    footerHtml, preferences, backgroundImageUrl, backgroundOpacity (0.05-1.0),
+    backgroundSize (cover/contain/100% 100%/210mm 297mm), footerImageUrl, logos
+    (max 3, cada um com url/width 20-600/height 20-300/label max 100),
+    blockPositions (z.record solto, validado no cliente) — tudo confere.
+  - Pipeline de upload: o documento descreve upload em base64 via FileReader
+    antes do upsert, com nomes de pasta "layout-backgrounds"/"layout-logos"/
+    "layout-footers" — é exatamente o que uploadImage()/handleSave() já fazem
+    em LayoutEditorPage.tsx (linhas 411-499 antes desta correção), incluindo o
+    sincronismo por localStorage + CustomEvent + BroadcastChannel("pacs-layout-
+    updates") após salvar.
+
+INCORRETO / FABRICADO — NÃO foi implementado:
+  - "paperType": "digital" | "pre_printed" dentro de preferences. Este campo
+    NÃO existe em layoutPreferencesSchema nem em layoutInputSchema, e não há
+    NENHUMA referência a "paperType"/"paper_type"/"pre_printed"/"preprinted"
+    em todo o server/shared/client do pacs-v4 (grep confirmado). Rastreei a
+    origem: é um campo real de um protótipo separado que a Lovable AI gerou
+    para o Alessandro (projeto TanStack Start "Construtor de Laudos", não
+    relacionado ao pacs-v4), que usa "digital"|"preprinted" (sem underscore,
+    diferente até da grafia do documento colado). Se o Alessandro quiser essa
+    funcionalidade de verdade (esconder timbre/logos automaticamente para
+    papel pré-impresso), é uma decisão de produto que precisa de migration
+    (novo campo no schema) — não implementei nada disso aqui.
+  - O "WizardState.layout.positions" do documento (sem o campo "align") está
+    correto e é o que usei — mas o "align" que aparece em "BlockPosition" do
+    protótipo Lovable (visto em outra conversa) NÃO foi trazido para cá, por
+    ser outro campo inexistente no contrato real (BlockPosition = x, y, w, h,
+    visible, só isso — client/src/pages/LayoutEditorPage.tsx linha ~33).
+
+CONCLUSÃO: o documento é majoritariamente uma descrição fiel e reaproveitável
+do pipeline real (provavelmente reconstruído a partir do export de código que
+entreguei ao Alessandro em outro momento desta conversa), com uma única
+fabricação (paperType) que não foi trazida para o código. Nenhuma migration é
+necessária para o que foi implementado neste branch.
+
+================================================================================
+4. OS 3 BUGS CONHECIDOS — CONFIRMADOS AO VIVO EM PRODUÇÃO HOJE, AGORA CORRIGIDOS
+================================================================================
+
+Estes 3 bugs já tinham sido encontrados, corrigidos e documentados em
+28/09/2026 no branch claude/fix-layout-editor-previa-real-largura (handoff
+docs/auditoria-claude/HANDOFF_MANUS_FIX_LAYOUT_EDITOR_PREVIA_REAL_2026-09-28.txt),
+mas ESSE branch nunca foi mesclado em main. Antes de começar a reestruturação,
+confirmei no código atual de origin/main (commit cdb1459) que os 3 bugs
+continuam presentes — ou seja, quem estiver usando lauds.com.br/admin/layouts/*
+hoje ainda tem esses problemas. Reapliquei as 3 correções por cima da
+reestruturação em acordeão, para não reintroduzi-los na tela nova.
+
+4.1. "Prévia real" colapsando para largura ~0
+  Mecanismo: no modo previewMode==="real", o <SharedReportSheet> recebia
+  style={{ width: "100%", maxWidth: `${paperWidthMmValue}mm`, minHeight: ... }}
+  diretamente, sem nenhum ancestral com largura definida e sem aspectRatio. O
+  elemento está dentro de uma coluna flex (o ternário previewMode==="editor" ?
+  <>...</> : <>...</>), e sem base para resolver, o navegador colapsa maxWidth
+  para a largura mínima do conteúdo — a folha praticamente sumia (só a altura
+  mínima aparecia). getCanvasOuterStyle() (client/src/lib/layoutEditorAreaUtil.ts)
+  já resolve isso no modo "editor" combinando width:100% + maxWidth + aspectRatio
+  (o aspectRatio é o que dá ao flex item uma base para resolver o resto).
+  Correção: envolvi o <SharedReportSheet> do modo real no mesmo
+  <div style={getCanvasOuterStyle(effectiveLayoutPrefs.pageSize)}> e simplifiquei
+  o style do próprio componente para {width:"100%", height:"100%"} — idêntico ao
+  padrão já usado no modo editor.
+
+4.2. Legenda das abas "Editar blocos" / "Prévia real" trocada e genérica
+  Mecanismo: o texto era
+    {previewMode === "real" ? "Visualizacao limpa da pagina" : "Modo de posicionamento"}
+  — nenhuma das duas frases explica o que o modo realmente faz (a real não tem
+  alças de arrastar; o de edição permite ajustar X/Y/Larg./Alt.), e ficava
+  dentro da mesma linha flex dos botões de aba, competindo por espaço.
+  Correção: texto próprio por modo, movido para um <p> dedicado abaixo dos
+  botões:
+    "Prévia real: mostra a página como sairá impressa, sem alças de arrastar."
+    "Modo de posicionamento: arraste, redimensione e ajuste X/Y/Larg./Alt. dos blocos."
+
+4.3. Botão "Resetar" sem confirmação
+  Mecanismo: handleReset() chamava setPositions(DEFAULT_POSITIONS) direto no
+  onClick — um clique acidental (o botão fica ao lado de "Salvar Layout" no
+  cabeçalho) descartava todo o posicionamento customizado dos 8 blocos sem
+  chance de desfazer em tela (só vira permanente depois de "Salvar", mas o
+  estado visual já se perdia na hora).
+  Correção: window.confirm() antes de resetar, com mensagem explicando que só é
+  definitivo após salvar; rótulo do botão virou "Resetar posições" com title
+  explicativo.
+
+================================================================================
+5. A NOVA REESTRUTURAÇÃO EM ACORDEÃO — MECANISMO
+================================================================================
+
+Estado novo: type PanelSection = "papel" | "identidade" | "blocos", useState
+openSection (default "blocos", preservando o comportamento visual anterior de
+a lista de blocos já vir visível), toggleSection() fecha se já estiver aberta.
+
+Seção 1 — "Formato e margens" (NOVA):
+  Botões A4/Letter chamando updatePreference("pageSize", size); 4 inputs
+  numéricos (0-60, clamped) para marginTop/Right/Bottom/Left chamando
+  updatePreference(field, valor). updatePreference() faz
+  setLayoutPrefs(prev => ({...prev, [key]: value})) + setIsDirty(true).
+  IMPORTANTE: antes desta correção, pageSize e as margens só podiam ser
+  gravados chamando trpc.layouts.upsert diretamente (nenhuma tela do sistema
+  os editava — LayoutEditorPage só LIA via effectiveLayoutPrefs;
+  ReportEditorPage.tsx e PacsQueryPage.tsx também só leem, nunca escrevem).
+  Confirmei que isso é seguro adicionar sem migration: handleSave() já envia
+  `preferences: effectiveLayoutPrefs` no upsert (linha ~471, inalterada), e
+  effectiveLayoutPrefs é `{...DEFAULT_LAYOUT_PREFERENCES, ...(layoutPrefs ?? {})}`
+  — ou seja, os novos campos editados fluem para o mesmo payload que já era
+  enviado, sem tocar em nenhuma outra parte do pipeline.
+
+Seção 2 — "Logos, fundo e rodapé": as 3 seções antigas ("Logos da Unidade",
+  "Fundo da Página", "Imagem de Rodapé") foram agrupadas sob um único header
+  de acordeão. Nenhum handler, upload ou lógica interna foi alterado — só a
+  visibilidade condicional por openSection === "identidade".
+
+Seção 3 — "Blocos do Laudo": mesmo conteúdo de antes (lista dos 8 blocos com
+  cor, toggle de visibilidade, e inputs X/Y/Larg./Alt. em %), agora atrás de
+  openSection === "blocos" (aberta por padrão). Adicionei uma frase deixando
+  explícito que a lista é só um atalho: "a lista abaixo é só um atalho para
+  selecionar; a posição continua livre, sem grade". O clique num bloco na
+  lista continua chamando setActiveBlock(block) (igual antes) — o que ativa o
+  overlay de arrastar/redimensionar na folha (handlePointerDown/Move,
+  inalterados). NÃO adicionei nenhum campo de posição "por clique" ou grade —
+  o arraste livre em % (0-100, sobre a ÁREA ÚTIL real via usableAreaRef,
+  correção já feita em 25/09 pelo Bloqueio C) continua sendo o único mecanismo
+  de posicionamento.
+
+BlockPosition (client/src/pages/LayoutEditorPage.tsx, tipo real) continua:
+  { x: number; y: number; w: number; h: number; visible: boolean }
+Sem "align" — esse campo existe só no protótipo Lovable à parte, não foi
+trazido para cá (ver seção 3).
+
+================================================================================
+6. VALIDAÇÃO EXECUTADA
+================================================================================
+
+pnpm check (tsc --noEmit): limpo, 0 erros.
+
+TZ=UTC pnpm test (suíte completa): 726 passed, 11 failed, 1 skipped (738 total).
+As 11 falhas são a linha de base conhecida e pré-existente, inalterada por este
+branch (arquivos: server/exam-catalog-security.test.ts,
+server/finance-v2-dashboard.test.tsx [x2], server/mediaProxy.test.ts,
+server/pacs-desktop-download-progress.test.ts, server/pacs.mobile-ui.test.ts,
+server/security.auth.test.ts, server/study-priority-ui.test.ts [x4]) — comparei
+a LISTA de arquivos falhos antes e depois desta mudança, não só a contagem, e
+são exatamente os mesmos 7 arquivos / 11 casos. Zero falhas novas.
+
+Achado durante a validação, corrigido no mesmo commit: minha primeira versão
+de um comentário explicativo continha a substring literal "<SharedReportSheet>"
+em prosa, o que quebrou o teste pré-existente
+server/layout-editor-page-wiring.test.ts (conta ocorrências de "<SharedReportSheet"
+no source e espera exatamente 2 — a string do meu comentário virou uma 3ª
+ocorrência falsa). Reescrevi o comentário para não conter esse texto literal e
+confirmei que os 8 casos desse arquivo voltaram a passar.
+
+server/layout-editor-acordeao-wiring.test.ts (novo, 13 casos): cobre os 3 bugs
+corrigidos, a estrutura de acordeão (3 seções + toggle), updatePreference,
+ausência de "paperType" e de "align", e que handlePointerDown/Move (drag livre)
+continuam intactos. Prova de que os testes detectam regressão: revertido o
+source via `git stash push -- client/src/pages/LayoutEditorPage.tsx` mantendo
+o arquivo de teste novo, rodado — 11 dos 13 casos falharam como esperado — e
+restaurado com `git stash pop`, confirmando 13/13 passando de novo.
+
+pnpm build: sucesso (vite build + esbuild do server), sem erros. Os avisos de
+chunk >500kB são pré-existentes (bibliotecas DICOM/cornerstone), não
+relacionados a este branch.
+
+git diff --check: limpo, sem espaço em branco / CRLF residual.
+
+================================================================================
+7. O QUE FICOU DELIBERADAMENTE FORA DO ESCOPO
+================================================================================
+
+- "paperType" (papel pré-impresso vs. digital): não implementado — precisa de
+  migration de schema (novo campo em layoutPreferencesSchema/layoutInputSchema)
+  e de uma decisão de produto sobre o comportamento exato (o que exatamente
+  "pré-impresso" esconde: fundo? logos? tudo?). Decisão do Alessandro.
+
+- Edição de fontFamily/fontSize/lineHeight e das cores (headerBorderColor,
+  headerTextColor, accentBgColor, accentBorderColor) nesta tela: esses campos
+  já existem em layoutPreferencesSchema e são usados de verdade em
+  client/src/components/ReportDocument.tsx — mas esse componente está órfão
+  (não é importado por nenhuma outra parte do client/src, confirmado por grep;
+  a única ocorrência do nome "ReportDocument" fora do próprio arquivo é a
+  função openReportDocument em PacsQueryPage.tsx, que é um nome de função sem
+  relação nenhuma com o componente). Ou seja, esses 6 campos do schema
+  atualmente não afetam NENHUM PDF/impressão real do sistema (o motor real é
+  SharedReportSheet, que usa fontFamily/fontSize/lineHeight recebidos como
+  props separadas de effectiveLayoutPrefs — já plugado — mas não usa as 4
+  cores). Achado à parte, não corrigido aqui: vale uma limpeza futura (ou
+  remover ReportDocument.tsx como código morto, ou decidir se as 4 cores devem
+  passar a valer de verdade em SharedReportSheet). Não mexi nisso porque não
+  fazia parte do pedido e head to head editar o motor de renderização
+  compartilhado é uma mudança de risco mais alto (mesma classe da unificação
+  de PDF já revertida uma vez em produção).
+
+- signaturePosition/showStamp/showCrm/showHeaderDivider/showPatientTable/
+  blockOrder: existem no schema e são usados por ReportDocument.tsx (órfão,
+  ver acima) — não editáveis nesta tela, não implementado.
+
+- Wizard multi-etapa (Formato → Identidade → Posicionamento → Revisão) do
+  documento colado pelo Alessandro: não implementado. O que foi pedido e
+  aprovado foi o acordeão (Modelo 2), não o wizard. Se ele quiser o fluxo em
+  etapas sequenciais, é uma mudança de UX maior, a decidir separadamente.
+
+- Merge do branch claude/fix-layout-editor-previa-real-largura (28/09,
+  contém a MESMA correção dos 3 bugs desta seção 4, mas sem a reestruturação
+  em acordeão): esse branch antigo ficou obsoleto por este aqui (que já inclui
+  as mesmas 3 correções). Recomendo integrar só claude/wizard-layout-laudos-
+  acordeao e, depois de confirmado, pode-se descartar/fechar o branch antigo
+  sem mesclar (evita duplicar o mesmo fix por dois caminhos).
