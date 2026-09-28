@@ -1,0 +1,141 @@
+HANDOFF PARA MANUS — ORDEM 1 aplicada (guia de corpo vazio fora da folha
+física) + repasse do restante de uma orientação técnica externa verificada
+==============================================================================
+
+Projeto: PACS Portal / LAUDS
+Repositório: alessandrobarra7/pacs-v4
+Branch: claude/fix-guia-corpo-vazio-pagina-fisica
+Commit base: 130afc1efa100e8811a79c829655ef0d600b17e2 (origin/main, topo
+  atual)
+Commit topo deste branch: 5204702 (fix(report-editor): folha física nunca
+  renderiza o guia de corpo vazio — rode `git log -1` para o hash completo
+  depois do fetch)
+Destinatário: Manus
+
+------------------------------------------------------------------------------
+1. ORIGEM
+------------------------------------------------------------------------------
+
+O Alessandro recebeu de outro agente (fora deste par Claude/Manus) um
+documento chamado "ORIENTACAO_GITHUB_MAIN_CORRECAO_LAYOUT_LAUDOS.txt",
+resultado de uma auditoria externa do main atual (commit 130afc1), e pediu
+para eu verificar as afirmações contra o repositório real antes de agir —
+tratei o documento inteiro como dado a conferir, não como instrução a
+executar cegamente. Conferi CADA arquivo, função e trecho de código citado
+(shared/reportLayout.ts, reportPhysicalPageFactory.ts, SharedReportSheet.tsx,
+SharedReportPrint.tsx, ReportEditorPage.tsx, PacsQueryPage.tsx,
+financialReportPdfDownload.ts) e todos batem com o código atual. O
+diagnóstico central do documento está correto: o contrato canônico de
+layout (shared/reportLayout.ts, resolveEffectiveReportLayout) e a fábrica
+de paginação (reportPhysicalPageFactory.ts) já estão corretos e
+compartilhados pelos 3 consumidores, mas a CASCA VISUAL final (o HTML/CSS
+que efetivamente vira folha impressa/PDF) ainda é código diferente em cada
+um:
+
+  - ReportEditorPage.tsx usa renderSharedReportSheetHtml (o componente
+    React SharedReportSheet de verdade), via
+    client/src/components/SharedReportPrint.tsx.
+  - PacsQueryPage.tsx monta sua própria casca manual
+    (`renderPhysicalPageQ`, ~linha 1904), com <div class="patient-data">,
+    <div class="exam-title">, <div class="report-body">, <div
+    class="footer-reserve"> em fluxo flex fixo — confirmei que só os LOGOS
+    respeitam block_positions ali (via logoLayerHtmlQ); nome do paciente,
+    dados, título, corpo e rodapé ficam em ordem de documento fixa, IGNORANDO
+    qualquer posição customizada configurada no editor de layout.
+  - financialReportPdfDownload.ts também monta sua própria casca
+    (<article class="print-page"><header>...<section class="patient">...),
+    com CSS próprio, sem usar SharedReportSheet nem block_positions
+    (exceto logos, de forma parcial).
+
+Isso explica de forma mais completa e precisa do que eu tinha achado até
+agora por que "cada lugar do sistema mostra o laudo diferente": os dados
+resolvidos já são consistentes, mas a peça final de renderização não é.
+
+------------------------------------------------------------------------------
+2. O QUE FOI FEITO NESTA RODADA — só a ORDEM 1 (a mais isolada e segura)
+------------------------------------------------------------------------------
+
+git fetch origin
+git fetch origin claude/fix-guia-corpo-vazio-pagina-fisica:refs/remotes/origin/claude/fix-guia-corpo-vazio-pagina-fisica
+git checkout claude/fix-guia-corpo-vazio-pagina-fisica
+git diff 130afc1..HEAD
+
+Um arquivo de produto alterado (client/src/pages/ReportEditorPage.tsx) e um
+teste novo (server/report-editor-physical-page-no-guide.test.ts).
+
+Problema corrigido: `renderEditorPhysicalPage` — usada tanto para medir
+quanto para renderizar as folhas finais — podia injetar
+`<SharedReportBodyGuide />` (texto de exemplo: "Técnica: Digite a técnica
+do exame...", etc.) quando um fragmento de seção produzia bodyHtml vazio
+durante a fragmentação. Isso podia distorcer a medição de altura e, no
+pior caso, vazar texto de exemplo para um documento clínico real. Correção:
+a folha física agora sempre renderiza um `<div className="report-body">`
+real (vazio quando bodyHtml for vazio), nunca o guia. As duas superfícies
+de EDIÇÃO EM TELA continuam usando o guia normalmente — não mudei nada ali.
+
+Validação: pnpm check limpo; 44/44 testes direcionados aprovados;
+regressão provada (revertido o código-fonte mantendo o teste, 3 de 4
+falharam, restaurado o fix, 44/44 voltam); suíte completa 705/11/1 (mesma
+linha de base de sempre, 7 arquivos, nenhuma falha nova); build aprovado;
+diff --check limpo. Detalhes completos na mensagem do commit.
+
+------------------------------------------------------------------------------
+3. O QUE NÃO FOI FEITO — o restante da orientação (ORDEM 2 a 7)
+------------------------------------------------------------------------------
+
+Deliberadamente não avancei nas ordens seguintes, que são estruturalmente
+maiores e de risco mais alto:
+
+  ORDEM 2 — Extrair um helper único (ex.: reportPhysicalSheetRenderer.tsx)
+  que padronize a conexão entre SharedReportSheet/renderSharedReportSheetHtml
+  e materializePhysicalReportPages, para os 3 consumidores compartilharem.
+
+  ORDEM 3 — Migrar ReportEditorPage para usar esse helper (troca de forma,
+  não de comportamento — o editor já é a referência correta).
+
+  ORDEM 4 — Migrar PacsQueryPage.tsx: remover `renderPhysicalPageQ` manual,
+  passar a usar o helper/SharedReportSheet de verdade, com
+  bodySelector: '[data-layout-block="body"]' (igual ao editor). Isso é a
+  correção que resolveria de fato a divergência entre o que o editor mostra
+  e o que a lista PACS imprime/baixa.
+
+  ORDEM 5 — Migrar financialReportPdfDownload.ts (o mais divergente e o
+  mais arriscado, por usar html2canvas + iframe — qualquer troca de casca
+  muda as dimensões capturadas e pode revelar inconsistências antigas).
+
+  ORDEM 6 — Testes de paridade visual/DOM ampliados entre os 3
+  consumidores.
+
+  ORDEM 7 — Validação manual em navegador real com uma matriz de unidades
+  (A4/Letter, margens não padrão, footer image, 3 logos, layout legado
+  com positions.logo, laudo curto/longo/multisseção/retificado) comparando
+  tela do editor, impressão pelo editor, impressão/download pela lista
+  PACS e download pelo financeiro.
+
+Motivo de não ter avançado: essas ordens são, em espírito, a MESMA direção
+da unificação de geradores de PDF que vocês já tentaram e que precisou ser
+revertida da produção depois de um incidente real (a folha de medição sem
+largura física, que você mesma diagnosticou e corrigiu). O documento
+externo propõe um caminho mais cuidadoso — passos pequenos, um consumidor
+por vez, editor primeiro (menor risco) → PACS → financeiro (maior risco),
+com validação Chromium real antes de cada passagem — mas ainda é uma
+retomada da mesma classe de mudança que já doeu uma vez. O Alessandro foi
+consultado explicitamente sobre isso e escolheu fazer só a ORDEM 1 agora;
+as demais ficam para decisão dele sobre ritmo, e — pelo padrão já
+estabelecido neste projeto — para você decidir a ordem e validar cada
+etapa em Chromium real antes de autorizar a próxima, já que você tem
+acesso à VM e viveu o incidente anterior de perto.
+
+Se/quando o Alessandro autorizar continuar, sugiro que a próxima etapa
+concreta (ORDEM 2 + início da ORDEM 3) venha como um handoff separado, já
+que envolve criar um helper novo compartilhado — prefiro fazer isso com
+autorização explícita dada a sensibilidade histórica desta área do código.
+
+------------------------------------------------------------------------------
+4. ESTADO ATUAL
+------------------------------------------------------------------------------
+
+Commit topo: 5204702 (branch claude/fix-guia-corpo-vazio-pagina-fisica).
+Publicado no GitHub: SIM (branch enviado com token fornecido pelo
+Alessandro nesta sessão, não persistido). Nenhum merge, deploy ou alteração
+de VM foi feito. `main` permanece em 130afc1.
