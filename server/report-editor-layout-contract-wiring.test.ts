@@ -26,7 +26,9 @@ describe("ReportEditorPage — contrato canônico de layout", () => {
   });
 
   it("entrega os mesmos valores resolvidos para impressão, PDF e folhas na tela", () => {
-    expect(source).toContain("const lMT = effectiveLayoutPrefs.marginTop;");
+    expect(source).toContain('from "@/lib/reportPhysicalSheetRenderer"');
+    expect(source).toContain("layout: effectiveReportLayout,");
+    expect(source).toContain("footerImageUrl: footerBase64 || layoutFooterUrl,");
     expect(source).toContain("const effectivePageSize = effectiveLayoutPrefs.pageSize");
     expect(source).toContain("pageSize={effectiveLayoutPrefs.pageSize}");
     expect(source).toContain("fontSize={effectiveLayoutPrefs.fontSize}");
@@ -40,6 +42,7 @@ describe("ReportEditorPage — contrato canônico de layout", () => {
     expect(source).toContain("materializePhysicalReportPages({");
     expect(source).toContain("normalizeReportSections(rawBody, examTitle || \"Laudo\")");
     expect(source).toContain("renderPage: renderEditorPhysicalPage,");
+    expect(source).toContain("bodySelector: REPORT_PHYSICAL_BODY_SELECTOR,");
     expect(source).toContain("win.print();");
     expect(source.indexOf("materializePhysicalReportPages({")).toBeLessThan(source.indexOf("win.print();"));
     expect(source).not.toContain("window.onload = function()");

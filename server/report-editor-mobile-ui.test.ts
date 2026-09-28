@@ -18,6 +18,10 @@ const sharedPrintSource = readFileSync(
   resolve(process.cwd(), "client/src/components/SharedReportPrint.tsx"),
   "utf8",
 );
+const physicalRendererSource = readFileSync(
+  resolve(process.cwd(), "client/src/lib/reportPhysicalSheetRenderer.tsx"),
+  "utf8",
+);
 
 describe("ReportEditorPage — experiência mobile", () => {
   it("mantém o editor desktop separado do fluxo mobile", () => {
@@ -80,13 +84,15 @@ describe("ReportEditorPage — experiência mobile", () => {
     expect(sharedSheetSource).toContain('top: `${p.y}%`');
   });
 
-  it("usa SharedReportSheet no Editor e a fábrica física canônica nos demais consumidores", () => {
+  it("usa o renderer físico comum para a impressão do Editor", () => {
     expect(editorSource).toContain("ClinicalPatientDetails");
-    expect(editorSource).toContain("patientNameContent: <ClinicalPatientName patientName={patientName} />");
     expect(pacsSource).toContain("ClinicalPatientDetails");
-    expect(editorSource).toContain("renderSharedReportSheetHtml");
-    expect(editorSource).toContain("positions: layoutBlockPos");
-    expect(editorSource).toContain("footerImageUrl: isLast ? (footerBase64 || layoutFooterUrl) : null");
+    expect(editorSource).toContain('from "@/lib/reportPhysicalSheetRenderer"');
+    expect(editorSource).toContain("const renderEditorPhysicalPage = createPhysicalReportSheetRenderer({");
+    expect(editorSource).toContain("layout: effectiveReportLayout,");
+    expect(editorSource).toContain("footerImageUrl: footerBase64 || layoutFooterUrl,");
+    expect(editorSource).toContain("bodySelector: REPORT_PHYSICAL_BODY_SELECTOR,");
+    expect(editorSource).not.toContain("renderSharedReportSheetHtml");
     expect(pacsSource).toContain("materializePhysicalReportPages({");
     expect(pacsSource).toContain("renderPage: renderPhysicalPageQ,");
     expect(pacsSource).toContain("const logoLayerHtmlQ = renderLogoLayerHtml(blockPositionsQ, printLogosWithFallbackQ);");
@@ -136,11 +142,12 @@ describe("ReportEditorPage — experiência mobile", () => {
    * unidade (nunca mais um valor hardcoded independente da configuração).
    */
   it("os adaptadores físicos preservam pageSize e margens efetivas", () => {
-    // Editor: o adaptador SharedReportSheet recebe as quatro margens.
-    expect(editorSource).toContain("marginTop: lMT");
-    expect(editorSource).toContain("marginRight: lMR");
-    expect(editorSource).toContain("marginBottom: lMB");
-    expect(editorSource).toContain("marginLeft: lML");
+    // Editor: o renderer único obtém os quatro valores direto do layout efetivo.
+    expect(physicalRendererSource).toContain("marginTop: preferences.marginTop");
+    expect(physicalRendererSource).toContain("marginRight: preferences.marginRight");
+    expect(physicalRendererSource).toContain("marginBottom: preferences.marginBottom");
+    expect(physicalRendererSource).toContain("marginLeft: preferences.marginLeft");
+    expect(physicalRendererSource).toContain("pageSize,");
     // PACS: o adaptador mantém a área útil deslocada pelas quatro margens.
     expect(pacsSource).toContain("top:${lMT}mm;right:${lMR}mm;bottom:${lMB}mm;left:${lML}mm");
     // A folha em tela (WYSIWYG do editor clínico) também recebe as

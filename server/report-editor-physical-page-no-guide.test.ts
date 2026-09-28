@@ -21,34 +21,30 @@ const source = readFileSync(
   "utf8",
 );
 
-function extractFunction(src: string, startMarker: string): string {
-  const start = src.indexOf(startMarker);
+function extractPrintSetup(src: string): string {
+  const start = src.indexOf("const renderEditorPhysicalPage = createPhysicalReportSheetRenderer({");
   expect(start).toBeGreaterThan(-1);
-  // A função renderEditorPhysicalPage termina no "};" que fecha o corpo
-  // (fechamento do bloco arrow function), antes da próxima declaração de
-  // nível de indentação equivalente. Usamos o próximo "return renderSharedReportSheetHtml"
-  // como âncora e cortamos um pouco depois dele para pegar só o trecho
-  // relevante (a linha do `body`).
-  const end = src.indexOf("return renderSharedReportSheetHtml({", start);
+  const end = src.indexOf("const html = `<!DOCTYPE html>", start);
   expect(end).toBeGreaterThan(start);
   return src.slice(start, end);
 }
 
 describe("ReportEditorPage.tsx — folha física nunca recebe SharedReportBodyGuide (ORDEM 1)", () => {
-  it("renderEditorPhysicalPage não referencia mais SharedReportBodyGuide como JSX no cálculo do body", () => {
-    const fn = extractFunction(source, "const renderEditorPhysicalPage = ({");
-    // O comentário explicativo acima do código pode mencionar o nome do
-    // componente em prosa — o que não deve mais existir é o USO real em
-    // JSX (<SharedReportBodyGuide />) dentro desta função.
-    expect(fn).not.toMatch(/<SharedReportBodyGuide\s*\/>/);
+  it("delegam a folha física ao renderer canônico, que nunca injeta o guia", () => {
+    const setup = extractPrintSetup(source);
+    expect(source).toContain('from "@/lib/reportPhysicalSheetRenderer"');
+    expect(setup).toContain("layout: effectiveReportLayout,");
+    expect(setup).toContain("footerImageUrl: footerBase64 || layoutFooterUrl,");
+    expect(setup).not.toMatch(/<SharedReportBodyGuide\s*\/>/);
+    expect(source).not.toContain("renderSharedReportSheetHtml");
   });
 
-  it("renderEditorPhysicalPage sempre renderiza um container real de corpo, mesmo vazio", () => {
-    const fn = extractFunction(source, "const renderEditorPhysicalPage = ({");
-    expect(fn).toContain('<div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />');
-    // Não deve mais existir a ramificação condicional antiga (ternário
-    // decidindo entre corpo real e o guia).
-    expect(fn).not.toMatch(/bodyHtml\.trim\(\)\s*\n?\s*\?/);
+  it("mede a área interna da mesma casca canônica usada na folha final", () => {
+    expect(source).toContain("bodySelector: REPORT_PHYSICAL_BODY_SELECTOR,");
+    expect(source).toContain("renderPage: renderEditorPhysicalPage,");
+    expect(source).toContain("materializePhysicalReportPages({");
+    expect(source).toContain("win.print();");
+    expect(source.indexOf("materializePhysicalReportPages({")).toBeLessThan(source.indexOf("win.print();"));
   });
 
   it("as duas superfícies de EDIÇÃO EM TELA continuam usando SharedReportBodyGuide normalmente", () => {
@@ -61,21 +57,9 @@ describe("ReportEditorPage.tsx — folha física nunca recebe SharedReportBodyGu
     expect(source).toContain("showBodyGuide &&");
   });
 
-  it("regressão negativa: o teste realmente detecta a reintrodução do bug", () => {
-    // Simula o trecho antigo (com o placeholder condicional) e confirma
-    // que as asserções acima o rejeitariam.
-    const oldShape = `
-    const renderEditorPhysicalPage = ({
-      title,
-      bodyHtml,
-      footerHtml,
-      isLast,
-    }: { title: string; bodyHtml: string; footerHtml: string; isLast: boolean }) => {
-      const body = bodyHtml.trim()
-        ? <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
-        : <SharedReportBodyGuide />;
-      return renderSharedReportSheetHtml({`;
-    expect(oldShape).toContain("SharedReportBodyGuide");
-    expect(oldShape).toMatch(/bodyHtml\.trim\(\)\s*\n?\s*\?/);
+  it("repete a arte de rodapé na prévia multisseção para acompanhar a regra física", () => {
+    expect(source).toContain("footerImageUrl={layoutFooterUrl}");
+    expect(source).not.toContain("footerImageUrl={isLastPage ? layoutFooterUrl : null}");
+    expect(source).not.toContain("screenFooterReservedMm");
   });
 });

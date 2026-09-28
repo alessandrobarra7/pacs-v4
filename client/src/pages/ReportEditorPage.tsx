@@ -9,7 +9,6 @@ import {
 } from '../../../shared/reportLayout';
 import { SharedReportBodyGuide, SharedReportSheet } from "@/components/SharedReportSheet";
 import { ClinicalPatientDetails, ClinicalPatientName } from "@/components/ClinicalPatientDetails";
-import { renderSharedReportSheetHtml } from "@/components/SharedReportPrint";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import {
@@ -23,6 +22,10 @@ import {
   materializePhysicalReportPages,
   normalizeReportSections,
 } from "@/lib/reportPhysicalPageFactory";
+import {
+  createPhysicalReportSheetRenderer,
+  REPORT_PHYSICAL_BODY_SELECTOR,
+} from "@/lib/reportPhysicalSheetRenderer";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -867,14 +870,9 @@ export default function ReportEditorPage() {
     bpLogo.x < 30 ? "left" : bpLogo.x > 70 ? "right" : "center";
   const logoJustify = logoAlign === "left" ? "flex-start" : logoAlign === "right" ? "flex-end" : "center";
   const layoutFooterUrl = toAbsUrl(effectiveReportLayout.footer_image_url);
-  // CORREÇÃO (Bloqueio 1, revisão corretiva Manus 2026-09-24): as vias de
-  // impressão/PDF (handlePrint, PacsQueryPage, financialReportPdfDownload)
-  // sempre somaram 30mm à margem inferior quando há imagem de rodapé
-  // configurada — a folha em tela (SharedReportSheet on-screen, a mesma que
-  // o download financeiro do editor rasteriza via html2canvas) não recebia
-  // essa reserva, então a área útil em tela ficava maior que a das outras
-  // vias no mesmo cenário. Agora a folha em tela usa a mesma reserva.
-  const screenFooterReservedMm = layoutFooterUrl ? 30 : 0;
+  // O rodapé visual é posicionado pelo bloco "footer" configurado no layout.
+  // A margem inferior permanece exatamente a margem canônica, sem uma reserva
+  // adicional e divergente entre a prévia e as folhas físicas.
   const layoutLogos = effectiveReportLayout.logos ?? [];
   // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
   const patientName = formatPatientName(studyInfo?.patientName || "");
@@ -887,7 +885,6 @@ export default function ReportEditorPage() {
     const signedAtFormatted = existingReport?.signedAt
       ? new Date(existingReport.signedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
       : '';
-    const unitName = medCtx?.unitName || '';
 
     const rawBody = collectBody();
     const sectionsForPhysicalPages = await Promise.all(
@@ -897,33 +894,15 @@ export default function ReportEditorPage() {
       })),
     );
 
-    // Logos do layout (até 3) têm prioridade; fallback para logo da unidade ou inicial
-    const logoHtml = layoutLogos.length > 0
-      ? layoutLogos.map(l => `<img src="${l.url}" alt="${l.label || 'Logo'}" style="max-height:${l.height}px;max-width:${l.width}px;object-fit:contain;display:inline-block;margin:0 4px;" />`).join('')
-      : medCtx?.unitLogoUrl
-        ? `<img src="${medCtx.unitLogoUrl}" alt="${unitName}" style="max-height:70px;max-width:155px;object-fit:contain;display:block;" />`
-        : `<div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#1a6b8a 0%,#6fb7c5 100%);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20pt;font-weight:700;font-family:Arial,sans-serif;">${(unitName || 'U').charAt(0).toUpperCase()}</div>`;
-
-    // Bloco de dados do paciente em lista vertical
-    const patientDataHtml = `
-      <div style="margin-bottom:14px;font-size:9.5pt;line-height:1.8;">
-        <div>Nome do paciente: ${patientName || '—'}</div>
-        ${birthDate ? `<div>Data de nascimento: ${birthDate}</div>` : ''}
-        ${sexFormatted ? `<div>Sexo: ${sexFormatted}</div>` : ''}
-        ${studyDateFormatted ? `<div>Data de realização do exame: ${studyDateFormatted}</div>` : ''}
-        ${studyInfo?.accessionNumber ? `<div>Número de requisição: ${studyInfo.accessionNumber}</div>` : ''}
-      </div>
-    `;
-
-    // FIX: converter assinatura e carimbo para base64
-    // URLs do MinIO não carregam na janela de impressão (sem autenticação)
-    const sigBase64   = signedDoctorSignatureUrl ? await fetchToBase64(signedDoctorSignatureUrl) : null;
-    const stampBase64 = signedDoctorStampUrl     ? await fetchToBase64(signedDoctorStampUrl)     : null;
+    // A assinatura pertence exclusivamente à última folha; a arte do rodapé é
+    // responsabilidade da casca visual canônica e se repete em todas as folhas.
+    const sigBase64 = signedDoctorSignatureUrl ? await fetchToBase64(signedDoctorSignatureUrl) : null;
+    const stampBase64 = signedDoctorStampUrl ? await fetchToBase64(signedDoctorStampUrl) : null;
 
     const doctorFooterHtml = isSignedOrRevised && signedDoctorName ? `
       <div class="doctor-footer">
-        ${sigBase64   ? `<img src="${sigBase64}"   alt="Assinatura" class="sig-img" />` : ''}
-        ${stampBase64 ? `<img src="${stampBase64}" alt="Carimbo"    class="stamp-img" />` : ''}
+        ${sigBase64 ? `<img src="${sigBase64}" alt="Assinatura" class="sig-img" />` : ''}
+        ${stampBase64 ? `<img src="${stampBase64}" alt="Carimbo" class="stamp-img" />` : ''}
         <div class="sig-line"></div>
         <div class="sig-name">${signedDoctorName}${existingReport?.status === 'revised' ? '<span class="revised-badge">RETIFICADO</span>' : ''}</div>
         ${signedDoctorCrm ? `<div class="sig-crm">CRM: ${signedDoctorCrm}</div>` : ''}
@@ -931,120 +910,42 @@ export default function ReportEditorPage() {
       </div>
     ` : '';
 
-    // P3: margens do @page a partir das preferências do layout
-    const lMT = effectiveLayoutPrefs.marginTop;
-    // P5: reservar margem inferior para o rodapé (estimativa de 30mm se houver imagem)
-    const footerReservedMm = layoutFooterUrl ? 30 : 0;
-    const lMB = effectiveLayoutPrefs.marginBottom + footerReservedMm;
-    const lML = effectiveLayoutPrefs.marginLeft;
+    const lMB = effectiveLayoutPrefs.marginBottom;
     const lMR = effectiveLayoutPrefs.marginRight;
-    // P8: usar stack de fontes com fallback seguro
     const rawFont = effectiveLayoutPrefs.fontFamily || 'Arial';
     const fontStack = SAFE_FONTS[rawFont] ?? `${rawFont}, Arial, sans-serif`;
     const lSize = effectiveLayoutPrefs.fontSize || 11;
     const lLine = effectiveLayoutPrefs.lineHeight ?? 1.6;
-    const lBorderColor = effectiveLayoutPrefs.headerBorderColor ?? '#1a6b8a';
     const pageSize = effectiveLayoutPrefs.pageSize ?? 'A4';
-    // OPÇÃO 1: dimensões físicas do papel (mm) — 100vw/100vh != A4 na janela popup
-    const paperW = pageSize === 'Letter' ? '216mm' : '210mm';
-    const paperH = pageSize === 'Letter' ? '279mm' : '297mm';
 
-    // P9: marca d'água RASCUNHO para laudos não assinados
     const draftWatermark = !isSignedOrRevised ? `
-      <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);font-size:72pt;font-weight:900;color:rgba(200,50,50,0.10);pointer-events:none;user-select:none;white-space:nowrap;font-family:Arial,sans-serif;letter-spacing:0.1em;-webkit-print-color-adjust:exact;print-color-adjust:exact;">RASCUNHO</div>
+      <div class="draft-watermark">RASCUNHO</div>
       <div style="background:#fef3c7;border:1.5px solid #f59e0b;padding:6px 12px;border-radius:4px;margin-bottom:12px;font-size:9pt;color:#92400e;text-align:center;">⚠ LAUDO EM RASCUNHO — Não assinado — Não é um documento válido</div>
     ` : '';
 
-    // FUNDO: base64 + background-image no body com dimensões físicas da folha
     const bgBase64 = layoutBgUrl ? await fetchToBase64(layoutBgUrl) : null;
     const footerBase64 = layoutFooterUrl ? await fetchToBase64(layoutFooterUrl) : null;
     const printLogos = await Promise.all(layoutLogos.map(async (logo) => {
       const absoluteUrl = toAbsUrl(logo.url) || logo.url;
       return { ...logo, url: (absoluteUrl ? await fetchToBase64(absoluteUrl) : null) || absoluteUrl };
     }));
-    // FIX: aplicar block_positions no print — mesma lógica do WYSIWYG
-    const logoWidthPrint   = Math.round((bpLogo.w / 100) * 210); // mm (papel = 210mm)
-    const logoAlignPrint   = bpLogo.x < 30 ? "left" : bpLogo.x > 70 ? "right" : "center";
-    const logoJustifyPrint = logoAlignPrint === "left" ? "flex-start"
-                           : logoAlignPrint === "right" ? "flex-end" : "center";
-    // FIX: overlay de opacidade via div position:fixed com dimensões em mm
-    // body::after não é confiável em print — div com mm é mais preciso
-    const overlayAlpha = Math.round((1 - layoutBgOpacity) * 100) / 100;
-    const bgLayer = (bgBase64 && overlayAlpha > 0) ? `
-      <div style="
-        position: fixed;
-        top: 0; left: 0;
-        width: ${paperW}; height: ${paperH};
-        background: rgba(255,255,255,${overlayAlpha});
-        z-index: 0;
-        pointer-events: none;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      "></div>
-    ` : '';
 
-    const renderEditorPhysicalPage = ({
-      title,
-      bodyHtml,
-      footerHtml,
-      isLast,
-    }: { title: string; bodyHtml: string; footerHtml: string; isLast: boolean }) => {
-      // CORRECAO (orientacao tecnica externa verificada contra o repositorio,
-      // 2026-09-28 — "ORDEM 1"): esta funcao e usada tanto para a folha de
-      // MEDICAO (materializePhysicalReportPages chama renderPage varias
-      // vezes durante a fragmentacao) quanto para as folhas FINAIS
-      // realmente impressas/exportadas. Quando um fragmento de secao
-      // resultava em bodyHtml vazio (ex.: sobra de fragmentacao no limite
-      // de uma pagina), o SharedReportBodyGuide — um guia visual com texto
-      // de exemplo ("Tecnica: Digite a tecnica do exame...", "Achados:
-      // Descreva os achados radiologicos...", "Conclusao: Registre a
-      // impressao diagnostica...") — entrava na medicao/paginacao real,
-      // podendo alterar a altura medida e, no pior caso, aparecer na folha
-      // fisica final entregue para impressao ou PDF. O guia deve existir
-      // SOMENTE na superficie de edicao em tela (onde ja existe, embutido
-      // separadamente mais abaixo neste arquivo, atras de
-      // showSectionBodyGuide/showBodyGuide) — nunca na folha fisica.
-      // Correcao: a folha fisica sempre renderiza um container de corpo
-      // real, vazio quando bodyHtml for vazio, nunca o guia.
-      const body = <div className="report-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />;
-      return renderSharedReportSheetHtml({
-        className: "print-page",
-        pageSize,
-        marginTop: lMT,
-        marginRight: lMR,
-        marginBottom: lMB,
-        marginLeft: lML,
-        positions: layoutBlockPos,
+    const renderEditorPhysicalPage = createPhysicalReportSheetRenderer({
+      layout: effectiveReportLayout,
+      patient: {
+        name: patientName,
+        birthDate: birthDate || '—',
+        sex: sexFormatted || '—',
+        studyDate: studyDateFormatted || '—',
+        modality: studyInfo?.modality,
+        unitName: medCtx?.unitName,
+      },
+      assets: {
         logos: printLogos,
         backgroundUrl: bgBase64 || layoutBgUrl,
-        backgroundOpacity: layoutBgOpacity,
-        backgroundSize: layoutBgSize,
-        footerImageUrl: isLast ? (footerBase64 || layoutFooterUrl) : null,
-        fontFamily: fontStack,
-        fontSize: lSize,
-        lineHeight: lLine,
-        patientName,
-        patientNameContent: <ClinicalPatientName patientName={patientName} />,
-        patientInfo: (
-          <ClinicalPatientDetails
-            birthDate={birthDate || "—"}
-            sex={sexFormatted || "—"}
-            studyDate={studyDateFormatted || "—"}
-            modality={studyInfo?.modality}
-            unitName={medCtx?.unitName}
-          />
-        ),
-        title: (
-          <div style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: "13pt", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: 6, borderBottom: "1px solid #e0e0e0" }}>
-            {title || "—"}
-          </div>
-        ),
-        body,
-        footer: footerHtml
-          ? <div style={{ width: "100%" }} dangerouslySetInnerHTML={{ __html: footerHtml }} />
-          : <div />,
-      });
-    };
+        footerImageUrl: footerBase64 || layoutFooterUrl,
+      },
+    });
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="utf-8"><title>Laudo - ${patientName}</title>
@@ -1056,11 +957,7 @@ export default function ReportEditorPage() {
     margin: 0;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html {
-    width: ${paperW};
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
+  html { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   body {
     /* MULTI-EXAME: body sem padding/background — cada div.print-page gerencia seu próprio espaço */
     margin: 0;
@@ -1074,40 +971,10 @@ export default function ReportEditorPage() {
     /* FIX BUG-3: sem min-height — evita página em branco extra */
     overflow: hidden;
   }
-  /* div.print-page = uma folha A4 completa com padding, fundo e conteúdo */
+  /* A casca da folha é exclusivamente SharedReportSheet; este CSS só define a paginação do navegador. */
   .print-page {
-    width: ${paperW};
-    height: ${paperH};
-    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-    box-sizing: border-box;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    ${bgBase64 ? `
-    background-image: url('${bgBase64}');
-    background-size: cover;
-    background-position: center center;
-    background-repeat: no-repeat;
-    ` : ''}
-  }
-  .print-shared-sheet {
-    width: ${paperW};
-    height: ${paperH};
-    /* Margens efetivas — antes fixo em 0, ignorando a unidade (Bloqueio 1,
-       auditoria Manus 2026-09-24). O valor real já vem no style inline do
-       componente (maior precedência); este bloco existe só para manter a
-       folha de estilos coerente com o que é de fato renderizado. */
-    padding: ${lMT}mm ${lMR}mm ${lMB}mm ${lML}mm;
-    box-sizing: border-box;
-    position: relative;
-    overflow: hidden;
-    display: block;
-    background: #fff;
-    color: #111;
-    font-family: ${fontStack};
-    font-size: ${lSize}pt;
-    line-height: ${lLine};
+    page-break-after: always;
+    break-after: page;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -1139,10 +1006,6 @@ export default function ReportEditorPage() {
       page-break-after: avoid;
       break-after: avoid;
     }
-    .print-shared-sheet {
-      page-break-after: avoid;
-      break-after: avoid;
-    }
   }
   /* Número de página via div position:fixed (substitui @bottom-right que requer @page margin) */
   /* FIX BUG-2: CSS counter nativo para número de página correto por página */
@@ -1158,33 +1021,6 @@ export default function ReportEditorPage() {
   .page-number-fixed::after {
     content: "Página " counter(page) " de " counter(pages);
   }
-  /* P4: cabeçalho repetível em múltiplas páginas via thead */
-  table.print-layout {
-    position: relative;                      /* FIX: cria stacking context */
-    z-index: 2;                              /* FIX: acima do overlay branco (z:0) */
-    width: 100%;
-    border-collapse: collapse;
-    height: 100%;                            /* FIX BUG-3: tabela usa toda a altura disponível */
-  }
-  table.print-layout td, table.print-layout th { background: transparent !important; }
-  table.print-layout tbody tr td { vertical-align: top; }
-  thead { display: table-header-group; }
-  tfoot { display: table-footer-group; }
-  tbody { display: table-row-group; }
-  .header {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding-bottom: 8pt;
-    border-bottom: 2px solid ${lBorderColor};
-    margin-bottom: 4mm;
-  }
-  .header-logo { flex-shrink: 0; width: ${logoWidthPrint}mm; display: flex; align-items: center; justify-content: ${logoJustifyPrint}; }
-  .header-title { flex: 1; text-align: center; }
-  .clinic-name { font-size: 14pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
-  .clinic-sub { font-size: 10pt; color: #444; margin-top: 2pt; }
-  .patient-data { font-size: 10pt; line-height: 1.7; margin-bottom: 12pt; }
-  .exam-title { text-align: center; font-weight: 700; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.05em; margin: 8pt 0 12pt 0; }
   .report-body { font-size: ${lSize}pt; line-height: ${lLine}; }
   .report-body > p,
   .report-body > div:not(.exam-section) { margin-bottom: 6pt; line-height: 1.7; }
@@ -1225,7 +1061,6 @@ export default function ReportEditorPage() {
     .doctor-footer { page-break-inside: avoid; }
   }
 </style></head><body>
-  ${bgLayer}
   ${draftWatermark}
   <!-- Número de página via div.page-number-fixed (substitui @bottom-right que precisa de @page margin) -->
   <!-- FIX BUG-2: conteúdo via CSS counter(page)/counter(pages) -->
@@ -1250,7 +1085,7 @@ export default function ReportEditorPage() {
         renderPage: renderEditorPhysicalPage,
         finalFooterHtml: doctorFooterHtml,
         replaceSelector: ".print-page, .print-shared-sheet",
-        bodySelector: '[data-layout-block="body"]',
+        bodySelector: REPORT_PHYSICAL_BODY_SELECTOR,
       });
       await Promise.all(Array.from(win.document.images).map((image) => image.complete
         ? Promise.resolve()
@@ -1268,7 +1103,7 @@ export default function ReportEditorPage() {
       });
       if (!renderInCurrentWindow) win.close();
     }
-  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, effectiveLayoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
+  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, effectiveReportLayout, effectiveLayoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
 
   useEffect(() => {
     if (!printOnOpen || autoPrintTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
@@ -1784,14 +1619,14 @@ export default function ReportEditorPage() {
                       backgroundUrl={layoutBgUrl}
                       backgroundOpacity={layoutBgOpacity}
                       backgroundSize={layoutBgSize}
-                      footerImageUrl={isLastPage ? layoutFooterUrl : null}
+                      footerImageUrl={layoutFooterUrl}
                       fontFamily={`'${effectiveLayoutPrefs.fontFamily}', sans-serif`}
                       fontSize={effectiveLayoutPrefs.fontSize}
                       lineHeight={effectiveLayoutPrefs.lineHeight}
                       pageSize={effectiveLayoutPrefs.pageSize}
                       marginTop={effectiveLayoutPrefs.marginTop}
                       marginRight={effectiveLayoutPrefs.marginRight}
-                      marginBottom={effectiveLayoutPrefs.marginBottom + screenFooterReservedMm}
+                      marginBottom={effectiveLayoutPrefs.marginBottom}
                       marginLeft={effectiveLayoutPrefs.marginLeft}
                       patientName={patientName}
                       patientNameContent={<ClinicalPatientName patientName={patientName} />}
@@ -1925,11 +1760,11 @@ export default function ReportEditorPage() {
                 fontFamily={`'${effectiveLayoutPrefs.fontFamily}', sans-serif`}
                 fontSize={effectiveLayoutPrefs.fontSize}
                 lineHeight={effectiveLayoutPrefs.lineHeight}
-                pageSize={effectiveLayoutPrefs.pageSize}
-                marginTop={effectiveLayoutPrefs.marginTop}
-                marginRight={effectiveLayoutPrefs.marginRight}
-                marginBottom={effectiveLayoutPrefs.marginBottom + screenFooterReservedMm}
-                marginLeft={effectiveLayoutPrefs.marginLeft}
+                      pageSize={effectiveLayoutPrefs.pageSize}
+                      marginTop={effectiveLayoutPrefs.marginTop}
+                      marginRight={effectiveLayoutPrefs.marginRight}
+                      marginBottom={effectiveLayoutPrefs.marginBottom}
+                      marginLeft={effectiveLayoutPrefs.marginLeft}
                 patientName={patientName}
                 patientNameContent={<ClinicalPatientName patientName={patientName} />}
                 patientInfo={
