@@ -76,6 +76,12 @@ describe("renderer visual físico canônico de laudos", () => {
     expect(html).toContain('data-layout-block="footer"');
     expect(html).toContain('data-report-body-content="true"');
     expect(html).toContain('flex:1;min-height:0;overflow:hidden');
+    expect(html).toContain('https://assets.invalid/background.png');
+    expect(html).toContain('position:absolute;inset:0;width:100%;height:100%;pointer-events:none');
+    expect(html).toContain('z-index:0;opacity:0.4;object-fit:contain');
+    const contentLayerMatch = html.match(/class="shared-report-sheet-content" style="([^"]+)"/);
+    expect(contentLayerMatch).not.toBeNull();
+    expect(contentLayerMatch![1]).toContain('z-index:1');
     expect(html).toContain('left:4%');
     expect(html).toContain('top:38%');
     expect(html).toContain('Paciente Sintético');

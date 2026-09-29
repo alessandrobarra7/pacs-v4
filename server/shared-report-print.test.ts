@@ -113,6 +113,34 @@ describe("SharedReportSheet print contract", () => {
     expect(markup).toContain("object-fit:contain");
     expect(markup).toContain("opacity:0.6");
   });
+  /**
+   * Regressão observada em homologação real (2026-09-29): após o hotfix de
+   * geometria inline, o fundo passou a ocupar a folha, mas o conteúdo clínico
+   * podia sumir no print/PDF porque o wrapper de conteúdo não criava uma
+   * camada acima do fundo absoluto. O HTML estático precisa carregar a camada
+   * completa inline, sem depender de CSS externo ou da ordem de pintura do
+   * navegador.
+   */
+  it("mantém a camada de conteúdo acima do fundo no HTML estático", () => {
+    const markup = renderSharedReportSheetHtml({
+      positions: {
+        patientName: { x: 5, y: 10, w: 90, h: 8, visible: true },
+        body: { x: 5, y: 25, w: 90, h: 50, visible: true },
+      },
+      backgroundUrl: "data:image/png;base64,BG",
+      patientName: "PACIENTE CAMADA",
+      body: createElement("div", null, "CONTEUDO CLINICO CAMADA"),
+    });
+
+    const contentLayerMatch = markup.match(/class="shared-report-sheet-content" style="([^"]+)"/);
+    expect(contentLayerMatch).not.toBeNull();
+    expect(contentLayerMatch![1]).toContain("position:relative");
+    expect(contentLayerMatch![1]).toContain("width:100%");
+    expect(contentLayerMatch![1]).toContain("height:100%");
+    expect(contentLayerMatch![1]).toContain("z-index:1");
+    expect(markup).toContain("PACIENTE CAMADA");
+    expect(markup).toContain("CONTEUDO CLINICO CAMADA");
+  });
   it("mantém os blocos clínicos visíveis para coordenadas legadas sem o campo visible", () => {
     // Layouts já existentes podem ter sido persistidos antes do controle de
     // visibilidade. A ausência da chave não pode ser lida como `false`, pois
