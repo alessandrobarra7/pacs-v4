@@ -1047,9 +1047,9 @@ export default function ReportEditorPage() {
     padding: 6px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 10px;
   }
   .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
-  .doctor-footer { text-align: center; margin: 14mm auto 0; max-width: 240px; page-break-inside: avoid; }
-  .sig-img   { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .doctor-footer { text-align: center; margin: 0 auto; max-width: 240px; page-break-inside: avoid; background: rgba(255,255,255,.84); padding: 4px 12px; border-radius: 2px; }
+  .sig-img   { max-height: 42px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .stamp-img { max-height: 70px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
   .sig-line  { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
   .sig-name  { font-weight: 700; font-size: 10pt; }
   .sig-role  { font-size: 9pt; color: #444; margin-top: 1pt; letter-spacing: 0.03em; }

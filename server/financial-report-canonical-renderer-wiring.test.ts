@@ -34,4 +34,9 @@ describe("financialReportPdfDownload.ts — motor canônico de layout", () => {
     expect(source).toContain("footerImageUrl: footer");
     expect(source).toContain("finalFooterHtml: doctorFooter");
   });
+  it("protege assinatura e carimbo contra o fundo também no PDF financeiro", () => {
+    expect(source).toContain(".doctor-footer { text-align:center;margin:0 auto;");
+    expect(source).toContain("background:rgba(255,255,255,.84)");
+    expect(source).toContain("padding:4px 12px");
+  });
 });

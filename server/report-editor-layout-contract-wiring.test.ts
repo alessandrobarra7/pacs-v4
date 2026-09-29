@@ -47,4 +47,11 @@ describe("ReportEditorPage — contrato canônico de layout", () => {
     expect(source.indexOf("materializePhysicalReportPages({")).toBeLessThan(source.indexOf("win.print();"));
     expect(source).not.toContain("window.onload = function()");
   });
+  it("usa o mesmo rodapé protegido contra fundo na impressão do editor", () => {
+    expect(source).toContain(".doctor-footer { text-align: center; margin: 0 auto;");
+    expect(source).toContain("background: rgba(255,255,255,.84)");
+    expect(source).toContain(".sig-img   { max-height: 42px;");
+    expect(source).toContain(".stamp-img { max-height: 70px;");
+    expect(source).not.toContain("margin: 14mm auto 0");
+  });
 });

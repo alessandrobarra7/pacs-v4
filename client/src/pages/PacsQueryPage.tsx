@@ -124,6 +124,40 @@ function formatSex(sex: string): string {
   return sex;
 }
 
+function formatPatientBirthDateForReport(value: string): string {
+  const normalized = value.trim();
+  if (/^\d{8}$/.test(normalized)) {
+    return `${normalized.slice(6, 8)}/${normalized.slice(4, 6)}/${normalized.slice(0, 4)}`;
+  }
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(normalized)) return normalized;
+  return '';
+}
+
+type DicomCachePatientMetadata = {
+  patientBirthDate: string;
+  patientSex: string;
+};
+
+function readDicomCacheString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+async function fetchCachedDicomPatientMetadata(studyUid: string): Promise<DicomCachePatientMetadata | null> {
+  if (!studyUid) return null;
+  try {
+    const response = await fetch(`/api/dicom-files/${encodeURIComponent(studyUid)}`, { credentials: 'include' });
+    if (!response.ok) return null;
+    const payload = await response.json() as { metadata?: Record<string, unknown> };
+    const metadata = payload?.metadata;
+    if (!metadata) return null;
+    const patientBirthDate = readDicomCacheString(metadata.patientBirthDate);
+    const patientSex = readDicomCacheString(metadata.patientSex);
+    if (!patientBirthDate && !patientSex) return null;
+    return { patientBirthDate, patientSex };
+  } catch {
+    return null;
+  }
+}
 /** Componente: Banner financeiro discreto para médicos e responsáveis */
 function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefined; userRole: string }) {
   const { data: info, isLoading, isError } = trpc.financeSimple.getUnitFinancialInfo.useQuery(
@@ -1437,12 +1471,24 @@ setSelectedStudy(study);
       || study.studyDescription
       || 'Sem descrição';
     const studyDate = study.studyDate ? `${study.studyDate.slice(6,8)}/${study.studyDate.slice(4,6)}/${study.studyDate.slice(0,4)}` : '-';
-    // Data de nascimento formatada
-    const birthDateRaw = studyData.patientBirthDate || study.patientBirthDate || '';
-    const birthDateFormatted = birthDateRaw.length >= 8
-      ? `${birthDateRaw.slice(6,8)}/${birthDateRaw.slice(4,6)}/${birthDateRaw.slice(0,4)}`
-      : '';
-    const sex = formatSex(studyData.patientSex || study.patientSex || '');
+    const initialBirthDateRaw = String(studyData.patientBirthDate || studyData.birthDate || study.patientBirthDate || study.birthDate || '').trim();
+    const initialSexRaw = String(studyData.patientSex || studyData.sex || study.patientSex || study.sex || '').trim();
+    const cachedPatientMetadata = (!initialBirthDateRaw || !initialSexRaw)
+      ? await fetchCachedDicomPatientMetadata(study.studyInstanceUid)
+      : null;
+    const birthDateRaw = initialBirthDateRaw || cachedPatientMetadata?.patientBirthDate || '';
+    const patientSexRaw = initialSexRaw || cachedPatientMetadata?.patientSex || '';
+    if (cachedPatientMetadata && (cachedPatientMetadata.patientBirthDate || cachedPatientMetadata.patientSex)) {
+      try {
+        sessionStorage.setItem(`study_${study.studyInstanceUid}`, JSON.stringify({
+          ...studyData,
+          patientBirthDate: birthDateRaw,
+          patientSex: patientSexRaw,
+        }));
+      } catch { /* manter somente em memoria se sessionStorage falhar */ }
+    }
+    const birthDateFormatted = formatPatientBirthDateForReport(birthDateRaw);
+    const sex = formatSex(patientSexRaw);
     const logoUrl = unitData?.logo_url || '';
 
     // Buscar laudo + dados do médico via tRPC antes de abrir a janela
@@ -1644,9 +1690,9 @@ setSelectedStudy(study);
     padding: 6px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 10px;
   }
   .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
-  .doctor-footer { text-align: center; margin: 14mm auto 0; max-width: 240px; page-break-inside: avoid; }
-  .sig-img { max-height: 48px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .stamp-img { max-height: 90px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .doctor-footer { text-align: center; margin: 0 auto; max-width: 240px; page-break-inside: avoid; background: rgba(255,255,255,.84); padding: 4px 12px; border-radius: 2px; }
+  .sig-img { max-height: 42px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .stamp-img { max-height: 70px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
   .sig-line { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
   .sig-name { font-weight: 700; font-size: 10pt; }
   .sig-crm { font-size: 9pt; color: #444; margin-top: 1pt; }

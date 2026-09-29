@@ -38,4 +38,20 @@ describe("PacsQueryPage — contrato canônico de layout", () => {
     expect(source).toContain("const allowLegacyUnitLogoFallbackQ = effectiveReportLayoutQ.source === 'unitLayout';");
     expect(source).toContain("allowLegacyUnitLogoFallbackQ && logoUrl");
   });
+  it("busca nascimento e sexo no cache DICOM quando o PACS não devolve os campos do paciente", () => {
+    expect(source).toContain("async function fetchCachedDicomPatientMetadata(studyUid: string)");
+    expect(source).toContain("fetch(`/api/dicom-files/${encodeURIComponent(studyUid)}`");
+    expect(source).toContain("cachedPatientMetadata?.patientBirthDate");
+    expect(source).toContain("cachedPatientMetadata?.patientSex");
+    expect(source).toContain("patientBirthDate: birthDateRaw");
+    expect(source).toContain("patientSex: patientSexRaw");
+  });
+
+  it("mantém assinatura/carimbo no rodapé sem a margem que recortava a assinatura", () => {
+    expect(source).toContain(".doctor-footer { text-align: center; margin: 0 auto;");
+    expect(source).toContain("background: rgba(255,255,255,.84)");
+    expect(source).toContain(".sig-img { max-height: 42px;");
+    expect(source).toContain(".stamp-img { max-height: 70px;");
+    expect(source).not.toContain("margin: 14mm auto 0");
+  });
 });

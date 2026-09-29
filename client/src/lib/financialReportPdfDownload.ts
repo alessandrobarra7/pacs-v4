@@ -135,7 +135,7 @@ export async function downloadFinancialReportPdf(documentData: any) {
       .print-page [data-layout-block="body"] { overflow:hidden!important; }
       .report-body { font-size:${effPrefs.fontSize}pt;line-height:${effPrefs.lineHeight}; }
       .report-body p,.report-body div { margin-bottom:3pt; }
-      .doctor-footer { text-align:center;margin:0 auto;max-width:65mm;page-break-inside:avoid;font-size:9pt; }
+      .doctor-footer { text-align:center;margin:0 auto;max-width:65mm;page-break-inside:avoid;font-size:9pt;background:rgba(255,255,255,.84);padding:4px 12px;border-radius:2px; }
       .doctor-footer span { display:block;margin-top:2pt;color:#444; }
       .signature,.stamp { display:block;object-fit:contain;margin:0 auto 2mm; }
       .signature { max-width:45mm;max-height:13mm; }
