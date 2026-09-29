@@ -562,7 +562,6 @@ export default function LayoutEditorPage() {
 
   const unitName = unitData?.name ?? `Unidade #${unitId}`;
   const activeBlockIds: BlockId[] = [...LOGO_BLOCK_IDS.slice(0, logos.length), ...STATIC_BLOCK_IDS];
-  const pageBackgroundFit = bgSizeOption === "contain" ? "contain" : bgSizeOption === "cover" ? "cover" : "fill";
   const currentStep = WIZARD_STEPS.find(step => step.id === wizardStep) ?? WIZARD_STEPS[0];
   const currentStepIndex = WIZARD_STEPS.findIndex(step => step.id === wizardStep);
 
@@ -928,7 +927,7 @@ export default function LayoutEditorPage() {
                       }))}
                       backgroundUrl={bgPreview}
                       backgroundOpacity={bgOpacity}
-                      backgroundSize={pageBackgroundFit}
+                      backgroundSize={bgSizeOption}
                       footerImageUrl={footerPreview}
                       patientName={REAL_PREVIEW_SAMPLE.patientName}
                       patientInfo={
@@ -1099,7 +1098,7 @@ export default function LayoutEditorPage() {
                     }))}
                     backgroundUrl={bgPreview}
                     backgroundOpacity={bgOpacity}
-                    backgroundSize={pageBackgroundFit}
+                    backgroundSize={bgSizeOption}
                     footerImageUrl={footerPreview}
                     patientName={REAL_PREVIEW_SAMPLE.patientName}
                     patientNameContent={<ClinicalPatientName patientName={REAL_PREVIEW_SAMPLE.patientName} />}

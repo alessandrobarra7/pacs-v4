@@ -158,4 +158,22 @@ describe("renderer visual físico canônico de laudos", () => {
     expect(html).toContain('data:image/png;base64,LOGO');
     expect(html).not.toContain('https://assets.invalid/footer.png');
   });
+  it("não converte escala de fundo salva no layout para cover antes de chegar ao SharedReportSheet", () => {
+    const layout = buildLayout();
+    layout.background_size = "100% 100%";
+    layout.footer_image_url = null;
+
+    const html = createPhysicalReportSheetRenderer({
+      layout,
+      patient: { name: "Paciente Sintético" },
+    })({
+      title: "Laudo",
+      bodyHtml: "<p>ok</p>",
+      footerHtml: "",
+      isLast: true,
+    });
+
+    expect(html).toContain("object-fit:fill");
+    expect(html).not.toContain("object-fit:cover");
+  });
 });

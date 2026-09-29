@@ -32,6 +32,8 @@ describe("LayoutEditorPage.tsx — painel oficial do motor único de laudo", () 
     expect(source).toContain("blockPositions:     positions");
     expect(source).toContain("backgroundImageUrl");
     expect(source).toContain("backgroundSize");
+    expect(source).toContain("backgroundSize={bgSizeOption}");
+    expect(source).not.toContain("pageBackgroundFit");
     expect(source).toContain("footerImageUrl");
     expect(source).toContain("logos:");
     expect(source).toContain("blockPositions x/y/w/h/visible");

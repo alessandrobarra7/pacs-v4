@@ -102,7 +102,7 @@ export function createPhysicalReportSheetRenderer({
     logos,
     backgroundUrl,
     backgroundOpacity: normalizeOpacity(layout.background_opacity),
-    backgroundSize: layout.background_size === "contain" ? "contain" : "cover",
+    backgroundSize: layout.background_size ?? "cover",
     footerImageUrl: footerImagePageScope === "all" || isLast ? footerImageUrl : null,
     fontFamily: resolveFontStack(preferences.fontFamily),
     fontSize: preferences.fontSize,

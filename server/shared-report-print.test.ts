@@ -70,6 +70,27 @@ describe("SharedReportSheet print contract", () => {
     expect(markup).toContain("padding:0mm 0mm 0mm 0mm");
   });
 
+  it("renderiza a escala de fundo pelo mesmo contrato salvo no layout", () => {
+    const containMarkup = renderSharedReportSheetHtml({
+      positions: {},
+      backgroundUrl: "data:image/png;base64,BG",
+      backgroundSize: "contain",
+    });
+    const stretchMarkup = renderSharedReportSheetHtml({
+      positions: {},
+      backgroundUrl: "data:image/png;base64,BG",
+      backgroundSize: "100% 100%",
+    });
+    const legacyA4Markup = renderSharedReportSheetHtml({
+      positions: {},
+      backgroundUrl: "data:image/png;base64,BG",
+      backgroundSize: "210mm 297mm",
+    });
+
+    expect(containMarkup).toContain("object-fit:contain");
+    expect(stretchMarkup).toContain("object-fit:fill");
+    expect(legacyA4Markup).toContain("object-fit:fill");
+  });
   it("mantém os blocos clínicos visíveis para coordenadas legadas sem o campo visible", () => {
     // Layouts já existentes podem ter sido persistidos antes do controle de
     // visibilidade. A ausência da chave não pode ser lida como `false`, pois

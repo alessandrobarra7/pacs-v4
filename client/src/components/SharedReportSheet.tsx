@@ -106,7 +106,11 @@ function blockStyle(position: SharedBlockPosition | undefined, defaults: SharedB
     boxSizing: "border-box",
   };
 }
-
+export function resolveSharedReportBackgroundObjectFit(backgroundSize: string | null | undefined): CSSProperties["objectFit"] {
+  if (backgroundSize === "contain") return "contain";
+  if (backgroundSize === "100% 100%" || backgroundSize === "210mm 297mm") return "fill";
+  return "cover";
+}
 /**
  * Estrutura visual para um corpo ainda não preenchido.
  * Ela orienta o médico sem gravar achados, técnica ou conclusão fictícios.
@@ -215,7 +219,7 @@ export function SharedReportSheet({
           alt="Fundo do laudo"
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 h-full w-full"
-          style={{ zIndex: 0, opacity: backgroundOpacity, objectFit: backgroundSize === "contain" ? "contain" : "cover" }}
+          style={{ zIndex: 0, opacity: backgroundOpacity, objectFit: resolveSharedReportBackgroundObjectFit(backgroundSize) }}
         />
       )}
       <div className="shared-report-sheet-content" style={contentStyle}>
