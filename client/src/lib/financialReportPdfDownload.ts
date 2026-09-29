@@ -3,6 +3,7 @@ import html2canvas from "html2canvas";
 import {
   resolveEffectiveReportLayout,
   type ReportLayoutSource,
+  type ReportLogo,
 } from "../../../shared/reportLayout";
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx } from "./pdfPageGeometry";
 import { ContentTooLargeForPageError } from "./reportPagination";
@@ -10,35 +11,10 @@ import {
   materializePhysicalReportPages,
   normalizeReportSections,
 } from "./reportPhysicalPageFactory";
-
-// CORREÇÃO (revisão Manus 2026-09-25, bloqueio "laudo único longo é
-// cortado no PDF financeiro"): reserva de altura para o bloco de
-// assinatura/carimbo do médico, sempre presente na folha (vazia nas
-// páginas que não são a última do documento, preenchida na última) — ver
-// mecanismo completo no comentário grande logo abaixo de downloadFinancialReportPdf.
-//
-// CORREÇÃO (Bloqueio 1, parecer corretivo da Manus, 2026-09-25): esta
-// reserva era um `min-height` — a folha usada para MEDIR a área útil
-// disponível (com a reserva vazia) media menos espaço ocupado do que a
-// folha REAL na última página (com carimbo+assinatura+nome+CRM+data
-// dentro), porque o conteúdo real podia crescer além do mínimo. Isso
-// aceitava conteúdo contra uma medição otimista, que depois não cabia de
-// verdade na última folha assinada. Agora a reserva é uma altura FIXA
-// (não mínima) com `overflow:hidden` própria — a área ocupada pela
-// reserva é EXATAMENTE a mesma na folha de medição (vazia) e na folha
-// real (preenchida), então a área útil medida para `.report-body` é
-// sempre a área real disponível, em toda folha, inclusive a última.
-//
-// Dimensionamento: carimbo (max-height 24mm) + assinatura (max-height
-// 13mm) + margens entre eles (2mm cada) + linha de assinatura (~2mm) +
-// nome (~4mm) + CRM (~4mm) + data assinatura (~4mm) + margem do bloco
-// (3mm) soma cerca de 56mm no pior caso (todos os campos preenchidos,
-// carimbo E assinatura presentes). 65mm dá folga confortável sem
-// depender de contagem exata; o `overflow:hidden` da própria reserva é
-// o limite de segurança final — mesmo se o conteúdo real excedesse essa
-// estimativa, ele seria cortado apenas dentro da reserva (nunca invade
-// `.report-body`), e não silenciosamente aceito como "coube".
-const FOOTER_RESERVE_MM = 65;
+import {
+  createPhysicalReportSheetRenderer,
+  REPORT_PHYSICAL_BODY_SELECTOR,
+} from "./reportPhysicalSheetRenderer";
 
 function absoluteUrl(value: string | null | undefined) {
   return value?.startsWith("/") ? `${window.location.origin}${value}` : value || "";
@@ -69,6 +45,11 @@ async function fetchToBase64(url: string) {
   }
 }
 
+function formatStudyDate(value: unknown) {
+  const raw = value ? String(value).slice(0, 10) : "";
+  return raw.includes("-") ? raw.split("-").reverse().join("/") : raw || "—";
+}
+
 /**
  * Resolve a única fonte de layout do PDF financeiro. O download só é aceito
  * para laudos assinados/retificados, portanto o snapshot clínico vence quando
@@ -90,34 +71,25 @@ export async function downloadFinancialReportPdf(documentData: any) {
   const effectiveLayout = resolveFinancialReportLayout(documentData);
   const effPrefs = effectiveLayout.preferences;
   const pageSize = effPrefs.pageSize === "Letter" ? "Letter" : "A4";
-  const paperWidth = pageSize === "Letter" ? "216mm" : "210mm";
-  const paperHeight = pageSize === "Letter" ? "279mm" : "297mm";
-  const fontFamily = effPrefs.fontFamily || "Arial";
-  const fontSize = Number(effPrefs.fontSize ?? 11);
-  const lineHeight = Number(effPrefs.lineHeight ?? 1.6);
-  const backgroundSize = effectiveLayout.background_size === "contain" ? "contain" : "cover";
-  const footerReservedMm = effectiveLayout.footer_image_url ? 30 : 0;
-  const marginTop = Number(effPrefs.marginTop);
-  const marginRight = Number(effPrefs.marginRight);
-  const marginBottom = Number(effPrefs.marginBottom) + footerReservedMm;
-  const marginLeft = Number(effPrefs.marginLeft);
   const logos = (effectiveLayout.logos ?? []).filter((logo) => logo?.url).slice(0, 3);
   const [background, footer, signature, stamp, ...logoUrls] = await Promise.all([
     fetchToBase64(absoluteUrl(effectiveLayout.background_image_url)),
     fetchToBase64(absoluteUrl(effectiveLayout.footer_image_url)),
     fetchToBase64(absoluteUrl(documentData.signer?.signature_url)),
     fetchToBase64(absoluteUrl(documentData.signer?.stamp_url)),
-    ...logos.map((logo: any) => fetchToBase64(absoluteUrl(logo.url))),
+    ...logos.map((logo: ReportLogo) => fetchToBase64(absoluteUrl(logo.url))),
   ]);
   const patientName = String(report.patient_name ?? "Paciente não identificado").replace(/\^/g, " ").replace(/\s+/g, " ").trim();
-  const rawDate = report.study_date ? String(report.study_date).slice(0, 10) : "";
-  const studyDate = rawDate.includes("-") ? rawDate.split("-").reverse().join("/") : "—";
+  const studyDate = formatStudyDate(report.study_date);
   const signedAt = report.signed_at ? new Date(report.signed_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
   const sections = normalizeReportSections(
     report.body,
     report.document_label || report.study_description || "Laudo",
   );
-  const logoHtml = logoUrls.filter(Boolean).map((url, index) => `<img src="${url}" alt="Logo ${index + 1}" />`).join("");
+  const printLogos: ReportLogo[] = logos.map((logo: ReportLogo, index: number) => ({
+    ...logo,
+    url: logoUrls[index] || absoluteUrl(logo.url) || logo.url,
+  }));
   const doctorFooter = `
     <div class="doctor-footer">
       ${stamp ? `<img src="${stamp}" class="stamp" alt="Carimbo" />` : ""}
@@ -127,51 +99,27 @@ export async function downloadFinancialReportPdf(documentData: any) {
       ${documentData.signer?.crm ? `<span>CRM: ${escapeHtml(documentData.signer.crm)}</span>` : ""}
       ${signedAt ? `<span>Assinado em: ${escapeHtml(signedAt)}</span>` : ""}
     </div>`;
-  // CORREÇÃO (revisão Manus 2026-09-25, bloqueio "laudo único longo é
-  // cortado no PDF financeiro"): antes, cada seção virava exatamente UMA
-  // `.print-page` de altura fixa com `overflow:hidden` — uma seção cujo
-  // conteúdo excedesse a altura disponível simplesmente tinha o restante
-  // cortado, e a assinatura podia ficar sobreposta ao texto cortado na
-  // última página. A Manus reproduziu isso visualmente com um laudo
-  // sintético de seção única com 115 parágrafos: o PDF saiu com uma única
-  // página, cortada na seção 13, sem os parágrafos restantes.
-  //
-  // Agora o conteúdo de cada seção é PAGINADO ANTES da captura: medimos a
-  // altura real de cada bloco (parágrafo, título, tabela etc.) dentro do
-  // próprio iframe de renderização (mesma largura/fonte da captura final)
-  // e decidimos em qual folha física cada bloco entra, sem nunca cortar um
-  // bloco no meio (client/src/lib/reportPagination.ts). Cada seção pode
-  // virar uma ou mais folhas físicas — uma seção não é mais sinônimo de
-  // uma página. Cabeçalho e dados do paciente se repetem em toda folha
-  // gerada; a assinatura/carimbo do médico (`doctorFooter`) só aparece na
-  // ÚLTIMA folha física do documento inteiro, nunca sobreposta ao corpo,
-  // porque toda folha reserva o mesmo espaço fixo para ela
-  // (`.footer-reserve`, FOOTER_RESERVE_MM) esteja ou não preenchida — isso
-  // garante que a altura disponível para o corpo (medida uma única vez, a
-  // partir de uma folha-modelo vazia) seja idêntica em todas as folhas,
-  // vazias ou não.
-  const renderPhysicalPage = ({ title, bodyHtml, footerHtml }: { title: string; bodyHtml: string; footerHtml: string }) => `
-    <article class="print-page" ${background ? `style="background-image:url('${background}');background-size:${backgroundSize};background-position:center;background-repeat:no-repeat"` : ""}>
-      <header>${logoHtml}<div class="header-spacer"></div></header>
-      <section class="patient"><div>Nome do paciente: ${escapeHtml(patientName)}</div><div>Data de realização do exame: ${escapeHtml(studyDate)}</div><div>Modalidade: ${escapeHtml(report.modality || "—")}</div></section>
-      <h1>${escapeHtml(title || "Laudo")}</h1>
-      <main class="report-body">${bodyHtml}</main>
-      <div class="footer-reserve">${footerHtml}</div>
-      ${footer ? `<img src="${footer}" class="unit-footer" alt="Rodapé" />` : ""}
-    </article>`;
-  const iframe = document.createElement("iframe");
-  iframe.setAttribute("aria-hidden", "true");
-  // CORREÇÃO (auditoria independente 2026-09-25, Achado 2, confirmado pela
-  // Manus): o iframe de captura ficava fixo em 794x1123px (proporção A4),
-  // e o html2canvas era chamado com windowWidth:794 fixo — independente do
-  // pageSize efetivo da unidade. Diferente das outras vias já corrigidas
-  // (Bloqueio 1, ReportEditorPage.tsx/PacsQueryPage.tsx), este arquivo não
-  // usava o módulo compartilhado pdfPageGeometry.ts. Agora as dimensões do
-  // iframe e o windowWidth do html2canvas derivam de pageSize (A4/Letter),
-  // e cada folha capturada passa por clampImageToPage antes do addImage,
-  // igual ao padrão das demais 3 vias.
+
+  const renderPhysicalPage = createPhysicalReportSheetRenderer({
+    layout: effectiveLayout,
+    patient: {
+      name: patientName,
+      birthDate: "—",
+      sex: "—",
+      studyDate,
+      modality: report.modality || undefined,
+    },
+    assets: {
+      logos: printLogos,
+      backgroundUrl: background || absoluteUrl(effectiveLayout.background_image_url),
+      footerImageUrl: footer || absoluteUrl(effectiveLayout.footer_image_url),
+    },
+  });
+
   const framePxWidth = pageWidthPx(pageSize);
   const framePxHeight = pageHeightPx(pageSize);
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
   iframe.style.cssText = `position:fixed;left:-10000px;top:0;width:${framePxWidth}px;height:${framePxHeight}px;border:0;visibility:hidden;`;
   document.body.appendChild(iframe);
   try {
@@ -180,30 +128,30 @@ export async function downloadFinancialReportPdf(documentData: any) {
     doc.open();
     doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>
       @page { size: ${pageSize} portrait; margin: 0; }
-      * { box-sizing:border-box; } html,body { margin:0;padding:0;background:#fff;color:#111;font-family:${fontFamily},Arial,sans-serif; }
-      .print-page { width:${paperWidth};height:${paperHeight};position:relative;overflow:hidden;padding:${marginTop}mm ${marginRight}mm ${marginBottom}mm ${marginLeft}mm;background:#fff center/cover no-repeat;page-break-after:always;font-size:${fontSize}pt;line-height:${lineHeight};display:flex;flex-direction:column; }
-      .print-page:last-child { page-break-after:auto; } header { display:flex;align-items:center;gap:8px;min-height:18mm;border-bottom:1px solid #d0d0d0;padding-bottom:4mm; } header img { max-height:15mm;max-width:45mm;object-fit:contain; } .header-spacer { flex:1; }
-      .patient { font-size:9.5pt;line-height:1.7;margin:5mm 0; } h1 { font-size:12pt;text-align:center;text-transform:uppercase;letter-spacing:.04em;margin:4mm 0 7mm; } .report-body { flex:1;min-height:0;overflow-wrap:anywhere;overflow:hidden; } .report-body p,.report-body div { margin-bottom:3pt; }
-      .footer-reserve { height:${FOOTER_RESERVE_MM}mm;overflow:hidden;display:flex;align-items:flex-end;justify-content:center; }
-      .doctor-footer { text-align:center;margin:0 auto 3mm;max-width:65mm;page-break-inside:avoid;font-size:9pt; } .doctor-footer span { display:block;margin-top:2pt;color:#444; } .signature,.stamp { display:block;object-fit:contain;margin:0 auto 2mm; } .signature { max-width:45mm;max-height:13mm; } .stamp { max-width:53mm;max-height:24mm; } .signature-line { border-top:1px solid #333;width:45mm;margin:0 auto 2mm; }
-      .unit-footer { position:absolute;bottom:0;left:0;width:100%;max-height:28mm;object-fit:contain; }
+      * { box-sizing:border-box; }
+      html,body { margin:0;padding:0;background:#fff;color:#111;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important; }
+      .print-page { page-break-after:always;break-after:page;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important; }
+      .print-page:last-child { page-break-after:auto;break-after:avoid; }
+      .print-page [data-layout-block="body"] { overflow:hidden!important; }
+      .report-body { font-size:${effPrefs.fontSize}pt;line-height:${effPrefs.lineHeight}; }
+      .report-body p,.report-body div { margin-bottom:3pt; }
+      .doctor-footer { text-align:center;margin:0 auto;max-width:65mm;page-break-inside:avoid;font-size:9pt; }
+      .doctor-footer span { display:block;margin-top:2pt;color:#444; }
+      .signature,.stamp { display:block;object-fit:contain;margin:0 auto 2mm; }
+      .signature { max-width:45mm;max-height:13mm; }
+      .stamp { max-width:53mm;max-height:24mm; }
+      .signature-line { border-top:1px solid #333;width:45mm;margin:0 auto 2mm; }
     </style></head><body></body></html>`);
     doc.close();
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    // ── Checagem preventiva: a área útil do corpo é medível? ────────────
-    // Não usamos mais este número para DECIDIR a paginação (ver bloco
-    // abaixo) — a decisão agora vem da inserção incremental real em cada
-    // folha. Mas uma folha-modelo com área útil <= 0 (layout mal
-    // configurado, CSS não carregado etc.) faria a paginação real falhar
-    // de forma confusa (todo conteúdo pareceria "maior que a página");
-    // verificar aqui dá um erro claro e cedo.
     materializePhysicalReportPages({
       doc,
       sections: sections.map((section) => ({ ...section, body: withoutUnsupportedColors(section.body) })),
       renderPage: renderPhysicalPage,
       finalFooterHtml: doctorFooter,
       replaceSelector: ".print-page, .print-shared-sheet",
+      bodySelector: REPORT_PHYSICAL_BODY_SELECTOR,
     });
 
     await new Promise((resolve) => setTimeout(resolve, 600));
@@ -226,20 +174,6 @@ export async function downloadFinancialReportPdf(documentData: any) {
     }
     pdf.save(`Laudo_${patientName.replace(/[^a-zA-Z0-9]+/g, "_") || "entregue"}.pdf`);
   } catch (err) {
-    // CORRECAO (Bloqueio 3, parecer de revisao v3 da Manus, 2026-09-25):
-    // antes, qualquer erro (incluindo ContentTooLargeForPageError, lancado
-    // de proposito pela paginacao real quando um bloco nao fragmentavel nao
-    // cabe em uma folha - ver reportPagination.ts) propagava sem tratamento
-    // ate a tela chamadora (FinanceMeuFinanceiro.tsx), que so exibia uma
-    // mensagem generica de "Nao foi possivel baixar o PDF.". Isso nao dava
-    // ao medico uma explicacao clara do motivo real da falha. Agora
-    // ContentTooLargeForPageError recebe uma mensagem dedicada, clara sobre
-    // a causa (conteudo maior que a folha), e qualquer outro erro tambem e
-    // relancado com uma mensagem prefixada e mais informativa. Este arquivo
-    // nao tem fallback de impressao nativa (diferente do download rapido em
-    // PacsQueryPage.tsx), entao nao ha risco de abrir um documento
-    // potencialmente truncado - o unico requisito aqui e um erro tratado e
-    // compreensivel para o chamador.
     if (err instanceof ContentTooLargeForPageError) {
       throw new Error(`Não foi possível gerar o PDF: o conteúdo do laudo não coube na página. ${err.message}`);
     }
