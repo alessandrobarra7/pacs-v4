@@ -91,6 +91,28 @@ describe("SharedReportSheet print contract", () => {
     expect(stretchMarkup).toContain("object-fit:fill");
     expect(legacyA4Markup).toContain("object-fit:fill");
   });
+
+  /**
+   * Regressão (auditoria externa Codex + Claude, 2026-09-29, homologação
+   * Chromium): a geometria do fundo (posição/dimensão/não capturar clique)
+   * vinha só de classes Tailwind, que não existem no HTML estático usado
+   * por PDF/impressão (documento/iframe isolado, sem a folha de estilos do
+   * app). Sem essas regras, a imagem ficava em fluxo normal e não ocupava a
+   * folha, mesmo com object-fit correto. A geometria crítica agora precisa
+   * estar inline, sem depender de nenhuma classe CSS externa ser carregada.
+   */
+  it("inclui a geometria crítica do fundo inline, sem depender de CSS externo (Tailwind)", () => {
+    const markup = renderSharedReportSheetHtml({
+      positions: {},
+      backgroundUrl: "data:image/png;base64,BG",
+      backgroundOpacity: 0.6,
+      backgroundSize: "contain",
+    });
+
+    expect(markup).toContain("position:absolute;inset:0;width:100%;height:100%;pointer-events:none");
+    expect(markup).toContain("object-fit:contain");
+    expect(markup).toContain("opacity:0.6");
+  });
   it("mantém os blocos clínicos visíveis para coordenadas legadas sem o campo visible", () => {
     // Layouts já existentes podem ter sido persistidos antes do controle de
     // visibilidade. A ausência da chave não pode ser lida como `false`, pois

@@ -218,8 +218,33 @@ export function SharedReportSheet({
           src={backgroundUrl}
           alt="Fundo do laudo"
           aria-hidden="true"
+          // CORREÇÃO (auditoria externa Codex + Claude, 2026-09-29,
+          // homologação Chromium): a geometria crítica do fundo (posição,
+          // dimensão, não capturar clique) vinha SOMENTE das classes
+          // Tailwind abaixo. O HTML estático usado por PDF/impressão
+          // (renderSharedReportSheetHtml → materializePhysicalReportPages,
+          // consumido por ReportEditorPage.tsx, PacsQueryPage.tsx e
+          // financialReportPdfDownload.ts) escreve esse markup num
+          // documento/iframe isolado com um <style> próprio, que NUNCA
+          // inclui a folha de estilos gerada pelo Tailwind do app. Nessas
+          // 3 vias, a imagem de fundo ficava em fluxo normal — sem
+          // position:absolute nem inset/width/height — e por isso não
+          // ocupava a folha, independente do objectFit (que já estava
+          // correto). O className é mantido só por compatibilidade visual
+          // no preview React do navegador (onde o Tailwind está carregado);
+          // a fonte de verdade da geometria passa a ser o style inline,
+          // idêntico nas duas vias.
           className="pointer-events-none absolute inset-0 h-full w-full"
-          style={{ zIndex: 0, opacity: backgroundOpacity, objectFit: resolveSharedReportBackgroundObjectFit(backgroundSize) }}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            pointerEvents: "none",
+            zIndex: 0,
+            opacity: backgroundOpacity,
+            objectFit: resolveSharedReportBackgroundObjectFit(backgroundSize),
+          }}
         />
       )}
       <div className="shared-report-sheet-content" style={contentStyle}>

@@ -176,4 +176,28 @@ describe("renderer visual físico canônico de laudos", () => {
     expect(html).toContain("object-fit:fill");
     expect(html).not.toContain("object-fit:cover");
   });
+
+  /**
+   * Regressão (auditoria externa Codex + Claude, 2026-09-29, homologação
+   * Chromium): confirma que o renderer físico usado por Editor, Lista PACS
+   * e PDF financeiro herda a geometria inline do fundo (não só o
+   * object-fit) — sem isso, a folha estática ficava sem fundo posicionado
+   * nas 3 vias, mesmo com backgroundSize/opacity corretos.
+   */
+  it("herda a geometria inline do fundo (position/inset/width/height/pointer-events), não só o object-fit", () => {
+    const layout = buildLayout();
+
+    const html = createPhysicalReportSheetRenderer({
+      layout,
+      patient: { name: "Paciente Sintético" },
+    })({
+      title: "Laudo",
+      bodyHtml: "<p>ok</p>",
+      footerHtml: "",
+      isLast: true,
+    });
+
+    expect(html).toContain("position:absolute;inset:0;width:100%;height:100%;pointer-events:none");
+    expect(html).toContain("https://assets.invalid/background.png");
+  });
 });
