@@ -1,0 +1,118 @@
+================================================================================
+HANDOFF MANUS — CORREÇÃO DE JANELA FIXA EM TESTE DE REGRESSÃO
+(pacs-print-document-key-wiring.test.ts)
+================================================================================
+Data: 2026-09-29
+Repositório: https://github.com/alessandrobarra7/pacs-v4
+Branch: claude/corrige-janela-teste-documentkey-20260929
+Commit base (topo da linha validada, de onde este branch parte):
+  51f34d0 fix(reports): usa metadados DICOM e protege rodape
+Destinatário: Manus (e qualquer engenheiro/agente com acesso a produção)
+
+--------------------------------------------------------------------------------
+1. COMO CHEGAR NO CÓDIGO REAL
+--------------------------------------------------------------------------------
+
+git fetch origin
+git checkout -B revisao-janela-teste origin/claude/corrige-janela-teste-documentkey-20260929
+git log -1 --oneline
+  # deve mostrar: 6194287 fix(test): amplia janela de leitura em
+  # pacs-print-document-key-wiring
+
+git diff 51f34d0..HEAD
+  # diff único: server/pacs-print-document-key-wiring.test.ts
+
+--------------------------------------------------------------------------------
+2. O MECANISMO DO PROBLEMA
+--------------------------------------------------------------------------------
+
+O commit 51f34d0 (auditado e aprovado separadamente — corrige dados de
+paciente vindos vazios do PACS via fallback no cache DICOM, e protege
+o rodapé de assinatura/carimbo contra ficar coberto pelo fundo do
+papel) inseriu ~30 linhas de código novo dentro de
+`executePrintAction`, em client/src/pages/PacsQueryPage.tsx, ANTES da
+chamada:
+
+  await trpcUtils.reports.getByStudyUidWithDoctor.fetch({...})
+
+O arquivo server/pacs-print-document-key-wiring.test.ts (criado em
+2026-09-26, protege a regressão real do paciente RAIMUNDO NESTOR SERPA
+MORAES — documentKey ausente fazia o laudo aparecer como "não
+encontrado" mesmo assinado) lê o código-fonte de PacsQueryPage.tsx e
+localiza essa chamada dentro de uma janela FIXA de 4200 caracteres a
+partir do início de executePrintAction:
+
+  const fnBody = source.slice(fnIdx, fnIdx + 4200);
+  const fetchIdx = fnBody.indexOf("await trpcUtils.reports.getByStudyUidWithDoctor.fetch({");
+  expect(fetchIdx).toBeGreaterThan(-1);
+
+Com o código novo de 51f34d0, a chamada passou a ficar a ~4460
+caracteres do início da função — fora da janela de 4200. O teste
+falhava com `expected -1 to be greater than -1`, mas isso NÃO é uma
+regressão de comportamento: confirmado por leitura direta do
+código-fonte (fora do teste) que `documentKey: resolvedDocumentKey` e
+`unit_id: effectiveUnitId ? Number(effectiveUnitId) : undefined`
+continuam corretamente presentes na chamada real ao fetch.
+
+Rodando a suíte completa (TZ=UTC vitest run) sobre o commit 51f34d0
+isolado, sem esta correção, esse é o único arquivo de teste que sai da
+linha de base conhecida do projeto (fica em 8 arquivos falhando / 12
+testes, em vez dos 7 arquivos / 11 testes de sempre).
+
+--------------------------------------------------------------------------------
+3. A CORREÇÃO
+--------------------------------------------------------------------------------
+
+Arquivo alterado: server/pacs-print-document-key-wiring.test.ts
+
+A janela fixa foi ampliada de 4200 para 6000 caracteres, nos dois
+testes que dependem dela, com um comentário inline explicando a origem
+do ajuste (referenciando este branch e o commit 51f34d0). Nenhuma
+asserção foi enfraquecida ou removida — apenas o tamanho da janela de
+busca.
+
+--------------------------------------------------------------------------------
+4. VALIDAÇÃO
+--------------------------------------------------------------------------------
+
+- PROVA de que o teste continua pegando a regressão real: revertido
+  manualmente `documentKey: resolvedDocumentKey` para
+  `documentKey: 'primary'` (reproduzindo o bug original do RAIMUNDO
+  NESTOR) — o teste falhou como esperado, na asserção
+  `expect(fetchCall).toContain("documentKey: resolvedDocumentKey")`.
+  Restaurado, o teste voltou a passar (6/6).
+- server/pacs-print-document-key-wiring.test.ts: 6/6 passando.
+- Suíte direcionada (11 arquivos do escopo de laudo/layout/PACS): 7
+  arquivos falhando / 11 testes — de volta à linha de base conhecida
+  do projeto (exam-catalog-security, finance-v2-dashboard x2,
+  mediaProxy, pacs-desktop-download-progress, pacs.mobile-ui,
+  security.auth, study-priority-ui x4). Nenhuma falha nova.
+- Suíte completa (TZ=UTC vitest run): 730 passaram, 11 falharam (mesma
+  linha de base), 1 skipped.
+- pnpm check (tsc --noEmit): limpo.
+- pnpm build: Vite e esbuild completos. Falha isolada e já conhecida
+  do último passo (`cp server/*.py dist/`) em ambiente Windows/
+  PowerShell — não relacionada a este commit nem ao 51f34d0.
+- git diff --check: limpo (sem espaço em branco/EOL problemático).
+
+--------------------------------------------------------------------------------
+5. O QUE FICOU FORA DO ESCOPO
+--------------------------------------------------------------------------------
+
+Nenhuma alteração de comportamento de runtime foi feita neste commit —
+só o teste. A correção funcional em si (metadados DICOM + rodapé
+protegido) é inteiramente do commit 51f34d0, já auditado e aprovado
+separadamente. Este branch existe unicamente para destravar a suíte
+de testes antes de qualquer merge em main.
+
+--------------------------------------------------------------------------------
+6. ESTADO ATUAL
+--------------------------------------------------------------------------------
+
+Publicado no GitHub, branch claude/corrige-janela-teste-documentkey-20260929,
+partindo de 51f34d0. Sem PR aberto, sem merge em main, nada implantado
+em nenhuma VM.
+
+================================================================================
+FIM DO HANDOFF
+================================================================================
