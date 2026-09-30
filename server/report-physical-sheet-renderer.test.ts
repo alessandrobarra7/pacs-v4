@@ -244,5 +244,13 @@ describe("renderer visual físico canônico de laudos", () => {
     // `.doctor-footer` (height:100%) dentro dele ficariam sem referência
     // definida (percentual de altura "auto" é ignorado pelo CSS).
     expect(html).toContain('style="position:relative;z-index:1;width:100%;height:100%"');
+
+    // O renderer físico comum adiciona ainda outro wrapper para injetar o
+    // HTML clínico do rodapé via dangerouslySetInnerHTML. Esse wrapper
+    // também precisa participar da cadeia de altura definida; caso tenha
+    // apenas width:100%, o .doctor-footer volta a resolver height:100%
+    // contra altura auto e passa a ser cortado pelo bloco externo.
+    expect(html).toContain('style="position:relative;z-index:1;width:100%;height:100%"><div style="width:100%;height:100%"><div class="doctor-footer"');
+    expect(html).not.toContain('style="position:relative;z-index:1;width:100%;height:100%"><div style="width:100%"><div class="doctor-footer"');
   });
 });

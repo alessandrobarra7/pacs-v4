@@ -140,7 +140,7 @@ export function createPhysicalReportSheetRenderer({
       dangerouslySetInnerHTML: { __html: bodyHtml },
     }),
     footer: footerHtml
-      ? createElement("div", { style: { width: "100%" }, dangerouslySetInnerHTML: { __html: footerHtml } })
+      ? createElement("div", { style: { width: "100%", height: "100%" }, dangerouslySetInnerHTML: { __html: footerHtml } })
       : createElement("div"),
   });
 }
