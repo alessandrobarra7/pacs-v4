@@ -487,9 +487,22 @@ export function getStudyReportStatusPresentation(statuses: readonly string[]): P
   const cancelled = statuses.filter((status) => status === "cancelled").length;
 
   if (total > 0 && cancelled === total) {
+    // CORREÇÃO (Alessandro, 2026-09-30): pedido explícito para que um
+    // estudo cujo ÚNICO laudo foi cancelado volte a aparecer como
+    // "Pendente" na worklist, exatamente como um estudo que nunca foi
+    // laudado — não como um estado de alerta vermelho ("Laudo
+    // cancelado"). O comportamento anterior (bf67d37, Manus, 22/08/2026)
+    // tornou esse estado explícito de propósito, para não confundir
+    // "Em Andamento" com "cancelado". Mantemos essa distinção correta,
+    // mas o rótulo final apresentado agora é "Pendente" — a auditoria
+    // (quem cancelou, quando, o laudo anterior) continua intacta no
+    // banco (audit_log / documento com status "cancelled"), só deixa de
+    // aparecer em destaque na lista de estudos. O editor já trata esse
+    // caso corretamente desde 207a599 (corpo em branco, sem herdar o
+    // texto do laudo cancelado).
     return {
-      label: "Laudo cancelado",
-      detail: "Assinatura cancelada — nova laudagem necessária",
+      label: "Pendente",
+      detail: null,
     };
   }
 
