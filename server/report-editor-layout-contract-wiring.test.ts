@@ -50,8 +50,27 @@ describe("ReportEditorPage — contrato canônico de layout", () => {
   it("usa o mesmo rodapé protegido contra fundo na impressão do editor", () => {
     expect(source).toContain(".doctor-footer { text-align: center; margin: 0 auto;");
     expect(source).toContain("background: rgba(255,255,255,.84)");
-    expect(source).toContain(".sig-img   { max-height: 42px;");
-    expect(source).toContain(".stamp-img { max-height: 70px;");
+    expect(source).toContain(".sig-img   { flex: 0 1 auto; min-height: 0; max-height: 42px;");
+    expect(source).toContain(".stamp-img { flex: 0 1 auto; min-height: 0; max-height: 70px;");
     expect(source).not.toContain("margin: 14mm auto 0");
+  });
+
+  /**
+   * Regressão (auditoria Manus 2026-09-29, "Parecer técnico — cadeia de
+   * dados DICOM, rodapé e teste"): mesmo bloqueio confirmado no Editor —
+   * carimbo + assinatura + linha + nome + CRM + data podiam somar mais
+   * que a altura do bloco [data-layout-block="footer"], cortados por
+   * overflow:hidden. O rodapé agora é um container flex em coluna que
+   * ocupa 100% da altura real do bloco, com min-height:0 nas imagens
+   * para que o motor de flexbox as encolha proporcionalmente em vez de
+   * cortá-las.
+   */
+  it("dá ao rodapé do Editor um contrato de capacidade (flex-column + height:100% + min-height:0 nas imagens)", () => {
+    expect(source).toContain("display: flex; flex-direction: column; align-items: center; justify-content: center; page-break-inside: avoid;");
+    expect(source).toContain("max-width: 240px; height: 100%; box-sizing: border-box;");
+    expect(source).toContain(".sig-line  { flex: 0 0 auto;");
+    expect(source).toContain(".sig-name  { flex: 0 0 auto;");
+    expect(source).toContain(".sig-crm   { flex: 0 0 auto;");
+    expect(source).toContain(".sig-date  { flex: 0 0 auto;");
   });
 });

@@ -307,9 +307,36 @@ export function SharedReportSheet({
       )}
 
       {merged.footer?.visible && (
-        <div data-layout-block="footer" style={{ ...blockStyle(merged.footer, fallbackPositions.footer), display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", zIndex: 4 }}>
+        // CORREÇÃO (auditoria Manus 2026-09-29, "Parecer técnico — cadeia de
+        // dados DICOM, rodapé e teste"): este bloco usava alignItems:"center"
+        // com o conteúdo do rodapé em fluxo natural (altura de conteúdo),
+        // dentro de uma caixa de altura FIXA (percentual da folha) com
+        // overflow:hidden. Quando carimbo + assinatura + nome + CRM + data
+        // somados excediam a altura configurada do bloco (medido pela Manus
+        // em Chromium: ~171px de conteúdo contra ~115px de bloco), o
+        // conteúdo era centralizado e cortado igualmente acima/abaixo —
+        // a data de assinatura chegou a ficar parcialmente invisível.
+        // A Manus recusou corrigir isso com `overflow:visible` isolado
+        // (poderia sobrepor o bloco "body" ou vazar da página) e pediu um
+        // "contrato de capacidade": o rodapé deve caber na área reservada
+        // em vez de apostar num tamanho de conteúdo fixo.
+        // Fix: o bloco agora estica (`alignItems:"stretch"`) o wrapper do
+        // rodapé para ocupar 100% da própria altura, que passa a ser uma
+        // altura definida (não mais "auto") para fins de resolução de
+        // percentuais dos filhos. Cada consumidor (PacsQueryPage,
+        // ReportEditorPage, financialReportPdfDownload) usa essa altura
+        // definida para transformar `.doctor-footer` num container flex em
+        // coluna com `height:100%`, onde as imagens de carimbo/assinatura
+        // têm `min-height:0` — isso permite que o próprio motor de flexbox
+        // do navegador ENCOLHA as imagens (mantendo proporção via
+        // object-fit:contain) o quanto for necessário para o conjunto
+        // inteiro caber na altura real do bloco, sem cortar nada. O texto
+        // (nome/CRM/data) mantém tamanho fixo; `overflow:hidden` permanece
+        // apenas como rede de segurança para o caso extremo de um bloco
+        // configurado menor que o texto sozinho (fora do escopo deste fix).
+        <div data-layout-block="footer" style={{ ...blockStyle(merged.footer, fallbackPositions.footer), display: "flex", alignItems: "stretch", justifyContent: "center", overflow: "hidden", zIndex: 4 }}>
           {footerImageUrl && <img src={footerImageUrl} alt="Rodapé" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
-          <div style={{ position: "relative", zIndex: 1, width: "100%" }}>{footer}</div>
+          <div style={{ position: "relative", zIndex: 1, width: "100%", height: "100%" }}>{footer}</div>
         </div>
       )}
 

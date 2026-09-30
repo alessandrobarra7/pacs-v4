@@ -1047,14 +1047,22 @@ export default function ReportEditorPage() {
     padding: 6px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 10px;
   }
   .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
-  .doctor-footer { text-align: center; margin: 0 auto; max-width: 240px; page-break-inside: avoid; background: rgba(255,255,255,.84); padding: 4px 12px; border-radius: 2px; }
-  .sig-img   { max-height: 42px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .stamp-img { max-height: 70px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .sig-line  { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
-  .sig-name  { font-weight: 700; font-size: 10pt; }
-  .sig-role  { font-size: 9pt; color: #444; margin-top: 1pt; letter-spacing: 0.03em; }
-  .sig-crm   { font-size: 9pt; color: #444; margin-top: 1pt; }
-  .sig-date  { font-size: 8pt; color: #666; margin-top: 3pt; }
+  /* CORREÇÃO (auditoria Manus 2026-09-29, "Parecer técnico — cadeia de
+     dados DICOM, rodapé e teste"): mesmo ajuste aplicado em
+     PacsQueryPage.tsx e SharedReportSheet.tsx — o rodapé agora é um
+     container flex em coluna que ocupa 100% da altura real do bloco
+     [data-layout-block="footer"], com min-height:0 nas imagens para que
+     o motor de flexbox as encolha (mantendo proporção) o quanto for
+     necessário, em vez de cortar carimbo/assinatura/data por
+     overflow:hidden quando o conteúdo somado excede o bloco configurado. */
+  .doctor-footer { text-align: center; margin: 0 auto; max-width: 240px; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; page-break-inside: avoid; background: rgba(255,255,255,.84); padding: 4px 12px; border-radius: 2px; overflow: hidden; }
+  .sig-img   { flex: 0 1 auto; min-height: 0; max-height: 42px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .stamp-img { flex: 0 1 auto; min-height: 0; max-height: 70px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .sig-line  { flex: 0 0 auto; border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
+  .sig-name  { flex: 0 0 auto; font-weight: 700; font-size: 10pt; }
+  .sig-role  { flex: 0 0 auto; font-size: 9pt; color: #444; margin-top: 1pt; letter-spacing: 0.03em; }
+  .sig-crm   { flex: 0 0 auto; font-size: 9pt; color: #444; margin-top: 1pt; }
+  .sig-date  { flex: 0 0 auto; font-size: 8pt; color: #666; margin-top: 3pt; }
   .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 5px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
   @media print {
     body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }

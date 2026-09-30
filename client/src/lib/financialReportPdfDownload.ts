@@ -135,12 +135,22 @@ export async function downloadFinancialReportPdf(documentData: any) {
       .print-page [data-layout-block="body"] { overflow:hidden!important; }
       .report-body { font-size:${effPrefs.fontSize}pt;line-height:${effPrefs.lineHeight}; }
       .report-body p,.report-body div { margin-bottom:3pt; }
-      .doctor-footer { text-align:center;margin:0 auto;max-width:65mm;page-break-inside:avoid;font-size:9pt;background:rgba(255,255,255,.84);padding:4px 12px;border-radius:2px; }
-      .doctor-footer span { display:block;margin-top:2pt;color:#444; }
-      .signature,.stamp { display:block;object-fit:contain;margin:0 auto 2mm; }
+      /* CORRECAO (auditoria Manus 2026-09-29, "Parecer tecnico - cadeia de
+         dados DICOM, rodape e teste"): mesmo ajuste de PacsQueryPage.tsx e
+         ReportEditorPage.tsx - o rodape agora ocupa 100% da altura real do
+         bloco [data-layout-block="footer"] (ver SharedReportSheet.tsx) via
+         flex-column, com min-height:0 no carimbo/assinatura para que o
+         motor de flexbox os encolha (mantendo proporcao) o quanto for
+         necessario, em vez de cortar por overflow:hidden. Este consumidor
+         tinha os maiores limites de imagem dos tres (13mm/24mm de altura),
+         logo era o mais exposto ao bloqueio. */
+      .doctor-footer { text-align:center;margin:0 auto;max-width:65mm;height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;page-break-inside:avoid;font-size:9pt;background:rgba(255,255,255,.84);padding:4px 12px;border-radius:2px;overflow:hidden; }
+      .doctor-footer span { flex:0 0 auto;display:block;margin-top:2pt;color:#444; }
+      .doctor-footer strong { flex:0 0 auto; }
+      .signature,.stamp { flex:0 1 auto;min-height:0;display:block;object-fit:contain;margin:0 auto 2mm; }
       .signature { max-width:45mm;max-height:13mm; }
       .stamp { max-width:53mm;max-height:24mm; }
-      .signature-line { border-top:1px solid #333;width:45mm;margin:0 auto 2mm; }
+      .signature-line { flex:0 0 auto;border-top:1px solid #333;width:45mm;margin:0 auto 2mm; }
     </style></head><body></body></html>`);
     doc.close();
     await new Promise((resolve) => setTimeout(resolve, 200));

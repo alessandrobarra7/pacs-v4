@@ -1690,13 +1690,29 @@ setSelectedStudy(study);
     padding: 6px 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 10px;
   }
   .section-body { font-size: ${lSize}pt; line-height: ${lLine}; }
-  .doctor-footer { text-align: center; margin: 0 auto; max-width: 240px; page-break-inside: avoid; background: rgba(255,255,255,.84); padding: 4px 12px; border-radius: 2px; }
-  .sig-img { max-height: 42px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .stamp-img { max-height: 70px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
-  .sig-line { border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
-  .sig-name { font-weight: 700; font-size: 10pt; }
-  .sig-crm { font-size: 9pt; color: #444; margin-top: 1pt; }
-  .sig-date { font-size: 8pt; color: #666; margin-top: 3pt; }
+  /* CORREÇÃO (auditoria Manus 2026-09-29, "Parecer técnico — cadeia de
+     dados DICOM, rodapé e teste"): carimbo (até 70px) + assinatura (até
+     42px) + linha + nome + CRM + data podiam somar mais que a altura do
+     bloco [data-layout-block="footer"] (percentual da folha, definido no
+     editor de layout por unidade), que tem overflow:hidden — resultado
+     medido em Chromium pela Manus: ~171px de conteúdo contra ~115px de
+     bloco, com a data de assinatura parcialmente cortada. Em vez de
+     apostar num tamanho de imagem fixo (que não se adapta a blocos
+     menores configurados pelo admin), o rodapé agora é um container flex
+     em coluna que ocupa 100% da altura real do bloco (ver
+     SharedReportSheet.tsx, wrapper do footer). As imagens ganham
+     min-height:0, o que permite ao motor de flexbox do navegador encolhê-
+     las (mantendo proporção via object-fit:contain) o quanto for
+     necessário para o conjunto inteiro caber sem corte; texto e linha
+     mantêm tamanho fixo. max-height/max-width seguem como limite SUPERIOR
+     (nunca ficam maiores que antes), só deixam de ser um piso inflexível. */
+  .doctor-footer { text-align: center; margin: 0 auto; max-width: 240px; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; page-break-inside: avoid; background: rgba(255,255,255,.84); padding: 4px 12px; border-radius: 2px; overflow: hidden; }
+  .sig-img { flex: 0 1 auto; min-height: 0; max-height: 42px; max-width: 170px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .stamp-img { flex: 0 1 auto; min-height: 0; max-height: 70px; max-width: 200px; object-fit: contain; display: block; margin: 0 auto 2mm; }
+  .sig-line { flex: 0 0 auto; border-top: 1px solid #333; width: 170px; margin: 0 auto 3mm; }
+  .sig-name { flex: 0 0 auto; font-weight: 700; font-size: 10pt; }
+  .sig-crm { flex: 0 0 auto; font-size: 9pt; color: #444; margin-top: 1pt; }
+  .sig-date { flex: 0 0 auto; font-size: 8pt; color: #666; margin-top: 3pt; }
   .revised-badge { background: #f59e0b; color: #fff; font-size: 7pt; padding: 1px 5px; border-radius: 3px; font-weight: 700; margin-left: 5px; vertical-align: middle; }
   @media print {
     body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }

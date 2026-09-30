@@ -206,4 +206,43 @@ describe("renderer visual físico canônico de laudos", () => {
     expect(html).toContain("position:absolute;inset:0;width:100%;height:100%;pointer-events:none");
     expect(html).toContain("https://assets.invalid/background.png");
   });
+
+  /**
+   * Regressão (auditoria Manus 2026-09-29, "Parecer técnico — cadeia de
+   * dados DICOM, rodapé e teste"): o bloco de rodapé centralizava
+   * (`align-items:center`) um conteúdo de altura natural dentro de uma
+   * caixa de altura fixa com `overflow:hidden` — quando carimbo +
+   * assinatura + nome + CRM + data somados excediam a altura do bloco,
+   * o conteúdo era cortado igualmente acima/abaixo (a Manus mediu ~171px
+   * de conteúdo contra ~115px de bloco em Chromium). O bloco agora estica
+   * (`align-items:stretch`) para que a altura do bloco vire uma altura
+   * DEFINIDA para os filhos, e o wrapper interno declara `height:100%`
+   * explicitamente — pré-requisito para que o `.doctor-footer` de cada
+   * consumidor (flex-column com `min-height:0` nas imagens) consiga
+   * encolher carimbo/assinatura proporcionalmente em vez de cortá-los.
+   */
+  it("estica o wrapper do bloco de rodapé em vez de centralizar conteúdo de altura livre (contrato de capacidade)", () => {
+    const html = createPhysicalReportSheetRenderer({
+      layout: buildLayout(),
+      patient: { name: "Paciente Sintético" },
+    })({
+      title: "Laudo",
+      bodyHtml: "<p>ok</p>",
+      footerHtml: "<div class=\"doctor-footer\">Assinatura sintética</div>",
+      isLast: true,
+    });
+
+    const footerBlockMatch = html.match(/data-layout-block="footer" style="([^"]+)"/);
+    expect(footerBlockMatch).not.toBeNull();
+    expect(footerBlockMatch![1]).toContain("align-items:stretch");
+    expect(footerBlockMatch![1]).not.toContain("align-items:center");
+    expect(footerBlockMatch![1]).toContain("overflow:hidden");
+
+    // Wrapper interno (relative, z-index:1, width:100%) precisa também de
+    // height:100% — sem isso, mesmo com o bloco externo esticado, o filho
+    // shrink-wrap voltaria a ter altura de conteúdo, e os percentuais do
+    // `.doctor-footer` (height:100%) dentro dele ficariam sem referência
+    // definida (percentual de altura "auto" é ignorado pelo CSS).
+    expect(html).toContain('style="position:relative;z-index:1;width:100%;height:100%"');
+  });
 });

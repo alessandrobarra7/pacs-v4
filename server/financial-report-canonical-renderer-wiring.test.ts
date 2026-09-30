@@ -39,4 +39,22 @@ describe("financialReportPdfDownload.ts — motor canônico de layout", () => {
     expect(source).toContain("background:rgba(255,255,255,.84)");
     expect(source).toContain("padding:4px 12px");
   });
+
+  /**
+   * Regressão (auditoria Manus 2026-09-29, "Parecer técnico — cadeia de
+   * dados DICOM, rodapé e teste"): este consumidor tem os MAIORES limites
+   * de imagem dos três (assinatura até 13mm, carimbo até 24mm — bem acima
+   * dos 42px/70px do Editor e da Lista PACS), logo era o mais exposto ao
+   * bloqueio de corte por overflow:hidden quando o conteúdo somado
+   * excedia a altura do bloco [data-layout-block="footer"]. O rodapé
+   * agora é um container flex em coluna que ocupa 100% da altura real do
+   * bloco, com min-height:0 na assinatura/carimbo para que o motor de
+   * flexbox os encolha (mantendo proporção via object-fit:contain) o
+   * quanto for necessário, em vez de cortá-los.
+   */
+  it("dá ao rodapé do PDF financeiro um contrato de capacidade (flex-column + height:100% + min-height:0)", () => {
+    expect(source).toContain("max-width:65mm;height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;page-break-inside:avoid;");
+    expect(source).toContain(".signature,.stamp { flex:0 1 auto;min-height:0;display:block;object-fit:contain;margin:0 auto 2mm; }");
+    expect(source).toContain(".signature-line { flex:0 0 auto;");
+  });
 });
