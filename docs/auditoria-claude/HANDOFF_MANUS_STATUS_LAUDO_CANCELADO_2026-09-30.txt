@@ -1,0 +1,129 @@
+================================================================================
+HANDOFF MANUS — ROTULO "PENDENTE" PARA ESTUDO COM LAUDO CANCELADO
+================================================================================
+Data: 2026-09-30
+Repositório: https://github.com/alessandrobarra7/pacs-v4
+Branch: claude/corrige-status-laudo-cancelado-20260930
+Base: 524030a (topo atual de VM1 — ver seção 5 para a cadeia completa)
+Commit desta correção: 4b4a1f7
+
+--------------------------------------------------------------------------------
+1. PEDIDO DE ORIGEM
+--------------------------------------------------------------------------------
+
+O Alessandro reproduziu ao vivo em VM1: cancelou o laudo assinado do
+paciente RAIMUNDO NESTOR SERPA MORAES (Hospital da Criança) e, na tela
+de Estudos, o exame continua aparecendo com o rótulo vermelho
+"Laudo cancelado" / "Assinatura cancelada — nova laudagem necessária".
+Ele quer que volte a aparecer como "Pendente", igual a um estudo que
+nunca foi laudado.
+
+--------------------------------------------------------------------------------
+2. POR QUE ISSO NÃO É UM BUG NOVO — É UMA DECISÃO ANTERIOR SENDO REVERTIDA
+--------------------------------------------------------------------------------
+
+O rótulo explícito "Laudo cancelado" foi uma decisão deliberada sua
+(Manus), no commit bf67d37 (22/08/2026, "fix: explicita laudo cancelado
+na worklist"). Antes disso, o mesmo caso aparecia como "Em Andamento",
+o que era ambíguo — não dava para saber se o estudo nunca foi tocado
+ou se teve um laudo assinado e depois cancelado. Você corrigiu isso de
+propósito, com testes e handoff próprios na época.
+
+Separadamente, eu corrigi um bug real relacionado (commit 207a599,
+2026-09-26): o Editor de Laudos carregava o TEXTO ANTIGO do laudo
+cancelado ao clicar em "Nova laudagem", em vez de começar em branco.
+Isso já está corrigido e não muda neste commit.
+
+O pedido de hoje do Alessandro é puramente sobre a APRESENTAÇÃO na
+worklist — ele quer o rótulo "Pendente" de volta, mesmo sabendo que
+isso reverte parte do que você decidiu em agosto. Expliquei esse
+histórico e o trade-off para ele antes de implementar (perde-se a
+visibilidade explícita do cancelamento NA LISTA — a informação
+continua no banco/auditoria, só não aparece mais em destaque), e ele
+confirmou que quer assim mesmo.
+
+--------------------------------------------------------------------------------
+3. A CORREÇÃO
+--------------------------------------------------------------------------------
+
+Arquivo: server/db.ts, função getStudyReportStatusPresentation()
+
+Único ramo alterado — quando TODOS os documentos de um estudo estão
+cancelados (`total > 0 && cancelled === total`):
+
+  ANTES:
+    { label: "Laudo cancelado",
+      detail: "Assinatura cancelada — nova laudagem necessária" }
+
+  DEPOIS:
+    { label: "Pendente", detail: null }
+
+O ramo de CANCELAMENTO PARCIAL (`cancelled > 0` mas nem todos) NÃO foi
+tocado — continua mostrando "Cancelamento parcial" com o detalhe de
+quantos documentos foram cancelados, porque esse caso é diferente (há
+pelo menos um documento válido no mesmo estudo) e o Alessandro não
+pediu para mudar esse.
+
+Nenhum dado é apagado ou alterado no banco — o documento continua com
+`status = 'cancelled'` e o audit_log continua registrando quem
+cancelou e quando. Só a apresentação na worklist muda.
+
+--------------------------------------------------------------------------------
+4. VALIDAÇÃO
+--------------------------------------------------------------------------------
+
+- server/report-status-cancelled.test.ts: atualizado o caso existente
+  (1 documento cancelado → agora espera "Pendente"/null) e adicionado 1
+  caso novo (2 documentos cancelados) para garantir que a mudança vem
+  do ramo certo (`cancelled === total`), não de um fallback genérico
+  que mascararia uma regressão futura.
+- PROVA de que os testes pegam a regressão: revertido manualmente o
+  ramo para o comportamento antigo, os 2 testes falharam como esperado
+  (`expected 'Laudo cancelado' to equal 'Pendente'`), restaurado, 4/4
+  voltaram a passar.
+- server/report-editor-cancelled-reset-wiring.test.ts (o fix de
+  conteúdo do Editor, não relacionado a rótulo): 5/5, sem alteração.
+- pnpm check: limpo.
+- Suíte completa (TZ=UTC pnpm test): 735 passaram, 11 falharam (mesma
+  linha de base histórica de sempre — exam-catalog-security,
+  finance-v2-dashboard x2, mediaProxy, pacs-desktop-download-progress,
+  pacs.mobile-ui, security.auth, study-priority-ui x4), 1 skipped.
+- pnpm build: limpo (Vite + esbuild).
+- git diff --check: limpo.
+
+--------------------------------------------------------------------------------
+5. CADEIA COMPLETA (onde este branch se encaixa)
+--------------------------------------------------------------------------------
+
+Este branch parte de 524030a (seu commit mais recente, que já está em
+VM1 segundo o roteiro de homologação que você preparou — propaga altura
+ao wrapper do rodapé, completando meu fix de capacidade do rodapé).
+Cadeia completa até aqui:
+
+  51f34d0 → 6194287 → 747cd34 → b68fef3 → ba18027 → 524030a → 4b4a1f7
+
+Nenhum commit anterior é alterado por este; é um adendo pontual no topo
+da cadeia já em VM1.
+
+--------------------------------------------------------------------------------
+6. PRÓXIMO PASSO
+--------------------------------------------------------------------------------
+
+Mesma instrução da implantação anterior: analise o arquivo e o teste
+listados acima, confirme os números da seção 4 no seu ambiente, e se
+bater, implante em VM1 imediatamente em seguida — não é necessário
+voltar a perguntar, a menos que a análise encontre algo que contradiga
+o que este handoff descreve.
+
+git fetch origin
+git checkout -B revisao-status-cancelado origin/claude/corrige-status-laudo-cancelado-20260930
+git log --oneline -2
+  # 4b4a1f7 fix(laudos): estudo com laudo cancelado volta a aparecer como Pendente na worklist
+  # 524030a fix(reports): propaga altura ao wrapper do rodape
+
+git diff 524030a..HEAD
+  # diff único: server/db.ts + server/report-status-cancelled.test.ts
+
+================================================================================
+FIM DO HANDOFF
+================================================================================
