@@ -13,6 +13,7 @@ import { FinanceShell } from "./FinanceShell";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const MONTHS = [
@@ -340,9 +341,16 @@ export function ProfitModal({
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function FinanceMeuResponsavel() {
   const [, navigate] = useLocation();
+  const { user } = useAuth();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
+  // BLOQUEIO 1 (parecer Manus 2026-10-08): a nova tela de detalhe
+  // (/financeiro/responsavel/:unitId) chama procedures que excluem
+  // admin_master de propósito (preço externo/lucro). Esse papel continua
+  // usando o modal antigo de médicos (DoctorsModal), que não tem essa
+  // restrição.
+  const [selectedUnitForAdmin, setSelectedUnitForAdmin] = useState<{ id: number; name: string } | null>(null);
 
   // Suporte a múltiplos responsáveis financeiros por conta (decisão de produto,
   // 2026-09-17): se a conta tiver mais de um vínculo, exige seleção explícita
@@ -558,21 +566,38 @@ export default function FinanceMeuResponsavel() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {/* NOVO (claude/painel-responsavel-financeiro-detalhe-unidade, 2026-10-08):
-                        substitui os dois botões que abriam modais separados (Preço externo/Lucro
-                        e Ver médicos) por uma única entrada na unidade, pedido explícito do
-                        Alessandro — ele quer "entrar na unidade" e ver tudo junto numa tela, não
-                        navegar entre modais desconectados. Os modais continuam existindo no
-                        arquivo (ProfitModal é reaproveitado por FinanceDashboard.tsx, para o
-                        admin) — só deixaram de ser o caminho de entrada aqui. */}
-                    <Button
-                      size="sm"
-                      onClick={() => navigate(`/financeiro/responsavel/${u.unit_id}`)}
-                      className="bg-[var(--fin-accent)] hover:bg-[var(--fin-accent-strong,var(--fin-accent))] text-white"
-                    >
-                      Entrar na unidade
-                      <ChevronRight className="h-3.5 w-3.5 ml-1" />
-                    </Button>
+                    {/* NOVO (claude/painel-responsavel-financeiro-detalhe-unidade, 2026-10-08),
+                        corrigido após parecer da Manus (2026-10-08, Bloqueios 1-3):
+                        - Bloqueio 1: a tela de detalhe só existe para responsavel_financeiro
+                          (as consultas de preço externo/lucro excluem admin_master de
+                          propósito) — admin_master mantém o caminho antigo (Ver médicos).
+                        - Bloqueios 2 e 3: a navegação agora carrega o responsável financeiro
+                          selecionado (quando há mais de um vínculo) e o mês/ano em exibição,
+                          via query string — sem isso a tela de destino perdia o contexto e
+                          podia mostrar o ciclo errado ou falhar para contas multi-responsável. */}
+                    {user?.role === 'responsavel_financeiro' ? (
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const params = new URLSearchParams();
+                          if (selectedResponsibleId !== null) params.set('financialResponsibleId', String(selectedResponsibleId));
+                          params.set('reference_date', referenceDate);
+                          navigate(`/financeiro/responsavel/${u.unit_id}?${params.toString()}`);
+                        }}
+                        className="bg-[var(--fin-accent)] hover:bg-[var(--fin-accent-strong,var(--fin-accent))] text-white"
+                      >
+                        Entrar na unidade
+                        <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                      </Button>
+                    ) : (
+                      <button
+                        onClick={() => setSelectedUnitForAdmin({ id: u.unit_id, name: u.unit_name })}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-[var(--fin-line-strong)] text-[var(--fin-muted)] hover:bg-[var(--fin-panel-2)] transition-colors"
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                        Ver médicos
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -634,6 +659,17 @@ export default function FinanceMeuResponsavel() {
         </>
         )}
       </div>
+
+      {/* Modal de médicos — caminho de admin_master (ver comentário acima sobre o
+          Bloqueio 1). referenceDate aqui é a mesma já usada nos cards desta tela. */}
+      {selectedUnitForAdmin && (
+        <DoctorsModal
+          unitId={selectedUnitForAdmin.id}
+          unitName={selectedUnitForAdmin.name}
+          referenceDate={referenceDate}
+          onClose={() => setSelectedUnitForAdmin(null)}
+        />
+      )}
     </FinanceShell>
   );
 }

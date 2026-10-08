@@ -1,6 +1,8 @@
 /**
  * FinanceResponsavelUnidade — Detalhe de uma unidade para o responsável financeiro
  * NOVO (claude/painel-responsavel-financeiro-detalhe-unidade, 2026-10-08).
+ * CORRIGIDO (2026-10-08, parecer de bloqueio da Manus) — ver comentários
+ * "BLOQUEIO N" abaixo, um por achado do parecer.
  *
  * Pedido explícito do Alessandro (produto): ao "entrar numa unidade" o responsável
  * deve ver, numa única tela, (1) quanto a unidade deve ao Sistema no ciclo — total,
@@ -10,37 +12,15 @@
  * responsável configura quanto cobra do paciente fora do sistema, com o lucro
  * calculado como preço externo − valor do médico − valor do sistema.
  *
- * Layout aprovado por Alessandro em mockup (Artifact "Detalhe da Unidade — Responsável
- * Financeiro", Modelo A): página única com âncoras de navegação (não abas que escondem
- * conteúdo) e, dentro da seção 1, um bloco de configuração de preços com 3 abas de
- * verdade (Sistema / Médicos / Preço externo).
- *
  * Esta tela não inventa nenhum dado novo além do que já existe no backend — ver
  * handoff em docs/auditoria-claude/ para o mapeamento completo de qual procedure
- * alimenta qual bloco. Em particular:
- *   - Os valores "Devido ao Sistema / aos Médicos" vêm de myResponsavelSummary (já
- *     existente, já corrige duplicidade e unidade órfã).
- *   - O painel de médicos vem de doctorSummaryByUnit (já existente, já soma
- *     billing_visit_events + billing_catalog_study_events corretamente — NÃO usa
- *     getResponsibleDebtByDoctor, que só lê o fluxo legado).
- *   - "Preço do Sistema" é um valor ÚNICO por unidade (billing_system_unit_prices),
- *     não por modalidade — diferente do que um rascunho anterior desta tela supôs.
- *   - "Preço dos Médicos" mostrado aqui é o nível por MODALIDADE
- *     (billing_doctor_modality_prices) — existe ainda um nível mais específico, por
- *     legenda de exame (billing_doctor_exam_legend_prices), que tem prioridade sobre
- *     este na hora de faturar mas não tem editor próprio nesta tela ainda (ver
- *     handoff, ficou de fora do escopo desta entrega).
- *   - O detalhamento de lucro por laudo (seção 3) só existe para o fluxo de catálogo
- *     (billing_catalog_study_events) — é o único fluxo com preço de venda externa e
- *     com o cruzamento de prazo de entrega (report_readiness). Unidades que usam só o
- *     fluxo legado não têm essa seção populada.
+ * alimenta qual bloco.
  */
 import { useMemo, useState } from "react";
-import { useLocation, useParams } from "wouter";
+import { useLocation, useParams, useSearch } from "wouter";
 import { trpc } from "@/lib/trpc";
 import {
-  ChevronLeft, Building2, FileText, CheckCircle2, AlertCircle,
-  TrendingUp, Users, Settings as SettingsIcon,
+  ChevronLeft, Building2, AlertCircle, TrendingUp, Users,
 } from "lucide-react";
 import { FinanceShell } from "./FinanceShell";
 import { Button } from "@/components/ui/button";
@@ -63,12 +43,35 @@ function fmtDate(d: string | Date | null) {
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
+/** BLOQUEIO 2/3 (parecer Manus): lê o contexto (responsável selecionado, ciclo em
+ * exibição) que a tela de origem embute na query string — sem isso, uma conta com
+ * mais de um responsável vinculado perdia a seleção ao entrar numa unidade (o
+ * backend corretamente recusava com BAD_REQUEST), e qualquer navegação perdia o
+ * mês/ano escolhido, mostrando sempre o ciclo corrente do instante do clique. */
+function useUnitDetailContext() {
+  const search = useSearch();
+  return useMemo(() => {
+    const params = new URLSearchParams(search);
+    const financialResponsibleIdRaw = params.get("financialResponsibleId");
+    const financialResponsibleId = financialResponsibleIdRaw && /^\d+$/.test(financialResponsibleIdRaw)
+      ? Number(financialResponsibleIdRaw)
+      : undefined;
+    const referenceDateRaw = params.get("reference_date");
+    const referenceDate = referenceDateRaw && !Number.isNaN(new Date(referenceDateRaw).getTime())
+      ? referenceDateRaw
+      : undefined;
+    return { financialResponsibleId, referenceDate };
+  }, [search]);
+}
 
 type CfgTab = "sistema" | "medicos" | "externo";
 
 export default function FinanceResponsavelUnidade() {
   const { unitId: unitIdParam } = useParams<{ unitId: string }>();
-  const unitId = Number(unitIdParam);
+  const unitIdRaw = Number(unitIdParam);
+  // PONTO ADICIONAL 2 (parecer Manus): Number.isFinite aceitava negativo/fracionário.
+  const unitId = Number.isInteger(unitIdRaw) && unitIdRaw > 0 ? unitIdRaw : null;
+  const { financialResponsibleId, referenceDate } = useUnitDetailContext();
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
 
@@ -77,29 +80,33 @@ export default function FinanceResponsavelUnidade() {
   const [modalityPriceInput, setModalityPriceInput] = useState<Record<string, string>>({});
   const [externalPriceInput, setExternalPriceInput] = useState<Record<number, string>>({});
 
-  // Resolve o responsável e os totais já corrigidos da unidade (reaproveita
-  // myResponsavelSummary — não duplica a lógica de agregação aqui).
-  const { data: summary, isLoading: loadingSummary } = trpc.financeSimple.myResponsavelSummary.useQuery({});
+  // BLOQUEIO 2: financialResponsibleId do contexto é repassado explicitamente —
+  // o backend (resolveResponsibleContext) valida que pertence ao usuário logado e
+  // devolve FORBIDDEN se alguém adulterar isso na URL manualmente.
+  const { data: summary, isLoading: loadingSummary, isError: summaryError, error: summaryErrorObj } =
+    trpc.financeSimple.myResponsavelSummary.useQuery({ financialResponsibleId, reference_date: referenceDate });
   const unit = useMemo(() => summary?.units.find((u) => u.unit_id === unitId) ?? null, [summary, unitId]);
-  const financialResponsibleId = summary?.responsavelId ?? undefined;
 
+  // BLOQUEIO 3: reference_date propagado da tela de origem para todas as consultas
+  // que dependem de ciclo — sem isso, cada uma resolvia o ciclo corrente do momento
+  // da abertura, podendo divergir do mês que o responsável estava analisando.
   const { data: doctorSummary, isLoading: loadingDoctors } = trpc.financeSimple.doctorSummaryByUnit.useQuery(
-    { unit_id: unitId },
-    { enabled: Number.isFinite(unitId) },
+    { unit_id: unitId!, reference_date: referenceDate },
+    { enabled: unitId !== null },
   );
 
   const { data: systemRate } = trpc.financeSimple.getUnitSystemRate.useQuery(
-    { unit_id: unitId },
-    { enabled: Number.isFinite(unitId) && cfgTab === "sistema" },
+    { unit_id: unitId! },
+    { enabled: unitId !== null && cfgTab === "sistema" },
   );
 
   const { data: doctorsForUnit } = trpc.financeSimple.listDoctorsForUnit.useQuery(
-    { unit_id: unitId },
-    { enabled: Number.isFinite(unitId) && cfgTab === "medicos" },
+    { unit_id: unitId! },
+    { enabled: unitId !== null && cfgTab === "medicos" },
   );
   const { data: doctorModalityPrices } = trpc.financeSimple.listDoctorModalityPrices.useQuery(
-    { financialResponsibleId: financialResponsibleId!, unitId, doctorUserId: selectedDoctorId! },
-    { enabled: !!financialResponsibleId && !!selectedDoctorId && cfgTab === "medicos" },
+    { financialResponsibleId: summary?.responsavelId ?? 0, unitId: unitId!, doctorUserId: selectedDoctorId! },
+    { enabled: !!summary?.responsavelId && !!selectedDoctorId && unitId !== null && cfgTab === "medicos" },
   );
   const setDoctorModalityPrice = trpc.financeSimple.setDoctorModalityPrice.useMutation({
     onSuccess: () => {
@@ -110,8 +117,8 @@ export default function FinanceResponsavelUnidade() {
   });
 
   const { data: externalPrices } = trpc.financeSimple.listExternalSalePrices.useQuery(
-    { unit_id: unitId },
-    { enabled: Number.isFinite(unitId) && cfgTab === "externo" },
+    { unit_id: unitId! },
+    { enabled: unitId !== null && cfgTab === "externo" },
   );
   const setExternalSalePrice = trpc.financeSimple.setExternalSalePrice.useMutation({
     onSuccess: () => {
@@ -123,20 +130,49 @@ export default function FinanceResponsavelUnidade() {
     onError: (e) => toast.error(e.message),
   });
 
-  const { data: profitTotals } = trpc.financeSimple.unitProfitCalculator.useQuery(
-    { unit_id: unitId },
-    { enabled: Number.isFinite(unitId) },
+  const {
+    data: profitTotals, isError: profitTotalsError, error: profitTotalsErrorObj,
+  } = trpc.financeSimple.unitProfitCalculator.useQuery(
+    { unit_id: unitId!, reference_date: referenceDate },
+    { enabled: unitId !== null },
   );
-  const { data: profitDetail, isLoading: loadingProfitDetail } = trpc.financeSimple.getUnitProfitEventsDetailed.useQuery(
-    { unit_id: unitId },
-    { enabled: Number.isFinite(unitId) },
+  const {
+    data: profitDetail, isLoading: loadingProfitDetail, isError: profitDetailError, error: profitDetailErrorObj,
+  } = trpc.financeSimple.getUnitProfitEventsDetailed.useQuery(
+    { unit_id: unitId!, reference_date: referenceDate },
+    { enabled: unitId !== null },
   );
 
-  if (!Number.isFinite(unitId)) {
+  // PONTO ADICIONAL 1 (parecer Manus): não confundir "sem dado" com "FORBIDDEN" ou
+  // outra falha — a tela precisa dizer qual dos dois está acontecendo.
+  function describeQueryError(error: unknown): string {
+    const code = (error as { data?: { code?: string } } | null)?.data?.code;
+    if (code === "FORBIDDEN") return "Você não tem permissão para ver o preço externo e o lucro desta unidade.";
+    if (error instanceof Error) return error.message;
+    return "Falha ao carregar os dados. Tente novamente.";
+  }
+
+  if (unitId === null) {
     return (
       <FinanceShell>
         <div className="p-6 max-w-5xl mx-auto">
           <p className="text-[var(--fin-danger)] text-sm">Unidade inválida.</p>
+        </div>
+      </FinanceShell>
+    );
+  }
+
+  if (summaryError) {
+    return (
+      <FinanceShell>
+        <div className="p-6 max-w-5xl mx-auto">
+          <div className="bg-[var(--fin-panel-soft)] rounded-xl p-6 text-center border border-[var(--fin-line)]">
+            <AlertCircle className="h-6 w-6 text-[var(--fin-danger)] mx-auto mb-2" />
+            <p className="text-[var(--fin-muted)] text-sm">{describeQueryError(summaryErrorObj)}</p>
+            <Button size="sm" variant="outline" className="mt-4" onClick={() => navigate("/financeiro/responsavel")}>
+              Voltar
+            </Button>
+          </div>
         </div>
       </FinanceShell>
     );
@@ -158,8 +194,11 @@ export default function FinanceResponsavelUnidade() {
             <Building2 className="h-5 w-5 text-[var(--fin-muted)]" />
             {unit?.unit_name ?? (loadingSummary ? "Carregando…" : `Unidade ${unitId}`)}
           </h1>
+          {/* BLOQUEIO 3: o rótulo do ciclo vem do backend (já resolvido com o
+              reference_date recebido) — nunca mais o texto fixo "Ciclo atual", que
+              mentia quando a navegação vinha de um mês anterior. */}
           {unit && (
-            <p className="text-[var(--fin-muted)] text-sm mt-0.5">Ciclo atual · {unit.cycle_label}</p>
+            <p className="text-[var(--fin-muted)] text-sm mt-0.5">Ciclo: {unit.cycle_label}</p>
           )}
         </div>
 
@@ -196,7 +235,11 @@ export default function FinanceResponsavelUnidade() {
               </div>
               <div className="bg-[var(--fin-panel-soft)] rounded-xl p-4 border border-[var(--fin-success-border,var(--fin-line))]">
                 <p className="text-[var(--fin-success)] text-xs uppercase tracking-wide mb-1">Lucro da unidade (ciclo)</p>
-                <p className="text-xl font-bold text-[var(--fin-success)]">{profitTotals ? fmtBRL(profitTotals.totals.profit) : "—"}</p>
+                {profitTotalsError ? (
+                  <p className="text-[var(--fin-danger)] text-xs">{describeQueryError(profitTotalsErrorObj)}</p>
+                ) : (
+                  <p className="text-xl font-bold text-[var(--fin-success)]">{profitTotals ? fmtBRL(profitTotals.totals.profit) : "—"}</p>
+                )}
               </div>
               <div className="bg-[var(--fin-panel-soft)] rounded-xl p-4 border border-[var(--fin-line)]">
                 <p className="text-[var(--fin-warn)] text-xs uppercase tracking-wide mb-1">Pendente ao Sistema</p>
@@ -268,40 +311,63 @@ export default function FinanceResponsavelUnidade() {
                     <div className="space-y-2">
                       {MODALITIES.map((mod) => {
                         const active = doctorModalityPrices?.find((p) => p.modality === mod && !p.ends_at);
+                        // BLOQUEIO 4 (parecer Manus): quando já existe preço vigente para
+                        // esta modalidade, o backend (assertCycleAlignedPriceStart) só
+                        // aceita uma nova vigência começando exatamente no primeiro dia do
+                        // PRÓXIMO ciclo financeiro — nunca "agora". unit.cycle_end_date já
+                        // é esse instante (o ciclo é contíguo: fim do atual = início do
+                        // próximo), então reaproveitamos o valor que já veio de
+                        // myResponsavelSummary, sem round-trip extra. Sem preço ativo, a
+                        // primeira configuração pode valer imediatamente.
+                        const nextValidStart = active ? (unit?.cycle_end_date || new Date().toISOString()) : new Date().toISOString();
                         return (
-                          <div key={mod} className="flex items-center justify-between gap-3 bg-[var(--fin-panel-faint)] rounded-lg px-3 py-2">
-                            <span className="text-[var(--fin-text)] text-sm">{MODALITY_LABEL[mod]}</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[var(--fin-muted-dim)] text-xs">{active ? fmtBRL(Number(active.price_per_report)) : "não configurado"}</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                placeholder="novo valor"
-                                value={modalityPriceInput[mod] ?? ""}
-                                onChange={(e) => setModalityPriceInput((s) => ({ ...s, [mod]: e.target.value }))}
-                                className="w-24 bg-[var(--fin-panel-2)] border border-[var(--fin-line-strong)] text-[var(--fin-text)] rounded px-2 py-1 text-xs"
-                              />
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={!modalityPriceInput[mod] || !financialResponsibleId}
-                                onClick={() => {
-                                  const value = modalityPriceInput[mod];
-                                  if (!value || !financialResponsibleId || !selectedDoctorId) return;
-                                  setDoctorModalityPrice.mutate({
-                                    financialResponsibleId,
-                                    unitId,
-                                    doctorUserId: selectedDoctorId,
-                                    modality: mod,
-                                    pricePerReport: Number(value).toFixed(2),
-                                    startsAt: new Date().toISOString(),
-                                  });
-                                  setModalityPriceInput((s) => ({ ...s, [mod]: "" }));
-                                }}
-                              >
-                                Salvar
-                              </Button>
+                          <div key={mod} className="bg-[var(--fin-panel-faint)] rounded-lg px-3 py-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-[var(--fin-text)] text-sm">{MODALITY_LABEL[mod]}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[var(--fin-muted-dim)] text-xs">{active ? fmtBRL(Number(active.price_per_report)) : "não configurado"}</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  placeholder="novo valor"
+                                  value={modalityPriceInput[mod] ?? ""}
+                                  onChange={(e) => setModalityPriceInput((s) => ({ ...s, [mod]: e.target.value }))}
+                                  className="w-24 bg-[var(--fin-panel-2)] border border-[var(--fin-line-strong)] text-[var(--fin-text)] rounded px-2 py-1 text-xs"
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={!modalityPriceInput[mod] || !summary?.responsavelId || setDoctorModalityPrice.isPending}
+                                  onClick={() => {
+                                    const value = modalityPriceInput[mod];
+                                    const financialResponsibleIdForSave = summary?.responsavelId;
+                                    if (!value || !financialResponsibleIdForSave || !selectedDoctorId) return;
+                                    // BLOQUEIO 4: o campo só é limpo em caso de sucesso — se o
+                                    // backend recusar (ex.: data de vigência incompatível por
+                                    // qualquer outra razão), o valor digitado permanece visível
+                                    // em vez de desaparecer junto com o erro.
+                                    setDoctorModalityPrice.mutate(
+                                      {
+                                        financialResponsibleId: financialResponsibleIdForSave,
+                                        unitId,
+                                        doctorUserId: selectedDoctorId,
+                                        modality: mod,
+                                        pricePerReport: Number(value).toFixed(2),
+                                        startsAt: nextValidStart,
+                                      },
+                                      { onSuccess: () => setModalityPriceInput((s) => ({ ...s, [mod]: "" })) },
+                                    );
+                                  }}
+                                >
+                                  Salvar
+                                </Button>
+                              </div>
                             </div>
+                            {active && (
+                              <p className="text-[var(--fin-muted-dim)] text-[11px] mt-1">
+                                Já existe preço vigente — uma alteração só entra em vigor em {fmtDate(nextValidStart)} (início do próximo ciclo), nunca retroativamente nem no meio do ciclo atual.
+                              </p>
+                            )}
                           </div>
                         );
                       })}
@@ -335,12 +401,14 @@ export default function FinanceResponsavelUnidade() {
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={!externalPriceInput[p.exam_legend_id]}
+                            disabled={!externalPriceInput[p.exam_legend_id] || setExternalSalePrice.isPending}
                             onClick={() => {
                               const value = externalPriceInput[p.exam_legend_id];
                               if (!value) return;
-                              setExternalSalePrice.mutate({ unit_id: unitId, exam_legend_id: p.exam_legend_id, price_external: Number(value) });
-                              setExternalPriceInput((s) => ({ ...s, [p.exam_legend_id]: "" }));
+                              setExternalSalePrice.mutate(
+                                { unit_id: unitId, exam_legend_id: p.exam_legend_id, price_external: Number(value) },
+                                { onSuccess: () => setExternalPriceInput((s) => ({ ...s, [p.exam_legend_id]: "" })) },
+                              );
                             }}
                           >
                             Salvar
@@ -369,18 +437,20 @@ export default function FinanceResponsavelUnidade() {
             <div className="h-24 bg-[var(--fin-panel-soft)] rounded-xl animate-pulse" />
           ) : !doctorSummary || doctorSummary.length === 0 ? (
             <div className="bg-[var(--fin-panel-soft)] rounded-xl p-6 text-center border border-[var(--fin-line)]">
-              <p className="text-[var(--fin-muted)] text-sm">Nenhum médico com laudos nesta unidade no ciclo atual.</p>
+              <p className="text-[var(--fin-muted)] text-sm">Nenhum médico com laudos nesta unidade no ciclo exibido.</p>
             </div>
           ) : (
-            <div className="bg-[var(--fin-panel-soft)] rounded-xl border border-[var(--fin-line)] overflow-hidden">
-              <div className="grid grid-cols-5 gap-2 px-4 py-2 text-[10px] uppercase tracking-wide text-[var(--fin-muted-dim)] border-b border-[var(--fin-line)]">
+            // PONTO ADICIONAL 3 (parecer Manus): rolagem horizontal consciente em vez
+            // de esconder colunas em telas estreitas — valores financeiros nunca somem.
+            <div className="bg-[var(--fin-panel-soft)] rounded-xl border border-[var(--fin-line)] overflow-x-auto">
+              <div className="grid grid-cols-5 gap-2 px-4 py-2 text-[10px] uppercase tracking-wide text-[var(--fin-muted-dim)] border-b border-[var(--fin-line)] min-w-[520px]">
                 <div className="col-span-2">Médico</div>
                 <div>Laudos</div>
                 <div>Devido ao médico</div>
                 <div>Pendente ao médico</div>
               </div>
               {doctorSummary.map((d) => (
-                <div key={d.doctor_user_id} className="grid grid-cols-5 gap-2 px-4 py-3 items-center border-b border-[var(--fin-line-soft)] last:border-0 text-sm">
+                <div key={d.doctor_user_id} className="grid grid-cols-5 gap-2 px-4 py-3 items-center border-b border-[var(--fin-line-soft)] last:border-0 text-sm min-w-[520px]">
                   <div className="col-span-2 text-[var(--fin-text)]">{d.doctor_name}</div>
                   <div className="text-[var(--fin-muted)]">{d.total_laudos}</div>
                   <div className="text-[var(--fin-text)] font-medium">{fmtBRL(d.doctor_total)}</div>
@@ -405,13 +475,18 @@ export default function FinanceResponsavelUnidade() {
 
           {loadingProfitDetail ? (
             <div className="h-24 bg-[var(--fin-panel-soft)] rounded-xl animate-pulse" />
+          ) : profitDetailError ? (
+            <div className="bg-[var(--fin-panel-soft)] rounded-xl p-6 text-center border border-[var(--fin-danger-border,var(--fin-line))]">
+              <AlertCircle className="h-6 w-6 text-[var(--fin-danger)] mx-auto mb-2" />
+              <p className="text-[var(--fin-danger)] text-sm">{describeQueryError(profitDetailErrorObj)}</p>
+            </div>
           ) : !profitDetail || profitDetail.events.length === 0 ? (
             <div className="bg-[var(--fin-panel-soft)] rounded-xl p-6 text-center border border-[var(--fin-line)]">
               <p className="text-[var(--fin-muted)] text-sm">Nenhum laudo faturado por legenda de exame neste ciclo.</p>
             </div>
           ) : (
-            <div className="bg-[var(--fin-panel-soft)] rounded-xl border border-[var(--fin-line)] overflow-hidden">
-              <div className="grid grid-cols-8 gap-2 px-4 py-2 text-[10px] uppercase tracking-wide text-[var(--fin-muted-dim)] border-b border-[var(--fin-line)]">
+            <div className="bg-[var(--fin-panel-soft)] rounded-xl border border-[var(--fin-line)] overflow-x-auto">
+              <div className="grid grid-cols-8 gap-2 px-4 py-2 text-[10px] uppercase tracking-wide text-[var(--fin-muted-dim)] border-b border-[var(--fin-line)] min-w-[760px]">
                 <div>Data</div>
                 <div className="col-span-2">Médico</div>
                 <div>Modal.</div>
@@ -421,7 +496,7 @@ export default function FinanceResponsavelUnidade() {
                 <div>Lucro</div>
               </div>
               {profitDetail.events.map((e) => (
-                <div key={e.event_id} className="grid grid-cols-8 gap-2 px-4 py-2.5 items-center border-b border-[var(--fin-line-soft)] last:border-0 text-xs">
+                <div key={e.event_id} className="grid grid-cols-8 gap-2 px-4 py-2.5 items-center border-b border-[var(--fin-line-soft)] last:border-0 text-xs min-w-[760px]">
                   <div className="text-[var(--fin-muted)]">{fmtDate(e.signed_at)}</div>
                   <div className="col-span-2 text-[var(--fin-text)]">{e.doctor_name}</div>
                   <div className="text-[var(--fin-muted)]">{e.modality}</div>
@@ -441,8 +516,10 @@ export default function FinanceResponsavelUnidade() {
                   </div>
                 </div>
               ))}
-              {profitTotals && (
-                <div className="px-4 py-3 bg-[var(--fin-panel-faint)] flex items-center justify-between text-xs">
+              {profitTotalsError ? (
+                <div className="px-4 py-3 bg-[var(--fin-panel-faint)] text-xs text-[var(--fin-danger)]">{describeQueryError(profitTotalsErrorObj)}</div>
+              ) : profitTotals && (
+                <div className="px-4 py-3 bg-[var(--fin-panel-faint)] flex items-center justify-between text-xs min-w-[760px]">
                   <span className="text-[var(--fin-muted-dim)]">Ciclo: {profitTotals.cycle_label}</span>
                   <span className="text-[var(--fin-muted)]">Lucro no ciclo: <span className="text-[var(--fin-success)] font-bold">{fmtBRL(profitTotals.totals.profit)}</span></span>
                 </div>

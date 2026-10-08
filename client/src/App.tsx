@@ -143,7 +143,13 @@ function Router() {
       <Route path="/financeiro/responsavel" component={() => <ProtectedRoute component={FinanceMeuResponsavel} allowedRoles={['responsavel_financeiro', 'admin_master']} />} />
       {/* NOVO (claude/painel-responsavel-financeiro-detalhe-unidade, 2026-10-08): detalhe
           de uma unidade ao "entrar" nela a partir da lista acima. */}
-      <Route path="/financeiro/responsavel/:unitId" component={() => <ProtectedRoute component={FinanceResponsavelUnidade} allowedRoles={['responsavel_financeiro', 'admin_master']} />} />
+      {/* BLOQUEIO 1 (parecer Manus 2026-10-08): restrito a responsavel_financeiro —
+          as consultas de preço externo/lucro desta página (unitProfitCalculator,
+          getUnitProfitEventsDetailed) excluem admin_master de propósito
+          (assertCanManageExternalSalePrice, decisão de produto já documentada).
+          admin_master continua com o caminho equivalente (Ver médicos) em
+          FinanceMeuResponsavel.tsx. */}
+      <Route path="/financeiro/responsavel/:unitId" component={() => <ProtectedRoute component={FinanceResponsavelUnidade} allowedRoles={['responsavel_financeiro']} />} />
       <Route path="/financeiro/dashboard/:unitSlug" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin']} />} />
       <Route path="/financeiro/dashboard" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin']} />} />
       <Route path="/financeiro/configuracao" component={() => <ProtectedRoute component={FinanceConfiguracao} allowedRoles={['admin_master', 'responsavel_financeiro']} />} />
