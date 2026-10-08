@@ -479,3 +479,157 @@ describe("listUsersForResponsible — deve trazer nome/e-mail via JOIN em users"
     vi.resetModules();
   });
 });
+
+describe("getUnitProfitEventsDetailed — detalhamento por laudo com prazo de entrega", () => {
+  it("uma linha por evento (não agregado por legenda), com médico, preço externo resolvido por signed_at e prazo de entrega vindo de report_readiness", async () => {
+    vi.resetModules();
+    const {
+      units, billing_catalog_study_events, billing_external_sale_prices,
+      user_unit_permissions, users, study_exam_legend_selections, report_readiness,
+    } = await import("../drizzle/schema");
+
+    const unitsRows = [{ s: 1, e: 31 }];
+    const permissionRows = [{ unit_id: 1 }]; // unit_admin vinculado à unidade 1
+
+    // Três eventos da mesma legenda, dois médicos diferentes, datas espalhadas pelo
+    // ciclo — a resposta deve trazer uma linha POR EVENTO (não agregado por legenda,
+    // ao contrário de unitProfitCalculator), ordenada da mais recente para a mais antiga.
+    const eventsRows = [
+      {
+        event_id: 101, study_selection_id: 11, doctor_user_id: 50, modality_snapshot: "CT",
+        exam_legend_id: 7, exam_name: "Tórax",
+        signed_at: new Date("2026-09-05T12:00:00Z"),
+        system_amount_due: "2.00", price_applied: "10.00",
+      },
+      {
+        event_id: 102, study_selection_id: 12, doctor_user_id: 51, modality_snapshot: "CR",
+        exam_legend_id: 7, exam_name: "Tórax",
+        signed_at: new Date("2026-09-15T12:00:00Z"),
+        system_amount_due: "2.00", price_applied: "12.00",
+      },
+      {
+        event_id: 103, study_selection_id: 13, doctor_user_id: 50, modality_snapshot: "CT",
+        exam_legend_id: 7, exam_name: "Tórax",
+        signed_at: new Date("2026-09-20T12:00:00Z"),
+        system_amount_due: "2.00", price_applied: "10.00",
+      },
+    ];
+    // Preço externo único cobrindo todo o ciclo — o foco deste teste é a composição
+    // por evento (médico + SLA), não a vigência intra-ciclo (já coberta pelo teste de
+    // unitProfitCalculator acima, que compartilha a mesma função de resolução).
+    const pricesRows = [
+      { exam_legend_id: 7, price_external: "30.00", starts_at: new Date("2026-08-01T00:00:00Z"), ends_at: null },
+    ];
+    const usersRows = [
+      { id: 50, name: "Dr(a) Claudia Cipriano" },
+      { id: 51, name: "Gian Carvalho" },
+    ];
+    const selectionsRows = [
+      { id: 11, study_instance_uid: "1.2.STUDY.A" },
+      { id: 12, study_instance_uid: "1.2.STUDY.B" },
+      { id: 13, study_instance_uid: "1.2.STUDY.C" },
+    ];
+    // Estudo C não tem registro de prontidão (nunca passou por anamnese formal, ou é
+    // anterior ao módulo de SLA) — deve virar on_time: null, nunca "atrasado".
+    const readinessRows = [
+      { study_instance_uid: "1.2.STUDY.A", sla_met: true, due_at: new Date("2026-09-06T00:00:00Z"), reported_at: new Date("2026-09-05T12:00:00Z") },
+      { study_instance_uid: "1.2.STUDY.B", sla_met: false, due_at: new Date("2026-09-14T00:00:00Z"), reported_at: new Date("2026-09-15T12:00:00Z") },
+    ];
+
+    const routes = new Map<unknown, unknown[]>([
+      [units, unitsRows],
+      [billing_catalog_study_events, eventsRows],
+      [billing_external_sale_prices, pricesRows],
+      [user_unit_permissions, permissionRows],
+      [users, usersRows],
+      [study_exam_legend_selections, selectionsRows],
+      [report_readiness, readinessRows],
+    ]);
+
+    vi.doMock("./db", async (importOriginal) => {
+      const original = await importOriginal<typeof import("./db")>();
+      return {
+        ...original,
+        getDb: vi.fn(async () => ({
+          select: () => ({
+            from: (table: unknown) => {
+              const rows = routes.get(table) ?? [];
+              const inner: any = {
+                where: () => inner,
+                limit: () => inner,
+                then: (resolve: (v: unknown[]) => void) => resolve(rows),
+              };
+              return inner;
+            },
+          }),
+        })),
+      };
+    });
+
+    const { appRouter } = await import("./routers");
+    const ctx = createCtx({ id: 2, role: "unit_admin" });
+    const caller = appRouter.createCaller(ctx);
+
+    const result = await caller.financeSimple.getUnitProfitEventsDetailed({
+      unit_id: 1,
+      reference_date: "2026-09-17T00:00:00.000Z",
+    });
+
+    expect(result.events).toHaveLength(3);
+    // Ordenado do mais recente para o mais antigo.
+    expect(result.events.map((e) => e.event_id)).toEqual([103, 102, 101]);
+
+    const event103 = result.events[0];
+    expect(event103).toMatchObject({
+      doctor_name: "Dr(a) Claudia Cipriano",
+      modality: "CT",
+      on_time: null, // sem report_readiness para o estudo C
+      price_external: 30,
+      system_amount: 2,
+      doctor_amount: 10,
+      profit: 18,
+    });
+
+    const event102 = result.events[1];
+    expect(event102).toMatchObject({
+      doctor_name: "Gian Carvalho",
+      modality: "CR",
+      on_time: false,
+      profit: 16,
+    });
+
+    const event101 = result.events[2];
+    expect(event101).toMatchObject({
+      doctor_name: "Dr(a) Claudia Cipriano",
+      modality: "CT",
+      on_time: true,
+      profit: 18,
+    });
+
+    vi.doUnmock("./db");
+    vi.resetModules();
+  });
+
+  it("admin_master recebe FORBIDDEN (mesmo escopo exclusivo de unitProfitCalculator)", async () => {
+    vi.resetModules();
+    const selectSpy = vi.fn(() => { throw new Error("não deveria consultar o banco para admin_master neste módulo"); });
+    vi.doMock("./db", async (importOriginal) => {
+      const original = await importOriginal<typeof import("./db")>();
+      return {
+        ...original,
+        getDb: vi.fn(async () => ({ select: selectSpy })),
+      };
+    });
+    const { appRouter } = await import("./routers");
+    const ctx = createCtx({ id: 1, role: "admin_master" });
+    const caller = appRouter.createCaller(ctx);
+
+    await expect(
+      caller.financeSimple.getUnitProfitEventsDetailed({ unit_id: 1 })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(selectSpy).not.toHaveBeenCalled();
+
+    vi.doUnmock("./db");
+    vi.resetModules();
+  });
+});

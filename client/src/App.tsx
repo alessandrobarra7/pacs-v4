@@ -19,6 +19,7 @@ import FinanceDashboard from "./pages/finance/FinanceDashboard";
 import FinancePagamentos from "./pages/finance/FinancePagamentos";
 import FinanceMeuFinanceiro from "./pages/finance/FinanceMeuFinanceiro";
 import FinanceMeuResponsavel from "./pages/finance/FinanceMeuResponsavel";
+import FinanceResponsavelUnidade from "./pages/finance/FinanceResponsavelUnidade";
 import { FinanceConfiguracao } from "./pages/finance/FinanceConfiguracao";
 import ExamCatalogPage from "./pages/ExamCatalogPage";
 import { useEffect } from "react";
@@ -140,6 +141,9 @@ function Router() {
            Admin usa /financeiro/pagamentos (com filtro por médico) para ver dados de qualquer médico. */}
       <Route path="/financeiro/meu-financeiro" component={() => <ProtectedRoute component={FinanceMeuFinanceiro} allowedRoles={['medico']} />} />
       <Route path="/financeiro/responsavel" component={() => <ProtectedRoute component={FinanceMeuResponsavel} allowedRoles={['responsavel_financeiro', 'admin_master']} />} />
+      {/* NOVO (claude/painel-responsavel-financeiro-detalhe-unidade, 2026-10-08): detalhe
+          de uma unidade ao "entrar" nela a partir da lista acima. */}
+      <Route path="/financeiro/responsavel/:unitId" component={() => <ProtectedRoute component={FinanceResponsavelUnidade} allowedRoles={['responsavel_financeiro', 'admin_master']} />} />
       <Route path="/financeiro/dashboard/:unitSlug" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin']} />} />
       <Route path="/financeiro/dashboard" component={() => <ProtectedRoute component={FinanceDashboard} allowedRoles={['admin_master', 'unit_admin']} />} />
       <Route path="/financeiro/configuracao" component={() => <ProtectedRoute component={FinanceConfiguracao} allowedRoles={['admin_master', 'responsavel_financeiro']} />} />

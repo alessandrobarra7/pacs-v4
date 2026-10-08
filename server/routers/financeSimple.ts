@@ -34,6 +34,7 @@ import {
   studies_cache,
   reports,
   model_layouts,
+  report_readiness,
 } from "../../drizzle/schema";
 import { eq, and, isNull, isNotNull, ne, sql, sql as sqlFn, desc, inArray, gte, lte, or, SQL } from "drizzle-orm";
 import {
@@ -589,6 +590,82 @@ function assertMedico(role: string) {
   if (role !== "medico" && role !== "admin_master") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a médicos" });
   }
+}
+
+/**
+ * Eventos de billing_catalog_study_events de uma unidade, no intervalo [startDate,
+ * endDate), com o preço de venda externa resolvido POR EVENTO (vigência que contém o
+ * signed_at daquele evento específico — nunca o preço vigente hoje aplicado
+ * retroativamente a eventos antigos). Função compartilhada entre unitProfitCalculator
+ * (agrega por legenda) e getUnitProfitEventsDetailed (uma linha por laudo).
+ *
+ * EXTRAÍDO (claude/painel-responsavel-financeiro-detalhe-unidade, 2026-10-08) do corpo
+ * original de unitProfitCalculator, sem alterar a lógica — só o lugar onde ela mora.
+ * A decisão de resolver o preço por signed_at individual (em vez do preço vigente no
+ * momento da consulta) foi tomada na revisão independente da Manus em 2026-09-17 e
+ * está preservada aqui.
+ */
+async function getUnitProfitEventsForCycle(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  unitId: number,
+  startDate: Date,
+  endDate: Date,
+) {
+  const [eventRows, priceRows] = await Promise.all([
+    db.select({
+      event_id: billing_catalog_study_events.id,
+      study_selection_id: billing_catalog_study_events.study_selection_id,
+      doctor_user_id: billing_catalog_study_events.doctor_user_id,
+      modality_snapshot: billing_catalog_study_events.modality_snapshot,
+      exam_legend_id: billing_catalog_study_events.exam_legend_id,
+      exam_name: billing_catalog_study_events.exam_name_snapshot,
+      signed_at: billing_catalog_study_events.signed_at,
+      system_amount_due: billing_catalog_study_events.system_amount_due,
+      price_applied: billing_catalog_study_events.price_applied,
+    })
+      .from(billing_catalog_study_events)
+      .where(and(
+        eq(billing_catalog_study_events.unit_id, unitId),
+        eq(billing_catalog_study_events.financial_status, "active"),
+        sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
+        sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
+      )),
+    // Todas as vigências que tocam o ciclo, não só a vigente agora — precisamos
+    // resolver o preço correto para cada signed_at individualmente, inclusive para
+    // eventos assinados antes de uma mudança de preço já ocorrida.
+    db.select({
+      exam_legend_id: billing_external_sale_prices.exam_legend_id,
+      price_external: billing_external_sale_prices.price_external,
+      starts_at: billing_external_sale_prices.starts_at,
+      ends_at: billing_external_sale_prices.ends_at,
+    })
+      .from(billing_external_sale_prices)
+      .where(and(
+        eq(billing_external_sale_prices.unit_id, unitId),
+        sql`${billing_external_sale_prices.starts_at} < ${endDate}`,
+        or(isNull(billing_external_sale_prices.ends_at), sql`${billing_external_sale_prices.ends_at} >= ${startDate}`),
+      )),
+  ]);
+
+  const pricesByLegend = new Map<number, typeof priceRows>();
+  for (const price of priceRows) {
+    const list = pricesByLegend.get(price.exam_legend_id) ?? [];
+    list.push(price);
+    pricesByLegend.set(price.exam_legend_id, list);
+  }
+  function resolvePriceForSignedAt(examLegendId: number, signedAt: Date): number | undefined {
+    const candidates = pricesByLegend.get(examLegendId);
+    if (!candidates) return undefined;
+    const match = candidates.find((p) =>
+      p.starts_at <= signedAt && (p.ends_at === null || p.ends_at > signedAt)
+    );
+    return match ? toMoney(match.price_external) : undefined;
+  }
+
+  return eventRows.map((event) => ({
+    ...event,
+    price_external: resolvePriceForSignedAt(event.exam_legend_id, event.signed_at),
+  }));
 }
 
 // ─── router ─────────────────────────────────────────────────────────────────
@@ -1568,75 +1645,24 @@ export const financeSimpleRouter = router({
       const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
       const { startDate, endDate, label } = await resolveFinancialCycle(db, input.unit_id, refDate);
 
-      // CORREÇÃO (revisão independente Manus, 2026-09-17): a versão anterior buscava só o
-      // preço externo VIGENTE HOJE e aplicava esse único valor a todos os eventos do ciclo —
-      // se o preço mudasse no meio do ciclo, laudos já emitidos antes da mudança passavam a
-      // usar o novo valor retroativamente, o que não é auditável e contradiz o próprio
-      // propósito de guardar starts_at/ends_at. Decisão registrada no handoff (Opção A):
-      // cada evento usa o preço cuja vigência CONTÉM O signed_at DAQUELE EVENTO — igual ao
-      // que já acontece com system_amount_due/price_applied, que são travados no instante da
-      // assinatura. Por isso a query busca eventos individuais (não agregados por legenda) e
-      // TODAS as vigências de preço que tocam o ciclo, e a correspondência é feita aqui, por
-      // evento. Consequência esperada e correta: se o preço só foi configurado no meio do
-      // ciclo, a mesma legenda pode aparecer em `by_exam` (eventos assinados depois) e em
-      // `unconfigured_exams` (eventos assinados antes) ao mesmo tempo — isso é intencional,
-      // não um bug de agrupamento.
-      const [eventRows, priceRows] = await Promise.all([
-        db.select({
-          exam_legend_id: billing_catalog_study_events.exam_legend_id,
-          exam_name: billing_catalog_study_events.exam_name_snapshot,
-          signed_at: billing_catalog_study_events.signed_at,
-          system_amount_due: billing_catalog_study_events.system_amount_due,
-          price_applied: billing_catalog_study_events.price_applied,
-        })
-          .from(billing_catalog_study_events)
-          .where(and(
-            eq(billing_catalog_study_events.unit_id, input.unit_id),
-            eq(billing_catalog_study_events.financial_status, "active"),
-            sql`${billing_catalog_study_events.signed_at} >= ${startDate}`,
-            sql`${billing_catalog_study_events.signed_at} < ${endDate}`,
-          )),
-        // Todas as vigências que tocam o ciclo, não só a vigente agora — precisamos
-        // resolver o preço correto para cada signed_at individualmente, inclusive para
-        // eventos assinados antes de uma mudança de preço já ocorrida.
-        db.select({
-          exam_legend_id: billing_external_sale_prices.exam_legend_id,
-          price_external: billing_external_sale_prices.price_external,
-          starts_at: billing_external_sale_prices.starts_at,
-          ends_at: billing_external_sale_prices.ends_at,
-        })
-          .from(billing_external_sale_prices)
-          .where(and(
-            eq(billing_external_sale_prices.unit_id, input.unit_id),
-            sql`${billing_external_sale_prices.starts_at} < ${endDate}`,
-            or(isNull(billing_external_sale_prices.ends_at), sql`${billing_external_sale_prices.ends_at} >= ${startDate}`),
-          )),
-      ]);
-
-      const pricesByLegend = new Map<number, typeof priceRows>();
-      for (const price of priceRows) {
-        const list = pricesByLegend.get(price.exam_legend_id) ?? [];
-        list.push(price);
-        pricesByLegend.set(price.exam_legend_id, list);
-      }
-      function resolvePriceForSignedAt(examLegendId: number, signedAt: Date): number | undefined {
-        const candidates = pricesByLegend.get(examLegendId);
-        if (!candidates) return undefined;
-        const match = candidates.find((p) =>
-          p.starts_at <= signedAt && (p.ends_at === null || p.ends_at > signedAt)
-        );
-        return match ? toMoney(match.price_external) : undefined;
-      }
+      // REFATORAÇÃO (claude/painel-responsavel-financeiro-detalhe-unidade, 2026-10-08):
+      // a resolução de preço externo por evento (vigência que CONTÉM o signed_at de
+      // CADA evento, não o preço vigente hoje aplicado retroativamente — ver histórico
+      // da decisão abaixo, preservado em getUnitProfitEventsForCycle) foi extraída para
+      // uma função compartilhada, reutilizada agora também pela nova procedure
+      // getUnitProfitEventsDetailed (detalhamento por laudo, com data e prazo de
+      // entrega, pedido pelo responsável financeiro). Mantém o mesmo resultado desta
+      // procedure — só muda onde o cálculo mora, não o que ele calcula.
+      const perEventRows = await getUnitProfitEventsForCycle(db, input.unit_id, startDate, endDate);
 
       type ConfiguredRow = { exam_legend_id: number; exam_name: string; units_sold: number; price_external: number; cash_received: number; system_repasse: number; doctor_repasse: number; profit: number };
       const configuredByKey = new Map<string, ConfiguredRow>();
       const unconfiguredByLegend = new Map<number, { exam_legend_id: number; exam_name: string; units_sold: number }>();
 
-      for (const event of eventRows) {
-        const priceExternal = resolvePriceForSignedAt(event.exam_legend_id, event.signed_at);
+      for (const event of perEventRows) {
         const systemRepasse = toMoney(event.system_amount_due);
         const doctorRepasse = toMoney(event.price_applied);
-        if (priceExternal === undefined) {
+        if (event.price_external === undefined) {
           const current = unconfiguredByLegend.get(event.exam_legend_id) ?? { exam_legend_id: event.exam_legend_id, exam_name: event.exam_name, units_sold: 0 };
           current.units_sold += 1;
           unconfiguredByLegend.set(event.exam_legend_id, current);
@@ -1645,19 +1671,19 @@ export const financeSimpleRouter = router({
         // A mesma legenda pode ter mais de um preço vigente dentro do ciclo (mudança
         // intra-ciclo) — chave por legenda+preço para não misturar cash_received de
         // vigências diferentes na mesma linha.
-        const key = `${event.exam_legend_id}:${priceExternal}`;
+        const key = `${event.exam_legend_id}:${event.price_external}`;
         const current = configuredByKey.get(key) ?? {
           exam_legend_id: event.exam_legend_id,
           exam_name: event.exam_name,
           units_sold: 0,
-          price_external: priceExternal,
+          price_external: event.price_external,
           cash_received: 0,
           system_repasse: 0,
           doctor_repasse: 0,
           profit: 0,
         };
         current.units_sold += 1;
-        current.cash_received = subMoney(current.cash_received + priceExternal, 0);
+        current.cash_received = subMoney(current.cash_received + event.price_external, 0);
         current.system_repasse = subMoney(current.system_repasse + systemRepasse, 0);
         current.doctor_repasse = subMoney(current.doctor_repasse + doctorRepasse, 0);
         current.profit = subMoney(subMoney(current.cash_received, current.system_repasse), current.doctor_repasse);
@@ -1675,6 +1701,111 @@ export const financeSimpleRouter = router({
       }), { cash_received: 0, system_repasse: 0, doctor_repasse: 0, profit: 0 });
 
       return { cycle_label: label, cycle_start_date: startDate, cycle_end_date: endDate, by_exam: configured, unconfigured_exams: unconfigured, totals };
+    }),
+
+  /**
+   * Detalhamento por laudo do lucro de venda externa da unidade, no ciclo real —
+   * mesma base de cálculo do unitProfitCalculator (ver getUnitProfitEventsForCycle),
+   * mas sem agregar por legenda: uma linha por evento, com data da assinatura, médico,
+   * modalidade e se o laudo foi entregue dentro do prazo de SLA configurado para a
+   * unidade (report_readiness.sla_met).
+   *
+   * NOVO (claude/painel-responsavel-financeiro-detalhe-unidade, 2026-10-08, pedido
+   * explícito do Alessandro: "painel com todos os médicos... quanto cada médico
+   * laudou e quanto deve... preço externo... lucro = preço externo - médico - sistema").
+   *
+   * Escopo deliberadamente restrito a billing_catalog_study_events (fluxo de
+   * catálogo/legenda) — é o único fluxo com preço de venda externa
+   * (billing_external_sale_prices é chaveado por exam_legend_id) e com o join de
+   * prazo de entrega abaixo. Unidades que ainda usam só o fluxo legado
+   * (billing_visit_events) não têm lucro de venda externa configurável hoje (não há
+   * legenda de exame nesse fluxo) — isso não é uma lacuna desta procedure, é uma
+   * lacuna de produto que já existia antes dela (unitProfitCalculator tem a mesma
+   * restrição). Documentado explicitamente no handoff Manus.
+   *
+   * "Entregue no prazo": junta por study_instance_uid + unit_id com report_readiness,
+   * que guarda sla_met (true/false) calculado na assinatura do laudo. Quando não há
+   * registro de prontidão para aquele exame (ex.: nunca passou por anamnese formal,
+   * ou é um laudo anterior à criação do módulo de SLA), on_time vem null — o frontend
+   * deve mostrar isso como "sem SLA" e não como "atrasado".
+   */
+  getUnitProfitEventsDetailed: protectedProcedure
+    .input(z.object({
+      unit_id: z.number().int(),
+      reference_date: z.string().datetime().optional(),
+    }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await assertCanManageExternalSalePrice(db, ctx.user, input.unit_id);
+
+      const refDate = input.reference_date ? new Date(input.reference_date) : new Date();
+      const { startDate, endDate, label } = await resolveFinancialCycle(db, input.unit_id, refDate);
+
+      const perEventRows = await getUnitProfitEventsForCycle(db, input.unit_id, startDate, endDate);
+      if (perEventRows.length === 0) {
+        return { cycle_label: label, cycle_start_date: startDate, cycle_end_date: endDate, events: [] };
+      }
+
+      const doctorIds = Array.from(new Set(perEventRows.map((e) => e.doctor_user_id)));
+      const selectionIds = Array.from(new Set(perEventRows.map((e) => e.study_selection_id)));
+      const [doctorRows, selectionRows] = await Promise.all([
+        db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, doctorIds)),
+        db.select({ id: study_exam_legend_selections.id, study_instance_uid: study_exam_legend_selections.study_instance_uid })
+          .from(study_exam_legend_selections)
+          .where(inArray(study_exam_legend_selections.id, selectionIds)),
+      ]);
+      const doctorNameById = new Map(doctorRows.map((r) => [r.id, r.name]));
+      const studyUidBySelectionId = new Map(selectionRows.map((r) => [r.id, r.study_instance_uid]));
+      const studyUids = Array.from(new Set(selectionRows.map((r) => r.study_instance_uid).filter((uid): uid is string => !!uid)));
+
+      // report_readiness guarda prontidão por (study_instance_uid, unit_id) — índice
+      // único na tabela (uq_readiness_uid_unit), então no máximo uma linha por par.
+      const readinessRows = studyUids.length > 0
+        ? await db.select({
+            study_instance_uid: report_readiness.study_instance_uid,
+            sla_met: report_readiness.sla_met,
+            due_at: report_readiness.due_at,
+            reported_at: report_readiness.reported_at,
+          })
+            .from(report_readiness)
+            .where(and(
+              eq(report_readiness.unit_id, input.unit_id),
+              inArray(report_readiness.study_instance_uid, studyUids),
+            ))
+        : [];
+      const readinessByUid = new Map(readinessRows.map((r) => [r.study_instance_uid, r]));
+
+      const events = perEventRows
+        .map((event) => {
+          const studyUid = studyUidBySelectionId.get(event.study_selection_id) ?? null;
+          const readiness = studyUid ? readinessByUid.get(studyUid) : undefined;
+          const systemAmount = toMoney(event.system_amount_due);
+          const doctorAmount = toMoney(event.price_applied);
+          const profit = event.price_external !== undefined
+            ? subMoney(subMoney(event.price_external, systemAmount), doctorAmount)
+            : null;
+          return {
+            event_id: event.event_id,
+            signed_at: event.signed_at,
+            doctor_user_id: event.doctor_user_id,
+            doctor_name: doctorNameById.get(event.doctor_user_id) ?? "Médico",
+            modality: event.modality_snapshot,
+            exam_legend_id: event.exam_legend_id,
+            exam_name: event.exam_name,
+            study_instance_uid: studyUid,
+            on_time: readiness ? readiness.sla_met : null,
+            due_at: readiness?.due_at ?? null,
+            reported_at: readiness?.reported_at ?? null,
+            system_amount: systemAmount,
+            doctor_amount: doctorAmount,
+            price_external: event.price_external ?? null,
+            profit,
+          };
+        })
+        .sort((a, b) => new Date(b.signed_at).getTime() - new Date(a.signed_at).getTime());
+
+      return { cycle_label: label, cycle_start_date: startDate, cycle_end_date: endDate, events };
     }),
 
   /**

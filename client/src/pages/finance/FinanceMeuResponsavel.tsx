@@ -343,8 +343,6 @@ export default function FinanceMeuResponsavel() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [selectedUnit, setSelectedUnit] = useState<{ id: number; name: string } | null>(null);
-  const [selectedProfitUnit, setSelectedProfitUnit] = useState<{ id: number; name: string } | null>(null);
 
   // Suporte a múltiplos responsáveis financeiros por conta (decisão de produto,
   // 2026-09-17): se a conta tiver mais de um vínculo, exige seleção explícita
@@ -560,20 +558,21 @@ export default function FinanceMeuResponsavel() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setSelectedProfitUnit({ id: u.unit_id, name: u.unit_name })}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-[var(--fin-line-strong)] text-[var(--fin-muted)] hover:bg-[var(--fin-panel-2)] transition-colors"
+                    {/* NOVO (claude/painel-responsavel-financeiro-detalhe-unidade, 2026-10-08):
+                        substitui os dois botões que abriam modais separados (Preço externo/Lucro
+                        e Ver médicos) por uma única entrada na unidade, pedido explícito do
+                        Alessandro — ele quer "entrar na unidade" e ver tudo junto numa tela, não
+                        navegar entre modais desconectados. Os modais continuam existindo no
+                        arquivo (ProfitModal é reaproveitado por FinanceDashboard.tsx, para o
+                        admin) — só deixaram de ser o caminho de entrada aqui. */}
+                    <Button
+                      size="sm"
+                      onClick={() => navigate(`/financeiro/responsavel/${u.unit_id}`)}
+                      className="bg-[var(--fin-accent)] hover:bg-[var(--fin-accent-strong,var(--fin-accent))] text-white"
                     >
-                      <Settings className="h-3.5 w-3.5" />
-                      Preço externo / Lucro
-                    </button>
-                    <button
-                      onClick={() => setSelectedUnit({ id: u.unit_id, name: u.unit_name })}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-[var(--fin-line-strong)] text-[var(--fin-muted)] hover:bg-[var(--fin-panel-2)] transition-colors"
-                    >
-                      <Users className="h-3.5 w-3.5" />
-                      Ver médicos
-                    </button>
+                      Entrar na unidade
+                      <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                    </Button>
                   </div>
                 </div>
 
@@ -635,25 +634,6 @@ export default function FinanceMeuResponsavel() {
         </>
         )}
       </div>
-
-      {/* Modal de médicos */}
-      {selectedUnit && (
-        <DoctorsModal
-          unitId={selectedUnit.id}
-          unitName={selectedUnit.name}
-          referenceDate={referenceDate}
-          onClose={() => setSelectedUnit(null)}
-        />
-      )}
-
-      {/* Modal de preço externo / lucro — NOVO (claude/modulo-repasse-preco-externo) */}
-      {selectedProfitUnit && (
-        <ProfitModal
-          unitId={selectedProfitUnit.id}
-          unitName={selectedProfitUnit.name}
-          onClose={() => setSelectedProfitUnit(null)}
-        />
-      )}
     </FinanceShell>
   );
 }
