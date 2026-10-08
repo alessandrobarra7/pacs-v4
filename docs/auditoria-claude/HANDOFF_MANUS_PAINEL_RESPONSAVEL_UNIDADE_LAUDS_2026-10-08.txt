@@ -267,3 +267,144 @@ nisto: nenhum push foi feito ao GitHub (sandbox sem credencial de push neste
 momento), nenhum PR aberto, nenhum merge em main, nada implantado em VM1/VM2/VM3.
 Alessandro precisa fornecer um token de push (ou puxar o branch ele mesmo) para
 que este trabalho chegue ao GitHub e, de lá, à revisão/deploy da Manus.
+
+====================================================================
+ADENDO (2026-10-08) — resposta ao parecer técnico de bloqueio
+====================================================================
+
+A Manus revisou o topo 5a7059b deste branch e devolveu veredito
+BLOQUEADO para merge e implantação, apontando 4 bloqueios obrigatórios
+e 4 pontos adicionais (arquivo "Parecer técnico — Painel de detalhe da
+unidade (Responsável Financeiro).md", topo revisado 5a7059b, base
+confirmada cdb1459). Antes de corrigir, reli cada achado contra o
+código real (não apenas o texto do parecer) — os 4 são procedentes.
+Correção aplicada no commit d852da5, acima do topo revisado pela Manus.
+
+BLOQUEIO 1 (rota permite admin_master, mas as consultas de lucro/preço
+externo da página excluem admin_master de propósito via
+assertCanManageExternalSalePrice) — CORRIGIDO.
+  - client/src/App.tsx: allowedRoles da rota
+    /financeiro/responsavel/:unitId agora é só ['responsavel_financeiro'].
+  - client/src/pages/finance/FinanceMeuResponsavel.tsx: o botão de ação
+    de cada card de unidade agora é condicional por papel —
+    responsavel_financeiro vê "Entrar na unidade" (vai para a página
+    nova); admin_master vê "Ver médicos", que reabre o DoctorsModal já
+    existente antes desta feature (não removido, só voltou a ser usado
+    por esse papel). Optei pela alternativa 1 recomendada pelo parecer
+    (página exclusiva do responsável) em vez de criar uma variante
+    somente-leitura para admin_master, por ser a mudança mínima que
+    preserva a decisão de produto já documentada (preço externo/lucro é
+    exclusivo do responsável financeiro e do unit_admin).
+
+BLOQUEIO 2 (navegação perde o financialResponsibleId selecionado,
+quebrando contas com múltiplos responsáveis) — CORRIGIDO.
+  - FinanceMeuResponsavel.tsx: ao clicar "Entrar na unidade", monta
+    `?financialResponsibleId=<id selecionado>` na URL (só quando
+    selectedResponsibleId !== null — ou seja, só quando a conta tem mais
+    de um vínculo e um foi escolhido; com vínculo único o backend já
+    resolve sozinho).
+  - FinanceResponsavelUnidade.tsx: novo hook useUnitDetailContext() lê
+    financialResponsibleId da query string (useSearch do wouter) e
+    repassa para myResponsavelSummary. Nenhuma mudança de backend foi
+    necessária — resolveResponsibleContext já validava (e continua
+    validando) que o id pertence ao usuário logado, devolvendo FORBIDDEN
+    caso contrário; a correção era só de wiring no frontend.
+  - Teste de contrato: server/audit-fixes-painel-unidade-navegacao.test.ts,
+    bloco "Bloqueio 2", confirma que a string financialResponsibleId sai
+    da tela de origem e chega formatada corretamente na query da tela de
+    destino, e que a chamada antiga sem nenhum argumento não existe mais.
+
+BLOQUEIO 3 (navegação perde reference_date/ciclo, trocando
+silenciosamente o período financeiro exibido) — CORRIGIDO.
+  - Mesmo mecanismo do Bloqueio 2: reference_date (ISO completo, já
+    calculado em FinanceMeuResponsavel.tsx com .toISOString()) vai na
+    query string e é lido e repassado nas 4 consultas que dependem de
+    ciclo: myResponsavelSummary, doctorSummaryByUnit, unitProfitCalculator
+    e getUnitProfitEventsDetailed.
+  - O rótulo do ciclo na tela de detalhe agora vem de
+    `unit.cycle_label` (resolvido pelo backend a partir do
+    reference_date recebido), substituindo o texto fixo que existia
+    antes.
+  - Teste de contrato cobre as 4 chamadas e a ausência do texto fixo de
+    ciclo na interface.
+
+BLOQUEIO 4 (preço por modalidade do médico: startsAt sempre "agora", e
+input limpo antes da resposta do servidor) — CORRIGIDO, com uma nota
+importante encontrada ao reler o código antes de mexer: o endpoint
+setDoctorModalityPrice JÁ realinhava silenciosamente o startsAt para o
+início do próximo ciclo quando havia preço ativo (bloco "let startsAt =
+requestedStart; if (activeRows[0]) { ... }", introduzido no commit
+39df0a5, bem anterior a este branch) — ou seja, o salvamento em si
+provavelmente não estava de fato falhando com BAD_REQUEST como o texto
+do parecer descreve literalmente. Isso NÃO torna o bloqueio inválido:
+os dois problemas de UX apontados são reais e independentes desse
+detalhe de backend —
+  - o campo era limpo antes de saber se a mutation teve sucesso (bug
+    real, visível em qualquer erro de rede/servidor, não só de
+    vigência);
+  - a interface nunca explicava ao usuário que uma mudança de preço já
+    vigente só valeria a partir do próximo ciclo, deixando-o sem
+    explicação caso notasse (ao reabrir a tela) que a data salva não foi
+    a que ele digitou.
+  Registro isso para a Manus porque uma próxima rodada de revisão pode
+  checar o mesmo ponto e encontrar o comportamento de salvamento já
+  correto mesmo antes desta correção — o que mudou aqui foi a
+  transparência e a segurança do fluxo, não (só) se o servidor aceitava
+  o valor.
+  - FinanceResponsavelUnidade.tsx agora calcula explicitamente
+    `nextValidStart` (= unit.cycle_end_date quando já há preço ativo
+    para aquela modalidade, senão "agora") e envia isso como startsAt —
+    deixando de depender do realinhamento silencioso do backend.
+  - O campo de input só é limpo no onSuccess da mutation.
+  - Quando já existe preço vigente, a interface mostra, abaixo do botão
+    Salvar, a data em que a mudança realmente entrará em vigor, antes do
+    clique.
+  - Apliquei a mesma disciplina de "não limpar antes do sucesso" ao
+    campo de preço externo (não era bloqueio, mas é a mesma classe de
+    bug e estava presente lá também).
+
+PONTOS ADICIONAIS (seção 4 do parecer) — todos tratados:
+  1. unitProfitCalculator e getUnitProfitEventsDetailed agora expõem
+     isError/error na tela, com uma função describeQueryError que
+     distingue FORBIDDEN (mensagem de permissão) de outras falhas
+     (mensagem genérica de "tente novamente"), mesmo padrão já usado em
+     FinanceModals.tsx.
+  2. unitId passou de Number.isFinite(unitId) para
+     Number.isInteger(unitIdRaw) && unitIdRaw > 0.
+  3. A grade de 8 colunas do detalhamento de lucro e a de 5 colunas do
+     resumo por médico agora têm overflow-x-auto + min-width — rolagem
+     horizontal consciente em vez de colunas escondidas em telas
+     estreitas. Homologação visual em viewport de telefone real fica
+     para a rodada de QA manual (não automatizável neste ambiente sem
+     Chrome gráfico).
+  4. Testes de contrato novos cobrindo os 4 bloqueios — ver abaixo.
+
+TESTES NOVOS: server/audit-fixes-painel-unidade-navegacao.test.ts (16
+testes, mesmo padrão de server/study-priority-ui.test.ts — leitura do
+código-fonte real via readFileSync e asserção de substring/regex, já
+que este repositório não tem infraestrutura de renderização de
+componente para telas financeiras). Cobre: Bloqueio 1 (rota e
+ramificação por papel), Bloqueio 2 (financialResponsibleId ida e
+volta), Bloqueio 3 (reference_date ida e volta nas 4 consultas, rótulo
+de ciclo dinâmico), Bloqueio 4 (cálculo de nextValidStart, não limpar
+antes do sucesso, aviso de vigência na interface) e os 4 pontos
+adicionais.
+
+VALIDAÇÃO (commit d852da5, acima de 5a7059b):
+  - pnpm check: limpo.
+  - TZ=UTC pnpm exec vitest run server/audit-fixes-painel-unidade-navegacao.test.ts: 16/16.
+  - TZ=UTC pnpm exec vitest run server/audit-fixes-repasse-preco-externo.test.ts: 13/13 (sem regressão do refactor anterior).
+  - TZ=UTC pnpm test (suíte completa): 731 passaram, 1 skip, 11 falhas —
+    comparado explicitamente por nome de teste (não só contagem) contra
+    a mesma lista de 11 falhas em 7 suítes já confirmada pelo parecer da
+    Manus na seção 2 (exam-catalog-security, finance-v2-dashboard x2,
+    mediaProxy, pacs-desktop-download-progress, pacs.mobile-ui,
+    security.auth, study-priority-ui x3/x4) — idêntica, nenhuma
+    regressão nova introduzida por esta correção.
+  - pnpm build: limpo.
+  - git diff --check: limpo.
+
+Nenhuma migration, nenhuma mudança de schema, nenhuma mudança de
+procedure do backend nesta correção — é inteiramente frontend
+(roteamento, query string, UX de formulário) mais os testes de
+contrato correspondentes.
