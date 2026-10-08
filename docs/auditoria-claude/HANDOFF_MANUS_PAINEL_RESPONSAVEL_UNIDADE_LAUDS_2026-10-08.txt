@@ -1,0 +1,269 @@
+HANDOFF MANUS — PAINEL DE DETALHE DA UNIDADE (RESPONSÁVEL FINANCEIRO)
+PACS Portal / LAUDS — repositório alessandrobarra7/pacs-v4
+Branch: claude/painel-responsavel-financeiro-detalhe-unidade
+Commit base (origin/main no momento em que o branch foi criado): cdb14594e0cad9f8fb7f884084993e7d2bc4cd4b
+Commit topo do branch: 23f029db9f37604d89812143f5493b133ddcae4e
+Destinatário: Manus (acesso real às VMs de produção) — e qualquer engenheiro humano
+com acesso ao repositório.
+
+====================================================================
+1. COMO CHEGAR NO CÓDIGO REAL
+====================================================================
+
+  git fetch origin
+  git checkout claude/painel-responsavel-financeiro-detalhe-unidade
+  git diff cdb14594e0cad9f8fb7f884084993e7d2bc4cd4b..HEAD
+
+Se origin/main já tiver avançado além de cdb1459 quando você ler isto, rode
+`git fetch origin` antes de qualquer coisa e confira se há conflito real com o
+branch (não deveria haver — este branch só tocou server/routers/financeSimple.ts,
+client/src/App.tsx, client/src/pages/finance/FinanceMeuResponsavel.tsx e criou
+client/src/pages/finance/FinanceResponsavelUnidade.tsx; nenhum desses arquivos
+apareceu nos commits de origin/main entre a criação do branch e agora).
+
+====================================================================
+2. O PEDIDO ORIGINAL (produto, não bug)
+====================================================================
+
+Alessandro relatou, pela enésima vez em meses, que "o módulo financeiro é a parte
+mais confusa do sistema e nunca conseguimos resolver". Uma auditoria de UX (não
+registrada neste handoff, feita em conversa) mostrou que o problema não era lógica
+de cálculo — já tinha sido corrigida dezenas de vezes em branches anteriores — mas
+navegação fragmentada: a tela do responsável financeiro (FinanceMeuResponsavel.tsx)
+mostrava uma lista de unidades, e para ver detalhe o usuário tinha que abrir DOIS
+modais desconectados por unidade ("Ver médicos" e "Preço externo / Lucro"), sem
+nenhuma tela única de "entrar na unidade".
+
+Alessandro especificou, em conversa, exatamente o que queria ver ao entrar numa
+unidade:
+
+  1. Quanto a unidade deve ao Sistema no ciclo atual — total de eventos
+     financeiros, quanto é devido ao Sistema, quanto já foi pago, quanto está
+     pendente — tudo somado entre todos os médicos (não por médico).
+  2. Um painel com todos os médicos envolvidos na unidade: quantos laudos cada um
+     fez, quanto a unidade deve a cada um, baseado no preço configurado para
+     aquela unidade.
+  3. Um painel de preço externo: o responsável configura quanto a unidade cobra do
+     paciente fora do sistema (preço externo), e o lucro é calculado como preço
+     externo − valor do médico − valor do Sistema, detalhado por laudo, com data e
+     se foi entregue dentro do prazo de SLA.
+
+Antes de qualquer código, foram apresentados 3 mockups interativos (Artifact
+"Detalhe da Unidade — Responsável Financeiro") com layouts alternativos. Alessandro
+aprovou o "Modelo A" (página única com âncoras de navegação — não abas que escondem
+conteúdo — e, dentro da seção 1, um bloco de configuração de preços com 3 abas reais:
+Sistema / Médicos / Preço externo). Esta entrega implementa exatamente esse layout
+aprovado, grounded no schema e nas procedures reais (o mockup usava dados fictícios;
+alguns ajustes foram necessários ao confrontar com o código real — ver seção 4).
+
+====================================================================
+3. O QUE JÁ EXISTIA NO BACKEND (reaproveitado sem alteração)
+====================================================================
+
+Uma investigação no código real, feita ANTES de escrever qualquer linha nova,
+encontrou que quase todo o backend necessário já existia e já estava correto —
+resultado de rodadas anteriores de auditoria neste mesmo módulo:
+
+  - myResponsavelSummary (server/routers/financeSimple.ts): totais por unidade no
+    ciclo (laudos, devido/pago/pendente ao Sistema e aos médicos). Já deduplica
+    vínculos ativos duplicados e já marca unidade órfã explicitamente.
+
+  - doctorSummaryByUnit (server/routers/financeSimple.ts, linha ~967): painel por
+    médico de uma unidade. Já soma billing_visit_events (fluxo legado) +
+    billing_catalog_study_events (fluxo de catálogo/legenda) corretamente, já
+    exclui eventos cancelados, já calcula o preço médio com o denominador correto
+    (só eventos já precificados). IMPORTANTE: esta tela usa doctorSummaryByUnit, e
+    DELIBERADAMENTE NÃO usa getResponsibleDebtByDoctor (que também existe no
+    mesmo arquivo) — essa segunda procedure só lê billing_visit_events, sem o fluxo
+    de catálogo, e ninguém corrigiu isso ainda. Não é um bug introduzido por esta
+    entrega; é um gap pré-existente que esta entrega evitou herdar ao escolher a
+    procedure certa, mas que continua lá para quem ainda a chamar em outra tela.
+
+  - getUnitSystemRate (linha ~2501): preço que a unidade paga ao Sistema — um valor
+    ÚNICO por unidade (billing_system_unit_prices), com vigência. Não é por
+    modalidade — um rascunho inicial desta tela supôs que fosse, e foi corrigido
+    antes de qualquer código real ser escrito, ao ler o schema.
+
+  - listDoctorModalityPrices / setDoctorModalityPrice (linha ~3453): preço do
+    médico por modalidade (billing_doctor_modality_prices), já autorizado para
+    responsavel_financeiro via assertCanManageFinancialPrices.
+
+  - listExternalSalePrices / setExternalSalePrice (linha ~1452): preço de venda
+    externa por legenda de exame (billing_external_sale_prices), já com vigência
+    auditável, já autorizado.
+
+  - unitProfitCalculator (linha ~1559): cálculo de lucro agregado por legenda de
+    exame no ciclo, já resolvendo o preço externo POR EVENTO (vigência que contém
+    o signed_at de cada evento individual — decisão da revisão Manus de
+    2026-09-17, ver comentário no código), não o preço vigente hoje aplicado
+    retroativamente.
+
+Nenhuma dessas procedures foi alterada em comportamento. A única mudança nelas foi
+uma refatoração mecânica em unitProfitCalculator (ver seção 4).
+
+====================================================================
+4. O QUE É GENUINAMENTE NOVO
+====================================================================
+
+4.1. Refatoração sem mudança de comportamento (server/routers/financeSimple.ts)
+
+A lógica de resolução de preço externo por evento, que vivia dentro do corpo de
+unitProfitCalculator, foi extraída para uma função de módulo compartilhada:
+
+  async function getUnitProfitEventsForCycle(db, unitId, startDate, endDate)
+
+Ela retorna os eventos de billing_catalog_study_events do ciclo, cada um já com
+price_external resolvido (ou undefined, se não houver preço configurado vigente
+para aquele signed_at). unitProfitCalculator passou a chamar essa função e agregar
+por legenda exatamente como fazia antes — o resultado é byte-a-byte o mesmo.
+
+Prova de que o comportamento não mudou: os 11 testes pré-existentes de
+server/audit-fixes-repasse-preco-externo.test.ts continuam passando SEM NENHUMA
+alteração no corpo deles, incluindo o teste
+"evento assinado antes da mudança de preço usa o preço antigo; evento depois usa o
+novo", que é exatamente o teste de não-retroatividade desta lógica.
+
+4.2. Nova procedure: getUnitProfitEventsDetailed (server/routers/financeSimple.ts)
+
+Pedido explícito do Alessandro: o painel de preço externo precisa mostrar o lucro
+DETALHADO POR LAUDO (data, se foi entregue no prazo, e a subtração completa:
+externo − médico − sistema = lucro), não só agregado por legenda como
+unitProfitCalculator já fazia.
+
+A procedure reusa getUnitProfitEventsForCycle (mesma base de cálculo, mesma
+autorização — assertCanManageExternalSalePrice, que exclui admin_master por
+decisão de produto já documentada em código) e retorna uma linha por evento, com:
+
+  event_id, signed_at, doctor_user_id, doctor_name, modality, exam_legend_id,
+  exam_name, study_instance_uid, on_time, due_at, reported_at,
+  system_amount, doctor_amount, price_external, profit
+
+"Entregue no prazo" (on_time) é o campo genuinamente novo deste trabalho — não
+existia, em lugar nenhum do sistema, um cruzamento entre evento financeiro e
+report_readiness.sla_met. O caminho de join é:
+
+  billing_catalog_study_events.study_selection_id
+    -> study_exam_legend_selections.study_instance_uid (+ unit_id)
+      -> report_readiness (chave única uq_readiness_uid_unit: study_instance_uid + unit_id)
+        -> sla_met (boolean), due_at, reported_at
+
+ESCOPO DELIBERADAMENTE RESTRITO ao fluxo de catálogo/legenda
+(billing_catalog_study_events). O fluxo legado (billing_visit_events) não tem
+legenda de exame associada, então não tem preço de venda externa configurável
+(billing_external_sale_prices é chaveado por exam_legend_id) — isso já era uma
+limitação de produto de unitProfitCalculator, não uma lacuna introduzida aqui.
+Unidades que ainda usam só o fluxo legado não terão a seção 3 populada; a tela
+mostra "Nenhum laudo faturado por legenda de exame neste ciclo" nesse caso, em vez
+de inventar dado ou quebrar.
+
+Quando um estudo não tem registro em report_readiness (nunca passou por anamnese
+formal, ou é anterior à criação do módulo de SLA), on_time vem `null` — a tela
+mostra "sem SLA", nunca "atrasado". Isso é intencional: tratar ausência de dado
+como atraso seria um falso negativo contra o médico ou a unidade.
+
+4.3. Nova tela: client/src/pages/finance/FinanceResponsavelUnidade.tsx
+
+Página única, rota /financeiro/responsavel/:unitId, acessível a
+responsavel_financeiro e admin_master (mesmo padrão de roles de
+/financeiro/responsavel). Estrutura:
+
+  - Cabeçalho com nome da unidade e rótulo do ciclo (de myResponsavelSummary).
+  - Navegação por âncora (scroll, não abas que escondem conteúdo) para as 3 seções.
+  - Seção 1 "Quanto a unidade deve ao Sistema": 5 cards (devido ao Sistema, devido
+    aos médicos, lucro do ciclo, pendente ao Sistema, pendente aos médicos) +
+    bloco de configuração de preços com 3 abas reais (Sistema somente leitura /
+    Médicos editável por modalidade, com seletor de médico / Preço Externo editável
+    por legenda de exame).
+  - Seção 2 "Quanto a unidade deve a cada médico": tabela vinda de
+    doctorSummaryByUnit.
+  - Seção 3 "Preço externo e lucro da unidade": tabela detalhada vinda de
+    getUnitProfitEventsDetailed, com badge de prazo de entrega (no prazo / atrasado
+    / sem SLA) e totais do ciclo (de unitProfitCalculator).
+
+4.4. client/src/pages/finance/FinanceMeuResponsavel.tsx
+
+Os dois botões por unidade ("Preço externo / Lucro" e "Ver médicos", que abriam
+DoctorsModal e ProfitModal) foram substituídos por um único botão "Entrar na
+unidade", que navega para a nova tela.
+
+DoctorsModal e ProfitModal CONTINUAM no arquivo, sem alteração — ProfitModal é
+reaproveitado por client/src/pages/finance/FinanceDashboard.tsx (visão do
+admin_master sobre uma unidade), então não pode ser removido. DoctorsModal ficou
+sem nenhum chamador dentro deste arquivo (não é usado em outro lugar do código) —
+é código morto agora, mas `pnpm check` não acusa isso como erro (o projeto não tem
+noUnusedLocals ativado) e optei por não removê-lo nesta entrega, para manter o
+diff focado só no que foi pedido. Fica registrado aqui como limpeza opcional
+futura, não como pendência.
+
+4.5. client/src/App.tsx
+
+Nova rota:
+  /financeiro/responsavel/:unitId -> FinanceResponsavelUnidade
+  (mesmas allowedRoles de /financeiro/responsavel: responsavel_financeiro,
+  admin_master)
+
+====================================================================
+5. VALIDAÇÃO JÁ EXECUTADA
+====================================================================
+
+  pnpm check (tsc --noEmit): limpo, sem erros, em todo o branch.
+
+  pnpm run build: limpo. O build completo (vite + esbuild) passou sem erro. O aviso
+  de chunk >500kB é pré-existente (openjphjs.wasm, não relacionado a este branch).
+
+  TZ=UTC pnpm run test (suíte completa): 715 passaram, 11 falharam, 1 skipped, em
+  130 arquivos de teste (7 falharam). As 11 falhas são EXATAMENTE as mesmas 11
+  falhas, nos mesmos 7 arquivos, que já existem em origin/main ANTES deste branch
+  — confirmado rodando a mesma suíte com `git stash` (alterações deste branch
+  removidas temporariamente) e comparando a lista de arquivos/testes falhos, que
+  bateu 100%. Nenhum dos 7 arquivos (exam-catalog-security.test.ts,
+  finance-v2-dashboard.test.tsx, mediaProxy.test.ts,
+  pacs-desktop-download-progress.test.ts, pacs.mobile-ui.test.ts,
+  security.auth.test.ts, study-priority-ui.test.ts) tem qualquer relação com
+  módulo financeiro — são testes de snapshot/source-string de outras áreas do
+  sistema (catálogo de exames, proxy de mídia, progresso de download, prioridade
+  clínica na listagem) que já estavam quebrados antes desta mudança. ZERO
+  regressões novas introduzidas por este branch.
+
+  server/audit-fixes-repasse-preco-externo.test.ts especificamente: 13/13 testes
+  passando — os 11 pré-existentes (sem nenhuma linha alterada neles) + os 2 novos
+  escritos para getUnitProfitEventsDetailed (fluxo de dados completo com
+  ordenação/join de médico/join de SLA, e FORBIDDEN para admin_master).
+
+  git diff --check: limpo (sem erro de whitespace).
+
+====================================================================
+6. O QUE FICOU DELIBERADAMENTE FORA DO ESCOPO
+====================================================================
+
+  - Editor de preço por legenda de exame do médico
+    (billing_doctor_exam_legend_prices, procedures listDoctorLegendPrices /
+    setDoctorLegendPrice, já existentes no backend). É o nível MAIS específico da
+    hierarquia de preço do médico (legenda > modalidade > unidade > null) e tem
+    PRIORIDADE sobre o nível por modalidade que esta tela edita — mas não tem
+    editor próprio nesta entrega. Um responsável financeiro que precise configurar
+    preço por legenda específica ainda precisa ir em FinanceConfiguracao.tsx (se
+    essa tela já expuser isso) ou pedir ao admin_master. Decisão de escopo, não
+    bug — Alessandro pediu "por modalidade" explicitamente na especificação.
+
+  - As duas unidades órfãs ("Unidade removida (ID 2)" / "(ID 21)") que já
+    apareciam para a conta da Érica desde uma correção anterior de acesso
+    (financial_responsible_units com vínculo ativo apontando para unit_id que não
+    existe mais). Não investigado nem corrigido neste branch — é dado sujo
+    pré-existente, sinalizado mas não tocado.
+
+  - getResponsibleDebtByDoctor continua lendo só billing_visit_events (gap já
+    descrito na seção 3). Não corrigido aqui porque esta tela não o usa. Se algum
+    outro lugar do sistema ainda depender dele para números corretos do fluxo de
+    catálogo, aquele lugar está sujeito ao mesmo gap — fica registrado para uma
+    auditoria futura, não é introduzido por este trabalho.
+
+====================================================================
+7. ESTADO ATUAL
+====================================================================
+
+Branch publicado localmente neste repositório clonado, commit 23f029d, APENAS
+nisto: nenhum push foi feito ao GitHub (sandbox sem credencial de push neste
+momento), nenhum PR aberto, nenhum merge em main, nada implantado em VM1/VM2/VM3.
+Alessandro precisa fornecer um token de push (ou puxar o branch ele mesmo) para
+que este trabalho chegue ao GitHub e, de lá, à revisão/deploy da Manus.
