@@ -39,7 +39,13 @@ describe("PacsQueryPage.tsx — executePrintAction resolve documentKey (reprodu�
   it("executePrintAction declara resolvedDocumentKey e o repassa (com unit_id) ao fetch", () => {
     const fnIdx = source.indexOf("const executePrintAction = async (");
     expect(fnIdx).toBeGreaterThan(-1);
-    const fnBody = source.slice(fnIdx, fnIdx + 4200);
+    // CORREÇÃO (auditoria claude/corrige-janela-teste-documentkey-20260929):
+    // 51f34d0 inseriu a busca de fallback no cache DICOM antes do fetch,
+    // empurrando-o para ~4460 caracteres do início da função — acima da
+    // janela fixa de 4200 usada aqui, o que fazia este teste falhar sem
+    // nenhuma regressão real de comportamento (documentKey/unit_id
+    // continuavam corretos). Ampliada para 6000 com folga.
+    const fnBody = source.slice(fnIdx, fnIdx + 6000);
 
     expect(fnBody).toContain("let resolvedDocumentKey = 'primary'");
     expect(fnBody).toContain("legendSelectionsByStudyUid.get(study.studyInstanceUid)");
@@ -54,7 +60,7 @@ describe("PacsQueryPage.tsx — executePrintAction resolve documentKey (reprodu�
 
   it("caso ambíguo (mais de um documento clínico) abre o modal de escolha em vez de adivinhar o documentKey", () => {
     const fnIdx = source.indexOf("const executePrintAction = async (");
-    const fnBody = source.slice(fnIdx, fnIdx + 4200);
+    const fnBody = source.slice(fnIdx, fnIdx + 6000);
     expect(fnBody).toContain("if (documents.length > 1) {");
     expect(fnBody).toContain("setPendingPrintAction(actionType);");
     expect(fnBody).toContain("setIsReportDocumentsModalOpen(true);");

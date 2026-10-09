@@ -106,7 +106,11 @@ function blockStyle(position: SharedBlockPosition | undefined, defaults: SharedB
     boxSizing: "border-box",
   };
 }
-
+export function resolveSharedReportBackgroundObjectFit(backgroundSize: string | null | undefined): CSSProperties["objectFit"] {
+  if (backgroundSize === "contain") return "contain";
+  if (backgroundSize === "100% 100%" || backgroundSize === "210mm 297mm") return "fill";
+  return "cover";
+}
 /**
  * Estrutura visual para um corpo ainda não preenchido.
  * Ela orienta o médico sem gravar achados, técnica ou conclusão fictícios.
@@ -205,6 +209,7 @@ export function SharedReportSheet({
     position: "relative",
     width: "100%",
     height: "100%",
+    zIndex: 1,
   };
 
   return (
@@ -214,8 +219,33 @@ export function SharedReportSheet({
           src={backgroundUrl}
           alt="Fundo do laudo"
           aria-hidden="true"
+          // CORREÇÃO (auditoria externa Codex + Claude, 2026-09-29,
+          // homologação Chromium): a geometria crítica do fundo (posição,
+          // dimensão, não capturar clique) vinha SOMENTE das classes
+          // Tailwind abaixo. O HTML estático usado por PDF/impressão
+          // (renderSharedReportSheetHtml → materializePhysicalReportPages,
+          // consumido por ReportEditorPage.tsx, PacsQueryPage.tsx e
+          // financialReportPdfDownload.ts) escreve esse markup num
+          // documento/iframe isolado com um <style> próprio, que NUNCA
+          // inclui a folha de estilos gerada pelo Tailwind do app. Nessas
+          // 3 vias, a imagem de fundo ficava em fluxo normal — sem
+          // position:absolute nem inset/width/height — e por isso não
+          // ocupava a folha, independente do objectFit (que já estava
+          // correto). O className é mantido só por compatibilidade visual
+          // no preview React do navegador (onde o Tailwind está carregado);
+          // a fonte de verdade da geometria passa a ser o style inline,
+          // idêntico nas duas vias.
           className="pointer-events-none absolute inset-0 h-full w-full"
-          style={{ zIndex: 0, opacity: backgroundOpacity, objectFit: backgroundSize === "contain" ? "contain" : "cover" }}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            pointerEvents: "none",
+            zIndex: 0,
+            opacity: backgroundOpacity,
+            objectFit: resolveSharedReportBackgroundObjectFit(backgroundSize),
+          }}
         />
       )}
       <div className="shared-report-sheet-content" style={contentStyle}>
@@ -277,9 +307,36 @@ export function SharedReportSheet({
       )}
 
       {merged.footer?.visible && (
-        <div data-layout-block="footer" style={{ ...blockStyle(merged.footer, fallbackPositions.footer), display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", zIndex: 4 }}>
+        // CORREÇÃO (auditoria Manus 2026-09-29, "Parecer técnico — cadeia de
+        // dados DICOM, rodapé e teste"): este bloco usava alignItems:"center"
+        // com o conteúdo do rodapé em fluxo natural (altura de conteúdo),
+        // dentro de uma caixa de altura FIXA (percentual da folha) com
+        // overflow:hidden. Quando carimbo + assinatura + nome + CRM + data
+        // somados excediam a altura configurada do bloco (medido pela Manus
+        // em Chromium: ~171px de conteúdo contra ~115px de bloco), o
+        // conteúdo era centralizado e cortado igualmente acima/abaixo —
+        // a data de assinatura chegou a ficar parcialmente invisível.
+        // A Manus recusou corrigir isso com `overflow:visible` isolado
+        // (poderia sobrepor o bloco "body" ou vazar da página) e pediu um
+        // "contrato de capacidade": o rodapé deve caber na área reservada
+        // em vez de apostar num tamanho de conteúdo fixo.
+        // Fix: o bloco agora estica (`alignItems:"stretch"`) o wrapper do
+        // rodapé para ocupar 100% da própria altura, que passa a ser uma
+        // altura definida (não mais "auto") para fins de resolução de
+        // percentuais dos filhos. Cada consumidor (PacsQueryPage,
+        // ReportEditorPage, financialReportPdfDownload) usa essa altura
+        // definida para transformar `.doctor-footer` num container flex em
+        // coluna com `height:100%`, onde as imagens de carimbo/assinatura
+        // têm `min-height:0` — isso permite que o próprio motor de flexbox
+        // do navegador ENCOLHA as imagens (mantendo proporção via
+        // object-fit:contain) o quanto for necessário para o conjunto
+        // inteiro caber na altura real do bloco, sem cortar nada. O texto
+        // (nome/CRM/data) mantém tamanho fixo; `overflow:hidden` permanece
+        // apenas como rede de segurança para o caso extremo de um bloco
+        // configurado menor que o texto sozinho (fora do escopo deste fix).
+        <div data-layout-block="footer" style={{ ...blockStyle(merged.footer, fallbackPositions.footer), display: "flex", alignItems: "stretch", justifyContent: "center", overflow: "hidden", zIndex: 4 }}>
           {footerImageUrl && <img src={footerImageUrl} alt="Rodapé" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
-          <div style={{ position: "relative", zIndex: 1, width: "100%" }}>{footer}</div>
+          <div style={{ position: "relative", zIndex: 1, width: "100%", height: "100%" }}>{footer}</div>
         </div>
       )}
 

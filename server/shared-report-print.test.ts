@@ -70,6 +70,77 @@ describe("SharedReportSheet print contract", () => {
     expect(markup).toContain("padding:0mm 0mm 0mm 0mm");
   });
 
+  it("renderiza a escala de fundo pelo mesmo contrato salvo no layout", () => {
+    const containMarkup = renderSharedReportSheetHtml({
+      positions: {},
+      backgroundUrl: "data:image/png;base64,BG",
+      backgroundSize: "contain",
+    });
+    const stretchMarkup = renderSharedReportSheetHtml({
+      positions: {},
+      backgroundUrl: "data:image/png;base64,BG",
+      backgroundSize: "100% 100%",
+    });
+    const legacyA4Markup = renderSharedReportSheetHtml({
+      positions: {},
+      backgroundUrl: "data:image/png;base64,BG",
+      backgroundSize: "210mm 297mm",
+    });
+
+    expect(containMarkup).toContain("object-fit:contain");
+    expect(stretchMarkup).toContain("object-fit:fill");
+    expect(legacyA4Markup).toContain("object-fit:fill");
+  });
+
+  /**
+   * Regressão (auditoria externa Codex + Claude, 2026-09-29, homologação
+   * Chromium): a geometria do fundo (posição/dimensão/não capturar clique)
+   * vinha só de classes Tailwind, que não existem no HTML estático usado
+   * por PDF/impressão (documento/iframe isolado, sem a folha de estilos do
+   * app). Sem essas regras, a imagem ficava em fluxo normal e não ocupava a
+   * folha, mesmo com object-fit correto. A geometria crítica agora precisa
+   * estar inline, sem depender de nenhuma classe CSS externa ser carregada.
+   */
+  it("inclui a geometria crítica do fundo inline, sem depender de CSS externo (Tailwind)", () => {
+    const markup = renderSharedReportSheetHtml({
+      positions: {},
+      backgroundUrl: "data:image/png;base64,BG",
+      backgroundOpacity: 0.6,
+      backgroundSize: "contain",
+    });
+
+    expect(markup).toContain("position:absolute;inset:0;width:100%;height:100%;pointer-events:none");
+    expect(markup).toContain("object-fit:contain");
+    expect(markup).toContain("opacity:0.6");
+  });
+  /**
+   * Regressão observada em homologação real (2026-09-29): após o hotfix de
+   * geometria inline, o fundo passou a ocupar a folha, mas o conteúdo clínico
+   * podia sumir no print/PDF porque o wrapper de conteúdo não criava uma
+   * camada acima do fundo absoluto. O HTML estático precisa carregar a camada
+   * completa inline, sem depender de CSS externo ou da ordem de pintura do
+   * navegador.
+   */
+  it("mantém a camada de conteúdo acima do fundo no HTML estático", () => {
+    const markup = renderSharedReportSheetHtml({
+      positions: {
+        patientName: { x: 5, y: 10, w: 90, h: 8, visible: true },
+        body: { x: 5, y: 25, w: 90, h: 50, visible: true },
+      },
+      backgroundUrl: "data:image/png;base64,BG",
+      patientName: "PACIENTE CAMADA",
+      body: createElement("div", null, "CONTEUDO CLINICO CAMADA"),
+    });
+
+    const contentLayerMatch = markup.match(/class="shared-report-sheet-content" style="([^"]+)"/);
+    expect(contentLayerMatch).not.toBeNull();
+    expect(contentLayerMatch![1]).toContain("position:relative");
+    expect(contentLayerMatch![1]).toContain("width:100%");
+    expect(contentLayerMatch![1]).toContain("height:100%");
+    expect(contentLayerMatch![1]).toContain("z-index:1");
+    expect(markup).toContain("PACIENTE CAMADA");
+    expect(markup).toContain("CONTEUDO CLINICO CAMADA");
+  });
   it("mantém os blocos clínicos visíveis para coordenadas legadas sem o campo visible", () => {
     // Layouts já existentes podem ter sido persistidos antes do controle de
     // visibilidade. A ausência da chave não pode ser lida como `false`, pois

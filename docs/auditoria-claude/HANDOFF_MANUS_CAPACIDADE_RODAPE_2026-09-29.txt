@@ -1,0 +1,180 @@
+================================================================================
+HANDOFF MANUS — RESPOSTA AO BLOQUEIO: CAPACIDADE/CLIP DO RODAPÉ
+================================================================================
+Data: 2026-09-29
+Repositório: https://github.com/alessandrobarra7/pacs-v4
+Branch: claude/corrige-capacidade-rodape-20260929
+Commit base (parte de claude/corrige-janela-teste-documentkey-20260929,
+que por sua vez parte de 51f34d0):
+  747cd34 (handoff da janela de teste documentKey)
+Commit desta correção: b68fef3 fix(reports): contrato de capacidade
+  do rodape (nao corta mais por overflow:hidden)
+Em resposta a: "Parecer técnico — cadeia de dados DICOM, rodapé e
+  teste" (Manus, 2026-09-29), veredito "Não aprovado para implantação
+  adicional nesta forma".
+
+--------------------------------------------------------------------------------
+1. COMO CHEGAR NO CÓDIGO REAL
+--------------------------------------------------------------------------------
+
+git fetch origin
+git checkout -B revisao-capacidade-rodape origin/claude/corrige-capacidade-rodape-20260929
+git log --oneline -4
+  # deve mostrar, do topo para a base:
+  # b68fef3 fix(reports): contrato de capacidade do rodape ...
+  # 747cd34 docs: handoff Manus - correcao da janela fixa ...
+  # 6194287 fix(test): amplia janela de leitura em pacs-print-document-key-wiring
+  # 51f34d0 fix(reports): usa metadados DICOM e protege rodape
+
+git diff 747cd34..HEAD
+  # diff único: SharedReportSheet.tsx, PacsQueryPage.tsx,
+  # ReportEditorPage.tsx, financialReportPdfDownload.ts (código) +
+  # 3 arquivos de teste de contrato + report-physical-sheet-renderer.test.ts
+
+--------------------------------------------------------------------------------
+2. CONFIRMAÇÃO DO BLOQUEIO (reproduzido de forma independente)
+--------------------------------------------------------------------------------
+
+Antes de corrigir, reproduzi o achado da Manus lendo o código real (sem
+Chromium, mas com a mesma matemática):
+
+- client/src/components/SharedReportSheet.tsx, bloco
+  `data-layout-block="footer"`: altura fixa via `blockStyle()`
+  (`height: ${h}%` da folha inteira, ex.: h=9 → ~9% de 297mm ≈ 101px em
+  A4) com `overflow:hidden`.
+- `.doctor-footer` (PacsQueryPage.tsx/ReportEditorPage.tsx): carimbo até
+  70px + assinatura até 42px + margens de 2mm cada + linha + 3 linhas de
+  texto (nome/CRM/data) somam facilmente 150-210px dependendo da fonte
+  real — bate com a medição da Manus em Chromium (~171px de conteúdo
+  contra ~115px de bloco).
+- financialReportPdfDownload.ts tinha os MAIORES limites dos três
+  (assinatura até 13mm≈49px, carimbo até 24mm≈91px) — mais exposto
+  ainda ao bloqueio.
+- Confirmei também por que `overflow:visible` isolado (que a Manus já
+  havia descartado) seria perigoso: o gap padrão entre o fim do bloco
+  "body" (y=38%+h=48%=86%) e o início do bloco "footer" (y=88%) é de
+  só ~2% da folha (≈5,9mm≈22px em A4) — muito menor que o excedente
+  medido, então o conteúdo vazado invadiria o texto clínico.
+
+--------------------------------------------------------------------------------
+3. A CORREÇÃO (item 1 do parecer: "contrato de capacidade")
+--------------------------------------------------------------------------------
+
+Em vez de aumentar um valor fixo de altura de bloco ou de imagem (que
+não se adapta a blocos menores/maiores configurados por cada unidade
+no editor de layout), implementei um contrato estrutural via CSS
+flexbox, sem nenhuma medição em JavaScript:
+
+a) SharedReportSheet.tsx: o wrapper externo do bloco footer passa de
+   `alignItems:"center"` para `alignItems:"stretch"`, e o wrapper
+   interno (que recebe o HTML do rodapé) ganha `height:"100%"`
+   explícito. Isso transforma a altura do bloco footer numa altura
+   DEFINIDA (não mais "auto") para fins de resolução de percentuais
+   dos filhos — pré-requisito de CSS para o passo (b).
+
+b) Em cada consumidor, `.doctor-footer` (ou `.signature`/`.stamp` no
+   financeiro) vira um container flex em coluna com `height:100%`.
+   Carimbo e assinatura ganham `flex:0 1 auto; min-height:0;`
+   (mantendo os mesmos `max-height` de antes como limite SUPERIOR).
+   Texto e linha divisória ganham `flex:0 0 auto` (tamanho fixo).
+
+   O efeito: o motor de flexbox do próprio navegador redistribui o
+   espaço disponível — se o conteúdo total (imagens + texto) excede a
+   altura real do bloco, as imagens são as que encolhem primeiro
+   (mantendo proporção via `object-fit:contain`, já existente), porque
+   têm `min-height:0` e as outras não. O texto nunca fica menor (evita
+   ficar ilegível), e `overflow:hidden` permanece como rede de
+   segurança, mas deixa de ser o mecanismo principal.
+
+Isso satisfaz o item 1 do parecer ("reservar altura suficiente... ou
+posicionar fora de um container que recorte") por outro caminho: em vez
+de reservar mais altura fixa, o conteúdo se adapta à altura real do
+bloco, qualquer que seja ela.
+
+--------------------------------------------------------------------------------
+4. POR QUE NÃO É "overflow:visible ISOLADO" (item 2 do parecer)
+--------------------------------------------------------------------------------
+
+`overflow:hidden` continua presente em `.doctor-footer` e no bloco
+footer — não foi removido. A diferença é que agora, na prática, ele
+raramente precisa cortar nada, porque o conteúdo já se redimensiona
+para caber. O único cenário residual onde `overflow:hidden` ainda
+corta de verdade é descrito na seção 6 (fora de escopo).
+
+--------------------------------------------------------------------------------
+5. TESTE COMPORTAMENTAL DE NÃO-CLIPPING (item 3 do parecer)
+--------------------------------------------------------------------------------
+
+Não tenho acesso a Chromium real neste sandbox (jsdom não computa
+`scrollHeight`/`clientHeight` reais — limitação já documentada e
+acordada neste projeto, ver comentário no topo de
+`client/src/lib/reportPagination.ts`). Por isso, os testes que escrevi
+são de contrato estrutural (presença das propriedades CSS corretas),
+não de medição de pixels reais:
+
+- server/report-physical-sheet-renderer.test.ts: nova regressão prova
+  que o bloco footer tem `align-items:stretch` (não mais `center`) e
+  que o wrapper interno tem `height:100%` explícito. Revertido
+  manualmente (`align-items:"center"`) para confirmar que o teste
+  falha sem o fix — falhou como esperado, restaurado.
+- server/pacs-layout-contract-wiring.test.ts,
+  server/report-editor-layout-contract-wiring.test.ts,
+  server/financial-report-canonical-renderer-wiring.test.ts: cada um
+  ganhou um teste novo provando `flex-direction:column` +
+  `height:100%` no `.doctor-footer` e `flex:0 1 auto; min-height:0`
+  nas imagens. Revertido manualmente em PacsQueryPage.tsx (removendo o
+  flex/min-height) para confirmar 2 falhas sem o fix — falharam como
+  esperado, restaurado.
+
+Peço que você complemente com o teste visual real em Chromium que o
+item 3 pede (montar o maior conjunto permitido de carimbo + assinatura
++ CRM + data e medir os limites reais contra o bloco, em A4 e Letter) —
+é exatamente a checagem que fiz por álgebra aqui, mas só a medição real
+sua fecha a prova com números de verdade, como já aconteceu na rodada
+anterior (1d4a847).
+
+--------------------------------------------------------------------------------
+6. FORA DE ESCOPO (limite real, não escondido)
+--------------------------------------------------------------------------------
+
+Se o admin configurar o bloco footer menor que o texto sozinho (nome +
+CRM + data, sem espaço para nenhuma imagem), `overflow:hidden` ainda
+corta — CSS `flex-shrink` reduz o tamanho da CAIXA de um item de texto,
+não o tamanho da fonte, então um bloco extremamente pequeno ainda pode
+cortar visualmente o texto. Isso é um cenário de configuração extrema
+do admin no editor de layout, não o caso relatado (que era o TAMANHO
+PADRÃO do bloco vs. conteúdo típico). Não implementei um limite mínimo
+de altura no editor porque isso é uma decisão de produto (UX do editor
+de layout), não uma correção de bug — sinalizo para você avaliar se
+vale a pena um aviso na UI do editor.
+
+--------------------------------------------------------------------------------
+7. VALIDAÇÃO EXECUTADA (sandbox, antes de publicar)
+--------------------------------------------------------------------------------
+
+- pnpm check (tsc --noEmit): limpo.
+- Suíte direcionada (10 arquivos do escopo laudo/layout/PACS): 65/65
+  passando, 0 falhas.
+- Suíte completa (TZ=UTC pnpm test): 734 passaram, 11 falharam (mesma
+  linha de base histórica de 7 arquivos, sem relação com laudo/rodapé:
+  exam-catalog-security, finance-v2-dashboard x2, mediaProxy,
+  pacs-desktop-download-progress, pacs.mobile-ui, security.auth,
+  study-priority-ui x4), 1 skipped.
+- pnpm build: Vite e esbuild completos; único ponto de falha é o passo
+  final `cp server/*.py dist/`, específico de ambiente Windows/
+  PowerShell, já conhecido e não relacionado a este commit.
+- git diff --check: limpo.
+
+--------------------------------------------------------------------------------
+8. ESTADO ATUAL
+--------------------------------------------------------------------------------
+
+Commitado localmente (b68fef3) no branch
+claude/corrige-capacidade-rodape-20260929, que parte de 747cd34 (e
+portanto carrega 51f34d0 e 6194287 já revisados). Aguardando push
+(token do Alessandro) antes de estar disponível no GitHub. Sem merge
+em main, sem alteração em nenhuma VM.
+
+================================================================================
+FIM DO HANDOFF
+================================================================================

@@ -405,24 +405,9 @@ describe("wiring — as duas vias de download usam a fábrica canônica de pági
     expect(pacsQuerySource).not.toContain("splitBlocksIntoPages");
   });
 
-  it("B1: o corpo medido tem overflow:hidden nas duas vias (pré-requisito para scrollHeight refletir overflow real)", () => {
-    // NOTA: o CSS real é gerado por template literal e contém `${lSize}`/
-    // `${lLine}` — chaves LITERAIS dentro da própria regra, antes de
-    // "overflow: hidden". Uma regex "balanceada por chaves" (tipo
-    // /\.report-body\s*\{[^}]*overflow:hidden/) pararia no primeiro `}`
-    // (o de `${lSize}`) e nunca chegaria a "overflow". Por isso localizamos
-    // a regra pela substring inicial e conferimos que "overflow: hidden"
-    // aparece logo depois, na mesma regra, sem depender de contagem de
-    // chaves.
-    const assertReportBodyHasOverflowHidden = (source: string, label: string) => {
-      const ruleStart = source.indexOf(".report-body {");
-      expect(ruleStart, `${label}: regra .report-body { ... } não encontrada`).toBeGreaterThanOrEqual(0);
-      const ruleSnippet = source.slice(ruleStart, ruleStart + 200);
-      expect(ruleSnippet).toMatch(/overflow:\s*hidden/);
-    };
-    assertReportBodyHasOverflowHidden(financialSource, "financialReportPdfDownload.ts");
-    // A Lista PACS não mantém uma segunda regra CSS: ela usa o corpo interno
-    // da mesma folha visual canônica que o Editor.
+  it("B1: o corpo medido tem overflow:hidden no renderizador compartilhado usado pelas duas vias", () => {
+    expect(financialSource).toContain('from "./reportPhysicalSheetRenderer"');
+    expect(financialSource).toContain("REPORT_PHYSICAL_BODY_SELECTOR");
     expect(pacsQuerySource).toContain('from "@/lib/reportPhysicalSheetRenderer"');
     expect(physicalRendererSource).toContain('className: "report-body"');
     expect(physicalRendererSource).toContain('style: { flex: 1, minHeight: 0, overflow: "hidden" }');
@@ -441,17 +426,13 @@ describe("wiring — as duas vias de download usam a fábrica canônica de pági
     expect(pacsQuerySource).toContain("'.print-page, .print-shared-sheet'");
   });
 
-  it("Bloqueio 1 (parecer corretivo, regressão): a reserva de rodapé tem dimensão fixa e overflow oculto", () => {
-    // A v3 corrige o Bloqueio 1: com min-height, a folha de MEDIÇÃO (rodapé
-    // vazio) podia medir uma área útil maior do que a folha REAL (última,
-    // com assinatura), que crescia além do mínimo. Altura fixa +
-    // overflow:hidden garante que a área ocupada pela reserva é idêntica
-    // nas duas, então a área útil medida é sempre a área real disponível.
-    expect(financialSource).not.toContain("min-height:${FOOTER_RESERVE_MM}mm");
-    expect(financialSource).toContain("height:${FOOTER_RESERVE_MM}mm;overflow:hidden");
-    // A Lista PACS delega a reserva ao bloco `footer` do SharedReportSheet.
-    // blockStyle fixa a altura percentual do bloco e o componente limita o
-    // conteúdo, inclusive a assinatura, com overflow oculto.
+  it("Bloqueio 1 (regressão): Financeiro e Lista PACS delegam assinatura/rodapé ao bloco footer do SharedReportSheet", () => {
+    expect(financialSource).toContain("const renderPhysicalPage = createPhysicalReportSheetRenderer({");
+    expect(financialSource).toContain("finalFooterHtml: doctorFooter");
+    expect(financialSource).not.toContain("FOOTER_RESERVE_MM");
+    expect(financialSource).not.toContain("footer-reserve");
+    expect(financialSource).not.toContain("<article class=\"print-page\"");
+
     expect(pacsQuerySource).toContain("const renderPhysicalPageQ = createPhysicalReportSheetRenderer({");
     expect(physicalRendererSource).toContain("footer: footerHtml");
     expect(sharedSheetSource).toContain('data-layout-block="footer"');

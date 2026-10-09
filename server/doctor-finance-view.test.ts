@@ -41,21 +41,15 @@ describe("visão financeira individual do médico", () => {
     expect(downloadSource).toContain('document.createElement("iframe")');
     expect(downloadSource).toContain("pdf.save(");
     expect(downloadSource).not.toContain("window.open(");
-    expect(downloadSource).toContain("display:flex;flex-direction:column");
-    // CORREÇÃO (paginação real, 2026-09-25): a margem do .doctor-footer
-    // mudou de "auto auto 3mm" (empurrado pelo auto-margin do flex) para
-    // "0 auto 3mm", porque o rodapé/assinatura agora ocupa uma faixa
-    // .footer-reserve de altura fixa (align-items:flex-end), reservada em
-    // toda página — não depende mais de um auto-margin para ficar no fim
-    // da folha. Ver client/src/lib/reportPagination.ts e
-    // server/report-pagination.test.ts.
-    expect(downloadSource).toContain(".doctor-footer { text-align:center;margin:0 auto 3mm");
-    expect(downloadSource).toContain("footer-reserve");
-    // A decisão de páginas físicas está centralizada na fábrica, não no
-    // consumidor financeiro: ela mede, fragmenta e materializa com a mesma
-    // casca antes de este fluxo fazer a captura/jsPDF.
+    // A decisão de páginas físicas e a casca visual ficam no motor canônico:
+    // o financeiro captura o HTML resultante, mas não monta mais uma página
+    // paralela com header/patient/title/body/footer próprios.
+    expect(downloadSource).toContain("createPhysicalReportSheetRenderer({");
+    expect(downloadSource).toContain("REPORT_PHYSICAL_BODY_SELECTOR");
     expect(downloadSource).toContain("materializePhysicalReportPages({");
     expect(downloadSource).toContain("normalizeReportSections(");
+    expect(downloadSource).not.toContain("footer-reserve");
+    expect(downloadSource).not.toContain("FOOTER_RESERVE_MM");
     expect(downloadSource).not.toContain("measureTopLevelBlocks");
     expect(downloadSource).not.toContain("splitBlocksIntoPages");
     expect(routerSource).toContain("myReportDownload:");

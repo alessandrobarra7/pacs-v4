@@ -102,7 +102,7 @@ export function createPhysicalReportSheetRenderer({
     logos,
     backgroundUrl,
     backgroundOpacity: normalizeOpacity(layout.background_opacity),
-    backgroundSize: layout.background_size === "contain" ? "contain" : "cover",
+    backgroundSize: layout.background_size ?? "cover",
     footerImageUrl: footerImagePageScope === "all" || isLast ? footerImageUrl : null,
     fontFamily: resolveFontStack(preferences.fontFamily),
     fontSize: preferences.fontSize,
@@ -140,7 +140,7 @@ export function createPhysicalReportSheetRenderer({
       dangerouslySetInnerHTML: { __html: bodyHtml },
     }),
     footer: footerHtml
-      ? createElement("div", { style: { width: "100%" }, dangerouslySetInnerHTML: { __html: footerHtml } })
+      ? createElement("div", { style: { width: "100%", height: "100%" }, dangerouslySetInnerHTML: { __html: footerHtml } })
       : createElement("div"),
   });
 }

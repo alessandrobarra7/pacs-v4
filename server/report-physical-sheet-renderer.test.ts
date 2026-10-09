@@ -76,6 +76,12 @@ describe("renderer visual físico canônico de laudos", () => {
     expect(html).toContain('data-layout-block="footer"');
     expect(html).toContain('data-report-body-content="true"');
     expect(html).toContain('flex:1;min-height:0;overflow:hidden');
+    expect(html).toContain('https://assets.invalid/background.png');
+    expect(html).toContain('position:absolute;inset:0;width:100%;height:100%;pointer-events:none');
+    expect(html).toContain('z-index:0;opacity:0.4;object-fit:contain');
+    const contentLayerMatch = html.match(/class="shared-report-sheet-content" style="([^"]+)"/);
+    expect(contentLayerMatch).not.toBeNull();
+    expect(contentLayerMatch![1]).toContain('z-index:1');
     expect(html).toContain('left:4%');
     expect(html).toContain('top:38%');
     expect(html).toContain('Paciente Sintético');
@@ -157,5 +163,94 @@ describe("renderer visual físico canônico de laudos", () => {
     expect(html).toContain('data:image/png;base64,FAKE');
     expect(html).toContain('data:image/png;base64,LOGO');
     expect(html).not.toContain('https://assets.invalid/footer.png');
+  });
+  it("não converte escala de fundo salva no layout para cover antes de chegar ao SharedReportSheet", () => {
+    const layout = buildLayout();
+    layout.background_size = "100% 100%";
+    layout.footer_image_url = null;
+
+    const html = createPhysicalReportSheetRenderer({
+      layout,
+      patient: { name: "Paciente Sintético" },
+    })({
+      title: "Laudo",
+      bodyHtml: "<p>ok</p>",
+      footerHtml: "",
+      isLast: true,
+    });
+
+    expect(html).toContain("object-fit:fill");
+    expect(html).not.toContain("object-fit:cover");
+  });
+
+  /**
+   * Regressão (auditoria externa Codex + Claude, 2026-09-29, homologação
+   * Chromium): confirma que o renderer físico usado por Editor, Lista PACS
+   * e PDF financeiro herda a geometria inline do fundo (não só o
+   * object-fit) — sem isso, a folha estática ficava sem fundo posicionado
+   * nas 3 vias, mesmo com backgroundSize/opacity corretos.
+   */
+  it("herda a geometria inline do fundo (position/inset/width/height/pointer-events), não só o object-fit", () => {
+    const layout = buildLayout();
+
+    const html = createPhysicalReportSheetRenderer({
+      layout,
+      patient: { name: "Paciente Sintético" },
+    })({
+      title: "Laudo",
+      bodyHtml: "<p>ok</p>",
+      footerHtml: "",
+      isLast: true,
+    });
+
+    expect(html).toContain("position:absolute;inset:0;width:100%;height:100%;pointer-events:none");
+    expect(html).toContain("https://assets.invalid/background.png");
+  });
+
+  /**
+   * Regressão (auditoria Manus 2026-09-29, "Parecer técnico — cadeia de
+   * dados DICOM, rodapé e teste"): o bloco de rodapé centralizava
+   * (`align-items:center`) um conteúdo de altura natural dentro de uma
+   * caixa de altura fixa com `overflow:hidden` — quando carimbo +
+   * assinatura + nome + CRM + data somados excediam a altura do bloco,
+   * o conteúdo era cortado igualmente acima/abaixo (a Manus mediu ~171px
+   * de conteúdo contra ~115px de bloco em Chromium). O bloco agora estica
+   * (`align-items:stretch`) para que a altura do bloco vire uma altura
+   * DEFINIDA para os filhos, e o wrapper interno declara `height:100%`
+   * explicitamente — pré-requisito para que o `.doctor-footer` de cada
+   * consumidor (flex-column com `min-height:0` nas imagens) consiga
+   * encolher carimbo/assinatura proporcionalmente em vez de cortá-los.
+   */
+  it("estica o wrapper do bloco de rodapé em vez de centralizar conteúdo de altura livre (contrato de capacidade)", () => {
+    const html = createPhysicalReportSheetRenderer({
+      layout: buildLayout(),
+      patient: { name: "Paciente Sintético" },
+    })({
+      title: "Laudo",
+      bodyHtml: "<p>ok</p>",
+      footerHtml: "<div class=\"doctor-footer\">Assinatura sintética</div>",
+      isLast: true,
+    });
+
+    const footerBlockMatch = html.match(/data-layout-block="footer" style="([^"]+)"/);
+    expect(footerBlockMatch).not.toBeNull();
+    expect(footerBlockMatch![1]).toContain("align-items:stretch");
+    expect(footerBlockMatch![1]).not.toContain("align-items:center");
+    expect(footerBlockMatch![1]).toContain("overflow:hidden");
+
+    // Wrapper interno (relative, z-index:1, width:100%) precisa também de
+    // height:100% — sem isso, mesmo com o bloco externo esticado, o filho
+    // shrink-wrap voltaria a ter altura de conteúdo, e os percentuais do
+    // `.doctor-footer` (height:100%) dentro dele ficariam sem referência
+    // definida (percentual de altura "auto" é ignorado pelo CSS).
+    expect(html).toContain('style="position:relative;z-index:1;width:100%;height:100%"');
+
+    // O renderer físico comum adiciona ainda outro wrapper para injetar o
+    // HTML clínico do rodapé via dangerouslySetInnerHTML. Esse wrapper
+    // também precisa participar da cadeia de altura definida; caso tenha
+    // apenas width:100%, o .doctor-footer volta a resolver height:100%
+    // contra altura auto e passa a ser cortado pelo bloco externo.
+    expect(html).toContain('style="position:relative;z-index:1;width:100%;height:100%"><div style="width:100%;height:100%"><div class="doctor-footer"');
+    expect(html).not.toContain('style="position:relative;z-index:1;width:100%;height:100%"><div style="width:100%"><div class="doctor-footer"');
   });
 });
