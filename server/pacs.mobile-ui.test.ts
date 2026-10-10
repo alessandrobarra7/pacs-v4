@@ -21,7 +21,7 @@ const viewerSource = readFileSync(
 
 describe("PacsQueryPage mobile study list contract", () => {
   it("keeps the desktop table and renders a separate mobile card list", () => {
-    expect(pageSource).toContain('className="hidden md:block"');
+    expect(pageSource).toContain('className="hidden md:block overflow-x-auto"');
     expect(pageSource).toContain('className="md:hidden p-3 space-y-2 bg-gray-50/70"');
     expect(pageSource).toContain("pagedResults.map((study, idx) => {");
   });
