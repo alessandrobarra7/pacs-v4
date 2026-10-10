@@ -533,6 +533,15 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
     { studyInstanceUid: study.studyInstanceUid },
     { enabled: Boolean(study.studyInstanceUid && canSelect), staleTime: 0, refetchOnMount: "always", refetchOnWindowFocus: true },
   );
+  // CORREÇÃO (auditoria claude/modal-compor-exames-estudo-20261010): a modalidade
+  // do estudo é resolvida aqui, antes do openModal, porque getSingleStudyModality
+  // (shared/modality.ts) garante que um estudo tem no máximo UMA modalidade DICOM
+  // válida — então este filtro nunca retorna mais de 1 item na prática atual do
+  // sistema. Antes disso, o modal sempre parava numa tela "Escolha a modalidade"
+  // com um único azulejo clicável cercado de espaço vazio (grid pensado para até
+  // 4 modalidades) mesmo quando só havia uma opção possível.
+  const studyModality = normalizeDicomModality(study.modality);
+  const allowedModalities = LEGEND_MODAL_MODALITIES.filter((modality) => modality.value === studyModality);
   const closeModal = () => {
     setIsOpen(false);
     setSelectedModality(null);
@@ -542,6 +551,9 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
   const openModal = (event: React.MouseEvent) => {
     event.stopPropagation();
     setDraftLegendIds(selections.map((selection) => selection.exam_legend_id));
+    // Pula direto para a lista de exames quando há exatamente uma modalidade
+    // permitida (o caso normal), evitando a tela intermediária quase vazia.
+    setSelectedModality(allowedModalities.length === 1 ? allowedModalities[0].value : null);
     setIsOpen(true);
   };
   const confirmSelections = trpc.studyExamLegend.confirmSelections.useMutation({
@@ -560,8 +572,6 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
   const selectedModalityLabel = selectedModality
     ? LEGEND_MODAL_MODALITIES.find((modality) => modality.value === selectedModality)?.label ?? selectedModality
     : "";
-  const studyModality = normalizeDicomModality(study.modality);
-  const allowedModalities = LEGEND_MODAL_MODALITIES.filter((modality) => modality.value === studyModality);
   const selectedLegendItems = draftLegendIds.map((legendId) => {
     const selection = selections.find((item) => item.exam_legend_id === legendId);
     const legend = legends.find((item) => item.id === legendId);
@@ -583,7 +593,7 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
           <div role="dialog" aria-modal="true" aria-labelledby={`legend-modal-title-${study.studyInstanceUid}`} className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
               <div className="flex items-start gap-2">
-                {selectedModality && <button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} className="mt-0.5 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Voltar para modalidades"><ChevronLeft className="h-5 w-5" /></button>}
+                {selectedModality && allowedModalities.length > 1 && <button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} className="mt-0.5 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Voltar para modalidades"><ChevronLeft className="h-5 w-5" /></button>}
                 <div>
                   <h2 id={`legend-modal-title-${study.studyInstanceUid}`} className="text-base font-semibold text-slate-900">{selectedModality ? `Exames cadastrados · ${selectedModalityLabel}` : "Compor exames do estudo"}</h2>
                   <p className="mt-0.5 text-xs text-slate-500">{selectedModality ? "Marque um ou mais exames. Cada legenda terá seus laudos e eventos próprios." : "Escolha a modalidade informada pelo PACS para montar a composição clínica deste estudo."}</p>
@@ -613,7 +623,7 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
               })}{!allowedModalities.length && <div className="col-span-full py-8 text-center text-sm text-slate-500">A modalidade deste estudo não está disponível para composição clínica.</div>}</div>
             )}
 
-            <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"><span className="text-xs text-slate-500">{draftLegendIds.length} legenda{draftLegendIds.length === 1 ? "" : "s"} na composição</span><div className="flex gap-2"><button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} disabled={!selectedModality} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:invisible">Voltar</button><button type="button" disabled={!draftLegendIds.length || confirmSelections.isPending} onClick={() => confirmSelections.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendIds: draftLegendIds })} className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-cyan-600 disabled:cursor-not-allowed disabled:opacity-50">{confirmSelections.isPending ? "Confirmando…" : "Confirmar seleção"}</button></div></div>
+            <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"><span className="text-xs text-slate-500">{draftLegendIds.length} legenda{draftLegendIds.length === 1 ? "" : "s"} na composição</span><div className="flex gap-2">{allowedModalities.length > 1 && <button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} disabled={!selectedModality} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:invisible">Voltar</button>}<button type="button" disabled={!draftLegendIds.length || confirmSelections.isPending} onClick={() => confirmSelections.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendIds: draftLegendIds })} className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-cyan-600 disabled:cursor-not-allowed disabled:opacity-50">{confirmSelections.isPending ? "Confirmando…" : "Confirmar seleção"}</button></div></div>
           </div>
         </div>
       )}
