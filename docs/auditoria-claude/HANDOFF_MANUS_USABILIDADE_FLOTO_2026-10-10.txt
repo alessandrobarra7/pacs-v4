@@ -1,0 +1,108 @@
+HANDOFF PARA MANUS — Correções de usabilidade (relatório Floto)
+Branch: claude/usabilidade-floto-pagina-principal
+Base: origin/main @ 806b38268703b5a92b428806fbebca1a8e44451e
+Data: 2026-10-10
+Autor: Claude (sandbox, sem acesso a VM de produção)
+
+====================================================================
+1. CONTEXTO
+====================================================================
+Alessandro enviou um relatório automatizado de terceiros ("Floto Audit
+Report - Usability.pdf"), gerado a partir de uma análise automatizada
+da página principal (lauds.com.br, listagem de estudos / PacsQueryPage).
+Pontuação geral: 84/100. 6 achados: 0 críticos, 2 "major", 4 "minor".
+
+Validei os achados contra o código real antes de aceitar qualquer um
+deles (não assumi que a ferramenta estava certa). Depois de validar,
+implementei correção para 4 dos 6 achados nesta branch. Os outros 2
+achados foram deliberadamente NÃO corrigidos nesta branch — ver seção 4.
+
+====================================================================
+2. ACHADOS CORRIGIDOS NESTA BRANCH
+====================================================================
+
+--- Achado "Icon consistency" (minor) ---
+Problema: o item de navegação "Estudos" era o único do menu principal
+sem ícone — "Administração" e "Financeiro" já usavam ícone + texto.
+Arquivo: client/src/pages/PacsQueryPage.tsx (~linha 2150)
+Fix: adicionado o ícone <Clipboard> (já importado no arquivo, usado em
+outros botões análogos) ao botão "Estudos", mesmo padrão dos outros
+itens do menu.
+
+--- Achado "Hierarchy" (major) ---
+Problema: o botão "Ver exames de hoje", exibido no estado vazio de
+resultados, usava estilo "ghost" de baixa ênfase (borda cinza clara),
+sem nenhuma relação visual com o filtro de período "Hoje" que ele
+ativa ao ser clicado (o filtro "Hoje" ativo usa bg-amber-700).
+Arquivo: client/src/pages/PacsQueryPage.tsx (~linha 2335)
+Fix: alterado para o mesmo estilo sólido do filtro "Hoje" ativo
+(bg-amber-700 text-white border-amber-700), criando o vínculo visual
+direto que o relatório recomendou.
+
+--- Achado "Spacing & alignment" (minor) ---
+Problema: o nome da unidade, no header, ficava "órfão" — sem vínculo
+visual claro com o logo ou com a navegação. Causa raiz: o header usava
+um único flex `justify-between` com 4 filhos irmãos (logo, unitSlot,
+nav, bloco direito); com 4 itens espalhados por justify-between, o
+nome da unidade fica visualmente desancorado.
+Arquivo: client/src/components/AppHeader.tsx (~linha 70)
+Fix: logo e unitSlot foram agrupados dentro de um único contêiner flex
+(`<div className="flex items-center gap-3">`), reduzindo de 4 para 3
+grupos no justify-between externo e ancorando visualmente o nome da
+unidade ao logo.
+
+--- Achado "Targets / Readability" (minor) ---
+Problema: o campo de busca por nome de paciente tinha 176px de largura
+(classe w-44), estreito o suficiente para cortar nomes de pacientes
+durante a digitação. O relatório recomendou >= 300px.
+Arquivo: client/src/pages/PacsQueryPage.tsx (~linha 2197)
+Fix: w-44 → w-[300px].
+
+====================================================================
+3. VALIDAÇÃO
+====================================================================
+- pnpm check (tsc --noEmit): OK, sem erros.
+- TZ=UTC pnpm test: 757 passed | 11 failed | 1 skipped (769 total).
+  As 11 falhas são PRÉ-EXISTENTES em origin/main (confirmado rodando a
+  suíte com `git stash` nos 2 arquivos alterados — as mesmas 11 falhas
+  aparecem sem minhas mudanças). Nenhuma falha nova foi introduzida.
+  As 11 falhas pré-existentes dependem de banco de dados real
+  (indisponível no sandbox) — não relacionadas a este trabalho.
+- pnpm build: OK, build de produção gerado sem erros
+  (dist/index.js 696.4kb, client bundle gerado normalmente).
+- Novo arquivo de teste: server/usabilidade-floto-audit.test.ts
+  (4 testes, um por achado corrigido). Confirmei que os 4 testes
+  FALHAM contra o código sem a correção (via `git stash` nos 2
+  arquivos de origem, mantendo o teste) e PASSAM com a correção
+  aplicada — não são testes "sempre verdes".
+
+====================================================================
+4. ACHADOS *NÃO* CORRIGIDOS NESTA BRANCH (decisão deliberada)
+====================================================================
+
+--- Achado "Uppercase text" (minor) ---
+O relatório aponta um texto de 19 caracteres totalmente em maiúsculas
+("HOSPITAL DA CRIANÇA") como um problema de legibilidade. Investiguei:
+não é CSS forçando uppercase — é o nome real da unidade vindo direto
+do banco (`unitName = unitData?.name`), ou seja, dado de negócio real,
+não um bug de código. Decidi não alterar unilateralmente a
+apresentação/capitalização do nome de uma unidade cliente sem decisão
+do Alessandro. Ele foi avisado desta decisão na conversa.
+
+--- Achado "Button style consistency" (major) ---
+O relatório aponta ~8 estilos de botão distintos na aplicação,
+recomendando consolidar para <=5. Este é um achado amplo e vago (não
+especifica quais 8, nem quais manter) que implicaria um refactor de
+sistema de botões em escala — potencialmente app-wide, com risco e
+superfície de mudança consideravelmente maiores que os outros 5
+achados. Não implementado nesta branch; requer decisão de escopo do
+Alessandro (consolidação só na página PACS vs. app-wide) antes de ser
+iniciado como trabalho separado.
+
+====================================================================
+5. ESTADO ATUAL
+====================================================================
+Branch criada a partir de origin/main (fetch confirmado antes de
+ramificar). Commit único com as 4 correções + teste de regressão.
+Nenhum merge, deploy, ou migration foi executado — apenas trabalho de
+branch, conforme o acordo de fluxo Claude/Manus.

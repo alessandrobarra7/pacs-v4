@@ -70,34 +70,43 @@ export function AppHeader({ nav, rightSlot, unitSlot, mobileUnitLabel, mobileUni
 
       {/* ── Conteúdo (relativo para ficar sobre o fundo) ── */}
       <div className="relative z-10 flex items-center justify-between w-full h-full">
-        {/* ── Logo clicável ── */}
-        <button
-          onClick={() => navigate("/pacs-query")}
-          className="flex items-center gap-3 hover:opacity-90 transition-opacity focus:outline-none"
-          title="Ir para listagem de exames"
-        >
-          <img
-            src={LOGO_URL}
-            alt="Lauds"
-            className="h-16 w-16 md:h-[100px] md:w-auto object-contain drop-shadow-lg"
-          />
-          <div className="hidden md:flex flex-col">
-            <span className="text-white font-semibold text-base tracking-wide leading-tight drop-shadow">
-              Lauds - Sistema de Laudos
-            </span>
-            <span className="text-cyan-300/80 text-xs tracking-widest uppercase mt-0.5">
-              Plataforma PACS
-            </span>
-          </div>
-        </button>
+        {/* ── Logo + unidade, agrupados — CORREÇÃO (auditoria claude/usabilidade-floto-
+            pagina-principal, 2026-10-10): antes, o logo e o nome da unidade eram dois
+            itens irmãos separados dentro do flex `justify-between` do header, junto com
+            nav e o bloco da direita — com 4 itens espalhados por justify-between, o nome
+            da unidade ficava sem vínculo visual claro com o logo (relatório de auditoria
+            Floto, achado "Spacing & alignment": nome da unidade "órfão", header
+            fragmentado). Agrupar logo+unidade num único contêiner flex faz o nome ficar
+            visualmente ancorado ao logo, como o relatório recomendou. ── */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate("/pacs-query")}
+            className="flex items-center gap-3 hover:opacity-90 transition-opacity focus:outline-none"
+            title="Ir para listagem de exames"
+          >
+            <img
+              src={LOGO_URL}
+              alt="Lauds"
+              className="h-16 w-16 md:h-[100px] md:w-auto object-contain drop-shadow-lg"
+            />
+            <div className="hidden md:flex flex-col">
+              <span className="text-white font-semibold text-base tracking-wide leading-tight drop-shadow">
+                Lauds - Sistema de Laudos
+              </span>
+              <span className="text-cyan-300/80 text-xs tracking-widest uppercase mt-0.5">
+                Plataforma PACS
+              </span>
+            </div>
+          </button>
 
-        {/* Separador + seletor de unidade */}
-        {unitSlot && (
-          <div className="hidden md:flex items-center gap-2">
-            <div className="w-px h-6 bg-white/20 mx-1" />
-            {unitSlot}
-          </div>
-        )}
+          {/* Separador + seletor de unidade */}
+          {unitSlot && (
+            <div className="hidden md:flex items-center gap-2">
+              <div className="w-px h-6 bg-white/20 mx-1" />
+              {unitSlot}
+            </div>
+          )}
+        </div>
 
         {/* ── Navegação central ── */}
         {nav && <nav className="hidden md:flex items-center gap-1">{nav}</nav>}

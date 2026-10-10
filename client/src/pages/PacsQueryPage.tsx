@@ -2143,7 +2143,13 @@ setSelectedStudy(study);
         }
         nav={
           <>
-            <button className="px-4 py-1.5 rounded text-sm font-semibold bg-amber-700 text-white">
+            {/* CORREÇÃO (auditoria claude/usabilidade-floto-pagina-principal, 2026-10-10):
+                "Estudos" era o único item do menu sem ícone (Administração e Financeiro já
+                tinham), criando ritmo visual desigual (achado "Consistency" do relatório
+                Floto). Adicionado o mesmo ícone usado nos outros atalhos de estudos/laudos
+                desta página (Clipboard), com os mesmos gap/tamanho dos demais itens. */}
+            <button className="px-4 py-1.5 rounded text-sm font-semibold bg-amber-700 text-white flex items-center gap-1.5">
+              <Clipboard className="h-3.5 w-3.5" />
               Estudos
             </button>
             {isAdmin && (
@@ -2181,6 +2187,10 @@ setSelectedStudy(study);
       <Dialog open={calendarOpen} onOpenChange={handleCalendarDialogChange}>
       <div className="hidden md:flex bg-white border-b border-gray-200 px-5 py-2.5 items-center gap-3 shrink-0">
         {/* Busca por nome */}
+        {/* CORREÇÃO (auditoria claude/usabilidade-floto-pagina-principal, 2026-10-10):
+            campo de busca estava com w-44 (176px), estreito a ponto de cortar nomes de
+            pacientes durante a digitação (achado "Targets/Readability" do relatório Floto,
+            que recomendou >= 300px). Ampliado para w-[300px]. */}
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
           <input
@@ -2188,7 +2198,7 @@ setSelectedStudy(study);
             value={filters.patientName}
             onChange={(e) => setFilters((f: typeof filters) => ({ ...f, patientName: e.target.value }))}
             onKeyDown={(e) => e.key === 'Enter' && runQuery()}
-            className="h-8 pl-8 pr-3 text-sm border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-600 w-44"
+            className="h-8 pl-8 pr-3 text-sm border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-600 w-[300px]"
           />
         </div>
         {/* Separador */}
@@ -2323,9 +2333,15 @@ setSelectedStudy(study);
             <Search className="h-10 w-10 mb-3 opacity-30" />
             <p className="text-sm">{isQuerying ? 'Buscando estudos...' : 'Nenhum estudo encontrado'}</p>
             {!isQuerying && (
+              // CORREÇÃO (auditoria claude/usabilidade-floto-pagina-principal, 2026-10-10):
+              // estilo "ghost" (cinza claro) não dava nenhum destaque ao único próximo passo
+              // disponível no estado vazio, nem se relacionava visualmente com o filtro "Hoje"
+              // que ele ativa (achado "Hierarchy" do relatório Floto). Agora usa o mesmo
+              // estilo do filtro "Hoje" ativo (bg-amber-700), criando o vínculo visual direto
+              // que o relatório recomendou.
               <button
                 onClick={() => handlePeriodChange('today')}
-                className="mt-3 px-3 py-1.5 rounded text-xs border border-gray-300 text-gray-600 hover:bg-gray-50"
+                className="mt-3 px-4 py-2 rounded text-sm font-medium bg-amber-700 text-white border border-amber-700 hover:bg-amber-800 transition-colors"
               >
                 Ver exames de hoje
               </button>
