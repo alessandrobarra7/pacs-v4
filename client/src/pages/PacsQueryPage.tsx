@@ -2333,8 +2333,16 @@ setSelectedStudy(study);
           </div>
         ) : (
           <>
-          <div className="hidden md:block">
-          <table className="w-full text-sm border-collapse">
+          {/* CORREÇÃO (auditoria claude/responsividade-tabela-estudos-telas-estreitas, 2026-10-10):
+              a tabela usava `w-full` (nunca ultrapassa 100% do container), então em telas
+              mais estreitas que a do Alessandro o navegador comprimia/cortava colunas em vez
+              de rolar horizontalmente — reportado com print real mostrando a coluna "Status"
+              cortada na borda direita e o nome do paciente quebrando em várias linhas. Trocado
+              para `min-w-[1100px]` dentro de um contêiner com rolagem horizontal própria
+              (`overflow-x-auto`), para que a tabela nunca fique mais estreita que o necessário
+              para suas colunas — ela rola, não espreme o conteúdo. */}
+          <div className="hidden md:block overflow-x-auto">
+          <table className="min-w-[1100px] text-sm border-collapse">
             <thead>
               <tr
                 className="text-xs uppercase tracking-wider text-gray-500 border-b border-gray-200 sticky top-0 z-10"
