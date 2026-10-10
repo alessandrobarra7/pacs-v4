@@ -3156,8 +3156,39 @@ export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: n
       const responsible = await getActiveResponsibleForUnit(unitId, now);
       if (responsible) {
         // Usar financial_responsible_id (ID do responsável), não id (ID da linha na tabela)
+        // CORREÇÃO (auditoria claude/corrige-banner-financeiro-preco-modalidade, 2026-10-10):
+        // getActiveDoctorPrice só consulta billing_doctor_modality_prices quando recebe
+        // o 5º argumento `modality` — aqui ele nunca é passado, então essa chamada só
+        // enxerga o preço PADRÃO da unidade (billing_doctor_unit_prices). Um médico que
+        // só tem preço configurado POR MODALIDADE (sem nenhum padrão de unidade) fazia
+        // esta função concluir price_per_report = null, e o banner financeiro da página
+        // principal (FinancialBanner em PacsQueryPage.tsx) mostrava "Esta unidade ainda
+        // não possui configuração de preço para laudos" mesmo havendo preço ativo — a
+        // tela "Meu Financeiro" (myModalityPrices) usa outra query que consulta
+        // billing_doctor_modality_prices diretamente, por isso lá o valor aparecia
+        // certo. Este banner não é específico de um exame/modalidade (é um resumo geral
+        // do médico na unidade), então o critério correto para "existe configuração" é:
+        // preço padrão da unidade OU qualquer preço por modalidade ativo.
         const doctorPrice = await getActiveDoctorPrice(responsible.financial_responsible_id, unitId, doctorUserId, now);
         price_per_report = doctorPrice?.price_per_report ?? null;
+
+        if (price_per_report === null) {
+          const anyModalityPrice = await db
+            .select({ price_per_report: billing_doctor_modality_prices.price_per_report })
+            .from(billing_doctor_modality_prices)
+            .where(and(
+              eq(billing_doctor_modality_prices.doctor_user_id, doctorUserId),
+              eq(billing_doctor_modality_prices.unit_id, unitId),
+              lte(billing_doctor_modality_prices.starts_at, now),
+              or(
+                isNull(billing_doctor_modality_prices.ends_at),
+                gte(billing_doctor_modality_prices.ends_at, now),
+              ),
+            ))
+            .orderBy(desc(billing_doctor_modality_prices.starts_at))
+            .limit(1);
+          price_per_report = anyModalityPrice[0]?.price_per_report ?? null;
+        }
       }
     } catch (priceErr) {
       console.error('[getDoctorUnitFinancialInfo] Erro ao buscar preço:', priceErr);
