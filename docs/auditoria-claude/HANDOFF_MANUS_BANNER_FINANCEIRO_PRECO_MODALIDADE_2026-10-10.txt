@@ -1,0 +1,196 @@
+HANDOFF MANUS — Banner financeiro da página principal ignorava preço por
+modalidade do médico
+Projeto: PACS Portal / LAUDS
+Repositório: alessandrobarra7/pacs-v4
+Branch: claude/corrige-banner-financeiro-preco-modalidade
+Commit base: 806b38268703b5a92b428806fbebca1a8e44451e (origin/main)
+Commit topo: 8eade7aa20aee0da2240be517be33f3d32b7580d
+Destinatário: Manus (e qualquer outro agente/engenheiro com acesso à(s) VM(s)
+de produção)
+Data: 2026-10-10
+
+────────────────────────────────────────────────────────────────────────────
+1. COMO CHEGAR NO CÓDIGO REAL
+────────────────────────────────────────────────────────────────────────────
+
+  git fetch origin
+  git checkout claude/corrige-banner-financeiro-preco-modalidade
+  git diff 806b38268703b5a92b428806fbebca1a8e44451e..HEAD
+
+O diff toca apenas:
+  - server/db.ts (getDoctorUnitFinancialInfo — 31 linhas adicionadas, nenhuma
+    removida)
+  - server/doctor-financial-banner-modality-price-fallback.test.ts (novo)
+
+Nenhuma migration, nenhuma mudança de schema, nenhuma mudança de dado em
+produção é necessária para esta correção — é puramente lógica de leitura.
+
+────────────────────────────────────────────────────────────────────────────
+2. O MECANISMO DO PROBLEMA
+────────────────────────────────────────────────────────────────────────────
+
+Relato do Alessandro: logado como o médico "gian carvalho" (id 268, unidade
+Hospital da Criança / unit_id 20), a página principal (worklist) mostrava o
+banner:
+
+  "Esta unidade ainda não possui configuração de preço para laudos.
+   Contate o administrador."
+
+mesmo o médico já tendo assinado um laudo (CR) recentemente. Ao entrar na
+tela "Meu Financeiro" (/financeiro/meu-financeiro), o mesmo laudo e o valor
+apareciam corretamente — ou seja, duas telas do mesmo sistema, para o mesmo
+médico/unidade, discordavam sobre se existe ou não preço configurado.
+
+Reprodução: autenticado como esse médico (sessão real do Alessandro), chamei
+financeSimple.getUnitFinancialInfo({unit_id: 20}) e o retorno foi:
+
+  { status: "ok", price_per_report: null, cycle_visits: 0,
+    cycle_amount: "0.00", cycle_period: null, has_open_cycle: false }
+
+price_per_report: null é o que faz o FinancialBanner (client/src/pages/
+PacsQueryPage.tsx) cair no ESTADO 4 ("Sem configuração de preço para esta
+unidade") e exibir a mensagem acima — esse componente não olha nenhum outro
+campo, só a nulidade de price_per_report.
+
+Causa raiz, em server/db.ts, função getDoctorUnitFinancialInfo (que alimenta
+financeSimple.getUnitFinancialInfo):
+
+  const doctorPrice = await getActiveDoctorPrice(
+    responsible.financial_responsible_id, unitId, doctorUserId, now
+  );
+  price_per_report = doctorPrice?.price_per_report ?? null;
+
+getActiveDoctorPrice tem hierarquia de fallback documentada no próprio
+JSDoc (linhas ~1792-1798 antes da correção):
+  1. billing_doctor_modality_prices (preço por modalidade específica) — SÓ
+     é consultado se o 5º parâmetro `modality` for passado e não-vazio.
+  2. billing_doctor_unit_prices (preço padrão do médico na unidade) —
+     fallback sempre consultado.
+
+A chamada em getDoctorUnitFinancialInfo NUNCA passa `modality` (só 4
+argumentos). Então, na prática, essa chamada específica só enxerga o preço
+PADRÃO da unidade — nunca o preço por modalidade, mesmo que este exista e
+esteja ativo.
+
+Confirmado com Alessandro (ele checou pela tela Financeiro → Configuração →
+Hospital da Criança → preços do médico Gian Carvalho): SIM, existe preço
+configurado para esse médico, mas apenas por modalidade (CR), sem nenhum
+preço padrão de unidade cadastrado para ele. Isso bate exatamente com o
+comportamento do bug.
+
+Por que "Meu Financeiro" mostrava certo: essa tela usa uma query diferente,
+financeSimple.myModalityPrices (server/routers/financeSimple.ts, linha
+~1695), que consulta billing_doctor_modality_prices DIRETAMENTE (sem passar
+por getActiveDoctorPrice), então sempre viu o preço por modalidade
+corretamente. As duas telas usam caminhos de código diferentes para a mesma
+pergunta de negócio ("este médico tem preço configurado nesta unidade?") —
+isso é a inconsistência de fundo.
+
+────────────────────────────────────────────────────────────────────────────
+3. O MECANISMO DA CORREÇÃO
+────────────────────────────────────────────────────────────────────────────
+
+Em getDoctorUnitFinancialInfo, depois da chamada original a
+getActiveDoctorPrice (que continua existindo e checando o preço padrão da
+unidade primeiro — isso é correto, pois um preço padrão também deve contar
+como "configurado"), adicionamos:
+
+  if (price_per_report === null) {
+    const anyModalityPrice = await db
+      .select({ price_per_report: billing_doctor_modality_prices.price_per_report })
+      .from(billing_doctor_modality_prices)
+      .where(and(
+        eq(billing_doctor_modality_prices.doctor_user_id, doctorUserId),
+        eq(billing_doctor_modality_prices.unit_id, unitId),
+        lte(billing_doctor_modality_prices.starts_at, now),
+        or(
+          isNull(billing_doctor_modality_prices.ends_at),
+          gte(billing_doctor_modality_prices.ends_at, now),
+        ),
+      ))
+      .orderBy(desc(billing_doctor_modality_prices.starts_at))
+      .limit(1);
+    price_per_report = anyModalityPrice[0]?.price_per_report ?? null;
+  }
+
+Ou seja: só quando não existe preço padrão de unidade, a função agora também
+checa se existe QUALQUER preço por modalidade ativo (não uma modalidade
+específica — este banner não sabe qual exame o médico vai laudar a seguir,
+é um resumo geral do médico na unidade) antes de concluir que não há
+configuração nenhuma.
+
+Importante: price_per_report NÃO é exibido como valor numérico para o
+médico neste banner (conferido em PacsQueryPage.tsx — a FinancialSummaryLine
+do role 'medico' mostra Ciclo/Assinados/Receber, nunca o preço por laudo em
+si). Ele é usado só como gate booleano (null → mensagem de erro; não-null →
+mostra o resumo do ciclo). Por isso usar o primeiro preço por modalidade
+encontrado como "representante" de que existe configuração é seguro — não
+há risco de mostrar um valor errado em lugar nenhum da UI.
+
+A query do ciclo aberto (billing_visit_events / billing_catalog_study_events)
+não foi alterada — ela já soma eventos de ambas as fontes e já estava
+correta, como aliás o próprio retorno reproduzido mostra (cycle_visits: 0
+porque não há ciclo "doctor" aberto nessa unidade agora, o que é uma questão
+separada, de configuração de ciclo, não desta correção).
+
+────────────────────────────────────────────────────────────────────────────
+4. VALIDAÇÃO JÁ EXECUTADA
+────────────────────────────────────────────────────────────────────────────
+
+- pnpm check (tsc --noEmit): 0 erros.
+
+- Teste de regressão novo, server/doctor-financial-banner-modality-price-
+  fallback.test.ts: PASSA com a correção. Revertido temporariamente
+  server/db.ts (git stash) para confirmar que o teste FALHA sem a correção
+  (assert em "if (price_per_report === null) {" e no bloco de
+  billing_doctor_modality_prices), depois restaurado — teste volta a
+  passar. Este sandbox não tem DATABASE_URL configurado, então o teste
+  segue o mesmo padrão já usado em server/competence-vigency.test.ts para
+  código dependente de banco: verifica a presença do fallback correto no
+  código-fonte da função, em vez de rodar contra um banco real.
+
+- TZ=UTC pnpm test (suíte completa): 754 passed, 1 skipped, 11 failed.
+  As 11 falhas são TODAS pré-existentes, em arquivos completamente não
+  relacionados a esta correção:
+    server/exam-catalog-security.test.ts (1)
+    server/finance-v2-dashboard.test.tsx (2)
+    server/mediaProxy.test.ts (1)
+    server/pacs-desktop-download-progress.test.ts (1)
+    server/pacs.mobile-ui.test.ts (1)
+    server/security.auth.test.ts (1)
+    server/study-priority-ui.test.ts (4)
+  Nenhuma falha em db.ts, financeSimple.ts, ou qualquer arquivo financeiro.
+  git diff --stat confirma que só server/db.ts foi modificado (+ o teste
+  novo) — nenhum desses 7 arquivos faz parte do diff desta branch.
+
+- pnpm build: concluído sem erros (vite build + esbuild do servidor).
+
+────────────────────────────────────────────────────────────────────────────
+5. FORA DO ESCOPO DESTA CORREÇÃO (decisão/observação para registro)
+────────────────────────────────────────────────────────────────────────────
+
+- A divergência arquitetural entre getActiveDoctorPrice (usado pelo banner
+  e por outros fluxos de faturamento) e myModalityPrices (usado só pela
+  tela "Meu Financeiro") permanece: são duas consultas independentes para
+  perguntas de negócio relacionadas. Esta correção fecha o sintoma
+  reportado (o banner da página principal) sem unificar as duas consultas
+  — uma unificação maior tocaria o motor de faturamento por catálogo
+  (getActiveDoctorPrice é usado também em createBillingEventForStudy, ver
+  server/db.ts linha ~2679) e está fora do escopo de um bug de exibição.
+  Registro aqui para que não seja assumido como já resolvido se aparecer
+  uma inconsistência parecida em outro lugar.
+
+- O ciclo "doctor" (billing_cycles, cycle_type='doctor') não está aberto
+  para a unidade Hospital da Criança no momento da reprodução
+  (has_open_cycle: false), então mesmo após esta correção o banner mostrará
+  Assinados: 0 / Receber: R$ 0,00 até que um ciclo esteja aberto — isso é
+  esperado e não faz parte do bug relatado (o bug era só a mensagem de
+  "sem configuração de preço").
+
+────────────────────────────────────────────────────────────────────────────
+6. ESTADO ATUAL
+────────────────────────────────────────────────────────────────────────────
+
+Branch publicada no GitHub (claude/corrige-banner-financeiro-preco-
+modalidade), sem PR aberto, sem merge em main, nada implantado em nenhuma
+VM. Decisão de merge/deploy é do Alessandro e/ou da Manus.
