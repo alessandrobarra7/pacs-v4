@@ -1,0 +1,190 @@
+HANDOFF TÉCNICO — PACS Portal / LAUDS
+Destinatário: Manus (acesso real às VMs de produção), e qualquer outro agente/engenheiro com acesso ao repositório.
+Autor: Claude (sandbox, sem acesso a produção).
+Projeto/repositório: alessandrobarra7/pacs-v4
+Branch: claude/modal-compor-exames-estudo-20261010
+Commit base: 806b38268703b5a92b428806fbebca1a8e44451e (origin/main)
+Commit topo: a40b1e02f5b9f3fb96f48aa326cfe91ea6a97e46
+Data: 2026-10-10
+
+============================================================
+1. COMO CHEGAR NO CÓDIGO REAL
+============================================================
+
+  git fetch origin
+  git checkout claude/modal-compor-exames-estudo-20261010
+  git diff 806b38268703b5a92b428806fbebca1a8e44451e..HEAD
+
+Dois arquivos alterados:
+  client/src/pages/PacsQueryPage.tsx     (componente StudyLegendPicker)
+  server/exam-legend-modal-ui.test.ts    (3 novos casos de teste)
+
+Nenhuma migration, nenhuma mudança de schema, nenhuma mudança de endpoint
+tRPC. É uma correção de UI pura, sem efeito colateral em dado nem em
+contrato de API.
+
+============================================================
+2. O MECANISMO DO PROBLEMA
+============================================================
+
+Relato original do Alessandro (com captura de tela em anexo à conversa):
+ao clicar em "Compor exames do estudo" num estudo qualquer, a primeira
+tela do modal mostrava um único azulejo ("CR — 43 exames disponíveis", no
+caso do print) dentro de um grid pensado para até 4 colunas
+(`grid-cols-2 gap-3 p-5 sm:grid-cols-4`), deixando a maior parte do modal
+como espaço vazio. O Alessandro sugeriu trocar o modal por uma "janela
+flutuante" para resolver esse espaço vazio.
+
+Investigação no código real (não assumi a causa pela descrição — fui
+confirmar):
+
+  client/src/pages/PacsQueryPage.tsx, componente StudyLegendPicker:
+
+    const LEGEND_MODAL_MODALITIES = [
+      { value: "CT", label: "CT" },
+      { value: "MR", label: "RM" },
+      { value: "CR", label: "CR" },
+      { value: "US", label: "US" },
+    ] as const;
+    ...
+    const studyModality = normalizeDicomModality(study.modality);
+    const allowedModalities = LEGEND_MODAL_MODALITIES.filter(
+      (modality) => modality.value === studyModality
+    );
+
+  O grid "Escolha a modalidade" renderiza `allowedModalities.map(...)`.
+
+  shared/modality.ts:
+
+    /**
+     * Retorna a modalidade única aceita pelo Portal para um estudo.
+     * Estudos sem modalidade ou com múltiplas modalidades são negados para
+     * nova composição, pois a regra de negócio atual exige uma única
+     * modalidade.
+     */
+    export function getSingleStudyModality(value: unknown): string | null {
+      const normalized = normalizeDicomModality(value);
+      if (!normalized || /[\\,;|/]/.test(normalized)) return null;
+      return normalized;
+    }
+
+  O comentário do próprio código já documenta a regra: um estudo NUNCA tem
+  mais de uma modalidade DICOM válida no sistema hoje. Como
+  `LEGEND_MODAL_MODALITIES` tem 4 valores distintos e o filtro é por
+  igualdade exata contra essa única modalidade do estudo, `allowedModalities`
+  SEMPRE resulta em 0 ou 1 item — nunca mais. Confirmado também no servidor:
+  `server/routers/studyExamLegend.ts`, `listForStudy`, usa
+  `eq(exam_legends.modality, studyModality)` com `studyModality` resolvido
+  por `resolveStudyModality` a partir do mesmo princípio de modalidade única.
+
+  Conclusão: a tela "Escolha a modalidade" (que existe só para o caso em
+  que mais de uma modalidade seria elegível) era estruturalmente morta no
+  fluxo normal do sistema — na prática, 100% das aberturas do modal caem
+  no caso allowedModalities.length === 1, forçando o usuário a ver um
+  grid de 4 colunas quase vazio e clicar no único azulejo antes de chegar
+  na lista de exames que ele realmente queria ver.
+
+  Não é um bug de lógica (a filtragem está correta, a modalidade exibida
+  sempre bate com o estudo) — é uma etapa de interação redundante que
+  sobra do desenho original do componente, provavelmente pensado para um
+  cenário de múltiplas modalidades por estudo que a regra de negócio atual
+  (getSingleStudyModality) explicitamente não permite.
+
+============================================================
+3. O MECANISMO DA CORREÇÃO
+============================================================
+
+Em vez de remover a tela "Escolha a modalidade" (ela ainda é necessária
+para o caso allowedModalities.length === 0, i.e. modalidade do estudo fora
+de CT/MR/CR/US, que mostra "A modalidade deste estudo não está disponível
+para composição clínica."), o componente passou a pular essa tela
+automaticamente quando há exatamente uma modalidade permitida — que é o
+caso normal hoje.
+
+Mudança 1 — studyModality/allowedModalities calculados ANTES de openModal
+(antes, só eram calculados mais abaixo no corpo do componente, depois de
+openModal já estar definido):
+
+  const studyModality = normalizeDicomModality(study.modality);
+  const allowedModalities = LEGEND_MODAL_MODALITIES.filter((modality) => modality.value === studyModality);
+  const closeModal = () => { ... };
+  const openModal = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    setDraftLegendIds(selections.map((selection) => selection.exam_legend_id));
+    // Pula direto para a lista de exames quando há exatamente uma modalidade
+    // permitida (o caso normal), evitando a tela intermediária quase vazia.
+    setSelectedModality(allowedModalities.length === 1 ? allowedModalities[0].value : null);
+    setIsOpen(true);
+  };
+
+Mudança 2 — os dois botões "Voltar" (seta no cabeçalho e botão no rodapé)
+só aparecem quando allowedModalities.length > 1 — com 0 ou 1 modalidade
+permitida não há sentido em "voltar" para uma tela de escolha que não
+oferece escolha nenhuma:
+
+  {selectedModality && allowedModalities.length > 1 && <button ... aria-label="Voltar para modalidades">...}
+  ...
+  {allowedModalities.length > 1 && <button ... disabled={!selectedModality}>Voltar</button>}
+
+O caso de 0 modalidades (edge case) permanece intacto: a tela "Escolha a
+modalidade" ainda renderiza, e a mensagem "A modalidade deste estudo não
+está disponível para composição clínica." continua lá, sem alteração.
+
+Resultado visual esperado: abrir o modal num estudo CR/CT/MR/US vai direto
+para "Exames cadastrados · <MODALIDADE>" com a barra de busca e a lista —
+sem o clique extra no azulejo único nem o espaço vazio relatado.
+
+============================================================
+4. VALIDAÇÃO JÁ EXECUTADA
+============================================================
+
+- pnpm check (tsc --noEmit): limpo, sem erros.
+
+- TZ=UTC pnpm test (suíte completa, 768 testes em 133 arquivos):
+  126 arquivos passaram, 7 falharam, 756 testes passaram, 11 falharam,
+  1 skipped. As 7 suítes e os 11 casos que falham são EXATAMENTE os
+  mesmos, com o mesmo texto de asserção, rodando a suíte ANTES deste
+  commit (git stash do arquivo alterado) e DEPOIS — confirmado rodando as
+  duas vezes e comparando a lista de nomes de teste, não só a contagem.
+  Arquivos da linha de base pré-existente (não relacionados a esta
+  correção): server/exam-catalog-security.test.ts,
+  server/finance-v2-dashboard.test.tsx, server/mediaProxy.test.ts,
+  server/pacs-desktop-download-progress.test.ts,
+  server/pacs.mobile-ui.test.ts, server/security.auth.test.ts,
+  server/study-priority-ui.test.ts. Nenhuma falha nova.
+
+- server/exam-legend-modal-ui.test.ts (suíte específica deste modal):
+  10/10 passando (7 testes pré-existentes intactos + 3 novos casos desta
+  correção). Os 3 novos casos foram provados como teste de regressão real:
+  rodei a mesma suíte com o PacsQueryPage.tsx revertido (git stash) e 2 dos
+  3 casos novos falharam como esperado, confirmando que o teste de fato
+  verifica o comportamento corrigido e não é um "falso positivo".
+
+- pnpm build: build de produção (vite + esbuild) concluído sem erros.
+
+============================================================
+5. FORA DE ESCOPO (decisão do Alessandro, não implementada aqui)
+============================================================
+
+O Alessandro sugeriu, no mesmo relato, substituir o modal centralizado
+atual (overlay + diálogo fixo no centro da tela, `max-w-2xl`) por uma
+"janela flutuante". Isso NÃO foi implementado nesta correção, por ser uma
+mudança de paradigma de interação (não só de tamanho/espaçamento):
+precisaria decidir se a janela é arrastável, redimensionável, se pode ficar
+aberta enquanto o usuário interage com o resto da tela, se podem existir
+várias abertas ao mesmo tempo (uma por estudo?), e isso tem implicações de
+acessibilidade (foco, teclado, `aria-modal`) que o modal atual já resolve
+corretamente. Como a causa raiz do espaço vazio relatado era a tela de
+modalidade redundante (não o paradigma modal-vs-janela em si), a correção
+aplicada resolve o sintoma relatado sem essa mudança maior. Se o Alessandro
+quiser seguir com a ideia de janela flutuante depois de ver o resultado
+desta correção, é um pedido de produto separado, a ser desenhado à parte.
+
+============================================================
+6. ESTADO ATUAL
+============================================================
+
+Publicado apenas localmente no branch claude/modal-compor-exames-estudo-20261010
+deste sandbox até o momento de escrita deste handoff. Sem PR, sem merge em
+main, nada implantado em VM1/VM2/VM3. Push para o GitHub e decisão de
+merge ficam a critério do Alessandro / Manus, conforme o fluxo combinado.
