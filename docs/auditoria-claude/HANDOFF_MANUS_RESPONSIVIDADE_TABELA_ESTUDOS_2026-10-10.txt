@@ -1,0 +1,138 @@
+HANDOFF MANUS — Tabela de estudos sem rolagem horizontal em telas estreitas
+Projeto: PACS Portal / LAUDS
+Repositório: alessandrobarra7/pacs-v4
+Branch: claude/responsividade-tabela-estudos-telas-estreitas
+Commit base: 806b38268703b5a92b428806fbebca1a8e44451e (origin/main)
+Commit topo: 99ccd361f17e127c59883f1cab2fe6c85054cb10
+Destinatário: Manus (e qualquer outro agente/engenheiro com acesso à(s) VM(s)
+de produção)
+Data: 2026-10-10
+
+────────────────────────────────────────────────────────────────────────────
+1. COMO CHEGAR NO CÓDIGO REAL
+────────────────────────────────────────────────────────────────────────────
+
+  git fetch origin
+  git checkout claude/responsividade-tabela-estudos-telas-estreitas
+  git diff 806b38268703b5a92b428806fbebca1a8e44451e..HEAD
+
+Toca apenas:
+  - client/src/pages/PacsQueryPage.tsx (2 linhas de className alteradas +
+    comentário explicativo)
+  - server/pacs.mobile-ui.test.ts (1 asserção atualizada para o novo
+    className esperado)
+
+Nenhuma migration, nenhuma mudança de schema ou de dado em produção.
+
+────────────────────────────────────────────────────────────────────────────
+2. O MECANISMO DO PROBLEMA
+────────────────────────────────────────────────────────────────────────────
+
+Relato do Alessandro: enviou a página para um colega com resolução/tamanho
+de tela diferente e "tudo ficou feio e sem proporção" na tela do colega.
+Ele enviou um print real do próprio Windows mostrando o navegador ocupando
+só a metade esquerda da tela (compartilhando espaço com o painel do
+Cowork) — e nesse print já dava para confirmar visualmente:
+  - a coluna "Status" (mais à direita da tabela de estudos) aparecia
+    cortada na borda da janela, mostrando só "Pende" e "Assin" em vez de
+    "Pendente"/"Assinado";
+  - o nome da paciente "MARIA JOSE RIBEIRO DO ESPIRITO SANTO" quebrava em
+    4 linhas dentro da célula, desalinhando a altura da linha da tabela.
+
+Causa raiz, em client/src/pages/PacsQueryPage.tsx: a tabela desktop de
+estudos (~linha 2337, antes da correção) usava:
+
+  <div className="hidden md:block">
+  <table className="w-full text-sm border-collapse">
+
+`w-full` trava a largura da tabela em exatamente 100% do contêiner pai —
+ela NUNCA pode ultrapassar esse limite. O contêiner ancestral (`<div
+className="flex-1 overflow-auto">`, bem acima na árvore) até tem
+`overflow-auto`, mas como a tabela em si nunca tenta ser mais larga que
+o espaço disponível, o navegador nunca tem motivo para acionar rolagem
+horizontal — em vez disso, ele distribui o espaço entre as colunas,
+comprimindo as de largura fixa (Status `w-40`=160px, Prioridade clínica
+`w-44`=176px, Idade `w-16`=64px, mais 6 colunas de ícone `w-10`=40px
+cada) e deixando a coluna "Paciente" (sem largura fixa, pensada para
+crescer) absorver toda a pressão via quebra de texto em várias linhas —
+e mesmo assim, em janelas realmente estreitas, o conteúdo das colunas
+fixas da direita acaba sendo cortado pela borda da viewport porque o
+`<table>` com `border-collapse` e larguras somadas maiores que o espaço
+disponível não garante que cada `<th>`/`<td>` respeite sua largura mínima
+nominal quando o total excede o container.
+
+────────────────────────────────────────────────────────────────────────────
+3. O MECANISMO DA CORREÇÃO
+────────────────────────────────────────────────────────────────────────────
+
+  <div className="hidden md:block overflow-x-auto">
+  <table className="min-w-[1100px] text-sm border-collapse">
+
+- `min-w-[1100px]`: a tabela agora tem uma largura MÍNIMA (não mais um
+  teto de 100%). 1100px é a soma aproximada das larguras fixas das
+  colunas (Data 112 + Prioridade 176 + Idade 64 + 6×ícone 240 + Status
+  160 = 752px) mais uma folga para as colunas "Paciente" e "Exame" (que
+  não têm largura fixa) não ficarem espremidas.
+- `overflow-x-auto` no contêiner imediato: agora que a tabela PODE ser
+  mais larga que o espaço visível, esse `overflow-x-auto` dá à tabela sua
+  própria barra de rolagem horizontal, independente do resto da página.
+
+Resultado: em qualquer tela mais estreita que ~1100px (de conteúdo útil),
+a tabela rola horizontalmente — nenhuma coluna é cortada, nenhum texto
+quebra de forma desalinhada. Em telas largas o comportamento é idêntico
+ao de antes (tabela ocupando a largura disponível, sem barra de rolagem
+visível).
+
+Esse é um ajuste puramente de CSS/layout, sem nenhuma mudança de lógica,
+dado ou permissão.
+
+────────────────────────────────────────────────────────────────────────────
+4. VALIDAÇÃO JÁ EXECUTADA
+────────────────────────────────────────────────────────────────────────────
+
+- pnpm check (tsc --noEmit): 0 erros.
+
+- server/pacs.mobile-ui.test.ts tinha uma asserção (linha 24) que pinava
+  o className literal do contêiner da tabela desktop
+  (`className="hidden md:block"`). Atualizada para o novo valor esperado
+  (`className="hidden md:block overflow-x-auto"`) — é uma mudança
+  intencional no contrato visual, não uma regressão; o restante do teste
+  (coexistência da tabela desktop com a lista em cards no mobile, via
+  hidden md:block / md:hidden) continua garantido e passando.
+
+- TZ=UTC pnpm test (suíte completa): 753 passed, 1 skipped, 11 failed.
+  As 11 falhas são EXATAMENTE as mesmas, nos mesmos arquivos e com os
+  mesmos nomes de teste, que já existiam antes desta correção (linha de
+  base pré-existente, não relacionada):
+    server/exam-catalog-security.test.ts (1)
+    server/finance-v2-dashboard.test.tsx (2)
+    server/mediaProxy.test.ts (1)
+    server/pacs-desktop-download-progress.test.ts (1)
+    server/pacs.mobile-ui.test.ts (1 — asserção diferente da que
+      corrigimos, sobre layout de prioridade clínica, já falhava antes)
+    server/security.auth.test.ts (1)
+    server/study-priority-ui.test.ts (4)
+  Nenhuma falha nova foi introduzida por esta correção.
+
+- pnpm build: concluído sem erros.
+
+────────────────────────────────────────────────────────────────────────────
+5. FORA DO ESCOPO DESTA CORREÇÃO
+────────────────────────────────────────────────────────────────────────────
+
+Esta correção resolve especificamente o sintoma relatado e reproduzido
+(tabela de estudos cortando/quebrando em telas estreitas). O app tem
+outros elementos com largura fixa em pixels que podem ter o mesmo tipo de
+problema em telas muito estreitas ou com zoom alto (ex.: campo de busca
+de paciente com `w-44`=176px, documentado separadamente no relatório de
+usabilidade Floto de 2026-10-10 já discutido com o Alessandro). Não
+foram tocados aqui — ficam para uma rodada futura de responsividade geral
+se o Alessandro pedir.
+
+────────────────────────────────────────────────────────────────────────────
+6. ESTADO ATUAL
+────────────────────────────────────────────────────────────────────────────
+
+Branch publicada no GitHub (claude/responsividade-tabela-estudos-telas-
+estreitas), sem PR aberto, sem merge em main, nada implantado em nenhuma
+VM. Decisão de merge/deploy é do Alessandro e/ou da Manus.
