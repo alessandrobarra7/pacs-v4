@@ -1,0 +1,158 @@
+HANDOFF PARA MANUS — CORREÇÃO: BARRA DE ROLAGEM HORIZONTAL FORA DA ÁREA VISÍVEL
+Branch: claude/corrige-scroll-horizontal-fora-da-tela
+Commit: 0358713
+Data: 2026-10-11
+Autor: Claude (sandbox, sem acesso a produção)
+
+====================================================================
+1. CONTEXTO
+====================================================================
+
+Esta é uma correção SOBRE uma correção anterior já aprovada e em
+produção (branch claude/responsividade-tabela-estudos-telas-estreitas,
+commits bc2d2d1..527c81c, mesclada ao main). Aquela correção resolveu
+o problema original (colunas da tabela de estudos cortadas em telas
+estreitas), mas introduziu uma regressão não percebida nos testes
+anteriores: o problema volta a aparecer em janelas que são estreitas
+E também não muito altas.
+
+Alessandro reportou isso com dois prints reais do próprio Windows, em
+janela de aproximadamente 965x620 pixels, com a mensagem "pra mim
+aparece como espremido" — ou seja, a correção anterior NÃO estava
+funcionando como projetado nesse formato de janela, apesar de ter
+sido validada e aprovada.
+
+====================================================================
+2. CAUSA RAIZ (confirmada por inspeção DOM, não por suposição)
+====================================================================
+
+A correção anterior envolveu a tabela de estudos (PacsQueryPage.tsx)
+num novo wrapper:
+
+    <div className="hidden md:block overflow-x-auto">
+      <table className="w-full min-w-[1100px] ...">
+
+Esse wrapper foi aninhado DENTRO de um container pai já existente:
+
+    <div className="flex-1 overflow-auto">
+      ... (wrapper novo com a tabela) ...
+    </div>
+
+O container pai (flex-1 overflow-auto) já é limitado à altura visível
+da viewport via layout flex, e o overflow-auto já trata rolagem em
+AMBOS os eixos (horizontal e vertical) por conta própria.
+
+O problema: o wrapper interno (overflow-x-auto) não tem altura
+própria limitada — ele cresce livremente até a altura total de TODAS
+as linhas da tabela. Quando essa altura total excede a altura visível
+da janela, a barra de rolagem horizontal do wrapper interno (que
+sempre fica fixada na borda INFERIOR da própria caixa) fica
+posicionada abaixo do que é visível na tela — o usuário vê as colunas
+cortadas à direita, mas a barra para rolar até elas está fora de
+alcance, a menos que primeiro role a página inteira para baixo,
+passando por todas as linhas da tabela.
+
+Reproduzido exatamente o tamanho de janela de Alessandro (965x620) em
+ambiente de teste e confirmado via getBoundingClientRect():
+
+    parentRectBottom: 850
+    windowInnerHeight: 620
+
+A barra de rolagem estava 230px abaixo do limite visível da janela.
+
+A correção anterior só havia sido testada em janelas com altura
+>= 800px, o que mascarava completamente esse problema — com altura
+suficiente, a barra do wrapper interno sempre cabia dentro da área
+visível. Esse foi um gap real na validação anterior.
+
+====================================================================
+3. CORREÇÃO APLICADA
+====================================================================
+
+Arquivo: client/src/pages/PacsQueryPage.tsx
+
+Removido o overflow-x-auto do wrapper interno. A tabela agora vive
+diretamente dentro do container pai flex-1 overflow-auto já
+existente — que já é corretamente limitado à altura da viewport e já
+trata rolagem horizontal quando necessário. Não foi necessário nenhum
+outro ajuste de layout: o container pai já fazia o que o wrapper
+interno tentava fazer, só que corretamente.
+
+Antes:
+    <div className="hidden md:block overflow-x-auto">
+      <table className="w-full min-w-[1100px] text-sm border-collapse">
+
+Depois:
+    <div className="hidden md:block">
+      <table className="w-full min-w-[1100px] text-sm border-collapse">
+
+(mais um comentário inline detalhado em português, no próprio código,
+explicando a causa raiz e a correção, para quem ler o arquivo depois)
+
+====================================================================
+4. TESTES
+====================================================================
+
+Novo arquivo: server/pacs-table-scroll-not-offscreen.test.ts (4 testes)
+  - Confirma ausência do overflow-x-auto aninhado.
+  - Confirma presença do comentário de correção.
+  - Confirma que o container pai flex-1 overflow-auto continua
+    existindo e envolvendo a tabela.
+  - Confirma que min-w-[1100px] continua presente na tabela.
+
+Validado com git stash (código revertido temporariamente): 2 dos 4
+testes falham contra o código ANTERIOR à correção (os que verificam
+ausência do overflow-x-auto aninhado e presença do novo comentário) —
+confirmando que os testes realmente capturam a regressão. Os outros 2
+já eram verdadeiros antes (não são específicos desta correção).
+
+Arquivo atualizado: server/pacs.mobile-ui.test.ts (linha 24) —
+ajustada a assertion de className para o novo valor sem
+overflow-x-auto.
+
+====================================================================
+5. VALIDAÇÃO EXECUTADA NESTA SANDBOX
+====================================================================
+
+- pnpm check: 0 erros de TypeScript.
+- TZ=UTC pnpm test: 11 falhas em 7 arquivos — EXATAMENTE a mesma
+  baseline pré-existente e não relacionada a este fix (confirmada
+  comparando nomes de arquivo/teste): exam-catalog-security.test.ts,
+  finance-v2-dashboard.test.tsx (x2), mediaProxy.test.ts,
+  pacs-desktop-download-progress.test.ts, pacs.mobile-ui.test.ts
+  (1 falha pré-existente sobre prioridade clínica, não relacionada),
+  security.auth.test.ts, study-priority-ui.test.ts (x4). Nenhuma
+  falha nova introduzida por esta correção.
+- Os 4 novos testes de regressão + todos os demais testes de UI mobile
+  relacionados (report-editor-mobile-ui, admin-mobile-ui,
+  financial-banner-mobile-ui, study-image-count-mobile-ui) passam
+  100%.
+- pnpm build: sucesso, sem erros.
+
+====================================================================
+6. IMPACTO EM MOBILE
+====================================================================
+
+Nenhum. A mudança afeta exclusivamente o wrapper hidden md:block
+(visível apenas em telas >= 768px / md e acima). A listagem mobile
+(md:hidden, cards) não foi tocada nesta correção, assim como não foi
+tocada na correção anterior.
+
+====================================================================
+7. O QUE NÃO FOI FEITO (fora do escopo)
+====================================================================
+
+Não foi necessário nenhum merge, deploy ou migração de banco — apenas
+a alteração de código, testes e este handoff, prontos para revisão e
+aplicação em produção por quem tem acesso à VM.
+
+====================================================================
+8. RECOMENDAÇÃO
+====================================================================
+
+Aprovar e aplicar em produção. Recomenda-se, ao validar, reproduzir
+uma janela estreita E baixa (ex: 965x620, ou redimensionar a janela do
+navegador para menos de ~700px de altura) para confirmar visualmente
+que a barra de rolagem horizontal da tabela aparece dentro da área
+visível, sem necessidade de rolar a página inteira para baixo
+primeiro.
