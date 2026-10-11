@@ -1,0 +1,251 @@
+HANDOFF TÉCNICO — BLOQUEIA EXCLUSÃO DE UNIDADE ÓRFÃ
+Data: 2026-10-11
+Projeto: PACS Portal / LAUDS
+Repositório: alessandrobarra7/pacs-v4
+Branch: claude/bloqueia-exclusao-unidade-orfa
+Commit base: 1af605c04a7606495ac30cce5d2e2a484b7ade43 (origin/main)
+Commit topo: 54b5b0d4b0085dd9ee9441ded22dc199d79b59b0
+Destinatário: Manus (e qualquer outro agente/engenheiro com acesso às VMs de produção)
+
+======================================================================
+1. COMO CHEGAR NO CÓDIGO REAL
+======================================================================
+
+  git fetch origin
+  git checkout claude/bloqueia-exclusao-unidade-orfa
+  git diff 1af605c04a7606495ac30cce5d2e2a484b7ade43..HEAD
+
+Arquivos alterados: server/db.ts, server/routers/units.ts,
+server/units.test.ts.
+
+======================================================================
+2. ORIGEM DO ACHADO (investigação direta na VM2, mesmo dia)
+======================================================================
+
+Alessandro reportou dois cards "Unidade removida (ID 2)" / "Unidade
+removida (ID 21)", com a tag "DADO INCONSISTENTE", no painel
+financeiro de um responsável financeiro (usuário "erica",
+financial_responsible_id=1).
+
+Diagnóstico feito diretamente no MySQL da VM2 (172.16.3.101,
+banco pacs_portal):
+
+  - A tabela financial_responsible_units tinha 2 linhas (id=6, unit_id=2
+    e id=7, unit_id=21) com ends_at = NULL, ou seja, vínculos "ativos"
+    apontando para unidades que não existem mais em `units`.
+  - audit_log confirmou que as duas exclusões foram ações reais e
+    intencionais: DELETE_UNIT para unit_id=2 em 2026-06-05 00:02:57 e
+    para unit_id=21 em 2026-07-03 19:10:49, ambas por user_id=1.
+  - Além de financial_responsible_units, havia órfãos em:
+      reports: 4 linhas (unit_id=2) — LAUDOS ASSINADOS DE VERDADE
+        (status signed/revised, signedAt preenchido, autor
+        user_id=268). Dado clínico-legal real, não deve ser apagado
+        nem alterado por nenhuma rotina de limpeza automática.
+      billing_cycles: 4 linhas (unit_id=2) — todas status=open,
+        total_reports=0, total_amount=0.00. "Cascas vazias", sem
+        atividade financeira real.
+      studies_cache: 2 linhas (unit_id=21) — cache de metadados PACS,
+        reconstruível a partir do Orthanc real.
+
+O dado de produção já foi corrigido manualmente (fora deste branch):
+
+  UPDATE financial_responsible_units SET ends_at = '2026-06-05 00:02:57'
+    WHERE id = 6 AND unit_id = 2;
+  UPDATE financial_responsible_units SET ends_at = '2026-07-03 19:10:49'
+    WHERE id = 7 AND unit_id = 21;
+
+Confirmado via SELECT que as duas linhas já refletem o ends_at
+correto. Este handoff trata exclusivamente da CORREÇÃO DE CÓDIGO que
+evita a repetição do problema — não há mais nenhuma ação de dado
+pendente deste incidente específico.
+
+======================================================================
+3. MECANISMO DO PROBLEMA
+======================================================================
+
+server/routers/units.ts, procedure `units.delete` (adminProcedure),
+antes desta correção:
+
+  delete: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      await deleteUnit(input.id);
+      await createAuditLog({ ... action: 'DELETE_UNIT' ... });
+      return { success: true };
+    }),
+
+E server/db.ts:
+
+  export async function deleteUnit(id: number) {
+    const db = await getDb();
+    if (!db) throw new Error("Database not available");
+    await db.delete(units).where(eq(units.id, id));
+  }
+
+Ou seja: um DELETE FROM units puro, sem transação e sem nenhuma
+checagem de dependência. Uma consulta a information_schema.key_column_usage
+confirma que praticamente nenhuma tabela do schema tem FK de verdade
+para `units` (só algumas tabelas têm FK para outras entidades, nenhuma
+delas cobre a relação com `units`), então o próprio MySQL nunca impediu
+nem avisou sobre o DELETE — ele simplesmente deixa qualquer linha de
+qualquer tabela com unit_id apontando para um registro inexistente.
+
+Pelo menos ~25 tabelas no schema têm coluna unit_id (financial_responsible_units,
+reports, studies_cache, billing_cycles, billing_visit_events,
+user_unit_permissions, unit_exam_prices, model_layouts, contract_revenues,
+unit_doctor_scales, etc.) — qualquer uma delas pode ficar órfã na
+próxima exclusão de unidade com histórico, não só as que já
+apareceram neste incidente.
+
+Três telas do frontend chamam a mesma mutation `units.delete`:
+client/src/pages/AdminPage.tsx, client/src/pages/Units.tsx e
+client/src/pages/UnitsPage.tsx — todas com um simples
+`window.confirm("Excluir...")`, sem nenhum aviso sobre dependências.
+Como as três convergem para o mesmo endpoint, a correção no backend
+cobre as três de uma vez, sem precisar mexer em nenhuma delas.
+
+======================================================================
+4. MECANISMO DA CORREÇÃO
+======================================================================
+
+server/db.ts ganhou uma nova função:
+
+  export async function getUnitDependentRecords(unitId: number):
+    Promise<{ table: string; count: number }[]>
+
+Ela consulta information_schema.columns do banco atual (DATABASE())
+para descobrir, dinamicamente, todas as tabelas com uma coluna
+`unit_id` — exceto `units` (óbvio) e `audit_log` (trilha histórica de
+auditoria, não é "dado vivo" preso à unidade; deve sobreviver à
+exclusão). Para cada tabela encontrada, roda um
+`SELECT COUNT(*) FROM <tabela> WHERE unit_id = ?` parametrizado e
+retorna só as que têm count > 0.
+
+Ser dinâmico (via information_schema) em vez de uma lista de tabelas
+mantida à mão foi escolha deliberada: cobre automaticamente qualquer
+tabela nova que uma migration futura adicione com coluna unit_id, sem
+exigir que alguém lembre de atualizar uma lista neste arquivo.
+
+server/routers/units.ts, procedure `units.delete`, agora chama essa
+função ANTES de `deleteUnit`:
+
+  const dependents = await getUnitDependentRecords(input.id);
+  if (dependents.length > 0) {
+    const resumo = dependents.map((d) => `${d.table} (${d.count})`).join(', ');
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `Não é possível excluir esta unidade: existem registros
+        vinculados em ${resumo}. Use "Desativar" em vez de "Excluir"
+        para preservar o histórico.`,
+    });
+  }
+  await deleteUnit(input.id);
+  ...
+
+Se existir qualquer dependência, a exclusão é recusada e nada é
+tocado no banco (nem o DELETE, nem o audit log — o caller recebe o
+erro TRPCError antes de qualquer efeito colateral).
+
+A alternativa a "Excluir" já existe e não precisou ser criada: a
+própria procedure `units.update` já aceita `isActive: z.boolean().optional()`,
+e esse campo já é respeitado em várias leituras do sistema (ex.:
+server/_core/index.ts linha ~918, server/routers/financeSimple.ts,
+server/routers/admin.ts). Ou seja, "desativar uma unidade" (isActive=false)
+já é um caminho seguro, testado e sem efeito colateral — só não era o
+caminho que os três botões "Excluir" das telas oferecem.
+
+Esta correção é deliberadamente conservadora: não tenta decidir
+sozinha que "é seguro apagar um billing_cycle vazio mas não um report
+assinado" — simplesmente bloqueia qualquer exclusão que deixaria
+QUALQUER linha órfã, sem exceção, e deixa a decisão de como tratar
+cada caso (migrar dado para outra unidade, arquivar, etc.) para uma
+decisão humana explícita no momento em que ela acontecer, não para uma
+lógica automática de limpeza que poderia apagar dado clínico por
+engano.
+
+======================================================================
+5. TESTES E VALIDAÇÃO
+======================================================================
+
+server/units.test.ts ganhou 2 novos casos (describe "units router"):
+
+  - "exclusão de unidade é bloqueada quando existem registros
+    dependentes (evita órfãos como o caso real)": mocka
+    getUnitDependentRecords para retornar
+    [{table: financial_responsible_units, count: 2}, {table: reports, count: 4}]
+    (reproduzindo o cenário real do incidente) e confirma que
+    `units.delete` rejeita com TRPCError BAD_REQUEST mencionando
+    "financial_responsible_units" na mensagem, e que `deleteUnit` e
+    `createAuditLog` NUNCA são chamados.
+
+  - "exclusão de unidade é permitida quando não existe nenhum registro
+    dependente": mocka getUnitDependentRecords para retornar [] e
+    confirma que a exclusão prossegue normalmente (deleteUnit chamado
+    com o id correto, createAuditLog registrando DELETE_UNIT).
+
+Prova de que o teste de bloqueio pega a regressão de verdade: o guard
+foi revertido de propósito (git stash só de server/routers/units.ts),
+a suíte rodou de novo e o teste "exclusão de unidade é bloqueada..."
+falhou exatamente como esperado (`promise resolved "{ success: true }"
+instead of rejecting`), confirmando que sem a correção o teste pega o
+problema. O guard foi então restaurado (git stash pop) e a suíte
+voltou a passar.
+
+Validação completa, nesta ordem:
+
+  pnpm check: 0 erros TypeScript.
+  TZ=UTC pnpm test: 774 passed, 11 failed, 1 skipped (786 total).
+    As 11 falhas são a mesma baseline conhecida, nos mesmos 7 arquivos
+    de sempre (exam-catalog-security.test.ts, finance-v2-dashboard.test.tsx,
+    mediaProxy.test.ts, pacs-desktop-download-progress.test.ts,
+    pacs.mobile-ui.test.ts, security.auth.test.ts, study-priority-ui.test.ts)
+    — nenhuma falha nova, nenhuma relacionada a esta correção.
+  server/units.test.ts isolado: 8/8 passed.
+  pnpm build: concluído sem erro (dist/index.js gerado, bundle
+    client gerado).
+
+======================================================================
+6. O QUE FICOU FORA DO ESCOPO, DE PROPÓSITO
+======================================================================
+
+  - Nenhuma limpeza automática dos órfãos JÁ EXISTENTES em reports,
+    billing_cycles e studies_cache (unidades 2 e 21) foi feita por
+    este código. O dado de reports é clínico/legal real e não deve
+    ser tocado por uma rotina automática; os de billing_cycles/
+    studies_cache são de baixo risco mas não foram alterados porque
+    não é esse o escopo desta correção (que é evitar NOVOS órfãos,
+    não arquivar os antigos). Se o Alessandro ou a Manus decidirem
+    que vale a pena arquivar/migrar esses 6 registros antigos, isso é
+    uma decisão de produto separada, fora deste branch.
+  - Não foi implementada nenhuma migration de schema (ex.: adicionar
+    FK de verdade entre as ~25 tabelas e `units`). Isso resolveria o
+    problema em uma camada mais baixa (o próprio MySQL recusando o
+    DELETE com ON DELETE RESTRICT), mas é uma mudança de schema muito
+    mais ampla, que exigiria auditar se alguma dessas 25 tabelas
+    legitimamente pode ter unit_id órfão em algum fluxo válido antes
+    de adicionar a constraint. Ficou fora deste branch por ser decisão
+    de arquitetura maior, não um bugfix pontual.
+  - As três telas do frontend (AdminPage.tsx, Units.tsx, UnitsPage.tsx)
+    não foram alteradas. O guard no backend já cobre as três, e a
+    mensagem de erro do TRPCError (que lista as tabelas e orienta a
+    usar "Desativar") já chega ao usuário via toast.error nas telas
+    que têm onError configurado (AdminPage.tsx e UnitsPage.tsx; Units.tsx
+    usa toast.error(error.message) também). Se desejado, um ajuste de
+    UX futuro poderia trocar o botão "Excluir" por "Desativar" como
+    ação primária nessas telas, mas isso é decisão de produto/UX, não
+    bugfix.
+
+======================================================================
+7. ESTADO ATUAL
+======================================================================
+
+Branch publicado no GitHub (claude/bloqueia-exclusao-unidade-orfa), SEM
+pull request aberto, SEM merge em main, NADA implantado em nenhuma VM.
+A decisão de revisar, abrir PR e fazer merge é da Manus/Alessandro.
+
+Nenhuma migration de banco é necessária para este branch — é
+exclusivamente uma correção de lógica de aplicação (server/db.ts e
+server/routers/units.ts), então a regra "banco antes do código" não se
+aplica aqui: basta `git pull` deste branch (depois de mesclado em
+main) e reiniciar o processo da aplicação na VM1, sem nenhum passo de
+banco antes.
