@@ -245,3 +245,87 @@ RECOMENDAÇÃO ATUALIZADA:
   passa a ser verdadeira: o container da tabela agora é, de fato,
   limitado à altura real da viewport. Solicito nova revisão do commit
   bbbbbc0 (em cima de 0358713/a135ba6, mesma branch) antes do merge.
+
+====================================================================
+10. CORREÇÃO 4 — MODO COMPACTO AUTOMÁTICO (pedido do Alessandro)
+====================================================================
+
+Depois de validar a correção 3 em produção (confirmado por ele e por
+mim, janela 965x620 na sua máquina real), Alessandro pediu uma mudança
+de abordagem: em vez de só depender de rolagem horizontal em janelas
+estreitas, a tabela deveria encolher fontes, espaçamentos e larguras
+de coluna automaticamente, para reduzir ou eliminar a necessidade de
+rolar - "não gerar linhas [cortadas]".
+
+IMPLEMENTAÇÃO (commit 045812a, mesma branch):
+
+CSS container query (@container), escopada à classe
+.pacs-studies-compact aplicada ao wrapper que já envolve a tabela
+desktop (<div className="hidden md:block pacs-studies-compact">). A
+query mede a largura DISPONÍVEL do próprio wrapper (não a largura
+rolada da tabela), então reage ao espaço real da tela, igual ao
+comportamento de resize/orientação de um elemento comum.
+
+Em telas largas (>1150px de largura disponível) nada muda - a tabela
+continua exatamente como está hoje em produção. Abaixo disso:
+
+  - fonte da tabela: text-sm -> 11px, text-xs -> 9px
+  - padding das células: px-4/py-3/py-2.5 -> ~5-6px
+  - larguras fixas de coluna (prioridade clínica, status, data, idade,
+    colunas de ação) reduzidas proporcionalmente
+  - botões de ação e ícones reduzidos
+  - min-width da tabela: 1100px -> 860px
+
+Os seletores CSS miram diretamente as classes utilitárias do Tailwind
+já presentes nas células da tabela (ex: .pacs-studies-compact .text-sm
+{ font-size: 11px !important; }), então NENHUMA outra edição de JSX
+foi necessária além de acrescentar a classe pacs-studies-compact ao
+wrapper existente - não duplica markup, não toca nos componentes
+filhos (StudyPriorityControls, StudyLegendPicker, SlaCountdown etc.).
+
+PROVA DE GEOMETRIA (reprodução real da estrutura + CSS em iframe,
+Chrome real via extensão, não jsdom):
+
+  - 965x620 (a mesma janela problemática original, validada por
+    Alessandro na correção 3): com o modo compacto, tableScrollWidth
+    886px < wrapperClientWidth 949px -> ZERO rolagem horizontal
+    necessária (antes precisava rolar ~330px).
+  - 1085x480 (tamanho real que Alessandro reportou "ver espremido"
+    mesmo após a correção 3 — na verdade não era mais bug, era só
+    rolagem funcionando, mas ele preferiu eliminar a necessidade de
+    rolar): mesmo resultado, 886px < 1069px -> zero rolagem.
+  - 800x500 (janela ainda mais estreita, cenário extremo): ainda sobra
+    uma pequena rolagem (tableScrollWidth 860px > wrapperClientWidth
+    784px, 76px de diferença) - rede de segurança esperada e
+    deliberada; a correção 3 garante que essa barra permanece sempre
+    dentro da área visível.
+
+TESTES:
+  - server/pacs-table-scroll-not-offscreen.test.ts: 2 assertions
+    atualizadas para a nova classe no wrapper + 1 novo teste
+    confirmando presença e escopo do bloco CSS da correção 4.
+  - server/pacs.mobile-ui.test.ts: 1 assertion atualizada (nova
+    classe).
+
+VALIDAÇÃO:
+  - pnpm check: 0 erros.
+  - TZ=UTC pnpm test: mesma baseline conhecida (11 falhas
+    pré-existentes em 7 arquivos não relacionados), 772 testes
+    passaram.
+  - pnpm build: sucesso.
+
+ESCOPO E LIMITAÇÕES:
+  - Afeta somente a tabela desktop de estudos (wrapper hidden
+    md:block). A listagem mobile (cards, md:hidden) não foi tocada.
+  - As reduções de tamanho são deliberadamente agressivas (fonte até
+    9px em alguns rótulos), por pedido explícito do Alessandro, e só
+    entram em vigor quando a janela está estreita - a tela grande
+    normal não muda em nada.
+  - Componentes filhos complexos dentro das células (StudyPriorityControls,
+    StudyLegendPicker, SlaCountdown, CriticalAlertLed) não foram
+    editados individualmente; eles encolhem apenas na medida em que
+    usam as classes genéricas text-sm/text-xs já cobertas pela query.
+    Se algum desses componentes tiver texto ou ícones com classes
+    diferentes (não cobertas aqui) e ainda parecer grande demais no
+    modo compacto, é um ajuste pontual a fazer depois - não encontrado
+    nos testes visuais feitos até agora.
