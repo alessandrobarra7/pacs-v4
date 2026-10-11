@@ -2376,7 +2376,44 @@ setSelectedStudy(study);
               `<div className="flex-1 overflow-auto">` existente, que já é do tamanho da tela
               e cuja barra de rolagem (quando necessária) fica sempre ancorada na borda da área
               visível, nunca exigindo rolagem vertical extra para alcançá-la. */}
-          <div className="hidden md:block">
+          {/* CORREÇÃO 4 (auditoria claude/corrige-scroll-horizontal-fora-da-tela, 2026-10-11):
+              Alessandro pediu, depois de validar a correção 3, que em vez de só depender da
+              rolagem horizontal em janelas estreitas, a tabela encolha fontes/paddings/larguras
+              de coluna automaticamente, reduzindo a necessidade de rolar na maioria dos casos
+              (rolagem continua existindo como rede de segurança para janelas muito estreitas).
+              Implementado via CSS container query (`@container`), escopado só a este wrapper
+              (`pacs-studies-compact`): a tabela em telas largas continua idêntica a hoje; abaixo
+              de 1150px de largura DISPONÍVEL (medida pelo próprio wrapper, não pela largura da
+              tabela rolada), fontes/paddings/ícones/larguras de coluna encolhem. Escopado via
+              classe para não vazar para o resto da página — os seletores miram diretamente as
+              classes utilitárias do Tailwind já usadas nas células (text-sm, text-xs, w-8, h-8
+              etc.), então nenhuma outra edição de JSX foi necessária além desta classe no
+              wrapper. Reduções deliberadamente agressivas, por pedido do Alessandro. */}
+          <style>{`
+            .pacs-studies-compact { container-type: inline-size; }
+            @container (max-width: 1150px) {
+              .pacs-studies-compact table[class*="min-w-"] { min-width: 860px !important; }
+              .pacs-studies-compact table { font-size: 11px; }
+              .pacs-studies-compact th, .pacs-studies-compact td { padding: 5px 6px !important; }
+              .pacs-studies-compact .text-sm { font-size: 11px !important; }
+              .pacs-studies-compact .text-xs { font-size: 9px !important; }
+              .pacs-studies-compact .w-44 { width: 7rem !important; }
+              .pacs-studies-compact .w-40 { width: 6rem !important; }
+              .pacs-studies-compact .w-28 { width: 4.5rem !important; }
+              .pacs-studies-compact .w-16 { width: 2.75rem !important; }
+              .pacs-studies-compact .w-10 { width: 1.5rem !important; }
+              .pacs-studies-compact .w-8 { width: 1.375rem !important; }
+              .pacs-studies-compact .h-8 { height: 1.375rem !important; }
+              .pacs-studies-compact .w-7 { width: 1.25rem !important; }
+              .pacs-studies-compact .h-7 { height: 1.25rem !important; }
+              .pacs-studies-compact .h-3\.5 { height: 0.7rem !important; }
+              .pacs-studies-compact .w-3\.5 { width: 0.7rem !important; }
+              .pacs-studies-compact .py-2\.5 { padding-top: 5px !important; padding-bottom: 5px !important; }
+              .pacs-studies-compact .py-3 { padding-top: 5px !important; padding-bottom: 5px !important; }
+              .pacs-studies-compact .px-4 { padding-left: 6px !important; padding-right: 6px !important; }
+            }
+          `}</style>
+          <div className="hidden md:block pacs-studies-compact">
           <table className="w-full min-w-[1100px] text-sm border-collapse">
             <thead>
               <tr

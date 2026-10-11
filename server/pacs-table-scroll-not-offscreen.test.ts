@@ -51,7 +51,18 @@ describe("PacsQueryPage: tabela de estudos não cria scroll horizontal aninhado 
     expect(pageSource).not.toContain('className="hidden md:block overflow-x-auto"');
     // O wrapper de exibição (hidden/md:block) continua existindo, só sem o overflow-x-auto
     // aninhado — é o container externo (flex-1 overflow-auto) que agora cuida do scroll.
-    expect(pageSource).toContain('className="hidden md:block"');
+    // A partir da CORREÇÃO 4, o wrapper também carrega a classe do modo compacto.
+    expect(pageSource).toContain('className="hidden md:block pacs-studies-compact"');
+  });
+
+  it("CORREÇÃO 4: modo compacto via container query está presente e escopado ao wrapper da tabela", () => {
+    expect(pageSource).toContain("CORREÇÃO 4 (auditoria claude/corrige-scroll-horizontal-fora-da-tela");
+    expect(pageSource).toContain(".pacs-studies-compact { container-type: inline-size; }");
+    expect(pageSource).toContain("@container (max-width: 1150px)");
+    // Escopado: os seletores do modo compacto não devem aparecer soltos, sempre
+    // precedidos pela classe do wrapper, para não vazar o encolhimento para o resto da página.
+    expect(pageSource).toContain(".pacs-studies-compact table { font-size: 11px; }");
+    expect(pageSource).toContain(".pacs-studies-compact th, .pacs-studies-compact td { padding:");
   });
 
   it("a tabela continua com min-w-[1100px] (não volta a comprimir colunas)", () => {
