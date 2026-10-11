@@ -2105,8 +2105,25 @@ setSelectedStudy(study);
     </button>
   );
 
+  /* CORREÇÃO 3 (auditoria claude/corrige-scroll-horizontal-fora-da-tela, 2026-10-11,
+     bloqueio apontado pela Manus): a correção 2 presumia que o container
+     `<div className="flex-1 overflow-auto">` da tabela já era limitado à altura
+     visível da tela, mas isso dependia deste container raiz ser realmente limitado
+     à viewport. Ele usava `min-h-screen` (altura MÍNIMA de 100vh), que NÃO é uma
+     altura fixa: a página podia crescer além da altura da janela conforme o número
+     de linhas da tabela, e sem `min-h-0` no filho flex, o item `flex-1` assume como
+     altura mínima a altura do seu próprio conteúdo (todas as linhas) em vez de
+     encolher para o espaço realmente disponível. Resultado: o mesmo bug reaparecia
+     um nível acima — a barra de rolagem horizontal ficava no rodapé de um container
+     que crescia com a tabela inteira, fora da viewport em janelas baixas (confirmado
+     por geometria reproduzida: worklistBottom 1301 > viewportHeight 1100).
+     Fix: `h-[100dvh] min-h-0 ... overflow-hidden` na raiz (altura real da tela,
+     permite encolher, e a página em si não rola) + `min-h-0` no container da tabela
+     (permite que o flex-1 realmente encolha ao espaço disponível em vez de crescer
+     com o conteúdo). Agora o único mecanismo de rolagem é o `flex-1 overflow-auto`
+     da tabela, que fica sempre dentro da área visível. */
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#f5f3ef' }}>
+    <div className="h-[100dvh] min-h-0 flex flex-col overflow-hidden" style={{ background: '#f5f3ef' }}>
 
       <AppHeader
         unitSlot={
@@ -2318,7 +2335,7 @@ setSelectedStudy(study);
       </Dialog>
 
       {/* ── TABELA ── */}
-      <div className="flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto">
         {queryResults.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400">
             <Search className="h-10 w-10 mb-3 opacity-30" />

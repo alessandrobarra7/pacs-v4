@@ -5,21 +5,30 @@ import { resolve } from "node:path";
 /**
  * Regressão (claude/corrige-scroll-horizontal-fora-da-tela, 2026-10-11).
  *
- * Contexto: a correção anterior (claude/responsividade-tabela-estudos-telas-estreitas)
+ * Contexto (correção 2): a correção anterior (claude/responsividade-tabela-estudos-telas-estreitas)
  * envolveu a tabela de estudos num <div className="hidden md:block overflow-x-auto">
- * SEM altura limitada, aninhado dentro do <div className="flex-1 overflow-auto"> que já
- * existia (e já é limitado à altura visível da tela via flex, já trata rolagem horizontal
- * sozinho). Esse aninhamento fazia a caixa interna crescer livremente com a altura de
- * TODAS as linhas da tabela, empurrando a própria barra de rolagem horizontal (que fica
- * na borda inferior da caixa) para fora da área visível em janelas não muito altas —
- * reportado pelo Alessandro ("pra mim aparece como espremido") e confirmado reproduzindo
- * o mesmo tamanho de janela real (965x620): a barra da tabela ficava em y=850, abaixo da
- * viewport de 620px de altura, só acessível rolando a página inteira para baixo primeiro.
+ * SEM altura limitada, aninhado dentro do <div className="flex-1 overflow-auto"> — removido
+ * o overflow-x-auto aninhado, deixando o container externo cuidar do scroll.
  *
- * Fix: remover o `overflow-x-auto` aninhado. A tabela passa a ficar direto dentro do
- * <div className="flex-1 overflow-auto"> existente, que já cuida de ambos os eixos e já
- * é do tamanho exato da área visível — a barra de rolagem (quando necessária) fica
- * sempre ancorada na borda da área visível, nunca exigindo rolagem vertical extra.
+ * Bloqueio apontado pela Manus e correção 3: a premissa de que o container externo
+ * (`flex-1 overflow-auto`) já era limitado à altura visível da tela era falsa, porque o
+ * container raiz da página usava `min-h-screen` (altura MÍNIMA, não fixa) sem `overflow-hidden`,
+ * e o container da tabela não tinha `min-h-0` — então o item flex `flex-1` assumia como altura
+ * mínima a altura do próprio conteúdo (todas as linhas), crescendo a página inteira em vez de
+ * encolher ao espaço disponível. O mesmo bug reaparecia um nível acima: a barra de rolagem
+ * horizontal ficava no rodapé de um container que crescia com a tabela inteira, fora da
+ * viewport em janelas baixas (confirmado por geometria reproduzida: worklistBottom 1301 >
+ * viewportHeight 1100, no cenário relatado pela Manus).
+ *
+ * Fix final: raiz com `h-[100dvh] min-h-0 flex flex-col overflow-hidden` (altura real da
+ * tela, permite encolher, página em si não rola) + container da tabela com
+ * `min-h-0 flex-1 overflow-auto` (permite que o flex-1 realmente encolha ao espaço
+ * disponível). O único mecanismo de rolagem passa a ser o `flex-1 overflow-auto` da tabela,
+ * que fica sempre dentro da área visível, com altura real (não apenas mínima) do viewport.
+ *
+ * NOTA: estes testes leem o texto-fonte (ambiente vitest é "node", sem layout CSS real).
+ * A prova de geometria real (clientHeight/scrollHeight/getBoundingClientRect em 965x620)
+ * foi feita manualmente no navegador (ver handoff), não pode ser expressa aqui.
  */
 
 const pageSource = readFileSync(
@@ -28,8 +37,13 @@ const pageSource = readFileSync(
 );
 
 describe("PacsQueryPage: tabela de estudos não cria scroll horizontal aninhado fora da tela", () => {
-  it("o container externo que já é limitado à altura visível continua existindo", () => {
-    expect(pageSource).toContain('<div className="flex-1 overflow-auto">');
+  it("o container raiz da página tem altura real de viewport, encolhe e não rola por conta própria", () => {
+    expect(pageSource).toContain('className="h-[100dvh] min-h-0 flex flex-col overflow-hidden"');
+    expect(pageSource).not.toContain('className="min-h-screen flex flex-col"');
+  });
+
+  it("o container da tabela tem min-h-0 para realmente encolher ao espaço disponível (flex-1)", () => {
+    expect(pageSource).toContain('<div className="min-h-0 flex-1 overflow-auto">');
   });
 
   it("não existe mais um overflow-x-auto aninhado só em volta da tabela desktop", () => {
@@ -47,5 +61,10 @@ describe("PacsQueryPage: tabela de estudos não cria scroll horizontal aninhado 
   it("o comentário da CORREÇÃO 2 está presente, documentando a causa raiz do scroll fora da tela", () => {
     expect(pageSource).toContain("CORREÇÃO 2 (auditoria claude/corrige-scroll-horizontal-fora-da-tela");
     expect(pageSource).toContain("empurrando a própria barra de rolagem horizontal");
+  });
+
+  it("o comentário da CORREÇÃO 3 está presente, documentando o bloqueio da Manus e o fix final", () => {
+    expect(pageSource).toContain("CORREÇÃO 3 (auditoria claude/corrige-scroll-horizontal-fora-da-tela");
+    expect(pageSource).toContain("worklistBottom 1301 > viewportHeight 1100");
   });
 });
