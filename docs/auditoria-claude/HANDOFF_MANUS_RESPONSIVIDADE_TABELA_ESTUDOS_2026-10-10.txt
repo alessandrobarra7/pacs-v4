@@ -136,3 +136,34 @@ se o Alessandro pedir.
 Branch publicada no GitHub (claude/responsividade-tabela-estudos-telas-
 estreitas), sem PR aberto, sem merge em main, nada implantado em nenhuma
 VM. Decisão de merge/deploy é do Alessandro e/ou da Manus.
+
+────────────────────────────────────────────────────────────────────────────
+7. ADENDO (2026-10-11) — confirmação explícita: não afeta a versão mobile
+────────────────────────────────────────────────────────────────────────────
+
+Pergunta levantada pelo Alessandro: essa correção pode atrapalhar a visão
+mobile? Resposta, com base no diff real (não suposição): NÃO.
+
+As únicas 2 linhas de className alteradas estão dentro de:
+
+    <div className="hidden md:block overflow-x-auto">
+    <table className="min-w-[1100px] text-sm border-collapse">
+
+"hidden md:block" já existia ANTES desta correção e não foi tocado nessa
+parte: esse elemento já era (e continua sendo) completamente oculto em
+qualquer tela abaixo do breakpoint `md` (~768px de largura). O celular
+nunca renderiza essa tabela — ele usa outra visualização, em cards,
+dentro de um bloco irmão marcado "md:hidden" (visível só abaixo de `md`),
+que não tem nenhuma linha tocada por este patch.
+
+Ou seja: o alcance real da mudança é só `md` para cima (tablets/desktop).
+Nessa faixa, o único efeito é: se a janela for mais estreita que ~1100px
+de conteúdo útil, a tabela agora rola horizontalmente em vez de
+comprimir/cortar colunas. Em telas `md`+ já largas o visual é idêntico
+ao de antes. Em `< md` (mobile) não há nenhuma mudança de comportamento,
+porque o bloco inteiro já estava fora do fluxo de renderização nessa
+faixa antes e depois do patch.
+
+Confirmação via grep no diff: o patch toca exatamente 2 linhas de
+className (mostradas acima) mais 1 bloco de comentário explicativo — zero
+linhas dentro do bloco "md:hidden" (cards mobile) foram alteradas.
