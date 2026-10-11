@@ -551,17 +551,22 @@ export default function FinanceMeuResponsavel() {
                       <p className="text-[var(--fin-muted)] text-xs">
                         {u.total_laudos} laudos
                         {' · '}
-                        {(() => {
-                          const pad = (n: number) => String(n).padStart(2, '0');
-                          const sd = u.cycle_start_day ?? 1;
-                          const ed = u.cycle_end_day ?? 31;
-                          if (sd <= ed) {
-                            return `Ciclo: ${pad(sd)}/${pad(month)} – ${pad(ed)}/${pad(month)}`;
-                          } else {
-                            const nextM = month === 12 ? 1 : month + 1;
-                            return `Ciclo: ${pad(sd)}/${pad(month)} – ${pad(ed)}/${pad(nextM)}`;
-                          }
-                        })()}
+                        {/* CORREÇÃO (auditoria claude/corrige-rotulo-ciclo-painel-responsavel,
+                            2026-10-11): este rótulo recalculava "sd/mês selecionado – ed/mês
+                            seguinte" no cliente, assumindo sempre que o MÊS SELECIONADO é o
+                            início do ciclo. Isso é falso para ciclos que cruzam o mês (sd > ed,
+                            ex. 24→23) quando o dia de referência (dia 15 fixo, ver `referenceDate`
+                            abaixo) cai ANTES de sd — nesse caso o ciclo real (calculado por
+                            calculateFinancialCycleDates no backend, a mesma lógica usada no
+                            banner da worklist e em "Meu Financeiro" do médico) começa no mês
+                            ANTERIOR ao selecionado, não nele. Reproduzido ao vivo: com
+                            "Outubro 2026" selecionado, o rótulo mostrava "24/10 – 23/11"
+                            enquanto os totais exibidos (1 laudo, R$ 30,00) eram do ciclo real
+                            24/09–23/10 — o texto do período não batia com os números abaixo
+                            dele. O backend já calcula e devolve o rótulo correto
+                            (myResponsavelSummary → cycle_label, via calcCycleDates); o fix é
+                            usar esse campo em vez de recalcular no cliente. */}
+                        {u.cycle_label ? `Ciclo: ${u.cycle_label}` : 'Ciclo: —'}
                       </p>
                     </div>
                   </div>
