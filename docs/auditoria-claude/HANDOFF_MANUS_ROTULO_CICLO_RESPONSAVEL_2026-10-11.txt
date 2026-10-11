@@ -1,0 +1,131 @@
+HANDOFF PARA MANUS — Correção de rótulo de ciclo no painel do responsável financeiro
+Data: 2026-10-11
+Repositório: alessandrobarra7/pacs-v4
+Branch: claude/corrige-rotulo-ciclo-painel-responsavel
+Base: origin/main @ 28b218a (inclui o fix de ciclo do catálogo, commit 9c5f79d, e o
+       follow-up da própria Manus "fix(finance): alinhar banner ao ciclo operacional")
+Commit desta correção: b9adaf5
+
+VEREDITO PROPOSTO: pronta para revisão/merge. Correção isolada, somente leitura de
+dados, sem migration, sem alteração de cálculo financeiro ou de eventos. Afeta apenas
+o TEXTO exibido de um intervalo de datas em uma tela.
+
+================================================================================
+1. CONTEXTO — como este bug foi encontrado
+================================================================================
+
+Após o fix anterior (commit 9c5f79d / 28b218a) resolver o banner financeiro da
+worklist para médicos (bug do has_open_cycle), Alessandro verificou em produção uma
+conta de responsavel_financeiro ("erica", já logada no Chrome real) na tela "Meu
+Painel Financeiro" (FinanceMeuResponsavel.tsx). Os valores financeiros (nº de laudos,
+valor a pagar) estavam corretos, mas o texto do período do ciclo exibido por unidade
+estava incorreto.
+
+================================================================================
+2. CAUSA RAIZ
+================================================================================
+
+Arquivo: client/src/pages/finance/FinanceMeuResponsavel.tsx
+
+A tela usa um estado local (year, month) para a navegação entre períodos, com
+referenceDate sempre fixado no dia 15 do mês selecionado:
+
+    const referenceDate = new Date(year, month - 1, 15).toISOString();
+
+Esse referenceDate é enviado ao backend (myResponsavelSummary), que calcula
+CORRETAMENTE o ciclo de cada unidade via calculateFinancialCycleDates(start_day,
+end_day, referenceDate) — a mesma função usada em todo o resto do sistema — e já
+devolve um campo cycle_label pronto e correto por unidade.
+
+O bug: o componente de card por unidade, em vez de usar esse u.cycle_label vindo do
+backend, RECALCULAVA seu próprio rótulo localmente, com uma IIFE que assumia que o
+mês selecionado (month/year do estado da tela) é sempre o mês de INÍCIO do ciclo:
+
+    // comportamento antigo (removido):
+    // `${pad(sd)}/${pad(month)} – ${pad(ed)}/${pad(month)}`  (ciclo no mesmo mês)
+    // `${pad(sd)}/${pad(month)} – ${pad(ed)}/${pad(nextM)}`  (ciclo cruza o mês)
+
+Essa suposição é falsa para ciclos que cruzam o mês (start_day > end_day, ex:
+start_day=24, end_day=23). calculateFinancialCycleDates decide o mês de início real
+comparando o DIA do referenceDate (fixo em 15) com start_day:
+  - se 15 >= start_day: o ciclo é [mês_selecionado.start_day, mês_seguinte.end_day)
+  - se 15 <  start_day: o ciclo é [mês_anterior.start_day, mês_selecionado.end_day)
+
+No segundo caso, o ciclo real COMEÇA NO MÊS ANTERIOR ao selecionado — mas o código
+antigo do frontend sempre montava a string assumindo que o início é no mês
+selecionado, produzindo um rótulo de data incorreto (deslocado em um mês) sempre que
+esse segundo ramo se aplicava.
+
+Importante: isso é um bug de EXIBIÇÃO DE TEXTO apenas. Os números (total_laudos,
+valores a pagar) vêm de outro campo do mesmo payload, calculados corretamente pelo
+backend com o mesmo referenceDate — não foram afetados.
+
+================================================================================
+3. CORREÇÃO APLICADA
+================================================================================
+
+client/src/pages/finance/FinanceMeuResponsavel.tsx (~linha 549-565):
+Removida a IIFE de recomputação local (pad/sd/ed/nextM). Substituída por uso direto
+do campo já correto vindo do backend:
+
+    {u.cycle_label ? `Ciclo: ${u.cycle_label}` : 'Ciclo: —'}
+
+Nenhuma alteração em server/* nesta correção — o backend (financeSimple.ts,
+myResponsavelSummary) já estava correto e não foi tocado.
+
+================================================================================
+4. REGRESSÃO
+================================================================================
+
+Novo arquivo: server/finance-responsavel-cycle-label.test.ts (2 testes)
+  1. Confirma que o código-fonte da página contém o novo trecho
+     u.cycle_label ? `Ciclo: ${u.cycle_label}`
+  2. Confirma que o código-fonte NÃO contém mais nenhum dos dois fragmentos antigos
+     quebrados (pad(sd)}/${pad(month)} – ${pad(ed)}/${pad(month)} e a variante com
+     nextM).
+
+Confirmado via git stash (aplicando stash apenas do arquivo .tsx, rodando os testes,
+depois stash pop) que AMBOS os testes falham contra o arquivo pré-fix e passam com o
+fix restaurado.
+
+================================================================================
+5. VALIDAÇÃO EXECUTADA
+================================================================================
+
+- pnpm check: OK, sem erros TypeScript (a remoção de pad/sd/ed/nextM não deixou
+  variáveis não usadas; "month" continua usado em outros pontos da tela para
+  navegação).
+- TZ=UTC pnpm test: 767 aprovados, 1 pulado, 11 falhas — mesma baseline histórica
+  pré-existente já documentada em handoffs anteriores (ex: study-priority-ui.test.ts,
+  mediaProxy.test.ts, security.auth.test.ts etc., todos dependentes de banco real/
+  timing, não relacionados a esta mudança). Nenhuma falha nova.
+- pnpm build: OK.
+
+================================================================================
+6. HOMOLOGAÇÃO OPERACIONAL RECOMENDADA APÓS DEPLOY
+================================================================================
+
+1. Login como responsavel_financeiro vinculado a uma unidade cujo ciclo cruza o mês
+   (start_day > end_day, ex: 24→23).
+2. Abrir "Meu Painel Financeiro".
+3. Selecionar um mês em que o dia 15 (referência fixa) seja ANTERIOR ao start_day da
+   unidade — este é o caso que estava quebrado.
+4. Confirmar que o rótulo "Ciclo: ..." exibido corresponde ao mesmo intervalo de
+   datas que aparece em "Meu Financeiro" (visão do médico) e no banner financeiro da
+   worklist para o mesmo período — todos devem mostrar o MESMO intervalo, pois usam a
+   mesma calculateFinancialCycleDates().
+5. Confirmar que os valores (laudos, valor a pagar) não mudaram em relação ao estado
+   anterior ao deploy.
+
+================================================================================
+7. OBSERVAÇÃO — item não relacionado, não corrigido nesta branch
+================================================================================
+
+Durante a verificação em produção com a conta "erica", foram observados cards
+"Unidade removida (ID 2)" / "Unidade removida (ID 21)" marcados como "DADO
+INCONSISTENTE". Isso é um problema de INTEGRIDADE DE DADOS pré-existente, já tratado
+por código de uma auditoria anterior (AUDITORIA_PAINEL_RESPONSAVEL_FINANCEIRO_
+2026-09-24) que sinaliza vínculos órfãos explicitamente em vez de ocultá-los
+silenciosamente. Não é um bug novo nem faz parte do escopo desta correção — registrado
+aqui apenas para contexto, caso Alessandro queira tratar a causa do dado órfão em
+outra frente.
