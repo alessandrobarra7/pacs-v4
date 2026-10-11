@@ -5,28 +5,32 @@ export type FinancialCycleDates = {
 };
 
 function formatCycleDate(value: Date): string {
-  const day = String(value.getDate()).padStart(2, "0");
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  return `${day}/${month}/${value.getFullYear()}`;
+  const day = String(value.getUTCDate()).padStart(2, "0");
+  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${value.getUTCFullYear()}`;
 }
 
 function daysInMonth(year: number, monthIndex: number): number {
-  return new Date(year, monthIndex + 1, 0).getDate();
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
 }
 
 function clampedDate(year: number, monthIndex: number, day: number): Date {
   const clampedDay = Math.min(Math.max(day, 1), daysInMonth(year, monthIndex));
-  return new Date(year, monthIndex, clampedDay);
+  return new Date(Date.UTC(year, monthIndex, clampedDay));
 }
 
 function dayAfterClamped(year: number, monthIndex: number, day: number): Date {
   const clampedDay = Math.min(Math.max(day, 1), daysInMonth(year, monthIndex));
-  return new Date(year, monthIndex, clampedDay + 1);
+  return new Date(Date.UTC(year, monthIndex, clampedDay + 1));
 }
 
 /**
  * Retorna o ciclo que contém a data de referência. O fim é exclusivo para uso
  * em consultas SQL; o rótulo apresenta o último dia efetivo do intervalo.
+ *
+ * A convenção financeira é UTC: `signed_at` e as vigências de preço usam essa
+ * base. Aritmética em horário local faria o mesmo instante cair em ciclos
+ * diferentes se o processo Node fosse iniciado em outro fuso horário.
  */
 export function calculateFinancialCycleDates(
   startDay: number | null | undefined,
@@ -35,9 +39,9 @@ export function calculateFinancialCycleDates(
 ): FinancialCycleDates {
   const sd = startDay ?? 1;
   const ed = endDay ?? 31;
-  const day = referenceDate.getDate();
-  const month = referenceDate.getMonth();
-  const year = referenceDate.getFullYear();
+  const day = referenceDate.getUTCDate();
+  const month = referenceDate.getUTCMonth();
+  const year = referenceDate.getUTCFullYear();
   let cycleStart: Date;
   let cycleEnd: Date;
 

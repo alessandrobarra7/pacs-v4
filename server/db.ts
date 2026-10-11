@@ -3290,6 +3290,72 @@ export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: n
 }
 
 /**
+ * Resumo operacional de uma unidade para a worklist do responsável financeiro.
+ *
+ * O responsável não é o médico que assinou os laudos. Por isso, o valor "A
+ * pagar" agrega os eventos ativos de todos os médicos da unidade e nunca filtra
+ * `doctor_user_id` pelo id de login do responsável. A janela é calculada pela
+ * configuração da unidade, pois billing_cycles é uma materialização histórica
+ * do fluxo legado e pode não existir para eventos criados pelo catálogo clínico.
+ */
+export async function getResponsibleUnitFinancialInfo(unitId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  try {
+    const now = new Date();
+    const unitRow = await db.select({
+      s: units.billing_cycle_start_day,
+      e: units.billing_cycle_end_day,
+    }).from(units).where(eq(units.id, unitId)).limit(1);
+    const { cycleStart, cycleEnd } = calculateFinancialCycleDates(
+      unitRow[0]?.s ?? null,
+      unitRow[0]?.e ?? null,
+      now,
+    );
+    const cycleEndInclusive = new Date(cycleEnd.getTime() - 1);
+
+    const [legacyRows, catalogRows] = await Promise.all([
+      db.select({
+        events: drizzleSql2<number>`COUNT(*)`,
+        amount: drizzleSql2<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
+      }).from(billing_visit_events).where(and(
+        eq(billing_visit_events.unit_id, unitId),
+        ne(billing_visit_events.financial_status, 'cancelled'),
+        ne(billing_visit_events.financial_status, 'reversed'),
+        drizzleSql2`${billing_visit_events.signed_at} >= ${cycleStart}`,
+        drizzleSql2`${billing_visit_events.signed_at} < ${cycleEnd}`,
+      )),
+      db.select({
+        events: drizzleSql2<number>`COUNT(*)`,
+        amount: drizzleSql2<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
+      }).from(billing_catalog_study_events).where(and(
+        eq(billing_catalog_study_events.unit_id, unitId),
+        ne(billing_catalog_study_events.financial_status, 'cancelled'),
+        drizzleSql2`${billing_catalog_study_events.signed_at} >= ${cycleStart}`,
+        drizzleSql2`${billing_catalog_study_events.signed_at} < ${cycleEnd}`,
+      )),
+    ]);
+    const totals = combineDoctorCycleEventTotals(
+      legacyRows[0] ?? { events: 0, amount: 0 },
+      catalogRows[0] ?? { events: 0, amount: 0 },
+    );
+
+    return {
+      // O responsável não tem preço individual: o banner usa os totais reais
+      // dos eventos e não pode tratar esse campo nulo como falha de configuração.
+      price_per_report: null,
+      cycle_visits: totals.events,
+      cycle_amount: totals.amount.toFixed(2),
+      cycle_period: { starts_at: cycleStart, ends_at: cycleEndInclusive },
+      has_open_cycle: true,
+    };
+  } catch (err) {
+    console.error('[getResponsibleUnitFinancialInfo] Erro geral:', err);
+    return null;
+  }
+}
+
+/**
  * Fecha um ciclo manualmente (admin_master).
  */
 export async function closeBillingCycle(cycleId: number, closedBy: number) {

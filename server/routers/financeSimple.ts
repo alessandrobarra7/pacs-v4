@@ -63,6 +63,7 @@ import {
   getDoctorMonthlySummary,
   listBillingReportItems,
   getDoctorUnitFinancialInfo,
+  getResponsibleUnitFinancialInfo,
   getDoctorOperationalBalance,
   getDoctorFullContext,
   getUnitFullContext,
@@ -4039,15 +4040,29 @@ export const financeSimpleRouter = router({
         if (!allowedRoles.includes(ctx.user.role)) {
           return { status: 'no_access' as const, cycle_period: null, cycle_amount: null, cycle_visits: null, price_per_report: null };
         }
-        // Guard: não-admin precisa ter view_financial na unidade
-        if (ctx.user.role !== 'admin_master') {
+        const db = await getDb();
+        if (!db) {
+          return { status: 'no_config' as const, cycle_period: null, cycle_amount: null, cycle_visits: null, price_per_report: null };
+        }
+        // O papel dedicado de responsável financeiro é autorizado pelo vínculo
+        // financeiro da unidade (não por user_unit_permissions, que é clínico
+        // e pode inexistir para essa conta). Os demais perfis não-admin seguem
+        // precisando da permissão granular view_financial.
+        if (ctx.user.role === 'responsavel_financeiro') {
+          await assertCanAccessFinancialUnit(db, ctx.user, input.unit_id);
+        } else if (ctx.user.role !== 'admin_master') {
           const perm = await getUserUnitPermission(ctx.user.id, input.unit_id);
           if (!perm?.view_financial) {
             return { status: 'no_access' as const, cycle_period: null, cycle_amount: null, cycle_visits: null, price_per_report: null };
           }
         }
         
-        const result = await getDoctorUnitFinancialInfo(ctx.user.id, input.unit_id);
+        // Médico vê somente os próprios eventos; responsável financeiro vê o
+        // total de repasses ativos dos médicos da unidade. Nunca usar o id do
+        // login do responsável como se ele fosse `doctor_user_id`.
+        const result = ctx.user.role === 'responsavel_financeiro'
+          ? await getResponsibleUnitFinancialInfo(input.unit_id)
+          : await getDoctorUnitFinancialInfo(ctx.user.id, input.unit_id);
         if (!result) {
           return { status: 'no_config' as const, cycle_period: null, cycle_amount: null, cycle_visits: null, price_per_report: null };
         }

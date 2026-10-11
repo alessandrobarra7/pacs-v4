@@ -199,9 +199,10 @@ function FinancialBanner({ unitId, userRole }: { unitId: number | null | undefin
     );
   }
 
-  // ESTADO 4: Sem configuração de preço para esta unidade
-  // (info existe mas price_per_report é null — não há preço configurado)
-  if (!info || info.price_per_report === null) {
+  // ESTADO 4: Sem configuração de preço para médico nesta unidade. O
+  // responsável não possui preço individual; o banner dele exibe a soma
+  // auditável dos eventos ativos, mesmo quando não há preço para novas assinaturas.
+  if (!info || info.status !== 'ok' || (userRole === 'medico' && info.price_per_report === null)) {
     return (
       <div className="bg-blue-50 border-b border-blue-200 px-5 py-3 md:py-1.5 flex items-start md:items-center gap-3 text-[15px] md:text-xs leading-snug text-blue-700">
         <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center border border-blue-700 text-sm font-bold leading-none text-blue-700">i</span>
