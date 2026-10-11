@@ -3644,6 +3644,46 @@ export const financeSimpleRouter = router({
             .set({ ends_at: new Date(startsAt.getTime() - 1000) })
             .where(eq(billing_doctor_modality_prices.id, activeRows[0].id));
         }
+        // CORREÇÃO (auditoria claude/corrige-preco-modalidade-futuro-duplicado, 2026-10-11):
+        // Achado real: a tela do responsável financeiro (FinanceResponsavelUnidade.tsx)
+        // calcula "preço vigente" checando só `!ends_at`, sem checar `starts_at <= now`.
+        // Então um preço já agendado para o futuro (ainda não efetivo, ex.: um R$0,00
+        // cadastrado por engano com vigência no próximo ciclo) é mostrado como se já
+        // estivesse em vigor. O "próximo início válido" calculado pela tela
+        // (unit.cycle_end_date) coincide exatamente com o starts_at desse registro
+        // futuro — e como ESTA query (activeRows, acima) corretamente só considera
+        // vigente quem já começou (lte starts_at, now), ela não encontra esse registro
+        // futuro como ativo, então o startsAt calculado aqui permanece igual ao do
+        // registro futuro já existente. Resultado: o INSERT seguinte violava o índice
+        // único uq_modality_price_active (unit_id, doctor_user_id, modality, starts_at)
+        // e o usuário via o erro bruto do MySQL na tela, sem conseguir corrigir o valor
+        // errado antes de a vigência começar.
+        //
+        // Correção: se já existir uma linha com exatamente este (unidade, médico,
+        // modalidade, início de vigência) — vigente ou ainda futura — não insere uma
+        // segunda linha conflitante; atualiza o valor da que já existe. Isso é
+        // semanticamente correto: duas linhas com o mesmo instante de início não fazem
+        // sentido como "duas vigências" — a intenção de salvar de novo com o mesmo
+        // início é corrigir o valor daquele início, não duplicá-lo.
+        const existingAtSameStart = await db.select({ id: billing_doctor_modality_prices.id })
+          .from(billing_doctor_modality_prices)
+          .where(and(
+            eq(billing_doctor_modality_prices.financial_responsible_id, input.financialResponsibleId),
+            eq(billing_doctor_modality_prices.unit_id, input.unitId),
+            eq(billing_doctor_modality_prices.doctor_user_id, input.doctorUserId),
+            eq(billing_doctor_modality_prices.modality, input.modality.trim().toUpperCase()),
+            eq(billing_doctor_modality_prices.starts_at, startsAt),
+          )).limit(1);
+        if (existingAtSameStart[0]) {
+          await db.update(billing_doctor_modality_prices)
+            .set({
+              price_per_report: input.pricePerReport,
+              ends_at: input.endsAt ? new Date(input.endsAt) : null,
+              created_by: ctx.user.id,
+            })
+            .where(eq(billing_doctor_modality_prices.id, existingAtSameStart[0].id));
+          return { id: existingAtSameStart[0].id };
+        }
         const result = await db.insert(billing_doctor_modality_prices).values({
           financial_responsible_id: input.financialResponsibleId,
           unit_id: input.unitId,

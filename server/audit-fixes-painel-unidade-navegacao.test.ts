@@ -78,8 +78,26 @@ describe("Bloqueio 3 (parecer Manus 2026-10-08) — reference_date/ciclo preserv
 
 describe("Bloqueio 4 (parecer Manus 2026-10-08) — vigência de preço do médico", () => {
   it("calcula o início de vigência alinhado ao próximo ciclo quando já existe preço ativo", () => {
-    expect(unidadeTsx).toContain("const nextValidStart = active ? (unit?.cycle_end_date || new Date().toISOString()) : new Date().toISOString();");
+    // CORREÇÃO (auditoria claude/corrige-preco-modalidade-futuro-duplicado,
+    // 2026-10-11): a fórmula de nextValidStart mudou — agora distingue preço
+    // vigente de verdade (activeNow) de um preço já agendado para o futuro
+    // (pendingFuture), para não colidir com um registro futuro já existente
+    // ao salvar de novo (ver HANDOFF correspondente). O contrato essencial
+    // (vigente existente => próximo início é o fim do ciclo atual) continua
+    // coberto, agora através de `activeNow` em vez de `active`.
+    expect(unidadeTsx).toContain("const activeNow = rowsForModality.find((p) => new Date(p.starts_at).getTime() <= now);");
+    expect(unidadeTsx).toContain("const pendingFuture = rowsForModality.find((p) => new Date(p.starts_at).getTime() > now);");
+    expect(unidadeTsx).toContain("const nextValidStart = pendingFuture");
+    expect(unidadeTsx).toContain(": activeNow");
+    expect(unidadeTsx).toContain("? (unit?.cycle_end_date || new Date().toISOString())");
+    expect(unidadeTsx).toContain(": new Date().toISOString();");
     expect(unidadeTsx).toContain("startsAt: nextValidStart");
+  });
+
+  it("quando já existe um preço agendado para o futuro, reusa o starts_at dele em vez de calcular um novo (evita colisão com o índice único)", () => {
+    expect(unidadeTsx).toContain("const pendingFuture = rowsForModality.find");
+    expect(unidadeTsx).toContain('typeof pendingFuture.starts_at === "string" ? pendingFuture.starts_at : pendingFuture.starts_at.toISOString()');
+    expect(unidadeTsx).toContain("Já existe uma alteração agendada para");
   });
 
   it("não envia mais new Date().toISOString() incondicionalmente como startsAt", () => {
@@ -93,6 +111,9 @@ describe("Bloqueio 4 (parecer Manus 2026-10-08) — vigência de preço do médi
   it("exibe a regra de vigência na interface antes do clique, quando já há preço vigente", () => {
     expect(unidadeTsx).toContain("Já existe preço vigente");
     expect(unidadeTsx).toContain("nunca retroativamente nem no meio do ciclo atual");
+    // Agora essa mensagem só aparece quando NÃO há agendamento futuro pendente
+    // (senão a mensagem mostrada é a de "alteração agendada", testada acima).
+    expect(unidadeTsx).toContain("{!pendingFuture && activeNow && (");
   });
 
   it("aplica a mesma disciplina de não limpar antes do sucesso ao preço externo", () => {

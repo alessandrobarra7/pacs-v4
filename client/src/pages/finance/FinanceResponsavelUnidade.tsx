@@ -310,7 +310,27 @@ export default function FinanceResponsavelUnidade() {
                   {selectedDoctorId && (
                     <div className="space-y-2">
                       {MODALITIES.map((mod) => {
-                        const active = doctorModalityPrices?.find((p) => p.modality === mod && !p.ends_at);
+                        // CORREÇÃO (auditoria claude/corrige-preco-modalidade-futuro-duplicado,
+                        // 2026-10-11): a versão anterior tratava qualquer linha sem ends_at
+                        // como "preço vigente", mesmo quando starts_at ainda estava no futuro
+                        // (uma alteração já agendada para o próximo ciclo, mas que ainda não
+                        // entrou em vigor). Isso tinha dois efeitos ruins: mostrava o valor
+                        // futuro como se já estivesse valendo HOJE (ex.: um R$0,00 cadastrado
+                        // por engano aparecia como "preço vigente"), e calculava
+                        // nextValidStart = unit.cycle_end_date, que coincide exatamente com o
+                        // starts_at do próprio registro futuro já existente — ao salvar de
+                        // novo para corrigir o valor, o INSERT batia de frente com esse
+                        // registro e o usuário via um erro bruto de SQL na tela.
+                        //
+                        // Agora distinguimos os dois estados: vigente de verdade (já começou)
+                        // e agendado para o futuro (ainda não começou). Quando existe um
+                        // agendamento futuro, "Salvar" reusa o starts_at DELE (em vez de
+                        // calcular um novo), para que o backend corrija aquele registro em vez
+                        // de tentar criar um segundo com o mesmo início.
+                        const now = Date.now();
+                        const rowsForModality = doctorModalityPrices?.filter((p) => p.modality === mod && !p.ends_at) ?? [];
+                        const activeNow = rowsForModality.find((p) => new Date(p.starts_at).getTime() <= now);
+                        const pendingFuture = rowsForModality.find((p) => new Date(p.starts_at).getTime() > now);
                         // BLOQUEIO 4 (parecer Manus): quando já existe preço vigente para
                         // esta modalidade, o backend (assertCycleAlignedPriceStart) só
                         // aceita uma nova vigência começando exatamente no primeiro dia do
@@ -319,13 +339,17 @@ export default function FinanceResponsavelUnidade() {
                         // próximo), então reaproveitamos o valor que já veio de
                         // myResponsavelSummary, sem round-trip extra. Sem preço ativo, a
                         // primeira configuração pode valer imediatamente.
-                        const nextValidStart = active ? (unit?.cycle_end_date || new Date().toISOString()) : new Date().toISOString();
+                        const nextValidStart = pendingFuture
+                          ? (typeof pendingFuture.starts_at === "string" ? pendingFuture.starts_at : pendingFuture.starts_at.toISOString())
+                          : activeNow
+                            ? (unit?.cycle_end_date || new Date().toISOString())
+                            : new Date().toISOString();
                         return (
                           <div key={mod} className="bg-[var(--fin-panel-faint)] rounded-lg px-3 py-2">
                             <div className="flex items-center justify-between gap-3">
                               <span className="text-[var(--fin-text)] text-sm">{MODALITY_LABEL[mod]}</span>
                               <div className="flex items-center gap-2">
-                                <span className="text-[var(--fin-muted-dim)] text-xs">{active ? fmtBRL(Number(active.price_per_report)) : "não configurado"}</span>
+                                <span className="text-[var(--fin-muted-dim)] text-xs">{activeNow ? fmtBRL(Number(activeNow.price_per_report)) : "não configurado"}</span>
                                 <input
                                   type="number"
                                   step="0.01"
@@ -363,7 +387,12 @@ export default function FinanceResponsavelUnidade() {
                                 </Button>
                               </div>
                             </div>
-                            {active && (
+                            {pendingFuture && (
+                              <p className="text-[var(--fin-muted-dim)] text-[11px] mt-1">
+                                Já existe uma alteração agendada para {fmtDate(pendingFuture.starts_at)}: {fmtBRL(Number(pendingFuture.price_per_report))}. Salvar aqui corrige esse valor agendado (ainda não está em vigor).
+                              </p>
+                            )}
+                            {!pendingFuture && activeNow && (
                               <p className="text-[var(--fin-muted-dim)] text-[11px] mt-1">
                                 Já existe preço vigente — uma alteração só entra em vigor em {fmtDate(nextValidStart)} (início do próximo ciclo), nunca retroativamente nem no meio do ciclo atual.
                               </p>
