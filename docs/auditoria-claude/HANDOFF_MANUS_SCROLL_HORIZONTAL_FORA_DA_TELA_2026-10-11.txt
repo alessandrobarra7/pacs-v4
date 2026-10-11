@@ -156,3 +156,92 @@ navegador para menos de ~700px de altura) para confirmar visualmente
 que a barra de rolagem horizontal da tabela aparece dentro da área
 visível, sem necessidade de rolar a página inteira para baixo
 primeiro.
+
+====================================================================
+9. ADENDO — RESPOSTA AO BLOQUEIO DA MANUS (2026-10-11)
+====================================================================
+
+A Manus revisou os commits 0358713/a135ba6 e REPROVOU o merge, com um
+achado correto e bem fundamentado:
+
+  A correção 2 (acima) presumia que o
+  <div className="flex-1 overflow-auto"> da tabela já era limitado à
+  altura visível da viewport. Essa premissa era falsa. O container raiz
+  da página usava className="min-h-screen flex flex-col" (confirmado
+  no código, linha ~2109 de client/src/pages/PacsQueryPage.tsx antes
+  desta correção):
+
+    - min-h-screen é altura MÍNIMA de 100vh, não altura fixa — a
+      página podia crescer além da altura da janela.
+    - Não havia overflow-hidden no container raiz.
+    - O container da tabela (flex-1 overflow-auto) não tinha min-h-0.
+
+  Por padrão CSS, um item flex tem min-height:auto, que equivale à
+  altura do seu próprio conteúdo a menos que min-h-0 seja explicitado.
+  Como consequência, o item flex-1 nunca encolhia de verdade: a página
+  inteira crescia com TODAS as linhas da tabela, e a barra de rolagem
+  horizontal (que fica na borda inferior do container) saía da área
+  visível em janelas baixas — exatamente o mesmo bug da correção 2,
+  só que um nível acima na árvore de elementos.
+
+  A Manus reproduziu a geometria e mediu: worklistBottom 1301 >
+  viewportHeight 1100 (nos termos dela) — confirmando que a correção 2
+  sozinha não bastava.
+
+CORREÇÃO 3 (commit bbbbbc0), aplicada em resposta ao bloqueio:
+
+  - Container raiz: className="min-h-screen flex flex-col" ->
+    "h-[100dvh] min-h-0 flex flex-col overflow-hidden"
+    (altura real de 100% da viewport dinâmica, permite encolher,
+    a própria página não rola mais).
+
+  - Container da tabela: className="flex-1 overflow-auto" ->
+    "min-h-0 flex-1 overflow-auto"
+    (agora o item flex-1 realmente encolhe ao espaço disponível em vez
+    de crescer com o conteúdo).
+
+PROVA DE GEOMETRIA REAL (não apenas leitura de texto-fonte):
+
+  Como o ambiente de testes automatizados (vitest, environment: "node")
+  não executa layout CSS real, a prova de geometria foi feita
+  reproduzindo a estrutura relevante da página (header + banner
+  financeiro + filtros + tabela, todos shrink-0 exceto a área da
+  tabela) dentro de um iframe real de exatamente 965x620px, com 40
+  linhas de tabela simuladas, usando o motor de layout de um navegador
+  de verdade (Chrome real, via extensão):
+
+  Estrutura ANTIGA (min-h-screen, sem overflow-hidden, sem min-h-0):
+    worklistClientHeight: 1026
+    worklistRectBottom:   1127
+    viewport:              620
+    -> barra de rolagem horizontal 507px abaixo do limite visível,
+       reproduzindo exatamente o mecanismo que a Manus descreveu.
+
+  Estrutura NOVA (h-[100dvh] min-h-0 overflow-hidden + min-h-0 no
+  container da tabela):
+    worklistClientHeight:  519
+    worklistRectBottom:    620
+    viewport:              620
+    -> barra de rolagem horizontal exatamente no limite da área
+       visível (worklistRectBottom == viewport), rolagem vertical
+       funcionando dentro do próprio container
+       (worklistScrollHeight 1026 > worklistClientHeight 519).
+
+VALIDAÇÃO:
+  - pnpm check: 0 erros.
+  - TZ=UTC pnpm test: mesma baseline conhecida (11 falhas
+    pré-existentes em 7 arquivos não relacionados), 771 testes
+    passaram.
+  - pnpm build: sucesso.
+  - server/pacs-table-scroll-not-offscreen.test.ts: 2 novos testes de
+    string-fonte documentando a correção 3 (presença das novas classes
+    na raiz e no container da tabela, ausência das antigas). O arquivo
+    traz uma nota explícita sobre a limitação do ambiente de teste
+    (sem layout real) e remete a este handoff para a prova de
+    geometria.
+
+RECOMENDAÇÃO ATUALIZADA:
+  Com a correção 3 aplicada, a premissa apontada como falsa pela Manus
+  passa a ser verdadeira: o container da tabela agora é, de fato,
+  limitado à altura real da viewport. Solicito nova revisão do commit
+  bbbbbc0 (em cima de 0358713/a135ba6, mesma branch) antes do merge.
