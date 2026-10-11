@@ -1,0 +1,219 @@
+HANDOFF TÉCNICO — COLISÃO AO CORRIGIR PREÇO POR MODALIDADE JÁ AGENDADO
+Data: 2026-10-11
+Projeto: PACS Portal / LAUDS
+Repositório: alessandrobarra7/pacs-v4
+Branch: claude/corrige-preco-modalidade-futuro-duplicado
+Commit base: 1af605c04a7606495ac30cce5d2e2a484b7ade43 (origin/main)
+Commit topo: 9ac0667120e6f36e10d716cde73d408a584b5570
+Destinatário: Manus (e qualquer outro agente/engenheiro com acesso às VMs de produção)
+
+======================================================================
+1. COMO CHEGAR NO CÓDIGO REAL
+======================================================================
+
+  git fetch origin
+  git checkout claude/corrige-preco-modalidade-futuro-duplicado
+  git diff 1af605c04a7606495ac30cce5d2e2a484b7ade43..HEAD
+
+Arquivos alterados: server/routers/financeSimple.ts,
+client/src/pages/finance/FinanceResponsavelUnidade.tsx,
+server/audit-fixes-painel-unidade-navegacao.test.ts (atualizado),
+server/finance-modality-price-duplicate-start.test.ts (novo).
+
+======================================================================
+2. ORIGEM DO ACHADO
+======================================================================
+
+Alessandro mandou um print do painel "Preços por médico / modalidade"
+(FinanceResponsavelUnidade.tsx, aba "medicos") mostrando um toast de
+erro com a query SQL bruta:
+
+  Failed query: insert into `billing_doctor_modality_prices`
+    (`id`, `financial_responsible_id`, `unit_id`, `doctor_user_id`,
+     `modality`, `price_per_report`, `starts_at`, `ends_at`,
+     `created_by`, `createdAt`)
+    values (default, ?, ?, ?, ?, ?, ?, ?, ?, default)
+  params: 1,20,268,CR,10.00,2026-10-24 00:00:00.000,,13337
+
+Linha da modalidade CR mostrava "R$0,00" como valor atual, e o
+responsável estava tentando corrigir para R$10,00.
+
+Diagnóstico feito por leitura de código (sem precisar de acesso à
+VM2 desta vez — a evidência do próprio erro de SQL já continha os
+valores exatos do insert que falhou):
+
+  financial_responsible_id=1, unit_id=20, doctor_user_id=268,
+  modality=CR, price_per_report=10.00, starts_at=2026-10-24 00:00:00,
+  ends_at=NULL (o campo vazio entre as duas vírgulas — Array.join
+  converte null em string vazia, não é bug de dado), created_by=13337.
+
+======================================================================
+3. MECANISMO DO PROBLEMA
+======================================================================
+
+client/src/pages/finance/FinanceResponsavelUnidade.tsx, aba
+"medicos", calculava:
+
+  const active = doctorModalityPrices?.find((p) => p.modality === mod && !p.ends_at);
+  const nextValidStart = active ? (unit?.cycle_end_date || new Date().toISOString()) : new Date().toISOString();
+
+O problema: `active` era QUALQUER linha sem `ends_at`, mesmo uma com
+`starts_at` no FUTURO — ou seja, um preço já agendado para entrar em
+vigor no próximo ciclo (por exemplo um R$0,00 cadastrado por engano)
+era tratado como "vigente agora". Isso tinha dois efeitos:
+
+  a) O valor mostrado na tela ("R$0,00") era do registro futuro, não
+     de um preço realmente em vigor hoje — confuso para o usuário.
+  b) `nextValidStart` era calculado como `unit.cycle_end_date`, que é
+     exatamente o instante de início do próximo ciclo — e, por
+     coincidência direta (não é coincidência de fato: é o mesmo
+     cálculo que gerou o starts_at do registro futuro já existente),
+     esse valor é IDÊNTICO ao `starts_at` do registro futuro.
+
+Do lado do backend, server/routers/financeSimple.ts
+(`setDoctorModalityPrice`):
+
+  const activeRows = await db.select(...).where(and(
+    ...,
+    lte(billing_doctor_modality_prices.starts_at, now),
+    or(isNull(ends_at), gte(ends_at, now)),
+  )).limit(1);
+
+Essa query CORRETAMENTE só considera "vigente" quem já começou
+(`lte(starts_at, now)`). Como o registro futuro tem `starts_at` no
+futuro, ele não aparece em `activeRows` — então `hasCurrentPrice` é
+`false`, `assertCycleAlignedPriceStart` retorna sem validar nada, e o
+`startsAt` usado no INSERT final permanece exatamente igual ao que o
+frontend mandou (`unit.cycle_end_date`), que é igual ao `starts_at` do
+registro futuro já existente.
+
+Resultado: o `INSERT` final tentava criar uma SEGUNDA linha com
+exatamente o mesmo `(unit_id, doctor_user_id, modality, starts_at)` da
+primeira, violando o índice único `uq_modality_price_active`
+(confirmado em `information_schema.statistics`: colunas `unit_id`,
+`doctor_user_id`, `modality`, `starts_at`). O erro bruto do MySQL
+chegava ao usuário via `toast.error(err.message)`, sem nenhuma
+mensagem amigável nem caminho para corrigir o valor.
+
+======================================================================
+4. MECANISMO DA CORREÇÃO
+======================================================================
+
+Camada 1 — backend (server/routers/financeSimple.ts,
+`setDoctorModalityPrice`): antes do INSERT final, uma nova consulta
+verifica se já existe uma linha com exatamente o mesmo
+`(financial_responsible_id, unit_id, doctor_user_id, modality,
+starts_at)`:
+
+  const existingAtSameStart = await db.select({ id: ... })
+    .from(billing_doctor_modality_prices)
+    .where(and(..., eq(starts_at, startsAt)))
+    .limit(1);
+  if (existingAtSameStart[0]) {
+    await db.update(billing_doctor_modality_prices)
+      .set({ price_per_report, ends_at, created_by })
+      .where(eq(id, existingAtSameStart[0].id));
+    return { id: existingAtSameStart[0].id };
+  }
+  // senão, INSERT normal (comportamento antigo preservado)
+
+Isso é uma defesa genérica: qualquer colisão de `starts_at` idêntico
+para a mesma combinação (unidade, médico, modalidade) agora vira
+UPDATE em vez de erro de constraint — nunca mais um erro bruto de SQL
+chega ao usuário por esse caminho, e semanticamente faz sentido: duas
+linhas com o mesmo instante de início não são "duas vigências", a
+intenção de salvar de novo no mesmo início é corrigir aquele valor.
+
+Camada 2 — frontend (FinanceResponsavelUnidade.tsx): a lógica agora
+distingue dois estados que antes eram tratados como um só:
+
+  const activeNow = rowsForModality.find((p) => new Date(p.starts_at).getTime() <= now);
+  const pendingFuture = rowsForModality.find((p) => new Date(p.starts_at).getTime() > now);
+
+  const nextValidStart = pendingFuture
+    ? pendingFuture.starts_at  // reusa o início do agendamento já existente
+    : activeNow
+      ? (unit?.cycle_end_date || new Date().toISOString())
+      : new Date().toISOString();
+
+Com `pendingFuture` presente, "Salvar" reusa o `starts_at` do
+agendamento já existente, garantindo que a correção da Camada 1 no
+backend entre em ação (UPDATE do registro futuro, não um terceiro
+INSERT conflitante). A tela também agora exibe uma mensagem diferente
+quando há um agendamento pendente ("Já existe uma alteração agendada
+para {data}: {valor}. Salvar aqui corrige esse valor agendado (ainda
+não está em vigor).") em vez da antiga mensagem genérica de "preço já
+vigente", que não fazia sentido para um valor que ainda nem começou a
+valer.
+
+======================================================================
+5. TESTES E VALIDAÇÃO
+======================================================================
+
+Novo arquivo server/finance-modality-price-duplicate-start.test.ts:
+
+  - "quando já existe uma linha com o mesmo (unidade, médico,
+    modalidade, início), ATUALIZA em vez de inserir duplicata":
+    reproduz o cenário real (activeRows vazio, existingAtSameStart
+    encontra uma linha) e confirma que o resultado é o id da linha
+    atualizada, nenhum insert é tentado, e o update recebe o novo
+    price_per_report.
+  - "quando não existe nenhuma linha no mesmo início, insere
+    normalmente": confirma que o caminho antigo (primeira
+    configuração de um preço) continua funcionando sem mudança.
+
+Prova de que o teste pega a regressão de verdade: revertido o guard
+de propósito (git stash só de server/routers/financeSimple.ts), a
+suíte rodou de novo e o primeiro teste falhou exatamente como
+esperado (`expected { id: 999 } to deeply equal { id: 777 }` — ou
+seja, sem a correção ele tenta inserir, não atualizar). Guard
+restaurado, teste voltou a passar.
+
+server/audit-fixes-painel-unidade-navegacao.test.ts (de uma correção
+anterior, Bloqueio 4 do parecer Manus 2026-10-08) tinha 1 asserção
+que checava a string EXATA da fórmula antiga de `nextValidStart` —
+atualizado para checar a nova fórmula (`activeNow`/`pendingFuture`),
+e adicionadas 2 novas asserções cobrindo o comportamento novo. 17/17
+passam.
+
+Validação completa:
+
+  pnpm check: 0 erros TypeScript.
+  TZ=UTC pnpm test: 775 passed, 11 failed, 1 skipped (787 total).
+    As 11 falhas são a mesma baseline conhecida, nos mesmos 7 arquivos
+    de sempre (exam-catalog-security.test.ts, finance-v2-dashboard.test.tsx,
+    mediaProxy.test.ts, pacs-desktop-download-progress.test.ts,
+    pacs.mobile-ui.test.ts, security.auth.test.ts, study-priority-ui.test.ts)
+    — nenhuma falha nova.
+  pnpm build: concluído sem erro.
+
+======================================================================
+6. O QUE FICOU FORA DO ESCOPO
+======================================================================
+
+  - Não foi tocado o registro R$0,00 que já existe em produção para a
+    unidade 20 / médico 268 / modalidade CR com starts_at=2026-10-24.
+    Esse dado específico não foi identificado nem corrigido neste
+    branch — é só código. Se o Alessandro salvar R$10,00 de novo pela
+    tela já corrigida, a Camada 1 vai ATUALIZAR esse registro
+    existente para R$10,00 (não vai criar um novo nem dar erro).
+    Alternativamente, dá para corrigir direto no banco com um UPDATE
+    pontual, se preferirem não esperar o próximo deploy.
+  - Não foi implementada nenhuma mudança de UX mais ampla para exibir
+    todo o HISTÓRICO de preços por modalidade (só vigente + 1
+    agendamento futuro são mostrados na tela). Se um dia existir mais
+    de um agendamento futuro empilhado para a mesma modalidade (hoje
+    o fluxo normal não permite isso, mas não há proteção explícita
+    contra múltiplos `pendingFuture` com `starts_at` diferentes), a
+    tela mostra só o primeiro encontrado por `.find()`. Isso é uma
+    limitação pré-existente de UX, não alterada por esta correção, e
+    ficou fora do escopo por não ser o que gerou o erro reportado.
+
+======================================================================
+7. ESTADO ATUAL
+======================================================================
+
+Branch publicado no GitHub (claude/corrige-preco-modalidade-futuro-duplicado),
+SEM pull request aberto, SEM merge em main, NADA implantado em nenhuma
+VM. Sem migration de banco necessária — é só correção de lógica de
+aplicação (backend + frontend).
