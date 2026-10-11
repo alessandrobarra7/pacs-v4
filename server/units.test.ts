@@ -24,6 +24,8 @@ const state = vi.hoisted(() => ({
   createUnitCalls: [] as any[],
   createUnitResult: 0,
   createAuditLogCalls: [] as any[],
+  deleteUnitCalls: [] as number[],
+  unitDependentRecords: [] as { table: string; count: number }[],
 }));
 
 vi.mock("./db", async (importOriginal) => {
@@ -40,6 +42,13 @@ vi.mock("./db", async (importOriginal) => {
     createAuditLog: vi.fn(async (log: unknown) => {
       state.createAuditLogCalls.push(log);
     }),
+    // CORREÇÃO (auditoria claude/bloqueia-exclusao-unidade-orfa, 2026-10-11):
+    // mocks para o guard de exclusão de unidade (ver server/routers/units.ts e
+    // getUnitDependentRecords em server/db.ts).
+    deleteUnit: vi.fn(async (id: number) => {
+      state.deleteUnitCalls.push(id);
+    }),
+    getUnitDependentRecords: vi.fn(async () => state.unitDependentRecords),
   };
 });
 
@@ -92,6 +101,8 @@ describe("units router", () => {
     state.createUnitCalls = [];
     state.createUnitResult = 0;
     state.createAuditLogCalls = [];
+    state.deleteUnitCalls = [];
+    state.unitDependentRecords = [];
     vi.clearAllMocks();
   });
 
@@ -173,6 +184,42 @@ describe("units router", () => {
       })
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(state.createUnitCalls).toHaveLength(0);
+  });
+
+  // CORREÇÃO (auditoria claude/bloqueia-exclusao-unidade-orfa, 2026-10-11):
+  // reproduz o achado real em produção — exclusão de unidade sem checar
+  // dependentes órfanizou financial_responsible_units (e reports/billing_cycles/
+  // studies_cache). Estes dois testes provam o contrato: exclusão bloqueada
+  // quando há dependência, permitida quando não há.
+  it("exclusão de unidade é bloqueada quando existem registros dependentes (evita órfãos como o caso real)", async () => {
+    state.unitDependentRecords = [
+      { table: "financial_responsible_units", count: 2 },
+      { table: "reports", count: 4 },
+    ];
+    const { appRouter } = await import("./routers");
+    const ctx = createContext({ id: 1, role: "admin_master", unit_id: null });
+    const caller = appRouter.createCaller(ctx);
+
+    await expect(caller.units.delete({ id: 21 })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await expect(caller.units.delete({ id: 21 })).rejects.toThrow(/financial_responsible_units/);
+    expect(state.deleteUnitCalls).toHaveLength(0);
+    expect(state.createAuditLogCalls).toHaveLength(0);
+  });
+
+  it("exclusão de unidade é permitida quando não existe nenhum registro dependente", async () => {
+    state.unitDependentRecords = [];
+    const { appRouter } = await import("./routers");
+    const ctx = createContext({ id: 1, role: "admin_master", unit_id: null });
+    const caller = appRouter.createCaller(ctx);
+
+    const result = await caller.units.delete({ id: 99 });
+
+    expect(result).toEqual({ success: true });
+    expect(state.deleteUnitCalls).toEqual([99]);
+    expect(state.createAuditLogCalls).toHaveLength(1);
+    expect(state.createAuditLogCalls[0]).toMatchObject({ action: "DELETE_UNIT", unit_id: 99 });
   });
 });
 

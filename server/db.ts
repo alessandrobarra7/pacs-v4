@@ -256,6 +256,63 @@ export async function updateUnit(id: number, data: Partial<InsertUnit>) {
   await db.update(units).set(data).where(eq(units.id, id));
 }
 
+/**
+ * CORREÇÃO (auditoria claude/bloqueia-exclusao-unidade-orfa, 2026-10-11):
+ *
+ * Achado real em produção (VM2, 11/10/2026): a unidade id=2 foi excluída em
+ * 05/06/2026 e a unidade id=21 em 03/07/2026 (ambas via DELETE_UNIT, confirmado
+ * no audit_log). deleteUnit() sempre fez só um DELETE FROM units, sem transação
+ * e sem checar nenhuma tabela dependente. Como quase nenhuma tabela do schema
+ * tem FK de verdade para units (checado em information_schema.key_column_usage:
+ * só user_unit_permissions/report_versions/billing_visit_events têm FK formal, e
+ * nem essas apontam todas para units), o banco nunca bloqueou nem avisou nada.
+ * O resultado: financial_responsible_units ficou com 2 vínculos "ativos"
+ * (ends_at NULL) apontando para unidades inexistentes, e isso se refletiu no
+ * painel financeiro como cards "Unidade removida / DADO INCONSISTENTE". Também
+ * foram encontrados órfãos em reports (4 laudos assinados — dado clínico real,
+ * não pode ser tocado por uma limpeza automática), billing_cycles (4, vazios),
+ * e studies_cache (2, cache). O dado de produção já foi corrigido manualmente
+ * (ends_at preenchido nas 2 linhas órfãs). Esta função evita que o MESMO
+ * problema se repita da próxima vez que alguém excluir uma unidade.
+ *
+ * Verifica, de forma genérica (via information_schema, não uma lista de tabelas
+ * mantida à mão — assim continua valendo mesmo se uma migration futura
+ * adicionar uma nova tabela com unit_id), se existe qualquer linha em qualquer
+ * tabela do banco atual que referencie esta unidade. "audit_log" é
+ * deliberadamente ignorada: é trilha histórica de auditoria, não "dado vivo"
+ * preso à unidade, e deve continuar existindo mesmo depois que a unidade some.
+ */
+export async function getUnitDependentRecords(unitId: number): Promise<{ table: string; count: number }[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const tablesResult = await db.execute(drizzleSql2`
+    SELECT table_name AS table_name
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND column_name = 'unit_id'
+      AND table_name NOT IN ('units', 'audit_log')
+  `);
+  const tableRows = (tablesResult as unknown as [Array<{ table_name: string }>, unknown])[0] ?? [];
+
+  const dependent: { table: string; count: number }[] = [];
+  for (const { table_name } of tableRows) {
+    // table_name vem só do information_schema, mas ainda assim validamos o
+    // formato antes de usar via sql.raw (identificador não é parametrizável
+    // em MySQL — só valores são).
+    if (!/^[a-zA-Z0-9_]+$/.test(table_name)) continue;
+    const countResult = await db.execute(drizzleSql2`
+      SELECT COUNT(*) AS qty FROM ${drizzleSql2.raw('`' + table_name + '`')} WHERE unit_id = ${unitId}
+    `);
+    const countRows = (countResult as unknown as [Array<{ qty: number | string }>, unknown])[0] ?? [];
+    const qty = Number(countRows[0]?.qty ?? 0);
+    if (qty > 0) {
+      dependent.push({ table: table_name, count: qty });
+    }
+  }
+  return dependent;
+}
+
 export async function deleteUnit(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

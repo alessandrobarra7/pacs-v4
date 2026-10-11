@@ -2,7 +2,7 @@ import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
-  getAllUnits, getUnitById, createUnit, updateUnit, deleteUnit,
+  getAllUnits, getUnitById, createUnit, updateUnit, deleteUnit, getUnitDependentRecords,
   getDb, createAuditLog,
 } from "../db";
 import { storageGetUrl } from "../storage";
@@ -199,6 +199,28 @@ export const unitsRouter = router({
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        // CORREÇÃO (auditoria claude/bloqueia-exclusao-unidade-orfa, 2026-10-11):
+        // deleteUnit() nunca checou dependências — era um DELETE FROM units puro.
+        // Em produção isso já órfanizou financial_responsible_units (causando
+        // "Unidade removida / DADO INCONSISTENTE" no painel financeiro), além de
+        // reports, billing_cycles e studies_cache apontando para unit_id
+        // inexistente. Quase nenhuma tabela tem FK real para units, então o
+        // banco nunca bloqueou isso sozinho. Agora bloqueamos no nível da
+        // aplicação: se existir qualquer linha dependente, a exclusão é negada
+        // e o admin é orientado a desativar a unidade (isActive=false, já
+        // suportado por units.update) em vez de excluí-la — isso preserva o
+        // histórico clínico/financeiro em vez de deixá-lo órfão silenciosamente.
+        const dependents = await getUnitDependentRecords(input.id);
+        if (dependents.length > 0) {
+          const resumo = dependents
+            .map((d) => `${d.table} (${d.count})`)
+            .join(', ');
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Não é possível excluir esta unidade: existem registros vinculados em ${resumo}. Use "Desativar" em vez de "Excluir" para preservar o histórico.`,
+          });
+        }
+
         await deleteUnit(input.id);
         await createAuditLog({
           user_id: ctx.user.id,
