@@ -1,0 +1,127 @@
+HANDOFF PARA MANUS — Banner financeiro: ciclo falso-fechado para o fluxo de catálogo
+Branch: claude/corrige-ciclo-banner-financeiro-catalogo
+Base: origin/main @ f920be6144d614e21ef79f10e555bb91da12ece (já inclui o fix de
+preço por modalidade, aprovado e mergeado por você nesta mesma data)
+Data: 2026-10-10
+Autor: Claude (sandbox, sem acesso a VM de produção)
+
+====================================================================
+1. CONTEXTO
+====================================================================
+Após o deploy do fix anterior (banner financeiro ignorava preço por modalidade),
+Alessandro reportou: "apos o gitpull ainda esta com erro. nao foi resolvido por
+total". Reproduzi ao vivo, logado como o médico real "gian carvalho" (unidade
+HOSPITAL DA CRIANÇA, unit_id=20), via o Chrome do próprio Alessandro.
+
+Confirmação do fix anterior: o endpoint financeSimple.getUnitFinancialInfo agora
+retorna price_per_report = "30.00" corretamente (antes retornava null). Esse fix
+está funcionando.
+
+Mas o banner da worklist (topo da PacsQueryPage) continuava mostrando:
+  CICLO: —   ASSINADOS: 0   RECEBER: R$ 0,00
+
+Enquanto a tela "Meu Financeiro" do mesmo médico, no mesmo instante, mostrava
+corretamente:
+  Laudos assinados no ciclo (24/09/2026 a 24/10/2026): 1
+  Repasses gerados no ciclo: R$ 30,00
+  (laudo: HENDY CARLA DUARTE DA SILVA — SEIOS DA FACE — CR — assinado 10/10/2026)
+
+Ou seja: é um SEGUNDO bug, diferente do primeiro, na mesma função.
+
+====================================================================
+2. CAUSA RAIZ CONFIRMADA
+====================================================================
+getDoctorUnitFinancialInfo (server/db.ts) decidia has_open_cycle consultando se
+existe uma linha MATERIALIZADA em billing_cycles com status='open' cobrindo a
+data de hoje:
+
+  SELECT ... FROM billing_cycles
+  WHERE unit_id = ? AND cycle_type = 'doctor' AND status = 'open'
+    AND starts_at <= hoje AND ends_at >= hoje
+
+Essa linha só é criada em UM dos dois fluxos de evento financeiro do sistema:
+
+- Fluxo LEGADO (createBillingVisitEvent, server/db.ts): chama
+  getOrCreateActiveCycle, que cria a linha em billing_cycles se ela não existir.
+- Fluxo de CATÁLOGO por legenda clínica (createCatalogEventsWhenComplete, em
+  server/catalogFinancial.ts — hoje o caminho usado por studyExamLegend, que foi
+  exatamente o que gerou o laudo de "gian carvalho"): insere diretamente em
+  billing_catalog_study_events e NUNCA chama getOrCreateActiveCycle. Nenhuma
+  linha de billing_cycles é criada para esses eventos.
+
+Resultado: qualquer médico cujo(s) laudo(s) do ciclo atual vieram só do fluxo de
+catálogo (sem nenhum evento do fluxo legado já ter passado por ali antes) nunca
+tem uma linha billing_cycles materializada, então has_open_cycle fica sempre
+false — mesmo com dinheiro real e laudos reais no período.
+
+A tela "Meu Financeiro" (financeSimple.myFinanceiro) nunca teve esse problema
+porque ela não depende de billing_cycles existir: calcula a janela do ciclo
+ad-hoc, a partir de units.billing_cycle_start_day/end_day, via
+calculateFinancialCycleDates (server/financeCycle.ts) — a mesma função que já
+é usada e testada em outras partes do financeiro.
+
+====================================================================
+3. CORREÇÃO
+====================================================================
+Arquivo: server/db.ts, função getDoctorUnitFinancialInfo.
+
+Removida a consulta a billing_cycles para decidir o ciclo. Em seu lugar, a
+janela do ciclo agora é computada exatamente como em financeSimple.myFinanceiro:
+
+  const unitRow = await db.select({
+    s: units.billing_cycle_start_day,
+    e: units.billing_cycle_end_day,
+  }).from(units).where(eq(units.id, unitId)).limit(1);
+
+  const { cycleStart, cycleEnd } = calculateFinancialCycleDates(
+    unitRow[0]?.s ?? null, unitRow[0]?.e ?? null, now,
+  );
+
+has_open_cycle passa a ser true sempre que essa janela é computada com sucesso
+(ela sempre é computável — calculateFinancialCycleDates tem fallback 1→31 se a
+unidade não tiver configurado start/end day). cycle_visits e cycle_amount
+continuam somando as DUAS fontes (billing_visit_events +
+billing_catalog_study_events), agora filtradas pela janela computada em vez da
+janela da linha billing_cycles.
+
+Import adicionado: calculateFinancialCycleDates de ./financeCycle (zero
+dependências circulares — financeCycle.ts não importa nada).
+
+Esta é uma correção de LEITURA. Não grava, não cria nem altera linhas em
+billing_cycles, não toca em nenhum evento financeiro existente.
+
+====================================================================
+4. VALIDAÇÃO
+====================================================================
+- pnpm check (tsc --noEmit): OK, sem erros.
+- TZ=UTC pnpm test: 758 passed | 11 failed | 1 skipped (770 total). As 11
+  falhas são a mesma baseline pré-existente de sempre (dependem de banco real,
+  indisponível no sandbox) — confirmei rodando a suíte antes desta mudança
+  (via git stash) e as mesmas 11 falhas já existiam.
+- pnpm build: OK.
+- Novo teste: server/doctor-financial-banner-catalog-cycle-fallback.test.ts
+  (4 testes, estruturais — sem banco real disponível). Confirmei que os 4
+  falham contra o código sem a correção (via git stash em server/db.ts) e
+  passam com ela.
+
+====================================================================
+5. HOMOLOGAÇÃO OPERACIONAL RECOMENDADA APÓS O DEPLOY
+====================================================================
+1. Logar como um médico com laudo assinado VIA LEGENDA (fluxo de catálogo) no
+   ciclo atual de uma unidade que nunca teve evento do fluxo legado nesse
+   período (esse é o caso que estava quebrado).
+2. Confirmar que o banner do topo da worklist mostra o mesmo "Assinados" e
+   "Receber" que a tela "Meu Financeiro" mostra para o mesmo médico/unidade.
+3. Repetir para um médico sem nenhum laudo assinado no ciclo atual e confirmar
+   que o banner mostra "Assinados: 0 / Receber: R$ 0,00" (comportamento
+   correto nesse caso, não um bug).
+4. Confirmar que o papel responsavel_financeiro também passa a ver o resumo
+   correto ("A pagar") para unidades cujos laudos vieram só do fluxo de
+   catálogo.
+
+====================================================================
+6. ESTADO ATUAL
+====================================================================
+Branch criada a partir de origin/main (já no commit que inclui o fix anterior,
+aprovado e mergeado por você). Commit único com a correção + teste de
+regressão + este handoff. Nenhum merge, deploy, ou migration executado.

@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/mysql2";
 import { or, and, eq, like, inArray, SQL, ne, gte, lte, isNull, desc, asc, sql as drizzleSql2, count as drizzleCount, or as _or, and as _and, eq as _eq, lte as _lte, gte as _gte, ne as _ne, inArray as _inArray, isNull as isNullFn, desc as _desc } from "drizzle-orm";
 import { normalizeStudyDate, studyDateToUtcDate } from "./studyDate";
+import { calculateFinancialCycleDates } from "./financeCycle";
 import { 
   InsertUser, 
   users, 
@@ -3147,7 +3148,6 @@ export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: n
 
   try {
     const now = new Date();
-    const refDateStr = now.toISOString().slice(0, 10);
 
     // PASSO 3: Buscar preço vigente INDEPENDENTEMENTE de ciclo aberto
     // O preço deve aparecer mesmo que não haja produção no período
@@ -3194,74 +3194,87 @@ export async function getDoctorUnitFinancialInfo(doctorUserId: number, unitId: n
       console.error('[getDoctorUnitFinancialInfo] Erro ao buscar preço:', priceErr);
     }
 
-    // Ciclo ativo do médico nessa unidade (opcional — saldo zero se não houver ciclo)
+    // CORREÇÃO (auditoria claude/corrige-ciclo-banner-financeiro-catalogo, 2026-10-10):
+    // Esta função exigia uma linha MATERIALIZADA em billing_cycles (status='open')
+    // para considerar que existe um ciclo aberto. Essa linha só é criada pelo fluxo
+    // legado de faturamento (createBillingVisitEvent -> getOrCreateActiveCycle). O
+    // fluxo de catálogo por legenda clínica (createCatalogEventsWhenComplete, em
+    // server/catalogFinancial.ts — hoje o caminho usado por studyExamLegend/legendas
+    // de exame) grava billing_catalog_study_events diretamente e NUNCA chama
+    // getOrCreateActiveCycle, então nenhuma linha de billing_cycles é criada para
+    // essas assinaturas.
+    //
+    // Resultado observado em produção (médico "gian carvalho", unidade "HOSPITAL DA
+    // CRIANÇA", laudo assinado via legenda, 10/10/2026): price_per_report resolvia
+    // corretamente (30.00, fix da auditoria anterior), mas has_open_cycle ficava
+    // false e cycle_visits/cycle_amount ficavam zerados — o banner da worklist
+    // mostrava "Assinados: 0 / Receber: R$ 0,00" enquanto a tela "Meu Financeiro"
+    // (financeSimple.myFinanceiro, que NÃO depende de billing_cycles — calcula a
+    // janela do ciclo ad-hoc via calculateFinancialCycleDates a partir de
+    // units.billing_cycle_start_day/end_day) mostrava corretamente 1 laudo assinado
+    // e R$ 30,00.
+    //
+    // Fix: computar a janela do ciclo da MESMA forma que myFinanceiro — sem
+    // depender de uma linha billing_cycles existir — eliminando a divergência entre
+    // as duas telas e cobrindo os dois fluxos de evento financeiro (legado e
+    // catálogo) dentro dessa janela.
     let cycle_visits = 0;
     let cycle_amount = "0.00";
     let cycle_period: { starts_at: Date; ends_at: Date } | null = null;
     let has_open_cycle = false;
 
     try {
-      const activeCycle = await db.select({
-        id: billing_cycles.id,
-        unit_id: billing_cycles.unit_id,
-        cycle_type: billing_cycles.cycle_type,
-        status: billing_cycles.status,
-        starts_at: billing_cycles.starts_at,
-        ends_at: billing_cycles.ends_at,
-      }).from(billing_cycles).where(
-        and(
-          eq(billing_cycles.unit_id, unitId),
-          eq(billing_cycles.cycle_type, "doctor"),
-          eq(billing_cycles.status, "open"),
-          drizzleSql2`${billing_cycles.starts_at} <= ${refDateStr}`,
-          drizzleSql2`${billing_cycles.ends_at} >= ${refDateStr}`,
-        )
-      ).limit(1);
+      const unitRow = await db.select({
+        s: units.billing_cycle_start_day,
+        e: units.billing_cycle_end_day,
+      }).from(units).where(eq(units.id, unitId)).limit(1);
 
-      if (activeCycle.length > 0) {
-        has_open_cycle = true;
-        const cycle = activeCycle[0];
-        cycle_period = { starts_at: cycle.starts_at, ends_at: cycle.ends_at };
+      const { cycleStart, cycleEnd } = calculateFinancialCycleDates(
+        unitRow[0]?.s ?? null,
+        unitRow[0]?.e ?? null,
+        now,
+      );
+      // cycleEnd é exclusivo (ver calculateFinancialCycleDates); cycle_period exposto
+      // ao cliente usa o último dia efetivo (inclusive), coerente com o rótulo exibido
+      // em "Meu Financeiro".
+      const cycleEndInclusive = new Date(cycleEnd.getTime() - 1);
+      cycle_period = { starts_at: cycleStart, ends_at: cycleEndInclusive };
+      has_open_cycle = true;
 
-        // O banner precisa usar as duas fontes de eventos vigentes. O fluxo legado
-        // grava billing_visit_events e o fluxo de catálogo grava
-        // billing_catalog_study_events. Contar apenas a fonte legada faz um laudo
-        // assinado aparecer na worklist, mas zerado no resumo do médico.
-        const cycleEndExclusive = drizzleSql2`DATE_ADD(${cycle.ends_at}, INTERVAL 1 DAY)`;
-        const [legacyRows, catalogRows] = await Promise.all([
-          db.select({
-            events: drizzleSql2<number>`COUNT(*)`,
-            amount: drizzleSql2<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
-          }).from(billing_visit_events).where(and(
-            eq(billing_visit_events.unit_id, unitId),
-            eq(billing_visit_events.doctor_user_id, doctorUserId),
-            ne(billing_visit_events.financial_status, 'cancelled'),
-            ne(billing_visit_events.financial_status, 'reversed'),
-            drizzleSql2`${billing_visit_events.signed_at} >= ${cycle.starts_at}`,
-            drizzleSql2`${billing_visit_events.signed_at} < ${cycleEndExclusive}`,
-          )),
-          db.select({
-            events: drizzleSql2<number>`COUNT(*)`,
-            amount: drizzleSql2<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
-          }).from(billing_catalog_study_events).where(and(
-            eq(billing_catalog_study_events.unit_id, unitId),
-            eq(billing_catalog_study_events.doctor_user_id, doctorUserId),
-            ne(billing_catalog_study_events.financial_status, 'cancelled'),
-            drizzleSql2`${billing_catalog_study_events.signed_at} >= ${cycle.starts_at}`,
-            drizzleSql2`${billing_catalog_study_events.signed_at} < ${cycleEndExclusive}`,
-          )),
-        ]);
+      const [legacyRows, catalogRows] = await Promise.all([
+        db.select({
+          events: drizzleSql2<number>`COUNT(*)`,
+          amount: drizzleSql2<number>`COALESCE(SUM(${billing_visit_events.doctor_amount_due}), 0)`,
+        }).from(billing_visit_events).where(and(
+          eq(billing_visit_events.unit_id, unitId),
+          eq(billing_visit_events.doctor_user_id, doctorUserId),
+          ne(billing_visit_events.financial_status, 'cancelled'),
+          ne(billing_visit_events.financial_status, 'reversed'),
+          drizzleSql2`${billing_visit_events.signed_at} >= ${cycleStart}`,
+          drizzleSql2`${billing_visit_events.signed_at} < ${cycleEnd}`,
+        )),
+        db.select({
+          events: drizzleSql2<number>`COUNT(*)`,
+          amount: drizzleSql2<number>`COALESCE(SUM(${billing_catalog_study_events.price_applied}), 0)`,
+        }).from(billing_catalog_study_events).where(and(
+          eq(billing_catalog_study_events.unit_id, unitId),
+          eq(billing_catalog_study_events.doctor_user_id, doctorUserId),
+          ne(billing_catalog_study_events.financial_status, 'cancelled'),
+          drizzleSql2`${billing_catalog_study_events.signed_at} >= ${cycleStart}`,
+          drizzleSql2`${billing_catalog_study_events.signed_at} < ${cycleEnd}`,
+        )),
+      ]);
 
-        const totals = combineDoctorCycleEventTotals(
-          legacyRows[0] ?? { events: 0, amount: 0 },
-          catalogRows[0] ?? { events: 0, amount: 0 },
-        );
-        cycle_visits = totals.events;
-        cycle_amount = totals.amount.toFixed(2);
-      }
+      const totals = combineDoctorCycleEventTotals(
+        legacyRows[0] ?? { events: 0, amount: 0 },
+        catalogRows[0] ?? { events: 0, amount: 0 },
+      );
+      cycle_visits = totals.events;
+      cycle_amount = totals.amount.toFixed(2);
     } catch (cycleErr) {
       console.error('[getDoctorUnitFinancialInfo] Erro ao buscar ciclo:', cycleErr);
     }
+
 
     return {
       price_per_report,
