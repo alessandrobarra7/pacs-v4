@@ -2339,10 +2339,27 @@ setSelectedStudy(study);
               mais estreitas que a do Alessandro o navegador comprimia/cortava colunas em vez
               de rolar horizontalmente — reportado com print real mostrando a coluna "Status"
               cortada na borda direita e o nome do paciente quebrando em várias linhas. Trocado
-              para `w-full min-w-[1100px]` dentro de um contêiner com rolagem horizontal própria
-              (`overflow-x-auto`), preservando 100% da largura em telas largas e impedindo que a
-              tabela fique mais estreita que o necessário para suas colunas em telas menores. */}
-          <div className="hidden md:block overflow-x-auto">
+              para `w-full min-w-[1100px]`, preservando 100% da largura em telas largas e
+              impedindo que a tabela fique mais estreita que o necessário para suas colunas em
+              telas menores.
+
+              CORREÇÃO 2 (auditoria claude/corrige-scroll-horizontal-fora-da-tela, 2026-10-11):
+              o fix acima envolvia a tabela num `<div overflow-x-auto>` SEM altura limitada,
+              aninhado dentro do `<div className="flex-1 overflow-auto">` logo acima (linha
+              ~2321), que já é limitado à altura visível da tela (via flex) e já trata rolagem
+              horizontal sozinho (`overflow-auto` = overflow-x E overflow-y). Esse aninhamento
+              fazia a caixa interna crescer livremente com a altura de TODAS as linhas da
+              tabela, empurrando a própria barra de rolagem horizontal (que fica na borda
+              inferior da caixa) para fora da área visível em janelas não muito altas — o
+              usuário via as colunas da direita cortadas sem nenhuma barra visível para rolar
+              até elas, a menos que rolasse a página inteira para baixo primeiro (reportado por
+              Alessandro com prints reais do Windows, confirmado reproduzindo o mesmo tamanho
+              de janela: parentRectBottom 850 > windowInnerHeight 620 → barra fora da viewport).
+              Removido o `overflow-x-auto` aninhado: a tabela agora fica direto dentro do
+              `<div className="flex-1 overflow-auto">` existente, que já é do tamanho da tela
+              e cuja barra de rolagem (quando necessária) fica sempre ancorada na borda da área
+              visível, nunca exigindo rolagem vertical extra para alcançá-la. */}
+          <div className="hidden md:block">
           <table className="w-full min-w-[1100px] text-sm border-collapse">
             <thead>
               <tr
