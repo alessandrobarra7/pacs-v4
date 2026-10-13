@@ -120,6 +120,22 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* AVISO VISUAL / FONTE (pedido do Alessandro, 2026-10-13, branch
+     claude/fonte-work-sans-legenda-exame): o Alessandro apontou que a fonte
+     usada na legenda/nome do exame na listagem PACS parecia "pobre" —
+     causa raiz: o sistema inteiro, fora do módulo Financeiro, nunca teve
+     nenhuma fonte customizada definida, então caía no padrão do SO (Segoe
+     UI no Windows). Ele comparou 5 opções (mockups com fontes reais
+     embutidas) e escolheu Work Sans — carregada via Google Fonts em
+     client/index.html, junto com Manrope/Sora do Financeiro.
+     Escopo confirmado por ele (pergunta direta antes de implementar):
+     SOMENTE a célula/texto do nome do exame (componente ExamName, coluna
+     "Exame" da tabela desktop em PacsQueryPage.tsx) — não o sistema
+     inteiro, não a linha da tabela, não o card mobile. Por isso esta classe
+     é aplicada só naquele componente, nunca no body/global. */
+  .exam-legend-font {
+    font-family: 'Work Sans', ui-sans-serif, system-ui, sans-serif;
+  }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
   [type="button"]:not(:disabled),

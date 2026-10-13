@@ -516,6 +516,11 @@ function AnatomicIcon({ label, className = '' }: { label: string; className?: st
 // — mesmo estilo visual de "não selecionável/desabilitado" usado no resto do
 // sistema — como sinal prévio de que aquele exame precisa de uma legenda
 // antes de poder ser laudado.
+// FONTE (pedido do Alessandro, 2026-10-13, branch claude/fonte-work-sans-legenda-exame):
+// a classe .exam-legend-font (definida em client/src/index.css) aplica Work Sans
+// só ao texto do nome do exame — a fonte que ele escolheu depois de comparar 5
+// opções em mockups. Escopo confirmado por ele: só este componente, não o
+// sistema inteiro.
 function ExamName({ value, unselected }: { value: string; unselected?: boolean }) {
   const label = value || 'Sem descrição';
   return (
@@ -523,7 +528,7 @@ function ExamName({ value, unselected }: { value: string; unselected?: boolean }
       <span className={`shrink-0 w-7 h-7 rounded-md flex items-center justify-center border ${unselected ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-blue-50 text-blue-500 border-blue-100'}`}>
         <AnatomicIcon label={label} className="w-4 h-4" />
       </span>
-      <span className={`text-sm leading-tight ${unselected ? 'text-gray-400' : 'text-gray-800'}`}>{label}</span>
+      <span className={`exam-legend-font text-sm leading-tight ${unselected ? 'text-gray-400' : 'text-gray-800'}`}>{label}</span>
     </div>
   );
 }

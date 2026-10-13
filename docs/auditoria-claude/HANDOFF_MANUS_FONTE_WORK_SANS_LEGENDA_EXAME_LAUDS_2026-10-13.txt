@@ -1,0 +1,102 @@
+HANDOFF MANUS — Fonte Work Sans na legenda/nome do exame (PACS)
+Data: 2026-10-13
+Branch: claude/fonte-work-sans-legenda-exame
+Base: origin/main (commit 9a80161, já com a correção do aviso visual de legenda)
+Autor: Claude (sandbox, sem acesso a VM1/VM2/VM3)
+
+1. CONTEXTO / PEDIDO ORIGINAL
+
+O Alessandro notou que a fonte usada no nome do exame/legenda na listagem
+PACS parecia "pobre", como se nunca tivesse sido trabalhada.
+
+Causa raiz confirmada em código: o sistema inteiro, fora do módulo
+Financeiro, nunca teve nenhuma fonte customizada definida em CSS. O
+Tailwind (v4, via @theme default em node_modules/tailwindcss/theme.css)
+usa como font-sans o stack padrão `ui-sans-serif, system-ui, sans-serif,
+...`, então o navegador renderiza com a fonte padrão do sistema
+operacional de quem está vendo a tela (Segoe UI no Windows, San Francisco
+no Mac, etc.) — daí o visual genérico. Só o módulo /financeiro/* foge
+disso, porque já carrega Manrope e Sora via Google Fonts em
+client/index.html.
+
+2. PROCESSO DE ESCOLHA (com o Alessandro, antes de codar)
+
+- Pergunta direta sobre escopo: ele confirmou que o aviso deveria valer
+  SÓ para o texto do nome do exame (não o sistema inteiro).
+- Gerados 5 mockups autocontidos (HTML com as fontes reais embutidas em
+  base64, via pacotes @fontsource baixados do npm neste sandbox, já que
+  fonts.googleapis.com está bloqueado aqui mas funciona normalmente na
+  VM): Manrope, Inter, IBM Plex Sans, Work Sans, Poppins.
+- A pedido dele, 4 dessas opções também foram reproduzidas como páginas
+  inteiras (cabeçalho, filtros, tabela completa), replicando um
+  screenshot real que ele enviou da tela de produção, para comparação
+  lado a lado com o visual atual.
+- Ele escolheu Work Sans.
+
+3. IMPLEMENTAÇÃO
+
+a) client/index.html — a tag <link> de Google Fonts do módulo Financeiro
+   foi reaproveitada (mesmo host/preconnect, sem duplicar), adicionando
+   Work+Sans:wght@400;500;600 à mesma URL:
+
+     https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap
+
+   Nenhum preconnect novo foi necessário (os dois já existiam).
+
+b) client/src/index.css — nova classe utilitária isolada, dentro de
+   @layer base, que NUNCA é aplicada ao body/seletor global:
+
+     .exam-legend-font {
+       font-family: 'Work Sans', ui-sans-serif, system-ui, sans-serif;
+     }
+
+c) client/src/pages/PacsQueryPage.tsx — a classe é aplicada SOMENTE no
+   `<span>` de texto dentro do componente ExamName (único lugar do
+   arquivo onde esse componente é usado: a coluna "Exame" da tabela
+   desktop). O ícone/badge de modalidade ao lado não foi alterado — só o
+   texto do nome do exame.
+
+4. ESCOPO DELIBERADAMENTE NÃO ALTERADO
+
+Nenhuma outra parte do sistema (nome do paciente, cabeçalho, menus,
+outras colunas, módulo Financeiro, mobile) foi tocada. O pedido do
+Alessandro, confirmado por pergunta direta, foi especificamente sobre o
+texto da legenda/nome do exame.
+
+5. TESTES
+
+Novo arquivo: server/audit-fixes-fonte-work-sans-legenda-exame.test.ts
+(3 testes, leitura de código-fonte, padrão já usado no repositório):
+  1. Work Sans está na mesma tag <link> do Financeiro (sem duplicar
+     preconnects).
+  2. A classe .exam-legend-font existe em index.css, aplica Work Sans, e
+     não está dentro da regra `body { ... }` (nem o nome "Work Sans"
+     aparece ali) — prova que não é uma mudança global.
+  3. ExamName aplica a classe no texto do nome do exame, e é o único
+     className no arquivo que usa essa classe.
+
+Prova de regressão real: o fix foi revertido via `git stash`; os 3 testes
+falharam como esperado; restaurado, voltam a passar.
+
+6. VALIDAÇÃO
+
+- `pnpm check` (tsc --noEmit): OK, sem erros.
+- `TZ=UTC pnpm test` (suíte completa): 784 passed / 11 failed / 1 skipped
+  — mesmas 11 falhas conhecidas, nos mesmos 7 arquivos da baseline já
+  documentada em handoffs anteriores. Zero regressões novas.
+- `pnpm build`: OK, build de produção completo sem erros.
+
+7. ARQUIVOS ALTERADOS/CRIADOS
+
+- client/index.html (tag <link> de fontes)
+- client/src/index.css (nova classe .exam-legend-font)
+- client/src/pages/PacsQueryPage.tsx (ExamName aplica a classe)
+- server/audit-fixes-fonte-work-sans-legenda-exame.test.ts (novo)
+
+8. NADA A FAZER NO BANCO DE DADOS
+
+Mudança puramente de frontend/apresentação. Não toca schema, migrations
+nem dados em produção. A única dependência externa é a mesma já usada
+pelo Financeiro (fonts.googleapis.com/fonts.gstatic.com) — se a VM1 já
+carrega as fontes do Financeiro normalmente hoje, carregará Work Sans
+pela mesma via sem necessidade de nenhuma configuração adicional de rede.
