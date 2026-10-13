@@ -16,12 +16,25 @@
  * pedido, a mudança lá foi revertida e o card mobile permanece exatamente
  * como estava antes desta correção.
  *
+ * CORREÇÃO (parecer de bloqueio da Manus, 2026-10-13): a primeira versão
+ * desta correção afirmava "sem legenda" só com `selections.length === 0`,
+ * o que é um falso positivo enquanto a consulta de legendas ainda está
+ * carregando, desabilitada ou após erro (a query tem fallback `data = []`
+ * nesses casos). Agora a decisão é delegada à função pura
+ * resolveExamHasNoLegendSelected (client/src/lib/examLegendVisualState.ts),
+ * que só afirma a ausência depois de isSuccess da consulta. O
+ * comportamento dos 4 estados (carregando/sucesso vazio/sucesso com
+ * legenda/erro) é coberto por testes dedicados em
+ * server/exam-legend-visual-state.test.ts, que chamam a função
+ * diretamente — este arquivo aqui continua só confirmando, por leitura de
+ * código-fonte, que a integração dentro de PacsQueryPage.tsx está correta.
+ *
  * Este teste prova, via leitura do código-fonte, que:
  * 1. ExamName aceita `unselected` e aplica estilos cinza quando true.
- * 2. A célula "Exame" (desktop) calcula `hasNoLegendSelected` a partir de
- *    `legendSelectionsByStudyUid` (sem nenhuma legenda confirmada) e repassa
- *    para ExamName, além de acinzentar o badge de modalidade e exibir um
- *    title explicativo.
+ * 2. A célula "Exame" (desktop) calcula `hasNoLegendSelected` delegando a
+ *    resolveExamHasNoLegendSelected (hasLoadedLegendSelections +
+ *    selectionsCount), e repassa para ExamName, além de acinzentar o
+ *    badge de modalidade e exibir um title explicativo.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -44,14 +57,27 @@ describe("Aviso visual (cinza) para exame sem legenda selecionada", () => {
     );
   });
 
-  it("coluna 'Exame' (desktop) calcula hasNoLegendSelected e repassa unselected para ExamName", () => {
+  it("coluna 'Exame' (desktop) delega a decisão a resolveExamHasNoLegendSelected e repassa unselected para ExamName", () => {
+    expect(pacsQueryPageTsx).toContain(
+      'import { resolveExamHasNoLegendSelected } from "@/lib/examLegendVisualState";',
+    );
     expect(pacsQueryPageTsx).toContain(
       "const studyLegendSelections = legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? [];",
     );
     expect(pacsQueryPageTsx).toContain(
-      "const hasNoLegendSelected = studyLegendSelections.length === 0;",
+      "const hasNoLegendSelected = resolveExamHasNoLegendSelected({",
+    );
+    expect(pacsQueryPageTsx).toContain("hasLoadedLegendSelections,");
+    expect(pacsQueryPageTsx).toContain(
+      "selectionsCount: studyLegendSelections.length,",
     );
     expect(pacsQueryPageTsx).toContain("unselected={hasNoLegendSelected}");
+  });
+
+  it("a consulta de legendas expõe isSuccess (hasLoadedLegendSelections) para o cálculo não afirmar ausência antes da hora", () => {
+    expect(pacsQueryPageTsx).toContain(
+      "const { data: studyLegendSelections = [], isSuccess: hasLoadedLegendSelections } = trpc.studyExamLegend.getBatch.useQuery(",
+    );
   });
 
   it("badge de modalidade e tooltip explicativo também acompanham o estado sem legenda (desktop)", () => {

@@ -34,6 +34,7 @@ import {
   type ReportLayoutSource,
 } from "../../../shared/reportLayout";
 import { PACS_MAX_RESULTS } from "../../../shared/const";
+import { resolveExamHasNoLegendSelected } from "@/lib/examLegendVisualState";
 
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -826,7 +827,16 @@ const isAdminMaster = user?.role === 'admin_master';
     () => new Map(studyPriorityFlags.map((flag) => [flag.study_instance_uid, flag])),
     [studyPriorityFlags],
   );
-  const { data: studyLegendSelections = [] } = trpc.studyExamLegend.getBatch.useQuery(
+  // BLOQUEIO Manus (parecer 2026-10-13, revisão do aviso visual de legenda
+  // ausente): `data` tem fallback `[]` até a consulta resolver (ou ficar
+  // desabilitada/falhar), então `legendSelectionsByStudyUid` também começa
+  // vazio. Sem esse `isSuccess`, TODO exame aparecia cinza (como se não
+  // tivesse legenda) no primeiro render e durante erro de rede, mesmo os
+  // que já tinham legenda confirmada no servidor — um falso aviso. Agora
+  // o estado "sem legenda" só é afirmado depois de uma resposta de
+  // sucesso da consulta; enquanto carrega, desabilitada ou com erro, o
+  // aviso visual simplesmente não é mostrado (em vez de mostrado errado).
+  const { data: studyLegendSelections = [], isSuccess: hasLoadedLegendSelections } = trpc.studyExamLegend.getBatch.useQuery(
     { unit_id: effectiveUnitId || 0, studyInstanceUids: studyContextUids },
     { enabled: Boolean(user?.id && effectiveUnitId && studyContextUids.length) },
   );
@@ -2542,7 +2552,10 @@ setSelectedStudy(study);
                     <td className="px-4 py-3">
                       {(() => {
                         const studyLegendSelections = legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? [];
-                        const hasNoLegendSelected = studyLegendSelections.length === 0;
+                        const hasNoLegendSelected = resolveExamHasNoLegendSelected({
+                          hasLoadedLegendSelections,
+                          selectionsCount: studyLegendSelections.length,
+                        });
                         return (
                           <StudyLegendPicker
                             study={study}

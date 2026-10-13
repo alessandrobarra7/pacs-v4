@@ -94,3 +94,110 @@ mobile mudar); restaurado, todos voltam a passar.
 
 Esta correção é puramente de frontend (apresentação), não toca schema,
 migrations nem dados em produção. Nenhuma ação manual nas VMs é necessária.
+
+
+====================================================================
+ADENDO 1 (2026-10-13) — RESPOSTA AO PARECER DE BLOQUEIO DA MANUS
+====================================================================
+
+A Manus revisou o commit 1e34927 e BLOQUEOU o merge. Achado confirmado
+como procedente, não é falso positivo.
+
+ACHADO DA MANUS (confirmado):
+`trpc.studyExamLegend.getBatch.useQuery` é declarado com fallback
+`data = []`. Antes de a consulta responder, enquanto está desabilitada
+(unidade/usuário ainda não resolvidos) ou se falhar, `studyLegendSelections`
+e, por consequência, `legendSelectionsByStudyUid` ficam vazios. A versão
+original do fix calculava `hasNoLegendSelected` apenas com
+`selections.length === 0`, então TODOS os exames da tabela podiam aparecer
+cinza no primeiro render — inclusive os que já tinham legenda confirmada
+no servidor — e o mesmo falso aviso podia persistir em caso de erro de
+rede. A Manus também notou, corretamente, que os 4 testes anteriores (só
+leitura de código-fonte) não cobriam os estados temporais da query, então
+não detectavam esse problema.
+
+CORREÇÃO APLICADA (commit seguinte nesta mesma branch):
+
+1. A query agora expõe `isSuccess`, renomeado para `hasLoadedLegendSelections`:
+
+     const { data: studyLegendSelections = [], isSuccess: hasLoadedLegendSelections } =
+       trpc.studyExamLegend.getBatch.useQuery(...);
+
+2. A decisão de "sem legenda" foi extraída para uma função PURA, sem
+   nenhuma dependência de React/tRPC, em um arquivo novo e isolado:
+
+     client/src/lib/examLegendVisualState.ts
+
+       export function resolveExamHasNoLegendSelected(params: {
+         hasLoadedLegendSelections: boolean;
+         selectionsCount: number;
+       }): boolean {
+         return params.hasLoadedLegendSelections && params.selectionsCount === 0;
+       }
+
+   Na célula "Exame" (desktop), a chamada agora é:
+
+     const hasNoLegendSelected = resolveExamHasNoLegendSelected({
+       hasLoadedLegendSelections,
+       selectionsCount: studyLegendSelections.length,
+     });
+
+   Isso cumpre exatamente o contrato pedido pela Manus:
+   a. Carregando → `hasLoadedLegendSelections` é false → nunca afirma
+      ausência de legenda.
+   b. Sucesso sem legenda → true && 0 === 0 → mostra o aviso (cinza +
+      tooltip), como esperado.
+   c. Sucesso com legenda → true && count > 0 → false, nunca mostra aviso.
+   d. Erro de consulta ou query desabilitada → isSuccess nunca chega a
+      true (mesmo comportamento de "carregando" do ponto de vista desta
+      função) → nunca afirma ausência de legenda como fato confirmado.
+
+3. TESTES COMPORTAMENTAIS NOVOS (não apenas leitura de código-fonte),
+   exatamente como a Manus pediu na seção 7 do parecer, já que renderizar
+   a página inteira (PacsQueryPage.tsx, 2800+ linhas, dezenas de
+   dependências: jsPDF, html2canvas, codecs DICOM, etc.) não é viável sem
+   um esforço de mock desproporcional ao tamanho do fix. Em vez disso, a
+   lógica de decisão foi extraída para a função pura acima, especificamente
+   para ser testável sem precisar montar o componente:
+
+     server/exam-legend-visual-state.test.ts
+
+   4 testes, chamando `resolveExamHasNoLegendSelected` diretamente (função
+   real, não comparação de texto):
+     A. Carregando (hasLoadedLegendSelections=false, count=0) → false.
+     B. Sucesso sem legenda (true, count=0) → true.
+     C. Sucesso com legenda (true, count=2) → false.
+     D. Erro/desabilitada (false, count=0) → false.
+
+   O arquivo de teste anterior (audit-fixes-aviso-visual-exame-sem-legenda
+   .test.ts) foi atualizado para confirmar, por leitura de código-fonte,
+   que PacsQueryPage.tsx de fato delega a decisão a essa função e que
+   `isSuccess` é capturado como `hasLoadedLegendSelections` — não duplica
+   a cobertura comportamental, só garante que a integração está correta.
+
+PROVA DE REGRESSÃO REAL: o fix (PacsQueryPage.tsx +
+examLegendVisualState.ts) foi revertido via `git stash`; os 2 testes
+relacionados falharam como esperado (o comportamental por import quebrado,
+o de source-string por string ausente); restaurado, ambos voltam a passar.
+
+VALIDAÇÃO APÓS A CORREÇÃO:
+- `pnpm check`: OK, sem erros de tipo.
+- `TZ=UTC pnpm test` (suíte completa): 781 passed / 11 failed / 1 skipped
+  — MESMAS 11 falhas da baseline conhecida, nos mesmos 7 arquivos, zero
+  regressões novas. (O total de "passed" subiu de 776 para 781 porque
+  este adendo soma 1 teste comportamental novo útil a mais do que o
+  anterior: 4 em exam-legend-visual-state.test.ts + 1 teste adicional em
+  audit-fixes-aviso-visual-exame-sem-legenda.test.ts confirmando que
+  `isSuccess` é capturado corretamente.)
+- `pnpm build`: OK, build de produção completo sem erros.
+- `git diff --check`: sem problemas de whitespace/conflito.
+
+ARQUIVOS ADICIONAIS NESTE ADENDO:
+- client/src/lib/examLegendVisualState.ts (novo — função pura de decisão)
+- server/exam-legend-visual-state.test.ts (novo — 4 testes comportamentais)
+- server/audit-fixes-aviso-visual-exame-sem-legenda.test.ts (atualizado)
+- client/src/pages/PacsQueryPage.tsx (atualizado: isSuccess + delegação à
+  função pura)
+
+Continua sem nenhuma alteração de schema, migration ou dado em produção.
+Pronta para nova revisão da Manus.
