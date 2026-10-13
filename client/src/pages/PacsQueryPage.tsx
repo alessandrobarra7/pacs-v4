@@ -505,14 +505,24 @@ function AnatomicIcon({ label, className = '' }: { label: string; className?: st
 
 // A lista apenas apresenta a legenda original ou canônica já resolvida no servidor.
 // O mapeamento PACS é administrado exclusivamente no catálogo central pelo admin_master.
-function ExamName({ value }: { value: string }) {
+//
+// AVISO VISUAL (pedido do Alessandro, 2026-10-13): antes, a única forma de o
+// usuário perceber que um exame ainda não tinha nenhuma legenda selecionada
+// era tentar laudar e receber o toast "Selecione uma legenda cadastrada antes
+// de gerar os laudos." — ou seja, o aviso só aparecia depois de uma ação
+// explícita. Agora, quando `unselected` é true (nenhuma legenda confirmada
+// para o estudo), o próprio nome do exame na listagem já aparece acinzentado
+// — mesmo estilo visual de "não selecionável/desabilitado" usado no resto do
+// sistema — como sinal prévio de que aquele exame precisa de uma legenda
+// antes de poder ser laudado.
+function ExamName({ value, unselected }: { value: string; unselected?: boolean }) {
   const label = value || 'Sem descrição';
   return (
     <div className="flex items-center gap-2">
-      <span className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center bg-blue-50 text-blue-500 border border-blue-100">
+      <span className={`shrink-0 w-7 h-7 rounded-md flex items-center justify-center border ${unselected ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-blue-50 text-blue-500 border-blue-100'}`}>
         <AnatomicIcon label={label} className="w-4 h-4" />
       </span>
-      <span className="text-sm leading-tight text-gray-800">{label}</span>
+      <span className={`text-sm leading-tight ${unselected ? 'text-gray-400' : 'text-gray-800'}`}>{label}</span>
     </div>
   );
 }
@@ -2530,16 +2540,25 @@ setSelectedStudy(study);
 
                     {/* Exame PACS como referência e legenda canônica obrigatória para laudo */}
                     <td className="px-4 py-3">
-                      <StudyLegendPicker
-                        study={study}
-                        selections={legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? []}
-                        canSelect={["operador", "atendente", "medico", "admin_master"].includes(user?.role ?? "")}
-                      >
-                        <div className="flex items-center gap-2 px-1 py-0.5">
-                          <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${modalityCls}`}>{modality}</span>
-                          <ExamName value={(legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? []).map((selection) => selection.exam_name_snapshot).join(' + ') || study.studyDescription || ''} />
-                        </div>
-                      </StudyLegendPicker>
+                      {(() => {
+                        const studyLegendSelections = legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? [];
+                        const hasNoLegendSelected = studyLegendSelections.length === 0;
+                        return (
+                          <StudyLegendPicker
+                            study={study}
+                            selections={studyLegendSelections}
+                            canSelect={["operador", "atendente", "medico", "admin_master"].includes(user?.role ?? "")}
+                          >
+                            <div className="flex items-center gap-2 px-1 py-0.5" title={hasNoLegendSelected ? "Selecione uma legenda para este exame" : undefined}>
+                              <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${hasNoLegendSelected ? 'bg-gray-100 text-gray-400' : modalityCls}`}>{modality}</span>
+                              <ExamName
+                                value={studyLegendSelections.map((selection) => selection.exam_name_snapshot).join(' + ') || study.studyDescription || ''}
+                                unselected={hasNoLegendSelected}
+                              />
+                            </div>
+                          </StudyLegendPicker>
+                        );
+                      })()}
                     </td>
 
                     {/* Visualizar DICOM — inicia o download quando necessário e só abre após o cache completo */}

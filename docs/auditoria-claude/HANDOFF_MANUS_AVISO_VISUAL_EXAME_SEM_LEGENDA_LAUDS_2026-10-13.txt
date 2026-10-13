@@ -1,0 +1,96 @@
+HANDOFF MANUS — Aviso visual (cinza) para exame sem legenda selecionada
+Data: 2026-10-13
+Branch: claude/aviso-visual-exame-sem-legenda
+Autor: Claude (sandbox, sem acesso a VM1/VM2/VM3)
+
+1. CONTEXTO / PEDIDO ORIGINAL
+
+O Alessandro apontou que a obrigatoriedade de selecionar uma legenda por
+exame (já confirmada em código em handoff anterior: toast de bloqueio em
+handleReport, PacsQueryPage.tsx, antes de permitir laudar) só é percebida
+pelo usuário no momento em que ele tenta laudar ou mexer no exame — ou seja,
+reativamente, via erro. Pedido: todo exame sem legenda selecionada deve
+mudar de cor na listagem, como aviso prévio.
+
+Escopo confirmado via pergunta direta ao Alessandro (AskUserQuestion):
+- ONDE: apenas na célula/texto do nome do exame, coluna "Exame" (desktop).
+  Não foi pedido destaque na linha inteira da tabela, nem no card mobile.
+- COR/ESTILO: cinza, no estilo "não selecionável/desabilitado" — ele
+  recusou explicitamente as duas opções de cor oferecidas (âmbar/amarelo e
+  vermelho/laranja).
+
+2. IMPLEMENTAÇÃO
+
+Arquivo: client/src/pages/PacsQueryPage.tsx
+
+a) Componente ExamName (usado na coluna "Exame" da tabela desktop) passou a
+   aceitar uma prop opcional `unselected?: boolean`. Quando true:
+   - o badge/ícone circular muda de `bg-blue-50 text-blue-500 border-blue-100`
+     para `bg-gray-100 text-gray-400 border-gray-200`;
+   - o texto do nome do exame muda de `text-gray-800` para `text-gray-400`.
+
+b) Na célula "Exame" da tabela desktop, o render agora calcula:
+     const studyLegendSelections = legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? [];
+     const hasNoLegendSelected = studyLegendSelections.length === 0;
+   e repassa `unselected={hasNoLegendSelected}` para ExamName. O badge de
+   modalidade (sigla CR/CT/MR/...) ao lado também fica cinza
+   (`bg-gray-100 text-gray-400`) nesse estado, e o wrapper ganha um
+   `title="Selecione uma legenda para este exame"` quando não há legenda.
+
+c) `hasNoLegendSelected` é derivado localmente de um dado já carregado
+   (`legendSelectionsByStudyUid`, o mesmo mapa que já alimenta o
+   StudyLegendPicker) — nenhuma nova chamada de rede foi adicionada.
+
+d) ESCOPO DELIBERADAMENTE NÃO ALTERADO: o card mobile NÃO recebeu o mesmo
+   tratamento. Uma primeira versão desta correção também ajustou o card
+   mobile (mesmo acinzentamento no texto do exame), mas isso quebrou 2
+   testes pré-existentes em server/pacs.mobile-ui.test.ts que fixavam a
+   classe CSS estática exata daquele bloco (snapshot de texto/HTML). Como
+   o Alessandro não pediu o mobile no AskUserQuestion, a mudança lá foi
+   revertida integralmente — o card mobile está byte-a-byte igual a antes
+   desta branch. Se o Alessandro quiser o mesmo aviso no mobile depois,
+   é um fix pequeno e isolado, mas os 2 testes citados precisarão ser
+   atualizados junto (eles hoje fixam a string estática do className).
+
+3. TESTES
+
+Novo arquivo: server/audit-fixes-aviso-visual-exame-sem-legenda.test.ts
+(4 testes, leitura de código-fonte / source-string, seguindo o padrão já
+usado em server/audit-fixes-painel-unidade-navegacao.test.ts):
+  1. ExamName aceita `unselected` e aplica os estilos cinza corretos.
+  2. A célula "Exame" (desktop) calcula `hasNoLegendSelected` e repassa
+     `unselected` para ExamName.
+  3. O badge de modalidade e o title explicativo acompanham o mesmo estado.
+  4. O card mobile permanece intocado (classe estática original
+     preservada) — prova que o escopo foi respeitado.
+
+Prova de regressão real: o fix foi revertido via `git stash` e os 4 testes
+falharam (incluindo o 4º, que por construção falha se a classe estática
+mobile mudar); restaurado, todos voltam a passar.
+
+4. VALIDAÇÃO
+
+- `pnpm check` (tsc --noEmit): OK, sem erros.
+- `TZ=UTC pnpm test` (suíte completa): 776 passed / 11 failed / 1 skipped,
+  nos MESMOS 7 arquivos e os MESMOS 11 casos da baseline conhecida e
+  documentada em handoffs anteriores (exam-catalog-security.test.ts,
+  finance-v2-dashboard.test.tsx ×2, mediaProxy.test.ts,
+  pacs-desktop-download-progress.test.ts, pacs.mobile-ui.test.ts,
+  security.auth.test.ts, study-priority-ui.test.ts ×4) — zero regressões
+  novas. (Antes de reverter o toque no mobile, a suíte chegou a mostrar
+  13 falhas em 7 arquivos, com 2 falhas NOVAS em pacs.mobile-ui.test.ts;
+  isso foi corrigido revertendo a mudança fora de escopo, não ajustando
+  os testes pré-existentes.)
+- `pnpm build`: OK, build de produção completo sem erros.
+- `git diff --check`: sem problemas de whitespace/conflito.
+
+5. ARQUIVOS ALTERADOS/CRIADOS
+
+- client/src/pages/PacsQueryPage.tsx (ExamName + célula "Exame" desktop)
+- server/audit-fixes-aviso-visual-exame-sem-legenda.test.ts (novo)
+- docs/auditoria-claude/HANDOFF_MANUS_AVISO_VISUAL_EXAME_SEM_LEGENDA_LAUDS_2026-10-13.txt (este arquivo)
+
+6. NADA A FAZER NO BANCO DE DADOS
+
+Esta correção é puramente de frontend (apresentação), não toca schema,
+migrations nem dados em produção. Nenhuma ação manual nas VMs é necessária.
