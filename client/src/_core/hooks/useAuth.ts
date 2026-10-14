@@ -1,6 +1,6 @@
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { clearPacsLocalCache } from "@/lib/pacsCacheIsolation";
+import { clearPacsClinicalCache } from "@/lib/pacsCacheIsolation";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
 
@@ -44,12 +44,15 @@ export function useAuth(options?: UseAuthOptions) {
     } finally {
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
-      // ISOLAMENTO DE CACHE ENTRE USUÁRIOS (pedido do Alessandro, 2026-10-13):
-      // o PACS guarda resultados de busca/filtros em localStorage/sessionStorage
-      // escopados só por unidade, nunca por usuário. Sem isto, num computador
-      // compartilhado, o próximo login (de outro usuário) podia ver a busca de
-      // quem saiu antes dele, assim que a tela montasse. Ver pacsCacheIsolation.ts.
-      clearPacsLocalCache();
+      // ISOLAMENTO DE CACHE CLÍNICO ENTRE USUÁRIOS (pedido do Alessandro,
+      // 2026-10-13): o PACS guarda resultados de busca/filtros/metadados de
+      // estudo em localStorage/sessionStorage escopados só por unidade, nunca
+      // por usuário. Sem isto, num computador compartilhado, o próximo login
+      // (de outro usuário) podia ver a busca de quem saiu antes dele, assim
+      // que a tela montasse. Limpa só as chaves clínicas (ver
+      // pacsCacheIsolation.ts) — preferências não clínicas (tema, sidebar,
+      // pré-download automático) são preservadas.
+      clearPacsClinicalCache();
       // Forçar reload completo para limpar todo o estado React em memória
       window.location.href = "/login";
     }

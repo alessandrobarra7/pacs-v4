@@ -2,6 +2,7 @@ import { useLocation } from "wouter";
 import { ChevronDown, LogOut, Menu, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCallback, useState } from "react";
+import { clearPacsClinicalCache } from "@/lib/pacsCacheIsolation";
 
 const LOGO_URL = "/lauds-logo.png";
 const HEADER_BG_URL = "/pacs-header-bg.webp";
@@ -35,10 +36,17 @@ export function AppHeader({ nav, rightSlot, unitSlot, mobileUnitLabel, mobileUni
       // Limpar cache do tRPC (auth.me) ANTES de navegar
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
-      // Limpar cache local de resultados PACS
-      Object.keys(localStorage)
-        .filter((k) => k.startsWith("pacs_query_results"))
-        .forEach((k) => localStorage.removeItem(k));
+      // ISOLAMENTO DE CACHE CLÍNICO ENTRE USUÁRIOS (pedido do Alessandro,
+      // 2026-10-13; corrigido na mesma data): este é o logout real usado pela
+      // worklist do PACS (AppHeader é renderizado por PacsQueryPage.tsx).
+      // Antes, limpava só chaves "pacs_query_results*" em localStorage —
+      // deixava passar filtros (sessionStorage), unidade selecionada,
+      // rótulos de exame e metadados de estudo, todos escopados só por
+      // unidade, nunca por usuário. Agora usa a mesma rotina central do
+      // módulo de isolamento (sem duplicar lista de prefixos aqui), que
+      // também preserva preferências não clínicas (ex.: pré-download
+      // automático, tema).
+      clearPacsClinicalCache();
       // Usar window.location para forçar reload completo da SPA
       // Isso garante que nenhum estado React residual permaneça
       window.location.href = "/login";
