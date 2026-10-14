@@ -1,0 +1,148 @@
+HANDOFF MANUS — Isolamento de cache de busca do PACS entre usuários
+Data: 2026-10-13
+Branch: claude/isola-cache-busca-pacs-entre-usuarios
+Base: origin/main (commit 2b9d82d, já com a fonte Work Sans na legenda do exame)
+Autor: Claude (sandbox, sem acesso a VM1/VM2/VM3)
+
+1. CONTEXTO / PEDIDO ORIGINAL
+
+O Alessandro relatou uma suspeita: "sempre penso se a busca de exames funciona
+corretamente para todos os usuários... tenho impressão que se logar de outro
+usuário eu fico com a impressão que estou usando a busca de outros". Pedido:
+investigar primeiro, sem presumir nada.
+
+2. ACHADO (confirmado só por leitura de código, não suposição)
+
+client/src/pages/PacsQueryPage.tsx (e as telas que a acompanham,
+ReportEditorPage.tsx e DicomViewerPage.tsx) guardam resultados de busca,
+filtros e metadados de estudo em localStorage/sessionStorage usando chaves
+como:
+
+  - pacs_query_results_unit_<unitId>
+  - pacs_selected_unit_id
+  - pacs_filter_unit_<unitId>
+  - exam_label_<uid>
+  - study_<uid>
+
+Todas essas chaves são escopadas SÓ POR UNIDADE, nunca pelo usuário logado.
+E o fluxo de logout (client/src/_core/hooks/useAuth.ts) nunca limpava nada
+disso — só limpava o cache do React Query e redirecionava para /login.
+
+Como queryResults é inicializado via useState(() => ...) (lazy initializer),
+que roda de forma síncrona durante o render, ANTES de qualquer useEffect —
+assim que a tela monta, o PRIMEIRO render já pinta os dados salvos da última
+busca feita por QUALQUER usuário naquela mesma unidade, antes mesmo de uma
+busca nova rodar no servidor.
+
+Resultado prático: em um computador compartilhado (comum em postos de
+trabalho de hospital), se o usuário A buscar exames na unidade X e sair sem
+fechar o navegador — ou mesmo se clicar em "Sair" — o próximo usuário B que
+logar e tiver acesso à mesma unidade X verá, por um instante (ou
+indefinidamente, se não rodar nova busca), os resultados de busca do usuário
+A: nomes de pacientes, exames, tudo.
+
+IMPORTANTE — o que NÃO é o problema: o servidor (server/routers/pacs.ts)
+autoriza corretamente cada requisição de busca por unit_id via
+getUserUnitPermission/assertUnitPermission. Não há vazamento de dados entre
+usuários no banco nem na API — o problema é 100% de higiene de cache no
+navegador (cliente).
+
+A suspeita do Alessandro era literalmente correta.
+
+3. CORREÇÃO IMPLEMENTADA
+
+Decisão de design: não reescrever o formato das chaves existentes (mudança
+maior, toca 3 arquivos de tela com lógica delicada de cache). Em vez disso,
+uma camada adicional, independente e de baixo risco:
+
+a) client/src/lib/pacsCacheIsolation.ts (novo módulo)
+   - clearPacsLocalCache(): limpa incondicionalmente toda chave com prefixo
+     pacs_/exam_label_/study_ em localStorage e sessionStorage, mais o
+     carimbo de dono. Chamada no logout.
+   - purgeStaleCrossUserCacheIfNeeded(currentUserId): compara o usuário
+     logado contra um carimbo salvo (pacs_cache_owner_user_id). Se não bate
+     (ou não existe ainda), limpa tudo e grava o novo dono. Se já bate, não
+     faz nada — preserva a conveniência original do cache para o MESMO
+     usuário entre recargas de página.
+
+b) client/src/_core/hooks/useAuth.ts — logout() agora chama
+   clearPacsLocalCache() no finally, antes do reload para /login.
+
+c) client/src/App.tsx — ProtectedRoute agora chama
+   purgeStaleCrossUserCacheIfNeeded(user.id) ANTES de montar qualquer página
+   protegida (antes do <Component>), usando um useRef para só rodar a
+   checagem uma vez por troca de usuário. Isso cobre o caso mais comum na
+   prática: alguém fecha a aba/navegador sem clicar em "Sair", e a próxima
+   pessoa loga direto no mesmo navegador — nesse caso logout() nunca roda,
+   mas o carimbo de dono detecta a troca de usuário do mesmo jeito, e
+   crucialmente roda ANTES do primeiro render da página (ProtectedRoute
+   decide se monta o filho ou não), evitando o "flash" de dado antigo que um
+   useEffect dentro da própria PacsQueryPage chegaria tarde demais para
+   evitar.
+
+4. ESCOPO DELIBERADAMENTE NÃO ALTERADO
+
+- Nenhuma chave existente mudou de formato — PacsQueryPage.tsx,
+  ReportEditorPage.tsx e DicomViewerPage.tsx continuam lendo/escrevendo
+  exatamente como antes.
+- Nenhuma mudança no backend/autorização (já estava correto).
+- Nenhuma mudança de schema/migração.
+
+5. TESTES
+
+Novo arquivo: server/audit-fixes-isola-cache-busca-pacs-entre-usuarios.test.ts
+(4 testes, comportamentais — chamadas reais contra um StorageLike falso em
+memória injetado, não leitura de texto):
+  1. clearPacsLocalCache remove todas as chaves pacs_/exam_label_/study_ de
+     ambos os storages, sem tocar chaves de outros módulos (ex.:
+     finance_theme_pref).
+  2. purgeStaleCrossUserCacheIfNeeded limpa tudo quando o usuário logado é
+     diferente do dono salvo do cache, e grava o novo dono.
+  3. purgeStaleCrossUserCacheIfNeeded NÃO limpa nada quando o usuário logado
+     já é o dono salvo (preserva a conveniência do cache do próprio
+     usuário).
+  4. purgeStaleCrossUserCacheIfNeeded é um no-op seguro quando ainda não há
+     usuário logado (null/undefined).
+
+Prova de regressão real: os 3 arquivos de produção tocados
+(pacsCacheIsolation.ts, App.tsx, useAuth.ts) foram revertidos via
+`git stash`; o teste falhou como esperado (módulo inexistente — a prova mais
+forte possível, já que o teste importa diretamente as funções); restaurado
+via `git stash pop`, voltou a passar (4/4).
+
+6. VALIDAÇÃO
+
+- `pnpm check` (tsc --noEmit): OK, sem erros.
+- `TZ=UTC pnpm test` (suíte completa): 788 passed / 11 failed / 1 skipped —
+  exatamente as mesmas 11 falhas conhecidas, nos mesmos 7 arquivos da
+  baseline já documentada em handoffs anteriores (exam-catalog-security,
+  finance-v2-dashboard ×2, mediaProxy, pacs-desktop-download-progress,
+  pacs.mobile-ui, security.auth, study-priority-ui ×4). Zero regressões
+  novas (788 = 784 anteriores + 4 testes novos deste fix).
+- `pnpm build`: OK, build de produção completo sem erros.
+- `git diff --check`: sem problemas de whitespace.
+
+7. ARQUIVOS ALTERADOS/CRIADOS
+
+- client/src/lib/pacsCacheIsolation.ts (novo)
+- client/src/_core/hooks/useAuth.ts (logout chama clearPacsLocalCache)
+- client/src/App.tsx (ProtectedRoute chama purgeStaleCrossUserCacheIfNeeded
+  antes de montar páginas protegidas)
+- server/audit-fixes-isola-cache-busca-pacs-entre-usuarios.test.ts (novo)
+
+8. NADA A FAZER NO BANCO DE DADOS
+
+Mudança puramente de frontend (cache do navegador). Não toca schema,
+migrations nem dados em produção.
+
+9. COMO HOMOLOGAR NA VM (sugestão para Manus/QA)
+
+1. Abrir o PACS no navegador, logar como usuário A com acesso à unidade X,
+   fazer uma busca que retorne resultados visíveis (nomes de paciente).
+2. Sem fechar o navegador, clicar em "Sair".
+3. Logar como usuário B, que também tenha acesso à unidade X.
+4. Verificar: a tela de busca do PACS deve abrir SEM nenhum resultado da
+   busca do usuário A visível, mesmo antes de B fazer sua própria busca.
+5. Repetir o mesmo teste fechando a aba/navegador em vez de clicar em
+   "Sair" (para cobrir o caminho sem logout explícito) — mesmo resultado
+   esperado.

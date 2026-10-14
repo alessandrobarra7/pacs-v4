@@ -22,7 +22,8 @@ import FinanceMeuResponsavel from "./pages/finance/FinanceMeuResponsavel";
 import FinanceResponsavelUnidade from "./pages/finance/FinanceResponsavelUnidade";
 import { FinanceConfiguracao } from "./pages/finance/FinanceConfiguracao";
 import ExamCatalogPage from "./pages/ExamCatalogPage";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { purgeStaleCrossUserCacheIfNeeded } from "./lib/pacsCacheIsolation";
 
 // Roles definidos no schema do banco de dados
 type AllowedRole = 'admin_master' | 'unit_admin' | 'medico' | 'operador' | 'viewer' | 'responsavel_financeiro';
@@ -30,6 +31,10 @@ type AllowedRole = 'admin_master' | 'unit_admin' | 'medico' | 'operador' | 'view
 function ProtectedRoute({ component: Component, allowedRoles, ...rest }: { component: React.ComponentType<any>; allowedRoles?: AllowedRole[] }) {
   const { isAuthenticated, loading, user } = useAuth();
   const [, setLocation] = useLocation();
+  // ISOLAMENTO DE CACHE ENTRE USUÁRIOS (pedido do Alessandro, 2026-10-13):
+  // guarda para qual usuário já validamos/purgamos o cache de busca do PACS
+  // nesta sessão da aba, evitando repetir a checagem a cada render.
+  const pacsCachePurgedForUserIdRef = useRef<number | string | null>(null);
 
   // Bug fix: nunca chamar setLocation durante o render — usar useEffect
   useEffect(() => {
@@ -51,6 +56,22 @@ function ProtectedRoute({ component: Component, allowedRoles, ...rest }: { compo
 
   if (!isAuthenticated) {
     return null;
+  }
+
+  // ISOLAMENTO DE CACHE ENTRE USUÁRIOS (pedido do Alessandro, 2026-10-13):
+  // PacsQueryPage/ReportEditorPage/DicomViewerPage leem localStorage/
+  // sessionStorage (resultados de busca, filtros, metadados de estudo)
+  // escopados só por unidade, nunca por usuário — e essas telas só montam
+  // DEPOIS deste ponto (via <Component> abaixo). Rodando a checagem aqui,
+  // ANTES de montar qualquer página protegida, garantimos que o cache de um
+  // usuário anterior (mesmo navegador, mesmo computador) é descartado antes
+  // que a página tenha chance de pintar na tela qualquer dado antigo —
+  // cobre tanto quem clicou em "Sair" quanto quem só fechou a aba/navegador
+  // sem deslogar (logout() nunca roda nesse caso, mas o carimbo de dono
+  // detecta a troca de usuário do mesmo jeito no próximo login).
+  if (user && pacsCachePurgedForUserIdRef.current !== user.id) {
+    purgeStaleCrossUserCacheIfNeeded(user.id);
+    pacsCachePurgedForUserIdRef.current = user.id;
   }
 
   // Verificação de role: se a rota exige roles específicos, bloquear acesso não autorizado
