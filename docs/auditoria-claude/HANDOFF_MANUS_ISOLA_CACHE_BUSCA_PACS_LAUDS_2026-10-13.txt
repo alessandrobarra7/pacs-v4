@@ -4,6 +4,176 @@ Branch: claude/isola-cache-busca-pacs-entre-usuarios
 Base: origin/main (commit 2b9d82d, já com a fonte Work Sans na legenda do exame)
 Autor: Claude (sandbox, sem acesso a VM1/VM2/VM3)
 
+========================================================================
+ADENDO (2026-10-13) — correção dos bloqueios apontados pelo Alessandro
+========================================================================
+
+Commits deste adendo: f77835b (correção de código) e 992102c (este documento).
+Branch: claude/isola-cache-busca-pacs-entre-usuarios (mesma branch, não
+é uma branch nova — a correção abaixo é um commit novo em cima do commit
+0d58cbe descrito nas seções 1-9 abaixo, não um amend).
+
+O Alessandro revisou a primeira versão desta correção (commit 0d58cbe) e
+apontou dois bloqueios reais antes de aprovar. Este adendo documenta os
+dois, a correção aplicada, e a validação depois da correção. O histórico
+original (seções 1 a 9 abaixo) foi preservado sem edição.
+
+BLOQUEIO 1 — regra de limpeza ampla demais ("qualquer chave pacs_")
+
+A função original (`clearPacsLocalCache`) decidia o que apagar com base
+em QUALQUER chave que começasse com o prefixo genérico "pacs_". Isso
+funcionava para os dados clínicos, mas também apagava
+`pacs_auto_download_unit_<unitId>` — uma preferência operacional do
+usuário (se o PDF do laudo deve baixar automaticamente ao abrir um
+estudo), que usa o mesmo prefixo mas não é dado de paciente. No
+logout/troca de usuário, essa preferência era perdida sem necessidade.
+
+Correção: `client/src/lib/pacsCacheIsolation.ts` agora usa uma allowlist
+EXPLÍCITA de chaves clínicas — nunca um prefixo genérico, nunca
+`localStorage.clear()`/`sessionStorage.clear()`. A lista final, confirmada
+em código (grep real em PacsQueryPage.tsx, ReportEditorPage.tsx,
+DicomViewerPage.tsx — nenhuma outra chave de storage existe nesses três
+arquivos além das listadas):
+
+  CLÍNICAS (removidas):
+  - `pacs_selected_unit_id` (chave exata)
+  - `pacs_query_results_unit_*` (prefixo)
+  - `pacs_filter_unit_*` (prefixo)
+  - `exam_label_*` (prefixo)
+  - `study_*` (prefixo)
+  - carimbo `pacs_cache_owner_user_id` — removido SÓ na função de logout
+    explícito (`clearPacsClinicalCache`), nunca na função de
+    troca-de-usuário (`purgeStaleCrossUserCacheIfNeeded`), que em vez
+    disso sobrescreve o carimbo com o novo usuário depois de limpar.
+
+  NÃO CLÍNICAS (preservadas, confirmadas em código em todo o client/src):
+  - `pacs_auto_download_unit_*` — preferência operacional (mesmo prefixo
+    "pacs_", mas não é dado clínico).
+  - `pacs-layout-updated` — sinal de sincronização de layout entre abas
+    (usa hífen, não underscore; sem paciente/laudo/UID).
+  - `theme` (client/src/contexts/ThemeContext.tsx).
+  - `sidebar-width` (client/src/components/DashboardLayout.tsx).
+  - qualquer chave de outro módulo (ex.: financeiro).
+
+  Função renomeada para deixar o escopo explícito no nome:
+  `clearPacsLocalCache()` → `clearPacsClinicalCache()`.
+
+BLOQUEIO 2 — AppHeader.tsx tinha logout próprio, nunca usava a rotina central
+
+`client/src/components/AppHeader.tsx` é o header realmente renderizado
+pela worklist do PACS (usado por `PacsQueryPage.tsx` e por
+`AdminPage.tsx` — confirmado via grep). Ele tem seu PRÓPRIO
+`handleLogout()`, com sua própria chamada a `trpc.auth.logout`, e sua
+própria lógica de limpeza — que, antes desta correção, só removia chaves
+`pacs_query_results*` de localStorage. Nunca chamava
+`clearPacsLocalCache()`/`clearPacsClinicalCache()`. Ou seja: o logout que
+o usuário realmente aciona ao clicar em "Sair" na tela de busca do PACS
+não limpava filtros (sessionStorage), unidade selecionada, rótulos de
+exame nem metadados de estudo — só uma fração do cache clínico.
+
+(`client/src/_core/hooks/useAuth.ts`, que já chamava a função central
+corretamente, é usado por `DashboardLayout.tsx`/`Home.tsx`/`App.tsx` —
+outro caminho de logout, usado em outras telas, não na worklist do PACS.)
+
+Correção: `AppHeader.tsx` agora importa `clearPacsClinicalCache` de
+`@/lib/pacsCacheIsolation` e chama essa mesma função no `finally` do seu
+`handleLogout`, antes do `window.location.href = "/login"` — sem duplicar
+nenhuma lista de prefixos localmente. `useAuth.ts` foi só atualizado para
+o novo nome da função (`clearPacsClinicalCache`), sem mudança de
+comportamento.
+
+`App.tsx` (ProtectedRoute), que já chamava
+`purgeStaleCrossUserCacheIfNeeded(user.id)` corretamente antes de montar
+qualquer página protegida, não precisou de nenhuma alteração — essa parte
+da correção original já estava certa.
+
+TESTES NOVOS (substituem o arquivo de testes da versão anterior, mesmo
+nome de arquivo: server/audit-fixes-isola-cache-busca-pacs-entre-usuarios.test.ts)
+
+8 testes comportamentais com Storage falso em memória injetado (sem dado
+clínico real, nomes de paciente são claramente fictícios como "PACIENTE
+EXEMPLO"):
+
+  1. clearPacsClinicalCache remove todas as chaves clínicas de ambos os
+     storages.
+  2. clearPacsClinicalCache PRESERVA pacs_auto_download_unit_*,
+     pacs-layout-updated, theme, sidebar-width e uma chave de exemplo do
+     módulo financeiro.
+  3. Troca de usuário A→B (purgeStaleCrossUserCacheIfNeeded): remove só
+     as chaves clínicas, atualiza o carimbo de dono para B, preserva as
+     preferências não clínicas.
+  4. Recarga do mesmo usuário: não remove nada, nem clínico nem
+     preferência.
+  5. Usuário null/undefined: no-op seguro, nada é alterado.
+  6. AppHeader.tsx importa e chama clearPacsClinicalCache() no logout
+     (leitura de código-fonte).
+  7. AppHeader.tsx não tem mais lógica paralela (Object.keys(localStorage)
+     + filter/startsWith em "pacs_query_results") fora do comentário
+     explicativo que narra o histórico da correção.
+  8. useAuth.ts também chama clearPacsClinicalCache() — mesma função
+     central, sem sobrar referência ao nome antigo (clearPacsLocalCache).
+
+Prova de regressão real: os 3 arquivos de produção tocados nesta correção
+(pacsCacheIsolation.ts, AppHeader.tsx, useAuth.ts) foram revertidos via
+`git stash` para o estado do commit anterior (0d58cbe — a versão com os
+bloqueios); o teste rodou e 6 dos 8 casos falharam como esperado (a versão
+anterior não tem `clearPacsClinicalCache`, só `clearPacsLocalCache`, e
+AppHeader.tsx ainda tinha a lógica paralela antiga); restaurado via
+`git stash pop`, os 8 voltaram a passar.
+
+VALIDAÇÃO (depois da correção dos 2 bloqueios)
+
+- `pnpm install --frozen-lockfile`: OK.
+- `pnpm check` (tsc --noEmit): OK, sem erros.
+- Testes direcionados
+  (server/audit-fixes-isola-cache-busca-pacs-entre-usuarios.test.ts):
+  8/8 passed.
+- `TZ=UTC pnpm test` (suíte completa): 792 passed / 11 failed / 1 skipped
+  — EXATAMENTE os mesmos 7 arquivos e 11 casos da baseline conhecida já
+  documentada em handoffs anteriores deste projeto (exam-catalog-security,
+  finance-v2-dashboard ×2, mediaProxy, pacs-desktop-download-progress,
+  pacs.mobile-ui, security.auth, study-priority-ui ×4). Zero regressão
+  nova. 792 = 784 da baseline anterior + 8 testes novos deste adendo.
+- `pnpm build`: OK, build de produção completo sem erros.
+- `git diff --check origin/main...HEAD`: sem problemas de whitespace.
+
+ROTEIRO DE HOMOLOGAÇÃO MANUAL (para o Alessandro e/ou QA testar na VM)
+
+a) Usuário A loga, abre a worklist do PACS, busca estudos (resultados
+   visíveis na tela). Clica em "Sair" (botão da própria tela do PACS —
+   é o AppHeader corrigido, não o menu do DashboardLayout). Usuário B
+   loga no MESMO navegador, com acesso à mesma unidade. Esperado: a
+   worklist abre SEM nenhum resultado, filtro, rótulo ou metadado de
+   estudo do usuário A visível — mesmo antes de B buscar algo.
+
+b) Usuário A busca estudos e simplesmente FECHA A ABA/navegador sem
+   clicar em "Sair" (não passa pelo handleLogout de ninguém). Usuário B
+   loga no mesmo navegador. Esperado: mesmo resultado do item (a) — o
+   carimbo de dono em ProtectedRoute detecta a troca e limpa antes do
+   primeiro render da worklist.
+
+c) O MESMO usuário A busca estudos, aplica um filtro, e recarrega a
+   página (F5) sem deslogar. Esperado: o filtro e os resultados da
+   própria busca de A continuam lá — a correção não apaga o cache de
+   quem é realmente o dono atual.
+
+d) Usuário A liga a opção de pré-download automático de PDF
+   (pacs_auto_download_unit_<unidade>) para uma unidade, clica em
+   "Sair", loga de novo como o próprio usuário A (ou mesmo como B, já
+   que essa preferência também não deveria ser clínica/pessoal — ela é
+   por unidade). Esperado: a opção de pré-download automático continua
+   ativada depois do logout/login — ela nunca deveria ter sido apagada,
+   e com a correção não é mais.
+
+ESTADO ATUAL
+
+Branch claude/isola-cache-busca-pacs-entre-usuarios publicada no GitHub
+(2 commits: 0d58cbe + este adendo, f77835b). Nenhum merge em main,
+nenhum deploy, nenhuma migration, nenhuma alteração em VM1/VM2/VM3.
+Decisão de merge é do Alessandro e/ou execução da Manus.
+
+========================================================================
+
 1. CONTEXTO / PEDIDO ORIGINAL
 
 O Alessandro relatou uma suspeita: "sempre penso se a busca de exames funciona
