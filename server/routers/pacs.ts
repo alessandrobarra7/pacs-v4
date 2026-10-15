@@ -5,7 +5,7 @@ import { applyPacsMappedExamLegendIfUnselected, getDb, getStudyMetadata, getStud
 import { cFind } from "../dicom.service";
 import type { CFindResult } from "../dicom.service";
 import { MAX_UPLOAD_BYTES } from "../../shared/const";
-import { getDicomWebUrl } from "../orthanc";
+import { assertDicomFileAccess } from "../authorization";
 import { inferExtension, isValidImageBuffer, studyInstanceUidSchema } from "../routerUtils";
 import { units } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
@@ -553,42 +553,64 @@ export const pacsRouter = router({
             message: 'Usuário não está associado a nenhuma unidade.',
           });
         }
-        
-        const [unitData] = await db.select().from(units).where(eq(units.id, targetUnitIdForViewer)).limit(1);
+
+        // CORREÇÃO DE SEGURANÇA (branch claude/seguranca-proxy-dicomweb-sem-autorizacao-por-estudo,
+        // item 3.5 do parecer da Manus): os passos acima só confirmam que o
+        // usuário tem permissão na unidade INFORMADA por ele (input.unit_id /
+        // ctx.user.unit_id) — nunca verificam se o ESTUDO pedido realmente
+        // pertence a essa unidade. Um usuário multiunidade ou admin_master
+        // podia, em tese, pedir o viewer de um estudo de outra unidade que
+        // não a resolvida acima. assertDicomFileAccess resolve a unidade REAL
+        // dona do estudo via studies_cache/study_metadata e nega acesso
+        // (FORBIDDEN) se o usuário não tiver permissão nela — é a mesma
+        // função já usada por /api/dicom-cache-status, /api/dicom-files e
+        // pelo proxy /api/dicomweb. A unidade retornada por ela, e não
+        // targetUnitIdForViewer, é a usada a partir daqui.
+        const studyUnitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, 'view_studies');
+
+        const [unitData] = await db.select().from(units).where(eq(units.id, studyUnitId)).limit(1);
         if (!unitData) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unidade não encontrada' });
-        
+
         // BUG-3 FIX: orthanc_base_url é opcional — unidades novas usam apenas PACS direto via C-GET
         const orthancInternalUrl = unitData.orthanc_base_url ?? null;
         const orthancPublicUrl = unitData.orthanc_public_url || orthancInternalUrl;
 
-        // URL do viewer: usa DICOMweb do Orthanc se disponível, senão proxy interno via C-GET
-        const viewerUrl = orthancInternalUrl
-          ? getDicomWebUrl(orthancInternalUrl, input.studyInstanceUid)
-          : `/api/dicomweb?studyUid=${encodeURIComponent(input.studyInstanceUid)}&unitId=${targetUnitIdForViewer}`;
+        // CORREÇÃO DE SEGURANÇA (item 3.5 do parecer da Manus): a versão
+        // anterior, quando a unidade tinha orthanc_base_url configurado,
+        // devolvia ao navegador uma URL DIRETA e não autenticada do Orthanc
+        // (getDicomWebUrl(...)), expondo IP interno/porta 8042 e pulando
+        // completamente o proxy autorizado. Agora o navegador só recebe o
+        // caminho interno controlado pelo Portal — a mesma rota
+        // /api/dicomweb, que por sua vez reaplica assertDicomFileAccess
+        // antes de encaminhar para o Orthanc correto. getDicomWebUrl segue
+        // em uso apenas internamente (ex.: C-GET), nunca para montar
+        // viewerUrl.
+        const viewerUrl = `/api/dicomweb/studies/${encodeURIComponent(input.studyInstanceUid)}`;
 
         const orthancWebViewerUrl = orthancPublicUrl
           ? `${orthancPublicUrl.replace(/\/$/, '')}/app/explorer.html#study?uuid=`
           : null;
-        
+
         // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria): registrava
-        // ctx.user.unit_id em vez de targetUnitIdForViewer, a unidade efetivamente
-        // usada para montar a viewerUrl — mesmo padrão do bug corrigido em pacs.query.
+        // ctx.user.unit_id em vez da unidade efetivamente usada — mesmo
+        // padrão do bug corrigido em pacs.query. Agora usa studyUnitId, a
+        // unidade autorizada e real do estudo.
         await createAuditLog({
           user_id: ctx.user.id,
-          unit_id: targetUnitIdForViewer,
+          unit_id: studyUnitId,
           action: 'OPEN_VIEWER',
           target_type: 'STUDY',
           target_id: input.studyInstanceUid,
           ip_address: ctx.req.ip,
           user_agent: ctx.req.headers['user-agent'],
-          metadata: { orthanc_url: orthancInternalUrl, viewer_url: viewerUrl },
+          metadata: { viewer_url: viewerUrl },
         });
-        
+
         return {
           success: true,
           viewerUrl,
           studyInstanceUid: input.studyInstanceUid,
-          orthancUrl: orthancInternalUrl,           // null se não configurado
+          orthancUrl: null,                         // CORREÇÃO: nunca mais expõe URL interna do Orthanc ao navegador
           orthancPublicUrl: orthancPublicUrl ?? null,
           orthancWebViewerUrl,                      // null se não configurado
           hasOrthanc: !!orthancInternalUrl,         // BUG-3 FIX: flag para o frontend

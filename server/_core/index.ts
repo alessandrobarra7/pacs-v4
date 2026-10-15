@@ -17,6 +17,11 @@ import { assertCachedDicomFileAccess, assertDicomFileAccess } from "../authoriza
 import { createRadiantAssistantTokenStore, RADIANT_ASSISTANT_SCHEME } from "../radiantAssistant";
 import { streamRadiantInstaller } from "../radiantInstaller";
 import { isValidStudyInstanceUid } from "../routerUtils";
+import {
+  resolveAuthorizedDicomWebTarget,
+  DicomWebRequestError,
+  type DicomWebAuthDeps,
+} from "../dicomWebProxyAuthorization";
 import { isPublicUploadPathAllowed } from "../uploadAccessPolicy";
 import { serveStatic, setupVite } from "./vite";
 
@@ -891,50 +896,37 @@ async function startServer() {
 
   // DICOMweb Proxy - faz proxy das requisições para o Orthanc
   // Rota: /api/dicomweb/* → Orthanc /dicom-web/*
-  // Usa o pacs_ip da unidade + porta 8042 (porta padrão HTTP do Orthanc)
-  // O viewer passa o studyUid na URL; o proxy descobre a unidade pelo studyUid
-  // ou usa a primeira unidade ativa como fallback.
-  
-  // F2-1: Cache por unidade para evitar query ao banco em cada requisição
-  // Chave: unit_id (number) | 'fallback'; Valor: { url, timestamp }
-  const orthancUrlCache = new Map<string, { url: string; ts: number }>();
-  const CACHE_TTL_MS = 60_000; // 1 minuto
+  //
+  // CORREÇÃO DE SEGURANÇA (branch claude/seguranca-proxy-dicomweb-sem-autorizacao-por-estudo):
+  // A versão anterior resolvia o Orthanc de destino pela UNIDADE DO USUÁRIO
+  // LOGADO (dicomUser.unit_id), nunca verificando se ele tinha permissão
+  // sobre o ESTUDO pedido (studyUid), e caía num fallback de "qualquer
+  // unidade ativa" / IP fixo quando a unidade do usuário não tinha pacs_ip
+  // configurado. Agora a autorização e a resolução do destino são feitas
+  // por server/dicomWebProxyAuthorization.ts::resolveAuthorizedDicomWebTarget,
+  // que reusa assertDicomFileAccess (mesma função usada por
+  // /api/dicom-cache-status, /api/dicom-files e /api/dicom-stream) para
+  // descobrir a unidade REAL dona do estudo e falhar fechado (403/503) se
+  // não houver permissão ou não houver Orthanc configurado — nunca mais
+  // cai num Orthanc de outra unidade ou num IP padrão.
 
-  async function getOrthancUrl(unitId?: number | null): Promise<string> {
-    const cacheKey = unitId ? String(unitId) : 'fallback';
-    const now = Date.now();
-    const cached = orthancUrlCache.get(cacheKey);
-    if (cached && (now - cached.ts) < CACHE_TTL_MS) {
-      return cached.url;
-    }
-    try {
-      const { getDb } = await import('../db');
-      const { units } = await import('../../drizzle/schema');
-      const { eq: eqDrizzle, and: andDrizzle } = await import('drizzle-orm');
-      const db = await getDb();
-      if (db) {
-        // F2-1: Prioriza a unidade do usuário autenticado; fallback para qualquer unidade ativa
-        const conditions = unitId
-          ? andDrizzle(eqDrizzle(units.id, unitId), eqDrizzle(units.isActive, true))
-          : eqDrizzle(units.isActive, true);
-        const [unit] = await db.select().from(units).where(conditions).limit(1);
-        if (unit?.pacs_ip) {
-          const orthancPort = process.env.ORTHANC_HTTP_PORT || '8042';
-          const url = `http://${unit.pacs_ip}:${orthancPort}`;
-          orthancUrlCache.set(cacheKey, { url, ts: now });
-          console.log(`[DICOMweb Proxy] Orthanc URL resolvida do banco (unit=${unitId ?? 'any'}): ${url}`);
-          return url;
-        }
-      }
-    } catch (e) {
-      console.error('[DICOMweb Proxy] Erro ao buscar URL do Orthanc:', e);
-    }
-    // Fallback: variável de ambiente ou IP padrão
-    const fallback = process.env.ORTHANC_BASE_URL || 'http://172.16.3.250:8042';
-    console.log(`[DICOMweb Proxy] Usando fallback: ${fallback}`);
-    return fallback;
+  async function getUnitOrthancConfig(unitId: number): Promise<{ isActive: boolean; pacs_ip: string | null } | null> {
+    const { getDb } = await import('../db');
+    const { units } = await import('../../drizzle/schema');
+    const { eq: eqDrizzle } = await import('drizzle-orm');
+    const db = await getDb();
+    if (!db) return null;
+    const [unit] = await db.select().from(units).where(eqDrizzle(units.id, unitId)).limit(1);
+    if (!unit) return null;
+    return { isActive: !!unit.isActive, pacs_ip: unit.pacs_ip ?? null };
   }
-  
+
+  const dicomWebProxyDeps: DicomWebAuthDeps = {
+    assertDicomFileAccess: (user, studyUid, permission) => assertDicomFileAccess(user, studyUid, permission),
+    getUnitOrthancConfig,
+    orthancHttpPort: process.env.ORTHANC_HTTP_PORT || '8042',
+  };
+
   // OPTIONS preflight para CORS — F1-7: restringir às origens permitidas (sem wildcard)
   app.options('/api/dicomweb/*', (req, res) => {
     const origin = req.headers.origin;
@@ -942,53 +934,66 @@ async function startServer() {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
     }
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization, multipart/related');
     res.status(204).send();
   });
-  
+
   app.use('/api/dicomweb', requireAuth, async (req, res) => {
     try {
-      // F2-1: Resolver Orthanc pela unidade do usuário autenticado
       const dicomUser = (req as any).dicomUser;
-      const userUnitId: number | null = dicomUser?.unit_id ?? null;
-      const orthancBaseUrl = await getOrthancUrl(userUnitId);
-      
-      // Constrói a URL de destino: /api/dicomweb/studies/... → http://172.16.3.241:8042/dicom-web/studies/...
+
       const targetPath = req.path;
       const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
-      const targetUrl = `${orthancBaseUrl.replace(/\/$/, '')}/dicom-web${targetPath}${queryString}`;
-      
-      console.log(`[DICOMweb Proxy] ${req.method} ${targetUrl}`);
-      
+
+      let target;
+      try {
+        target = await resolveAuthorizedDicomWebTarget(
+          dicomUser,
+          req.method,
+          targetPath,
+          req.query as Record<string, unknown>,
+          dicomWebProxyDeps,
+        );
+      } catch (authErr) {
+        if (authErr instanceof DicomWebRequestError) {
+          console.warn(`[DICOMweb Proxy] Requisição recusada (${authErr.status}): ${authErr.message}`);
+          return res.status(authErr.status).json({ error: authErr.message });
+        }
+        throw authErr;
+      }
+
+      const targetUrl = `${target.orthancBaseUrl.replace(/\/$/, '')}/dicom-web${targetPath}${queryString}`;
+
+      console.log(`[DICOMweb Proxy] ${req.method} studyUid=${target.studyUid} unit=${target.unitId}`);
+
       // Monta headers para o Orthanc
       const forwardHeaders: Record<string, string> = {};
       const acceptHeader = req.headers['accept'];
       if (acceptHeader) forwardHeaders['Accept'] = acceptHeader;
       const contentTypeHeader = req.headers['content-type'];
       if (contentTypeHeader) forwardHeaders['Content-Type'] = contentTypeHeader;
-      
+
       const fetchOptions: RequestInit = {
         method: req.method,
         headers: forwardHeaders,
         signal: AbortSignal.timeout(60_000), // 60s timeout para imagens grandes
       };
-      
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        (fetchOptions as any).body = req.body ? JSON.stringify(req.body) : undefined;
-      }
-      
+
+      // Apenas GET/HEAD chegam aqui (resolveAuthorizedDicomWebTarget já rejeita o resto),
+      // então o corpo da requisição nunca é relevante para o Orthanc.
+
       const response = await fetch(targetUrl, fetchOptions);
-      
+
       // Copia todos os headers relevantes da resposta do Orthanc — F1-7: sem wildcard
       const reqOrigin = req.headers.origin;
       if (reqOrigin && allowedOrigins.includes(reqOrigin)) {
         res.setHeader('Access-Control-Allow-Origin', reqOrigin);
         res.setHeader('Access-Control-Allow-Credentials', 'true');
       }
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization');
-      
+
       // Preserva somente os cabeçalhos de resposta necessários ao WADO-RS e ao
       // streaming HTTP, sem propagar cabeçalhos internos do Orthanc.
       for (const headerName of [
@@ -1004,9 +1009,9 @@ async function startServer() {
         const headerValue = response.headers.get(headerName);
         if (headerValue) res.setHeader(headerName, headerValue);
       }
-      
+
       res.status(response.status);
-      
+
       // WADO-RS pode retornar séries muito grandes. Não materializar a resposta
       // inteira em memória evita travas por pressão de RAM no processo Node.
       if (req.method === 'HEAD' || !response.body) {
@@ -1021,7 +1026,7 @@ async function startServer() {
       });
       upstreamStream.pipe(res);
       return;
-      
+
     } catch (error: any) {
       console.error('[DICOMweb Proxy] Erro:', error.message);
       if (!res.headersSent) {

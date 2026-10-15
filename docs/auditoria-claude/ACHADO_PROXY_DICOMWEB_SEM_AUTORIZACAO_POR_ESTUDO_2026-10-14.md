@@ -275,9 +275,164 @@ quantas rotas a usam). Adicionar:
   próprio branch dedicado, para não misturar revisões de naturezas
   diferentes num só diff.
 
-## 7. Próximo passo
+## 7. Próximo passo (histórico — já executado, ver ADENDO abaixo)
 
 Aguardando aprovação do Alessandro para implementar exatamente o plano da
 seção 5 neste mesmo branch, com os testes da seção 5.5, e rodar a
 validação completa (`pnpm check`, suíte de testes, `pnpm build`) antes de
 qualquer push.
+
+---
+
+## ADENDO (2026-10-14) — Implementação, após revisão da Manus
+
+Status: **implementado e validado neste branch.** A Manus revisou este
+documento (arquivo
+`RECOMENDACOES_CORRECAO_SEGURANCA_PROXY_DICOMWEB_2026-10-14.txt`) e trouxe
+exigências adicionais, incorporadas abaixo. Nenhum merge em `main` foi
+feito — segue a mesma política dos branches anteriores deste projeto.
+
+### A1. O que mudou em relação ao plano original (seção 5)
+
+O plano original (seção 5) propunha reaproveitar `getOrthancUrl` dentro do
+próprio `server/_core/index.ts`. A pedido da Manus (que recomendou extrair
+funções puras e testáveis em vez de lógica inline), a implementação ficou
+mais extensa que o plano original:
+
+- **Novo módulo `server/dicomWebProxyAuthorization.ts`**, só com funções
+  puras e injetáveis (sem Express, sem `fetch`, sem banco direto):
+  - `extractDicomWebStudyUid(path, query)` — aceita SOMENTE os 2 formatos
+    documentados na seção 3.4 do parecer da Manus (WADO-RS por caminho
+    `/studies/<uid>` e legado por querystring `?studyUid=`); rejeita UID
+    ausente, malformado, duplicado ou ambíguo (presente nos dois formatos
+    com valores diferentes) com erro 400, sem tocar o Orthanc.
+  - `isAllowedDicomWebMethod(method)` — só GET/HEAD; qualquer outro método
+    (POST/PUT/PATCH/DELETE) é rejeitado com 405 antes de qualquer
+    autorização ou acesso ao banco.
+  - `resolveAuthorizedDicomWebTarget(user, method, path, query, deps)` —
+    o único ponto de decisão: valida o método, extrai o UID, chama
+    `assertDicomFileAccess(user, studyUid, 'view_studies')` (a mesma
+    função já usada por `/api/dicom-cache-status`, `/api/dicom-files` e
+    `/api/dicom-stream`) para resolver a unidade REAL dona do estudo, e só
+    então busca a config de Orthanc **dessa unidade específica** — nunca
+    "qualquer unidade ativa". Se a unidade não tiver `pacs_ip` ou estiver
+    inativa, falha com 503 (nunca cai para `ORTHANC_BASE_URL`/IP fixo).
+- `server/_core/index.ts`: `getOrthancUrl` (o antigo resolvedor por
+  usuário, com fallback) foi removido; a rota `/api/dicomweb` agora chama
+  `resolveAuthorizedDicomWebTarget` antes de montar a URL de destino, e
+  responde com o status exato do `DicomWebRequestError` (400/403/405/503)
+  sem detalhar a causa ao cliente. O CORS/OPTIONS preflight teve
+  `Access-Control-Allow-Methods` restrito a `GET, HEAD, OPTIONS` (não
+  anuncia mais POST/PUT/DELETE, que de qualquer forma são recusados).
+
+### A2. Achado adicional, fora do escopo original: `pacs.getViewerUrl`
+
+Durante a implementação, confirmei no código (`server/routers/pacs.ts`) o
+ponto 3.5 do parecer da Manus: a procedure `pacs.getViewerUrl` resolvia a
+unidade a partir de `input.unit_id`/`ctx.user.unit_id` (nunca do estudo
+pedido) e, quando a unidade tinha `orthanc_base_url` configurado, devolvia
+ao navegador uma **URL direta e não autenticada do Orthanc**
+(`getDicomWebUrl(...)`, que monta algo como
+`http://<ip-interno>:8042/dicom-web/studies/<uid>`), expondo IP interno e
+porta 8042 e pulando por completo o proxy autorizado.
+
+Confirmei também, via busca em `client/src`, que o único consumidor dessa
+procedure é `ViewerPage.tsx` na rota `/viewer/:studyId` — rota **órfã**:
+nenhuma tela do fluxo ativo do worklist (`PacsQueryPage.tsx`,
+`DicomViewerPage.tsx`) linka para ela. `ViewerPage.tsx` só usa o campo
+`viewerUrl` da resposta (faz `window.open(data.viewerUrl)`); os campos
+`orthancUrl`/`orthancPublicUrl`/`orthancWebViewerUrl`/`hasOrthanc` não são
+renderizados em lugar nenhum.
+
+Corrigido (mesmo branch, já que é o mesmo achado/mesma família de bug):
+- `getViewerUrl` agora chama `assertDicomFileAccess(ctx.user,
+  input.studyInstanceUid, 'view_studies')` e usa o `unitId` retornado
+  (`studyUnitId`) — não mais `targetUnitIdForViewer` — para buscar a
+  unidade, montar a resposta e gravar o audit log. O pré-check existente
+  via `assertUnitPermission(ctx.user, input.unit_id, ...)` continua (boa
+  UX: mensagem clara quando o usuário pede explicitamente uma unidade à
+  qual não tem acesso), mas deixou de ser a autorização final.
+- `viewerUrl` passou a ser SEMPRE `/api/dicomweb/studies/<uid>` (o caminho
+  interno controlado pelo Portal, que por sua vez reaplica
+  `assertDicomFileAccess`), nunca mais uma URL direta do Orthanc.
+  `getDicomWebUrl` deixou de ser importado em `pacs.ts`.
+- O campo `orthancUrl` da resposta passou a ser sempre `null` (não é usado
+  pelo frontend; mantido na forma do payload só por compatibilidade).
+
+### A3. Testes de regressão (reais, não grep de texto)
+
+- `server/dicomweb-proxy-authorization.test.ts` (18 testes): chama as
+  funções reais do novo módulo com dependências mockadas (`vi.fn`) —
+  extração de UID nos 2 formatos aceitos, rejeição de UID ausente/
+  malformado/ambíguo/duplicado, resolução da unidade pelo ESTUDO (não pelo
+  usuário), 403 quando `assertDicomFileAccess` nega, 503 fail-closed
+  quando a unidade não tem `pacs_ip`/está inativa/não existe (nunca
+  "qualquer unidade ativa"), 405 para métodos de escrita antes de
+  qualquer chamada de autorização, 400 para UID inválido antes de
+  qualquer chamada ao banco. Mais 1 teste de fonte confirmando que o
+  handler em `server/_core/index.ts` usa as novas funções e que o antigo
+  fallback (`eq(units.isActive, true)` sem filtro de unidade,
+  `ORTHANC_BASE_URL`) não existe mais nesse trecho.
+- `server/pacs-viewer-url-security.test.ts` (7 testes): confirma, no
+  código-fonte real da procedure (isolado por `indexOf` dos limites da
+  procedure, não o arquivo inteiro), a ordem exata das chamadas (o
+  pré-check de UX vem antes, mas `assertDicomFileAccess` é quem decide a
+  unidade de fato), que `viewerUrl` nunca mais é montada com
+  `getDicomWebUrl`, que o formato devolvido é sempre
+  `/api/dicomweb/studies/<uid>`, e que `orthancUrl` é sempre `null` na
+  resposta.
+- **Prova de regressão**: `git stash` dos 3 arquivos de implementação →
+  os 2 arquivos de teste novos falharam (18 + 7 = 25 falhas, incluindo
+  erro de import no primeiro arquivo, já que o módulo novo não existia) →
+  `git stash pop` → os 25 testes voltaram a passar.
+
+### A4. Validação completa
+
+- `pnpm check` (tsc --noEmit): limpo, sem erros.
+- `TZ=UTC pnpm test` (suíte completa): **817 passed / 11 failed / 1
+  skipped (829 total)**. Baseline da auditoria anterior (branch
+  `isola-cache-busca-pacs-entre-usuarios`): 792 passed / 11 failed / 1
+  skipped (804 total). Diferença: exatamente +25 testes passando (os 2
+  arquivos novos desta correção), e as **mesmas 11 falhas, nos mesmos 7
+  arquivos já conhecidos e pré-existentes** (confirmado por nome de
+  arquivo, não só contagem):
+  `exam-catalog-security.test.ts`, `finance-v2-dashboard.test.tsx` (×2),
+  `mediaProxy.test.ts`, `pacs-desktop-download-progress.test.ts`,
+  `pacs.mobile-ui.test.ts`, `security.auth.test.ts`,
+  `study-priority-ui.test.ts` (×4). Nenhuma regressão nova.
+- `pnpm build`: sucesso (`vite build` + `esbuild` do servidor), sem erros.
+- `git diff --check origin/main...HEAD`: limpo (sem erros de espaço em
+  branco).
+
+### A5. Itens do parecer da Manus cobertos nesta implementação
+
+- Autorização estrita por estudo via `assertDicomFileAccess`: ✅ (proxy e
+  `getViewerUrl`).
+- FAIL CLOSED, sem fallback para unidade/Orthanc alternativo: ✅.
+- Extração de UID restrita aos 2 formatos documentados, rejeitando
+  QIDO-RS amplo e UID ambíguo/duplicado: ✅.
+- Allowlist de método HTTP (GET/HEAD; 405 para o resto): ✅.
+- `pacs.getViewerUrl` nunca mais expõe URL/IP/porta interna do Orthanc ao
+  navegador: ✅.
+- Funções puras e testáveis, com testes comportamentais reais (não só
+  grep): ✅.
+- Preservar o fluxo ativo do worklist (`dicom-stream`/`dicom-files`/
+  `DicomViewerPage`) intocado: ✅ — nenhum desses arquivos foi alterado
+  neste branch; confirmado também que a rota `/viewer/:studyId` (única
+  consumidora de `getViewerUrl`) está órfã no worklist atual, reduzindo o
+  risco de qualquer mudança de comportamento perceptível em produção.
+
+### A6. Pendente antes de merge/deploy
+
+Mesma política de todo o projeto: esta branch não foi mesclada em `main`,
+não foi implantada em nenhuma VM, e não deve ser até:
+1. Nova revisão técnica da Manus sobre esta implementação (ela pediu para
+   revisar antes do merge, por ser uma correção de segurança).
+2. Homologação manual: abrir um estudo de uma unidade comum pelo fluxo
+   ativo do worklist (deve continuar idêntico — este branch não tocou
+   `dicom-stream`/`dicom-files`/`DicomViewerPage`) e, se possível, testar
+   `pacs.getViewerUrl` diretamente (via tRPC ou acessando `/viewer/:uid`)
+   com uma conta que não tenha acesso ao estudo pedido (deve receber
+   FORBIDDEN) e com uma conta que tenha (deve continuar funcionando, só
+   que agora sempre via `/api/dicomweb/studies/<uid>`).
+
