@@ -24,6 +24,33 @@ async function resolveUnitLogos<T extends { logo_url?: string | null }>(units: T
   })));
 }
 
+/**
+ * Guarda de escopo administrativo por unidade para unit_admin.
+ *
+ * admin_master nunca e restringido por esta funcao. Um unit_admin so pode
+ * operar (ver/gerenciar medicos) em uma unidade se ela for a sua unidade
+ * legada (ctx.user.unit_id) ou se houver um vinculo explicito dele em
+ * user_unit_permissions para essa unidade. Mesma semantica ja homologada
+ * em addDoctor (V14-P2 FIX), aplicada agora tambem a removeDoctor,
+ * listDoctors e listAllDoctors para fechar a autorizacao horizontal
+ * (achado 2026-10-14: unit_admin podia operar unidades alheias via
+ * chamada tRPC direta).
+ *
+ * Lanca FORBIDDEN e nao executa nenhuma consulta adicional quando o
+ * unit_admin nao tem escopo sobre a unidade informada.
+ */
+async function assertUnitAdminScope(
+  user: { role: string; id: number; unit_id: number | null },
+  unitId: number,
+): Promise<void> {
+  if (user.role !== 'unit_admin') return;
+  const { getUserUnitPermission: getUnitPerm } = await import('../db');
+  const hasScope = user.unit_id === unitId || !!(await getUnitPerm(user.id, unitId));
+  if (!hasScope) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não tem acesso a esta unidade' });
+  }
+}
+
 export const unitsRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role === 'admin_master') {
@@ -219,6 +246,7 @@ export const unitsRouter = router({
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
+        await assertUnitAdminScope(ctx.user, input.unitId);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { users: usersTable, user_unit_permissions } = await import('../../drizzle/schema');
@@ -235,12 +263,19 @@ export const unitsRouter = router({
           .where(andOp(inArray(usersTable.id, userIds), eqOp(usersTable.role, 'medico')));
       }),
 
-    /** Lista todos os médicos do sistema (para adicionar à unidade) */
+    /**
+     * Lista médicos do sistema disponíveis para vincular à unidade de destino
+     * (input.unitId). Inclui médicos ainda não vinculados a essa unidade —
+     * propositalmente NÃO filtra pelo vínculo prévio, pois isso quebraria o
+     * fluxo de "adicionar médico" (achado 2026-10-14).
+     */
     listAllDoctors: protectedProcedure
-      .query(async ({ ctx }) => {
+      .input(z.object({ unitId: z.number() }))
+      .query(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
+        await assertUnitAdminScope(ctx.user, input.unitId);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { users: usersTable } = await import('../../drizzle/schema');
@@ -259,13 +294,7 @@ export const unitsRouter = router({
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
         // V14-P2 FIX: unit_admin só pode vincular médico a unidades que administra
-        if (ctx.user.role === 'unit_admin') {
-          const { getUserUnitPermission: getUnitPerm } = await import('../db');
-          const hasScope = ctx.user.unit_id === input.unitId || !!(await getUnitPerm(ctx.user.id, input.unitId));
-          if (!hasScope) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não tem acesso a esta unidade' });
-          }
-        }
+        await assertUnitAdminScope(ctx.user, input.unitId);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { user_unit_permissions } = await import('../../drizzle/schema');
@@ -296,13 +325,22 @@ export const unitsRouter = router({
         return { success: true, alreadyLinked: false };
       }),
 
-    /** Remove vínculo de médico com uma unidade */
+    /**
+     * Remove vínculo de médico com uma unidade.
+     *
+     * achado 2026-10-14: a checagem anterior validava apenas o cargo do
+     * chamador (admin_master/unit_admin), sem confirmar escopo sobre
+     * input.unitId — permitindo que um unit_admin desvinculasse médicos de
+     * unidades que não administra via chamada tRPC direta. Corrigido com a
+     * mesma guarda já usada em addDoctor/listDoctors/listAllDoctors.
+     */
     removeDoctor: protectedProcedure
       .input(z.object({ unitId: z.number(), doctorUserId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
+        await assertUnitAdminScope(ctx.user, input.unitId);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { user_unit_permissions } = await import('../../drizzle/schema');

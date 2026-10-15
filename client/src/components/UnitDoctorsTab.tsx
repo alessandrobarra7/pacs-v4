@@ -22,7 +22,9 @@ export default function UnitDoctorsTab({ unitId }: UnitDoctorsTabProps) {
   const { data: linkedDoctors = [], isLoading: loadingLinked } = trpc.units.listDoctors.useQuery(
     { unitId }, { enabled: !!unitId },
   );
-  const { data: allDoctors = [], isLoading: loadingAll } = trpc.units.listAllDoctors.useQuery();
+  const { data: allDoctors = [], isLoading: loadingAll } = trpc.units.listAllDoctors.useQuery(
+    { unitId }, { enabled: !!unitId },
+  );
 
   const linkedIds = new Set(linkedDoctors.map(d => d.id));
   const availableDoctors = allDoctors.filter(d => !linkedIds.has(d.id));
