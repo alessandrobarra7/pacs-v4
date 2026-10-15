@@ -436,3 +436,161 @@ não foi implantada em nenhuma VM, e não deve ser até:
    FORBIDDEN) e com uma conta que tenha (deve continuar funcionando, só
    que agora sempre via `/api/dicomweb/studies/<uid>`).
 
+---
+
+## ADENDO 2 (2026-10-14) — Parecer corretivo da Manus: REPROVADO e corrigido
+
+Status: commit `43d72a6` (ADENDO 1 acima) foi **REPROVADO** pela Manus em
+revisão técnica ("Parecer corretivo — proxy DICOMweb por estudo.md",
+14/10/2026), por uma vulnerabilidade crítica residual mais 3 bloqueios
+adicionais. Esta seção documenta cada um e a correção aplicada neste
+branch, no commit seguinte.
+
+### B1. BLOQUEIO 1 (crítico) — Escapada de caminho após o UID autorizado
+
+**Achado da Manus:** a Revisão 1 (`extractDicomWebStudyUid`) validava
+somente o PRIMEIRO segmento do caminho (`/studies/<uid>`) e aceitava
+qualquer sufixo sem allowlist, concatenando-o cru na URL de destino
+(`${orthancBaseUrl}/dicom-web${targetPath}${queryString}`). Uma requisição
+como `/api/dicomweb/studies/<uid-autorizado>/../../system` (ou a forma
+`%2e%2e`) trazia um UID inicial autorizado, mas o sufixo podia escapar do
+prefixo `/dicom-web/studies/<uid>` depois de normalizado pelo `fetch`,
+alcançando outros recursos do Orthanc da mesma unidade — a autorização por
+estudo podia ser contornada.
+
+**Correção:** `server/dicomWebProxyAuthorization.ts` foi reescrito com uma
+allowlist FECHADA de formas WADO-RS (`parseDicomWebRequest` +
+`matchWadoRsShape`): `/studies/<uid>`, `/metadata`, `/series/<uid>`,
+`/series/<uid>/metadata`, `/series/<uid>/instances/<uid>`,
+`.../instances/<uid>/metadata`, `.../instances/<uid>/rendered`,
+`.../instances/<uid>/frames/<lista>`. Cada segmento do caminho (inclusive
+o UID do estudo) é decodificado INDIVIDUALMENTE (`decodeSegmentStrict`) —
+nunca a string inteira de uma vez — e rejeitado com 400 se: a decodificação
+falhar (percent-encoding malformado, nunca vira 502 genérico); o resultado
+for vazio, `.` ou `..` (cobre tanto o literal quanto `%2e`/`%2e%2e`); ou o
+resultado ainda contiver `/` ou `\` (cobre `%2f`/`%5c`). Qualquer forma
+fora da allowlist fechada (mesmo sem nenhum "ponto") também é rejeitada.
+A URL de destino é SEMPRE reconstruída por `buildCanonicalWadoRsPath` a
+partir da estrutura já validada — nunca ecoa `req.path`/`req.url` brutos —
+o que garante, por construção, que o destino jamais sai do prefixo do
+estudo autorizado.
+
+### B2. BLOQUEIO 2 — `pacs.getViewerUrl` ainda expunha URLs diretas residuais
+
+**Achado da Manus:** o ADENDO 1 zerou `orthancUrl`, mas a resposta ainda
+calculava e devolvia `orthancPublicUrl` (de `units.orthanc_public_url`,
+documentado no schema como URL pública por NAT) e `orthancWebViewerUrl`
+(o `explorer.html` direto do Orthanc) — exposição sem uso real, já que
+`ViewerPage.tsx` só lê `data.viewerUrl`.
+
+**Correção:** os 3 campos (`orthancUrl`, `orthancPublicUrl`,
+`orthancWebViewerUrl`) são agora sempre `null` na resposta de
+`getViewerUrl`. Nenhum deles é mais calculado a partir de
+`unitData.orthanc_public_url`/`orthanc_base_url`. `hasOrthanc` continua
+sendo apenas uma flag booleana (não uma URL).
+
+### B3. BLOQUEIO 3 — Guarda legada bloqueava `admin_master`/multiunidade sem `unit_id`
+
+**Achado da Manus:** `getViewerUrl` ainda resolvia `targetUnitIdForViewer`
+a partir de `input.unit_id`/`ctx.user.unit_id` e lançava `FORBIDDEN` se
+desse vazio — tudo ANTES de chamar `assertDicomFileAccess` (a fonte
+correta da unidade real do estudo, que já sabe lidar com `admin_master` e
+permissões granulares multiunidade). Isso podia bloquear indevidamente
+`admin_master` sem `users.unit_id` e sem `input.unit_id`, ou usuário
+multiunidade sem unidade legada principal mesmo tendo `view_studies` na
+unidade real do estudo.
+
+**Correção:** a variável/guarda `targetUnitIdForViewer` foi removida por
+completo. `assertDicomFileAccess(ctx.user, input.studyInstanceUid,
+'view_studies')` é agora a decisão efetiva e inicial, chamada sempre.
+Quando `input.unit_id` é informado, ele só passa por um pré-check opcional
+de UX (`assertUnitPermission`, com mensagem clara se o usuário pedir
+explicitamente uma unidade à qual não tem acesso) — mas esse pré-check
+nunca mais decide a unidade usada de fato nem pode, sozinho, bloquear a
+abertura do viewer.
+
+### B4. BLOQUEIO 4 — `studyUid` duplicado ignorado + `URIError` virando 502
+
+**Achado da Manus:** `firstQueryValue` devolvia `null` silenciosamente
+para um array de `studyUid` (UID duplicado na querystring), e quando havia
+UID válido no path o duplicado na query era simplesmente ignorado — a
+documentação dizia que deveria ser rejeitado. Também, um `%` sozinho (ou
+outro percent-encoding malformado) fazia `decodeURIComponent` lançar
+`URIError`, que não era convertido em `DicomWebRequestError(400)` e subia
+como erro genérico, tendendo a virar `502`.
+
+**Correção:** `parseDicomWebRequest` agora checa a PRESENÇA da chave
+`studyUid` na query ANTES de decidir usá-la: se presente, exige
+exatamente um valor string não vazio — array, objeto ou string vazia são
+rejeitados com 400 mesmo que o path já tenha um UID válido. A decodificação
+de cada segmento de path está em `try/catch` dedicado
+(`decodeSegmentStrict`), convertendo qualquer `URIError` em
+`DicomWebRequestError(400, ...)` — nunca mais 502 para entrada malformada.
+
+### B5. Recomendação de desempenho — cache de autorização no endpoint de alto volume
+
+**Recomendação da Manus:** uma visualização WADO-RS pode emitir diversas
+requisições por estudo (metadados, séries, instâncias, frames);
+`assertDicomFileAccess` sem cache multiplicaria consultas a
+`studies_cache`/`study_metadata`/`user_unit_permissions` por usuário
+simultâneo, para 70–100 usuários concorrentes.
+
+**Correção:** o proxy (`server/_core/index.ts`) agora injeta
+`assertCachedDicomFileAccess` (já usada por `/api/dicom-files` e
+`/api/dicom-cache-status`, cache de 60s por
+usuário+papel+unidade+permissão+UID) em vez da chamada sem cache — mesma
+semântica de autorização, apenas evitando repetir a resolução dentro do
+TTL.
+
+### B6. Ajuste de qualidade — linha em branco extra no handoff
+
+**Achado da Manus:** `git diff --check github/main...HEAD` falhava por
+uma linha em branco adicional no final deste próprio arquivo de handoff
+(efeito colateral de uma edição anterior). Corrigida — o arquivo agora
+termina com exatamente uma quebra de linha, sem linha em branco residual.
+
+### B7. Testes de regressão (reais, comportamentais)
+
+- `server/dicomweb-proxy-authorization.test.ts` ampliado de 18 para 35
+  testes, cobrindo todas as formas WADO-RS aceitas, o BLOQUEIO 1
+  (travessia literal, percent-encoded, após prefixo válido, separador
+  codificado sobrevivente, URI malformada, sufixo fora da allowlist, e a
+  prova de que a URL canônica reconstruída nunca sai do prefixo do estudo
+  autorizado), o BLOQUEIO 4 (studyUid duplicado/vazio/malformado na
+  query), e a confirmação de que o handler usa
+  `assertCachedDicomFileAccess` (não a versão sem cache) e
+  `target.canonicalPath` (não `req.path`/`req.url` brutos).
+- `server/pacs-viewer-url-security.test.ts` ampliado de 7 para 9 testes,
+  cobrindo os BLOQUEIOS 2 e 3 — incluindo uma função auxiliar que remove
+  comentários de linha antes das checagens de ausência, para que a prosa
+  explicativa (que cita nomes antigos ao descrever o que foi corrigido)
+  não gere falso-negativo.
+- **Prova de regressão:** `git stash` dos 3 arquivos de implementação
+  (mantendo os testes ampliados) → voltando ao código do commit `43d72a6`
+  (o REPROVADO) → 30 dos 44 testes falharam (26/35 e 4/9) → `git stash
+  pop` → 44/44 voltaram a passar.
+
+### B8. Validação completa (2ª rodada)
+
+- `pnpm check` (tsc --noEmit): limpo, sem erros.
+- `TZ=UTC pnpm test` (suíte completa): **836 passed / 11 failed / 1
+  skipped (848 total)**. Comparado ao ADENDO 1 (817/11/1, 829 total):
+  diferença de exatamente +19 testes passando (os 2 arquivos de teste
+  cresceram de 25 para 44 testes = +19), e as **mesmas 11 falhas, nos
+  mesmos 7 arquivos já conhecidos e pré-existentes** (confirmado por nome
+  de arquivo): `exam-catalog-security.test.ts`,
+  `finance-v2-dashboard.test.tsx` (×2), `mediaProxy.test.ts`,
+  `pacs-desktop-download-progress.test.ts`, `pacs.mobile-ui.test.ts`,
+  `security.auth.test.ts`, `study-priority-ui.test.ts` (×4). Nenhuma
+  regressão nova.
+- `pnpm build`: sucesso (`vite build` + `esbuild` do servidor), sem erros.
+- `git diff --check origin/main...HEAD`: limpo, após o commit desta
+  correção (a checagem anterior, feita sobre o diff ainda não commitado,
+  apontava a linha em branco do commit `43d72a6`, já sanada aqui).
+
+### B9. Pendente antes de merge/deploy (inalterado)
+
+Mesma política: esta branch não foi mesclada em `main`, não foi
+implantada em nenhuma VM, e não deve ser até nova revisão técnica da
+Manus sobre esta correção e a homologação manual descrita na seção A6
+acima (inalterada por este ADENDO).

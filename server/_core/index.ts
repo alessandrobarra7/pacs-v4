@@ -922,7 +922,16 @@ async function startServer() {
   }
 
   const dicomWebProxyDeps: DicomWebAuthDeps = {
-    assertDicomFileAccess: (user, studyUid, permission) => assertDicomFileAccess(user, studyUid, permission),
+    // RECOMENDAÇÃO DE DESEMPENHO (parecer corretivo da Manus): este endpoint
+    // pode receber várias requisições por estudo numa única visualização
+    // (metadados, séries, instâncias, frames). Usar a versão SEM cache aqui
+    // multiplicaria consultas a studies_cache/study_metadata/
+    // user_unit_permissions por usuário simultâneo. assertCachedDicomFileAccess
+    // é a mesma função de autorização, só que com cache de 60s por
+    // usuário+papel+unidade+permissão+UID (já usada por /api/dicom-files e
+    // /api/dicom-cache-status) — mesma semântica de autorização, sem repetir
+    // a resolução dentro do TTL.
+    assertDicomFileAccess: (user, studyUid, permission) => assertCachedDicomFileAccess(user, studyUid, permission),
     getUnitOrthancConfig,
     orthancHttpPort: process.env.ORTHANC_HTTP_PORT || '8042',
   };
@@ -943,15 +952,12 @@ async function startServer() {
     try {
       const dicomUser = (req as any).dicomUser;
 
-      const targetPath = req.path;
-      const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
-
       let target;
       try {
         target = await resolveAuthorizedDicomWebTarget(
           dicomUser,
           req.method,
-          targetPath,
+          req.path,
           req.query as Record<string, unknown>,
           dicomWebProxyDeps,
         );
@@ -963,7 +969,14 @@ async function startServer() {
         throw authErr;
       }
 
-      const targetUrl = `${target.orthancBaseUrl.replace(/\/$/, '')}/dicom-web${targetPath}${queryString}`;
+      // BLOQUEIO 1 (parecer corretivo da Manus): a URL de destino usa
+      // SEMPRE target.canonicalPath — reconstruído por
+      // resolveAuthorizedDicomWebTarget a partir da forma WADO-RS validada,
+      // nunca o req.path/req.url brutos. Isso é o que impede qualquer
+      // sufixo de caminho (literal ou percent-encoded, ex.: "../../system",
+      // "%2e%2e") de alcançar um recurso fora do prefixo
+      // /dicom-web/studies/<uid-autorizado> depois de normalizado pelo fetch.
+      const targetUrl = `${target.orthancBaseUrl.replace(/\/$/, '')}/dicom-web${target.canonicalPath}`;
 
       console.log(`[DICOMweb Proxy] ${req.method} studyUid=${target.studyUid} unit=${target.unitId}`);
 

@@ -528,68 +528,59 @@ export const pacsRouter = router({
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database não disponível' });
-        
-        // V12-4 FIX: Resolver unidade alvo com suporte a multiunidade
-        let targetUnitIdForViewer: number | null | undefined;
-        if (ctx.user.role === 'admin_master') {
-          targetUnitIdForViewer = input.unit_id ?? ctx.user.unit_id;
-        } else if (input.unit_id) {
-          // Validar que o usuário tem view_studies na unidade solicitada
-          const allowed = await assertUnitPermission(ctx.user, input.unit_id, 'view_studies');
-          if (!allowed) {
+
+        // CORREÇÃO DE SEGURANÇA (parecer corretivo da Manus, BLOQUEIO 3):
+        // a versão anterior resolvia `targetUnitIdForViewer` a partir de
+        // input.unit_id/ctx.user.unit_id e JÁ BARRAVA a requisição com
+        // FORBIDDEN se isso desse null — tudo ANTES de chamar
+        // assertDicomFileAccess, a fonte correta da unidade real do estudo
+        // (que já sabe lidar com admin_master e permissões granulares
+        // multiunidade). Isso bloqueava indevidamente: admin_master sem
+        // users.unit_id e sem input.unit_id; usuário multiunidade sem
+        // unidade legada principal, mesmo tendo view_studies na unidade
+        // real do estudo. Agora assertDicomFileAccess é a decisão efetiva
+        // e inicial — resolve a unidade REAL dona do estudo via
+        // studies_cache/study_metadata e nega acesso (FORBIDDEN) se o
+        // usuário não tiver permissão nela. input.unit_id continua sendo
+        // validado como filtro opcional de coerência/UX (mensagem clara
+        // quando o usuário pede explicitamente uma unidade à qual não tem
+        // acesso), mas nunca mais decide a unidade usada de fato nem pode
+        // bloquear a abertura do viewer por si só.
+        if (input.unit_id !== undefined) {
+          const allowedForRequestedUnit = await assertUnitPermission(ctx.user, input.unit_id, 'view_studies');
+          if (!allowedForRequestedUnit) {
             throw new TRPCError({
               code: 'FORBIDDEN',
               message: 'Você não tem permissão para visualizar estudos nesta unidade.',
             });
           }
-          targetUnitIdForViewer = input.unit_id;
-        } else {
-          targetUnitIdForViewer = ctx.user.unit_id;
         }
 
-        if (!targetUnitIdForViewer) {
-          throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'Usuário não está associado a nenhuma unidade.',
-          });
-        }
-
-        // CORREÇÃO DE SEGURANÇA (branch claude/seguranca-proxy-dicomweb-sem-autorizacao-por-estudo,
-        // item 3.5 do parecer da Manus): os passos acima só confirmam que o
-        // usuário tem permissão na unidade INFORMADA por ele (input.unit_id /
-        // ctx.user.unit_id) — nunca verificam se o ESTUDO pedido realmente
-        // pertence a essa unidade. Um usuário multiunidade ou admin_master
-        // podia, em tese, pedir o viewer de um estudo de outra unidade que
-        // não a resolvida acima. assertDicomFileAccess resolve a unidade REAL
-        // dona do estudo via studies_cache/study_metadata e nega acesso
-        // (FORBIDDEN) se o usuário não tiver permissão nela — é a mesma
-        // função já usada por /api/dicom-cache-status, /api/dicom-files e
-        // pelo proxy /api/dicomweb. A unidade retornada por ela, e não
-        // targetUnitIdForViewer, é a usada a partir daqui.
         const studyUnitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, 'view_studies');
 
         const [unitData] = await db.select().from(units).where(eq(units.id, studyUnitId)).limit(1);
         if (!unitData) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unidade não encontrada' });
 
         // BUG-3 FIX: orthanc_base_url é opcional — unidades novas usam apenas PACS direto via C-GET
-        const orthancInternalUrl = unitData.orthanc_base_url ?? null;
-        const orthancPublicUrl = unitData.orthanc_public_url || orthancInternalUrl;
+        const hasOrthanc = !!unitData.orthanc_base_url;
 
-        // CORREÇÃO DE SEGURANÇA (item 3.5 do parecer da Manus): a versão
-        // anterior, quando a unidade tinha orthanc_base_url configurado,
-        // devolvia ao navegador uma URL DIRETA e não autenticada do Orthanc
-        // (getDicomWebUrl(...)), expondo IP interno/porta 8042 e pulando
-        // completamente o proxy autorizado. Agora o navegador só recebe o
-        // caminho interno controlado pelo Portal — a mesma rota
-        // /api/dicomweb, que por sua vez reaplica assertDicomFileAccess
-        // antes de encaminhar para o Orthanc correto. getDicomWebUrl segue
-        // em uso apenas internamente (ex.: C-GET), nunca para montar
-        // viewerUrl.
+        // CORREÇÃO DE SEGURANÇA (item 3.5 do parecer original + BLOQUEIO 2 do
+        // parecer corretivo da Manus): a versão anterior, quando a unidade
+        // tinha orthanc_base_url configurado, devolvia ao navegador uma URL
+        // DIRETA e não autenticada do Orthanc (getDicomWebUrl(...), e depois
+        // ainda orthancPublicUrl/orthancWebViewerUrl derivados de
+        // orthanc_public_url/orthanc_base_url) — expondo IP interno, porta
+        // 8042 e pulando completamente o proxy autorizado. A busca no
+        // repositório confirma que ViewerPage.tsx (único consumidor desta
+        // procedure) só usa `data.viewerUrl`; nenhum outro campo é lido.
+        // Agora o navegador só recebe o caminho interno controlado pelo
+        // Portal — a mesma rota /api/dicomweb, que reaplica
+        // assertDicomFileAccess antes de encaminhar para o Orthanc correto.
+        // Os demais campos (orthancUrl/orthancPublicUrl/orthancWebViewerUrl)
+        // são mantidos apenas como `null` na resposta, por compatibilidade
+        // temporária de contrato — nunca mais carregam URL, IP, porta ou
+        // viewer do Orthanc.
         const viewerUrl = `/api/dicomweb/studies/${encodeURIComponent(input.studyInstanceUid)}`;
-
-        const orthancWebViewerUrl = orthancPublicUrl
-          ? `${orthancPublicUrl.replace(/\/$/, '')}/app/explorer.html#study?uuid=`
-          : null;
 
         // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria): registrava
         // ctx.user.unit_id em vez da unidade efetivamente usada — mesmo
@@ -610,10 +601,10 @@ export const pacsRouter = router({
           success: true,
           viewerUrl,
           studyInstanceUid: input.studyInstanceUid,
-          orthancUrl: null,                         // CORREÇÃO: nunca mais expõe URL interna do Orthanc ao navegador
-          orthancPublicUrl: orthancPublicUrl ?? null,
-          orthancWebViewerUrl,                      // null se não configurado
-          hasOrthanc: !!orthancInternalUrl,         // BUG-3 FIX: flag para o frontend
+          orthancUrl: null,            // CORREÇÃO: nunca mais expõe URL interna do Orthanc ao navegador
+          orthancPublicUrl: null,      // CORREÇÃO (BLOQUEIO 2): idem — nunca mais a URL pública/NAT direta
+          orthancWebViewerUrl: null,   // CORREÇÃO (BLOQUEIO 2): idem — nunca mais o explorer.html direto
+          hasOrthanc,                  // BUG-3 FIX: flag para o frontend (não é uma URL, não vaza nada)
         };
       }),
 
