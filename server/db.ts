@@ -220,6 +220,24 @@ export class UsernameTakenError extends Error {
   }
 }
 
+/**
+ * Bloqueio 3 do parecer corretivo (2026-10-15): lançada quando as unidades
+ * escolhidas para um responsavel_financeiro multiunidade não pertencem,
+ * de forma inequívoca, a um único responsável financeiro — ou todas já
+ * pertencem ao MESMO responsável ativo, ou NENHUMA tem responsável ativo
+ * (cria-se um único, novo, para o conjunto). Misturar unidade-com-
+ * responsável e unidade-sem-responsável, ou unidades com responsáveis
+ * ativos DISTINTOS, nunca é permitido — violaria o índice único
+ * uq_resp_user_id (financial_responsible_users.user_id), já que uma conta
+ * só pode ter um responsável ativo por vez (migration 0062).
+ */
+export class MixedFinancialResponsiblesError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MixedFinancialResponsiblesError';
+  }
+}
+
 export type CreateUserTransactionalInput = {
   username: string;
   email?: string | null;
@@ -239,6 +257,12 @@ export type CreateUserTransactionalInput = {
     edit_exam_legend: boolean;
     print_reports: boolean;
     manage_templates: boolean;
+    /** Bloqueio 1 do parecer corretivo (2026-10-15): estava sendo descartado
+     *  na criação canônica, deixando o default físico da tabela (false)
+     *  mesmo quando o grupo configurado no banco (group_permission_configs,
+     *  migration 0046) tem view_financial=true (responsaveisFinanceiros,
+     *  adminsMaster). */
+    view_financial: boolean;
   };
   actor: { user_id: number; ip_address?: string | null; user_agent?: string | null };
 };
@@ -278,6 +302,56 @@ export async function createUserTransactional(
         .limit(1);
       if (existing.length > 0) throw new UsernameTakenError();
 
+      // Bloqueio 3 (parecer corretivo 2026-10-15): resolver e VALIDAR a
+      // política de responsável financeiro multiunidade ANTES de inserir
+      // qualquer linha (inclusive o usuário). Se a validação falhar, nada
+      // é escrito — nem usuário, nem permissão, nem auditoria.
+      const now = new Date();
+      let resolvedFinancialResponsibleId: number | null = null;
+      let financialResponsibleIsNew = false;
+      if (input.groupKey === 'responsaveisFinanceiros') {
+        const byUnit = new Map<number, number | null>();
+        for (const unitId of input.unitIds) {
+          const activeResp = await tx
+            .select()
+            .from(financial_responsible_units)
+            .where(and(
+              eq(financial_responsible_units.unit_id, unitId),
+              lte(financial_responsible_units.starts_at, now),
+              or(
+                isNull(financial_responsible_units.ends_at),
+                gte(financial_responsible_units.ends_at, now),
+              ),
+            ))
+            .orderBy(desc(financial_responsible_units.starts_at))
+            .limit(1);
+          byUnit.set(unitId, activeResp.length > 0 ? activeResp[0].financial_responsible_id : null);
+        }
+
+        const distinctIds = new Set<number>();
+        let unitsWithResponsible = 0;
+        let unitsWithoutResponsible = 0;
+        for (const resp of Array.from(byUnit.values())) {
+          if (resp === null) unitsWithoutResponsible++;
+          else { unitsWithResponsible++; distinctIds.add(resp); }
+        }
+
+        if (distinctIds.size > 1) {
+          throw new MixedFinancialResponsiblesError(
+            'As unidades selecionadas pertencem a responsáveis financeiros diferentes. ' +
+            'Para usar o mesmo login em várias unidades, todas precisam pertencer ao mesmo responsável financeiro.',
+          );
+        }
+        if (unitsWithResponsible > 0 && unitsWithoutResponsible > 0) {
+          throw new MixedFinancialResponsiblesError(
+            'Algumas unidades selecionadas já têm responsável financeiro ativo e outras não. ' +
+            'Para usar o mesmo login em várias unidades, todas precisam pertencer ao mesmo responsável financeiro (ou nenhuma delas).',
+          );
+        }
+        resolvedFinancialResponsibleId = distinctIds.size === 1 ? Array.from(distinctIds)[0] : null;
+        financialResponsibleIsNew = resolvedFinancialResponsibleId === null;
+      }
+
       const insertUserResult = await tx.insert(users).values({
         openId,
         username: input.username,
@@ -316,32 +390,22 @@ export async function createUserTransactional(
       });
 
       if (input.groupKey === 'responsaveisFinanceiros') {
-        for (const unitId of input.unitIds) {
-          const now = new Date();
-          const activeResp = await tx
-            .select()
-            .from(financial_responsible_units)
-            .where(and(
-              eq(financial_responsible_units.unit_id, unitId),
-              lte(financial_responsible_units.starts_at, now),
-              or(
-                isNull(financial_responsible_units.ends_at),
-                gte(financial_responsible_units.ends_at, now),
-              ),
-            ))
-            .orderBy(desc(financial_responsible_units.starts_at))
-            .limit(1);
-
-          let responsibleId: number;
-          if (activeResp.length > 0) {
-            responsibleId = activeResp[0].financial_responsible_id;
-          } else {
-            const insertResp = await tx.insert(financial_responsibles).values({
-              person_type: 'PF',
-              legal_name: input.name,
-              isActive: true,
-            });
-            responsibleId = Number((insertResp[0] as { insertId: number }).insertId);
+        // Bloqueio 3 (parecer corretivo 2026-10-15): a política já foi
+        // validada ANTES do insert de `users` acima — aqui só executamos a
+        // decisão já tomada (reaproveitar o único responsável comum a todas
+        // as unidades, ou criar um único responsável novo para o conjunto).
+        // Exatamente UMA linha em financial_responsible_users por usuário,
+        // nunca uma por unidade — é isso que respeita o índice único
+        // uq_resp_user_id (migration 0062).
+        let responsibleId: number;
+        if (financialResponsibleIsNew) {
+          const insertResp = await tx.insert(financial_responsibles).values({
+            person_type: 'PF',
+            legal_name: input.name,
+            isActive: true,
+          });
+          responsibleId = Number((insertResp[0] as { insertId: number }).insertId);
+          for (const unitId of input.unitIds) {
             await tx.insert(financial_responsible_units).values({
               financial_responsible_id: responsibleId,
               unit_id: unitId,
@@ -349,12 +413,16 @@ export async function createUserTransactional(
               created_by: input.actor.user_id,
             });
           }
+        } else {
+          responsibleId = resolvedFinancialResponsibleId as number;
+        }
 
-          await tx.insert(financial_responsible_users).values({
-            financial_responsible_id: responsibleId,
-            user_id: userId,
-          });
+        await tx.insert(financial_responsible_users).values({
+          financial_responsible_id: responsibleId,
+          user_id: userId,
+        });
 
+        for (const unitId of input.unitIds) {
           await tx.insert(audit_log).values({
             user_id: input.actor.user_id,
             unit_id: unitId,
@@ -363,7 +431,7 @@ export async function createUserTransactional(
             target_id: `${responsibleId}:${userId}`,
             ip_address: input.actor.ip_address ?? null,
             user_agent: input.actor.user_agent ?? null,
-            metadata: { financial_responsible_id: responsibleId, user_id: userId, unit_id: unitId },
+            metadata: { financial_responsible_id: responsibleId, user_id: userId, unit_id: unitId, reused: !financialResponsibleIsNew },
           });
         }
       }

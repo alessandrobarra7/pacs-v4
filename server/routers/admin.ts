@@ -31,6 +31,7 @@ const GROUP_PERMISSIONS = {
     edit_exam_legend: true,
     print_reports:    true,
     manage_templates: true,
+    view_financial:   false,
   },
   operadores: {
     view_studies:     true,
@@ -40,6 +41,7 @@ const GROUP_PERMISSIONS = {
     edit_exam_legend: true,
     print_reports:    false,
     manage_templates: false,
+    view_financial:   false,
   },
   atendentes: {
     view_studies:     true,
@@ -49,6 +51,7 @@ const GROUP_PERMISSIONS = {
     edit_exam_legend: false,
     print_reports:    false,
     manage_templates: false,
+    view_financial:   false,
   },
   visualizadores: {
     view_studies:     true,
@@ -58,7 +61,11 @@ const GROUP_PERMISSIONS = {
     edit_exam_legend: false,
     print_reports:    true,
     manage_templates: false,
+    view_financial:   false,
   },
+  // Migration 0046_group_perm_view_financial.sql: view_financial=true para
+  // responsaveisFinanceiros e adminsMaster — reproduzido aqui no fallback
+  // hardcoded (usado só se a tabela group_permission_configs estiver vazia).
   responsaveisFinanceiros: {
     view_studies:     false,
     edit_reports:     false,
@@ -67,6 +74,7 @@ const GROUP_PERMISSIONS = {
     edit_exam_legend: false,
     print_reports:    false,
     manage_templates: false,
+    view_financial:   true,
   },
   administradoresUnidade: {
     view_studies:     true,
@@ -76,6 +84,7 @@ const GROUP_PERMISSIONS = {
     edit_exam_legend: false,
     print_reports:    true,
     manage_templates: false,
+    view_financial:   false,
   },
   adminsMaster: {
     view_studies:     true,
@@ -85,6 +94,7 @@ const GROUP_PERMISSIONS = {
     edit_exam_legend: true,
     print_reports:    true,
     manage_templates: true,
+    view_financial:   true,
   },
 } as const satisfies Record<string, {
   view_studies:     boolean;
@@ -94,6 +104,7 @@ const GROUP_PERMISSIONS = {
   edit_exam_legend: boolean;
   print_reports:    boolean;
   manage_templates: boolean;
+  view_financial:   boolean;
 }>;
 
 type GroupKey = keyof typeof GROUP_PERMISSIONS;
@@ -803,7 +814,16 @@ export const adminRouter = router({
         password: z.string().min(6),
         role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador', 'atendente', 'responsavel_financeiro']),
         groupKey: z.enum(['medicos', 'operadores', 'atendentes', 'visualizadores', 'responsaveisFinanceiros', 'administradoresUnidade', 'adminsMaster']),
-        unitIds: z.array(z.number()).default([]),
+        // Reforço 5.1 (parecer corretivo 2026-10-15): antes aceitava
+        // z.array(z.number()) puro — decimais, negativos e IDs repetidos
+        // passavam direto, e user_unit_permissions não tem índice único em
+        // (user_id, unit_id), então um input malicioso/bugado como [20, 20]
+        // gravaria duas permissões idênticas.
+        unitIds: z.array(z.number().int().positive())
+          .default([])
+          .refine((arr) => new Set(arr).size === arr.length, {
+            message: 'IDs de unidade duplicados na lista',
+          }),
         isActive: z.boolean().default(true),
         expiration_date: z.string().optional().nullable(),
       }))
@@ -844,6 +864,27 @@ export const adminRouter = router({
           }
         }
 
+        // Reforço 5.1 (parecer corretivo 2026-10-15): confirmar que toda
+        // unidade informada realmente existe, ANTES de qualquer escrita.
+        // Roda DEPOIS do bloco de escopo acima de propósito: um unit_admin
+        // sem acesso a uma unidade já recebe FORBIDDEN ali, sem que esta
+        // checagem chegue a revelar se aquele ID sequer existe.
+        if (input.unitIds.length > 0) {
+          const db = await getDb();
+          if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+          const { units: unitsTable } = await import('../../drizzle/schema');
+          const { inArray: inArrayOp } = await import('drizzle-orm');
+          const existingUnits = await db
+            .select({ id: unitsTable.id })
+            .from(unitsTable)
+            .where(inArrayOp(unitsTable.id, input.unitIds));
+          const existingIds = new Set(existingUnits.map((u) => u.id));
+          const missing = input.unitIds.filter((id) => !existingIds.has(id));
+          if (missing.length > 0) {
+            throw new TRPCError({ code: 'NOT_FOUND', message: `Unidade(s) inexistente(s): ${missing.join(', ')}` });
+          }
+        }
+
         // Permissões: fonte de verdade é o banco (group_permission_configs);
         // fallback na constante hardcoded apenas se o banco estiver vazio.
         const dbGroupPerms = await getGroupPermissions();
@@ -857,11 +898,15 @@ export const adminRouter = router({
               edit_exam_legend: dbPerm.edit_exam_legend,
               print_reports:    dbPerm.print_reports,
               manage_templates: dbPerm.manage_templates,
+              // Bloqueio 1 (parecer corretivo 2026-10-15): estava faltando
+              // aqui, então o insert recebia o default físico da tabela
+              // (false), mesmo quando o banco tem view_financial=true.
+              view_financial:   (dbPerm as any).view_financial ?? false,
             }
           : GROUP_PERMISSIONS[input.groupKey as GroupKey];
 
         const password_hash = await bcrypt.hash(input.password, 12);
-        const { createUserTransactional, UsernameTakenError } = await import('../db');
+        const { createUserTransactional, UsernameTakenError, MixedFinancialResponsiblesError } = await import('../db');
 
         try {
           const { id } = await createUserTransactional({
@@ -888,6 +933,12 @@ export const adminRouter = router({
               code: 'CONFLICT',
               message: `Nome de usuário "${input.username}" já está em uso. Escolha outro.`,
             });
+          }
+          // Bloqueio 3 (parecer corretivo 2026-10-15): política explícita de
+          // responsável financeiro multiunidade violada — nunca deixar isso
+          // virar um erro de banco genérico para quem está preenchendo a tela.
+          if (err instanceof MixedFinancialResponsiblesError) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
           }
           throw err;
         }

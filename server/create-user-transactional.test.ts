@@ -32,10 +32,29 @@ type FakeState = {
   fruRows: Array<{ financial_responsible_id: number; unit_id: number; ends_at: Date | null }>;
   fruUsersRows: Array<{ financial_responsible_id: number; user_id: number }>;
   nextId: number;
+  // Bloqueio 3 (parecer corretivo 2026-10-15): fila opcional de respostas
+  // "responsável ativo da unidade", consumida NA ORDEM em que
+  // createUserTransactional percorre input.unitIds. Quando ausente, o fake
+  // cai no comportamento antigo (ignora qual unidade foi consultada e
+  // devolve o primeiro fruRows ativo) — mantido para não quebrar os testes
+  // 8b/10/10b, que não distinguem unidade. Quando presente, permite modelar
+  // unidades com responsáveis ativos DIFERENTES, o que o comportamento
+  // antigo não conseguia expressar.
+  fruActiveQueue?: Array<{ financial_responsible_id: number }[]>;
+  fruActiveQueueIndex: number;
 };
 
 function freshState(): FakeState {
-  return { usersRows: [], uupRows: [], auditRows: [], frRows: [], fruRows: [], fruUsersRows: [], nextId: 1 };
+  return {
+    usersRows: [],
+    uupRows: [],
+    auditRows: [],
+    frRows: [],
+    fruRows: [],
+    fruUsersRows: [],
+    nextId: 1,
+    fruActiveQueueIndex: 0,
+  };
 }
 
 /**
@@ -91,6 +110,11 @@ function makeFakeDb(
             orderBy: () => ({
               limit: (_n: number) => {
                 if (table === tables.financial_responsible_units) {
+                  if (state.fruActiveQueue) {
+                    const next = state.fruActiveQueue[state.fruActiveQueueIndex] ?? [];
+                    state.fruActiveQueueIndex++;
+                    return Promise.resolve(next);
+                  }
                   return Promise.resolve(state.fruRows.filter((r) => r.ends_at === null).slice(0, 1));
                 }
                 return Promise.resolve([]);
@@ -170,6 +194,10 @@ const basePermissions = {
   edit_exam_legend: true,
   print_reports: true,
   manage_templates: true,
+  // Bloqueio 1 (parecer corretivo 2026-10-15): campo antes ausente do tipo
+  // CreateUserTransactionalInput.permissions; incluído aqui para que os
+  // testes já existentes continuem exercitando o shape real do input.
+  view_financial: true,
 };
 
 const baseActor = { user_id: 1, ip_address: "127.0.0.1", user_agent: "vitest" };
@@ -309,6 +337,9 @@ describe("createUserTransactional (server/db.ts) — testes 8, 9, 10, 11 do pare
       expect(state.usersRows).toHaveLength(1);
       expect(state.usersRows[0].id).toBe(id);
       expect(state.uupRows).toHaveLength(1);
+      // Bloqueio 1 (parecer corretivo 2026-10-15): view_financial precisa
+      // chegar ao vínculo da unidade, não ficar no default físico (false).
+      expect((state.uupRows[0] as any).view_financial).toBe(true);
       expect(state.frRows).toHaveLength(1);
       expect(state.fruRows).toHaveLength(1);
       expect(state.fruRows[0].unit_id).toBe(20);
@@ -378,6 +409,130 @@ describe("createUserTransactional (server/db.ts) — testes 8, 9, 10, 11 do pare
       expect(state.usersRows).toHaveLength(1);
       expect(state.usersRows[0].isActive).toBe(false);
       expect(state.usersRows[0].expiration_date).toEqual(expiration);
+    });
+  });
+});
+describe("createUserTransactional (server/db.ts) — Bloqueio 3 do parecer corretivo 2026-10-15: política multiunidade de responsavel_financeiro", () => {
+  it("duas unidades com o MESMO responsável financeiro ativo: multiunidade permitida, UM único vínculo financial_responsible_users", async () => {
+    await withRealDb({}, async (fake, { createUserTransactional }) => {
+      const state = fake.getState();
+      // Pré-condição: unidades 1 e 2 já pertencem ao mesmo responsável (id 1).
+      state.frRows.push({ id: 1 });
+      state.fruActiveQueue = [
+        [{ financial_responsible_id: 1 }], // unidade 1
+        [{ financial_responsible_id: 1 }], // unidade 2
+      ];
+
+      const { id } = await createUserTransactional({
+        username: "resp.multi.mesmo",
+        name: "Resp Multi Mesmo",
+        password_hash: "hash",
+        role: "responsavel_financeiro",
+        groupKey: "responsaveisFinanceiros",
+        unitIds: [1, 2],
+        isActive: true,
+        permissions: basePermissions,
+        actor: baseActor,
+      });
+
+      // Nenhum financial_responsibles novo foi criado (reaproveitou o id 1),
+      // e nenhuma financial_responsible_units nova foi inserida (unidades já
+      // vinculadas a esse responsável).
+      expect(state.frRows).toHaveLength(1);
+      expect(state.fruRows).toHaveLength(0);
+      expect(state.fruUsersRows).toHaveLength(1);
+      expect(state.fruUsersRows[0]).toMatchObject({ financial_responsible_id: 1, user_id: id });
+    });
+  });
+
+  it("duas unidades com responsáveis financeiros ativos DISTINTOS: BAD_REQUEST (MixedFinancialResponsiblesError), nada persistido", async () => {
+    await withRealDb({}, async (fake, { createUserTransactional, MixedFinancialResponsiblesError }) => {
+      const state = fake.getState();
+      state.frRows.push({ id: 1 }, { id: 2 });
+      state.fruActiveQueue = [
+        [{ financial_responsible_id: 1 }], // unidade 10
+        [{ financial_responsible_id: 2 }], // unidade 20
+      ];
+
+      await expect(
+        createUserTransactional({
+          username: "resp.multi.distinto",
+          name: "Resp Multi Distinto",
+          password_hash: "hash",
+          role: "responsavel_financeiro",
+          groupKey: "responsaveisFinanceiros",
+          unitIds: [10, 20],
+          isActive: true,
+          permissions: basePermissions,
+          actor: baseActor,
+        }),
+      ).rejects.toBeInstanceOf(MixedFinancialResponsiblesError);
+
+      // Nada persistido: nem usuário, nem permissão, nem vínculo, nem auditoria.
+      expect(state.usersRows).toHaveLength(0);
+      expect(state.uupRows).toHaveLength(0);
+      expect(state.auditRows).toHaveLength(0);
+      expect(state.fruUsersRows).toHaveLength(0);
+      // Nenhuma segunda tentativa de insert em financial_responsible_users
+      // para o mesmo user_id chegou a ocorrer (o erro é lançado ANTES de
+      // qualquer insert da cadeia financeira).
+    });
+  });
+
+  it("uma unidade com responsável e outra SEM responsável (caso misto): BAD_REQUEST, nada persistido", async () => {
+    await withRealDb({}, async (fake, { createUserTransactional, MixedFinancialResponsiblesError }) => {
+      const state = fake.getState();
+      state.frRows.push({ id: 1 });
+      state.fruActiveQueue = [
+        [{ financial_responsible_id: 1 }], // unidade 10 já tem responsável
+        [], // unidade 30 não tem nenhum
+      ];
+
+      await expect(
+        createUserTransactional({
+          username: "resp.multi.misto",
+          name: "Resp Multi Misto",
+          password_hash: "hash",
+          role: "responsavel_financeiro",
+          groupKey: "responsaveisFinanceiros",
+          unitIds: [10, 30],
+          isActive: true,
+          permissions: basePermissions,
+          actor: baseActor,
+        }),
+      ).rejects.toBeInstanceOf(MixedFinancialResponsiblesError);
+
+      expect(state.usersRows).toHaveLength(0);
+      expect(state.uupRows).toHaveLength(0);
+      expect(state.fruUsersRows).toHaveLength(0);
+    });
+  });
+
+  it("nenhuma das unidades selecionadas tem responsável ativo: cria UM novo responsável para o conjunto inteiro", async () => {
+    await withRealDb({}, async (fake, { createUserTransactional }) => {
+      const state = fake.getState();
+      state.fruActiveQueue = [[], []]; // unidades 40 e 50, nenhuma com responsável
+
+      const { id } = await createUserTransactional({
+        username: "resp.multi.nenhum",
+        name: "Resp Multi Nenhum",
+        password_hash: "hash",
+        role: "responsavel_financeiro",
+        groupKey: "responsaveisFinanceiros",
+        unitIds: [40, 50],
+        isActive: true,
+        permissions: basePermissions,
+        actor: baseActor,
+      });
+
+      // Exatamente um financial_responsibles novo, uma financial_responsible_units
+      // por unidade selecionada, e um único vínculo financial_responsible_users
+      // (nunca uma segunda inserção para o mesmo user_id).
+      expect(state.frRows).toHaveLength(1);
+      expect(state.fruRows).toHaveLength(2);
+      expect(state.fruRows.map((r) => r.unit_id).sort()).toEqual([40, 50]);
+      expect(state.fruUsersRows).toHaveLength(1);
+      expect(state.fruUsersRows[0]).toMatchObject({ financial_responsible_id: state.frRows[0].id, user_id: id });
     });
   });
 });

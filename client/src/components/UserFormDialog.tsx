@@ -268,7 +268,16 @@ export default function UserFormDialog({
     }
   }, [existingPerms, isEditing]);
 
+  // Reforço 5.2 (parecer corretivo 2026-10-15): quando o modal foi aberto a
+  // partir do contexto de uma unidade específica (forcedUnitId) PARA um
+  // unit_admin, a unidade precisa ficar REALMENTE travada — nem desmarcável,
+  // nem substituível por outra. Antes, só a lógica de "substituir ao marcar"
+  // existia; desmarcar a própria unidade forçada (ou marcar outra) ainda
+  // funcionava sem nenhum bloqueio.
+  const unitSelectionLocked = currentUserRole === "unit_admin" && forcedUnitId != null;
+
   const toggleUnit = (unitId: number, checked: boolean) => {
+    if (unitSelectionLocked) return; // defesa em profundidade: o Checkbox também fica disabled.
     if (checked) {
       setPermissions((prev) => {
         // Unit admin só pode criar/gerenciar em exatamente UMA unidade dentro
@@ -548,6 +557,7 @@ export default function UserFormDialog({
                       <Checkbox
                         checked={selected}
                         onCheckedChange={(v) => toggleUnit(unit.id, !!v)}
+                        disabled={unitSelectionLocked}
                         id={`unit-${unit.id}`}
                       />
                       <label htmlFor={`unit-${unit.id}`} className="flex-1 text-sm font-medium cursor-pointer select-none">

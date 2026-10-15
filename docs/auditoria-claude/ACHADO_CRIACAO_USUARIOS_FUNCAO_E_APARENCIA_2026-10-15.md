@@ -192,3 +192,65 @@ Prova de que são testes reais: `git stash` das 5 mudanças de implementação (
 - Esta branch (`claude/achado-criacao-usuarios-funcao-e-aparencia`) está pronta para revisão da Manus antes de qualquer merge/deploy — nenhuma dessas ações foi executada por mim.
 - `auth.createLocalUser` segue viva, intencionalmente, até a Manus confirmar que não há consumidor externo que dependa dela.
 - O item "aparência" deste achado (seção 2 acima) permanece em aberto, para uma branch futura e opcional.
+
+---
+
+## ADENDO — resposta ao parecer corretivo de 2026-10-15 ("não aprovada para merge ou implantação")
+
+A Manus revisou o commit `f23540a94646a82b1412a5146af0eeb3c3fbd6b2` e apontou 3 bloqueios e 2 reforços complementares. Todos os 5 pontos foram confirmados no código real antes de qualquer alteração, e todos foram corrigidos e testados nesta branch — sem tocar `main`, sem atualizar VM1, sem criar usuário real.
+
+### B1. Bloqueio 1 — `view_financial` descartado na criação canônica
+
+Confirmado: `admin.createUser` montava `perms` sem o campo `view_financial`, e `CreateUserTransactionalInput.permissions` nem o declarava — o insert em `user_unit_permissions` caía no default físico da tabela (`false`), ignorando a matriz configurada em `group_permission_configs` (migration 0046).
+
+Corrigido: `view_financial: boolean` adicionado ao tipo `CreateUserTransactionalInput.permissions`; `admin.createUser` agora inclui `view_financial: (dbPerm as any).view_financial ?? false` no mapeamento vindo do banco; `GROUP_PERMISSIONS` (fallback hardcoded) ganhou `view_financial` em todas as entradas, `true` para `responsaveisFinanceiros`/`adminsMaster` e `false` nas demais, consistente com a migration 0046; `createUserTransactional` persiste o campo junto com as demais permissões em `tx.insert(user_unit_permissions)`.
+
+Testado em `server/create-user-transactional.test.ts` (teste 10, asserção nova: `uupRows[0].view_financial === true`) e em `server/admin-create-user-authorization.test.ts` (dois testes novos: configuração do banco com `view_financial=true` chega a `createUserTransactional`; ausência de configuração usa o fallback hardcoded previsível).
+
+### B2. Bloqueio 2 — lista visível não atualizava após criar a conta
+
+Confirmado: `UsersPermissionsTab.tsx` roda sua própria `trpc.admin.listUsersWithPermissions.useQuery()`; `AdminPage.tsx` chamava só `refetchUsers()`, que invalida `admin.listUsers` — consulta diferente, que não alimenta a tabela visível. O toast de sucesso aparecia, mas a conta só surgia na tela depois de navegar/recarregar.
+
+Corrigido: `onSuccess` da mutation `createUser` em `AdminPage.tsx` agora usa `trpc.useUtils()` e chama `await utils.admin.listUsersWithPermissions.invalidate()` e `await utils.admin.listUsers.invalidate()` — invalidação central, sem acoplar componentes por callback.
+
+Testado em `server/create-user-interface-wiring.test.ts` (teste 15 reescrito): prova que a query `admin.listUsersWithPermissions.invalidate()` é chamada no `onSuccess`, substituindo a checagem antiga (que só procurava `refetchUsers()`).
+
+### B3. Bloqueio 3 — multiunidade de `responsavel_financeiro` conflitava com a regra de responsável único
+
+Confirmado: a migration 0062 tornou `financial_responsible_users.user_id` único; o laço antigo resolvia/criava responsável POR unidade e inseria em `financial_responsible_users` uma vez por unidade — se duas unidades tivessem responsáveis ativos diferentes, a segunda inserção violava o índice único e surgia como erro genérico de banco.
+
+Corrigido, seguindo a política conservadora recomendada pela Manus: antes de qualquer escrita, `createUserTransactional` resolve o responsável ativo de TODAS as unidades selecionadas; permite multiunidade somente quando todas já pertencem ao mesmo responsável, ou quando NENHUMA tem responsável (cria um único novo para o conjunto); rejeita o caso misto e o caso de responsáveis distintos com a nova classe `MixedFinancialResponsiblesError`, traduzida por `admin.createUser` em `TRPCError({code:'BAD_REQUEST', message: err.message})`. O índice único `uq_resp_user_id` não foi tocado; nunca há mais de uma inserção em `financial_responsible_users` por usuário.
+
+Testado em `server/create-user-transactional.test.ts` (4 casos novos, nível `db.ts`, com fake de driver que distingue responsável ativo por unidade): duas unidades com o mesmo responsável → multiunidade permitida, um único vínculo; duas unidades com responsáveis distintos → `MixedFinancialResponsiblesError`, nada persistido; caso misto (uma com responsável, outra sem) → mesma rejeição; nenhuma unidade com responsável → cria um único novo responsável para o conjunto, uma `financial_responsible_units` por unidade, um único `financial_responsible_users`. E em `server/admin-create-user-authorization.test.ts` (nível router): `MixedFinancialResponsiblesError` → `BAD_REQUEST` legível.
+
+### B4. Reforço 5.1 — IDs de unidade válidos, únicos e existentes
+
+Confirmado: o input aceitava `z.array(z.number())` (decimais, negativos, duplicados passavam) e não havia checagem de existência antes da transação.
+
+Corrigido: `unitIds: z.array(z.number().int().positive()).default([]).refine(...)` rejeita duplicatas explicitamente (nunca dedup silencioso); novo bloco em `admin.createUser` consulta a tabela `units` antes da transação e retorna `NOT_FOUND` nomeando o(s) ID(s) ausente(s). Decisão deliberada de ordenação: essa checagem roda DEPOIS do bloco de escopo de `unit_admin` — um chamador sem acesso a uma unidade recebe `FORBIDDEN` ali, sem que a checagem de existência chegue a revelar se aquele ID sequer existe.
+
+Testado em `server/admin-create-user-authorization.test.ts`: unidade inexistente → `NOT_FOUND`, `createUserTransactional` nunca chamado; IDs duplicados → rejeição no próprio input, `createUserTransactional` nunca chamado.
+
+### B5. Reforço 5.2 — unidade forçada não travava de verdade para `unit_admin`
+
+Confirmado: o componente limitava a seleção a uma unidade, mas ainda permitia desmarcar a unidade forçada (`forcedUnitId`) e escolher outra dentro do escopo.
+
+Corrigido: nova condição `unitSelectionLocked = currentUserRole === "unit_admin" && forcedUnitId != null` em `UserFormDialog.tsx`; `toggleUnit` recusa qualquer mudança quando travado (defesa em profundidade); o `Checkbox` de cada unidade recebe `disabled={unitSelectionLocked}` — a trava deixou de ser cosmética.
+
+Testado em `server/create-user-interface-wiring.test.ts` (teste novo): prova via source que `unitSelectionLocked`, o early-return em `toggleUnit` e o `disabled` no checkbox existem e estão conectados.
+
+### B6. Prova de que os testes são reais (stash/pop)
+
+`git stash push --keep-index` nos 4 arquivos de implementação (`server/db.ts`, `server/routers/admin.ts`, `client/src/pages/AdminPage.tsx`, `client/src/components/UserFormDialog.tsx`), mantendo só os 3 arquivos de teste modificados. Rodando os 3 arquivos contra a implementação ANTIGA: **11 das novas/alteradas asserções falharam** exatamente nos pontos esperados (view_financial ausente, NOT_FOUND/duplicata não implementados, `MixedFinancialResponsiblesError` inexistente, `unitSelectionLocked` inexistente). `git stash pop` restaurou a implementação — todos os 31 testes dos 3 arquivos voltaram a passar.
+
+### B7. Validação completa (sequência exata pedida pelo parecer)
+
+- `pnpm check` — sem erros.
+- `TZ=UTC pnpm vitest run server/admin-create-user-authorization.test.ts server/create-user-transactional.test.ts server/create-user-interface-wiring.test.ts` — **31 testes passando** (14 + 10 + 7; eram 9 + 6 + 6 = 21 antes deste parecer).
+- `TZ=UTC pnpm test` (suíte completa) — **879 passed / 11 failed / 1 skipped** (891 total). Os 11 failed são os mesmos 7 arquivos pré-existentes já documentados nesta auditoria (`exam-catalog-security.test.ts`, `finance-v2-dashboard.test.tsx` ×2, `mediaProxy.test.ts`, `pacs-desktop-download-progress.test.ts`, `pacs.mobile-ui.test.ts`, `security.auth.test.ts`, `study-priority-ui.test.ts` ×4) — nenhuma regressão nova. 869 (baseline anterior) + 10 testes novos deste parecer = 879, bate exato.
+- `pnpm build` — build de produção concluído sem erros.
+- `git diff --check origin/main...HEAD` — limpo.
+
+### B8. Decisão operacional
+
+Esta branch (`claude/achado-criacao-usuarios-funcao-e-aparencia`) está pronta para nova revisão da Manus. Nenhum merge em `main`, atualização de VM1 ou criação de usuário real foi executado — conforme a decisão explícita do parecer corretivo.

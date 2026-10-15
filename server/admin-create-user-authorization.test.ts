@@ -33,21 +33,37 @@ import type { TrpcContext } from "./_core/context";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-const { state, FakeUsernameTakenError } = vi.hoisted(() => {
+const { state, FakeUsernameTakenError, FakeMixedFinancialResponsiblesError } = vi.hoisted(() => {
   class FakeUsernameTakenError extends Error {
     constructor() {
       super("USERNAME_TAKEN");
       this.name = "UsernameTakenError";
     }
   }
+  class FakeMixedFinancialResponsiblesError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "MixedFinancialResponsiblesError";
+    }
+  }
   return {
     FakeUsernameTakenError,
+    FakeMixedFinancialResponsiblesError,
     state: {
       getUserUnitPermissionResult: null as unknown,
       groupPermissionsRows: [] as any[],
       createUserTransactionalCalls: [] as any[],
       createUserTransactionalResult: { id: 4242 } as { id: number },
       createUserTransactionalShouldThrow: null as Error | null,
+      // Reforço 5.1 (parecer corretivo 2026-10-15): admin.createUser agora
+      // confirma que toda unidade existe (select em `units`) antes de
+      // prosseguir. Este fake NÃO reconstrói a condição WHERE (mesma
+      // simplificação já documentada em outros testes desta suíte) — ele
+      // apenas devolve esta lista canônica de unidades "existentes" para
+      // qualquer chamada. Cobre os IDs usados por todos os testes deste
+      // arquivo (1, 2, 3, 20, 30); o teste dedicado de NOT_FOUND troca esta
+      // lista temporariamente para simular um ID ausente.
+      existingUnitRows: [1, 2, 3, 20, 30].map((id) => ({ id })) as { id: number }[],
     },
   };
 });
@@ -57,6 +73,7 @@ vi.mock("./db", async (importOriginal) => {
   return {
     ...original,
     UsernameTakenError: FakeUsernameTakenError,
+    MixedFinancialResponsiblesError: FakeMixedFinancialResponsiblesError,
     getUserUnitPermission: vi.fn(async (_userId: number, _unitId: number) => state.getUserUnitPermissionResult),
     getGroupPermissions: vi.fn(async () => state.groupPermissionsRows),
     createUserTransactional: vi.fn(async (input: any) => {
@@ -64,6 +81,13 @@ vi.mock("./db", async (importOriginal) => {
       if (state.createUserTransactionalShouldThrow) throw state.createUserTransactionalShouldThrow;
       return state.createUserTransactionalResult;
     }),
+    getDb: vi.fn(async () => ({
+      select: (_cols: unknown) => ({
+        from: (_table: unknown) => ({
+          where: (_cond: unknown) => Promise.resolve(state.existingUnitRows),
+        }),
+      }),
+    })),
   };
 });
 
@@ -103,6 +127,7 @@ beforeEach(() => {
   state.createUserTransactionalCalls = [];
   state.createUserTransactionalResult = { id: 4242 };
   state.createUserTransactionalShouldThrow = null;
+  state.existingUnitRows = [1, 2, 3, 20, 30].map((id) => ({ id }));
 });
 
 describe("admin.createUser — autorização e escopo (testes 1-6 do parecer Manus)", () => {
@@ -259,5 +284,82 @@ describe("admin.createUser — integridade (teste 7 parcial e teste 9 parcial do
         unitIds: [1],
       } as any),
     ).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining(basePayload.username) });
+  });
+
+  it("Bloqueio 1 (parecer corretivo 2026-10-15): view_financial=true configurado no banco chega a createUserTransactional", async () => {
+    state.groupPermissionsRows = [{
+      group_key: "responsaveisFinanceiros",
+      view_studies: false,
+      edit_reports: false,
+      view_anamnesis: false,
+      edit_anamnesis: false,
+      edit_exam_legend: false,
+      print_reports: false,
+      manage_templates: false,
+      view_financial: true,
+    }];
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await caller.admin.createUser({
+      ...basePayload,
+      role: "responsavel_financeiro",
+      groupKey: "responsaveisFinanceiros",
+      unitIds: [1],
+    } as any);
+    expect(state.createUserTransactionalCalls[0].permissions).toMatchObject({ view_financial: true });
+  });
+
+  it("Bloqueio 1 (parecer corretivo 2026-10-15): ausência de configuração no banco usa o fallback hardcoded (view_financial previsível)", async () => {
+    state.groupPermissionsRows = []; // banco vazio -> fallback GROUP_PERMISSIONS
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await caller.admin.createUser({
+      ...basePayload,
+      role: "admin_master",
+      groupKey: "adminsMaster",
+      unitIds: [],
+    } as any);
+    // Fallback hardcoded de adminsMaster tem view_financial: true (migration 0046).
+    expect(state.createUserTransactionalCalls[0].permissions).toMatchObject({ view_financial: true });
+  });
+
+  it("Reforço 5.1 (parecer corretivo 2026-10-15): unidade inexistente recebe NOT_FOUND e não chama createUserTransactional", async () => {
+    // 777 não está na lista canônica de unidades "existentes" do fake.
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await expect(
+      caller.admin.createUser({
+        ...basePayload,
+        role: "medico",
+        groupKey: "medicos",
+        unitIds: [777],
+      } as any),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(state.createUserTransactionalCalls).toHaveLength(0);
+  });
+
+  it("Reforço 5.1 (parecer corretivo 2026-10-15): IDs de unidade duplicados são rejeitados (BAD_REQUEST) pelo próprio input", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await expect(
+      caller.admin.createUser({
+        ...basePayload,
+        role: "medico",
+        groupKey: "medicos",
+        unitIds: [20, 20],
+      } as any),
+    ).rejects.toThrow();
+    expect(state.createUserTransactionalCalls).toHaveLength(0);
+  });
+
+  it("Bloqueio 3 (parecer corretivo 2026-10-15): política de responsável financeiro multiunidade violada vira BAD_REQUEST legível", async () => {
+    state.createUserTransactionalShouldThrow = new FakeMixedFinancialResponsiblesError(
+      "As unidades selecionadas pertencem a responsáveis financeiros diferentes.",
+    );
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await expect(
+      caller.admin.createUser({
+        ...basePayload,
+        role: "responsavel_financeiro",
+        groupKey: "responsaveisFinanceiros",
+        unitIds: [1, 2],
+      } as any),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("responsáveis financeiros diferentes") });
   });
 });

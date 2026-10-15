@@ -722,6 +722,8 @@ export default function AdminPage() {
     onSuccess: () => navigate("/login"),
   });
 
+  const utils = trpc.useUtils();
+
   // ── Units ──
   const { data: units = [], isLoading: unitsLoading, refetch: refetchUnits } = trpc.units.list.useQuery();
 
@@ -755,7 +757,18 @@ export default function AdminPage() {
   // canônica, transacional e com escopo por unidade (ver server/db.ts
   // createUserTransactional e server/routers/admin.ts createUser).
   const createUser = trpc.admin.createUser.useMutation({
-    onSuccess: () => { toast.success("Usuário criado!"); setUserDialogOpen(false); refetchUsers(); },
+    onSuccess: async () => {
+      toast.success("Usuário criado!");
+      setUserDialogOpen(false);
+      // Bloqueio 2 (parecer corretivo 2026-10-15): refetchUsers() só
+      // atualiza admin.listUsers, que NÃO alimenta a tabela visível na aba
+      // "Usuários" — essa tabela vem de admin.listUsersWithPermissions
+      // (UsersPermissionsTab.tsx). Sem isso, a conta criada só aparecia
+      // depois de navegar ou recarregar a página, embora o toast dissesse
+      // sucesso. Invalidação central: atualiza qualquer consumidor ativo.
+      await utils.admin.listUsersWithPermissions.invalidate();
+      await utils.admin.listUsers.invalidate();
+    },
     onError: (e) => toast.error(e.message),
   });
   const updateUserMutation = trpc.admin.updateUser.useMutation({

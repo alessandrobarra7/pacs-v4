@@ -49,11 +49,27 @@ describe("Interface — criação de usuários (testes 12-17 do parecer Manus)",
     expect(src).toMatch(/trpc\.admin\.createUser\.useMutation/);
   });
 
-  it("15. após sucesso na criação, a lista de usuários é invalidada/refeita", () => {
+  it("15. após sucesso na criação, a query que alimenta a tabela VISÍVEL (admin.listUsersWithPermissions) é invalidada — não apenas admin.listUsers via refetchUsers() (Bloqueio 2, parecer corretivo 2026-10-15)", () => {
     const src = readSource("client/src/pages/AdminPage.tsx");
-    const match = src.match(/const createUser = trpc\.admin\.createUser\.useMutation\(\{[\s\S]{0,300}?\}\);/);
+    const match = src.match(/const createUser = trpc\.admin\.createUser\.useMutation\(\{[\s\S]{0,900}?\}\);/);
     expect(match).not.toBeNull();
-    expect(match![0]).toMatch(/refetchUsers\(\)/);
+    // A tabela visível em UsersPermissionsTab.tsx vem de
+    // admin.listUsersWithPermissions, não de admin.listUsers — a prova
+    // exigida pelo parecer é que essa query específica é invalidada.
+    expect(match![0]).toMatch(/utils\.admin\.listUsersWithPermissions\.invalidate\(\)/);
+    expect(match![0]).toMatch(/utils\.admin\.listUsers\.invalidate\(\)/);
+  });
+
+  it("Reforço 5.2 (parecer corretivo 2026-10-15): unidade forçada é realmente travada para unit_admin (não apenas pré-selecionada)", () => {
+    const src = readSource("client/src/components/UserFormDialog.tsx");
+    // A trava precisa existir como condição derivada, não só como comentário.
+    expect(src).toMatch(/unitSelectionLocked\s*=\s*currentUserRole === "unit_admin" && forcedUnitId != null/);
+    // toggleUnit precisa recusar mudar a seleção quando travado (defesa em
+    // profundidade, não só o checkbox desabilitado).
+    expect(src).toMatch(/const toggleUnit = \([\s\S]{0,80}if \(unitSelectionLocked\) return;/);
+    // O checkbox de cada unidade precisa estar de fato desabilitado quando
+    // travado — sem isso, a trava seria só cosmética.
+    expect(src).toMatch(/disabled=\{unitSelectionLocked\}/);
   });
 
   it("16. unit_admin não vê 'Excluir usuário'; 'Remover vínculo da unidade' permanece disponível", () => {
