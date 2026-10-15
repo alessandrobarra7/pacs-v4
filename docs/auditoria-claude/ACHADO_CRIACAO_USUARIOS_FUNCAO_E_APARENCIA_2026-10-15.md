@@ -3,7 +3,7 @@
 **Data:** 2026-10-15
 **Branch:** `claude/achado-criacao-usuarios-funcao-e-aparencia`
 **Autor:** Claude (auditoria de código a pedido do Alessandro)
-**Status:** 🔴 ABERTO — nenhuma correção de código implementada ainda. Este documento registra os dois relatos (função + aparência) para avaliação antes de qualquer implementação.
+**Status:** 🟢 CORRIGIDO (função) — ver ADENDO (2026-10-15) ao final. Aparência permanece deliberadamente fora deste branch, conforme parecer da Manus.
 
 Contexto: ao homologar em produção a correção do achado `removeDoctor` (branch `claude/achado-removedoctor-sem-escopo-unidade`), o Alessandro criou manualmente um usuário `unit_admin` de teste pela tela "Novo Usuário" do admin. Isso levantou a suspeita de que essa tela tem problemas — confirmados abaixo.
 
@@ -113,3 +113,82 @@ Nenhuma alteração de código foi feita neste branch — nem no bug funcional, 
 2. **Atomicidade** — se a correção deve também resolver a cadeia de mutations não-atômica (ex.: mover a lógica de permissões/stamp/signature para dentro da própria procedure de criação, numa transação).
 3. **Direção de aparência** — qual das duas opções do item 2.1 (ou outra) o Alessandro prefere, antes de qualquer mudança visual.
 4. **Prioridade** — se o bug funcional deve ser tratado com urgência (já que `unit_admin` está sem essa função desde sempre, aparentemente) ou se pode esperar outros itens pendentes.
+
+---
+
+## ADENDO (2026-10-15) — Implementação conforme o parecer técnico da Manus
+
+A Manus revisou este achado em `Parecer técnico — correção da criação de usuários.md` e reprovou explicitamente a correção simples ("trocar a mutation do frontend para `admin.createUserScoped`"), por 6 incompatibilidades de contrato (unidade única, papéis incompletos, `role`/`groupKey` sem validação cruzada, campos faltando, não-atomicidade, grupo `administradoresUnidade` sem papel correspondente). Em vez disso, prescreveu uma procedure canônica nova. Esta seção documenta a implementação ponta a ponta, autorizada por Alessandro ("faça").
+
+### A1. Nova função transacional — `server/db.ts` → `createUserTransactional`
+
+Substitui, para este fluxo, a composição de `createLocalUser` + `setUserPermissions` + cadeia financeira solta. Uma única `db.transaction(...)` grava, na ordem: `users` → `user_unit_permissions` (uma linha por unidade) → `audit_log` (`CREATE_USER` com `metadata: {role, groupKey, unitIds}`) → quando `groupKey === 'responsaveisFinanceiros'`, para cada unidade: reaproveita o `financial_responsible_units` já ativo da unidade (mesma janela de vigência de `getActiveResponsibleForUnit`) ou cria `financial_responsibles` + `financial_responsible_units` novos, sempre seguido de `financial_responsible_users` + um segundo `audit_log` (`GRANT_FINANCIAL_RESPONSIBLE_ACCESS`). Qualquer falha em qualquer uma dessas etapas reverte TUDO — inclusive o `INSERT` em `users` já feito antes dela.
+
+```ts
+export class UsernameTakenError extends Error { /* ... */ }
+
+export async function createUserTransactional(
+  input: CreateUserTransactionalInput,
+): Promise<{ id: number }> {
+  const db = await getDb();
+  try {
+    const newUserId = await db.transaction(async (tx) => {
+      const existing = await tx.select({ id: users.id }).from(users)
+        .where(eq(users.username, input.username)).limit(1);
+      if (existing.length > 0) throw new UsernameTakenError();
+      const insertUserResult = await tx.insert(users).values({ /* ... */ });
+      const userId = Number(insertUserResult[0].insertId);
+      if (input.unitIds.length > 0) await tx.insert(user_unit_permissions).values(/* ... */);
+      await tx.insert(audit_log).values({ action: 'CREATE_USER', /* ... */ });
+      if (input.groupKey === 'responsaveisFinanceiros') { /* cadeia financeira, ver acima */ }
+      return userId;
+    });
+    return { id: newUserId };
+  } catch (err: any) {
+    if (err instanceof UsernameTakenError) throw err;
+    if (err?.code === 'ER_DUP_ENTRY' || /Duplicate entry/i.test(String(err?.message ?? ''))) {
+      throw new UsernameTakenError();
+    }
+    throw err;
+  }
+}
+```
+
+Não existe valor de `audit_log.action` para "vincular unidade a responsável financeiro" (enum fechado do MySQL — ver `drizzle/schema.ts`), então essa informação vai como `metadata` JSON de um `GRANT_FINANCIAL_RESPONSIBLE_ACCESS`, em vez de inventar um valor de enum não suportado pelo banco.
+
+### A2. Nova procedure — `server/routers/admin.ts` → `admin.createUser`
+
+Substitui `auth.createLocalUser` como mutation usada pela tela. Valida, nesta ordem: (1) chamador é `admin_master` ou `unit_admin`; (2) coerência `role ↔ groupKey` via mapa fixo (`medico→medicos`, `unit_admin→administradoresUnidade`, `admin_master→adminsMaster`, etc.) — rejeita combinação incoerente com `BAD_REQUEST`; (3) todo papel exceto `admin_master` exige pelo menos 1 unidade; (4) se o chamador é `unit_admin`: não pode criar `unit_admin`/`admin_master` (`FORBIDDEN`), deve informar exatamente 1 unidade, e essa unidade precisa estar no seu escopo (`unit_id` legado OU `getUserUnitPermission`) — senão `FORBIDDEN`. `admin_master` não tem nenhuma dessas restrições (papel livre, 0+ unidades). As permissões do grupo vêm de `getGroupPermissions()` (banco), com fallback para a constante `GROUP_PERMISSIONS` só se o banco estiver vazio — nunca dos booleans que o cliente mandar. Por fim chama `createUserTransactional`, traduzindo `UsernameTakenError` em `TRPCError({code:'CONFLICT', ...})` com mensagem legível.
+
+`auth.createLocalUser` foi deliberadamente **mantida intacta** (migração gradual, conforme pedido pela Manus) — não é mais chamada pela tela, mas segue disponível.
+
+### A3. Frontend
+
+- **`client/src/pages/AdminPage.tsx`**: `createUser` agora usa `trpc.admin.createUser.useMutation`. O payload de criação passou a ser `{username, name, email, password, role, groupKey, unitIds, isActive, expiration_date}` — `unitIds` vem de `data.permissions.map(p => p.unit_id)` (suporta multiunidade para `admin_master`). O antigo segundo `setPermissions.mutate(...)` na criação foi **removido**: as permissões já são gravadas pela própria transação, de acordo com o grupo — o cliente não tem mais como sobrescrevê-las com booleans livres. Upload de carimbo/assinatura continua como etapa explícita pós-criação (depende de storage de arquivo, fora da transação SQL), exatamente como recomendado.
+  `handleNewUserForUnit(unitId, ...)` — antes descartava `unitId` (parâmetro prefixado `_unitId`, nunca lido) — agora grava num novo estado `forcedUnitId` e o repassa ao modal.
+  `UsersPermissionsTab` e `UserFormDialog` passam a receber `currentUserRole={currentUser?.role}`.
+- **`client/src/components/UserFormDialog.tsx`**: lista de papéis (`visibleRoles`) filtra `admin_master`/`unit_admin` quando `currentUserRole === "unit_admin"`. Seleção de unidade (`toggleUnit`) vira single-select quando o chamador é `unit_admin` (marcar outra unidade substitui a anterior, não acumula). Nova prop `forcedUnitId` pré-seleciona a unidade de contexto ao abrir "Novo usuário" a partir de uma unidade específica. `handleSave` agora inclui `groupKey` (derivado de `role` por um mapa fixo local) no payload enviado a `onSave`.
+- **`client/src/components/UsersPermissionsTab.tsx`**: nova prop `currentUserRole`; o botão "Excluir" (desktop e mobile) só renderiza quando `currentUserRole === "admin_master"` — `admin.deleteUser` já era exclusiva de `admin_master` no backend, a UI é que mostrava um botão inoperante para `unit_admin`. "Remover vínculo da unidade" (`removeUserUnitLink`) continua disponível para ambos, sem alteração.
+
+Aparência (cores/ícones no seletor de perfil, consolidação de abas) permanece **fora deste branch**, conforme recomendação explícita da Manus — fica para uma branch visual separada e opcional.
+
+### A4. Testes de regressão (17 do parecer, em 3 arquivos, 21 casos)
+
+- `server/admin-create-user-authorization.test.ts` (9 casos) — nível procedure, `./db` mockado, `appRouter.createCaller`: cobre autorização/escopo 1-6 (unit_admin na unidade legada, unit_admin em unidade concedida via `user_unit_permissions`, unidade externa → FORBIDDEN sem escrita, criar admin/unit_admin → FORBIDDEN sem escrita, admin_master livre e multiunidade, papel/grupo incoerente → BAD_REQUEST sem escrita) + não-admin rejeitado + permissões vindas do banco (item 7 parcial) + CONFLICT legível na checagem prévia (item 9 parcial).
+- `server/create-user-transactional.test.ts` (6 casos) — nível `db.ts`, função REAL contra fake de `drizzle-orm/mysql2` com transação de verdade (mesma técnica de `audit-fixes-gestao-usuarios-responsavel.test.ts`): rollback real quando audit log falha (item 8), rollback real quando a cadeia financeira falha, violação REAL de índice único no INSERT de `users` — não só a checagem prévia (item 9), cadeia de responsável financeiro consistente de ponta a ponta + reaproveitamento do responsável já ativo da unidade (item 10), `isActive`/`expiration_date` persistidos exatamente como enviados (item 11).
+- `server/create-user-interface-wiring.test.ts` (6 casos) — checagem de source dos arquivos `.tsx" (mesmo padrão do teste "H" em `units-doctor-scope.test.ts`, já que o projeto não tem testing-library configurado): unitId repassado ao modal (item 12), papéis filtrados + unidade travada para unit_admin (item 13), tela não chama mais `auth.createLocalUser` (item 14), lista de usuários é refeita após sucesso (item 15), botão Excluir oculto + remoção de vínculo preservada (item 16), regressão admin_master multiunidade + upload pós-criação preservado (item 17).
+
+Prova de que são testes reais: `git stash` das 5 mudanças de implementação (mantendo só os 3 arquivos de teste) e rodar os 3 arquivos — **as 21 asserções falharam** (`createUserTransactional is not a function`, `trpc.auth.createLocalUser` ainda presente, `FORBIDDEN` esperado nunca lançado, etc.); `git stash pop` restaurou a implementação e todos os 21 voltaram a passar.
+
+### A5. Validação completa
+
+- `pnpm check` — sem erros em nenhum momento desta implementação.
+- `pnpm test` (suíte completa, `TZ=UTC`): **869 passed / 11 failed / 1 skipped** (881 total) — os mesmos 11 pré-existentes, nos mesmos 7 arquivos já documentados nesta auditoria (`exam-catalog-security.test.ts`, `finance-v2-dashboard.test.tsx` ×2, `mediaProxy.test.ts`, `pacs-desktop-download-progress.test.ts`, `pacs.mobile-ui.test.ts`, `security.auth.test.ts`, `study-priority-ui.test.ts` ×4). 848 (baseline anterior desta branch) + 21 novos testes = 869 — bate exato.
+- `pnpm build` — build de produção concluído sem erros (client + server).
+- `git diff --check origin/main...HEAD` — limpo, sem resíduos de whitespace.
+
+### A6. Pendente / decisão operacional
+
+- Esta branch (`claude/achado-criacao-usuarios-funcao-e-aparencia`) está pronta para revisão da Manus antes de qualquer merge/deploy — nenhuma dessas ações foi executada por mim.
+- `auth.createLocalUser` segue viva, intencionalmente, até a Manus confirmar que não há consumidor externo que dependa dela.
+- O item "aparência" deste achado (seção 2 acima) permanece em aberto, para uma branch futura e opcional.

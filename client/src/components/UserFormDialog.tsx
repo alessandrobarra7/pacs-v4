@@ -28,6 +28,21 @@ const ROLES = [
 
 type Role = typeof ROLES[number]["value"];
 
+/**
+ * Mapeamento fixo papel -> groupKey (parecer Manus, achado criação de
+ * usuários). O backend (admin.createUser) valida esta mesma coerência —
+ * ela é reproduzida aqui apenas para já enviar o par certo ao salvar.
+ */
+const ROLE_TO_GROUP_KEY: Record<Role, string> = {
+  admin_master: "adminsMaster",
+  unit_admin: "administradoresUnidade",
+  medico: "medicos",
+  responsavel_financeiro: "responsaveisFinanceiros",
+  viewer: "visualizadores",
+  operador: "operadores",
+  atendente: "atendentes",
+};
+
 export interface UnitPermission {
   unit_id: number;
   view_studies: boolean;
@@ -50,6 +65,7 @@ export interface UserFormData {
   isActive: boolean;
   expiration_date: string;
   permissions: UnitPermission[];
+  groupKey?: string;
   crm?: string;
   signature_url?: string | null;
 }
@@ -63,6 +79,9 @@ interface UserFormDialogProps {
   onResetPassword?: (userId: number, email: string) => void;
   loading?: boolean;
   currentUserRole?: string;
+  /** Unidade pré-definida quando o modal é aberto a partir do contexto de uma unidade específica
+   *  (ex.: botão "Novo usuário" dentro da unidade X). Ver ACHADO_CRIACAO_USUARIOS_FUNCAO_E_APARENCIA. */
+  forcedUnitId?: number | null;
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -103,9 +122,16 @@ function defaultPermission(unitId: number, role?: string): UnitPermission {
 }
 
 export default function UserFormDialog({
-  open, onOpenChange, user, units, onSave, onResetPassword, loading = false, currentUserRole,
+  open, onOpenChange, user, units, onSave, onResetPassword, loading = false, currentUserRole, forcedUnitId,
 }: UserFormDialogProps) {
   const isEditing = !!user?.id;
+
+  // Unit admin não pode criar/promover contas admin_master ou unit_admin
+  // (parecer Manus: "esconder as opções de perfil admin_master e unit_admin
+  // no formulário de criação usado por unit_admin").
+  const visibleRoles = currentUserRole === "unit_admin"
+    ? ROLES.filter((r) => r.value !== "admin_master" && r.value !== "unit_admin")
+    : ROLES;
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -216,13 +242,16 @@ export default function UserFormDialog({
         setPermissions([]);
         setCrm(""); setSignaturePreview(null); setSignatureFile(null); setRemovingSignature(false);
         setStampPreview(null); setStampFile(null); setRemovingStamp(false);
-        // Initialize with first unit if available (will be updated when role changes)
-        if (units.length > 0) {
+        // Initialize with the unit forced by context (ex.: "Novo usuário" acionado
+        // a partir de uma unidade específica), senão a primeira unidade disponível.
+        if (forcedUnitId != null) {
+          setPermissions([defaultPermission(forcedUnitId, "medico")]);
+        } else if (units.length > 0) {
           setPermissions([defaultPermission(units[0].id, "medico")]);
         }
       }
     }
-  }, [open, user]);
+  }, [open, user, forcedUnitId]);
 
   useEffect(() => {
     if (existingPerms && isEditing) {
@@ -242,6 +271,12 @@ export default function UserFormDialog({
   const toggleUnit = (unitId: number, checked: boolean) => {
     if (checked) {
       setPermissions((prev) => {
+        // Unit admin só pode criar/gerenciar em exatamente UMA unidade dentro
+        // do seu escopo (parecer Manus, recomendação item 1): marcar outra
+        // unidade substitui a seleção em vez de acumular.
+        if (currentUserRole === "unit_admin") {
+          return [defaultPermission(unitId, role)];
+        }
         if (prev.find((p) => p.unit_id === unitId)) return prev;
         return [...prev, defaultPermission(unitId, role)];
       });
@@ -329,6 +364,7 @@ export default function UserFormDialog({
       isActive,
       expiration_date: expirationDate,
       permissions,
+      groupKey: ROLE_TO_GROUP_KEY[role],
       crm: crm.trim() || undefined,
       _stampFile: !isEditing ? stampFile || undefined : undefined,
       _signatureFile: !isEditing ? signatureFile || undefined : undefined,
@@ -403,7 +439,7 @@ export default function UserFormDialog({
                   onChange={e => setRole(e.target.value as Role)}
                   className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
                 >
-                  {ROLES.map(r => (
+                  {visibleRoles.map(r => (
                     <option key={r.value} value={r.value}>{r.label}</option>
                   ))}
                 </select>

@@ -212,6 +212,175 @@ export async function createLocalUser(data: {
   return Number(result[0].insertId);
 }
 
+/** Lançada por createUserTransactional quando o username já existe (checagem prévia OU violação do índice único real). */
+export class UsernameTakenError extends Error {
+  constructor() {
+    super('USERNAME_TAKEN');
+    this.name = 'UsernameTakenError';
+  }
+}
+
+export type CreateUserTransactionalInput = {
+  username: string;
+  email?: string | null;
+  name: string;
+  password_hash: string;
+  role: 'admin_master' | 'unit_admin' | 'medico' | 'viewer' | 'operador' | 'atendente' | 'responsavel_financeiro';
+  groupKey: 'responsaveisFinanceiros' | 'medicos' | 'operadores' | 'atendentes' | 'visualizadores' | 'administradoresUnidade' | 'adminsMaster' | 'outros';
+  /** Unidades a vincular (user_unit_permissions). admin_master pode vir com 0+ unidades; os demais papéis exigem >= 1. */
+  unitIds: number[];
+  isActive: boolean;
+  expiration_date?: Date | null;
+  permissions: {
+    view_studies: boolean;
+    edit_reports: boolean;
+    view_anamnesis: boolean;
+    edit_anamnesis: boolean;
+    edit_exam_legend: boolean;
+    print_reports: boolean;
+    manage_templates: boolean;
+  };
+  actor: { user_id: number; ip_address?: string | null; user_agent?: string | null };
+};
+
+/**
+ * Criação canônica e TRANSACIONAL de usuário (parecer Manus, achado
+ * ACHADO_CRIACAO_USUARIOS_FUNCAO_E_APARENCIA_2026-10-15).
+ *
+ * Diferente do fluxo anterior (auth.createLocalUser + setUserPermissions +
+ * updateStamp/updateMedical como mutations tRPC separadas e independentes),
+ * aqui o usuário, os vínculos de unidade (user_unit_permissions) e — quando
+ * o grupo é "responsaveisFinanceiros" — toda a cadeia financeira
+ * (financial_responsibles / financial_responsible_units /
+ * financial_responsible_users) são gravados em UMA ÚNICA transação. Se
+ * qualquer etapa falhar (inclusive a cadeia financeira), a transação inteira
+ * é revertida: nunca fica um usuário "meio-criado", sem permissões ou sem
+ * acesso financeiro, como podia acontecer antes.
+ *
+ * Mídia (carimbo/assinatura) continua fora desta função — depende de
+ * armazenamento de arquivo, não de uma transação SQL, e é tratada como etapa
+ * posterior explícita pelo chamador (ver admin.ts createUser).
+ */
+export async function createUserTransactional(
+  input: CreateUserTransactionalInput,
+): Promise<{ id: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const openId = `local_${input.username}_${crypto.randomUUID()}`;
+
+  try {
+    const newUserId = await db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.username, input.username))
+        .limit(1);
+      if (existing.length > 0) throw new UsernameTakenError();
+
+      const insertUserResult = await tx.insert(users).values({
+        openId,
+        username: input.username,
+        email: input.email ?? null,
+        name: input.name,
+        password_hash: input.password_hash,
+        role: input.role,
+        unit_id: input.unitIds.length === 1 ? input.unitIds[0] : null,
+        isActive: input.isActive,
+        expiration_date: input.expiration_date ?? null,
+        loginMethod: 'local',
+        lastSignedIn: new Date(),
+      });
+      const userId = Number((insertUserResult[0] as { insertId: number }).insertId);
+
+      if (input.unitIds.length > 0) {
+        await tx.insert(user_unit_permissions).values(
+          input.unitIds.map((unitId) => ({
+            user_id: userId,
+            unit_id: unitId,
+            group_key: input.groupKey,
+            ...input.permissions,
+          })),
+        );
+      }
+
+      await tx.insert(audit_log).values({
+        user_id: input.actor.user_id,
+        unit_id: input.unitIds[0] ?? null,
+        action: 'CREATE_USER',
+        target_type: 'USER',
+        target_id: String(userId),
+        ip_address: input.actor.ip_address ?? null,
+        user_agent: input.actor.user_agent ?? null,
+        metadata: { role: input.role, groupKey: input.groupKey, unitIds: input.unitIds },
+      });
+
+      if (input.groupKey === 'responsaveisFinanceiros') {
+        for (const unitId of input.unitIds) {
+          const now = new Date();
+          const activeResp = await tx
+            .select()
+            .from(financial_responsible_units)
+            .where(and(
+              eq(financial_responsible_units.unit_id, unitId),
+              lte(financial_responsible_units.starts_at, now),
+              or(
+                isNull(financial_responsible_units.ends_at),
+                gte(financial_responsible_units.ends_at, now),
+              ),
+            ))
+            .orderBy(desc(financial_responsible_units.starts_at))
+            .limit(1);
+
+          let responsibleId: number;
+          if (activeResp.length > 0) {
+            responsibleId = activeResp[0].financial_responsible_id;
+          } else {
+            const insertResp = await tx.insert(financial_responsibles).values({
+              person_type: 'PF',
+              legal_name: input.name,
+              isActive: true,
+            });
+            responsibleId = Number((insertResp[0] as { insertId: number }).insertId);
+            await tx.insert(financial_responsible_units).values({
+              financial_responsible_id: responsibleId,
+              unit_id: unitId,
+              starts_at: now,
+              created_by: input.actor.user_id,
+            });
+          }
+
+          await tx.insert(financial_responsible_users).values({
+            financial_responsible_id: responsibleId,
+            user_id: userId,
+          });
+
+          await tx.insert(audit_log).values({
+            user_id: input.actor.user_id,
+            unit_id: unitId,
+            action: 'GRANT_FINANCIAL_RESPONSIBLE_ACCESS',
+            target_type: 'FINANCIAL_RESPONSIBLE_USER',
+            target_id: `${responsibleId}:${userId}`,
+            ip_address: input.actor.ip_address ?? null,
+            user_agent: input.actor.user_agent ?? null,
+            metadata: { financial_responsible_id: responsibleId, user_id: userId, unit_id: unitId },
+          });
+        }
+      }
+
+      return userId;
+    });
+
+    return { id: newUserId };
+  } catch (err: any) {
+    if (err instanceof UsernameTakenError) throw err;
+    if (err && (err.code === 'ER_DUP_ENTRY' || /Duplicate entry/i.test(String(err?.message ?? '')))) {
+      throw new UsernameTakenError();
+    }
+    throw err;
+  }
+}
+
 // Units helpers
 /** Retorna todas as unidades sem campos sensíveis (SEC-04: orthanc_basic_pass omitido) */
 export async function getAllUnits() {

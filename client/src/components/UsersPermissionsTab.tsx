@@ -59,9 +59,14 @@ interface Props {
   onEditUser: (user: any) => void;
   onDeleteUser: (userId: number) => void;
   onToggleActive: (userId: number, isActive: boolean) => void;
+  /** admin.deleteUser é exclusiva de admin_master (parecer Manus, achado
+   *  criação de usuários, item 4): oculta o botão "Excluir" para unit_admin,
+   *  que só deve ter a opção de "Remover vínculo da unidade". */
+  currentUserRole?: string;
 }
 
-export function UsersPermissionsTab({ onNewUser, onEditUser, onDeleteUser, onToggleActive }: Props) {
+export function UsersPermissionsTab({ onNewUser, onEditUser, onDeleteUser, onToggleActive, currentUserRole }: Props) {
+  const canDeleteUsers = currentUserRole === "admin_master";
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
 
   const { data: units = [] } = trpc.units.list.useQuery();
@@ -273,17 +278,19 @@ export function UsersPermissionsTab({ onNewUser, onEditUser, onDeleteUser, onTog
                         >
                           {user.isActive ? <PowerOff className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />}
                         </button>
-                        <button
-                          onClick={() => {
-                            if (confirm(`Excluir usuário "${user.name || user.username}"?`)) {
-                              onDeleteUser(user.id);
-                            }
-                          }}
-                          title="Excluir"
-                          className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {canDeleteUsers && (
+                          <button
+                            onClick={() => {
+                              if (confirm(`Excluir usuário "${user.name || user.username}"?`)) {
+                                onDeleteUser(user.id);
+                              }
+                            }}
+                            title="Excluir"
+                            className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -325,10 +332,12 @@ export function UsersPermissionsTab({ onNewUser, onEditUser, onDeleteUser, onTog
                     })}
                   </div>
 
-                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-gray-100 pt-3">
+                  <div className={`mt-3 grid gap-2 border-t border-gray-100 pt-3 ${canDeleteUsers ? "grid-cols-3" : "grid-cols-2"}`}>
                     <Button variant="outline" size="sm" className="h-9 gap-1 text-xs" onClick={() => onEditUser(user)}><Edit2 className="h-3.5 w-3.5" />Editar</Button>
                     <Button variant="outline" size="sm" className="h-9 gap-1 text-xs" onClick={() => onToggleActive(user.id, !user.isActive)}>{user.isActive ? <PowerOff className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />}{user.isActive ? "Desativar" : "Ativar"}</Button>
-                    <Button variant="outline" size="sm" className="h-9 gap-1 text-xs text-red-600 hover:text-red-700" onClick={() => onDeleteUser(user.id)}><Trash2 className="h-3.5 w-3.5" />Excluir</Button>
+                    {canDeleteUsers && (
+                      <Button variant="outline" size="sm" className="h-9 gap-1 text-xs text-red-600 hover:text-red-700" onClick={() => onDeleteUser(user.id)}><Trash2 className="h-3.5 w-3.5" />Excluir</Button>
+                    )}
                   </div>
                 </div>
               );

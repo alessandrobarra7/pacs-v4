@@ -771,6 +771,128 @@ export const adminRouter = router({
           }));
       }),
 
+    // ─────────────────────────────────────────────────────────────────────
+    // admin.createUser — procedure canônica de criação de usuário
+    // (parecer Manus, ACHADO_CRIACAO_USUARIOS_FUNCAO_E_APARENCIA_2026-10-15).
+    //
+    // Substitui, para a tela de administração, tanto `auth.createLocalUser`
+    // (exclusiva de admin_master, por isso 403 para unit_admin) quanto a
+    // `admin.createUserScoped` abaixo (nunca chamada pelo frontend: contrato
+    // incompatível com a tela atual — unidade única, papéis incompletos,
+    // sem isActive/expiração, cadeia financeira não transacional).
+    //
+    // Regras de autorização:
+    // - admin_master: pode criar qualquer papel, em qualquer quantidade de
+    //   unidades (inclusive nenhuma, para o próprio admin_master).
+    // - unit_admin: só pode criar medico/operador/atendente/viewer/
+    //   responsavel_financeiro, e somente em UMA unidade dentro do seu
+    //   próprio escopo (unit_id legado OU user_unit_permissions).
+    // - papel e groupKey precisam ser coerentes entre si (mapeamento fixo).
+    //
+    // Toda a escrita (usuário + vínculos de unidade + audit log + cadeia
+    // financeira, quando aplicável) acontece em uma única transação em
+    // server/db.ts (createUserTransactional) — ver ADENDO desta branch.
+    // Mídia (carimbo/assinatura/CRM) continua fora desta procedure, como
+    // etapa explícita posterior no frontend.
+    // ─────────────────────────────────────────────────────────────────────
+    createUser: protectedProcedure
+      .input(z.object({
+        username: z.string().min(3).max(64),
+        email: z.string().email().optional(),
+        name: z.string().min(1),
+        password: z.string().min(6),
+        role: z.enum(['admin_master', 'unit_admin', 'medico', 'viewer', 'operador', 'atendente', 'responsavel_financeiro']),
+        groupKey: z.enum(['medicos', 'operadores', 'atendentes', 'visualizadores', 'responsaveisFinanceiros', 'administradoresUnidade', 'adminsMaster']),
+        unitIds: z.array(z.number()).default([]),
+        isActive: z.boolean().default(true),
+        expiration_date: z.string().optional().nullable(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
+        }
+
+        const ROLE_TO_GROUP_KEY: Record<string, GroupKey> = {
+          medico: 'medicos',
+          operador: 'operadores',
+          atendente: 'atendentes',
+          viewer: 'visualizadores',
+          responsavel_financeiro: 'responsaveisFinanceiros',
+          unit_admin: 'administradoresUnidade',
+          admin_master: 'adminsMaster',
+        };
+        if (ROLE_TO_GROUP_KEY[input.role] !== input.groupKey) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Combinação de papel e grupo incoerente' });
+        }
+
+        if (input.role !== 'admin_master' && input.unitIds.length === 0) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Selecione ao menos uma unidade' });
+        }
+
+        if (ctx.user.role === 'unit_admin') {
+          if (input.role === 'admin_master' || input.role === 'unit_admin') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não pode criar administradores' });
+          }
+          if (input.unitIds.length !== 1) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'Unit admin deve criar o usuário em exatamente uma unidade' });
+          }
+          const targetUnitId = input.unitIds[0];
+          const { getUserUnitPermission: getUnitPerm } = await import('../db');
+          const hasAccess = ctx.user.unit_id === targetUnitId || !!(await getUnitPerm(ctx.user.id, targetUnitId));
+          if (!hasAccess) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não tem acesso a esta unidade' });
+          }
+        }
+
+        // Permissões: fonte de verdade é o banco (group_permission_configs);
+        // fallback na constante hardcoded apenas se o banco estiver vazio.
+        const dbGroupPerms = await getGroupPermissions();
+        const dbPerm = dbGroupPerms.find(p => p.group_key === input.groupKey);
+        const perms = dbPerm
+          ? {
+              view_studies:     dbPerm.view_studies,
+              edit_reports:     dbPerm.edit_reports,
+              view_anamnesis:   dbPerm.view_anamnesis,
+              edit_anamnesis:   dbPerm.edit_anamnesis,
+              edit_exam_legend: dbPerm.edit_exam_legend,
+              print_reports:    dbPerm.print_reports,
+              manage_templates: dbPerm.manage_templates,
+            }
+          : GROUP_PERMISSIONS[input.groupKey as GroupKey];
+
+        const password_hash = await bcrypt.hash(input.password, 12);
+        const { createUserTransactional, UsernameTakenError } = await import('../db');
+
+        try {
+          const { id } = await createUserTransactional({
+            username: input.username,
+            email: input.email,
+            name: input.name,
+            password_hash,
+            role: input.role,
+            groupKey: input.groupKey,
+            unitIds: input.unitIds,
+            isActive: input.isActive,
+            expiration_date: input.expiration_date ? new Date(input.expiration_date) : null,
+            permissions: perms,
+            actor: {
+              user_id: ctx.user.id,
+              ip_address: ctx.req.ip,
+              user_agent: ctx.req.headers['user-agent'] as string | undefined,
+            },
+          });
+          return { success: true, id };
+        } catch (err: any) {
+          if (err instanceof UsernameTakenError || err?.message === 'USERNAME_TAKEN') {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: `Nome de usuário "${input.username}" já está em uso. Escolha outro.`,
+            });
+          }
+          throw err;
+        }
+      }),
+
     createUserScoped: protectedProcedure
       .input(z.object({
         username: z.string().min(3).max(64),

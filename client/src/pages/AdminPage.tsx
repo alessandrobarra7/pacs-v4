@@ -713,6 +713,9 @@ export default function AdminPage() {
   // Diálogos de usuário
   const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserFormData | null>(null);
+  // Unidade pré-definida quando "Novo usuário" é acionado a partir do contexto
+  // de uma unidade específica (ver handleNewUserForUnit).
+  const [forcedUnitId, setForcedUnitId] = useState<number | null>(null);
 
   const { data: currentUser } = trpc.auth.me.useQuery();
   const logoutMutation = trpc.auth.logout.useMutation({
@@ -746,7 +749,12 @@ export default function AdminPage() {
     onError: (e) => toast.error(e.message),
   });
 
-  const createUser = trpc.auth.createLocalUser.useMutation({
+  // ACHADO_CRIACAO_USUARIOS_FUNCAO_E_APARENCIA_2026-10-15 / parecer Manus:
+  // trocado de auth.createLocalUser (exclusiva de admin_master, por isso
+  // unit_admin sempre recebia 403) para admin.createUser — a procedure
+  // canônica, transacional e com escopo por unidade (ver server/db.ts
+  // createUserTransactional e server/routers/admin.ts createUser).
+  const createUser = trpc.admin.createUser.useMutation({
     onSuccess: () => { toast.success("Usuário criado!"); setUserDialogOpen(false); refetchUsers(); },
     onError: (e) => toast.error(e.message),
   });
@@ -847,20 +855,25 @@ export default function AdminPage() {
         },
       });
     } else {
+      const unitIds = (data.permissions || []).map((p) => p.unit_id);
       createUser.mutate({
         username: data.username,
         name: data.name,
         email: data.email || undefined,
         password: data.password!,
         role: data.role,
-        unit_id: data.unit_id ?? undefined,
-      }, {
+        groupKey: (data as any).groupKey,
+        unitIds,
+        isActive: data.isActive,
+        expiration_date: data.expiration_date || undefined,
+      } as any, {
         onSuccess: (result: any) => {
           const newUserId = result?.id;
-          if (newUserId && data.permissions && data.permissions.length > 0) {
-            setPermissions.mutate({ userId: newUserId, permissions: data.permissions });
-          }
-          // Upload stamp e assinatura se fornecidos na criação do usuário
+          // Permissões já foram gravadas pelo servidor na mesma transação,
+          // de acordo com o grupo (groupKey) — não há mais um segundo
+          // mutation independente de setUserPermissions aqui.
+          // Upload stamp e assinatura continuam como etapa posterior explícita
+          // (dependem de armazenamento de arquivo, fora da transação SQL).
           const anyData = data as any;
           if (newUserId && anyData._stampFile) {
             updateStamp.mutate({ userId: newUserId, stampFile: anyData._stampFile });
@@ -894,6 +907,7 @@ export default function AdminPage() {
   };
 
   const handleOpenEditUser = (u: any) => {
+    setForcedUnitId(null);
     setEditingUser({
       id: u.id,
       name: u.name || "",
@@ -915,15 +929,22 @@ export default function AdminPage() {
 
   const handleNewUser = () => {
     setEditingUser(null);
+    setForcedUnitId(null);
     setUserDialogOpen(true);
   };
 
-  const handleNewUserForUnit = (_unitId: number, _unitName?: string) => {
+  const handleNewUserForUnit = (unitId: number, _unitName?: string) => {
+    // ACHADO_CRIACAO_USUARIOS_FUNCAO_E_APARENCIA_2026-10-15: antes, unitId era
+    // descartado aqui e o modal abria sem contexto de unidade nenhum. Agora a
+    // unidade acionada é repassada ao UserFormDialog (forcedUnitId), que a
+    // pré-seleciona — e, para unit_admin, trava a seleção nela.
     setEditingUser(null);
+    setForcedUnitId(unitId);
     setUserDialogOpen(true);
   };
 
   const handleOpenEditUserFromTree = (u: any) => {
+    setForcedUnitId(null);
     setEditingUser({
       id: u.id,
       name: u.name || "",
@@ -1148,6 +1169,7 @@ export default function AdminPage() {
             onEditUser={handleOpenEditUserFromTree}
             onDeleteUser={(userId) => deleteUser.mutate({ id: userId })}
             onToggleActive={(userId, isActive) => toggleUserActive.mutate({ id: userId, isActive })}
+            currentUserRole={currentUser?.role}
           />
         )}
       </div>
@@ -1203,12 +1225,13 @@ export default function AdminPage() {
 
       <UserFormDialog
         open={userDialogOpen}
-        onOpenChange={(open) => { setUserDialogOpen(open); if (!open) setEditingUser(null); }}
+        onOpenChange={(open) => { setUserDialogOpen(open); if (!open) { setEditingUser(null); setForcedUnitId(null); } }}
         user={editingUser}
         units={units.map((u: any) => ({ id: u.id, name: u.name, isActive: u.isActive }))}
         onSave={handleSaveUser}
         loading={createUser.isPending || updateUserMutation.isPending}
         currentUserRole={currentUser?.role}
+        forcedUnitId={forcedUnitId}
       />
     </div>
   );
