@@ -353,3 +353,39 @@ Testado em `server/user-form-expiration-date-parsing.test.ts` (9 testes): os 5 c
 ### D5. Decisão operacional
 
 Esta branch (`claude/achado-criacao-usuarios-funcao-e-aparencia`) está pronta para nova revisão da Manus. Nenhum merge em `main`, fast-forward, atualização de VM1 ou criação de usuário real foi executado — conforme a decisão explícita deste parecer.
+
+---
+
+## ADENDO 4 — resposta ao parecer de revisão (commit 643a15d), 2026-10-16
+
+A Manus revisou o commit `643a15d` (resposta ao ADENDO 3) e confirmou que a guarda central estava corretamente chamada nas 5 rotas, que `unit_admin` é impedido de promover direto para `responsavel_financeiro`, que contas com papel atual `responsavel_financeiro` ficam bloqueadas para `unit_admin`, e que a correção da data de expiração eliminou o `NaN-NaN-NaN`. Apontou, porém, um bloqueio de segurança isolado: a consulta de histórico financeiro usava o formato errado de auditoria. Veredito: **reprovado temporariamente — não integrar nem implantar antes da correção.**
+
+### E1. Bloqueio — histórico financeiro consultado no formato errado
+
+Confirmado: `userHasFinancialResponsibleHistory` (em `server/authorization.ts`) procurava `action='GRANT_FINANCIAL_RESPONSIBLE_ACCESS'`, `target_type='USER'`, `target_id=String(userId)` — um formato que **nenhuma gravação real do sistema usa**. As duas gravações reais (`createUserTransactional` e `linkUserToResponsible`, em `server/db.ts`) persistem `target_type='FINANCIAL_RESPONSIBLE_USER'`, `target_id=`${financialResponsibleId}:${userId}`` (par de IDs, não um ID isolado) e `metadata={ financial_responsible_id, user_id, ... }`. Como `financial_responsible_users` usa modelo DELETE+INSERT sem soft-delete, depois de uma revogação o único registro de histórico que sobrevive é esse audit_log — e a função antiga nunca o encontrava, deixando a conta parecer "comum" para um `unit_admin` depois que o vínculo ativo era removido.
+
+Corrigido: a consulta agora filtra por `target_type='FINANCIAL_RESPONSIBLE_USER'` e por `metadata.user_id` via `JSON_EXTRACT` (compatível com MySQL/TiDB) — nunca por `target_id` inteiro (que é um par, não um ID isolado) e nunca com `LIKE '%:<id>'`. O resultado do banco é reconfirmado em TypeScript, comparando `Number(metadata.user_id) === userId`, como defesa em profundidade contra qualquer comportamento inesperado do filtro SQL (inclusive sob um mock de teste que devolva linhas sem filtrar de verdade). A primeira verificação, em `financial_responsible_users` para vínculo ativo, foi preservada sem alteração.
+
+### E2. Testes corrigidos — contrato real de auditoria
+
+`server/unit-admin-financial-guard.test.ts` foi reescrito para usar o formato real em todos os pontos onde simulava histórico financeiro, e ganhou os 5 cenários exigidos pelo parecer: (1) histórico real (`target_type` correto + `metadata.user_id` do alvo) bloqueia o `unit_admin`; (2) o mesmo formato com `metadata.user_id` de **outro** usuário não bloqueia a conta errada; (3) um registro legado (`target_type='USER'`) não é assumido como prova de vínculo financeiro sem decisão explícita de compatibilidade; (4) o `target_id` composto não casa por coincidência de substring (ex.: usuário 7 não é confundido com um `target_id` `"1:17"`); (5) duas das cinco rotas protegidas (`toggleUserActive` e `removeUserUnitLink`) foram testadas diretamente com o histórico real, provando que nenhuma escrita (`update`/`insert`/`delete`/auditoria) ocorre antes do `FORBIDDEN`.
+
+### E3. Prova de que os testes são reais (stash/pop)
+
+`git stash push -- server/authorization.ts` (mantendo só o arquivo de teste modificado). Rodando a suíte contra a implementação ANTERIOR: **3 dos testes novos davam falso positivo** — bloqueavam contas sem qualquer vínculo financeiro real, porque o código antigo nunca verificava o formato do registro de auditoria encontrado (só checava `historicalGrants.length > 0`), exatamente o modo de falha que o parecer descreveu. `git stash pop` restaurou a implementação — todos os 33 testes voltaram a passar.
+
+### E4. Incidente operacional — corrupção de objetos Git no sandbox
+
+Durante esta rodada, uma interrupção de sessão no ambiente de trabalho deixou a working copy local com arquivos de objeto Git truncados (vários objetos de 0 bytes, remanescentes das operações de `git stash`/`stash pop` já concluídas e descartadas nesta mesma rodada). Isso impediu `pnpm check` e o `git push` subsequentes até ser diagnosticado. Resolvido clonando uma cópia nova e íntegra do branch a partir do `origin` (commit `643a15d`, já publicado e correto), reaplicando manualmente as duas alterações desta rodada (`server/authorization.ts` e `server/unit-admin-financial-guard.test.ts`) sobre essa cópia limpa, e repetindo toda a validação a partir dela antes do commit e do push. Nenhum código já publicado foi perdido ou alterado por este incidente — apenas trabalho local ainda não commitado precisou ser reconstituído a partir do que já estava em memória desta mesma sessão.
+
+### E5. Validação completa
+
+- `pnpm check` — sem erros.
+- `TZ=UTC pnpm vitest run server/unit-admin-financial-guard.test.ts server/user-form-expiration-date-parsing.test.ts server/admin-create-user-authorization.test.ts server/create-user-interface-wiring.test.ts` — **81 testes passando** (33 + 9 + 31 + 8).
+- `TZ=UTC pnpm test` (suíte completa) — **939 passed / 11 failed / 1 skipped** (951 total). Os 11 failed são os mesmos 7 arquivos pré-existentes já documentados nesta auditoria (`exam-catalog-security.test.ts`, `finance-v2-dashboard.test.tsx` ×2, `mediaProxy.test.ts`, `pacs-desktop-download-progress.test.ts`, `pacs.mobile-ui.test.ts`, `security.auth.test.ts`, `study-priority-ui.test.ts` ×4) — nenhuma regressão nova. 936 (baseline do ADENDO anterior) + 3 testes novos deste parecer = 939, bate exato.
+- `pnpm build` — build de produção concluído sem erros (só o aviso preexistente de bundle grande).
+- `git diff --check origin/main...HEAD` — limpo.
+
+### E6. Decisão operacional
+
+Esta branch (`claude/achado-criacao-usuarios-funcao-e-aparencia`, agora no commit `0296d76`) está pronta para nova revisão da Manus. Nenhum merge em `main`, fast-forward, atualização de VM1 ou criação de usuário real foi executado.
