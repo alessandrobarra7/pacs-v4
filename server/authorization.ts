@@ -334,19 +334,43 @@ export async function userHasFinancialResponsibleHistory(userId: number): Promis
     .limit(1);
   if (activeLinks.length > 0) return true;
 
+  // Parecer de revisão 2026-10-15 (2ª rodada): a versão anterior procurava
+  // action='GRANT_FINANCIAL_RESPONSIBLE_ACCESS', target_type='USER',
+  // target_id=String(userId) — um formato que NENHUMA gravação real do
+  // sistema usa. Tanto createUserTransactional (server/db.ts) quanto
+  // linkUserToResponsible gravam, de fato:
+  //   target_type: 'FINANCIAL_RESPONSIBLE_USER'
+  //   target_id:   `${financialResponsibleId}:${userId}` (dois IDs, não um)
+  //   metadata:    { financial_responsible_id, user_id, ... }
+  // Por isso, após a revogação do vínculo ativo (DELETE em
+  // financial_responsible_users), a função antiga nunca encontrava o
+  // histórico real — a conta voltava a parecer "comum" para o unit_admin.
+  //
+  // A busca correta filtra por target_type e por metadata.user_id (via
+  // JSON_EXTRACT, compatível com MySQL/TiDB) — nunca por target_id inteiro
+  // (que é um par "responsibleId:userId", não um ID isolado) e nunca com
+  // LIKE '%:<id>' (menos explícito, risco de falso positivo). O resultado
+  // do banco ainda é reconfirmado em TypeScript (defesa em profundidade:
+  // nunca confiar só no filtro SQL, inclusive porque um fake de teste pode
+  // devolver linhas sem respeitar o predicado).
+  const { sql: sqlTag } = await import("drizzle-orm");
   const historicalGrants = await db
     .select()
     .from(audit_log)
     .where(
       and(
         eq(audit_log.action, "GRANT_FINANCIAL_RESPONSIBLE_ACCESS"),
-        eq(audit_log.target_type, "USER"),
-        eq(audit_log.target_id, String(userId))
+        eq(audit_log.target_type, "FINANCIAL_RESPONSIBLE_USER"),
+        sqlTag`JSON_EXTRACT(${audit_log.metadata}, '$.user_id') = ${userId}`
       )
     )
-    .limit(1);
+    .limit(5);
 
-  return historicalGrants.length > 0;
+  return historicalGrants.some((row: any) => {
+    const metadata = row?.metadata;
+    if (!metadata || typeof metadata !== "object") return false;
+    return Number((metadata as Record<string, unknown>).user_id) === userId;
+  });
 }
 
 /**

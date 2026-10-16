@@ -198,12 +198,62 @@ describe("server/authorization.ts — userHasFinancialResponsibleHistory", () =>
     await expect(userHasFinancialResponsibleHistory(TARGET_ID)).resolves.toBe(true);
   });
 
-  it("retorna true quando NÃO há vínculo ativo mas existe GRANT_FINANCIAL_RESPONSIBLE_ACCESS histórico no audit_log (vínculo revogado via DELETE)", async () => {
+  // Parecer de revisão 2026-10-15 (2ª rodada): o formato real gravado por
+  // createUserTransactional e linkUserToResponsible (server/db.ts) é
+  // target_type='FINANCIAL_RESPONSIBLE_USER', target_id=`${responsibleId}:${userId}`
+  // (dois IDs, nunca um) e metadata={ financial_responsible_id, user_id, ... }.
+  // NUNCA target_type='USER'/target_id=String(userId) — esse formato não
+  // existe em nenhuma gravação real do sistema.
+  it("1. retorna true quando NÃO há vínculo ativo mas existe GRANT_FINANCIAL_RESPONSIBLE_ACCESS histórico real (target_type='FINANCIAL_RESPONSIBLE_USER', metadata.user_id=alvo) — vínculo revogado via DELETE", async () => {
+    state.financialLinkRows = [];
+    state.auditLogRows = [
+      {
+        id: 1,
+        action: "GRANT_FINANCIAL_RESPONSIBLE_ACCESS",
+        target_type: "FINANCIAL_RESPONSIBLE_USER",
+        target_id: `7:${TARGET_ID}`,
+        metadata: { financial_responsible_id: 7, user_id: TARGET_ID },
+      },
+    ];
+    await expect(userHasFinancialResponsibleHistory(TARGET_ID)).resolves.toBe(true);
+  });
+
+  it("2. um registro com o formato real mas metadata.user_id de OUTRO usuário não bloqueia o alvo errado", async () => {
+    const OTHER_USER_ID = TARGET_ID + 1;
+    state.financialLinkRows = [];
+    state.auditLogRows = [
+      {
+        id: 1,
+        action: "GRANT_FINANCIAL_RESPONSIBLE_ACCESS",
+        target_type: "FINANCIAL_RESPONSIBLE_USER",
+        target_id: `7:${OTHER_USER_ID}`,
+        metadata: { financial_responsible_id: 7, user_id: OTHER_USER_ID },
+      },
+    ];
+    await expect(userHasFinancialResponsibleHistory(TARGET_ID)).resolves.toBe(false);
+  });
+
+  it("3. um registro LEGADO/incompatível (target_type='USER', target_id=String(userId), sem metadata.user_id) não é assumido como prova de vínculo financeiro — formato que nenhuma gravação real usa, sem decisão explícita de compatibilidade", async () => {
     state.financialLinkRows = [];
     state.auditLogRows = [
       { id: 1, action: "GRANT_FINANCIAL_RESPONSIBLE_ACCESS", target_type: "USER", target_id: String(TARGET_ID) },
     ];
-    await expect(userHasFinancialResponsibleHistory(TARGET_ID)).resolves.toBe(true);
+    await expect(userHasFinancialResponsibleHistory(TARGET_ID)).resolves.toBe(false);
+  });
+
+  it("não usa o target_id composto (\"responsibleId:userId\") como string isolada — um target_id que meramente TERMINA com o id do alvo (ex.: id 7 dentro de 17) não pode combinar por coincidência de substring", async () => {
+    // Vínculo histórico real pertence ao usuário 17, não ao usuário 7.
+    state.financialLinkRows = [];
+    state.auditLogRows = [
+      {
+        id: 1,
+        action: "GRANT_FINANCIAL_RESPONSIBLE_ACCESS",
+        target_type: "FINANCIAL_RESPONSIBLE_USER",
+        target_id: "1:17",
+        metadata: { financial_responsible_id: 1, user_id: 17 },
+      },
+    ];
+    await expect(userHasFinancialResponsibleHistory(7)).resolves.toBe(false);
   });
 });
 
@@ -320,11 +370,17 @@ describe("admin.toggleUserActive — Bloqueio 1", () => {
     expectNoWriteHappened();
   });
 
-  it("unit_admin NÃO consegue alterar status de conta comum com vínculo financeiro histórico", async () => {
+  it("unit_admin NÃO consegue alterar status de conta comum com vínculo financeiro HISTÓRICO (formato real: target_type='FINANCIAL_RESPONSIBLE_USER', metadata.user_id=alvo) — prova que nenhuma escrita ocorre antes do FORBIDDEN", async () => {
     state.usersRows = [{ id: TARGET_ID, role: "viewer", unit_id: UNIT_A, isActive: true }];
     state.financialLinkRows = [];
     state.auditLogRows = [
-      { id: 1, action: "GRANT_FINANCIAL_RESPONSIBLE_ACCESS", target_type: "USER", target_id: String(TARGET_ID) },
+      {
+        id: 1,
+        action: "GRANT_FINANCIAL_RESPONSIBLE_ACCESS",
+        target_type: "FINANCIAL_RESPONSIBLE_USER",
+        target_id: `7:${TARGET_ID}`,
+        metadata: { financial_responsible_id: 7, user_id: TARGET_ID },
+      },
     ];
     const caller = appRouter.createCaller(unitAdminCtx());
     await expect(
@@ -413,10 +469,16 @@ describe("admin.removeUserUnitLink — Bloqueio 1 (rota não carregava o papel d
     expectNoWriteHappened();
   });
 
-  it("unit_admin NÃO consegue remover vínculo de unidade de conta comum com histórico financeiro", async () => {
+  it("unit_admin NÃO consegue remover vínculo de unidade de conta comum com histórico financeiro (formato real)", async () => {
     state.usersRows = [{ id: TARGET_ID, role: "atendente", unit_id: UNIT_A }];
     state.auditLogRows = [
-      { id: 1, action: "GRANT_FINANCIAL_RESPONSIBLE_ACCESS", target_type: "USER", target_id: String(TARGET_ID) },
+      {
+        id: 1,
+        action: "GRANT_FINANCIAL_RESPONSIBLE_ACCESS",
+        target_type: "FINANCIAL_RESPONSIBLE_USER",
+        target_id: `7:${TARGET_ID}`,
+        metadata: { financial_responsible_id: 7, user_id: TARGET_ID },
+      },
     ];
     const caller = appRouter.createCaller(unitAdminCtx());
     await expect(
