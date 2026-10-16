@@ -312,3 +312,79 @@ export async function getAdminManagedUnitIds(
 
   return unitIds;
 }
+
+/**
+ * Verifica se um usuário já teve, em algum momento, vínculo com acesso de
+ * responsável financeiro — seja um vínculo ATIVO em `financial_responsible_users`,
+ * seja um vínculo HISTÓRICO registrado em `audit_log` (ação
+ * GRANT_FINANCIAL_RESPONSIBLE_ACCESS), mesmo que o vínculo atual tenha sido
+ * revogado (a tabela financial_responsible_users usa DELETE+INSERT, sem
+ * soft-delete, então o histórico só sobrevive no audit_log).
+ */
+export async function userHasFinancialResponsibleHistory(userId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+
+  const { financial_responsible_users, audit_log } = await import("../drizzle/schema");
+
+  const activeLinks = await db
+    .select()
+    .from(financial_responsible_users)
+    .where(eq(financial_responsible_users.user_id, userId))
+    .limit(1);
+  if (activeLinks.length > 0) return true;
+
+  const historicalGrants = await db
+    .select()
+    .from(audit_log)
+    .where(
+      and(
+        eq(audit_log.action, "GRANT_FINANCIAL_RESPONSIBLE_ACCESS"),
+        eq(audit_log.target_type, "USER"),
+        eq(audit_log.target_id, String(userId))
+      )
+    )
+    .limit(1);
+
+  return historicalGrants.length > 0;
+}
+
+/**
+ * Guarda central e reutilizável: impede que um `unit_admin` assuma ou restaure
+ * acesso de uma conta de responsável financeiro, mesmo por rotas administrativas
+ * já existentes (updateUser, toggleUserActive, setUserPermissions,
+ * removeUserUnitLink, linkExistingUserToUnitGroup).
+ *
+ * Não substitui as verificações de escopo por unidade já existentes em cada rota —
+ * é uma verificação ADICIONAL, específica para identidade financeira.
+ *
+ * Para admin_master, esta função nunca bloqueia (no-op).
+ */
+export async function assertUnitAdminCanManageTargetUser(
+  actor: AuthUser,
+  targetUser: { id: number; role: string },
+  opts?: { newRole?: string }
+): Promise<void> {
+  if (actor.role !== "unit_admin") return;
+
+  if (targetUser.role === "responsavel_financeiro") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Gestão de contas de responsável financeiro é exclusiva do admin_master.",
+    });
+  }
+
+  if (opts?.newRole === "responsavel_financeiro") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "unit_admin não pode conceder o papel de responsável financeiro.",
+    });
+  }
+
+  if (await userHasFinancialResponsibleHistory(targetUser.id)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Este usuário possui vínculo financeiro ativo ou histórico; gestão exclusiva do admin_master.",
+    });
+  }
+}

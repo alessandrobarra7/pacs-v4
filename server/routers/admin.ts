@@ -393,6 +393,14 @@ export const adminRouter = router({
           if (targetUser.role === 'admin_master' || targetUser.role === 'unit_admin') {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não pode gerenciar contas de administradores (master ou unit_admin)' });
           }
+          // Parecer 2026-10-15 (Bloqueio 1): unit_admin não pode assumir/restaurar
+          // acesso de responsável financeiro por esta rota.
+          const { assertUnitAdminCanManageTargetUser } = await import('../authorization');
+          await assertUnitAdminCanManageTargetUser(
+            { id: ctx.user.id, role: ctx.user.role, unit_id: ctx.user.unit_id ?? null },
+            { id: targetUser.id, role: targetUser.role },
+            { newRole: input.role }
+          );
           const targetUnitId = targetUser.unit_id;
           const adminUnitId = ctx.user.unit_id;
           if (!adminUnitId || targetUnitId !== adminUnitId) {
@@ -477,6 +485,13 @@ export const adminRouter = router({
           if (targetUserToggle.role === 'admin_master' || targetUserToggle.role === 'unit_admin') {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não pode alterar status de administradores (master ou unit_admin)' });
           }
+          // Parecer 2026-10-15 (Bloqueio 1): unit_admin não pode reativar/gerenciar
+          // status de uma conta de responsável financeiro.
+          const { assertUnitAdminCanManageTargetUser } = await import('../authorization');
+          await assertUnitAdminCanManageTargetUser(
+            { id: ctx.user.id, role: ctx.user.role, unit_id: ctx.user.unit_id ?? null },
+            { id: targetUserToggle.id, role: targetUserToggle.role }
+          );
           const targetUnitId = targetUserToggle.unit_id;
           const adminUnitId = ctx.user.unit_id;
           if (!adminUnitId || targetUnitId !== adminUnitId) {
@@ -549,7 +564,21 @@ export const adminRouter = router({
         }
         // unit_admin só pode definir permissões para unidades que ele gerencia
         if (ctx.user.role === 'unit_admin') {
-          const { getAdminManagedUnitIds } = await import('../authorization');
+          const { getAdminManagedUnitIds, assertUnitAdminCanManageTargetUser } = await import('../authorization');
+          // Parecer 2026-10-15 (Bloqueio 1): esta rota nunca carregava o papel do
+          // usuário-alvo — era possível alterar permissões (inclusive view_financial)
+          // de uma conta de responsável financeiro sem qualquer checagem. Carregamos
+          // o alvo agora apenas para aplicar a guarda central.
+          const db2 = await getDb();
+          if (!db2) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+          const { users: usersTableSUP } = await import('../../drizzle/schema');
+          const { eq: eqOpSUP } = await import('drizzle-orm');
+          const [targetUserSUP] = await db2.select().from(usersTableSUP).where(eqOpSUP(usersTableSUP.id, input.userId));
+          if (!targetUserSUP) throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
+          await assertUnitAdminCanManageTargetUser(
+            { id: ctx.user.id, role: ctx.user.role, unit_id: ctx.user.unit_id ?? null },
+            { id: targetUserSUP.id, role: targetUserSUP.role }
+          );
           const managedIds = await getAdminManagedUnitIds(ctx.user);
           if (managedIds) {
             for (const perm of input.permissions) {
@@ -754,14 +783,27 @@ export const adminRouter = router({
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         if (ctx.user.role === 'unit_admin') {
           const { getUserUnitPermission: getUnitPerm } = await import('../db');
           const hasAccess = ctx.user.unit_id === input.unitId ||
             !!(await getUnitPerm(ctx.user.id, input.unitId));
           if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem acesso a esta unidade' });
+          // Parecer 2026-10-15 (Bloqueio 1): esta rota nunca carregava o papel do
+          // usuário-alvo. Removendo/reconstruindo vínculos de unidade de uma conta
+          // de responsável financeiro, um unit_admin poderia alterar o alcance do
+          // acesso financeiro do alvo — carregamos o alvo para aplicar a guarda.
+          const { users: usersTableRUL } = await import('../../drizzle/schema');
+          const { eq: eqOpRUL } = await import('drizzle-orm');
+          const [targetUserRUL] = await db.select().from(usersTableRUL).where(eqOpRUL(usersTableRUL.id, input.userId));
+          if (!targetUserRUL) throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
+          const { assertUnitAdminCanManageTargetUser } = await import('../authorization');
+          await assertUnitAdminCanManageTargetUser(
+            { id: ctx.user.id, role: ctx.user.role, unit_id: ctx.user.unit_id ?? null },
+            { id: targetUserRUL.id, role: targetUserRUL.role }
+          );
         }
-        const db = await getDb();
-        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { user_unit_permissions: uup } = await import('../../drizzle/schema');
         const { eq: eqOp, and: andOp } = await import('drizzle-orm');
         await db.delete(uup).where(
@@ -1177,6 +1219,12 @@ export const adminRouter = router({
           const hasAccess = ctx.user.unit_id === input.unitId || !!(await getUnitPerm(ctx.user.id, input.unitId));
           if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem acesso a esta unidade' });
           if (input.groupKey === 'adminsMaster') throw new TRPCError({ code: 'FORBIDDEN', message: 'Operação não permitida' });
+          // Parecer 2026-10-15 (Bloqueio 1): unit_admin não pode conceder o grupo
+          // de permissões "responsaveisFinanceiros" (equivalente a acesso
+          // financeiro) por esta rota.
+          if (input.groupKey === 'responsaveisFinanceiros') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'unit_admin não pode conceder acesso de responsável financeiro' });
+          }
         }
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
@@ -1184,6 +1232,16 @@ export const adminRouter = router({
         const { eq: eqOp, and: andOp } = await import('drizzle-orm');
         const [targetUser] = await db.select().from(usersTable).where(eqOp(usersTable.id, input.userId));
         if (!targetUser) throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
+        if (ctx.user.role === 'unit_admin') {
+          // Parecer 2026-10-15 (Bloqueio 1): mesmo com groupKey diferente de
+          // "responsaveisFinanceiros", um unit_admin não pode alterar o grupo de
+          // permissões de uma conta que já é (ou já foi) responsável financeiro.
+          const { assertUnitAdminCanManageTargetUser } = await import('../authorization');
+          await assertUnitAdminCanManageTargetUser(
+            { id: ctx.user.id, role: ctx.user.role, unit_id: ctx.user.unit_id ?? null },
+            { id: targetUser.id, role: targetUser.role }
+          );
+        }
         const [existing] = await db.select().from(uup)
           .where(andOp(eqOp(uup.user_id, input.userId), eqOp(uup.unit_id, input.unitId)));
         // FIX Bug1: buscar permissões do banco em vez da constante hardcoded

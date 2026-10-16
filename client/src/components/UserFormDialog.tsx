@@ -43,6 +43,41 @@ const ROLE_TO_GROUP_KEY: Record<Role, string> = {
   atendente: "atendentes",
 };
 
+/**
+ * Parecer 2026-10-15 (Bloqueio 2): converte o valor persistido de
+ * users.expiration_date (coluna date() sem "mode", lida/gravada como string
+ * "YYYY-MM-DD" pelo drizzle-orm/mysql-core) para o valor exibido no campo
+ * <input type="date">.
+ *
+ * NUNCA usar `new Date(Number(valor))` aqui: para uma string de calendário
+ * como "2026-12-30", Number(...) é NaN, e new Date(NaN) produz um objeto
+ * Date inválido cujos getUTC*() retornam NaN, resultando no texto literal
+ * "NaN-NaN-NaN" no campo — mesmo para uma data válida e corretamente
+ * persistida.
+ *
+ * Também suporta, defensivamente, um valor já serializado como Date (registro
+ * legado), sem reinterpretação de timezone (lê os componentes locais, já que
+ * um objeto Date vindo de JSON é construído a partir da própria string).
+ */
+export function formatExpirationDateForInput(
+  value: string | Date | null | undefined
+): string {
+  if (!value) return "";
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return "";
+    const yyyy = value.getUTCFullYear();
+    const mm = String(value.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(value.getUTCDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  // Caminho principal: string "YYYY-MM-DD" (ou "YYYY-MM-DDTHH:mm:ss...")
+  // vinda diretamente do backend — preservar o calendário tal como gravado,
+  // sem qualquer conversão numérica ou de timezone.
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  return "";
+}
+
 export interface UnitPermission {
   unit_id: number;
   view_studies: boolean;
@@ -228,15 +263,10 @@ export default function UserFormDialog({
         setPassword("");
         setRole(user.role);
         setIsActive(user.isActive);
-        if (user.expiration_date) {
-          const d = new Date(Number(user.expiration_date));
-          const yyyy = d.getUTCFullYear();
-          const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-          const dd = String(d.getUTCDate()).padStart(2, "0");
-          setExpirationDate(`${yyyy}-${mm}-${dd}`);
-        } else {
-          setExpirationDate("");
-        }
+        // Parecer 2026-10-15 (Bloqueio 2): nunca usar new Date(Number(string)) em
+        // uma data de calendário "YYYY-MM-DD" — produzia NaN-NaN-NaN mesmo para
+        // datas válidas. Ver formatExpirationDateForInput.
+        setExpirationDate(formatExpirationDateForInput(user.expiration_date));
         setPermissions(user.permissions || []);
         setCrm((user as any).crm || "");
         setSignaturePreview((user as any).signature_url || null);
