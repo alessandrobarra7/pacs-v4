@@ -308,3 +308,48 @@ Testado em `server/admin-create-user-authorization.test.ts` (6 casos): `2024-02-
 ### C7. Decisão operacional
 
 Esta branch (`claude/achado-criacao-usuarios-funcao-e-aparencia`) está pronta para nova revisão da Manus. Nenhum merge em `main`, atualização de VM1 ou criação de usuário real foi executado.
+
+---
+
+## ADENDO 3 — resposta ao parecer técnico de bloqueios (commit 8053f98), 2026-10-15
+
+Parecer novo revisou o commit `8053f98` (a correção do ADENDO 2) e apontou 2 bloqueios: um de segurança (alta severidade) e um funcional, ambos em caminhos administrativos JÁ EXISTENTES (não no fluxo de criação em si). Veredito: **reprovada temporariamente — não integrar em `main` nem implantar na VM1 neste estado.** Ambos os bloqueios foram confirmados no código real antes de qualquer alteração, e ambos foram corrigidos e testados nesta mesma branch — sem tocar `main`, sem VM.
+
+### D1. Bloqueio 1 (alta severidade) — `unit_admin` ainda conseguia assumir ou restaurar acesso de uma conta financeira existente
+
+Confirmado: a restrição de `unit_admin` ao papel `responsavel_financeiro` (ADENDO 2, C1) cobria apenas a CRIAÇÃO (`admin.createUser` e `admin.createUserScoped`). Cinco rotas administrativas já existentes não tinham nenhuma checagem equivalente: `admin.updateUser` permitia a um `unit_admin` com escopo sobre a unidade do alvo trocar a senha, promover o papel para `responsavel_financeiro`, ou reativar a conta; `admin.toggleUserActive` tinha a mesma lacuna para o status da conta; `admin.setUserPermissions` e `admin.removeUserUnitLink` nem carregavam o papel do usuário-alvo — só verificavam escopo de unidade; `admin.linkExistingUserToUnitGroup` permitia conceder o `groupKey` `'responsaveisFinanceiros'` (equivalente de permissão a acesso financeiro por unidade) sem nenhuma restrição a `unit_admin`. Como o acesso financeiro final é resolvido pelo vínculo em `financial_responsible_users` e por `financial_responsible_units` (que pode abranger todas as unidades do mesmo responsável, não apenas a unidade administrada pelo `unit_admin`), qualquer uma dessas 5 rotas permitia, por caminho paralelo, invalidar a proteção já aplicada à criação.
+
+Corrigido com uma guarda central e reutilizável em `server/authorization.ts` (o arquivo que o próprio código já documenta como "ÚNICA fonte de verdade para validação de acesso por unidade"):
+
+- `userHasFinancialResponsibleHistory(userId)`: verifica vínculo ATIVO em `financial_responsible_users` OU vínculo HISTÓRICO via `audit_log` (ação `GRANT_FINANCIAL_RESPONSIBLE_ACCESS`, `target_type='USER'`). Esse segundo caminho foi necessário porque `financial_responsible_users` usa modelo DELETE+INSERT sem soft-delete (migration 0062) — uma revogação apaga a linha, então o histórico só sobrevive no `audit_log`, que é append-only.
+- `assertUnitAdminCanManageTargetUser(actor, targetUser, opts?)`: no-op para `admin_master`; para `unit_admin`, nega com `FORBIDDEN` se o papel ATUAL do alvo for `responsavel_financeiro`, se a mudança solicitada (`opts.newRole`) definir esse papel, ou se `userHasFinancialResponsibleHistory` for verdadeiro para o alvo.
+
+Aplicada nas 5 rotas citadas pelo parecer, sempre ANTES de qualquer `update`/`insert`/`delete`/auditoria: `admin.updateUser` (passando `newRole: input.role`); `admin.toggleUserActive`; `admin.setUserPermissions` (que ganhou uma busca nova do usuário-alvo, inexistente antes); `admin.removeUserUnitLink` (mesma busca nova); `admin.linkExistingUserToUnitGroup` (que também ganhou um bloqueio explícito e direto ao `groupKey === 'responsaveisFinanceiros'` para `unit_admin`, além da guarda central para qualquer outro `groupKey` em uma conta já financeira).
+
+Testado em `server/unit-admin-financial-guard.test.ts` (30 testes): os 6 cenários comportamentais exigidos pelo parecer — bloqueio quando o papel atual é `responsavel_financeiro`; bloqueio ao promover para esse papel; bloqueio quando há vínculo em `financial_responsible_users` mesmo com papel comum; prova de que nenhuma escrita (update/insert/delete/audit) ocorre antes da negação; `admin_master` continua podendo fazer as mesmas alterações; conta clínica comum continua editável por `unit_admin` — replicados para cada uma das 5 rotas, mais testes unitários diretos de `userHasFinancialResponsibleHistory` e `assertUnitAdminCanManageTargetUser`.
+
+A interface não foi alterada nesta rodada (o parecer trata essa melhoria como complementar, não obrigatória, desde que a guarda do servidor exista) — pode ser feita em rodada futura para ocultar as ações de edição/ativação/permissão quando o operador é `unit_admin` e o alvo é financeiro.
+
+### D2. Bloqueio 2 (funcional) — modal de edição transformava uma data válida em `NaN-NaN-NaN`
+
+Confirmado: `client/src/components/UserFormDialog.tsx`, ao abrir a edição de um usuário, executava `new Date(Number(user.expiration_date))`. A coluna `users.expiration_date` é `date(...)` sem `mode` no Drizzle, lida/gravada como string `AAAA-MM-DD` — e `Number("2026-12-30")` é `NaN`, então o campo do formulário recebia o texto literal `NaN-NaN-NaN` mesmo para uma data válida e corretamente persistida pelo backend (cuja validação estrita, do ADENDO 2/C4, já estava correta). Confirmado localmente para `2026-12-30` e para a data bissexta válida `2024-02-29`.
+
+Corrigido com uma função pura e testada, exportada por `UserFormDialog.tsx`: `formatExpirationDateForInput(value: string | Date | null | undefined): string`. Preserva a string de calendário tal como persistida (sem conversão numérica nem reinterpretação de timezone), com suporte defensivo a um valor `Date` legado (lido via `getUTC*`) e a nulo/vazio (campo vazio). Usada no lugar da conversão antiga.
+
+Testado em `server/user-form-expiration-date-parsing.test.ts` (9 testes): os 5 cenários exigidos pelo parecer — `2026-12-30` preservada; `2024-02-29` preservada; nulo/vazio/undefined mantém o campo vazio; nunca produz `NaN-NaN-NaN`; editar sem alterar a data não a corrompe — mais um teste que reproduz deliberadamente o bug antigo (`new Date(Number(string))` produzindo `NaN-NaN-NaN` de verdade) para provar que o helper novo evita exatamente esse caso, e testes de suporte a `Date` legado/inválido e a timestamp ISO com hora.
+
+### D3. Prova de que os testes são reais (stash/pop)
+
+`git stash push -- server/authorization.ts server/routers/admin.ts client/src/components/UserFormDialog.tsx` (mantendo só os 2 arquivos de teste novos, não rastreados, intocados). Rodando os 2 arquivos de teste contra a implementação ANTERIOR (8053f98): **29 das 39 asserções novas falharam** exatamente nos pontos esperados (rotas de `removeUserUnitLink`/`linkExistingUserToUnitGroup` sem a guarda, `formatExpirationDateForInput` inexistente). `git stash pop` restaurou a implementação — todas as 39 asserções dos 2 arquivos voltaram a passar.
+
+### D4. Validação completa
+
+- `pnpm check` — sem erros.
+- `TZ=UTC pnpm vitest run server/unit-admin-financial-guard.test.ts server/user-form-expiration-date-parsing.test.ts server/admin-create-user-authorization.test.ts server/create-user-interface-wiring.test.ts` — **78 testes passando** (30 + 9 + 31 + 8).
+- `TZ=UTC pnpm test` (suíte completa) — **936 passed / 11 failed / 1 skipped** (948 total). Os 11 failed são os mesmos 7 arquivos pré-existentes já documentados nesta auditoria (`exam-catalog-security.test.ts`, `finance-v2-dashboard.test.tsx` ×2, `mediaProxy.test.ts`, `pacs-desktop-download-progress.test.ts`, `pacs.mobile-ui.test.ts`, `security.auth.test.ts`, `study-priority-ui.test.ts` ×4) — nenhuma regressão nova. 897 (baseline do ADENDO anterior) + 39 testes novos deste parecer = 936, bate exato.
+- `pnpm build` — build de produção concluído sem erros (só o aviso preexistente de bundle grande).
+- `git diff --check origin/main...HEAD` — limpo.
+
+### D5. Decisão operacional
+
+Esta branch (`claude/achado-criacao-usuarios-funcao-e-aparencia`) está pronta para nova revisão da Manus. Nenhum merge em `main`, fast-forward, atualização de VM1 ou criação de usuário real foi executado — conforme a decisão explícita deste parecer.
