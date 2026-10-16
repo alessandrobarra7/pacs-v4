@@ -109,6 +109,77 @@ const GROUP_PERMISSIONS = {
 
 type GroupKey = keyof typeof GROUP_PERMISSIONS;
 
+/**
+ * Mapeamento fixo papel -> groupKey (parecer Manus, achado criação de
+ * usuários). Hoisted para módulo (parecer de revisão 2026-10-15, Bloqueio de
+ * arquitetura): antes só existia dentro do handler de `createUser`, e
+ * `createUserScoped` não reaproveitava a mesma checagem de coerência.
+ */
+const ROLE_TO_GROUP_KEY: Record<string, GroupKey> = {
+  medico: 'medicos',
+  operador: 'operadores',
+  atendente: 'atendentes',
+  viewer: 'visualizadores',
+  responsavel_financeiro: 'responsaveisFinanceiros',
+  unit_admin: 'administradoresUnidade',
+  admin_master: 'adminsMaster',
+};
+
+/** Resolve a matriz de permissões de um grupo: banco (group_permission_configs)
+ *  como fonte de verdade, fallback na constante hardcoded só se o banco
+ *  estiver vazio. */
+async function resolveGroupPermissions(groupKey: GroupKey) {
+  const dbGroupPerms = await getGroupPermissions();
+  const dbPerm = dbGroupPerms.find((p) => p.group_key === groupKey);
+  return dbPerm
+    ? {
+        view_studies:     dbPerm.view_studies,
+        edit_reports:     dbPerm.edit_reports,
+        view_anamnesis:   dbPerm.view_anamnesis,
+        edit_anamnesis:   dbPerm.edit_anamnesis,
+        edit_exam_legend: dbPerm.edit_exam_legend,
+        print_reports:    dbPerm.print_reports,
+        manage_templates: dbPerm.manage_templates,
+        view_financial:   (dbPerm as any).view_financial ?? false,
+      }
+    : GROUP_PERMISSIONS[groupKey];
+}
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Valida e normaliza uma data "somente calendário" (sem hora/fuso) no
+ * formato AAAA-MM-DD (parecer de revisão 2026-10-15, seção 5).
+ *
+ * `new Date(string)` do JavaScript NORMALIZA datas impossíveis em vez de
+ * rejeitá-las — prova direta: `new Date('2026-02-30').toISOString()` vira
+ * `2026-03-02T00:00:00.000Z`, sem nenhum erro. Por isso nunca construímos um
+ * objeto Date diretamente a partir da entrada do usuário para validar — os
+ * componentes y/m/d são reconstruídos a partir do resultado e comparados
+ * byte a byte com o que foi digitado; qualquer "correção" silenciosa do
+ * JavaScript reprova aqui. A coluna `users.expiration_date` é DATE sem mode
+ * (drizzle-orm mysql-core trata isso como mode: 'string'), então o contrato
+ * de saída é a própria string AAAA-MM-DD — nunca um objeto Date — igual ao
+ * que o fluxo de edição (`updateUser`) já fazia.
+ */
+function parseStrictCalendarDate(value: string): string {
+  if (!DATE_ONLY_RE.test(value)) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `Data de expiração inválida: "${value}" (formato esperado AAAA-MM-DD)`,
+    });
+  }
+  const [y, m, d] = value.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `Data de expiração inválida: "${value}" não existe no calendário`,
+    });
+  }
+  return value;
+}
+
 export const adminRouter = router({
     listUsers: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
@@ -348,29 +419,23 @@ export const adminRouter = router({
         if (input.unit_id !== undefined) updateData.unit_id = input.unit_id;
         if (input.isActive !== undefined) updateData.isActive = input.isActive;
         if (input.expiration_date !== undefined) {
-          if (input.expiration_date) {
-            // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria):
-            // drizzle/schema.ts declara expiration_date como date(...) sem "mode",
-            // que no drizzle-orm/mysql-core equivale a mode: 'string' — a coluna é
-            // lida e deve ser escrita como 'YYYY-MM-DD'. O código antigo gravava
-            // d.getTime() (um BIGINT em milissegundos) nessa coluna DATE, tipo
-            // incompatível tanto com o schema quanto com a leitura em
-            // auth.service.ts (AuthService.validateCredentials), que trata
-            // expiration_date como string 'YYYY-MM-DD' ao checar expiração no login.
-            // Mantemos a validação de data mas agora persistimos a string, não o
-            // timestamp.
-            const d = new Date(input.expiration_date + 'T00:00:00.000Z');
-            if (isNaN(d.getTime())) {
-              updateData.expiration_date = null;
-            } else {
-              const y = d.getUTCFullYear();
-              const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-              const day = String(d.getUTCDate()).padStart(2, '0');
-              updateData.expiration_date = `${y}-${m}-${day}`;
-            }
-          } else {
-            updateData.expiration_date = null;
-          }
+          // CORREÇÃO (auditoria claude/correcoes-setoriais-auditoria):
+          // drizzle/schema.ts declara expiration_date como date(...) sem "mode",
+          // que no drizzle-orm/mysql-core equivale a mode: 'string' — a coluna é
+          // lida e deve ser escrita como 'YYYY-MM-DD'.
+          //
+          // Parecer de revisão 2026-10-15 (seção 5): a validação anterior
+          // construía um Date a partir da string digitada e, se o resultado
+          // fosse NaN, gravava NULL silenciosamente — mas new Date(string)
+          // NORMALIZA datas impossíveis (ex.: '2026-02-30' vira 2 de março)
+          // em vez de produzir NaN, então esse caminho nunca disparava para
+          // o caso que importa. Agora usamos parseStrictCalendarDate, que
+          // reconstrói y/m/d e compara com o que foi digitado — qualquer
+          // data impossível é rejeitada com BAD_REQUEST, nunca normalizada
+          // ou silenciosamente descartada.
+          updateData.expiration_date = input.expiration_date
+            ? parseStrictCalendarDate(input.expiration_date)
+            : null;
         }
         if (input.password) {
           const bcryptLib = await import('bcryptjs');
@@ -826,21 +891,32 @@ export const adminRouter = router({
           }),
         isActive: z.boolean().default(true),
         expiration_date: z.string().optional().nullable(),
+        // Bloqueio 2 (parecer de revisão 2026-10-15): a tela sempre mostrou
+        // checkboxes editáveis de permissão por unidade (UserFormDialog),
+        // mas até aqui a criação canônica os descartava e sempre aplicava a
+        // matriz do grupo — um administrador podia desmarcar "Ver Estudos" e
+        // a conta criada recebia o valor padrão do grupo mesmo assim. Esta
+        // lista é OPCIONAL (back-compat com qualquer chamador direto que não
+        // a envie): quando presente, precisa cobrir exatamente as mesmas
+        // unidades de unitIds (nem menos, nem mais) e sobrepõe, unidade por
+        // unidade, os toggles que a tela realmente exibe. manage_templates e
+        // view_financial não têm controle na tela — vêm sempre da matriz do
+        // grupo, com ou sem esta lista.
+        permissions: z.array(z.object({
+          unit_id: z.number().int().positive(),
+          view_studies: z.boolean(),
+          edit_reports: z.boolean(),
+          view_anamnesis: z.boolean(),
+          edit_anamnesis: z.boolean(),
+          edit_exam_legend: z.boolean(),
+          print_reports: z.boolean(),
+        })).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
 
-        const ROLE_TO_GROUP_KEY: Record<string, GroupKey> = {
-          medico: 'medicos',
-          operador: 'operadores',
-          atendente: 'atendentes',
-          viewer: 'visualizadores',
-          responsavel_financeiro: 'responsaveisFinanceiros',
-          unit_admin: 'administradoresUnidade',
-          admin_master: 'adminsMaster',
-        };
         if (ROLE_TO_GROUP_KEY[input.role] !== input.groupKey) {
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Combinação de papel e grupo incoerente' });
         }
@@ -852,6 +928,26 @@ export const adminRouter = router({
         if (ctx.user.role === 'unit_admin') {
           if (input.role === 'admin_master' || input.role === 'unit_admin') {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não pode criar administradores' });
+          }
+          // Bloqueio 1 (parecer de revisão 2026-10-15): um unit_admin de A
+          // criando (ou "concedendo acesso a") um responsavel_financeiro
+          // parecia seguro porque unitIds continha só A, dentro do escopo
+          // dele — mas createUserTransactional reaproveita o responsável
+          // ATIVO já existente da unidade, e esse responsável pode (e
+          // frequentemente vai) também controlar outras unidades fora do
+          // escopo desse unit_admin. O vínculo final é com o responsável,
+          // não com "A apenas", e as guardas financeiras
+          // (assertCanAccessFinancialUnit etc.) autorizam por responsável,
+          // não por user_unit_permissions — então a nova conta herdaria
+          // acesso a todas as unidades daquele responsável, não só a A. Até
+          // existir um modelo de autorização conta-de-responsável × unidade,
+          // só admin_master pode criar ou conceder acesso a
+          // responsavel_financeiro.
+          if (input.role === 'responsavel_financeiro') {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'Unit admin não pode criar ou conceder acesso a responsável financeiro — essa conta pode herdar acesso a outras unidades do mesmo responsável. Apenas admin_master pode fazer isso.',
+            });
           }
           if (input.unitIds.length !== 1) {
             throw new TRPCError({ code: 'BAD_REQUEST', message: 'Unit admin deve criar o usuário em exatamente uma unidade' });
@@ -885,25 +981,58 @@ export const adminRouter = router({
           }
         }
 
+        // Bloqueio 2 (parecer de revisão 2026-10-15): se a tela enviou a
+        // lista de permissões por unidade, ela precisa cobrir EXATAMENTE o
+        // mesmo conjunto de unitIds — nem uma unidade sem entrada de
+        // permissão correspondente, nem uma entrada "extra" apontando para
+        // uma unidade fora de unitIds (isso contornaria a checagem de escopo
+        // e de existência feitas acima a partir de unitIds).
+        if (input.permissions && input.permissions.length > 0) {
+          const sentUnitIds = new Set(input.permissions.map((p) => p.unit_id));
+          const expectedUnitIds = new Set(input.unitIds);
+          const sameSet =
+            sentUnitIds.size === expectedUnitIds.size &&
+            Array.from(sentUnitIds).every((id) => expectedUnitIds.has(id));
+          if (!sameSet) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'As unidades em "permissions" precisam ser exatamente as mesmas de "unitIds"',
+            });
+          }
+        }
+
         // Permissões: fonte de verdade é o banco (group_permission_configs);
         // fallback na constante hardcoded apenas se o banco estiver vazio.
-        const dbGroupPerms = await getGroupPermissions();
-        const dbPerm = dbGroupPerms.find(p => p.group_key === input.groupKey);
-        const perms = dbPerm
-          ? {
-              view_studies:     dbPerm.view_studies,
-              edit_reports:     dbPerm.edit_reports,
-              view_anamnesis:   dbPerm.view_anamnesis,
-              edit_anamnesis:   dbPerm.edit_anamnesis,
-              edit_exam_legend: dbPerm.edit_exam_legend,
-              print_reports:    dbPerm.print_reports,
-              manage_templates: dbPerm.manage_templates,
-              // Bloqueio 1 (parecer corretivo 2026-10-15): estava faltando
-              // aqui, então o insert recebia o default físico da tabela
-              // (false), mesmo quando o banco tem view_financial=true.
-              view_financial:   (dbPerm as any).view_financial ?? false,
-            }
-          : GROUP_PERMISSIONS[input.groupKey as GroupKey];
+        // Bloqueio 2 (parecer de revisão 2026-10-15): a matriz do grupo
+        // preenche os valores iniciais e os dois campos sem controle na tela
+        // (manage_templates, view_financial); quando a tela enviou toggles
+        // individuais para uma unidade, eles sobrepõem os 6 campos que o
+        // UserFormDialog realmente exibe para essa unidade.
+        const groupPerms = await resolveGroupPermissions(input.groupKey as GroupKey);
+        const permissionsByUnit: Record<number, {
+          view_studies: boolean; edit_reports: boolean; view_anamnesis: boolean;
+          edit_anamnesis: boolean; edit_exam_legend: boolean; print_reports: boolean;
+          manage_templates: boolean; view_financial: boolean;
+        }> = {};
+        for (const unitId of input.unitIds) {
+          const sent = input.permissions?.find((p) => p.unit_id === unitId);
+          permissionsByUnit[unitId] = {
+            view_studies:     sent ? sent.view_studies     : groupPerms.view_studies,
+            edit_reports:     sent ? sent.edit_reports     : groupPerms.edit_reports,
+            view_anamnesis:   sent ? sent.view_anamnesis   : groupPerms.view_anamnesis,
+            edit_anamnesis:   sent ? sent.edit_anamnesis   : groupPerms.edit_anamnesis,
+            edit_exam_legend: sent ? sent.edit_exam_legend : groupPerms.edit_exam_legend,
+            print_reports:    sent ? sent.print_reports    : groupPerms.print_reports,
+            manage_templates: groupPerms.manage_templates,
+            view_financial:   groupPerms.view_financial,
+          };
+        }
+
+        // Correção (parecer de revisão 2026-10-15, seção 5): validar
+        // calendário real antes de persistir — ver parseStrictCalendarDate.
+        const expirationDate = input.expiration_date
+          ? parseStrictCalendarDate(input.expiration_date)
+          : null;
 
         const password_hash = await bcrypt.hash(input.password, 12);
         const { createUserTransactional, UsernameTakenError, MixedFinancialResponsiblesError } = await import('../db');
@@ -918,8 +1047,8 @@ export const adminRouter = router({
             groupKey: input.groupKey,
             unitIds: input.unitIds,
             isActive: input.isActive,
-            expiration_date: input.expiration_date ? new Date(input.expiration_date) : null,
-            permissions: perms,
+            expiration_date: expirationDate,
+            permissionsByUnit,
             actor: {
               user_id: ctx.user.id,
               ip_address: ctx.req.ip,
@@ -951,130 +1080,86 @@ export const adminRouter = router({
         name: z.string().min(1),
         password: z.string().min(6),
         role: z.enum(['medico', 'operador', 'atendente', 'viewer', 'responsavel_financeiro']),
-        unitId: z.number(),
+        unitId: z.number().int().positive(),
         groupKey: z.enum(['medicos', 'operadores', 'atendentes', 'visualizadores', 'responsaveisFinanceiros', 'administradoresUnidade']),
       }))
       .mutation(async ({ input, ctx }) => {
-        // Apenas admin_master e unit_admin podem criar usuários
+        // Bloqueio de arquitetura (parecer de revisão 2026-10-15): este
+        // endpoint legado NÃO é mais um segundo caminho de escrita paralelo.
+        // Antes, ele chamava createLocalUser + um insert de permissões
+        // separado + (se responsavel_financeiro) uma 3ª etapa que CAPTURAVA
+        // e ENGOLIA qualquer falha da cadeia financeira
+        // (`catch { console.error(...) }`), podendo devolver "sucesso" com
+        // uma conta de responsável financeiro incompleta. Agora delega
+        // integralmente para a MESMA rotina transacional
+        // (createUserTransactional) e a MESMA política de autorização de
+        // admin.createUser — inclusive a restrição do Bloqueio 1 (unit_admin
+        // não pode criar/conceder responsavel_financeiro) e a política
+        // explícita de multiunidade (aqui sempre 1 unidade, então nunca
+        // aciona o caso misto). Mantido só por compatibilidade com um
+        // eventual chamador direto via tRPC — a tela não o usa.
         if (ctx.user.role !== 'admin_master' && ctx.user.role !== 'unit_admin') {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Acesso negado' });
         }
-        
-        // unit_admin só pode criar usuários para suas unidades
+
+        if (ROLE_TO_GROUP_KEY[input.role] !== input.groupKey) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Combinação de papel e grupo incoerente' });
+        }
+
         if (ctx.user.role === 'unit_admin') {
+          if (input.role === 'responsavel_financeiro') {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'Unit admin não pode criar ou conceder acesso a responsável financeiro — essa conta pode herdar acesso a outras unidades do mesmo responsável. Apenas admin_master pode fazer isso.',
+            });
+          }
           const { getUserUnitPermission: getUnitPerm } = await import('../db');
           const hasAccess = ctx.user.unit_id === input.unitId || !!(await getUnitPerm(ctx.user.id, input.unitId));
           if (!hasAccess) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sem acesso a esta unidade' });
-          // unit_admin não pode criar admin_master (não está no enum, mas adicionamos validação por segurança)
         }
-        
+
         const db = await getDb();
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
-        
-        // Criar usuário
+        const { units: unitsTable } = await import('../../drizzle/schema');
+        const { eq: eqUnit } = await import('drizzle-orm');
+        const existingUnit = await db.select({ id: unitsTable.id }).from(unitsTable).where(eqUnit(unitsTable.id, input.unitId));
+        if (!existingUnit.some((u) => u.id === input.unitId)) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: `Unidade inexistente: ${input.unitId}` });
+        }
+
+        const groupPerms = await resolveGroupPermissions(input.groupKey as GroupKey);
         const password_hash = await bcrypt.hash(input.password, 12);
-        const { createLocalUser } = await import('../db');
-        let userId: number;
+        const { createUserTransactional, UsernameTakenError, MixedFinancialResponsiblesError } = await import('../db');
         try {
-          userId = await createLocalUser({
+          const { id } = await createUserTransactional({
             username: input.username,
             email: input.email,
             name: input.name,
             password_hash,
             role: input.role,
-            unit_id: input.unitId,
+            groupKey: input.groupKey,
+            unitIds: [input.unitId],
+            isActive: true,
+            permissionsByUnit: { [input.unitId]: groupPerms },
+            actor: {
+              user_id: ctx.user.id,
+              ip_address: ctx.req.ip,
+              user_agent: ctx.req.headers['user-agent'] as string | undefined,
+            },
           });
+          return { success: true, id };
         } catch (err: any) {
-          // FIX Bug2: tratar username duplicado com mensagem amigável
-          if (err.message === 'USERNAME_TAKEN') {
+          if (err instanceof UsernameTakenError || err?.message === 'USERNAME_TAKEN') {
             throw new TRPCError({
               code: 'CONFLICT',
               message: `Nome de usuário "${input.username}" já está em uso. Escolha outro.`,
             });
           }
+          if (err instanceof MixedFinancialResponsiblesError) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+          }
           throw err;
         }
-        
-        // Vincular à unidade com permissões
-        const { users: usersTable, user_unit_permissions: uup } = await import('../../drizzle/schema');
-        // FIX Bug1: buscar permissões do banco em vez da constante hardcoded
-        const dbGroupPerms = await getGroupPermissions();
-        const dbPerm = dbGroupPerms.find(p => p.group_key === input.groupKey);
-        const perms = dbPerm
-          ? {
-              view_studies:     dbPerm.view_studies,
-              edit_reports:     dbPerm.edit_reports,
-              view_anamnesis:   dbPerm.view_anamnesis,
-              edit_anamnesis:   dbPerm.edit_anamnesis,
-              edit_exam_legend: dbPerm.edit_exam_legend,
-              print_reports:    dbPerm.print_reports,
-              manage_templates: dbPerm.manage_templates,
-              view_financial:   (dbPerm as any).view_financial ?? false,
-            }
-          : GROUP_PERMISSIONS[input.groupKey as GroupKey]; // fallback se banco vazio
-        await db.insert(uup).values({
-          user_id: userId,
-          unit_id: input.unitId,
-          group_key: input.groupKey,
-          ...perms,
-        });
-        
-        await createAuditLog({
-          user_id: ctx.user.id,
-          unit_id: input.unitId,
-          action: 'CREATE_USER',
-          target_type: 'USER',
-          target_id: String(userId),
-          ip_address: ctx.req.ip,
-          user_agent: ctx.req.headers['user-agent'],
-        });
-
-        // FIX ANALISE_GERACAO_DADOS P1: auto-configurar cadeia financeira para responsavel_financeiro
-        // Sem isso, o usuário tem o role mas financial_responsibles/users/units nunca são criados,
-        // e getResponsibleIdForUser retorna 0 resultados → tela vazia no /financeiro/responsavel
-        if (input.groupKey === 'responsaveisFinanceiros') {
-          try {
-            const {
-              getActiveResponsibleForUnit,
-              createFinancialResponsible,
-              linkUserToResponsible,
-              linkUnitToResponsible,
-            } = await import('../db');
-
-            let responsibleId: number;
-            const activeResp = await getActiveResponsibleForUnit(input.unitId);
-
-            if (activeResp) {
-              // Unidade já tem responsável ativo → apenas vincular o novo usuário
-              responsibleId = activeResp.financial_responsible_id;
-            } else {
-              // Unidade sem responsável → criar novo com o nome do usuário
-              responsibleId = await createFinancialResponsible({
-                person_type: 'PF',
-                legal_name: input.name,
-                isActive: true,
-              });
-              // Vincular responsável à unidade
-              await linkUnitToResponsible(responsibleId, input.unitId, new Date(), undefined, ctx.user.id);
-            }
-
-            // Vincular o usuário ao responsável
-            // CORRIGIDO (revisão Manus 2026-09-20): linkUserToResponsible agora
-            // exige um "actor" (grava vínculo + auditoria numa transação só —
-            // ver server/db.ts). Aqui o ator é o admin que está criando a conta.
-            await linkUserToResponsible(responsibleId, userId, {
-              user_id: ctx.user.id,
-              ip_address: ctx.req.ip,
-              user_agent: ctx.req.headers['user-agent'],
-            });
-
-          } catch (err) {
-            // Não bloqueia a criação do usuário — loga para investigação
-            console.error('[createUserScoped] Falha ao configurar cadeia financeira:', err);
-          }
-        }
-
-        return { success: true, id: userId };
       }),
 
     linkExistingUserToUnitGroup: protectedProcedure

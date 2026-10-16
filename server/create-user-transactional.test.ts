@@ -200,6 +200,21 @@ const basePermissions = {
   view_financial: true,
 };
 
+/**
+ * Bloqueio 2 (parecer de revisão 2026-10-15): createUserTransactional
+ * passou a receber `permissionsByUnit` (um mapa unitId -> permissões), não
+ * mais um único objeto de permissões aplicado a todas as unidades. Este
+ * helper monta esse mapa repetindo `basePermissions` para cada unidade —
+ * suficiente para os testes deste arquivo, que não precisam de permissões
+ * DIFERENTES por unidade (isso já é coberto no nível do router, em
+ * server/admin-create-user-authorization.test.ts).
+ */
+function permsFor(...unitIds: number[]): Record<number, typeof basePermissions> {
+  const map: Record<number, typeof basePermissions> = {};
+  for (const id of unitIds) map[id] = basePermissions;
+  return map;
+}
+
 const baseActor = { user_id: 1, ip_address: "127.0.0.1", user_agent: "vitest" };
 
 /**
@@ -258,7 +273,7 @@ describe("createUserTransactional (server/db.ts) — testes 8, 9, 10, 11 do pare
           groupKey: "medicos",
           unitIds: [20],
           isActive: true,
-          permissions: basePermissions,
+          permissionsByUnit: permsFor(20),
           actor: baseActor,
         }),
       ).rejects.toThrow();
@@ -281,7 +296,7 @@ describe("createUserTransactional (server/db.ts) — testes 8, 9, 10, 11 do pare
           groupKey: "responsaveisFinanceiros",
           unitIds: [20],
           isActive: true,
-          permissions: basePermissions,
+          permissionsByUnit: permsFor(20),
           actor: baseActor,
         }),
       ).rejects.toThrow();
@@ -310,7 +325,7 @@ describe("createUserTransactional (server/db.ts) — testes 8, 9, 10, 11 do pare
           groupKey: "medicos",
           unitIds: [20],
           isActive: true,
-          permissions: basePermissions,
+          permissionsByUnit: permsFor(20),
           actor: baseActor,
         }),
       ).rejects.toBeInstanceOf(UsernameTakenError);
@@ -329,7 +344,7 @@ describe("createUserTransactional (server/db.ts) — testes 8, 9, 10, 11 do pare
         groupKey: "responsaveisFinanceiros",
         unitIds: [20],
         isActive: true,
-        permissions: basePermissions,
+        permissionsByUnit: permsFor(20),
         actor: baseActor,
       });
 
@@ -361,7 +376,7 @@ describe("createUserTransactional (server/db.ts) — testes 8, 9, 10, 11 do pare
         groupKey: "responsaveisFinanceiros",
         unitIds: [30],
         isActive: true,
-        permissions: basePermissions,
+        permissionsByUnit: permsFor(30),
         actor: baseActor,
       });
       expect(fake.getState().frRows).toHaveLength(1);
@@ -374,7 +389,7 @@ describe("createUserTransactional (server/db.ts) — testes 8, 9, 10, 11 do pare
         groupKey: "responsaveisFinanceiros",
         unitIds: [30], // mesma unidade — já tem responsável ativo
         isActive: true,
-        permissions: basePermissions,
+        permissionsByUnit: permsFor(30),
         actor: baseActor,
       });
 
@@ -401,7 +416,7 @@ describe("createUserTransactional (server/db.ts) — testes 8, 9, 10, 11 do pare
         unitIds: [20],
         isActive: false,
         expiration_date: expiration,
-        permissions: basePermissions,
+        permissionsByUnit: permsFor(20),
         actor: baseActor,
       });
 
@@ -431,7 +446,7 @@ describe("createUserTransactional (server/db.ts) — Bloqueio 3 do parecer corre
         groupKey: "responsaveisFinanceiros",
         unitIds: [1, 2],
         isActive: true,
-        permissions: basePermissions,
+        permissionsByUnit: permsFor(1, 2),
         actor: baseActor,
       });
 
@@ -463,7 +478,7 @@ describe("createUserTransactional (server/db.ts) — Bloqueio 3 do parecer corre
           groupKey: "responsaveisFinanceiros",
           unitIds: [10, 20],
           isActive: true,
-          permissions: basePermissions,
+          permissionsByUnit: permsFor(10, 20),
           actor: baseActor,
         }),
       ).rejects.toBeInstanceOf(MixedFinancialResponsiblesError);
@@ -497,7 +512,7 @@ describe("createUserTransactional (server/db.ts) — Bloqueio 3 do parecer corre
           groupKey: "responsaveisFinanceiros",
           unitIds: [10, 30],
           isActive: true,
-          permissions: basePermissions,
+          permissionsByUnit: permsFor(10, 30),
           actor: baseActor,
         }),
       ).rejects.toBeInstanceOf(MixedFinancialResponsiblesError);
@@ -521,7 +536,7 @@ describe("createUserTransactional (server/db.ts) — Bloqueio 3 do parecer corre
         groupKey: "responsaveisFinanceiros",
         unitIds: [40, 50],
         isActive: true,
-        permissions: basePermissions,
+        permissionsByUnit: permsFor(40, 50),
         actor: baseActor,
       });
 

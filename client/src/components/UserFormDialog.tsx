@@ -129,8 +129,17 @@ export default function UserFormDialog({
   // Unit admin não pode criar/promover contas admin_master ou unit_admin
   // (parecer Manus: "esconder as opções de perfil admin_master e unit_admin
   // no formulário de criação usado por unit_admin").
+  //
+  // Bloqueio 1 (parecer de revisão 2026-10-15): responsavel_financeiro
+  // também fica fora das opções de um unit_admin. createUserTransactional
+  // reaproveita o responsável financeiro ATIVO já existente da unidade, e
+  // esse responsável pode controlar outras unidades fora do escopo desse
+  // unit_admin — a conta criada herdaria acesso financeiro a todas elas,
+  // não só à unidade de onde o unit_admin está operando. O backend
+  // (admin.createUser) já rejeita essa chamada com FORBIDDEN; esconder a
+  // opção aqui evita que o administrador sequer tente.
   const visibleRoles = currentUserRole === "unit_admin"
-    ? ROLES.filter((r) => r.value !== "admin_master" && r.value !== "unit_admin")
+    ? ROLES.filter((r) => r.value !== "admin_master" && r.value !== "unit_admin" && r.value !== "responsavel_financeiro")
     : ROLES;
 
   const [name, setName] = useState("");

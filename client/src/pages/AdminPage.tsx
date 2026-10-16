@@ -879,12 +879,21 @@ export default function AdminPage() {
         unitIds,
         isActive: data.isActive,
         expiration_date: data.expiration_date || undefined,
+        // Bloqueio 2 (parecer de revisão 2026-10-15): até aqui só os
+        // unitIds eram enviados — os toggles individuais que o
+        // administrador ajustou no diálogo (view_studies, edit_reports
+        // etc., em UserFormDialog) eram descartados, e a criação sempre
+        // aplicava a matriz do grupo mesmo que o administrador tivesse
+        // desmarcado algo na tela. Agora os toggles são enviados e o
+        // backend os grava unidade por unidade, na mesma transação
+        // (ver admin.createUser).
+        permissions: data.permissions || [],
       } as any, {
         onSuccess: (result: any) => {
           const newUserId = result?.id;
-          // Permissões já foram gravadas pelo servidor na mesma transação,
-          // de acordo com o grupo (groupKey) — não há mais um segundo
-          // mutation independente de setUserPermissions aqui.
+          // Permissões individuais já foram gravadas pelo servidor na mesma
+          // transação (Bloqueio 2 acima) — não há mais um segundo mutation
+          // independente de setUserPermissions aqui.
           // Upload stamp e assinatura continuam como etapa posterior explícita
           // (dependem de armazenamento de arquivo, fora da transação SQL).
           const anyData = data as any;

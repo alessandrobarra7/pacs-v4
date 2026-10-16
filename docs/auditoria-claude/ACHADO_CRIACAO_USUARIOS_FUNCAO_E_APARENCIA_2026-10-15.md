@@ -254,3 +254,57 @@ Testado em `server/create-user-interface-wiring.test.ts` (teste novo): prova via
 ### B8. Decisão operacional
 
 Esta branch (`claude/achado-criacao-usuarios-funcao-e-aparencia`) está pronta para nova revisão da Manus. Nenhum merge em `main`, atualização de VM1 ou criação de usuário real foi executado — conforme a decisão explícita do parecer corretivo.
+
+---
+
+## ADENDO 2 — resposta ao parecer de revisão (commit 892315d), 2026-10-15
+
+A Manus revisou o commit `892315d` (a correção dos 3 bloqueios + 2 reforços do ADENDO anterior) e apontou 2 bloqueios novos, 1 bloqueio de arquitetura e 1 correção de segurança de credencial. Veredito: **não aprovada para merge nem implantação nesta revisão.** Todos os 4 pontos foram confirmados no código real antes de qualquer alteração, e todos foram corrigidos e testados nesta mesma branch — sem tocar `main`, sem VM.
+
+### C1. Bloqueio 1 — unit_admin podia conceder acesso financeiro a outras unidades
+
+Confirmado: a checagem de escopo de `unit_admin` em `admin.createUser` só validava que a(s) unidade(s) do `unitIds` estavam no escopo do chamador — mas para `responsavel_financeiro`, `createUserTransactional` reaproveita o responsável **ativo** já existente da unidade (política de multiunidade do ADENDO anterior), e esse responsável pode controlar outras unidades fora do escopo desse `unit_admin`. O vínculo final (`financial_responsible_users`) é com o responsável, não com a unidade específica — e as guardas financeiras (`assertCanAccessFinancialUnit` etc.) autorizam por responsável, não por `user_unit_permissions`. Um `unit_admin` de A, criando uma conta em A cujo responsável já controla B, criava sem querer uma conta com acesso financeiro a B.
+
+Corrigido: `admin.createUser` e `admin.createUserScoped` agora rejeitam, com `FORBIDDEN`, qualquer tentativa de um `unit_admin` criar ou conceder acesso ao papel `responsavel_financeiro` — independentemente de a unidade estar ou não no escopo dele. Apenas `admin_master` pode criar esse papel. A opção `responsavel_financeiro` também foi removida de `visibleRoles` em `UserFormDialog.tsx`, para que um `unit_admin` nem veja essa opção no formulário. Isso segue a recomendação de menor privilégio do parecer: até existir um modelo de autorização conta-de-responsável × unidade, a concessão desse papel é exclusiva do `admin_master`.
+
+Testado em `server/admin-create-user-authorization.test.ts`: unit_admin tentando criar responsavel_financeiro na própria unidade → `FORBIDDEN`, zero escrita; admin_master continua podendo criar normalmente; mesma restrição replicada e testada em `admin.createUserScoped`. Testado em `server/create-user-interface-wiring.test.ts`: a opção é removida de `visibleRoles` para `unit_admin`.
+
+### C2. Bloqueio 2 — permissões individuais da tela eram descartadas na criação
+
+Confirmado: `UserFormDialog` sempre mostrou checkboxes editáveis de permissão por unidade, mas `AdminPage.tsx` só enviava `unitIds` (derivados de `data.permissions`) para `admin.createUser` — os toggles que o administrador ajustou (`view_studies`, `print_reports` etc.) eram descartados, e a criação sempre aplicava a matriz do grupo inteira. Um administrador podia desmarcar uma permissão na tela, a conta ser criada com ela mesmo assim.
+
+Corrigido, pela política recomendada pelo parecer (preservar permissões individuais): `admin.createUser` ganhou um campo opcional `permissions` (lista de toggles por unidade, só os 6 campos que a tela realmente exibe — `view_studies`, `edit_reports`, `view_anamnesis`, `edit_anamnesis`, `edit_exam_legend`, `print_reports`). Quando presente, precisa cobrir **exatamente** o mesmo conjunto de `unitIds` (nem mais, nem menos — senão `BAD_REQUEST`), e cada unidade grava suas próprias permissões (sobrepondo a matriz do grupo campo a campo). `manage_templates` e `view_financial`, sem controle na tela, continuam vindo sempre da matriz do grupo. `AdminPage.tsx` agora envia `permissions: data.permissions` na criação. `createUserTransactional` passou a receber `permissionsByUnit` (um mapa unidade → permissões) em vez de um único objeto uniforme aplicado a todas as unidades.
+
+Testado em `server/admin-create-user-authorization.test.ts`: toggles individuais sobrepõem a matriz do grupo campo a campo, com `manage_templates`/`view_financial` ainda vindo do grupo; ausência de `permissions` preserva o comportamento anterior (matriz inteira, back-compat); `unit_id` em `permissions` fora de `unitIds`, ou faltando uma unidade, é rejeitado com `BAD_REQUEST` sem escrita. Testado em `server/create-user-transactional.test.ts`: fixture e asserções atualizadas para `permissionsByUnit`.
+
+### C3. Bloqueio de arquitetura — admin.createUserScoped continuava como caminho alternativo inseguro
+
+Confirmado: o endpoint legado `admin.createUserScoped` ainda aceitava `unit_admin` e o papel `responsavel_financeiro`, criava usuário/permissões/cadeia financeira em chamadas separadas (não transacional) e **capturava e engolia** qualquer falha da cadeia financeira (`catch { console.error(...) }`), podendo devolver sucesso com uma conta de responsável financeiro incompleta. Também não herdava nenhuma das validações novas (coerência papel↔grupo, existência de unidade, política de multiunidade).
+
+Corrigido pela primeira opção recomendada pelo parecer: `createUserScoped` agora delega integralmente para `createUserTransactional` e para a mesma política de autorização de `admin.createUser` — incluindo a restrição do Bloqueio 1 (C1 acima) e a checagem de coerência papel↔grupo e existência de unidade. Não existe mais nenhuma escrita própria nesse endpoint; ele é um wrapper fino. Mantido só por compatibilidade com um eventual chamador direto via tRPC (a tela não o usa).
+
+Testado em `server/admin-create-user-authorization.test.ts` (5 casos, chamando `caller.admin.createUserScoped` diretamente, não apenas confirmando que o frontend não o referencia): unit_admin tentando responsavel_financeiro → `FORBIDDEN`; chamada válida delega de fato para `createUserTransactional`; papel/grupo incoerente → `BAD_REQUEST`; unidade inexistente → `NOT_FOUND`; username duplicado → `CONFLICT` legível (mesma tradução de erro de `admin.createUser`).
+
+### C4. Correção de segurança de credencial — validação estrita de expiration_date
+
+Confirmado: `admin.createUser` validava `expiration_date` só com `z.string()` e convertia com `new Date(input.expiration_date)` — e `new Date('2026-02-30').toISOString()` devolve `2026-03-02T00:00:00.000Z` sem erro nenhum, normalizando silenciosamente uma data impossível. Além disso havia uma inconsistência de contrato: o fluxo de edição (`admin.updateUser`) já tratava a coluna como string `YYYY-MM-DD`, enquanto a criação entregava um objeto `Date`.
+
+Corrigido: nova função `parseStrictCalendarDate` (módulo `server/routers/admin.ts`), compartilhada por `admin.createUser` e `admin.updateUser` — nunca constrói um `Date` a partir da string do usuário; em vez disso, reconstrói os componentes ano/mês/dia a partir do resultado e compara byte a byte com o que foi digitado, rejeitando qualquer "correção" silenciosa do JavaScript com `BAD_REQUEST`. `CreateUserTransactionalInput.expiration_date` passou a ser `string | null` (nunca `Date`), persistindo a forma canônica `AAAA-MM-DD` — igual ao contrato que `updateUser` já usava. Como achado colateral: `updateUser` tinha a MESMA falha de base (`new Date(string)` não detectava datas impossíveis) mas a mascarava diferente — ao invés de normalizar, gravava `NULL` silenciosamente quando o resultado era `NaN` (o que nunca disparava para o caso que importa, já que `new Date` quase nunca produz `NaN` para uma string nesse formato). Corrigido também, pela mesma função, para manter um único contrato real entre os dois fluxos.
+
+Testado em `server/admin-create-user-authorization.test.ts` (6 casos): `2024-02-29` (ano bissexto) válida e persistida exatamente como enviada; `2023-02-29` (não bissexto) rejeitada com `BAD_REQUEST`; `2026-02-30` rejeitada com `BAD_REQUEST` — nunca normalizada para 2 de março (a prova central do parecer); mês 13 rejeitado; data válida persistida sem deslocamento de fuso; vazio/null persistido como `null` sem erro.
+
+### C5. Prova de que os testes são reais (stash/pop)
+
+`git stash push --keep-index` nos 4 arquivos de implementação (`server/db.ts`, `server/routers/admin.ts`, `client/src/pages/AdminPage.tsx`, `client/src/components/UserFormDialog.tsx`), mantendo só os 3 arquivos de teste modificados. Rodando os 3 arquivos contra a implementação ANTERIOR (892315d): **20 das novas/alteradas asserções falharam** exatamente nos pontos esperados (FORBIDDEN de unit_admin para responsavel_financeiro inexistente, `permissionsByUnit` inexistente, `createUserScoped` ainda chamando `createLocalUser`, `view_financial` não chegando ao vínculo, `visibleRoles` ainda incluindo `responsavel_financeiro`). `git stash pop` restaurou a implementação — todas as 49 asserções dos 3 arquivos voltaram a passar.
+
+### C6. Validação completa
+
+- `pnpm check` — sem erros.
+- `TZ=UTC pnpm vitest run server/admin-create-user-authorization.test.ts server/create-user-transactional.test.ts server/create-user-interface-wiring.test.ts` — **49 testes passando** (31 + 10 + 8; eram 31 antes deste parecer).
+- `TZ=UTC pnpm test` (suíte completa) — **897 passed / 11 failed / 1 skipped** (909 total). Os 11 failed são os mesmos 7 arquivos pré-existentes já documentados nesta auditoria — nenhuma regressão nova. 879 (baseline do ADENDO anterior) + 18 testes novos deste parecer = 897, bate exato.
+- `pnpm build` — build de produção concluído sem erros.
+- `git diff --check origin/main...HEAD` — limpo.
+
+### C7. Decisão operacional
+
+Esta branch (`claude/achado-criacao-usuarios-funcao-e-aparencia`) está pronta para nova revisão da Manus. Nenhum merge em `main`, atualização de VM1 ou criação de usuário real foi executado.

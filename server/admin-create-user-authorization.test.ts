@@ -270,7 +270,7 @@ describe("admin.createUser — integridade (teste 7 parcial e teste 9 parcial do
       groupKey: "medicos",
       unitIds: [1],
     } as any);
-    expect(state.createUserTransactionalCalls[0].permissions).toMatchObject({ manage_templates: false });
+    expect(state.createUserTransactionalCalls[0].permissionsByUnit[1]).toMatchObject({ manage_templates: false });
   });
 
   it("9 (parcial). username já existente (checagem prévia de createUserTransactional) vira TRPCError CONFLICT legível", async () => {
@@ -305,7 +305,7 @@ describe("admin.createUser — integridade (teste 7 parcial e teste 9 parcial do
       groupKey: "responsaveisFinanceiros",
       unitIds: [1],
     } as any);
-    expect(state.createUserTransactionalCalls[0].permissions).toMatchObject({ view_financial: true });
+    expect(state.createUserTransactionalCalls[0].permissionsByUnit[1]).toMatchObject({ view_financial: true });
   });
 
   it("Bloqueio 1 (parecer corretivo 2026-10-15): ausência de configuração no banco usa o fallback hardcoded (view_financial previsível)", async () => {
@@ -315,10 +315,10 @@ describe("admin.createUser — integridade (teste 7 parcial e teste 9 parcial do
       ...basePayload,
       role: "admin_master",
       groupKey: "adminsMaster",
-      unitIds: [],
+      unitIds: [2],
     } as any);
     // Fallback hardcoded de adminsMaster tem view_financial: true (migration 0046).
-    expect(state.createUserTransactionalCalls[0].permissions).toMatchObject({ view_financial: true });
+    expect(state.createUserTransactionalCalls[0].permissionsByUnit[2]).toMatchObject({ view_financial: true });
   });
 
   it("Reforço 5.1 (parecer corretivo 2026-10-15): unidade inexistente recebe NOT_FOUND e não chama createUserTransactional", async () => {
@@ -361,5 +361,270 @@ describe("admin.createUser — integridade (teste 7 parcial e teste 9 parcial do
         unitIds: [1, 2],
       } as any),
     ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("responsáveis financeiros diferentes") });
+  });
+});
+
+describe("admin.createUser — Bloqueio 1 do parecer de revisão 2026-10-15 (delegação financeira cross-unidade)", () => {
+  it("unit_admin de A não pode criar/conceder acesso a responsavel_financeiro, mesmo dentro da própria unidade (A) — FORBIDDEN, zero escrita", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "unit_admin", unit_id: 20 }));
+    await expect(
+      caller.admin.createUser({
+        ...basePayload,
+        role: "responsavel_financeiro",
+        groupKey: "responsaveisFinanceiros",
+        unitIds: [20], // A própria unidade do unit_admin — nem isso é permitido.
+      } as any),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.createUserTransactionalCalls).toHaveLength(0);
+  });
+
+  it("admin_master continua podendo criar responsavel_financeiro normalmente (a restrição é só para unit_admin)", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await caller.admin.createUser({
+      ...basePayload,
+      role: "responsavel_financeiro",
+      groupKey: "responsaveisFinanceiros",
+      unitIds: [20],
+    } as any);
+    expect(state.createUserTransactionalCalls).toHaveLength(1);
+  });
+});
+
+describe("admin.createUser — Bloqueio 2 do parecer de revisão 2026-10-15 (permissões individuais descartadas)", () => {
+  it("toggles individuais enviados pela tela sobrepõem a matriz do grupo campo a campo; manage_templates e view_financial (sem controle na tela) seguem vindo do grupo", async () => {
+    state.groupPermissionsRows = [{
+      group_key: "medicos",
+      view_studies: true,
+      edit_reports: true,
+      view_anamnesis: true,
+      edit_anamnesis: true,
+      edit_exam_legend: true,
+      print_reports: true,
+      manage_templates: true,
+      view_financial: false,
+    }];
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await caller.admin.createUser({
+      ...basePayload,
+      role: "medico",
+      groupKey: "medicos",
+      unitIds: [1],
+      // O administrador desmarcou "Ver Estudos" e "Imprimir Laudos" na tela
+      // para esta unidade — isso precisa ser respeitado, não descartado.
+      permissions: [{
+        unit_id: 1,
+        view_studies: false,
+        edit_reports: true,
+        view_anamnesis: true,
+        edit_anamnesis: true,
+        edit_exam_legend: true,
+        print_reports: false,
+      }],
+    } as any);
+    expect(state.createUserTransactionalCalls[0].permissionsByUnit[1]).toMatchObject({
+      view_studies: false,
+      print_reports: false,
+      // Sem controle na tela: vêm da matriz do grupo (true/false acima), não do payload.
+      manage_templates: true,
+      view_financial: false,
+    });
+  });
+
+  it("ausência de 'permissions' no payload preserva o comportamento anterior: a matriz do grupo é aplicada inteira (back-compat)", async () => {
+    state.groupPermissionsRows = [];
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await caller.admin.createUser({
+      ...basePayload,
+      role: "medico",
+      groupKey: "medicos",
+      unitIds: [1],
+    } as any);
+    expect(state.createUserTransactionalCalls[0].permissionsByUnit[1]).toMatchObject({
+      view_studies: true,
+      edit_reports: true,
+      manage_templates: true,
+    });
+  });
+
+  it("'permissions' com unit_id fora de unitIds é rejeitado com BAD_REQUEST, nenhuma escrita", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await expect(
+      caller.admin.createUser({
+        ...basePayload,
+        role: "medico",
+        groupKey: "medicos",
+        unitIds: [1],
+        permissions: [{
+          unit_id: 2, // não está em unitIds
+          view_studies: true, edit_reports: true, view_anamnesis: true,
+          edit_anamnesis: true, edit_exam_legend: true, print_reports: true,
+        }],
+      } as any),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.createUserTransactionalCalls).toHaveLength(0);
+  });
+
+  it("'permissions' faltando uma unidade de unitIds (cobertura parcial) é rejeitado com BAD_REQUEST, nenhuma escrita", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await expect(
+      caller.admin.createUser({
+        ...basePayload,
+        role: "medico",
+        groupKey: "medicos",
+        unitIds: [1, 2],
+        permissions: [{
+          unit_id: 1,
+          view_studies: true, edit_reports: true, view_anamnesis: true,
+          edit_anamnesis: true, edit_exam_legend: true, print_reports: true,
+        }],
+      } as any),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.createUserTransactionalCalls).toHaveLength(0);
+  });
+});
+
+describe("admin.createUserScoped — Bloqueio de arquitetura do parecer de revisão 2026-10-15 (delegação para a rotina nova)", () => {
+  it("unit_admin não pode criar/conceder responsavel_financeiro por este endpoint legado — mesma restrição do Bloqueio 1", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "unit_admin", unit_id: 20 }));
+    await expect(
+      caller.admin.createUserScoped({
+        ...basePayload,
+        role: "responsavel_financeiro",
+        groupKey: "responsaveisFinanceiros",
+        unitId: 20,
+      } as any),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.createUserTransactionalCalls).toHaveLength(0);
+  });
+
+  it("chamada válida delega para createUserTransactional (não mais para createLocalUser + inserts separados)", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await caller.admin.createUserScoped({
+      ...basePayload,
+      role: "medico",
+      groupKey: "medicos",
+      unitId: 1,
+    } as any);
+    expect(state.createUserTransactionalCalls).toHaveLength(1);
+    expect(state.createUserTransactionalCalls[0]).toMatchObject({ unitIds: [1], groupKey: "medicos" });
+  });
+
+  it("papel e grupo incoerentes são rejeitados com BAD_REQUEST, nenhuma escrita", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await expect(
+      caller.admin.createUserScoped({
+        ...basePayload,
+        role: "medico",
+        groupKey: "operadores", // incoerente com role "medico"
+        unitId: 1,
+      } as any),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.createUserTransactionalCalls).toHaveLength(0);
+  });
+
+  it("unidade inexistente retorna NOT_FOUND, nenhuma escrita", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await expect(
+      caller.admin.createUserScoped({
+        ...basePayload,
+        role: "medico",
+        groupKey: "medicos",
+        unitId: 777, // fora de existingUnitRows
+      } as any),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(state.createUserTransactionalCalls).toHaveLength(0);
+  });
+
+  it("username já existente vira CONFLICT legível (mesma tradução de erro de admin.createUser)", async () => {
+    state.createUserTransactionalShouldThrow = new FakeUsernameTakenError();
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await expect(
+      caller.admin.createUserScoped({
+        ...basePayload,
+        role: "medico",
+        groupKey: "medicos",
+        unitId: 1,
+      } as any),
+    ).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining(basePayload.username) });
+  });
+});
+
+describe("admin.createUser — validação calendarizada de expiration_date (seção 5 do parecer de revisão 2026-10-15)", () => {
+  it("2024-02-29 (ano bissexto) é uma data válida e é persistida exatamente como enviada", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await caller.admin.createUser({
+      ...basePayload,
+      role: "medico",
+      groupKey: "medicos",
+      unitIds: [1],
+      expiration_date: "2024-02-29",
+    } as any);
+    expect(state.createUserTransactionalCalls[0].expiration_date).toBe("2024-02-29");
+  });
+
+  it("2023-02-29 (2023 não é bissexto) é rejeitada com BAD_REQUEST, nenhuma escrita", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await expect(
+      caller.admin.createUser({
+        ...basePayload,
+        role: "medico",
+        groupKey: "medicos",
+        unitIds: [1],
+        expiration_date: "2023-02-29",
+      } as any),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.createUserTransactionalCalls).toHaveLength(0);
+  });
+
+  it("2026-02-30 é rejeitada com BAD_REQUEST — NUNCA normalizada silenciosamente para 2 de março (prova central do parecer)", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await expect(
+      caller.admin.createUser({
+        ...basePayload,
+        role: "medico",
+        groupKey: "medicos",
+        unitIds: [1],
+        expiration_date: "2026-02-30",
+      } as any),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.createUserTransactionalCalls).toHaveLength(0);
+  });
+
+  it("mês 13 é rejeitado com BAD_REQUEST, nenhuma escrita", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await expect(
+      caller.admin.createUser({
+        ...basePayload,
+        role: "medico",
+        groupKey: "medicos",
+        unitIds: [1],
+        expiration_date: "2026-13-01",
+      } as any),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.createUserTransactionalCalls).toHaveLength(0);
+  });
+
+  it("data válida sem deslocamento de fuso: a string enviada é persistida byte a byte, sem passar por new Date()", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await caller.admin.createUser({
+      ...basePayload,
+      role: "medico",
+      groupKey: "medicos",
+      unitIds: [1],
+      expiration_date: "2027-01-31",
+    } as any);
+    expect(state.createUserTransactionalCalls[0].expiration_date).toBe("2027-01-31");
+  });
+
+  it("vazio/null em expiration_date não gera erro e é persistido como null", async () => {
+    const caller = appRouter.createCaller(createCtx({ role: "admin_master" }));
+    await caller.admin.createUser({
+      ...basePayload,
+      role: "medico",
+      groupKey: "medicos",
+      unitIds: [1],
+      expiration_date: null,
+    } as any);
+    expect(state.createUserTransactionalCalls[0].expiration_date).toBeNull();
   });
 });

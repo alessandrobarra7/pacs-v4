@@ -60,6 +60,13 @@ describe("Interface — criação de usuários (testes 12-17 do parecer Manus)",
     expect(match![0]).toMatch(/utils\.admin\.listUsers\.invalidate\(\)/);
   });
 
+  it("Bloqueio 1 (parecer de revisão 2026-10-15): responsavel_financeiro é removido das opções de papel visíveis a um unit_admin", () => {
+    const src = readSource("client/src/components/UserFormDialog.tsx");
+    expect(src).toMatch(
+      /visibleRoles = currentUserRole === "unit_admin"\s*\n\s*\? ROLES\.filter\(\(r\) => r\.value !== "admin_master" && r\.value !== "unit_admin" && r\.value !== "responsavel_financeiro"\)/,
+    );
+  });
+
   it("Reforço 5.2 (parecer corretivo 2026-10-15): unidade forçada é realmente travada para unit_admin (não apenas pré-selecionada)", () => {
     const src = readSource("client/src/components/UserFormDialog.tsx");
     // A trava precisa existir como condição derivada, não só como comentário.

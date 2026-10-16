@@ -248,8 +248,26 @@ export type CreateUserTransactionalInput = {
   /** Unidades a vincular (user_unit_permissions). admin_master pode vir com 0+ unidades; os demais papéis exigem >= 1. */
   unitIds: number[];
   isActive: boolean;
-  expiration_date?: Date | null;
-  permissions: {
+  /**
+   * String canônica AAAA-MM-DD, nunca um objeto Date (parecer de revisão
+   * 2026-10-15, seção 5). A coluna users.expiration_date é DATE sem "mode"
+   * no schema (drizzle-orm mysql-core trata isso como mode: 'string'), e
+   * new Date(string) normaliza datas impossíveis (ex.: '2026-02-30' vira 2
+   * de março) em vez de rejeitá-las — então a validação de calendário real
+   * precisa acontecer ANTES de chegar aqui (ver parseStrictCalendarDate em
+   * server/routers/admin.ts), e o que chega aqui é sempre a própria string
+   * já validada, para persistir exatamente igual ao fluxo de edição.
+   */
+  expiration_date?: string | null;
+  /**
+   * Bloqueio 2 do parecer de revisão (2026-10-15): antes este campo era um
+   * único objeto de permissões aplicado uniformemente a TODAS as unidades
+   * de unitIds, vindo sempre da matriz do grupo — descartando qualquer
+   * toggle individual que o administrador tenha ajustado por unidade na
+   * tela (UserFormDialog). Agora é um mapa por unidade: cada unitId em
+   * unitIds precisa ter uma entrada correspondente aqui.
+   */
+  permissionsByUnit: Record<number, {
     view_studies: boolean;
     edit_reports: boolean;
     view_anamnesis: boolean;
@@ -263,7 +281,7 @@ export type CreateUserTransactionalInput = {
      *  migration 0046) tem view_financial=true (responsaveisFinanceiros,
      *  adminsMaster). */
     view_financial: boolean;
-  };
+  }>;
   actor: { user_id: number; ip_address?: string | null; user_agent?: string | null };
 };
 
@@ -361,7 +379,14 @@ export async function createUserTransactional(
         role: input.role,
         unit_id: input.unitIds.length === 1 ? input.unitIds[0] : null,
         isActive: input.isActive,
-        expiration_date: input.expiration_date ?? null,
+        // `as any`: o tipo inferido pelo drizzle para este insert é `Date`,
+        // mas a coluna é DATE (YYYY-MM-DD) e o valor que chega aqui já é a
+        // string canônica validada (parseStrictCalendarDate, em admin.ts) —
+        // o mesmo padrão de cast já usado em updateUser (server/routers/admin.ts)
+        // para a mesma coluna. Nunca construir aqui um `new Date(string)`:
+        // normalizaria datas impossíveis em vez de persistir o que foi
+        // validado (parecer de revisão 2026-10-15, seção 5).
+        expiration_date: (input.expiration_date ?? null) as any,
         loginMethod: 'local',
         lastSignedIn: new Date(),
       });
@@ -373,7 +398,14 @@ export async function createUserTransactional(
             user_id: userId,
             unit_id: unitId,
             group_key: input.groupKey,
-            ...input.permissions,
+            // Bloqueio 2 (parecer de revisão 2026-10-15): cada unidade grava
+            // SUAS PRÓPRIAS permissões (permissionsByUnit[unitId]), não uma
+            // matriz única replicada para todas — ver comentário do tipo
+            // acima. Se o chamador omitiu uma unidade de unitIds no mapa,
+            // isso é um erro de quem monta o input (admin.ts já garante que
+            // todo unitId tem entrada), então deixamos o spread de
+            // `undefined` estourar em vez de mascarar com um fallback aqui.
+            ...input.permissionsByUnit[unitId],
           })),
         );
       }
