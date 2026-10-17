@@ -57,3 +57,35 @@ Sem essa confirmação via logs reais de produção, o Claude não tem como prov
 Dois toggles de permissão foram alterados em produção durante esses testes e ainda não foram revertidos (o usuário Alessandro informou que fará o ajuste manualmente):
 - `jeanlima` — "Laudar" (edit_reports) ficou OFF (estava ON antes dos testes).
 - `teste` (teste2) — "Ver Financeiro" (view_financial) ficou ON (estava OFF antes dos testes, alterado deliberadamente no teste controlado de reprodução, que funcionou corretamente).
+
+## ADENDO — Evidência de logs reais da VM1 (nginx access.log) e veredito
+
+Alessandro rodou, na VM1, a busca de todas as chamadas a `admin.setUserPermissions` no dia 17/Oct/2026 no `access.log` do nginx (comando fornecido pelo Claude, somente leitura). Resultado (horários em UTC):
+
+| Horário (UTC) | Status | Correspondência |
+|---|---:|---|
+| 09:02:35 | 200 | Não identificado (ver observação abaixo) |
+| 09:05:17 | 403 | Clique 1 — erica "Laudar" (bloqueio correto, esperado) |
+| 09:05:46 | 403 | Clique 2 — erica "Ed. Anamnese" (bloqueio correto, esperado) |
+| 09:06:22 | 200 | Clique 3 — Jean lima "Ver Financeiro" (o caso investigado) |
+| 09:40:54 | 200 | Teste controlado 1 (teste2, ligando Ver Financeiro) — comportamento correto confirmado |
+| 09:53:40 | 200 | Teste controlado 2 (teste2, desligando Ver Financeiro) — comportamento correto confirmado |
+
+### Conclusão
+
+Entre os dois `403` da erica (09:05:17 e 09:05:46 — quase 30s de intervalo entre eles, nada simultâneo) e o sucesso da Jean lima (09:06:22 — 36s depois do segundo 403), existe **exatamente uma única requisição HTTP** a `admin.setUserPermissions`. Não há nenhuma chamada duplicada, concorrente ou agrupada nesse intervalo.
+
+Isso **descarta a Hipótese 2** (condição de corrida / `httpBatchLink` agrupando mutações) — não havia nada rodando em paralelo no momento do clique na Jean lima. Combinado com dois testes controlados adicionais (clique único, manual, com verificação de coordenada antes do clique), ambos bem-sucedidos e sem qualquer troca de campo, a conclusão é:
+
+**Não há bug no sistema. O incidente original foi um erro de clique do agente automatizado (Claude), que atingiu o toggle "Laudar" em vez de "Ver Financeiro" na linha da Jean lima — não um defeito de `UsersPermissionsTab.tsx`, `admin.setUserPermissions` ou `setUserUnitPermissions`.**
+
+Nenhuma correção de código é necessária. Esta branch permanece apenas como registro do incidente e da investigação, para fechamento formal com a Manus.
+
+### Pendência separada (não relacionada ao incidente)
+
+A entrada de **09:02:35 (200)** não corresponde a nenhum clique feito pelo Claude nesta investigação. Não foi identificada a origem dessa chamada. Se for relevante, recomenda-se que a Manus (ou Alessandro) verifique separadamente — não bloqueia o fechamento deste incidente, que já está explicado pelas entradas de 09:05:17 em diante.
+
+### Efeitos colaterais em dados (já corrigidos ou pendentes)
+
+- `jeanlima` — "Laudar" (edit_reports) permanece OFF desde o incidente original (09:06:22); Alessandro informou que fará esse ajuste manualmente.
+- `teste` (teste2) — "Ver Financeiro" (view_financial) foi alterado duas vezes durante os testes controlados (ON às 09:40:54, depois OFF às 09:53:40) e está de volta ao estado original (OFF).
