@@ -18,6 +18,7 @@ import {
   rangeBelongsToTarget,
 } from "@/lib/reportEditorDom";
 import { clampImageToPage, pageHeightMm, pageWidthMm } from "@/lib/pdfPageGeometry";
+import { canvasToPdfRasterImage } from "@/lib/pdfRasterExport";
 import {
   materializePhysicalReportPages,
   normalizeReportSections,
@@ -1139,7 +1140,7 @@ export default function ReportEditorPage() {
           logging: false,
           backgroundColor: "#ffffff",
         });
-        const imageData = canvas.toDataURL("image/png");
+        const { dataUrl: imageData, format: imageFormat } = canvasToPdfRasterImage(canvas);
         let width = pdfPageWidth;
         let height = (canvas.height * width) / canvas.width;
         // CORREÇÃO (Bloqueio 1, revisão corretiva Manus 2026-09-24): com o
@@ -1156,7 +1157,7 @@ export default function ReportEditorPage() {
         height = clamped.height;
         const xOffset = clamped.xOffset;
         if (index > 0) pdf.addPage();
-        pdf.addImage(imageData, "PNG", xOffset, 0, width, height);
+        pdf.addImage(imageData, imageFormat, xOffset, 0, width, height);
       }
       pdf.save(`Laudo_${(patientName || "assinado").replace(/\s+/g, "_")}.pdf`);
       toast.success("PDF baixado com sucesso!", { id: "financial-pdf-download" });

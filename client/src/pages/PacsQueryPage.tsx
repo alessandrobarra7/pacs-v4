@@ -12,6 +12,7 @@ import { AppHeader } from "@/components/AppHeader";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx, resolvePdfPageElements } from "@/lib/pdfPageGeometry";
+import { canvasToPdfRasterImage } from "@/lib/pdfRasterExport";
 import { ContentTooLargeForPageError } from "@/lib/reportPagination";
 import {
   materializePhysicalReportPages,
@@ -1939,7 +1940,8 @@ setSelectedStudy(study);
         for (let index = 0; index < canvases.length; index += 1) {
           const entry = batch[index];
           if (entry.addPageBefore) pdf.addPage();
-          pdf.addImage(canvases[index].toDataURL('image/png'), 'PNG', entry.xOffset, 0, entry.width, entry.height);
+          const { dataUrl, format } = canvasToPdfRasterImage(canvases[index]);
+          pdf.addImage(dataUrl, format, entry.xOffset, 0, entry.width, entry.height);
         }
 
         pdf.save(`Laudo_${patientName.replace(/\s+/g, '_')}.pdf`);

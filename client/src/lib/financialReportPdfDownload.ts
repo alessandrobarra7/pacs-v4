@@ -6,6 +6,7 @@ import {
   type ReportLogo,
 } from "../../../shared/reportLayout";
 import { buildPdfPageBatch, pageHeightPx, pageWidthPx } from "./pdfPageGeometry";
+import { canvasToPdfRasterImage } from "./pdfRasterExport";
 import { ContentTooLargeForPageError } from "./reportPagination";
 import {
   materializePhysicalReportPages,
@@ -180,7 +181,8 @@ export async function downloadFinancialReportPdf(documentData: any) {
     for (let index = 0; index < canvases.length; index += 1) {
       const entry = batch[index];
       if (entry.addPageBefore) pdf.addPage();
-      pdf.addImage(canvases[index].toDataURL("image/png"), "PNG", entry.xOffset, 0, entry.width, entry.height);
+      const { dataUrl, format } = canvasToPdfRasterImage(canvases[index]);
+      pdf.addImage(dataUrl, format, entry.xOffset, 0, entry.width, entry.height);
     }
     pdf.save(`Laudo_${patientName.replace(/[^a-zA-Z0-9]+/g, "_") || "entregue"}.pdf`);
   } catch (err) {
