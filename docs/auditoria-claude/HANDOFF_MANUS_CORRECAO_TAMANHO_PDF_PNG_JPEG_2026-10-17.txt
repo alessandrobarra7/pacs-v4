@@ -1,0 +1,165 @@
+HANDOFF PARA MANUS — CORREÇÃO DO BUG DE TAMANHO EXCESSIVO DE PDF
+Data: 2026-10-17
+Branch: claude/corrige-tamanho-pdf-rasterizado-20261017
+Commit: 16484a051d42503fc0f831ad62310a50e4f811bc
+Base: main @ e12a359 (ponta confirmada em produção VM1 no momento da criação da branch)
+Origem do achado: RELATORIO_HOMOLOGACAO_REAL_PDF_PAGINACAO_2026-10-17.txt (Seção 6), enviado pela Manus.
+
+====================================================================
+1. O QUE A MANUS ENCONTROU (RESUMO)
+====================================================================
+No relatório de homologação real (Chromium), a Manus testou o download de PDF
+do fluxo Financeiro (downloadFinancialReportPdf) com um laudo sintético de 72
+parágrafos. O PDF resultante tinha 11 páginas e pesava ~109-112 MiB.
+
+Causa raiz identificada pela Manus: a cadeia
+  html2canvas(elemento, { scale: 2 })
+  → canvas.toDataURL("image/png")
+  → pdf.addImage(dataUrl, "PNG", ...)
+rasteriza cada folha física inteira em alta resolução (scale:2) e grava essa
+imagem em PNG, que é compressão SEM PERDAS. Uma folha inteira em alta resolução
+vira uma imagem enorme por página; multiplicado por 11 páginas, o arquivo final
+fica na casa de ~100 MiB.
+
+A Manus foi explícita em dois pontos do relatório:
+  (a) a paginação física em si está correta e aprovada (Seção 4/9) — o problema
+      é isolado à etapa de rasterização para imagem, não à divisão de páginas;
+  (b) uma eventual troca de PNG para JPEG "NÃO deve ser automática sem
+      homologação clínica" — texto pequeno, carimbo e assinatura podem perder
+      nitidez com compressão com perdas, e isso só pode ser avaliado olhando o
+      PDF renderizado de verdade, o que o sandbox do Claude não permite fazer.
+
+====================================================================
+2. ESCOPO REAL DO BUG (AMPLIADO)
+====================================================================
+O relatório da Manus mediu e documentou o problema apenas no fluxo Financeiro
+(financialReportPdfDownload.ts). Antes de corrigir, conferi os outros dois
+pontos do sistema que também geram PDF a partir de html2canvas e confirmei que
+os TRÊS usavam exatamente o mesmo padrão PNG sem perdas:
+
+  1. client/src/lib/financialReportPdfDownload.ts   (fluxo Financeiro — o que a Manus mediu)
+  2. client/src/pages/ReportEditorPage.tsx           (handleFinancialPdfDownload — download de PDF dentro do Editor de Laudos)
+  3. client/src/pages/PacsQueryPage.tsx              (download/impressão rápida a partir da Lista PACS)
+
+Ou seja, o bug é sistêmico aos 3 produtores de PDF do sistema, não exclusivo do
+Financeiro. A correção abaixo foi aplicada nos três, para não deixar os outros
+dois caminhos com o mesmo problema sem que a Manus precisasse descobrir isso
+numa rodada futura.
+
+====================================================================
+3. CORREÇÃO APLICADA
+====================================================================
+Criado um módulo único e compartilhado:
+
+  client/src/lib/pdfRasterExport.ts
+
+    export const PDF_RASTER_IMAGE_FORMAT = "JPEG" as const;
+    export const PDF_RASTER_IMAGE_QUALITY = 0.92;
+
+    export function canvasToPdfRasterImage(canvas: HTMLCanvasElement) {
+      return {
+        dataUrl: canvas.toDataURL("image/jpeg", PDF_RASTER_IMAGE_QUALITY),
+        format: PDF_RASTER_IMAGE_FORMAT,
+      };
+    }
+
+Motivo de centralizar num único módulo, em vez de editar cada `toDataURL`
+isoladamente: assim existe UM único lugar para a Manus (ou qualquer um)
+ajustar o fator de qualidade (hoje 0.92) depois da homologação visual, sem
+precisar caçar 3 ocorrências espalhadas pelo código caso o valor precise
+mudar.
+
+Os 3 arquivos foram alterados para importar e usar esse helper no lugar da
+chamada direta a `canvas.toDataURL("image/png")` + `pdf.addImage(..., "PNG", ...)`:
+
+  - client/src/lib/financialReportPdfDownload.ts
+  - client/src/pages/ReportEditorPage.tsx (handleFinancialPdfDownload)
+  - client/src/pages/PacsQueryPage.tsx (download rápido da lista)
+
+Nenhuma lógica de paginação, geometria de página, margens ou posicionamento
+foi tocada — a mudança é estritamente na etapa "canvas → imagem para o PDF".
+
+Por que 0.92 e não um valor mais agressivo: é um ponto de partida conservador
+(alta qualidade, ainda assim tipicamente 5-15x menor que PNG sem perdas para
+este tipo de conteúdo). Este valor é candidato a ajuste pela Manus após ver o
+resultado visual real e o tamanho de arquivo real.
+
+====================================================================
+4. TESTES ADICIONADOS
+====================================================================
+  - server/pdf-raster-export-quality.test.ts
+    Teste de unidade com canvas mockado: confirma que canvasToPdfRasterImage
+    chama toDataURL("image/jpeg", 0.92) — nunca "image/png" — e retorna
+    format: "JPEG". Também garante que a constante de qualidade está no
+    intervalo [0.85, 1], como guarda contra uma futura queda silenciosa de
+    qualidade.
+
+  - server/pdf-raster-export-wiring.test.ts
+    Teste de "wiring" (comparação de string-fonte, seguindo a convenção já
+    usada no repo em outros *-wiring.test.ts): confirma que os 3 arquivos
+    produtores importam e chamam canvasToPdfRasterImage, e que NENHUM dos
+    três ainda contém `toDataURL("image/png")` ou `addImage(..., "PNG"`.
+    Isso existe para travar uma regressão futura onde alguém adicione um
+    quarto ponto de geração de PDF e esqueça de usar o helper compartilhado.
+
+(Nota: os testes ficam em server/ e não em client/src/lib/ por limitação do
+vitest.config.ts deste repo — test.include só cobre server/**/*.test.ts. Isso
+já é convenção estabelecida no projeto para testar funções puras de
+client/src/lib/*, e foi seguida aqui.)
+
+====================================================================
+5. VALIDAÇÃO FEITA NO SANDBOX (CLAUDE)
+====================================================================
+  - pnpm check (tsc --noEmit): sem erros.
+  - vitest run (os 2 arquivos novos): 8/8 passou.
+  - Prova stash/pop (teste real, não cosmético): com os arquivos de
+    implementação revertidos temporariamente (git stash, mantendo os testes
+    presentes), os mesmos 2 arquivos de teste falharam (6 falhas) contra o
+    código antigo — confirmando que os testes realmente distinguem
+    comportamento antigo (PNG) de novo (JPEG), e não são testes vazios/sempre-
+    verdes. Após git stash pop, voltaram a passar 8/8.
+  - TZ=UTC pnpm test (suíte completa): 947 passed / 11 failed / 1 skipped
+    (959 total) — idêntico ao baseline conhecido deste projeto (as mesmas 7
+    falhas pré-existentes já documentadas em handoffs anteriores:
+    exam-catalog-security.test.ts, finance-v2-dashboard.test.tsx (x2),
+    mediaProxy.test.ts, pacs-desktop-download-progress.test.ts,
+    pacs.mobile-ui.test.ts, security.auth.test.ts,
+    study-priority-ui.test.ts (x4)). Nenhuma regressão nova.
+  - pnpm build: sucesso (5363 módulos, build em ~30s, apenas o aviso
+    pré-existente e não relacionado de tamanho de chunk).
+  - git diff --check origin/main...HEAD: limpo, sem erros de whitespace.
+
+====================================================================
+6. O QUE FICA EXPLICITAMENTE PENDENTE PARA A MANUS
+====================================================================
+O sandbox do Claude não tem acesso a renderização visual real (Chromium) nem
+consegue medir o tamanho final de arquivo de um PDF gerado de verdade. Por
+isso, conforme o próprio relatório da Manus já havia alertado, esta correção
+NÃO deve ser considerada pronta para produção sem a Manus validar no ambiente
+real:
+
+  1. Repetir exatamente o teste do relatório original (laudo sintético de 72
+     parágrafos, fluxo Financeiro, A4 e Letter) e comparar o tamanho do
+     arquivo ANTES (~109-112 MiB) e DEPOIS desta correção.
+  2. Verificação visual com zoom, especialmente em: texto pequeno/rodapé,
+     carimbo, assinatura — é exatamente o ponto que a Manus apontou como
+     risco de uma troca PNG→JPEG mal calibrada.
+  3. Repetir o mesmo teste nos outros dois pontos agora também corrigidos
+     (download de PDF no Editor de Laudos, e download/impressão rápida na
+     Lista PACS), já que antes dessa branch eles tinham o mesmo problema mas
+     não haviam sido medidos pela Manus.
+  4. Se a nitidez ficar comprometida em algum desses pontos, o único ajuste
+     necessário é o valor de PDF_RASTER_IMAGE_QUALITY em
+     client/src/lib/pdfRasterExport.ts (hoje 0.92) — não é necessário
+     reabrir os 3 arquivos produtores.
+  5. Confirmar que esta correção não interage mal com os itens "AINDA
+     PENDENTE" que o próprio relatório da Manus já havia listado
+     separadamente (unificação de CSS entre os 3 produtores — Seção 3/8 do
+     relatório) — a expectativa é que não haja interação, já que esta
+     correção não mexe em CSS/layout, apenas na etapa de exportação de
+     imagem, mas vale a Manus confirmar isso no teste real.
+
+Esta branch resolve exclusivamente o achado da Seção 6 do relatório (tamanho
+de arquivo). O trabalho de unificação visual entre os 3 produtores (Seção 3,
+8 e 9 do relatório da Manus) permanece como item separado, como a própria
+Manus recomendou tratar.
