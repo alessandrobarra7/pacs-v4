@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Plus, Pencil, Trash2, ArrowLeft, FileText, AlertTriangle, Search } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { CATALOG_PAGE_SIZE, catalogPaginationState, nextCatalogVisibleCount } from "@/lib/catalogPagination";
 
 type CatalogDocument = { id?: number; document_key: string; document_label: string; sort_order: number };
 type CatalogMapping = { id?: number; pacs_description: string; modality: string; matches_empty_description: boolean };
@@ -68,8 +69,18 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
   // AJUSTE (auditoria claude/ajustes-mobile): o catálogo desenhava os 516 cartões de uma
   // vez (página de ~81 mil px no celular). Agora mostra em blocos de 60, e a busca/filtros
   // continuam valendo sobre o catálogo inteiro.
-  const CATALOG_PAGE_SIZE = 60;
   const [visibleCount, setVisibleCount] = useState(CATALOG_PAGE_SIZE);
+  // ADENDO (revisão f0548a7, bloqueio 2): o modal cancela o autofocus do Radix para não
+  // abrir o teclado no campo "Legenda canônica", mas o foco precisa entrar no dialog —
+  // vai para o título (tabIndex=-1), que é anunciado por leitores de tela.
+  const editorTitleRef = useRef<HTMLHeadingElement>(null);
+  // O dialog é controlado por estado (sem DialogTrigger), então o Radix não sabe quem o
+  // abriu e, ao fechar, o foco caía no <body>. Guardamos o gatilho para devolver o foco.
+  const editorTriggerRef = useRef<HTMLElement | null>(null);
+  const rememberEditorTrigger = () => {
+    const active = typeof document !== "undefined" ? document.activeElement : null;
+    editorTriggerRef.current = active instanceof HTMLElement && active !== document.body ? active : null;
+  };
   useEffect(() => { setVisibleCount(CATALOG_PAGE_SIZE); }, [search, modalityFilter, statusFilter]);
   const activeCount = useMemo(() => entries.filter((entry: CatalogEntry) => entry.is_active).length, [entries]);
   const mappingCount = useMemo(() => entries.reduce((total: number, entry: CatalogEntry) => total + entry.pacsMappings.length, 0), [entries]);
@@ -79,12 +90,15 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
     const matchesStatus = statusFilter === "all" || (statusFilter === "active" ? entry.is_active : !entry.is_active);
     return matchesText && matchesModality && matchesStatus;
   }), [entries, search, modalityFilter, statusFilter]);
+  const pagination = catalogPaginationState(visibleCount, filteredEntries.length);
 
   const startCreate = () => {
+    rememberEditorTrigger();
     setDraft(emptyDraft());
     setOpen(true);
   };
   const startEdit = (entry: CatalogEntry) => {
+    rememberEditorTrigger();
     setDraft({
       ...entry,
       documents: entry.documents.length ? entry.documents.map(({ document_key, document_label, sort_order }) => ({ document_key, document_label, sort_order })) : [emptyDraft().documents[0]],
@@ -184,7 +198,7 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
             {isLoading ? <p className="py-10 text-center text-sm text-slate-400">Carregando catálogo…</p> : null}
             {!isLoading && !filteredEntries.length ? <p className="py-10 text-center text-sm text-slate-400">Nenhum exame corresponde aos filtros selecionados.</p> : null}
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {filteredEntries.slice(0, visibleCount).map((entry: CatalogEntry) => {
+              {filteredEntries.slice(0, pagination.displayed).map((entry: CatalogEntry) => {
                 return <article key={entry.id} className="group flex min-h-[148px] flex-col rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:border-cyan-300 hover:shadow-md">
                   <div className="flex items-start justify-between gap-2">
                     <h2 className="min-w-0 truncate text-[13px] font-semibold leading-tight text-slate-900" title={entry.exam_name}>{entry.exam_name}</h2>
@@ -201,7 +215,9 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
                 </article>;
               })}
             </div>
-            {filteredEntries.length > visibleCount && <div className="mt-3 flex flex-col items-center gap-1"><Button variant="outline" className="h-11 w-full border-slate-300 bg-white text-sm sm:w-auto" onClick={() => setVisibleCount((count) => count + CATALOG_PAGE_SIZE)}>Mostrar mais {Math.min(CATALOG_PAGE_SIZE, filteredEntries.length - visibleCount)}</Button><p className="text-xs text-slate-500">Exibindo {visibleCount} de {filteredEntries.length}</p></div>}
+            {/* ADENDO (revisão f0548a7, bloqueio 1): contagem e incremento limitados ao total
+                filtrado; o status continua visível depois do último bloco ("Exibindo 121 de 121"). */}
+            {pagination.showStatus && <div className="mt-3 flex flex-col items-center gap-1">{pagination.hasMore && <Button variant="outline" className="h-11 w-full border-slate-300 bg-white text-sm sm:w-auto" onClick={() => setVisibleCount((count) => nextCatalogVisibleCount(count, filteredEntries.length))}>Mostrar mais {pagination.nextBatch}</Button>}<p className="text-xs text-slate-500" aria-live="polite">{pagination.statusLabel}</p></div>}
           </div>
         </section>
       </section>
@@ -212,9 +228,9 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
               isso abre o teclado e a primeira tecla apagaria o nome.
             - rodapé: o "sticky bottom-0" ficava acima do padding de 24px do modal, e a seção 3
               aparecia por baixo de "Salvar/Cancelar". O rodapé agora cobre o padding (-mx/-mb). */}
-        <DialogContent onOpenAutoFocus={(event) => event.preventDefault()} className="max-h-[92dvh] overflow-y-auto border-slate-700 bg-slate-950 text-slate-100 sm:max-w-5xl">
+        <DialogContent onOpenAutoFocus={(event) => { event.preventDefault(); editorTitleRef.current?.focus(); }} onCloseAutoFocus={(event) => { const trigger = editorTriggerRef.current; if (trigger?.isConnected) { event.preventDefault(); trigger.focus(); } }} className="max-h-[92dvh] overflow-y-auto border-slate-700 bg-slate-950 text-slate-100 sm:max-w-5xl">
           <DialogHeader className="border-b border-slate-800 pb-4">
-            <DialogTitle>{draft.id ? "Editar exame canônico" : "Novo exame canônico"}</DialogTitle>
+            <DialogTitle ref={editorTitleRef} tabIndex={-1} className="outline-none">{draft.id ? "Editar exame canônico" : "Novo exame canônico"}</DialogTitle>
             <DialogDescription className="text-slate-400">Organize a regra clínica em blocos independentes. Alterações valem para documentos e mapeamentos futuros; assinaturas anteriores preservam seus snapshots.</DialogDescription>
           </DialogHeader>
 
