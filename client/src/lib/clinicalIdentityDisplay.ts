@@ -35,3 +35,57 @@ export function clinicalDateDisplay(formattedDate: string | null | undefined): s
   const value = (formattedDate ?? "").trim();
   return value || CLINICAL_EMPTY_VALUE;
 }
+
+// ── Leitura dos dados do estudo gravados pela worklist/viewer (sessionStorage) ──
+//
+// ADENDO (parecer Manus 50a9ef3, bloqueio 1): a leitura agora devolve um resultado
+// explícito. O editor guarda o resultado JUNTO com o UID lido, e só considera os
+// dados válidos para o UID atual — assim nada do Estudo A sobrevive no Estudo B,
+// nem por um único render.
+
+export type StudySessionRead<T> =
+  | { status: "found"; info: T }
+  | { status: "missing" }
+  | { status: "invalid" };
+
+type StorageLike = Pick<Storage, "getItem"> | null | undefined;
+
+export function readStudySessionInfo<T extends Record<string, unknown>>(storage: StorageLike, studyUid: string): StudySessionRead<T> {
+  if (!storage || !studyUid) return { status: "missing" };
+  let raw: string | null;
+  try {
+    raw = storage.getItem(`study_${studyUid}`);
+  } catch {
+    return { status: "invalid" };
+  }
+  if (raw == null || raw === "") return { status: "missing" };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { status: "invalid" };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { status: "invalid" };
+  const info = parsed as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === "string" ? value : "");
+  return {
+    status: "found",
+    info: {
+      ...info,
+      birthDate: text(info.birthDate) || text(info.patientBirthDate),
+      sex: text(info.sex) || text(info.patientSex),
+    } as unknown as T,
+  };
+}
+
+// ── Guarda das ações clínicas ──
+// ADENDO (parecer Manus 50a9ef3, bloqueio 2): salvar, assinar, iniciar nova ocorrência,
+// imprimir e baixar exigem os dados do estudo resolvidos para o UID atual.
+export const CLINICAL_STUDY_UNAVAILABLE_MESSAGE =
+  "Não é possível salvar ou assinar: os dados do estudo não estão disponíveis. Volte à lista e abra o estudo novamente.";
+export const CLINICAL_STUDY_UNAVAILABLE_PRINT_MESSAGE =
+  "Não é possível imprimir ou baixar: os dados do estudo não estão disponíveis. Volte à lista e abra o estudo novamente.";
+
+export function hasResolvedClinicalStudy(studyInfoResolved: boolean, studyInfo: unknown): boolean {
+  return studyInfoResolved && studyInfo !== null && studyInfo !== undefined;
+}

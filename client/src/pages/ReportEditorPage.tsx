@@ -17,7 +17,7 @@ import {
   pickActiveRef,
   rangeBelongsToTarget,
 } from "@/lib/reportEditorDom";
-import { clinicalDateDisplay, patientNameDisplay } from "@/lib/clinicalIdentityDisplay";
+import { CLINICAL_STUDY_UNAVAILABLE_MESSAGE, CLINICAL_STUDY_UNAVAILABLE_PRINT_MESSAGE, clinicalDateDisplay, hasResolvedClinicalStudy as computeHasResolvedClinicalStudy, patientNameDisplay, readStudySessionInfo } from "@/lib/clinicalIdentityDisplay";
 import { clampImageToPage, pageHeightMm, pageWidthMm } from "@/lib/pdfPageGeometry";
 import { canvasToPdfRasterImage } from "@/lib/pdfRasterExport";
 import {
@@ -217,10 +217,15 @@ export default function ReportEditorPage() {
   const autoDownloadTriggered = useRef(false);
 
   // Info do estudo (vinda do sessionStorage)
-  const [studyInfo, setStudyInfo] = useState<StudyInfo | null>(null);
-  // true depois que a leitura dos dados do estudo (sessionStorage) terminou, com ou sem
-  // sucesso — distingue "Carregando…" de "Dados do estudo indisponíveis".
-  const [studyInfoResolved, setStudyInfoResolved] = useState(false);
+  // ADENDO (parecer Manus 50a9ef3, bloqueio 1): o resultado da leitura é guardado JUNTO
+  // com o UID lido. studyInfo/studyInfoResolved só valem quando esse UID é o da rota
+  // atual; ao trocar de estudo sem remontar a página, já no primeiro render o editor
+  // mostra "Carregando…" e nenhuma informação do estudo anterior fica disponível —
+  // nem na tela nem para salvar/assinar/imprimir/baixar.
+  const [studySession, setStudySession] = useState<{ uid: string; info: StudyInfo | null } | null>(null);
+  const studyInfo: StudyInfo | null = studySession?.uid === studyUid ? studySession.info : null;
+  const studyInfoResolved = studySession?.uid === studyUid;
+  const hasResolvedClinicalStudy = computeHasResolvedClinicalStudy(studyInfoResolved, studyInfo);
 
   // Título do exame no documento (definido pela aba Exames)
   const [examTitle, setExamTitle] = useState("");
@@ -456,29 +461,29 @@ export default function ReportEditorPage() {
   }, [isPreview, isMultiSection, getVisibleDoc, getActiveSectionRefs]);
 
   // ── Carregar info do estudo ──────────────────────────────────────────────
+  // ADENDO (parecer Manus 50a9ef3, bloqueio 1): reset determinístico antes de ler o
+  // novo UID. Título, seções e corpos de seção nunca herdam valores do estudo anterior;
+  // chave ausente ou JSON inválido terminam com studyInfo = null e estado resolvido.
   useEffect(() => {
-    const raw = sessionStorage.getItem(`study_${studyUid}`);
-    if (raw) {
-      try {
-        const info = JSON.parse(raw);
-        const normalizedInfo = {
-          ...info,
-          birthDate: info.birthDate || info.patientBirthDate || "",
-          sex: info.sex || info.patientSex || "",
-        };
-        setStudyInfo(normalizedInfo);
-        setExamTitle(documentLabelFromRoute || info.studyDescription || "");
-        // Configura multi-seção se houver mais de 1 exame
-        if (documentKey === "primary" && info.examNames && info.examNames.length > 1) {
-          setExamNames(info.examNames);
-          setSectionBodies(info.examNames.map(() => ""));
-        } else {
-          setExamNames([]);
-          setSectionBodies([]);
-        }
-      } catch { /* ignore */ }
+    setExamTitle(documentLabelFromRoute || "");
+    setExamNames([]);
+    setSectionBodies([]);
+    setPreviewHtml("");
+    const read = readStudySessionInfo<StudyInfo & Record<string, unknown>>(
+      typeof window !== "undefined" ? window.sessionStorage : null,
+      studyUid,
+    );
+    if (read.status === "found") {
+      const info = read.info;
+      setExamTitle(documentLabelFromRoute || (typeof info.studyDescription === "string" ? info.studyDescription : "") || "");
+      // Configura multi-seção se houver mais de 1 exame
+      const names = Array.isArray(info.examNames) ? info.examNames.filter((name): name is string => typeof name === "string") : [];
+      if (documentKey === "primary" && names.length > 1) {
+        setExamNames(names);
+        setSectionBodies(names.map(() => ""));
+      }
     }
-    setStudyInfoResolved(true);
+    setStudySession({ uid: studyUid, info: read.status === "found" ? read.info : null });
   }, [studyUid, documentKey, documentLabelFromRoute]);
 
   // ── Carregar laudo existente no documento ────────────────────────────────────
@@ -696,6 +701,7 @@ export default function ReportEditorPage() {
   }, [isMultiSection, examNames, getVisibleDoc, getActiveSectionRefs, existingReport, isSigned, isRevising]);
 
   const handleSave = useCallback(async () => {
+    if (!hasResolvedClinicalStudy) { toast.error(CLINICAL_STUDY_UNAVAILABLE_MESSAGE); return; }
     const body = collectBody();
     try {
       if (existingReport?.id) {
@@ -715,9 +721,10 @@ export default function ReportEditorPage() {
     } catch (e: any) {
       toast.error(e.message || "Erro ao salvar");
     }
-  }, [existingReport, studyUid, examTitle, studyInfo, updateReport, createReport, collectBody]);
+  }, [existingReport, studyUid, examTitle, studyInfo, hasResolvedClinicalStudy, updateReport, createReport, collectBody]);
 
   const handleNewOccurrence = useCallback(async () => {
+    if (!hasResolvedClinicalStudy) { toast.error(CLINICAL_STUDY_UNAVAILABLE_MESSAGE); return; }
     if (!existingReport || !isCancelled) return;
     try {
       // FIX (Alessandro, reprodução 2026-09-26): esta chamada enviava
@@ -740,11 +747,12 @@ export default function ReportEditorPage() {
     } catch (e: any) {
       toast.error(e.message || "Não foi possível iniciar nova laudagem");
     }
-  }, [existingReport, isCancelled, createReport, studyUid, studyInfo, documentKey, documentLabelFromRoute, examTitle, utils, unitId]);
+  }, [existingReport, isCancelled, createReport, studyUid, studyInfo, hasResolvedClinicalStudy, documentKey, documentLabelFromRoute, examTitle, utils, unitId]);
 
   // ── Assinar ──────────────────────────────────────────────────────────────
   // Salva o laudo automaticamente (se necessário) e depois assina em um único clique
   const handleSign = useCallback(async () => {
+    if (!hasResolvedClinicalStudy) { toast.error(CLINICAL_STUDY_UNAVAILABLE_MESSAGE); return; }
     const body = collectBody();
     if (!body.trim() || body.trim() === "<br>" || body.trim() === "<p></p>") {
       toast.error("Digite o conteúdo do laudo antes de assinar");
@@ -797,7 +805,7 @@ export default function ReportEditorPage() {
     } catch (e: any) {
       toast.error(e.message || "Erro ao assinar");
     }
-  }, [existingReport, studyUid, studyInfo, createReport, updateReport, signReport, navigate, collectBody, documentKey, documentLabelFromRoute, examTitle, unitLayout]);
+  }, [existingReport, studyUid, studyInfo, hasResolvedClinicalStudy, createReport, updateReport, signReport, navigate, collectBody, documentKey, documentLabelFromRoute, examTitle, unitLayout]);
 
   // ── Retificar laudo assinado ─────────────────────────────────────────────
   const handleRevise = useCallback(async () => {
@@ -887,8 +895,10 @@ export default function ReportEditorPage() {
   const patientNameOnScreenClass = patientNameOnScreen.isPlaceholder ? "font-normal italic normal-case text-gray-400" : "";
 
   const handlePrint = useCallback(async (renderInCurrentWindow = false) => {
-    const birthDate = studyInfo?.birthDate || '';
-    const studyDateFormatted = studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : '';
+    if (!hasResolvedClinicalStudy) { toast.error(CLINICAL_STUDY_UNAVAILABLE_PRINT_MESSAGE); return; }
+    // ADENDO (bloqueio 3): mesma normalização da tela; antes o nascimento ia cru (AAAAMMDD).
+    const birthDate = clinicalDateDisplay(formatDicomDate(studyInfo?.birthDate));
+    const studyDateFormatted = clinicalDateDisplay(formatDicomDate(studyInfo?.studyDate));
     const sexFormatted = studyInfo?.sex ? (studyInfo.sex.toUpperCase() === 'M' ? 'Masculino' : studyInfo.sex.toUpperCase() === 'F' ? 'Feminino' : studyInfo.sex) : '';
     const isSignedOrRevised = existingReport?.status === 'signed' || existingReport?.status === 'revised';
     const signedAtFormatted = existingReport?.signedAt
@@ -1120,7 +1130,7 @@ export default function ReportEditorPage() {
       });
       if (!renderInCurrentWindow) win.close();
     }
-  }, [medCtx, patientName, studyInfo, examTitle, docRef, existingReport, effectiveReportLayout, effectiveLayoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
+  }, [hasResolvedClinicalStudy, medCtx, patientName, studyInfo, examTitle, docRef, existingReport, effectiveReportLayout, effectiveLayoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
 
   useEffect(() => {
     if (!printOnOpen || autoPrintTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
@@ -1129,6 +1139,7 @@ export default function ReportEditorPage() {
   }, [printOnOpen, studyInfo, existingReport?.id, isSigned, handlePrint]);
 
   const handleFinancialPdfDownload = useCallback(async () => {
+    if (!hasResolvedClinicalStudy) { toast.error(CLINICAL_STUDY_UNAVAILABLE_PRINT_MESSAGE); return; }
     const pages = Array.from(document.querySelectorAll<HTMLElement>(".report-page"));
     if (pages.length === 0) {
       toast.error("O documento final ainda não está pronto para download.");
@@ -1172,7 +1183,7 @@ export default function ReportEditorPage() {
     } catch {
       toast.error("Não foi possível gerar o PDF. Tente novamente.", { id: "financial-pdf-download" });
     }
-  }, [patientName, effectiveLayoutPrefs]);
+  }, [hasResolvedClinicalStudy, patientName, effectiveLayoutPrefs]);
 
   useEffect(() => {
     if (!downloadOnOpen || !financialDocumentView || autoDownloadTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
@@ -1284,12 +1295,12 @@ export default function ReportEditorPage() {
         </div>
         <div className="flex items-center gap-2 ml-auto">
           {financialDocumentView ? (
-            <Button variant="outline" size="sm" onClick={() => void handleFinancialPdfDownload()} className="gap-1.5 text-xs">
+            <Button variant="outline" size="sm" onClick={() => void handleFinancialPdfDownload()} disabled={!hasResolvedClinicalStudy} className="gap-1.5 text-xs">
               <FileDown className="h-3.5 w-3.5" />
               Baixar PDF
             </Button>
           ) : (
-            <Button variant="outline" size="sm" onClick={() => void handlePrint()} className="gap-1.5 text-xs">
+            <Button variant="outline" size="sm" onClick={() => void handlePrint()} disabled={!hasResolvedClinicalStudy} className="gap-1.5 text-xs">
               <Printer className="h-3.5 w-3.5" />
               Imprimir
             </Button>
@@ -1312,7 +1323,7 @@ export default function ReportEditorPage() {
             <Button
               size="sm"
               onClick={handleNewOccurrence}
-              disabled={createReport.isPending}
+              disabled={createReport.isPending || !hasResolvedClinicalStudy}
               className="gap-1.5 text-xs bg-cyan-700 hover:bg-cyan-800 text-white disabled:opacity-50"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -1371,7 +1382,7 @@ export default function ReportEditorPage() {
               <Button
                 size="sm"
                 onClick={handleSign}
-                disabled={signReport.isPending || createReport.isPending || updateReport.isPending}
+                disabled={signReport.isPending || createReport.isPending || updateReport.isPending || !hasResolvedClinicalStudy}
                 className="gap-1.5 text-xs bg-green-600 hover:bg-green-700 text-white disabled:opacity-50"
               >
                 <CheckCircle className="h-3.5 w-3.5" />
@@ -1397,6 +1408,7 @@ export default function ReportEditorPage() {
         </div>
         <button
           onClick={() => financialDocumentView ? void handleFinancialPdfDownload() : void handlePrint()}
+          disabled={!hasResolvedClinicalStudy}
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
           aria-label={financialDocumentView ? "Baixar PDF do laudo" : "Imprimir laudo"}
         >
@@ -1405,7 +1417,7 @@ export default function ReportEditorPage() {
         {!financialDocumentView && (isCancelled ? (
           <button
             onClick={handleNewOccurrence}
-            disabled={createReport.isPending}
+            disabled={createReport.isPending || !hasResolvedClinicalStudy}
             className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-cyan-700 px-2.5 text-xs font-semibold text-white disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
@@ -1436,7 +1448,7 @@ export default function ReportEditorPage() {
         ) : (
           <button
             onClick={handleSign}
-            disabled={signReport.isPending || createReport.isPending || updateReport.isPending}
+            disabled={signReport.isPending || createReport.isPending || updateReport.isPending || !hasResolvedClinicalStudy}
             className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-green-600 px-2.5 text-xs font-semibold text-white disabled:opacity-50"
           >
             <CheckCircle className="h-4 w-4" />
@@ -1518,7 +1530,7 @@ export default function ReportEditorPage() {
                 size="sm"
                 className="w-full text-xs"
                 onClick={handleSave}
-                disabled={createReport.isPending || updateReport.isPending}
+                disabled={createReport.isPending || updateReport.isPending || !hasResolvedClinicalStudy}
               >
                 {(createReport.isPending || updateReport.isPending) ? "Salvando..." : "Salvar Rascunho"}
               </Button>
@@ -1649,9 +1661,9 @@ export default function ReportEditorPage() {
                       patientNameContent={<ClinicalPatientName patientName={patientName} />}
                       patientInfo={
                         <ClinicalPatientDetails
-                          birthDate={studyInfo?.birthDate ? formatDicomDate(studyInfo.birthDate) : "—"}
+                          birthDate={clinicalDateDisplay(formatDicomDate(studyInfo?.birthDate))}
                           sex={studyInfo?.sex || "—"}
-                          studyDate={studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : "—"}
+                          studyDate={clinicalDateDisplay(formatDicomDate(studyInfo?.studyDate))}
                           modality={studyInfo?.modality}
                           unitName={medCtx?.unitName}
                         />
@@ -1786,9 +1798,9 @@ export default function ReportEditorPage() {
                 patientNameContent={<ClinicalPatientName patientName={patientName} />}
                 patientInfo={
                   <ClinicalPatientDetails
-                    birthDate={studyInfo?.birthDate ? formatDicomDate(studyInfo.birthDate) : "—"}
+                    birthDate={clinicalDateDisplay(formatDicomDate(studyInfo?.birthDate))}
                     sex={studyInfo?.sex || "—"}
-                    studyDate={clinicalDateDisplay(studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : "")}
+                    studyDate={clinicalDateDisplay(formatDicomDate(studyInfo?.studyDate))}
                     modality={studyInfo?.modality}
                     unitName={medCtx?.unitName}
                   />
@@ -1980,7 +1992,7 @@ export default function ReportEditorPage() {
                 </div>
                 <div>
                   <span className="text-gray-400 text-[9px] uppercase">Nascimento:</span>
-                  <p className="font-medium text-gray-800">{clinicalDateDisplay(studyInfo?.birthDate ? formatDicomDate(studyInfo.birthDate) : "")}</p>
+                  <p className="font-medium text-gray-800">{clinicalDateDisplay(formatDicomDate(studyInfo?.birthDate))}</p>
                 </div>
                 <div className="col-span-2">
                   <span className="text-gray-400 text-[9px] uppercase">Exame Realizado:</span>
@@ -2077,7 +2089,7 @@ export default function ReportEditorPage() {
             <button
               type="button"
               onClick={handleSave}
-              disabled={createReport.isPending || updateReport.isPending}
+              disabled={createReport.isPending || updateReport.isPending || !hasResolvedClinicalStudy}
               className="inline-flex h-10 flex-1 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-700 disabled:opacity-50"
             >
               {(createReport.isPending || updateReport.isPending) ? "Salvando..." : "Salvar rascunho"}

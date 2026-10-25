@@ -3,7 +3,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { clinicalDateDisplay, patientNameDisplay } from "../client/src/lib/clinicalIdentityDisplay";
+import { clinicalDateDisplay, hasResolvedClinicalStudy, patientNameDisplay, readStudySessionInfo } from "../client/src/lib/clinicalIdentityDisplay";
 
 const root = path.resolve(import.meta.dirname, "..");
 const editorPath = path.join(root, "client/src/pages/ReportEditorPage.tsx");
@@ -63,12 +63,17 @@ describe("ReportEditorPage — sem identidade fictícia nem data inventada", () 
 
   it("a data do estudo na folha não cai para a data de hoje", () => {
     expect(editor).not.toMatch(/studyDate=\{[^}]*new Date\(\)/);
-    expect(editor).toContain('studyDate={clinicalDateDisplay(studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : "")}');
+    // ATUALIZADO (adendo, bloqueio 3): todas as saídas usam clinicalDateDisplay(formatDicomDate(...)).
+    expect(editor.match(/studyDate=\{clinicalDateDisplay\(formatDicomDate\(studyInfo\?\.studyDate\)\)\}/g)?.length).toBe(2);
+    expect(editor.match(/birthDate=\{clinicalDateDisplay\(formatDicomDate\(studyInfo\?\.birthDate\)\)\}/g)?.length).toBe(2);
+    // impressão/PDF: mesma normalização (antes o nascimento ia cru).
+    expect(editor).toContain("const birthDate = clinicalDateDisplay(formatDicomDate(studyInfo?.birthDate));");
+    expect(editor).toContain("const studyDateFormatted = clinicalDateDisplay(formatDicomDate(studyInfo?.studyDate));");
   });
 
   it("cartão mobile e cabeçalhos usam o estado neutro; nascimento é formatado", () => {
     expect(editor.match(/\{patientNameOnScreen\.text\}/g)?.length).toBe(3);
-    expect(editor).toContain('{clinicalDateDisplay(studyInfo?.birthDate ? formatDicomDate(studyInfo.birthDate) : "")}');
+    expect(editor).toContain("{clinicalDateDisplay(formatDicomDate(studyInfo?.birthDate))}");
     expect(editor).not.toContain('patientName || "Carregando..."');
   });
 
@@ -82,5 +87,47 @@ describe("ReportEditorPage — sem identidade fictícia nem data inventada", () 
     // Gravação continua usando o dado bruto do estudo.
     expect(editor).toContain("patient_name: studyInfo?.patientName || undefined,");
     expect(editor).toContain("study_date: studyInfo?.studyDate || undefined,");
+  });
+});
+
+// ADENDO (parecer Manus 50a9ef3): leitura da sessão e guarda das ações.
+describe("readStudySessionInfo / hasResolvedClinicalStudy", () => {
+  const store = (value: string | null) => ({ getItem: () => value });
+
+  it("chave ausente → missing; vazia → missing", () => {
+    expect(readStudySessionInfo(store(null), "1.2.3")).toEqual({ status: "missing" });
+    expect(readStudySessionInfo(store(""), "1.2.3")).toEqual({ status: "missing" });
+    expect(readStudySessionInfo(null, "1.2.3")).toEqual({ status: "missing" });
+    expect(readStudySessionInfo(store("{}"), "")).toEqual({ status: "missing" });
+  });
+
+  it("JSON inválido, array, número ou null → invalid", () => {
+    for (const raw of ["{x", "[1,2]", "42", "null", "\"texto\""]) {
+      expect(readStudySessionInfo(store(raw), "1.2.3"), raw).toEqual({ status: "invalid" });
+    }
+  });
+
+  it("storage que lança exceção → invalid", () => {
+    expect(readStudySessionInfo({ getItem: () => { throw new Error("bloqueado"); } }, "1.2.3")).toEqual({ status: "invalid" });
+  });
+
+  it("objeto válido é normalizado (birthDate/sex a partir dos campos DICOM)", () => {
+    const read = readStudySessionInfo(store(JSON.stringify({ patientName: "SINT^TESTE", patientBirthDate: "19800102", patientSex: "F" })), "1.2.3");
+    expect(read).toEqual({ status: "found", info: { patientName: "SINT^TESTE", patientBirthDate: "19800102", patientSex: "F", birthDate: "19800102", sex: "F" } });
+  });
+
+  it("guarda: só libera com leitura resolvida E estudo presente", () => {
+    expect(hasResolvedClinicalStudy(false, null)).toBe(false);
+    expect(hasResolvedClinicalStudy(false, { a: 1 })).toBe(false);
+    expect(hasResolvedClinicalStudy(true, null)).toBe(false);
+    expect(hasResolvedClinicalStudy(true, { a: 1 })).toBe(true);
+  });
+
+  it("os cinco handlers clínicos começam pela guarda", () => {
+    for (const name of ["handleSave", "handleNewOccurrence", "handleSign", "handlePrint", "handleFinancialPdfDownload"]) {
+      const start = editor.indexOf(`const ${name} = useCallback(`);
+      const firstLines = editor.slice(start, editor.indexOf("\n", editor.indexOf("\n", start) + 1));
+      expect(firstLines, name).toContain("if (!hasResolvedClinicalStudy) { toast.error(CLINICAL_STUDY_UNAVAILABLE");
+    }
   });
 });
