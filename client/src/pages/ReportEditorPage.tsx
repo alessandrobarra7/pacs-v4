@@ -17,6 +17,7 @@ import {
   pickActiveRef,
   rangeBelongsToTarget,
 } from "@/lib/reportEditorDom";
+import { type PendingRevision, parseReportRouteIdentity, pendingRevisionMatches, reportBelongsToRoute, reportDocumentKey } from "@/lib/reportEditorIdentity";
 import { CLINICAL_STUDY_UNAVAILABLE_MESSAGE, CLINICAL_STUDY_UNAVAILABLE_PRINT_MESSAGE, clinicalDateDisplay, hasResolvedClinicalStudy as computeHasResolvedClinicalStudy, patientNameDisplay, readStudySessionInfo } from "@/lib/clinicalIdentityDisplay";
 import { clampImageToPage, pageHeightMm, pageWidthMm } from "@/lib/pdfPageGeometry";
 import { canvasToPdfRasterImage } from "@/lib/pdfRasterExport";
@@ -201,7 +202,18 @@ async function convertImagesToBase64(html: string): Promise<string> {
 }
 
 // ─── Componente Principal ─────────────────────────────────────────────────────
+// ADENDO 2 (parecer Manus sobre 5fea1cf): a página é remontada sempre que a identidade
+// do documento muda (estudo, documento, unidade, modo financeiro e gatilhos automáticos).
+// Assim os campos contentEditable (DOM não controlado), a retificação em andamento, a
+// seleção salva, as prévias e os gatilhos automáticos NUNCA passam de um documento para
+// outro. useLocation faz o wrapper re-renderizar a cada navegação do wouter.
 export default function ReportEditorPage() {
+  useLocation();
+  const identity = parseReportRouteIdentity(window.location.pathname, window.location.search);
+  return <ReportEditorDocument key={reportDocumentKey(identity)} />;
+}
+
+function ReportEditorDocument() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const isAdminMaster = user?.role === "admin_master";
@@ -213,8 +225,11 @@ export default function ReportEditorPage() {
   const printOnOpen = reportSearch.get("print") === "1";
   const financialDocumentView = reportSearch.get("financialView") === "1";
   const downloadOnOpen = reportSearch.get("download") === "1";
-  const autoPrintTriggered = useRef(false);
-  const autoDownloadTriggered = useRef(false);
+  // ADENDO 2: gatilhos automáticos guardam a CHAVE do documento já processado, não um
+  // booleano — cada documento dispara no máximo uma vez, e um documento novo dispara.
+  const routeDocumentKey = reportDocumentKey(parseReportRouteIdentity(window.location.pathname, window.location.search));
+  const autoPrintTriggered = useRef<string | null>(null);
+  const autoDownloadTriggered = useRef<string | null>(null);
 
   // Info do estudo (vinda do sessionStorage)
   // ADENDO (parecer Manus 50a9ef3, bloqueio 1): o resultado da leitura é guardado JUNTO
@@ -330,10 +345,14 @@ export default function ReportEditorPage() {
   }, [unitId, refetchUnitLayout]);
 
   // Laudo existente
-  const { data: existingReport } = trpc.reports.getByStudyUid.useQuery(
+  const { data: fetchedReport } = trpc.reports.getByStudyUid.useQuery(
     { studyInstanceUid: studyUid, documentKey, unit_id: unitId || undefined },
     { enabled: !!studyUid && unitId > 0 }
   );
+  // ADENDO 2: só aceita o laudo do servidor se ele pertence ao UID/documento da rota.
+  // Todo o editor (hidratação, salvar, assinar, retificar, imprimir, baixar) usa
+  // existingReport, então esta é a única porta de entrada.
+  const existingReport = reportBelongsToRoute(fetchedReport, studyUid, documentKey) ? fetchedReport : null;
   const { data: signedReportWithDoctor } = trpc.reports.getByStudyUidWithDoctor.useQuery(
     { studyInstanceUid: studyUid, documentKey, unit_id: unitId || undefined },
     { enabled: !!studyUid && unitId > 0 && (existingReport?.status === "signed" || existingReport?.status === "revised") }
@@ -353,7 +372,9 @@ export default function ReportEditorPage() {
   const [showReviseModal, setShowReviseModal] = useState(false);
   // Bug fix B3: capturar body no momento de abertura do modal (não ao confirmar),
   // evitando race condition caso o usuário edite o documento enquanto o modal está aberto.
-  const [pendingReviseBody, setPendingReviseBody] = useState<string>("");
+  // ADENDO 2: snapshot da retificação ligado a estudo, documento e laudo.
+  const [pendingRevision, setPendingRevision] = useState<PendingRevision | null>(null);
+  const pendingReviseBody = pendingRevision?.body ?? "";
 
   // Estado de exclusão
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -498,6 +519,15 @@ export default function ReportEditorPage() {
   // getActiveSectionRefs), então o body seria sobrescrito pelo DOM mobile
   // vazio/parcial, apagando o conteúdo original. Agora grava em AMBAS as
   // árvores sempre, mantendo-as em sincronia desde a carga inicial.
+  // ADENDO 2: laudo devolvido que NÃO pertence a esta rota (outro estudo/documento) —
+  // limpa as duas árvores do editor e o ignora. Efeito separado para manter intacto o
+  // contrato do efeito de hidratação abaixo (server/report-editor-cancelled-reset-wiring).
+  useEffect(() => {
+    if (!fetchedReport || existingReport) return;
+    [docRef.current, mobileDocRef.current, ...sectionRefs.current, ...mobileSectionRefs.current]
+      .forEach((el) => { if (el) el.innerHTML = ""; });
+  }, [fetchedReport, existingReport]);
+
   useEffect(() => {
     if (!existingReport) return;
     if (!existingReport.body) {
@@ -809,6 +839,18 @@ export default function ReportEditorPage() {
 
   // ── Retificar laudo assinado ─────────────────────────────────────────────
   const handleRevise = useCallback(async () => {
+    // ADENDO 2: só confirma a retificação no MESMO estudo/documento/laudo capturado.
+    const revisionStillValid = existingReport?.id != null
+      && (existingReport.status === "signed" || existingReport.status === "revised")
+      && pendingRevisionMatches(pendingRevision, { studyUid, documentKey, reportId: existingReport.id });
+    if (!revisionStillValid) {
+      setShowReviseModal(false);
+      setIsRevising(false);
+      setReviseReason("");
+      setPendingRevision(null);
+      toast.error("O documento mudou desde que a retificação foi iniciada. Nada foi alterado; abra o laudo novamente e refaça a retificação.");
+      return;
+    }
     if (!existingReport?.id) return;
     if (!reviseReason.trim() || reviseReason.trim().length < 5) {
       toast.error("Informe o motivo da retificação (mínimo 5 caracteres)");
@@ -829,12 +871,12 @@ export default function ReportEditorPage() {
       setIsRevising(false);
       setShowReviseModal(false);
       setReviseReason("");
-      setPendingReviseBody("");
+      setPendingRevision(null);
       navigate("/");
     } catch (e: any) {
       toast.error(e.message || "Erro ao retificar");
     }
-  }, [existingReport, reviseReason, pendingReviseBody, reviseReport, navigate]);
+  }, [existingReport, reviseReason, pendingReviseBody, pendingRevision, studyUid, documentKey, reviseReport, navigate]);
 
   // ── Apagar laudo ───────────────────────────────────────────────────────────────────────────────────────
   const handleDelete = useCallback(async () => {
@@ -1133,13 +1175,15 @@ export default function ReportEditorPage() {
   }, [hasResolvedClinicalStudy, medCtx, patientName, studyInfo, examTitle, docRef, existingReport, effectiveReportLayout, effectiveLayoutPrefs, layoutLogos, layoutFooterUrl, layoutBgUrl, layoutBgOpacity, layoutBgSize, layoutBlockPos, sectionRefs, examNames, isMultiSection, signedDoctorName, signedDoctorCrm, signedDoctorSignatureUrl, signedDoctorStampUrl]);
 
   useEffect(() => {
-    if (!printOnOpen || autoPrintTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
-    autoPrintTriggered.current = true;
+    if (!printOnOpen || autoPrintTriggered.current === routeDocumentKey || !studyInfo || !existingReport?.id || !isSigned) return;
+    autoPrintTriggered.current = routeDocumentKey;
     void handlePrint(true);
-  }, [printOnOpen, studyInfo, existingReport?.id, isSigned, handlePrint]);
+  }, [printOnOpen, routeDocumentKey, studyInfo, existingReport?.id, isSigned, handlePrint]);
 
   const handleFinancialPdfDownload = useCallback(async () => {
     if (!hasResolvedClinicalStudy) { toast.error(CLINICAL_STUDY_UNAVAILABLE_PRINT_MESSAGE); return; }
+    // ADENDO 2: o PDF financeiro é documento final — só laudo assinado ou retificado.
+    if (!isSigned) { toast.error("O PDF financeiro só está disponível para laudo assinado ou retificado."); return; }
     const pages = Array.from(document.querySelectorAll<HTMLElement>(".report-page"));
     if (pages.length === 0) {
       toast.error("O documento final ainda não está pronto para download.");
@@ -1183,17 +1227,17 @@ export default function ReportEditorPage() {
     } catch {
       toast.error("Não foi possível gerar o PDF. Tente novamente.", { id: "financial-pdf-download" });
     }
-  }, [hasResolvedClinicalStudy, patientName, effectiveLayoutPrefs]);
+  }, [hasResolvedClinicalStudy, isSigned, patientName, effectiveLayoutPrefs]);
 
   useEffect(() => {
-    if (!downloadOnOpen || !financialDocumentView || autoDownloadTriggered.current || !studyInfo || !existingReport?.id || !isSigned) return;
-    autoDownloadTriggered.current = true;
+    if (!downloadOnOpen || !financialDocumentView || autoDownloadTriggered.current === routeDocumentKey || !studyInfo || !existingReport?.id || !isSigned) return;
+    autoDownloadTriggered.current = routeDocumentKey;
     void handleFinancialPdfDownload().finally(() => {
       if (window.parent !== window && window.frameElement instanceof HTMLIFrameElement) {
         window.setTimeout(() => window.frameElement?.remove(), 1000);
       }
     });
-  }, [downloadOnOpen, financialDocumentView, studyInfo, existingReport?.id, isSigned, handleFinancialPdfDownload]);
+  }, [downloadOnOpen, financialDocumentView, routeDocumentKey, studyInfo, existingReport?.id, isSigned, handleFinancialPdfDownload]);
 
   // FIX BUG-2: inserir imagem inline no contentEditable
   // A imagem faz parte do documento, é salva no laudo e arrastável pelo browser nativamente.
@@ -1295,7 +1339,7 @@ export default function ReportEditorPage() {
         </div>
         <div className="flex items-center gap-2 ml-auto">
           {financialDocumentView ? (
-            <Button variant="outline" size="sm" onClick={() => void handleFinancialPdfDownload()} disabled={!hasResolvedClinicalStudy} className="gap-1.5 text-xs">
+            <Button variant="outline" size="sm" onClick={() => void handleFinancialPdfDownload()} disabled={!hasResolvedClinicalStudy || !isSigned} className="gap-1.5 text-xs">
               <FileDown className="h-3.5 w-3.5" />
               Baixar PDF
             </Button>
@@ -1345,7 +1389,8 @@ export default function ReportEditorPage() {
                   size="sm"
                   onClick={() => {
                     // Bug fix B3: capturar body do DOM neste exato momento
-                    setPendingReviseBody(collectBody());
+                    if (!existingReport?.id) return;
+                    setPendingRevision({ studyUid, documentKey, reportId: existingReport.id, body: collectBody() });
                     setShowReviseModal(true);
                   }}
                   disabled={reviseReport.isPending}
@@ -1408,7 +1453,7 @@ export default function ReportEditorPage() {
         </div>
         <button
           onClick={() => financialDocumentView ? void handleFinancialPdfDownload() : void handlePrint()}
-          disabled={!hasResolvedClinicalStudy}
+          disabled={!hasResolvedClinicalStudy || (financialDocumentView && !isSigned)}
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
           aria-label={financialDocumentView ? "Baixar PDF do laudo" : "Imprimir laudo"}
         >
@@ -1427,7 +1472,8 @@ export default function ReportEditorPage() {
           isRevising ? (
             <button
               onClick={() => {
-                setPendingReviseBody(collectBody());
+                if (!existingReport?.id) return;
+                setPendingRevision({ studyUid, documentKey, reportId: existingReport.id, body: collectBody() });
                 setShowReviseModal(true);
               }}
               disabled={reviseReport.isPending}
