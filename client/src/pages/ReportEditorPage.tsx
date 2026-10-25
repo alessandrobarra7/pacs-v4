@@ -17,6 +17,7 @@ import {
   pickActiveRef,
   rangeBelongsToTarget,
 } from "@/lib/reportEditorDom";
+import { clinicalDateDisplay, patientNameDisplay } from "@/lib/clinicalIdentityDisplay";
 import { clampImageToPage, pageHeightMm, pageWidthMm } from "@/lib/pdfPageGeometry";
 import { canvasToPdfRasterImage } from "@/lib/pdfRasterExport";
 import {
@@ -217,6 +218,9 @@ export default function ReportEditorPage() {
 
   // Info do estudo (vinda do sessionStorage)
   const [studyInfo, setStudyInfo] = useState<StudyInfo | null>(null);
+  // true depois que a leitura dos dados do estudo (sessionStorage) terminou, com ou sem
+  // sucesso — distingue "Carregando…" de "Dados do estudo indisponíveis".
+  const [studyInfoResolved, setStudyInfoResolved] = useState(false);
 
   // Título do exame no documento (definido pela aba Exames)
   const [examTitle, setExamTitle] = useState("");
@@ -474,6 +478,7 @@ export default function ReportEditorPage() {
         }
       } catch { /* ignore */ }
     }
+    setStudyInfoResolved(true);
   }, [studyUid, documentKey, documentLabelFromRoute]);
 
   // ── Carregar laudo existente no documento ────────────────────────────────────
@@ -877,6 +882,9 @@ export default function ReportEditorPage() {
   const layoutLogos = effectiveReportLayout.logos ?? [];
   // ── Imprimir ───────────────────────────────────────────────────────────────────────────────────────
   const patientName = formatPatientName(studyInfo?.patientName || "");
+  // Somente para a TELA (cabeçalhos e cartão mobile). Ver client/src/lib/clinicalIdentityDisplay.ts.
+  const patientNameOnScreen = patientNameDisplay(patientName, studyInfoResolved, Boolean(studyInfo));
+  const patientNameOnScreenClass = patientNameOnScreen.isPlaceholder ? "font-normal italic normal-case text-gray-400" : "";
 
   const handlePrint = useCallback(async (renderInCurrentWindow = false) => {
     const birthDate = studyInfo?.birthDate || '';
@@ -1271,7 +1279,7 @@ export default function ReportEditorPage() {
         </button>
         <div className="w-px h-6 bg-gray-200" />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-900 truncate">{patientName || "Carregando..."}</p>
+          <p className={`text-sm font-semibold text-gray-900 truncate ${patientNameOnScreenClass}`}>{patientNameOnScreen.text}</p>
           {examDesc && <p className="text-xs text-gray-500 truncate">{examDesc}</p>}
         </div>
         <div className="flex items-center gap-2 ml-auto">
@@ -1384,7 +1392,7 @@ export default function ReportEditorPage() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold uppercase text-gray-900">{patientName || "Carregando..."}</p>
+          <p className={`truncate text-sm font-bold uppercase text-gray-900 ${patientNameOnScreenClass}`}>{patientNameOnScreen.text}</p>
           <p className="truncate text-[11px] uppercase text-gray-500">{examDesc || "Laudo radiológico"}</p>
         </div>
         <button
@@ -1780,7 +1788,7 @@ export default function ReportEditorPage() {
                   <ClinicalPatientDetails
                     birthDate={studyInfo?.birthDate ? formatDicomDate(studyInfo.birthDate) : "—"}
                     sex={studyInfo?.sex || "—"}
-                    studyDate={studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : new Date().toLocaleDateString("pt-BR")}
+                    studyDate={clinicalDateDisplay(studyInfo?.studyDate ? formatDicomDate(studyInfo.studyDate) : "")}
                     modality={studyInfo?.modality}
                     unitName={medCtx?.unitName}
                   />
@@ -1968,11 +1976,11 @@ export default function ReportEditorPage() {
               <div className="grid grid-cols-2 gap-1.5 text-[10px]">
                 <div>
                   <span className="text-gray-400 text-[9px] uppercase">Paciente:</span>
-                  <p className="font-bold text-gray-900 truncate">{patientName || "ANTONIA DE SOUZA BATISTA"}</p>
+                  <p className={`font-bold text-gray-900 truncate ${patientNameOnScreenClass}`}>{patientNameOnScreen.text}</p>
                 </div>
                 <div>
                   <span className="text-gray-400 text-[9px] uppercase">Nascimento:</span>
-                  <p className="font-medium text-gray-800">{studyInfo?.birthDate || "15/05/1970"}</p>
+                  <p className="font-medium text-gray-800">{clinicalDateDisplay(studyInfo?.birthDate ? formatDicomDate(studyInfo.birthDate) : "")}</p>
                 </div>
                 <div className="col-span-2">
                   <span className="text-gray-400 text-[9px] uppercase">Exame Realizado:</span>
