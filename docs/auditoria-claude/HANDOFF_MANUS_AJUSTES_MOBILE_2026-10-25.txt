@@ -172,3 +172,79 @@ No celular (ou DevTools em 390x844 e 360x800):
    dentro da tela.
 7. Catálogo: 60 cartões + "Mostrar mais"; editar exame não seleciona o
    nome; rodapé sem conteúdo por baixo.
+
+====================================================================
+ADENDO 1 — CORREÇÕES DA REVISÃO DO COMMIT f0548a7 (2026-10-25)
+====================================================================
+Commit de código do adendo: 58d242f
+Base: main @ bdfe318 (reconfirmada antes do push)
+
+A revisão bloqueou a integração por dois pontos no Catálogo de exames
+(client/src/pages/ExamCatalogPage.tsx). Ambos tratados, sem sair do
+escopo de apresentação mobile.
+
+A1. BLOQUEIO 1 — CONTADOR DO "MOSTRAR MAIS"
+    Observação sobre a reprodução: no f0548a7 o texto "Exibindo X de Y"
+    ficava dentro de {filteredEntries.length > visibleCount && ...}, então
+    "Exibindo 120 de 61" não chegava a renderizar; o efeito visível era o
+    status SUMIR depois do último bloco. Mesmo assim a correção pedida foi
+    aplicada integralmente, porque torna a contagem correta por construção.
+    Correção:
+      - client/src/lib/catalogPagination.ts (novo): CATALOG_PAGE_SIZE,
+        catalogDisplayedCount = min(visibleCount, total),
+        nextCatalogVisibleCount = min(visibleCount + 60, total),
+        catalogPaginationState (displayed, hasMore, nextBatch, showStatus,
+        statusLabel).
+      - Página: slice(0, pagination.displayed); status "Exibindo
+        {displayed} de {total}" com aria-live, visível sempre que o total
+        filtrado passa de 60 (inclusive depois do último bloco); botão só
+        enquanto há restantes; reset para 60 ao mudar busca, modalidade
+        ou status mantido.
+
+A2. BLOQUEIO 2 — FOCO NO MODAL
+    Correção: onOpenAutoFocus continua com preventDefault (o campo
+    "Legenda canônica" não é focado e o teclado não abre), e em seguida
+    foca o DialogTitle (ref + tabIndex=-1, sem outline).
+    ACHADO ADICIONAL pelo teste de renderização: o dialog é controlado
+    por estado, sem DialogTrigger; por isso o Radix não tinha gatilho
+    registrado e, ao fechar com Escape/Cancelar, o foco caía no <body>
+    (o "devolve ao gatilho" esperado pela revisão NÃO acontecia).
+    startCreate/startEdit agora guardam document.activeElement e
+    onCloseAutoFocus devolve o foco a esse elemento (se ainda estiver no
+    DOM; senão mantém o comportamento padrão do Radix).
+
+A3. TESTES NOVOS
+    server/catalog-pagination.test.ts (7 testes, lógica pura + contrato):
+      60 -> sem botão/sem status; 61 -> "61 de 61"; 120 -> "120 de 120";
+      121 -> "120 de 121" e "121 de 121"; cliques extras não ultrapassam
+      o total; filtro menor após expandir; página usa os helpers e o
+      reset por [search, modalityFilter, statusFilter].
+    server/exam-catalog-mobile-render.test.tsx (7 testes, jsdom, página
+    REAL renderizada com react-dom e Radix reais, só tRPC/wouter/sonner
+    mockados):
+      - 60/61/121 resultados: nº de cartões na tela = texto de status;
+      - busca após expandir volta a 60 cartões, "Exibindo 60 de 99";
+      - Editar e Criar: foco ativo é o título <h2> dentro do dialog, não
+        o input nem o gatilho externo;
+      - Tab no último controle volta ao primeiro e Shift+Tab no primeiro
+        vai ao último (FocusScope em loop, sem escapar);
+      - Escape fecha e o foco volta ao botão "Configurar" que abriu.
+        (Esse caso FALHAVA antes da correção do A2 — foco no body.)
+    Observação técnica: o vitest compila JSX com runtime clássico; o
+    teste expõe React global num vi.hoisted, sem alterar configuração.
+
+A4. VALIDAÇÃO (worktree do branch, comandos pedidos na revisão)
+    pnpm install --frozen-lockfile ......... exit 0
+    pnpm check ............................. exit 0, zero erros
+    TZ=UTC pnpm test ....................... 961 aprovados, 11 falhas,
+                                             1 skip (973); lista de
+                                             falhas IDÊNTICA à base
+                                             bdfe318 (diff vazio)
+    pnpm build ............................. exit 0
+    git diff --check main...HEAD ........... exit 0 (sem saída)
+
+A5. NÃO FEITO (conforme a revisão)
+    Sem merge, sem deploy, sem migration, sem mudança de API, regra
+    clínica ou financeira. Os testes "recomendados" da seção 5 da revisão
+    (calendário, lista longa da composição, FinancePagamentos/Shell,
+    validação visual por viewport) ficam para uma rodada própria.
