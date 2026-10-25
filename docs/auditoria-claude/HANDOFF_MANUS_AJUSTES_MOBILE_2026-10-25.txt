@@ -1,0 +1,174 @@
+HANDOFF PARA MANUS — AJUSTES DA VERSÃO MOBILE (SOBREPOSIÇÕES, FILTRO DE DATA, FINANCEIRO, CATÁLOGO)
+Branch: claude/ajustes-mobile
+Base: main @ bdfe318
+Commit de código: 2d4b3d7
+Data: 2026-10-25
+Autor: Claude (sandbox + navegação real no Chrome do Alessandro, sem acesso ao servidor)
+
+====================================================================
+1. CONTEXTO
+====================================================================
+
+Alessandro pediu uma navegação pela versão mobile do sistema em produção
+(lauds.com.br) para encontrar itens sobrepostos e pontos de visualização
+ruim, em especial no Financeiro ("está tudo muito confuso").
+
+A navegação foi feita no Chrome dele, logado como médico e depois como
+Administrador, com o sistema carregado dentro de um iframe do mesmo domínio
+com viewport exato (o site envia X-Frame-Options: SAMEORIGIN, então o
+iframe é permitido e a sessão vale dentro dele). Tamanhos testados:
+390x844 (19,5:9), 412x915 e 360x800 (20:9), 320x693 e 768x1024.
+Nada foi salvo, confirmado, assinado ou marcado como pago durante os testes.
+
+As medições abaixo vieram de getBoundingClientRect()/getComputedStyle() no
+DOM real de produção, não de suposição.
+
+====================================================================
+2. PROBLEMAS CONFIRMADOS E CAUSA RAIZ
+====================================================================
+
+2.1 Modal "Compor exames do estudo" (PacsQueryPage.tsx, StudyLegendPicker)
+    Sintoma em 390x844: o subtítulo "Marque um ou mais exames..." fica por
+    baixo do campo de busca, e os botões "Voltar"/"Confirmar seleção" ficam
+    ABAIXO da borda do modal (modal termina em y=793, botões começam em
+    y=799). No celular o médico não consegue confirmar a legenda e,
+    portanto, não consegue laudar.
+    Causa: o modal é flex-col com max-h e overflow-hidden; cabeçalho e
+    rodapé eram itens flex com flex-shrink:1 e min-height:0. Com 100+
+    legendas, o navegador encolheu cabeçalho (74px -> 38px) e rodapé
+    (65px -> 30px) em vez de limitar só a lista.
+    Correção: shrink-0 no cabeçalho, na faixa "Composição em edição" (com
+    max-h-32 e rolagem própria), na busca e no rodapé; min-h-0 +
+    overscroll-contain na lista; max-h em dvh. Botões do rodapé com 44px.
+    Removido o autoFocus da busca (abria o teclado e cobria a lista).
+    Melhoria: a legenda cujo nome coincide com a descrição do PACS aparece
+    primeiro com o selo "Sugerido pelo PACS" (antes ficava no fim, depois
+    de "UROTOMOGRAFIA"). Só muda a ordem; nada é selecionado sozinho.
+
+2.2 Filtro de data (PacsQueryPage.tsx)
+    Sintoma: com "Ontem" ativo, abrir o calendário mostrava HOJE destacado,
+    e o botão principal "Fechar" aplicava esse dia. Abrir e fechar o
+    calendário trocava a lista de ontem para hoje sem aviso (reproduzido:
+    lista ficou "Nenhum estudo encontrado").
+    Causa: openCalendarDialog usava selectedDate ?? new Date(), mas os
+    atalhos Hoje/Ontem deixam selectedDate undefined; applyCalendarDraft
+    aplicava o rascunho.
+    Correção: o rascunho parte do filtro ativo (yesterday -> ontem,
+    today -> hoje, 7 dias -> nenhum); o botão passa a "Aplicar dd/mm/aaaa"
+    e fica desabilitado sem dia escolhido; sem rascunho, só fecha.
+    Calendário com locale do react-day-picker (rótulos de acessibilidade
+    estavam em inglês: "Go to the Previous Month").
+
+2.3 Estudos no celular (PacsQueryPage.tsx)
+    - Busca de paciente e atalhos Hoje/Ontem/7 dias só existiam no desktop.
+      Agora há um bloco mobile com busca (h-11, text-base para não dar zoom
+      no iOS) e quatro botões: Hoje / Ontem / 7 dias / Data.
+    - Em 768px a tabela de desktop precisava de 860px e rolava de lado.
+      Barra de filtros e tabela passam de md para lg; abaixo de 1024px
+      vale o layout de cartões.
+    - Cartão: data + "253 imagens" e os 5 botões dividiam a mesma linha;
+      em 320px os botões ficavam sobre o texto. Ações agora em linha
+      própria, botões de 32px -> 40px, lápis 28px -> 36px.
+    - Não havia botão para ver imagens (só tocando no corpo do cartão).
+      Adicionado "Ver imagens" (usa o mesmo handleVisualize(study, true)).
+
+2.4 Financeiro (FinanceDashboard.tsx, FinancePagamentos.tsx, FinanceShell.tsx)
+    - Os nomes oficiais dos indicadores foram MANTIDOS ("Valor configurado
+      por evento", "Eventos do ciclo atual", "Rendimento atual do ciclo"),
+      pois são protegidos por server/financeCycle.test.ts. A confusão
+      sistema x médico foi resolvida pelos textos de apoio:
+        "Valor configurado por evento" -> apoio: "Valor que a unidade paga
+          ao sistema a cada laudo assinado a partir de agora."
+        Cartão de unidade -> nota: valores do sistema; repasse ao médico
+          fica em "Abrir financeiro".
+        "Valores vigentes por modalidade" -> "Repasse padrão ao médico por
+          modalidade" (é o default_doctor_price; o próprio médico vê esse
+          valor como "Valor padrão da unidade").
+        "Fallback para médico sem valor individual" -> "Usado para médicos
+          sem valor próprio". "Snapshots gravados..." -> português.
+    - "Não definida" aparecia em verde (cor de sucesso): agora âmbar (warn).
+    - Tabela "Médicos no ciclo atual": 760px numa tela de ~350px, e
+      EVENTOS/TOTAL ficavam escondidos no fim. Colunas reordenadas para
+      Médico | Laudos | Total no ciclo | Valor CT | CR | RM | US, coluna do
+      médico sticky. Placeholder "10.00" -> "Padrão 10,00" em itálico
+      (parecia valor preenchido). Inputs 32px -> 40px.
+    - Pagamentos: o valor a pagar do médico tinha "hidden sm:block" —
+      no celular aparecia "Marcar pago" sem mostrar QUANTO. Linha empilha
+      no celular e o valor fica sempre visível. Seletor de mês ia para
+      fora da tela (418px em 390px) escondendo a seta ">"; agora quebra
+      linha no celular e as setas têm 40x40 com aria-label.
+    - FinanceShell: ao trocar de rota a rolagem anterior era mantida
+      ("Abrir financeiro" chegava no meio da página) e o drawer mobile
+      continuava aberto. useEffect em [location] fecha o drawer e volta ao
+      topo (com guarda para ambiente sem window — os testes renderizam
+      fora do navegador). Botão de menu com aria-label e 44px;
+      "Voltar ao PACS" e "Voltar às unidades" com 44px de altura.
+
+2.5 Catálogo de exames (ExamCatalogPage.tsx)
+    - Renderizava os 516 cartões de uma vez (documento de 81.402px no
+      celular). Agora em blocos de 60 com "Mostrar mais"; busca e filtros
+      continuam valendo sobre o catálogo inteiro e reiniciam a contagem.
+    - Editor: o Radix focava e SELECIONAVA o nome da legenda ao abrir; no
+      celular abre o teclado e a primeira tecla apagaria o nome.
+      onOpenAutoFocus com preventDefault.
+    - Rodapé "Salvar/Cancelar": sticky bottom-0 ficava acima do padding de
+      24px do modal e a seção 3 aparecia por baixo dele. Rodapé agora com
+      -mx-6 -mb-6 px-6 e padding inferior com safe-area.
+
+====================================================================
+3. O QUE FOI CONSCIENTEMENTE DEIXADO DE FORA
+====================================================================
+
+- Faixa CICLO/ASSINADOS/RECEBER com rótulos de 8px: cheguei a aumentar,
+  mas server/financial-banner-mobile-ui.test.ts protege a "linha única
+  ultracompacta na ordem solicitada", uma decisão anterior do Alessandro.
+  Revertido. Fica como sugestão para ele decidir.
+- Laudar sem legenda: hoje mostra um toast que some rápido. O ideal é abrir
+  a composição direto, mas o estado isOpen pertence ao StudyLegendPicker
+  (exige levantar estado). Não feito nesta rodada.
+- Interruptores de permissão em Usuários (24x14px): componente global
+  Switch; mudar afetaria o desktop inteiro.
+- Unificação visual Estudos (claro) x Financeiro (escuro) e o menu da
+  Administração sem o item Financeiro: decisão de produto.
+- Laudar dispara o download completo do estudo antes de abrir o editor
+  (253 imagens no exame testado). Confirmado no código que é intencional
+  (toast "Baixe o estudo antes de laudar"); registrar apenas como
+  observação de consumo de dados móveis.
+
+====================================================================
+4. VALIDAÇÃO (sandbox)
+====================================================================
+
+- tsc --noEmit: exit 0, zero erros (base e branch).
+- vite build: ok. esbuild do servidor: ok.
+- vitest (TZ=UTC): base bdfe318 = 7 arquivos / 11 testes falhando;
+  branch = os MESMOS 7 arquivos / 11 testes (diff vazio da lista de
+  falhas). Nenhuma regressão.
+- Testes atualizados (só contrato de layout, intenção preservada):
+    server/pacs.mobile-ui.test.ts — md->lg, novo bloco de controles mobile,
+      nova linha de ações (o caso "separa ações, status e prioridade"
+      continua falhando pelo MESMO motivo da base: linha de prioridade).
+    server/pacs-table-scroll-not-offscreen.test.ts — md->lg, e passa a
+      proibir também "hidden lg:block overflow-x-auto".
+    server/audit-fixes-aviso-visual-exame-sem-legenda.test.ts — card
+      mobile continua SEM o aviso cinza condicional; só a classe estática
+      ganhou min-h-9.
+- Sem migration, sem mudança de servidor, sem mudança de API.
+
+====================================================================
+5. COMO VALIDAR NA VM
+====================================================================
+
+No celular (ou DevTools em 390x844 e 360x800):
+1. Estudos com "Ontem" ativo: abrir o calendário deve mostrar ontem
+   destacado; fechar no X não troca a lista; botão diz "Aplicar dd/mm".
+2. Tocar no nome do exame -> CT: título, subtítulo, busca e o rodapé com
+   "Confirmar seleção" visíveis sem sobreposição; exame do PACS no topo.
+3. Em 320px: botões do cartão em linha própria, sem cobrir "N imagens".
+4. Em 768px: cartões (não tabela). Em 1024px: tabela.
+5. Financeiro > Abrir financeiro: página abre no topo; tabela de médicos
+   mostra Laudos e Total sem rolar de lado.
+6. Pagamentos: valor visível ao lado de "Marcar pago"; setas do mês
+   dentro da tela.
+7. Catálogo: 60 cartões + "Mostrar mais"; editar exame não seleciona o
+   nome; rodapé sem conteúdo por baixo.
