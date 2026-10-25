@@ -247,3 +247,139 @@ A6. HOMOLOGAÇÃO VISUAL (unidade/exame de TESTE)
        desabilitados.
     3. Exame com nascimento vazio no PACS: "—" na folha e no celular.
     4. Imprimir um laudo de teste: nascimento em DD/MM/AAAA no PDF.
+
+====================================================================
+ADENDO 2 — RESPOSTA AO PARECER MANUS SOBRE 5fea1cf (2026-10-25)
+====================================================================
+Commit de código do adendo: 8cb7cce
+Base: main @ bdfe318 (reconfirmada antes do push)
+Escopo: somente os quatro itens do parecer. Sem main, VM, banco, API,
+migration, renderer físico ou SharedReportSheet.
+
+Contexto honesto: os quatro problemas JÁ EXISTIAM no main (DOM não
+controlado, retificação e gatilhos sem identidade, financialView sem
+isSigned); não foram criados pelos commits deste branch. No app atual,
+não há link interno que leve de um editor diretamente a outro (os
+caminhos passam pela lista, que desmonta o editor), mas a reprodução da
+Manus com a mesma instância é válida e a defesa foi feita em camadas.
+
+A1. ITEM 1 — CORPO/ESTADO DE A SOBREVIVENDO EM B
+    Duas camadas, como o parecer pediu ("key não substitui validação"):
+    a) Remontagem por identidade. ReportEditorPage virou um wrapper que
+       renderiza <ReportEditorDocument key={...}/>; a key é
+       estudo|documento|unidade|financialView|print|download
+       (client/src/lib/reportEditorIdentity.ts). Mudou a identidade, o
+       React desmonta e monta de novo: docRef, mobileDocRef, sectionRefs,
+       mobileSectionRefs, savedSelection, previewHtml, examNames,
+       sectionBodies, estados de retificação/exclusão/cancelamento e
+       gatilhos automáticos começam do zero. O wrapper chama useLocation
+       para re-renderizar a cada navegação do wouter.
+    b) Validação de pertencimento. O laudo vindo do servidor
+       (fetchedReport) só vira existingReport se
+       reportBelongsToRoute(study_instance_uid === UID da rota e
+       document_key === documento da rota, aceitando "primary" como o
+       servidor já faz para laudos legados). Como TODO o editor usa
+       existingReport (hidratação, salvar, assinar, retificar, imprimir,
+       baixar, apagar), essa é a única porta de entrada. Um efeito
+       separado limpa as duas árvores quando chega um laudo que não
+       pertence à rota.
+    Decisão deliberada: NÃO limpo o DOM quando existingReport é null.
+    Com a remontagem por identidade o DOM já nasce vazio para cada
+    documento, e limpar no null apagaria o que o médico digitou enquanto
+    a consulta ainda carregava (undefined → null).
+    O efeito de hidratação foi mantido intacto (protegido por
+    server/report-editor-cancelled-reset-wiring.test.ts).
+
+A2. ITEM 2 — RETIFICAÇÃO DE A CONFIRMADA EM B
+    - pendingReviseBody (string) virou pendingRevision tipado:
+      { studyUid, documentKey, reportId, body }, capturado no clique de
+      "Salvar Retificação" (desktop e mobile), só se existingReport.id
+      existir.
+    - handleRevise só chama reviseReport.mutateAsync se: existingReport
+      existe, é signed/revised, e pendingRevisionMatches (mesmo
+      reportId, UID e documento da rota). Senão: fecha o modal, limpa
+      isRevising/reviseReason/pendingRevision e mostra "O documento mudou
+      desde que a retificação foi iniciada. Nada foi alterado...".
+    - Na troca de rota, a remontagem (A1a) elimina o modal e todo o
+      estado de retificação/exclusão.
+    - Caso extra coberto: MESMA rota em que o servidor passa a devolver
+      outro laudo (outro id) com o modal aberto — recusado.
+
+A3. ITEM 3 — financialView=1 MANUAL BAIXANDO RASCUNHO
+    - handleFinancialPdfDownload: após a guarda clínica, exige isSigned
+      ("O PDF financeiro só está disponível para laudo assinado ou
+      retificado.") antes de procurar páginas ou criar PDF.
+    - Botão "Baixar PDF" (desktop) desabilitado sem isSigned; botão do
+      cabeçalho mobile desabilitado quando financialDocumentView e
+      !isSigned. O efeito de auto-download já exigia isSigned.
+    - Consumidores do caminho legado: nenhum link interno no código
+      atual gera financialView=1, print=1 ou download=1; só aparecem em
+      docs de agosto (docs/CORRECAO_DOWNLOAD_FINANCEIRO_MEDICO_2026-08-22.md
+      e docs/APRIMORAMENTOS_FINANCEIRO_MEDICO_2026-08-22.md). O download
+      financeiro atual do médico vai pelo servidor (financeSimple).
+      Recomendo aposentar o caminho legado em rodada própria; nesta
+      rodada ele ficou restrito, não removido, para não quebrar links
+      externos eventualmente salvos.
+    - Fora do escopo, registrado para a rodada do download mobile: o
+      handler ainda usa document.querySelectorAll(".report-page")
+      (problema já apontado no parecer anterior, commit 3 do plano).
+
+A4. ITEM 4 — GATILHOS AUTOMÁTICOS
+    autoPrintTriggered e autoDownloadTriggered guardam a CHAVE do
+    documento processado (reportDocumentKey), não um booleano. Cada
+    documento dispara no máximo uma vez, inclusive com re-render; um
+    documento novo dispara de novo. A remontagem (A1a) também reinicia
+    os refs.
+
+A5. TESTES
+    NOVO server/report-editor-document-isolation-render.test.tsx
+    (10 testes, ReportEditorPage REAL em jsdom; só tRPC, wouter, sonner,
+    useAuth, html2canvas e jspdf mockados; dados sintéticos):
+      1a A com rascunho exclusivo → B válido sem laudo: nenhuma árvore
+         do editor contém o corpo de A; salvar e assinar não levam o
+         corpo nem o nome de A; assinar leva o corpo digitado em B.
+      1b B assinado após A: impressão (janela mockada, HTML + páginas
+         materializadas) e PDF financeiro (páginas entregues ao
+         html2canvas) sem o corpo de A.
+      1c servidor devolve para B o laudo de A: editor limpo, sem botão
+         Retificar, assinar não atualiza o laudo de A.
+      2a A assinado, modal de confirmação aberto, navegar para B
+         assinado: modal some e invocar o handler antigo não chama
+         reviseReport.
+      2b mesma rota, servidor troca o laudo (id 31→32) com o modal
+         aberto: reviseReport não é chamado, toast "O documento mudou".
+      2c controle positivo: mesmo laudo → reviseReport chamado uma vez
+         com id e motivo corretos.
+      3a financialView=1 em rascunho: botão desabilitado; handler não
+         chama html2canvas nem salva PDF; toast de assinado/retificado.
+      3b financialView=1 sem laudo: idem.
+      4a print=1: A imprime uma vez, re-render não repete, B imprime.
+      4b financialView=1&download=1: A uma vez, re-render não repete, B
+         uma vez.
+    Prova de eficácia: contra 5fea1cf, 8 dos 10 FALHAM. Passam 1b
+    (com laudo próprio de B a hidratação sobrescreve o DOM) e 2c
+    (controle positivo) — ambos esperados.
+    Observação técnica: o React não dispara onClick de botão disabled;
+    nesses casos o teste invoca o handler pelas props React do botão,
+    para provar a guarda DENTRO do handler.
+
+A6. VALIDAÇÃO
+    pnpm install --frozen-lockfile ......... exit 0
+    pnpm check ............................. exit 0, zero erros
+    testes focados (8 arquivos, incluindo report-editor-cancelled-
+      reset-wiring) ........................ 86/86 aprovados
+    TZ=UTC pnpm test ....................... 987 aprovados, 11 falhas,
+                                             1 skip (999); 7 arquivos /
+                                             11 testes IDÊNTICOS à base
+                                             bdfe318, teste a teste
+    pnpm build ............................. exit 0
+    git diff --check main...HEAD ........... exit 0
+
+A7. HOMOLOGAÇÃO (unidade/exame de TESTE)
+    1. Abrir exame de teste A com rascunho; voltar à lista; abrir B sem
+       laudo: editor vazio.
+    2. Laudo assinado de teste: Retificar → Salvar Retificação → fechar
+       aba/voltar; reabrir: nada aplicado.
+    3. URL do editor de um rascunho com ?financialView=1: Baixar PDF
+       desabilitado.
+    4. URL de laudo assinado com ?print=1: imprime uma vez.
