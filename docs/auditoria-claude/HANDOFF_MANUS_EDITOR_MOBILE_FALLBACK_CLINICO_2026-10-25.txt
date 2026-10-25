@@ -120,3 +120,130 @@ teste da unidade de teste e conferir:
              html2canvas). Também afeta o download automático ao abrir
              (downloadOnOpen). Correção: capturar só páginas físicas de
              um root/iframe próprio da exportação.
+
+====================================================================
+ADENDO 1 — RESPOSTA AO PARECER MANUS SOBRE 50a9ef3 (2026-10-25)
+====================================================================
+Commit de código do adendo: e304f83
+Base: main @ bdfe318 (reconfirmada antes do push)
+Escopo: somente os pontos do parecer. Sem main, VM, banco, API,
+migration, layout_snapshot, renderer físico ou SharedReportSheet.
+
+A1. BLOQUEIO 1 — DADOS DO ESTUDO ANTERIOR AO TROCAR DE UID
+    Concordo. Registro honesto: a falta de reset já existia antes do
+    64bfa86 (o efeito nunca chamava setStudyInfo(null)); o commit anterior
+    não a criou, mas também não a resolveu. Agora resolvido.
+    Correção (ReportEditorPage.tsx):
+      - O resultado da leitura é guardado JUNTO com o UID lido:
+        studySession = { uid, info }. Derivados:
+          studyInfo         = studySession.uid === studyUid ? info : null
+          studyInfoResolved = studySession.uid === studyUid
+        Isso é mais forte que setStudyInfo(null) no efeito: um efeito roda
+        DEPOIS do render, então o primeiro render do UID B ainda mostraria
+        A. Com o estado chaveado, A some já no primeiro render de B.
+      - Efeito com reset determinístico ANTES de ler: examTitle =
+        documentLabel da rota ou "", examNames = [], sectionBodies = [],
+        previewHtml = "". Só depois lê e, se válido, preenche.
+      - Nova função readStudySessionInfo (clinicalIdentityDisplay.ts):
+        found | missing | invalid. Inválido = JSON quebrado, array,
+        número, string, null ou storage que lança exceção. examNames só
+        aceita strings.
+
+A2. BLOQUEIO 2 — AÇÕES SEM DADOS CLÍNICOS VÁLIDOS
+    Concordo. Guarda canônica única:
+      hasResolvedClinicalStudy = studyInfoResolved && studyInfo !== null
+    Interface: desabilita Salvar (desktop e mobile), Assinar (desktop e
+    mobile), Nova ocorrência (desktop e mobile), Imprimir, Baixar PDF e o
+    botão de imprimir/baixar do cabeçalho mobile.
+    Handlers: handleSave, handleNewOccurrence, handleSign, handlePrint e
+    handleFinancialPdfDownload começam com
+      if (!hasResolvedClinicalStudy) { toast.error(...); return; }
+    Mensagens:
+      salvar/assinar: "Não é possível salvar ou assinar: os dados do
+        estudo não estão disponíveis. Volte à lista e abra o estudo
+        novamente."
+      imprimir/baixar: mesma orientação, com "imprimir ou baixar".
+    Laudo assinado aberto por link direto: optei pelo comportamento
+    seguro que o próprio parecer admite — BLOQUEAR a emissão. Motivo: a
+    tabela de laudos guarda patient_name e study_date, mas não guarda
+    nascimento nem sexo; montar o PDF oficial com esses campos em "—"
+    seria justamente o documento incompleto que o parecer proíbe. Carregar
+    metadados canônicos do servidor é trabalho próprio (API nova ou
+    snapshot clínico no laudo) e fica PENDENTE, fora deste commit.
+    Observações para a revisão:
+      - Os disparos automáticos print=1 e download=1 já exigiam studyInfo;
+        continuam sem disparar sem estudo. Não encontrei no código atual
+        nenhum link interno que gere print=1, download=1 ou
+        financialView=1 (só documentação de agosto); vale confirmar se
+        algum fluxo externo ainda os usa.
+      - handleRevise (retificação) NÃO foi bloqueado: não usa studyInfo,
+        só id do laudo, corpo e motivo; o servidor mantém o snapshot do
+        laudo assinado. Se a Manus quiser bloqueá-lo também, é uma linha.
+      - Decisão de produto a registrar: bloquear "Salvar rascunho" sem
+        estudo significa que o texto digitado só fica na tela até sair
+        dela. A mensagem orienta a reabrir o estudo pela lista.
+
+A3. BLOQUEIO 3 — DATAS NEUTRAS INCONSISTENTES
+    Concordo. Correção sobre o diagnóstico: formatDicomDate("   ") não
+    devolve string vazia; devolve a própria string com espaços (o ramo
+    "length === 8" falha e retorna dateStr). Por isso a folha mostrava um
+    campo em branco. Efeito igual ao descrito; correção a mesma.
+    Agora TODAS as saídas usam clinicalDateDisplay(formatDicomDate(x)):
+      - nascimento e data do estudo na folha desktop simples;
+      - nascimento e data do estudo na folha desktop multisseção;
+      - nascimento no cartão mobile;
+      - impressão/PDF (handlePrint). Achado extra: na impressão o
+        nascimento ia CRU, sem formatDicomDate (AAAAMMDD no PDF).
+    Valores brutos enviados ao backend não foram alterados.
+
+A4. TESTES NOVOS / ATUALIZADOS
+    server/report-editor-study-switch-render.test.tsx (NOVO, 15 testes,
+    jsdom, ReportEditorPage REAL; só tRPC/wouter/sonner/useAuth
+    mockados; dados 100% sintéticos):
+      A  A válido → B sem chave: nenhum dado de A; "Dados do estudo
+         indisponíveis".
+      B  A → B com JSON inválido; e A → B com JSON não-objeto.
+      C  primeiro commit do render de B (capturado por useLayoutEffect)
+         já sem A e com "Carregando…"; depois "indisponíveis".
+      D  sem estudo: botões desabilitados; os handlers reais, invocados
+         diretamente pelas props React dos botões (o React não dispara
+         onClick de botão disabled), não chamam create/update/sign nem
+         window.open e mostram o toast. Com B válido, assinar envia só
+         dados de B (sem "ALFA" nem a data de A no payload).
+      E  datas undefined / vazia / só espaços / DICOM válida, documento
+         simples E multisseção: campo a campo, "Data de nascimento" e
+         "Data" na folha e "Nascimento" no cartão mobile.
+      Prova de eficácia: rodando este arquivo contra o 50a9ef3, 8 dos 15
+      testes FALHAM (todos os de A, B, C, D e os de "só espaços").
+    server/report-editor-clinical-fallback.test.ts (ATUALIZADO, 15):
+      + readStudySessionInfo (ausente, vazio, inválido, exceção,
+        normalização), hasResolvedClinicalStudy, guarda no início dos
+        cinco handlers, e normalização das datas na impressão.
+    Limite declarado: a saída de impressão/PDF é coberta por contrato de
+    fonte, não por renderização (abrir a janela de impressão em jsdom não
+    é representativo). A homologação visual continua necessária.
+
+A5. VALIDAÇÃO
+    pnpm install --frozen-lockfile ......... exit 0
+    pnpm check ............................. exit 0, zero erros
+    testes focados do editor (6 arquivos):
+      report-editor-clinical-fallback, report-editor-study-switch-render,
+      report-editor-mobile-ui, report-editor-physical-page-no-guide,
+      report-editor-layout-contract-wiring, report-editor-dom-real
+      ...................................... 71/71 aprovados
+    TZ=UTC pnpm test ....................... 977 aprovados, 11 falhas,
+                                             1 skip (989); 7 arquivos /
+                                             11 testes IDÊNTICOS à base
+                                             bdfe318, comparados teste a
+                                             teste (diff vazio)
+    pnpm build ............................. exit 0
+    git diff --check main...HEAD ........... exit 0
+
+A6. HOMOLOGAÇÃO VISUAL (unidade/exame de TESTE)
+    1. Abrir exame de teste pela lista: nome, nascimento e data
+       formatados; todos os botões habilitados.
+    2. Copiar a URL do editor e abrir numa aba nova: "Dados do estudo
+       indisponíveis", datas "—", Salvar/Assinar/Imprimir/Baixar
+       desabilitados.
+    3. Exame com nascimento vazio no PACS: "—" na folha e no celular.
+    4. Imprimir um laudo de teste: nascimento em DD/MM/AAAA no PDF.
