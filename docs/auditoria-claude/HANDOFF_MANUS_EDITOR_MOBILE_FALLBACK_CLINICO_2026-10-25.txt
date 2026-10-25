@@ -1,0 +1,122 @@
+HANDOFF PARA MANUS — EDITOR DE LAUDOS: REMOÇÃO DE IDENTIDADE/DATA CLÍNICA FICTÍCIAS (COMMIT 1)
+Branch: claude/corrige-preview-layout-unidade-editor-mobile
+Base: main @ bdfe318
+Commit de código: 64bfa86
+Data: 2026-10-25
+Referência: parecer "LAYOUT POR UNIDADE, PRÉVIA E DOWNLOAD NO EDITOR MOBILE", seção 3, COMMIT 1
+
+====================================================================
+1. ESCOPO DESTE COMMIT
+====================================================================
+
+Somente o COMMIT 1 do parecer (correção urgente dos fallbacks clínicos),
+isolado para poder ser revisado e implantado separadamente.
+NÃO contém o Preview físico mobile (commit 2) nem a correção do download
+financeiro mobile (commit 3). Esses virão em commits próprios.
+
+Sem banco, API, schema, migration, layout_snapshot, SharedReportSheet,
+renderer físico, collectBody, handleSave, handleSign, handlePrint ou
+geração de PDF.
+
+====================================================================
+2. O QUE FOI CORRIGIDO (client/src/pages/ReportEditorPage.tsx)
+====================================================================
+
+2.1 Cartão mobile — nome do paciente
+    Antes: {patientName || <nome fictício plausível>}
+    Agora: patientNameOnScreen.text, com estados neutros em itálico cinza:
+      - leitura do estudo ainda não terminou ..... "Carregando…"
+      - estudo não encontrado na sessão .......... "Dados do estudo indisponíveis"
+      - estudo encontrado, nome vazio ............ "Nome não informado"
+
+2.2 Cartão mobile — nascimento
+    Antes: {studyInfo?.birthDate || <data fictícia>} (e sem formatação:
+    um valor DICOM AAAAMMDD aparecia cru).
+    Agora: clinicalDateDisplay(formatDicomDate(birthDate)) → data ou "—".
+
+2.3 Folha desktop, documento simples — data do estudo
+    Antes: studyDate ausente → new Date().toLocaleDateString("pt-BR")
+    (a tela inventava a data de HOJE como data do estudo).
+    Agora: "—". Fica igual ao ramo multisseção (já usava "—") e ao caminho
+    de impressão (handlePrint já usava '—').
+
+2.4 Cabeçalhos desktop e mobile
+    Antes: {patientName || "Carregando..."} — ficava "Carregando..." para
+    sempre quando o estudo não estava no sessionStorage (ex.: link aberto
+    em outra aba). Agora usam o mesmo estado neutro.
+    Novo estado studyInfoResolved: vira true ao fim do efeito que lê o
+    sessionStorage, com ou sem sucesso.
+
+2.5 Novo arquivo client/src/lib/clinicalIdentityDisplay.ts
+    patientNameDisplay(nome, resolvido, temEstudo) e clinicalDateDisplay(data).
+    Funções puras, só de exibição.
+
+Garantias:
+  - Os textos de estado NÃO entram no corpo do laudo (collectBody lê só o
+    conteúdo editável), não são gravados e não vão para impressão/PDF.
+  - A gravação continua usando o dado bruto: patient_name e study_date
+    vêm de studyInfo, sem alteração.
+  - Varredura em client/src: nenhum arquivo de produção contém o nome ou a
+    data fictícios.
+
+Ponto mantido de propósito: o nome do arquivo do PDF financeiro continua
+"Laudo_assinado.pdf" quando o nome falta (comportamento anterior, não é
+dado clínico inventado).
+
+====================================================================
+3. TESTES
+====================================================================
+
+Novo: server/report-editor-clinical-fallback.test.ts (9 testes)
+  - estados neutros: não lido, estudo indisponível, nome vazio/espaços,
+    nome presente;
+  - data ausente vira "—" e nunca a data atual;
+  - nenhum arquivo de produção em client/src contém os literais fictícios
+    (falha contra o main bdfe318);
+  - studyDate da folha não usa new Date();
+  - cartão mobile e os dois cabeçalhos usam o estado neutro;
+  - collectBody, handleSave, handleSign, handlePrint e
+    handleFinancialPdfDownload não referenciam o texto de exibição;
+    patient_name/study_date continuam gravados a partir de studyInfo.
+
+Observação: é teste de função pura + contrato de fonte. A renderização
+completa do ReportEditorPage em jsdom exige mockar muitas dependências;
+fica para o commit 2, que precisará dessa infraestrutura para o Preview.
+
+====================================================================
+4. VALIDAÇÃO (sandbox)
+====================================================================
+
+  pnpm install --frozen-lockfile ......... exit 0
+  pnpm check ............................. exit 0, zero erros
+  TZ=UTC pnpm test ....................... 956 aprovados, 11 falhas,
+                                           1 skip (968); lista de falhas
+                                           IDÊNTICA à do main bdfe318,
+                                           comparada teste a teste
+                                           (7 arquivos, 11 testes)
+  pnpm build ............................. exit 0
+  git diff --check main...HEAD ........... exit 0
+  server/report-editor-mobile-ui.test.ts . 15/15 aprovados (sem alteração)
+
+Validação visual NÃO feita: exige abrir um laudo, e só há pacientes
+reais. Para homologar, abrir no celular (ou DevTools 390x844) um exame de
+teste da unidade de teste e conferir:
+  1. com dados completos: nome e nascimento reais, formatados;
+  2. abrindo o editor por link direto em outra aba (sem sessionStorage):
+     "Dados do estudo indisponíveis" em itálico cinza, nascimento "—";
+  3. desktop, exame sem data: campo data do estudo "—", não a data de hoje;
+  4. salvar/imprimir: nenhum texto de estado aparece no laudo/PDF.
+
+====================================================================
+5. PRÓXIMOS COMMITS NESTE BRANCH (não incluídos aqui)
+====================================================================
+
+  Commit 2 — Preview mobile com as páginas físicas da unidade
+             (renderer comum em iframe same-origin isolado, escala por
+             ResizeObserver, layout_snapshot para assinados).
+  Commit 3 — Download do PDF financeiro no celular: hoje usa
+             document.querySelectorAll(".report-page"), que no celular
+             pega a árvore desktop oculta (display:none → 0x0 no
+             html2canvas). Também afeta o download automático ao abrir
+             (downloadOnOpen). Correção: capturar só páginas físicas de
+             um root/iframe próprio da exportação.
