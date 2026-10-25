@@ -142,7 +142,10 @@ function DoctorRow({
 
   return (
     <>
-      <div className="flex items-center justify-between px-4 py-3 hover:bg-[var(--fin-panel-2)] transition-colors">
+      {/* AJUSTE (auditoria claude/ajustes-mobile): no celular o valor a pagar ficava oculto
+          (hidden sm:block) e o botão "Marcar pago" aparecia sem mostrar QUANTO seria marcado.
+          Agora a linha empilha no celular e o valor é sempre visível. */}
+      <div className="flex flex-col gap-3 px-4 py-3 hover:bg-[var(--fin-panel-2)] transition-colors sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-7 h-7 rounded-full bg-[var(--fin-panel-2)] flex items-center justify-center shrink-0 text-xs font-bold text-[var(--fin-muted)]">
             {doctor.doctor_name.charAt(0).toUpperCase()}
@@ -157,8 +160,8 @@ function DoctorRow({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3 shrink-0 ml-3">
-          <div className="text-right hidden sm:block">
+        <div className="flex items-center gap-3 sm:shrink-0 sm:ml-3">
+          <div className="mr-auto text-left sm:mr-0 sm:text-right">
             <p className="text-sm font-semibold text-[var(--fin-warn)]">{fmtBRL(doctor.doctor_total)}</p>
             {!allPaid && (
               <p className="text-xs text-[var(--fin-danger)]">{fmtBRL(doctor.doctor_pending)} pend.</p>
@@ -171,7 +174,7 @@ function DoctorRow({
           </div>
           <button
             onClick={() => setShowModal(true)}
-            className="text-xs text-[var(--fin-muted-dim)] hover:text-[var(--fin-text)] border border-[var(--fin-line-strong)] hover:border-[var(--fin-line-strong)] rounded px-2 py-1 transition-colors"
+            className="min-h-10 text-xs text-[var(--fin-muted)] hover:text-[var(--fin-text)] border border-[var(--fin-line-strong)] hover:border-[var(--fin-line-strong)] rounded-md px-3 transition-colors sm:min-h-8"
           >
             Ver laudos
           </button>
@@ -179,7 +182,7 @@ function DoctorRow({
             <Button
               size="sm"
               variant="outline"
-              className="text-xs border-[var(--fin-success-wash)] text-[var(--fin-success)] hover:bg-[var(--fin-success-wash)] hover:border-[var(--fin-success)]"
+              className="h-10 text-xs border-[var(--fin-success-wash)] text-[var(--fin-success)] hover:bg-[var(--fin-success-wash)] hover:border-[var(--fin-success)] sm:h-8"
               disabled={markPaid.isPending}
               onClick={() =>
                 markPaid.mutate({
@@ -348,19 +351,20 @@ export default function FinancePagamentos() {
 
   return (
     <FinanceShell>
-      <div className="p-6 space-y-5 max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+      <div className="p-4 sm:p-6 space-y-5 max-w-4xl mx-auto">
+        {/* Header — AJUSTE (auditoria claude/ajustes-mobile): o seletor de mês ficava ao lado
+            do título e saía da tela no celular (418px em 390px), escondendo a seta "›". */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-[var(--fin-text)]">Pagamentos</h1>
             <p className="text-[var(--fin-muted-dim)] text-sm mt-0.5">Gerencie pagamentos ao sistema e aos médicos</p>
           </div>
-          <div className="flex items-center gap-2 bg-[var(--fin-panel-2)] border border-[var(--fin-line)] rounded-lg px-3 py-2">
-            <button onClick={prevMonth} className="text-[var(--fin-muted-dim)] hover:text-[var(--fin-text)] transition-colors px-1">‹</button>
+          <div className="flex items-center justify-between gap-2 bg-[var(--fin-panel-2)] border border-[var(--fin-line)] rounded-lg px-1 py-1 sm:justify-start">
+            <button onClick={prevMonth} aria-label="Mês anterior" className="inline-flex h-10 w-10 items-center justify-center rounded-md text-lg text-[var(--fin-muted)] hover:text-[var(--fin-text)] transition-colors">‹</button>
             <span className="text-[var(--fin-text)] font-medium text-sm min-w-[130px] text-center">
               {MONTHS[month - 1]} {year}
             </span>
-            <button onClick={nextMonth} className="text-[var(--fin-muted-dim)] hover:text-[var(--fin-text)] transition-colors px-1">›</button>
+            <button onClick={nextMonth} aria-label="Próximo mês" className="inline-flex h-10 w-10 items-center justify-center rounded-md text-lg text-[var(--fin-muted)] hover:text-[var(--fin-text)] transition-colors">›</button>
           </div>
         </div>
 

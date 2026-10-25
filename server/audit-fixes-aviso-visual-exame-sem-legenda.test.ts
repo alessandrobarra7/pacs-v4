@@ -89,9 +89,12 @@ describe("Aviso visual (cinza) para exame sem legenda selecionada", () => {
     );
   });
 
-  it("card mobile permanece intocado (fora do escopo pedido): classe estática original preservada", () => {
+  // ATUALIZADO (auditoria claude/ajustes-mobile, 2026-10-25): o card mobile ganhou altura mínima
+  // de toque (min-h-9 flex items-center). A intenção original continua protegida: a classe é
+  // estática — o aviso cinza condicional NÃO foi aplicado ao card mobile.
+  it("card mobile permanece fora do aviso cinza: classe estática (sem condicional de legenda)", () => {
     expect(pacsQueryPageTsx).toContain(
-      'className="mt-1 truncate rounded pr-1 text-xs uppercase leading-tight text-gray-500 group-hover:text-cyan-800"',
+      'className="mt-1 flex min-h-9 items-center truncate rounded pr-1 text-xs uppercase leading-tight text-gray-500 group-hover:text-cyan-800"',
     );
   });
 });

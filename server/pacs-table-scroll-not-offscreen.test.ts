@@ -52,7 +52,9 @@ describe("PacsQueryPage: tabela de estudos não cria scroll horizontal aninhado 
     // O wrapper de exibição (hidden/md:block) continua existindo, só sem o overflow-x-auto
     // aninhado — é o container externo (flex-1 overflow-auto) que agora cuida do scroll.
     // A partir da CORREÇÃO 4, o wrapper também carrega a classe do modo compacto.
-    expect(pageSource).toContain('className="hidden md:block pacs-studies-compact"');
+    // ATUALIZADO (auditoria claude/ajustes-mobile, 2026-10-25): breakpoint md -> lg.
+    expect(pageSource).not.toContain('className="hidden lg:block overflow-x-auto"');
+    expect(pageSource).toContain('className="hidden lg:block pacs-studies-compact"');
   });
 
   it("CORREÇÃO 4: modo compacto via container query está presente e escopado ao wrapper da tabela", () => {

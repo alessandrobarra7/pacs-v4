@@ -21,22 +21,26 @@ const viewerSource = readFileSync(
 
 describe("PacsQueryPage mobile study list contract", () => {
   it("keeps the desktop table and renders a separate mobile card list", () => {
-    expect(pageSource).toContain('className="hidden md:block pacs-studies-compact"');
+    // ATUALIZADO (auditoria claude/ajustes-mobile, 2026-10-25): breakpoint da tabela/cartões passou de md (768px) para lg (1024px)
+    // porque em 768px a tabela precisava de 860px e rolava de lado; ações do cartão mobile ganharam linha própria.
+    expect(pageSource).toContain('className="hidden lg:block pacs-studies-compact"');
     expect(pageSource).toContain('className="w-full min-w-[1100px] text-sm border-collapse"');
-    expect(pageSource).toContain('className="md:hidden p-3 space-y-2 bg-gray-50/70"');
+    expect(pageSource).toContain('className="lg:hidden p-3 space-y-2 bg-gray-50/70"');
     expect(pageSource).toContain("pagedResults.map((study, idx) => {");
   });
 
   it("matches the compact mobile hierarchy from the visual reference", () => {
-    expect(pageSource).toContain('className="md:hidden bg-white border-b border-gray-200 p-5 shrink-0"');
+    expect(pageSource).toContain('className="lg:hidden bg-white border-b border-gray-200 px-4 py-3 shrink-0 space-y-2.5"');
+    expect(pageSource).toContain('placeholder="Buscar paciente..."');
+    expect(pageSource).toContain("['last7days', '7 dias', handleLast7Days]");
     expect(pageSource).toContain("Escolher data");
     expect(pageSource).toContain("rounded-xl border border-gray-200 bg-white px-4 py-3");
     expect(pageSource).toContain("mobileStatusCls");
     expect(pageSource).toContain("break-words pr-1 text-[15px] font-bold uppercase leading-tight");
     expect(pageSource).not.toContain("truncate pr-1 text-[15px] font-bold uppercase leading-tight ${patientNameEdited");
-    expect(pageSource).toContain("mt-1 truncate rounded pr-1 text-xs uppercase leading-tight text-gray-500 group-hover:text-cyan-800");
+    expect(pageSource).toContain("mt-1 flex min-h-9 items-center truncate rounded pr-1 text-xs uppercase leading-tight text-gray-500 group-hover:text-cyan-800");
     expect(pageSource).toContain("mt-1.5 flex items-start gap-2");
-    expect(pageSource).toContain("max-w-[92px] shrink-0 items-center rounded-full");
+    expect(pageSource).toContain("max-w-[110px] shrink-0 items-center rounded-full");
     expect(headerSource).toContain("mobileUnitLabel");
     expect(headerSource).toContain("Abrir menu");
     expect(headerSource).toContain("md:hidden absolute bottom-6");
@@ -78,7 +82,9 @@ describe("PacsQueryPage mobile study list contract", () => {
   });
 
   it("separa ações, status e prioridade clínica para acomodar todos os perfis em telas estreitas", () => {
-    expect(pageSource).toContain('className="grid shrink-0 grid-flow-col auto-cols-8 justify-end gap-1.5"');
+    expect(pageSource).toContain('className="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2"');
+    expect(pageSource).toContain('aria-label="Visualizar imagens DICOM"');
+    expect(pageSource).toContain("inline-flex h-10 w-10 items-center justify-center rounded-full border");
     expect(pageSource).toContain('aria-label="Sinalização clínica e prazo de laudo"');
     expect(pageSource).toContain('className="mt-2 flex w-full flex-col items-stretch gap-1.5 border-t border-gray-100 pt-2"');
     expect(pageSource).toContain('className="flex w-full flex-wrap items-center justify-center gap-1"');

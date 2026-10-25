@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { Plus, Pencil, Trash2, ArrowLeft, FileText, AlertTriangle, Search } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -65,6 +65,12 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
   const [search, setSearch] = useState("");
   const [modalityFilter, setModalityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("active");
+  // AJUSTE (auditoria claude/ajustes-mobile): o catálogo desenhava os 516 cartões de uma
+  // vez (página de ~81 mil px no celular). Agora mostra em blocos de 60, e a busca/filtros
+  // continuam valendo sobre o catálogo inteiro.
+  const CATALOG_PAGE_SIZE = 60;
+  const [visibleCount, setVisibleCount] = useState(CATALOG_PAGE_SIZE);
+  useEffect(() => { setVisibleCount(CATALOG_PAGE_SIZE); }, [search, modalityFilter, statusFilter]);
   const activeCount = useMemo(() => entries.filter((entry: CatalogEntry) => entry.is_active).length, [entries]);
   const mappingCount = useMemo(() => entries.reduce((total: number, entry: CatalogEntry) => total + entry.pacsMappings.length, 0), [entries]);
   const filteredEntries = useMemo(() => entries.filter((entry: CatalogEntry) => {
@@ -178,7 +184,7 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
             {isLoading ? <p className="py-10 text-center text-sm text-slate-400">Carregando catálogo…</p> : null}
             {!isLoading && !filteredEntries.length ? <p className="py-10 text-center text-sm text-slate-400">Nenhum exame corresponde aos filtros selecionados.</p> : null}
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {filteredEntries.map((entry: CatalogEntry) => {
+              {filteredEntries.slice(0, visibleCount).map((entry: CatalogEntry) => {
                 return <article key={entry.id} className="group flex min-h-[148px] flex-col rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:border-cyan-300 hover:shadow-md">
                   <div className="flex items-start justify-between gap-2">
                     <h2 className="min-w-0 truncate text-[13px] font-semibold leading-tight text-slate-900" title={entry.exam_name}>{entry.exam_name}</h2>
@@ -191,16 +197,22 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
                     <CatalogMetric label="PACS" value={entry.pacsMappings.length} accent="text-slate-700" divided />
                   </div>
 
-                  <Button variant="outline" size="sm" className="mt-auto h-8 w-full border-slate-300 bg-white text-xs text-slate-700 group-hover:border-cyan-300 group-hover:bg-cyan-50 group-hover:text-cyan-800" onClick={() => startEdit(entry)}><Pencil className="mr-1.5 h-3.5 w-3.5" />Configurar</Button>
+                  <Button variant="outline" size="sm" className="mt-auto h-10 w-full border-slate-300 sm:h-8 bg-white text-xs text-slate-700 group-hover:border-cyan-300 group-hover:bg-cyan-50 group-hover:text-cyan-800" onClick={() => startEdit(entry)}><Pencil className="mr-1.5 h-3.5 w-3.5" />Configurar</Button>
                 </article>;
               })}
             </div>
+            {filteredEntries.length > visibleCount && <div className="mt-3 flex flex-col items-center gap-1"><Button variant="outline" className="h-11 w-full border-slate-300 bg-white text-sm sm:w-auto" onClick={() => setVisibleCount((count) => count + CATALOG_PAGE_SIZE)}>Mostrar mais {Math.min(CATALOG_PAGE_SIZE, filteredEntries.length - visibleCount)}</Button><p className="text-xs text-slate-500">Exibindo {visibleCount} de {filteredEntries.length}</p></div>}
           </div>
         </section>
       </section>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[92vh] overflow-y-auto border-slate-700 bg-slate-950 text-slate-100 sm:max-w-5xl">
+        {/* AJUSTES (auditoria claude/ajustes-mobile):
+            - onOpenAutoFocus: o Radix focava e selecionava o nome da legenda ao abrir; no celular
+              isso abre o teclado e a primeira tecla apagaria o nome.
+            - rodapé: o "sticky bottom-0" ficava acima do padding de 24px do modal, e a seção 3
+              aparecia por baixo de "Salvar/Cancelar". O rodapé agora cobre o padding (-mx/-mb). */}
+        <DialogContent onOpenAutoFocus={(event) => event.preventDefault()} className="max-h-[92dvh] overflow-y-auto border-slate-700 bg-slate-950 text-slate-100 sm:max-w-5xl">
           <DialogHeader className="border-b border-slate-800 pb-4">
             <DialogTitle>{draft.id ? "Editar exame canônico" : "Novo exame canônico"}</DialogTitle>
             <DialogDescription className="text-slate-400">Organize a regra clínica em blocos independentes. Alterações valem para documentos e mapeamentos futuros; assinaturas anteriores preservam seus snapshots.</DialogDescription>
@@ -268,7 +280,7 @@ export default function ExamCatalogPage({ embedded = false }: { embedded?: boole
               </section>
             </div>
           </div>
-          <DialogFooter className="sticky bottom-0 border-t border-slate-800 bg-slate-950 pt-4">
+          <DialogFooter className="sticky bottom-0 z-10 -mx-6 -mb-6 border-t border-slate-800 bg-slate-950 px-6 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             <p className="mr-auto hidden text-xs text-slate-500 sm:block">A ordem de exibição é automática por modalidade e nome; não requer configuração manual.</p>
             <Button variant="ghost" className="text-slate-300" onClick={() => setOpen(false)}>Cancelar</Button>
             <Button className="bg-cyan-600 hover:bg-cyan-500" disabled={save.isPending} onClick={saveDraft}>{save.isPending ? "Salvando…" : "Salvar catálogo"}</Button>

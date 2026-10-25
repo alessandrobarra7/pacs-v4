@@ -3,7 +3,7 @@
  * Sidebar com navegação por role
  * Desenvolvimento StudioBarra7
  */
-import React from "react";
+import React, { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
@@ -61,6 +61,17 @@ export function FinanceShell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // AJUSTE (auditoria claude/ajustes-mobile): ao trocar de tela dentro do financeiro a
+  // rolagem anterior era mantida (ex.: "Abrir financeiro" chegava no meio da página) e o
+  // menu lateral do celular continuava aberto. Ao mudar de rota, volta ao topo e fecha o menu.
+  useEffect(() => {
+    setMobileOpen(false);
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    if (typeof window.scrollTo === "function") window.scrollTo(0, 0);
+    const main = document.querySelector<HTMLElement>(".finance-theme main");
+    if (main && typeof main.scrollTo === "function") main.scrollTo(0, 0);
+  }, [location]);
+
   if (!user || !ALLOWED_ROLES.includes(user.role as string)) {
     return (
       <div className="finance-theme min-h-screen flex items-center justify-center">
@@ -76,7 +87,7 @@ export function FinanceShell({ children }: { children: React.ReactNode }) {
       {/* Logo / voltar */}
       <div className="px-4 py-4 border-b border-[var(--fin-line)]">
         <Link href="/">
-          <a className="flex items-center gap-2 text-[var(--fin-muted)] hover:text-[var(--fin-text)] transition-colors text-sm">
+          <a className="-mx-2 flex min-h-11 items-center gap-2 rounded-lg px-2 text-[var(--fin-muted)] hover:text-[var(--fin-text)] transition-colors text-sm">
             <ChevronLeft className="h-4 w-4" />
             <span>Voltar ao PACS</span>
           </a>
@@ -132,7 +143,7 @@ export function FinanceShell({ children }: { children: React.ReactNode }) {
         {/* Mobile header */}
         <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-[var(--fin-line)] bg-[var(--fin-side)]">
           <p className="fin-head text-[var(--fin-text)] font-semibold">Financeiro</p>
-          <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)}>
+          <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="Abrir menu do financeiro" onClick={() => setMobileOpen(true)}>
             <Menu className="h-5 w-5" />
           </Button>
         </div>

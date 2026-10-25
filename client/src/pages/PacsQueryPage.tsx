@@ -38,6 +38,9 @@ import { PACS_MAX_RESULTS } from "../../../shared/const";
 import { resolveExamHasNoLegendSelected } from "@/lib/examLegendVisualState";
 
 import { Calendar } from "@/components/ui/calendar";
+// Locale do react-day-picker (traduz também os rótulos de acessibilidade, que
+// com o locale do date-fns ficavam em inglês: "Go to the Previous Month", etc.).
+import { ptBR as dayPickerPtBR } from "react-day-picker/locale";
 import {
   Dialog,
   DialogClose,
@@ -572,8 +575,16 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
   });
   const selectedNames = selections.map((selection) => selection.exam_name_snapshot).join(" + ");
   if (!canSelect) return <div data-card-interactive="true">{children ?? <span className="text-xs font-medium text-cyan-700">{selectedNames || study.studyDescription}</span>}</div>;
+  // MELHORIA (auditoria claude/ajustes-mobile): a legenda cujo nome coincide com a
+  // descrição recebida do PACS aparecia no fim de uma lista de 100+ itens (depois
+  // de "UROTOMOGRAFIA"). Ela agora vem primeiro, como sugestão. Só muda a ordem de
+  // exibição — nada é selecionado automaticamente.
+  const normalizeLegendText = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("pt-BR");
+  const pacsDescription = normalizeLegendText(study.studyDescription);
   const legendsForModality = selectedModality
-    ? legends.filter((legend) => legend.modality === selectedModality && legend.exam_name.toLocaleLowerCase("pt-BR").includes(search.trim().toLocaleLowerCase("pt-BR")))
+    ? legends
+        .filter((legend) => legend.modality === selectedModality && legend.exam_name.toLocaleLowerCase("pt-BR").includes(search.trim().toLocaleLowerCase("pt-BR")))
+        .sort((a, b) => Number(normalizeLegendText(b.exam_name) === pacsDescription) - Number(normalizeLegendText(a.exam_name) === pacsDescription))
     : [];
   const selectedModalityLabel = selectedModality
     ? LEGEND_MODAL_MODALITIES.find((modality) => modality.value === selectedModality)?.label ?? selectedModality
@@ -598,8 +609,14 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
 
       {isOpen && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" onMouseDown={closeModal} onClick={(event) => event.stopPropagation()}>
-          <div role="dialog" aria-modal="true" aria-labelledby={`legend-modal-title-${study.studyInstanceUid}`} className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
+          <div role="dialog" aria-modal="true" aria-labelledby={`legend-modal-title-${study.studyInstanceUid}`} className="flex max-h-[88dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+            {/* CORREÇÃO (auditoria claude/ajustes-mobile): no celular a lista de 100+ legendas
+                empurrava o modal e, como cabeçalho e rodapé eram itens flex encolhíveis, o
+                navegador os comprimia (medido em 390x844: cabeçalho 74px→38px, rodapé 65px→30px).
+                Resultado: o subtítulo ficava por baixo da busca e "Confirmar seleção" ficava
+                fora da área visível do modal. shrink-0 fixa cabeçalho/busca/rodapé e só a lista
+                (min-h-0 + overflow) rola. */}
+            <div className="flex shrink-0 items-start justify-between border-b border-slate-200 px-5 py-4">
               <div className="flex items-start gap-2">
                 {selectedModality && <button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} className="mt-0.5 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Voltar para modalidades"><ChevronLeft className="h-5 w-5" /></button>}
                 <div>
@@ -607,20 +624,20 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
                   <p className="mt-0.5 text-xs text-slate-500">{selectedModality ? "Marque um ou mais exames. Cada legenda terá seus laudos e eventos próprios." : "Escolha a modalidade informada pelo PACS para montar a composição clínica deste estudo."}</p>
                 </div>
               </div>
-              <button type="button" onClick={closeModal} className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Fechar composição de exames"><X className="h-5 w-5" /></button>
+              <button type="button" onClick={closeModal} className="-m-1.5 inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Fechar composição de exames"><X className="h-5 w-5" /></button>
             </div>
 
-            {selectedLegendItems.length > 0 && <div className="border-b border-cyan-100 bg-cyan-50 px-5 py-3"><div className="flex items-center justify-between gap-3"><p className="text-xs font-medium text-cyan-800">Composição em edição</p><p className="text-[11px] text-cyan-700">Remova e inclua legendas antes de confirmar.</p></div><div className="mt-1.5 flex flex-wrap gap-1.5">{selectedLegendItems.map((legend) => <span key={legend.id} className={`inline-flex items-center gap-1 rounded-full py-1 pl-2 text-[11px] ${legend.locked ? "bg-slate-700 pr-2 text-white" : "bg-white pr-1 text-cyan-900 ring-1 ring-cyan-200"}`}><span>{legend.name}{legend.locked ? " · bloqueada" : ""}</span>{!legend.locked && <button type="button" onClick={() => removeFromDraft(legend.id)} disabled={confirmSelections.isPending} className="rounded-full p-0.5 text-cyan-700 transition-colors hover:bg-cyan-100 hover:text-cyan-950 disabled:opacity-50" aria-label={`Remover legenda ${legend.name}`} title={`Remover ${legend.name}`}><X className="h-3 w-3" /></button>}</span>)}</div>{selectedLegendItems.some((legend) => legend.locked) && <p className="mt-2 text-[11px] text-slate-600">Legendas bloqueadas não podem ser removidas após a primeira assinatura.</p>}</div>}
+            {selectedLegendItems.length > 0 && <div className="max-h-32 shrink-0 overflow-y-auto border-b border-cyan-100 bg-cyan-50 px-5 py-3"><div className="flex items-center justify-between gap-3"><p className="text-xs font-medium text-cyan-800">Composição em edição</p><p className="text-[11px] text-cyan-700">Remova e inclua legendas antes de confirmar.</p></div><div className="mt-1.5 flex flex-wrap gap-1.5">{selectedLegendItems.map((legend) => <span key={legend.id} className={`inline-flex items-center gap-1 rounded-full py-1 pl-2 text-[11px] ${legend.locked ? "bg-slate-700 pr-2 text-white" : "bg-white pr-1 text-cyan-900 ring-1 ring-cyan-200"}`}><span>{legend.name}{legend.locked ? " · bloqueada" : ""}</span>{!legend.locked && <button type="button" onClick={() => removeFromDraft(legend.id)} disabled={confirmSelections.isPending} className="rounded-full p-0.5 text-cyan-700 transition-colors hover:bg-cyan-100 hover:text-cyan-950 disabled:opacity-50" aria-label={`Remover legenda ${legend.name}`} title={`Remover ${legend.name}`}><X className="h-3 w-3" /></button>}</span>)}</div>{selectedLegendItems.some((legend) => legend.locked) && <p className="mt-2 text-[11px] text-slate-600">Legendas bloqueadas não podem ser removidas após a primeira assinatura.</p>}</div>}
 
             {selectedModality ? (
               <>
-                <div className="border-b border-slate-100 px-5 py-3"><div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Buscar exame ${selectedModalityLabel}...`} autoFocus className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></div></div>
-                <div className="flex-1 overflow-y-auto px-5 py-4">
+                <div className="shrink-0 border-b border-slate-100 px-5 py-3"><div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Buscar exame ${selectedModalityLabel}...`} className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></div></div>
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
                   {legendsForModality.length ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{legendsForModality.map((legend) => {
                     const current = selections.find((selection) => selection.exam_legend_id === legend.id);
                     const selected = draftLegendIds.includes(legend.id);
                     const locked = Boolean(current?.lockedAt);
-                    return <button type="button" key={legend.id} disabled={confirmSelections.isPending || (locked && selected)} onClick={() => setDraftLegendIds((currentIds) => selected ? currentIds.filter((id) => id !== legend.id) : [...currentIds, legend.id])} className={`flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${selected ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-700 hover:border-cyan-300 hover:bg-cyan-50"} ${locked ? "cursor-not-allowed opacity-80" : ""}`}><span>{legend.exam_name}</span><span className="flex items-center gap-1">{locked && <span className="text-[10px] text-slate-500">Bloqueada</span>}{selected && <Check className="h-4 w-4 shrink-0 text-cyan-600" />}</span></button>;
+                    return <button type="button" key={legend.id} disabled={confirmSelections.isPending || (locked && selected)} onClick={() => setDraftLegendIds((currentIds) => selected ? currentIds.filter((id) => id !== legend.id) : [...currentIds, legend.id])} className={`flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${selected ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-700 hover:border-cyan-300 hover:bg-cyan-50"} ${locked ? "cursor-not-allowed opacity-80" : ""}`}><span>{legend.exam_name}{pacsDescription && normalizeLegendText(legend.exam_name) === pacsDescription && <span className="ml-2 rounded-full bg-cyan-100 px-2 py-0.5 text-[11px] font-semibold text-cyan-800">Sugerido pelo PACS</span>}</span><span className="flex items-center gap-1">{locked && <span className="text-[10px] text-slate-500">Bloqueada</span>}{selected && <Check className="h-4 w-4 shrink-0 text-cyan-600" />}</span></button>;
                   })}</div> : <div className="py-10 text-center text-sm text-slate-500">Nenhum exame {selectedModalityLabel} está disponível para esta unidade.</div>}
                 </div>
               </>
@@ -631,7 +648,7 @@ function StudyLegendPicker({ study, selections, canSelect, children }: { study: 
               })}{!allowedModalities.length && <div className="col-span-full py-8 text-center text-sm text-slate-500">A modalidade deste estudo não está disponível para composição clínica.</div>}</div>
             )}
 
-            <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"><span className="text-xs text-slate-500">{draftLegendIds.length} legenda{draftLegendIds.length === 1 ? "" : "s"} na composição</span><div className="flex gap-2"><button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} disabled={!selectedModality} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:invisible">Voltar</button><button type="button" disabled={!draftLegendIds.length || confirmSelections.isPending} onClick={() => confirmSelections.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendIds: draftLegendIds })} className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-cyan-600 disabled:cursor-not-allowed disabled:opacity-50">{confirmSelections.isPending ? "Confirmando…" : "Confirmar seleção"}</button></div></div>
+            <div className="flex shrink-0 flex-col gap-2 border-t border-slate-200 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"><span className="text-xs text-slate-500">{draftLegendIds.length} legenda{draftLegendIds.length === 1 ? "" : "s"} na composição</span><div className="flex gap-2"><button type="button" onClick={() => { setSelectedModality(null); setSearch(""); }} disabled={!selectedModality} className="min-h-11 flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:hidden sm:flex-none">Voltar</button><button type="button" disabled={!draftLegendIds.length || confirmSelections.isPending} onClick={() => confirmSelections.mutate({ studyInstanceUid: study.studyInstanceUid, examLegendIds: draftLegendIds })} className="min-h-11 flex-1 rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-cyan-600 disabled:cursor-not-allowed disabled:opacity-50">{confirmSelections.isPending ? "Confirmando…" : "Confirmar seleção"}</button></div></div>
           </div>
         </div>
       )}
@@ -1225,8 +1242,20 @@ const isAdminMaster = user?.role === 'admin_master';
     runQuery({ period: 'custom', studyDate });
   };
 
+  // CORREÇÃO (auditoria claude/ajustes-mobile): com o filtro "Ontem" ativo,
+  // selectedDate é undefined e o calendário abria destacando HOJE. Como o botão
+  // principal do modal ("Fechar") aplicava o rascunho, só abrir e fechar o
+  // calendário trocava a lista de ontem para hoje sem o usuário perceber.
+  // Agora o rascunho parte do filtro realmente ativo e o botão se chama "Aplicar".
   const openCalendarDialog = () => {
-    setCalendarDraftDate(selectedDate ?? new Date());
+    let draft: Date | undefined = selectedDate;
+    if (!draft && filters.period === 'yesterday') {
+      draft = new Date();
+      draft.setDate(draft.getDate() - 1);
+    } else if (!draft && filters.period === 'today') {
+      draft = new Date();
+    }
+    setCalendarDraftDate(draft);
     setCalendarOpen(true);
   };
 
@@ -1236,7 +1265,12 @@ const isAdminMaster = user?.role === 'admin_master';
   };
 
   const applyCalendarDraft = () => {
-    handleCalendarSelect(calendarDraftDate ?? new Date());
+    if (!calendarDraftDate) {
+      // Nada escolhido (ex.: filtro "Últimos 7 dias" ativo): apenas fecha, sem trocar o filtro.
+      handleCalendarDialogChange(false);
+      return;
+    }
+    handleCalendarSelect(calendarDraftDate);
   };
 
   const applyCalendarToday = () => {
@@ -2224,7 +2258,10 @@ setSelectedStudy(study);
 
       {/* ── FILTROS ── */}
       <Dialog open={calendarOpen} onOpenChange={handleCalendarDialogChange}>
-      <div className="hidden md:flex bg-white border-b border-gray-200 px-5 py-2.5 items-center gap-3 shrink-0">
+      {/* AJUSTE (auditoria claude/ajustes-mobile): em 768px a tabela de desktop precisava
+          de 860px e rolava de lado; barra de filtros e tabela passam a valer a partir de lg
+          (1024px), e abaixo disso o layout de cartões é usado. */}
+      <div className="hidden lg:flex bg-white border-b border-gray-200 px-5 py-2.5 items-center gap-3 shrink-0">
         {/* Busca por nome */}
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -2306,22 +2343,59 @@ setSelectedStudy(study);
         </div>
       </div>
 
-      {/* ── CONTROLE DE DATA MOBILE ── */}
-      <div className="md:hidden bg-white border-b border-gray-200 p-5 shrink-0">
-        <DialogTrigger asChild>
-          <button
-            type="button"
-            onClick={openCalendarDialog}
-            className={`h-14 w-full rounded-xl border text-base font-semibold transition-colors inline-flex items-center justify-center gap-3 ${
-              activePeriod === 'custom' && selectedDate
-                ? 'bg-amber-700 text-white border-amber-700'
-                : 'bg-white border-gray-300 text-gray-800 hover:bg-gray-50'
-            }`}
-          >
-            <CalendarDays className="h-6 w-6" />
-            <span>{selectedDate ? format(selectedDate, 'dd/MM/yyyy', { locale: ptBR }) : 'Escolher data'}</span>
-          </button>
-        </DialogTrigger>
+      {/* ── CONTROLES MOBILE ──
+          AJUSTE (auditoria claude/ajustes-mobile): no celular só existia "Escolher data".
+          A busca por paciente e os atalhos Hoje/Ontem/7 dias ficavam escondidos, e o botão
+          não mostrava qual filtro estava ativo. Agora os três aparecem, com o ativo destacado. */}
+      <div className="lg:hidden bg-white border-b border-gray-200 px-4 py-3 shrink-0 space-y-2.5">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <input
+            type="search"
+            enterKeyHint="search"
+            placeholder="Buscar paciente..."
+            value={filters.patientName}
+            onChange={(e) => setFilters((f: typeof filters) => ({ ...f, patientName: e.target.value }))}
+            onKeyDown={(e) => e.key === 'Enter' && runQuery()}
+            className="h-11 w-full pl-9 pr-3 text-base border border-gray-300 rounded-xl bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-600"
+          />
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          {([
+            ['today', 'Hoje', () => handlePeriodChange('today')],
+            ['yesterday', 'Ontem', () => handlePeriodChange('yesterday')],
+            ['last7days', '7 dias', handleLast7Days],
+          ] as const).map(([key, label, onClick]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={onClick}
+              aria-pressed={activePeriod === key}
+              className={`h-11 rounded-xl border text-sm font-semibold transition-colors ${
+                activePeriod === key
+                  ? 'bg-amber-700 text-white border-amber-700'
+                  : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          <DialogTrigger asChild>
+            <button
+              type="button"
+              onClick={openCalendarDialog}
+              aria-label={selectedDate ? `Data escolhida: ${format(selectedDate, 'dd/MM/yyyy', { locale: ptBR })}` : 'Escolher data'}
+              className={`h-11 rounded-xl border text-sm font-semibold transition-colors inline-flex items-center justify-center gap-1.5 ${
+                activePeriod === 'custom' && selectedDate
+                  ? 'bg-amber-700 text-white border-amber-700'
+                  : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <CalendarDays className="h-4 w-4 shrink-0" />
+              <span>{selectedDate ? format(selectedDate, 'dd/MM', { locale: ptBR }) : 'Data'}</span>
+            </button>
+          </DialogTrigger>
+        </div>
       </div>
 
       <DialogContent
@@ -2336,7 +2410,8 @@ setSelectedStudy(study);
             mode="single"
             selected={calendarDraftDate}
             onSelect={setCalendarDraftDate}
-            locale={ptBR}
+            defaultMonth={calendarDraftDate}
+            locale={dayPickerPtBR}
             initialFocus
           />
         </div>
@@ -2344,9 +2419,10 @@ setSelectedStudy(study);
           <button
             type="button"
             onClick={applyCalendarDraft}
-            className="h-14 w-full rounded-xl bg-blue-600 text-base font-bold text-white transition-colors hover:bg-blue-700"
+            disabled={!calendarDraftDate}
+            className="h-14 w-full rounded-xl bg-blue-600 text-base font-bold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Fechar
+            {calendarDraftDate ? `Aplicar ${format(calendarDraftDate, 'dd/MM/yyyy', { locale: ptBR })}` : 'Escolha um dia'}
           </button>
           <DialogClose asChild>
             <button
@@ -2440,7 +2516,7 @@ setSelectedStudy(study);
               .pacs-studies-compact .px-4 { padding-left: 6px !important; padding-right: 6px !important; }
             }
           `}</style>
-          <div className="hidden md:block pacs-studies-compact">
+          <div className="hidden lg:block pacs-studies-compact">
           <table className="w-full min-w-[1100px] text-sm border-collapse">
             <thead>
               <tr
@@ -2767,7 +2843,7 @@ setSelectedStudy(study);
           </div>
 
           {/* Lista mobile: os mesmos resultados, permissões e ações da tabela, em cards tocáveis. */}
-          <div className="md:hidden p-3 space-y-2 bg-gray-50/70">
+          <div className="lg:hidden p-3 space-y-2 bg-gray-50/70">
             {pagedResults.length === 0 ? (
               <div className="flex flex-col items-center justify-center min-h-48 text-gray-400 bg-white rounded-lg border border-gray-200">
                 <Search className="h-8 w-8 mb-2 opacity-30" />
@@ -2825,8 +2901,13 @@ setSelectedStudy(study);
                     }}
                     className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-[0_2px_8px_rgba(15,23,42,0.08)] transition-colors active:bg-blue-50"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
+                    {/* AJUSTE (auditoria claude/ajustes-mobile): data, contagem de imagens e os
+                        botões dividiam a mesma linha; em 320px os botões ficavam por cima do texto
+                        "253 imagens" e em 360px o texto quebrava. As ações agora têm linha própria,
+                        alvos de 40px (antes 32px) e o botão "Ver imagens" fica visível — antes a
+                        única forma de abrir o visualizador era tocar no corpo do cartão. */}
+                    <div className="flex flex-col gap-2">
+                      <div className="min-w-0">
                         <div className="flex items-center gap-1.5 text-[11px] font-medium leading-none text-gray-500">
                           <span>{dateFormatted}</span>
                           <span className="text-gray-300">/</span>
@@ -2837,12 +2918,24 @@ setSelectedStudy(study);
                           selections={legendSelectionsByStudyUid.get(study.studyInstanceUid) ?? []}
                           canSelect={["operador", "atendente", "medico", "admin_master"].includes(user?.role ?? "")}
                         >
-                          <div className="mt-1 truncate rounded pr-1 text-xs uppercase leading-tight text-gray-500 group-hover:text-cyan-800">
+                          <div className="mt-1 flex min-h-9 items-center truncate rounded pr-1 text-xs uppercase leading-tight text-gray-500 group-hover:text-cyan-800">
                             {examLabel}
                           </div>
                         </StudyLegendPicker>
                       </div>
-                      <div className="grid shrink-0 grid-flow-col auto-cols-8 justify-end gap-1.5">
+                      <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2">
+                        {/* 0. Ver imagens */}
+                        {canViewer && (
+                          <button
+                            type="button"
+                            onClick={(event) => { event.stopPropagation(); handleVisualize(study, true); }}
+                            aria-label="Visualizar imagens DICOM"
+                            className="mr-auto inline-flex h-10 items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-3 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-100"
+                          >
+                            {isMobileDownloadActive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+                            Ver imagens
+                          </button>
+                        )}
                         {/* 1. Anexo de imagens (condicional) */}
                         {(() => {
                           const hasAttachments = !!attachmentsStatusMap[study.studyInstanceUid];
@@ -2857,7 +2950,7 @@ setSelectedStudy(study);
                               }}
                               title={hasAttachments ? "Anexos disponíveis" : "Sem anexos"}
                               aria-label="Anexo de imagens"
-                              className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                              className={`inline-flex h-10 w-10 items-center justify-center rounded-full border transition-colors ${
                                 hasAttachments
                                   ? "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
                                   : "border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600"
@@ -2882,7 +2975,7 @@ setSelectedStudy(study);
                               }}
                               title={hasAnamnesis ? "Anamnese preenchida" : "Sem anamnese"}
                               aria-label="Anamnese"
-                              className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                              className={`inline-flex h-10 w-10 items-center justify-center rounded-full border transition-colors ${
                                 hasAnamnesis
                                   ? "border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
                                   : "border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600"
@@ -2904,7 +2997,7 @@ setSelectedStudy(study);
                               }}
                               title={hasAudio ? "Áudio vinculado" : "Sem áudio"}
                               aria-label="Ouvir áudio vinculado"
-                              className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                              className={`inline-flex h-10 w-10 items-center justify-center rounded-full border transition-colors ${
                                 hasAudio
                                   ? "border-purple-200 bg-purple-50 text-purple-600 hover:bg-purple-100"
                                   : "border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600"
@@ -2921,7 +3014,7 @@ setSelectedStudy(study);
                             onClick={(event) => { event.stopPropagation(); handleReport(study); }}
                             title="Laudar exame"
                             aria-label="Laudar exame"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-violet-600 transition-colors hover:bg-violet-100"
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-violet-600 transition-colors hover:bg-violet-100"
                           >
                             <FileText className="h-4 w-4" />
                           </button>
@@ -2935,7 +3028,7 @@ setSelectedStudy(study);
                               onClick={(event) => { event.stopPropagation(); handlePrintReport(study); }}
                               title={isSigned ? "Baixar laudo assinado" : "Baixar rascunho"}
                               aria-label="Baixar laudo em PDF"
-                              className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                              className={`inline-flex h-10 w-10 items-center justify-center rounded-full border transition-colors ${
                                 isSigned
                                   ? "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
                                   : "border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-600"
@@ -2984,14 +3077,14 @@ setSelectedStudy(study);
                             }}
                             title="Editar nome do paciente"
                             aria-label="Editar nome do paciente"
-                            className="ml-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100 align-middle"
+                            className="ml-2 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100 align-middle"
                           >
                             <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
                         )}
                       </div>
                       <div className="flex flex-col items-end gap-1 shrink-0">
-                        <span className={`inline-flex max-w-[92px] shrink-0 items-center rounded-full border px-2 py-1 text-[10px] font-medium leading-none ${mobileStatusCls}`}>
+                        <span className={`inline-flex max-w-[110px] shrink-0 items-center rounded-full border px-2 py-1 text-[11px] font-medium leading-none ${mobileStatusCls}`}>
                           {status}
                         </span>
                         {reportStatusDetail && <span className="max-w-[116px] text-right text-[9px] leading-tight text-rose-700">{reportStatusDetail}</span>}
