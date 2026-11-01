@@ -1,0 +1,252 @@
+HANDOFF TÉCNICO — PACS Portal / LAUDS
+Repositório: alessandrobarra7/pacs-v4
+Branch: claude/corrige-cache-desatualizado-busca-pacs-20261101
+Commit base (origin/main no momento do fork): bdfe3188c2d2cdae0d016db9b4d84d1ecad29ca5
+Commit topo do branch: bc87f4c2a903a5e2b1ec337d6534f2ab2d464e83
+Destinatário: Manus (acesso real às VMs de produção), e qualquer outro agente/engenheiro com acesso ao repositório.
+Autor: Claude (sandbox, sem acesso a produção).
+Data: 2026-11-01.
+
+====================================================================
+1. COMO CHEGAR NO CÓDIGO REAL
+====================================================================
+
+  git fetch origin
+  git checkout claude/corrige-cache-desatualizado-busca-pacs-20261101
+  git diff bdfe3188c2d2cdae0d016db9b4d84d1ecad29ca5..HEAD
+
+Três arquivos tocados:
+  - client/src/lib/pacsCacheIsolation.ts        (nova função)
+  - client/src/pages/PacsQueryPage.tsx           (wiring do onError)
+  - server/audit-fixes-pacs-query-error-stale-cache.test.ts  (novo, testes)
+
+Nenhuma migration, nenhuma mudança de schema, nenhuma dependência nova.
+
+====================================================================
+2. O MECANISMO DO PROBLEMA
+====================================================================
+
+Relato original do Alessandro (com print de tela, 01/11/2026, unidade
+"UNIDADE 1T"): com o filtro de data "Hoje" selecionado, a Lista PACS
+mostrava uma linha do estudo de REGIANE CRISTINA FEREIRA datado de
+15/10/2026 — ou seja, de quase três semanas atrás, não de hoje — e ao
+mesmo tempo um toast de erro: "Falha na consulta DICOM: Erro de conexão
+com PACS 172.16.3.250:3004 -> Connection error: connect EHOSTUNREACH
+172.16.3.250:3004".
+
+À primeira vista parecia um exame chegando de "origem desconhecida" —
+não é. É dado antigo do PRÓPRIO navegador sendo reexibido como se fosse
+atual, por causa de uma falha de atualização silenciosa.
+
+Mecanismo completo, rastreado em código:
+
+(a) client/src/pages/PacsQueryPage.tsx define:
+
+      const cacheKey = `pacs_query_results_unit_${effectiveUnitId || 'none'}`;
+
+    Essa chave depende SÓ da unidade (effectiveUnitId). Não entra nela o
+    filtro de data ativo (period: 'today' | 'yesterday' | 'all' | custom,
+    nem o studyDate resolvido).
+
+(b) O estado `queryResults` é inicializado de duas formas, ambas lendo
+    essa MESMA chave, independente do filtro:
+
+      const [queryResults, setQueryResults] = useState<any[]>(() => {
+        try { return JSON.parse(localStorage.getItem(cacheKey) || '[]'); } catch { return []; }
+      });
+
+    e, num useEffect com dep [cacheKey] (dispara ao trocar de unidade):
+
+      useEffect(() => {
+        try { setQueryResults(JSON.parse(localStorage.getItem(cacheKey) || '[]')); } catch { setQueryResults([]); }
+        ...
+      }, [cacheKey]);
+
+(c) Outro useEffect, com dep [queryResults, cacheKey], GRAVA de volta no
+    localStorage qualquer resultado não vazio:
+
+      useEffect(() => {
+        if (queryResults.length > 0) localStorage.setItem(cacheKey, JSON.stringify(queryResults));
+      }, [queryResults, cacheKey]);
+
+    Ou seja: o cache por unidade guarda "o último resultado de QUALQUER
+    consulta bem-sucedida nesta unidade", não "o último resultado do
+    filtro atual". Se o usuário consultou "Últimos 7 dias" ontem e hoje
+    abre a tela no filtro "Hoje", o cache ainda tem os dados de 7 dias
+    até a consulta ao vivo de "Hoje" responder.
+
+(d) A consulta ao vivo é a mutação `queryPacs` (trpc.pacs.query). ANTES
+    desta correção, o onError dela era:
+
+      onError: (error: any) => {
+        toast.error(error.message || "Erro ao consultar PACS");
+        setIsQuerying(false);
+      },
+
+    Ou seja: quando a consulta ao PACS falha (qualquer erro — no caso
+    real, EHOSTUNREACH de server/routers/pacs.ts, que relança qualquer
+    erro do C-FIND como TRPCError INTERNAL_SERVER_ERROR com a mensagem
+    "Falha na consulta DICOM: <error.message>"), o único efeito era o
+    toast. `queryResults` NUNCA era zerado. A lista que estava na tela —
+    carregada do cache da unidade, de QUALQUER período anterior — ficava
+    lá, sob o rótulo do filtro atualmente selecionado ("Hoje"), sem
+    nenhuma indicação visual de que não foi atualizada.
+
+Esse é o mecanismo exato do que o Alessandro viu: o EHOSTUNREACH contra
+172.16.3.250:3004 (problema de rede/infra desta unidade, já reportado
+antes e não é objeto desta correção) impediu a consulta ao vivo de
+"Hoje"; o toast apareceu; e a lista continuou mostrando o cache antigo
+daquela unidade (aparentemente de uma consulta anterior que incluiu o
+estudo de 15/10/2026), como se fosse o resultado de "Hoje".
+
+====================================================================
+3. O MECANISMO DA CORREÇÃO
+====================================================================
+
+Decisão confirmada com o Alessandro antes de implementar (pergunta
+direta: manter a lista com aviso de "desatualizado", ou limpar e mostrar
+vazio + erro): ele escolheu limpar e mostrar vazio + erro — mais simples
+e sem risco de alguém confundir dado antigo com atual.
+
+Implementação:
+
+(a) Nova função em client/src/lib/pacsCacheIsolation.ts (mesmo arquivo
+    que já centraliza a lógica de isolamento de cache clínico do PACS
+    entre usuários — ver comentário de topo do arquivo para o histórico
+    desse módulo):
+
+      export function clearStalePacsQueryResultsCache(
+        cacheKey: string,
+        localStorageImpl: StorageLike = globalThis.localStorage,
+      ): void {
+        try {
+          localStorageImpl.removeItem(cacheKey);
+        } catch {
+          // Storage indisponível — nada a fazer.
+        }
+      }
+
+    Reusa a interface StorageLike já existente nesse arquivo (a mesma
+    usada por clearPacsClinicalCache e purgeStaleCrossUserCacheIfNeeded),
+    o que permite testar com um Storage falso em memória sem depender do
+    localStorage real do navegador.
+
+(b) client/src/pages/PacsQueryPage.tsx — novo import:
+
+      import { clearStalePacsQueryResultsCache } from "@/lib/pacsCacheIsolation";
+
+    E o onError da mutação queryPacs passa a ser:
+
+      onError: (error: any) => {
+        toast.error(error.message || "Erro ao consultar PACS");
+        setIsQuerying(false);
+        // CORREÇÃO (achado do Alessandro, 2026-11-01): ...
+        setQueryResults([]);
+        clearStalePacsQueryResultsCache(cacheKey);
+      },
+
+    `setQueryResults([])` zera a lista em memória imediatamente (a tela
+    fica vazia, com o toast de erro visível). `clearStalePacsQueryResultsCache(cacheKey)`
+    remove a entrada em localStorage daquela unidade, para que uma
+    recarga de página logo em seguida (antes de uma nova consulta bem-
+    sucedida) não ressuscite o mesmo resultado antigo a partir do cache.
+
+====================================================================
+4. O QUE FICOU DELIBERADAMENTE FORA DO ESCOPO
+====================================================================
+
+O cache (`pacs_query_results_unit_<unitId>`) continua escopado SÓ por
+unidade, não pelo filtro de data ativo. Isso significa que, mesmo com
+esta correção, ao trocar de filtro COM SUCESSO (não é o caso de erro
+corrigido aqui) ainda pode haver um flash breve do resultado do filtro
+ANTERIOR na tela, no instante entre o useEffect que lê o cache da
+unidade e a resposta da nova consulta ao vivo chegar.
+
+Não corrigi isso nesta branch porque:
+1. Não foi o que o Alessandro relatou/reproduziu — o relato e o print
+   são especificamente sobre o caso de ERRO (consulta falha, dado
+   antigo fica exposto indefinidamente, não só por um instante).
+2. Mudar a chave de cache para incluir o filtro (ex.:
+   `pacs_query_results_unit_<id>_<period>_<studyDate>`) é uma mudança de
+   desenho mais ampla — afeta o comportamento de cache em TODOS os
+   caminhos (sucesso e erro), não só o de erro, e pode ter efeitos sobre
+   outras partes que leem/escrevem essa mesma chave (ex.: os módulos de
+   isolamento de cache entre usuários em pacsCacheIsolation.ts usam o
+   PREFIXO `pacs_query_results_unit_` para decidir o que é clínico — uma
+   mudança de formato de chave precisa ser conferida contra esse
+   prefixo também).
+
+Recomendo tratar isso como um achado separado, de menor severidade
+(efeito só visual, momentâneo, em troca de filtro bem-sucedida — não o
+caso relatado de erro com dado persistente e enganoso), para decisão
+explícita do Alessandro sobre se vale a pena escopar o cache por filtro
+ou se o comportamento atual (cache só por unidade, sobrescrito a cada
+consulta bem-sucedida) é aceitável.
+
+O problema de REDE que originou o erro reproduzido nesta investigação —
+PACS da UNIDADE 1T inalcançável em 172.16.3.250:3004 (EHOSTUNREACH) — NÃO
+é objeto desta correção de código. Esse IP está na mesma faixa
+172.16.3.0/24 das VMs de infraestrutura do próprio Portal (VM1=.100,
+VM2=.101, VM3=.102 — ver docs/ARQUITETURA_3_VMS_PACS.md), o que sugere
+ou um IP de PACS cadastrado incorretamente para essa unidade, ou um
+equipamento real nessa faixa que está fora do ar/desconectado. Isso
+precisa de diagnóstico de rede (ping/nc a partir da VM1) que só quem tem
+acesso real à VM1 pode confirmar — está fora do alcance do sandbox deste
+agente.
+
+====================================================================
+5. VALIDAÇÃO EXECUTADA
+====================================================================
+
+- `npx tsc --noEmit`: sem erros.
+
+- Teste direcionado (server/audit-fixes-pacs-query-error-stale-cache.test.ts):
+  8/8 PASS. Cobre: clearStalePacsQueryResultsCache remove só a chave da
+  unidade informada / preserva outras unidades e outros módulos (ex.:
+  pacs_auto_download_unit_*, theme) / no-op seguro sem a chave / no-op
+  seguro com storage que lança (modo privado). Mais dois testes de
+  "wiring" (mesmo padrão de outros arquivos *-wiring.test.ts já
+  existentes neste repo), que leem o código-fonte real de
+  PacsQueryPage.tsx e confirmam que o bloco onError chama
+  `setQueryResults([])` e `clearStalePacsQueryResultsCache(cacheKey)`.
+
+  PROVA de que os testes de wiring realmente pegam regressão: revertido
+  temporariamente o trecho da correção em PacsQueryPage.tsx, rodado o
+  arquivo de teste de novo — os 2 testes de wiring falharam exatamente
+  como esperado (AssertionError mostrando o texto antigo do onError sem
+  as duas chamadas) — e então restaurada a correção, confirmado 8/8 PASS
+  de novo.
+
+- Suíte completa (TZ=UTC npx vitest run): 955 passed, 11 failed, 1
+  skipped (967 total). As 11 falhas, nestes 7 arquivos —
+  server/exam-catalog-security.test.ts,
+  server/finance-v2-dashboard.test.tsx, server/mediaProxy.test.ts,
+  server/pacs-desktop-download-progress.test.ts,
+  server/pacs.mobile-ui.test.ts, server/security.auth.test.ts,
+  server/study-priority-ui.test.ts — JÁ EXISTIAM antes desta mudança.
+  Confirmado explicitamente: `git stash` (removendo as 3 alterações
+  desta branch), rodada a MESMA suíte com os MESMOS 7 arquivos — as
+  mesmas 11 falhas reproduzidas de forma idêntica contra o estado
+  original. `git stash pop` para restaurar. Linha de base pré-existente,
+  sem relação com esta correção — zero falhas NOVAS introduzidas.
+
+- `npx vite build` + `esbuild server/_core/index.ts ... ` + `cp server/*.py dist/`:
+  build OK, sem erros.
+
+- `git diff --check`: sem problemas de whitespace.
+
+(Nota de ambiente: pnpm não estava disponível no sandbox desta sessão —
+usados os comandos equivalentes de npx diretamente, os mesmos que os
+scripts "check"/"test"/"build" do package.json invocam por baixo.)
+
+====================================================================
+6. ESTADO ATUAL
+====================================================================
+
+Branch publicado no GitHub: claude/corrige-cache-desatualizado-busca-pacs-20261101
+Sem PR aberto, sem merge em main, nada implantado em nenhuma VM.
+Aguardando revisão da Manus e decisão do Alessandro sobre merge.
+
+Regra do projeto reafirmada: nenhuma VM é atualizada por caminho
+diferente de `git pull` a partir de um branch já validado no sandbox —
+essa validação (seção 5 acima) é o que precede qualquer pull em VM1.
