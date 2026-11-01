@@ -8,6 +8,62 @@ Autor: Claude (sandbox, sem acesso a produção).
 Data: 2026-11-01.
 
 ====================================================================
+ADENDO (2026-11-01) — parecer de revisão independente da Manus
+====================================================================
+
+A Manus revisou esta branch em worktree isolado (/tmp/pacs-review-cache-stale-20261101)
+e devolveu parecer próprio (arquivo
+PARECER_REVISAO_CACHE_DESATUALIZADO_LISTA_PACS_2026-11-01.txt, recebido do
+Alessandro). Resumo do que ela confirmou e do que ela recomenda, para que quem ler
+este handoff depois não precise caçar o parecer solto:
+
+1) Ela confirma a mesma causa raiz e a mesma correção descritas nas seções 2 e 3
+   abaixo: chave de cache escopada só por unidade, onError original não limpava a
+   lista antiga, correção adiciona setQueryResults([]) + clearStalePacsQueryResultsCache
+   no onError de trpc.pacs.query, sem localStorage.clear() e sem afetar outras
+   unidades ou pacs_auto_download_unit_*.
+
+2) Validação dela: teste direcionado 8/8, tsc --noEmit limpo, git diff --check
+   limpo, build limpo. Na suíte completa ela obteve 892 passando / 11 falhas (os
+   mesmos 7 arquivos históricos já documentados na seção 5 abaixo) / 1 ignorado /
+   3 erros de ambiente por jsdom ausente no node_modules compartilhado — o
+   worktree dela bateu limite de inodes (ENOSPC) ao tentar instalar dependências
+   próprias e teve que reaproveitar as do projeto principal por symlink, o que
+   deixou esse conjunto de testes sem jsdom completo. Ela própria registra que
+   isso não invalida a branch, mas também não deve ser lido como suíte integral
+   limpa no ambiente dela.
+
+3) DECISÃO EXPLÍCITA DA MANUS, a reter com atenção: ela NÃO recomenda, nesta
+   data, atualizar a VM1 com esta correção. O veredito dela é "aprovado no
+   código para homologação, com pendência operacional na VM1" — ou seja,
+   aprovação do código em si, não autorização para o pull em produção. As duas
+   condições que ela colocou antes de considerar o merge/deploy:
+
+   a) homologação visual real na VM1 (ainda não executada por ela nem por
+      Claude): reproduzir com dados sintéticos/homologação — abrir a Lista PACS,
+      deixar um resultado antigo em cache, selecionar o filtro Hoje, forçar ou
+      observar uma falha DICOM, e confirmar que a lista fica vazia, o cache
+      daquela unidade some, o resultado antigo não volta após recarregar a
+      página, e pacs_auto_download_unit_<id> continua preservado;
+   b) repetir a suíte completa em um ambiente com dependências instaladas de
+      forma íntegra (sem o gap de jsdom que ela teve no worktree isolado).
+
+   Ela também reforça, de forma independente, a mesma pista já registrada na
+   seção 4 abaixo sobre o EHOSTUNREACH: antes de qualquer homologação visual,
+   rodar na VM1, em modo só leitura, "ping -c 4 172.16.3.250" e
+   "nc -zv -w 5 172.16.3.250 3004" para separar IP mal configurado de dispositivo
+   real fora do ar — isso é diagnóstico de rede, não faz parte desta correção de
+   cache e não deve ser confundido com ela.
+
+4) ESTADO ATUAL REAFIRMADO: nenhuma alteração foi feita em main, nenhum deploy
+   foi executado, nenhuma VM (VM1/VM2/VM3) foi alterada por esta revisão nem
+   pela revisão da Manus. Esta branch permanece aberta, sem merge, até que as
+   duas condições do item 3 sejam atendidas. Nenhum código foi alterado por este
+   adendo — é só o registro do parecer e da decisão de não atualizar a VM1
+   ainda, para não haver ambiguidade se alguém retomar este branch depois sem
+   ter visto a conversa original.
+
+====================================================================
 1. COMO CHEGAR NO CÓDIGO REAL
 ====================================================================
 
