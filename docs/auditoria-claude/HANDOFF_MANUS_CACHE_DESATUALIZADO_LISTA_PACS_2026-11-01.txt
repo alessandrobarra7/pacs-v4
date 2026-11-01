@@ -306,3 +306,108 @@ Aguardando revisão da Manus e decisão do Alessandro sobre merge.
 Regra do projeto reafirmada: nenhuma VM é atualizada por caminho
 diferente de `git pull` a partir de um branch já validado no sandbox —
 essa validação (seção 5 acima) é o que precede qualquer pull em VM1.
+
+====================================================================
+ADENDO (2026-11-01) — reavaliação formal antes de qualquer atualização da VM1
+====================================================================
+
+Este ADENDO responde à solicitação de reavaliação formal antes de executar
+VM1_ATUALIZAR_CACHE_PACS_20261101. Não reescreve os pareceres anteriores.
+
+1) STATUS DO MERGE
+
+Verificação feita contra o remoto GitHub nesta data:
+
+  origin/main / github/main:
+    bdfe3188c2d2cdae0d016db9b4d84d1ecad29ca5
+
+  branch claude/corrige-cache-desatualizado-busca-pacs-20261101:
+    37ded0e74e9aeedf3bbb1e8ee058907fe9bd1ed6
+
+A branch NÃO é ancestral de main e o commit 37ded0e NÃO está contido em
+main. Não houve merge fast-forward visível no repositório.
+
+Portanto, o script VM1_ATUALIZAR_CACHE_PACS_20261101, que exige
+COMMIT_ATUAL=37ded0e após `git checkout main` e `git pull --ff-only origin
+main`, abortaria agora com ABORTADO_COMMIT_INESPERADO. Isso é o comportamento
+correto da trava; não se deve contorná-lo puxando diretamente a branch Claude,
+usando reset ou forçando checkout na VM1.
+
+Sequência recomendada e única para produção:
+
+  1. incorporar a branch na main por merge fast-forward, enquanto main ainda
+     estiver exatamente em bdfe3188c2d2cdae0d016db9b4d84d1ecad29ca5;
+  2. confirmar que origin/main passou a apontar para
+     37ded0e74e9aeedf3bbb1e8ee058907fe9bd1ed6;
+  3. somente então executar na VM1 a célula
+     VM1_ATUALIZAR_CACHE_PACS_20261101;
+  4. se a célula abortar por commit inesperado, parar e enviar a saída, sem
+     forçar a atualização.
+
+A Manus não executou esse merge nem alterou main. O script de atualização
+continua deliberadamente condicionado à incorporação prévia na main.
+
+2) PENDÊNCIAS DO PARECER ANTERIOR
+
+As duas condições anteriores NÃO foram cumpridas integralmente.
+
+(a) Homologação visual real na VM1:
+
+  PENDENTE. A Manus não possuiu acesso operacional à VM1 nesta revisão e não
+  executou o teste no navegador real. Nenhum resultado visual real foi
+  apresentado com números verificáveis para os cenários de falha DICOM,
+  limpeza imediata, recarga sem ressurgimento e preservação de
+  pacs_auto_download_unit_<id>.
+
+  O diagnóstico de rede também continua pendente de execução na VM1:
+
+    ping -c 4 172.16.3.250
+    nc -zv -w 5 172.16.3.250 3004
+
+  Esses comandos são diagnóstico do PACS e não substituem a confirmação do
+  comportamento da aplicação após o deploy.
+
+(b) Suíte completa em ambiente com dependências íntegras:
+
+  PENDENTE. A execução independente no sandbox produziu exatamente:
+
+    - 892 testes aprovados;
+    - 11 falhas históricas nos mesmos 7 arquivos já documentados;
+    - 1 teste ignorado;
+    - 3 erros não tratados relacionados à ausência de jsdom no node_modules
+      compartilhado.
+
+  A tentativa de instalar dependências próprias no worktree terminou com
+  ENOSPC por limite de inodes. Para não duplicar dezenas de milhares de
+  arquivos, a revisão usou um link para as dependências já existentes; nesse
+  conjunto jsdom não estava íntegro/disponível para todos os testes.
+
+  Portanto, não existe resultado íntegro da suíte completa que permita marcar
+  esta condição como cumprida. O teste direcionado da branch passou 8/8,
+  `npx tsc --noEmit` passou, `git diff --check` passou e `npx vite build`
+  passou; esses resultados positivos permanecem válidos, mas não substituem
+  a repetição integral com dependências completas.
+
+3) VEREDITO FINAL EXPLÍCITO
+
+NÃO PRONTO PARA ATUALIZAR A VM1.
+
+O código está aprovado para a próxima etapa de validação, mas a autorização
+para produção ainda não está liberada. Faltam exatamente:
+
+  1. incorporar 37ded0e na main por fast-forward;
+  2. repetir a suíte completa em ambiente com jsdom e demais dependências
+     íntegras, registrando o resultado exato e comparando as falhas à baseline;
+  3. executar a confirmação visual real na VM1 após a incorporação, conforme o
+     prompt de teste, registrando lista vazia após erro, ausência do cache após
+     reload e preservação da preferência de pré-download.
+
+Se a decisão operacional do Alessandro for assumir conscientemente a
+pendência de homologação e testar diretamente em produção, isso deve ser
+tratado como exceção operacional explícita. Mesmo nesse caso, a sequência
+segura de código permanece: merge fast-forward na main primeiro e depois a
+célula da VM1; nunca pull direto da branch Claude e nunca bypass das travas.
+
+Até que essas condições sejam atendidas, nenhuma VM deve ser alterada por
+esta correção.
+====================================================================
