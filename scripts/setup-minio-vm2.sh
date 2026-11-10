@@ -1,6 +1,6 @@
 #!/bin/bash
 # AVISO DE SEGURANCA (auditoria-seguranca-rbac-20261110):
-# Este script continha anteriormente a credencial real "lauds_admin" / <senha em texto puro>
+# Este script continha anteriormente a credencial real "<MINIO_ACCESS_KEY>" / <senha em texto puro>
 # (o valor exato da senha foi removido deste comentario para nao reintroduzir o segredo no
 # arquivo atual; ele permanece recuperavel no historico do Git, que e justamente o problema).
 # hardcoded, commitada no historico do Git desde ~04/2026. A instancia da VM2 a que essa

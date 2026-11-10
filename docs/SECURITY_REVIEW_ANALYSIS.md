@@ -106,8 +106,8 @@ const results = await db.select().from(anamnesis)
 #### 7. Credenciais hardcoded no `minio.ts` — `server/minio.ts`
 
 ```typescript
-accessKey: process.env.MINIO_ACCESS_KEY || "lauds_admin",
-secretKey: process.env.MINIO_SECRET_KEY || "Lauds@2026!Secure",
+accessKey: process.env.MINIO_ACCESS_KEY || "<MINIO_ACCESS_KEY>",
+secretKey: process.env.MINIO_SECRET_KEY || "<MINIO_SECRET_KEY_FORNECIDA_PELO_GERENCIADOR>",
 const endpoint = process.env.MINIO_ENDPOINT || "http://172.16.3.101:9000";
 ```
 

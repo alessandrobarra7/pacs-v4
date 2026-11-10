@@ -2,7 +2,9 @@ HANDOFF TÉCNICO — PACS Portal / LAUDS
 Repositório: alessandrobarra7/pacs-v4
 Branch: claude/auditoria-seguranca-rbac-pacs-financeiro-storage-20261110
 Commit base (origin/main no momento do fork): bdfe3188c2d2cdae0d016db9b4d84d1ecad29ca5
-Commit topo do branch: 1cd3075913bd10717b3daebcac663ef11cffcb32
+Commit topo do branch (código, 7 fixes de seguranca): 1cd3075913bd10717b3daebcac663ef11cffcb32
+Commit de documentacao (handoff original): 0ea7226d7d9cf4024d240187500297808ebcc0e0
+Commit topo real apos o ADENDO abaixo: ver secao 7 (ADENDO) para o hash final
 Destinatário: Manus (acesso real às VMs de produção), e qualquer outro agente/engenheiro com acesso ao repositório.
 Autor: Claude (sandbox, sem acesso a produção).
 Data: 2026-11-10.
@@ -315,7 +317,7 @@ falha nova atribuível a este achado.
 MECANISMO DO PROBLEMA:
 
 scripts/setup-minio-vm2.sh gravava literalmente, dentro de um heredoc que
-escreve /etc/default/minio, o usuário raiz "lauds_admin" e uma senha raiz
+escreve /etc/default/minio, o usuário raiz "<MINIO_ACCESS_KEY>" e uma senha raiz
 real em texto puro (a senha exata NÃO é repetida neste documento — ver
 nota de manuseio de credenciais abaixo; quem precisar do valor exato deve
 consultar o histórico do Git diretamente, com o mesmo cuidado de nunca
@@ -936,3 +938,138 @@ já documentado em rodadas anteriores) e dê o veredito final sobre
 prontidão para VM1, seguindo exatamente o mesmo protocolo já estabelecido
 nas branches anteriores — nenhum passo desse protocolo foi pulado aqui,
 só ainda não foi executado por quem tem acesso real à infraestrutura.
+
+
+====================================================================
+7. ADENDO (2026-11-10) — RESPOSTA AO PARECER DA MANUS, ACHADO BLOQUEADOR CORRIGIDO
+====================================================================
+
+A Manus revisou esta branch de forma independente (parecer datado de
+2026-11-10, veredito "REPROVADO PARA MERGE E DEPLOY NESTA FORMA") e validou
+tecnicamente os 7 achados de segurança corrigidos nas seções 1-6 acima (
+código aprovado, 980/37 testes direcionados passando, suíte completa sem
+regressão nova, build limpo) — mas bloqueou o merge/deploy por um achado
+adicional que esta auditoria não tinha coberto.
+
+7.1 CORREÇÃO DO CABEÇALHO (inconsistência documental apontada pela Manus)
+
+O cabeçalho original desta seção 0 informava como "Commit topo do branch"
+o hash 1cd3075913bd10717b3daebcac663ef11cffcb32 — que é, de fato, o último
+commit de CÓDIGO (7º fix de segurança), mas não o HEAD real da branch no
+momento em que a Manus revisou, porque o commit seguinte
+(0ea7226d7d9cf4024d240187500297808ebcc0e0) adicionou só o próprio arquivo
+de handoff, sem alterar código. Isso já foi corrigido no cabeçalho desta
+seção 0 (acima), que agora distingue "topo de código" de "topo real da
+branch" e aponta para este ADENDO.
+
+7.2 ACHADO BLOQUEADOR DA MANUS — CREDENCIAL MINIO AINDA EM 3 DOCUMENTOS
+    VERSIONADOS (CORRIGIDO NESTE ADENDO)
+
+A Manus encontrou, por busca independente no HEAD da branch, que a mesma
+credencial raiz real do MinIO que esta auditoria já tinha removido dos
+dois scripts de setup (seção 3.2 acima) continuava aparecendo literalmente
+em três documentos versionados, não tocados pela correção original:
+
+  - DEPLOY.md (linha com MINIO_ACCESS_KEY= num trecho de exemplo de .env);
+  - docs/SECURITY_REVIEW_ANALYSIS.md (no exemplo de código do achado
+    "Credenciais hardcoded no minio.ts", que citava o valor real como
+    parte da demonstração do próprio achado);
+  - docs/VM2_INFRAESTRUTURA.md (tabela de credenciais, heredoc de
+    /etc/default/minio, e comando "mc alias set" de exemplo).
+
+Essa é uma observação correta e um bloqueio legítimo: a limpeza dos dois
+scripts de setup não bastava, porque a mesma credencial continuava
+reproduzida em prosa/exemplo em três lugares diferentes da documentação —
+e qualquer clone do repositório, ou qualquer cópia desses três arquivos
+entregue a terceiros, continuaria expondo o valor real, independentemente
+de os SCRIPTS estarem corrigidos.
+
+CORREÇÃO APLICADA (commit desta seção, hash abaixo):
+
+Todas as ocorrências literais do usuário raiz ("lauds_admin") e da senha
+raiz real foram substituídas por placeholders não reutilizáveis nos três
+arquivos, exatamente como a Manus recomendou:
+
+  - usuário: <MINIO_ACCESS_KEY>
+  - senha:   <MINIO_SECRET_KEY_FORNECIDA_PELO_GERENCIADOR>
+
+A correção foi feita com substituições cirúrgicas, ancoradas em contexto
+específico de cada ocorrência (nome da variável, texto da tabela, ou
+comando exato), não com uma regra genérica de redação por padrão de
+caractere — uma primeira tentativa genérica (buscar "qualquer token com
+letra+dígito+símbolo especial") foi descartada ainda em rascunho por
+corromper conteúdo não relacionado ao achado (um e-mail de contato do
+Certbot, a string de conexão DATABASE_URL, formatos de data como %Y%m%d,
+e uma credencial de admin do próprio Portal, sem relação com o MinIO).
+Depois da correção cirúrgica, uma nova varredura confirmou zero
+ocorrências de "lauds_admin" em todo o repositório (exceto como comentário
+histórico, já com a senha redigida, explicando que a credencial existiu
+no passado).
+
+Também foram atualizadas, por consistência com a recomendação da Manus,
+as menções textuais ao usuário "lauds_admin" nos comentários de aviso de
+segurança dos dois scripts (seção 3.2) e no texto deste próprio handoff
+(seção 3.2), trocando o usuário literal por <MINIO_ACCESS_KEY> nessas
+três menções também (a senha, nesses três lugares, já estava redigida
+desde a versão original do handoff).
+
+7.3 TESTE ANTI-REGRESSÃO (pedido explícito da Manus, item 3 da recomendação)
+
+Criado server/audit-fixes-minio-credential-no-literal-20261110.test.ts,
+11 testes, cobrindo os 5 arquivos relevantes (os 3 documentos + os 2
+scripts). A checagem é estrutural, não amarrada ao valor antigo específico:
+qualquer ocorrência futura de MINIO_ROOT_USER=, MINIO_ROOT_PASSWORD=,
+MINIO_ACCESS_KEY=, MINIO_SECRET_KEY, a linha "mc alias set" ou as linhas de
+tabela "Usuário/Senha admin" é exigida a conter só uma referência a
+variável de ambiente (nos scripts) ou um placeholder no formato <...>
+(nos documentos) — nunca um literal hardcoded. Isso cobre não só uma
+reintrodução do mesmo valor antigo, mas qualquer credencial NOVA que
+alguém cole ali por engano no futuro.
+
+Prova de revert: injetado um valor fictício de teste (não a credencial
+real) no lugar do placeholder em docs/VM2_INFRAESTRUTURA.md — o teste
+correspondente falhou exatamente como esperado ("expected false to be
+true"); valor original restaurado, 11/11 testes voltaram a passar.
+
+7.4 ROTAÇÃO OPERACIONAL DA CREDENCIAL — AINDA PENDENTE, FORA DO MEU ALCANCE
+
+Conforme a própria Manus confirmou na seção 4 do parecer dela, a rotação
+real da credencial na infraestrutura (VM3/MinIO) não foi e não pode ser
+executada nesta sessão — não há VM3 autorizada, terminal de
+VM2/VM3, gerenciador de segredos conectado, nem as variáveis
+MINIO_ROOT_USER/MINIO_ROOT_PASSWORD/MINIO_ACCESS_KEY/MINIO_SECRET_KEY
+disponíveis neste ambiente sandbox. A limpeza de código e documentação
+feita neste ADENDO não substitui essa rotação — ela só impede que a
+credencial antiga continue sendo distribuída via novos clones/exports do
+repositório. O procedimento de rotação operacional que a equipe de
+infraestrutura deve seguir é exatamente o que a Manus já descreveu na
+seção 4 do parecer dela (criar conta de aplicação restrita, atualizar
+segredo no gerenciador, testar, revogar a credencial exposta, confirmar
+que a instância antiga/dados remanescentes da VM2 não aceitam mais o
+valor antigo) — não repito aqui para não duplicar/divergir da fonte.
+
+7.5 VALIDAÇÃO DESTE ADENDO
+
+  - npx tsc --noEmit: limpo.
+  - bash -n nos dois scripts: sintaxe válida.
+  - git diff --check: limpo.
+  - Teste direcionado novo: 11/11 passando (com prova de revert).
+  - Suíte completa (TZ=UTC npx vitest run server/): 991 passando / 11
+    falhando (mesma baseline histórica de 7 arquivos, incluindo agora o
+    arquivo novo de teste sem nenhuma falha) / 1 ignorado — nenhuma
+    regressão nova.
+  - npx vite build: limpo, mesmos avisos conhecidos de chunk grande.
+  - Varredura de "lauds_admin" em todo o repositório (exceto node_modules
+    e .git): zero ocorrências fora de menções históricas já com a senha
+    redigida.
+
+7.6 ESTADO ATUAL APÓS ESTE ADENDO
+
+Branch ainda NÃO mergeada em main, NÃO implantada em nenhuma VM. O
+bloqueio específico levantado pela Manus (credencial em documentação)
+está corrigido neste ADENDO. A rotação operacional da credencial (seção
+7.4) continua pendente e depende exclusivamente de quem tem acesso real
+à infraestrutura — não é algo que este ADENDO resolve nem pode resolver.
+Peço à Manus uma nova rodada de validação independente sobre este ADENDO
+especificamente (a varredura de segredos no HEAD, mencionada no item 6 da
+recomendação final dela), antes de reconsiderar o veredito de merge/deploy.

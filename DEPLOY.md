@@ -481,7 +481,7 @@ O projeto já possui `server/minio.ts` com cliente MinIO configurado para `172.1
 1. Ativar as variáveis de ambiente no `.env` da VM1:
    ```
    MINIO_ENDPOINT=http://172.16.3.101:9000
-   MINIO_ACCESS_KEY=lauds_admin
+   MINIO_ACCESS_KEY=<MINIO_ACCESS_KEY>
    MINIO_SECRET_KEY=<senha>
    MINIO_BUCKET=lauds
    ```

@@ -71,8 +71,8 @@ systemctl restart mysql
 
 | Parâmetro | Valor |
 |---|---|
-| **Usuário admin** | `lauds_admin` |
-| **Senha admin** | `Lauds@2026!Secure` |
+| **Usuário admin** | `<MINIO_ACCESS_KEY>` |
+| **Senha admin** | `<MINIO_SECRET_KEY_FORNECIDA_PELO_GERENCIADOR>` |
 | Bucket principal | `lauds` |
 | Versão | RELEASE.2025-09-07T16-13-09Z |
 | Instalado em | 02/04/2026 |
@@ -146,8 +146,8 @@ useradd -r -s /sbin/nologin minio 2>/dev/null || echo "Usuário minio já existe
 chown -R minio:minio /data/minio
 
 cat > /etc/default/minio <<'EOF'
-MINIO_ROOT_USER=lauds_admin
-MINIO_ROOT_PASSWORD=Lauds@2026!Secure
+MINIO_ROOT_USER=<MINIO_ACCESS_KEY>
+MINIO_ROOT_PASSWORD=<MINIO_SECRET_KEY_FORNECIDA_PELO_GERENCIADOR>
 MINIO_VOLUMES="/data/minio"
 MINIO_OPTS="--console-address :9001"
 EOF
@@ -192,7 +192,7 @@ systemctl status minio --no-pager
 ```bash
 wget https://dl.min.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc && \
 chmod +x /usr/local/bin/mc && \
-mc alias set vm2minio http://127.0.0.1:9000 lauds_admin 'Lauds@2026!Secure' && \
+mc alias set vm2minio http://127.0.0.1:9000 <MINIO_ACCESS_KEY> '<MINIO_SECRET_KEY_FORNECIDA_PELO_GERENCIADOR>' && \
 mc mb vm2minio/lauds --ignore-existing && \
 mc anonymous set none vm2minio/lauds && \
 mc ls vm2minio
