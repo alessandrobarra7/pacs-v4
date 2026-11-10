@@ -1,0 +1,938 @@
+HANDOFF TÉCNICO — PACS Portal / LAUDS
+Repositório: alessandrobarra7/pacs-v4
+Branch: claude/auditoria-seguranca-rbac-pacs-financeiro-storage-20261110
+Commit base (origin/main no momento do fork): bdfe3188c2d2cdae0d016db9b4d84d1ecad29ca5
+Commit topo do branch: 1cd3075913bd10717b3daebcac663ef11cffcb32
+Destinatário: Manus (acesso real às VMs de produção), e qualquer outro agente/engenheiro com acesso ao repositório.
+Autor: Claude (sandbox, sem acesso a produção).
+Data: 2026-11-10.
+
+====================================================================
+0. RESUMO EXECUTIVO
+====================================================================
+
+Esta branch nasceu de uma auditoria de segurança manual (não automatizada —
+o pipeline do plugin Claude Security não roda neste ambiente Cowork, ver
+nota ao final desta seção) cobrindo os 7 setores funcionais do sistema:
+PACS/DICOM, Laudos/PDF/Masks, Anamnese/Anotações/Áudio/Anexos, Catálogo de
+Exames/Legendas/SLA, Financeiro/Faturamento, Unidades/Admin/Auditoria (RBAC
+core) e Storage/Uploads/MinIO. Cada setor foi auditado por um agente
+dedicado, com instrução explícita de reportar só achados reais, com
+evidência de arquivo+linha, nunca achados teóricos ou inflados.
+
+Resultado da auditoria: todos os 23 problemas de segurança já corrigidos em
+rodadas anteriores (documentados nos handoffs anteriores em
+docs/auditoria-claude/) permanecem corrigidos, sem nenhuma regressão
+encontrada em nenhum setor. Além disso, foram encontrados 7 achados novos,
+nunca reportados antes, que esta branch corrige:
+
+  1. CRÍTICO — setUserPermissions permitia wipe de permissões cross-unidade
+     (setor Unidades/Admin, RBAC core)
+  2. ALTO — credencial raiz real do MinIO hardcoded em scripts versionados
+     (setor Storage)
+  3. ALTO — GET /api/dicom-series/:studyUid sem checagem de autorização por
+     unidade, IDOR (setor PACS/DICOM)
+  4. ALTO — listDoctorsForResponsible vazava médicos/preços de todas as
+     unidades para o papel unit_admin (setor Financeiro)
+  5. MÉDIO — bypass da permissão granular edit_exam_legend em
+     confirmSelections/select (setor Catálogo/Legendas)
+  6. MÉDIO/BAIXO — fallback de autorização mais fraco em
+     anamnesisSimple.getStatusBatch + ausência de audit log em
+     annotations.ts/audioReports.ts (setor Anamnese/Anexos)
+  7. BAIXO — medicalData.getReportContext sem checagem de unidade (setor
+     Laudos)
+
+Não houve merge em main, não houve deploy e nenhuma VM foi alterada nesta
+auditoria/correção. Todos os 7 achados foram corrigidos nesta branch, com
+teste de regressão e prova de revert para cada achado de severidade
+média ou superior.
+
+NOTA SOBRE O PIPELINE AUTOMATIZADO: o usuário (Alessandro) pediu
+inicialmente para rodar o Claude Security (orquestrador automatizado do
+plugin claude-security, com painel adversarial de verificação). O
+orquestrador reportou que a ferramenta "Workflow" de que depende não existe
+em nenhuma camada desta sessão Cowork — ela só é exposta numa sessão padrão
+do Claude Code (desktop/CLI) com o plugin instalado e "Dynamic workflows"
+habilitado em /config. Por isso toda esta auditoria foi feita manualmente,
+setor por setor, por agentes de pesquisa dedicados (não pelo pipeline
+automatizado). Isso não invalida os achados — cada um tem evidência de
+código real, arquivo e linha — mas significa que não houve a camada
+adicional de verificação adversarial automatizada que o pipeline teria
+acrescentado. Recomendo, se o Alessandro tiver acesso a uma sessão padrão
+do Claude Code com esse plugin, rodar o scan automatizado sobre esta mesma
+branch como camada adicional de confirmação, sem prejuízo do que já foi
+corrigido aqui.
+
+====================================================================
+1. COMO CHEGAR NO CÓDIGO REAL
+====================================================================
+
+  git fetch origin
+  git checkout claude/auditoria-seguranca-rbac-pacs-financeiro-storage-20261110
+  git log --oneline bdfe3188c2d2cdae0d016db9b4d84d1ecad29ca5..HEAD
+  git diff bdfe3188c2d2cdae0d016db9b4d84d1ecad29ca5..HEAD
+
+Para revisar achado por achado, cada um está em um commit separado, do mais
+severo para o menos severo:
+
+  ccfe7891ad691c5b426eaf69e21c3e91b6a202c7  fix(security): setUserPermissions cross-unidade (CRÍTICO)
+  b88292f813fe6b604653c03b968ce6cb96a00577  fix(security): credencial MinIO hardcoded (ALTO)
+  7f8fddc9c94be566bf69e8b52fbc298f5ad68d7b  fix(security): dicom-series sem autorização (ALTO)
+  d5acd42e0bde19f873ec3ed28d3d22d70241abac  fix(security): listDoctorsForResponsible cross-unidade (ALTO)
+  5438d3378c0453786f5b348c28a78858e063d830  fix(security): edit_exam_legend bypass (MÉDIO)
+  dbcb791c9bee78c0eabda794bc6f4cf976c0733d  fix(security): getStatusBatch fallback fraco + audit log (MÉDIO/BAIXO)
+  1cd3075913bd10717b3daebcac663ef11cffcb32  fix(security): medicalData.getReportContext (BAIXO)
+
+Arquivos tocados no total (git diff --stat bdfe3188..HEAD):
+
+  scripts/setup-minio-bucket.sh
+  scripts/setup-minio-vm2.sh
+  server/_core/index.ts
+  server/anamnesis-status-security.test.ts        (teste pré-existente corrigido — ver seção 3.6)
+  server/db.ts
+  server/dicom-isolation.test.ts
+  server/routers/admin.ts
+  server/routers/anamnesisSimple.ts
+  server/routers/annotations.ts
+  server/routers/audioReports.ts
+  server/routers/financeSimple.ts
+  server/routers/medicalData.ts
+  server/routers/sla.ts
+  server/routers/studyExamLegend.ts
+  server/audit-fixes-rbac-permissions-scope-20261110.test.ts       (novo)
+  server/audit-fixes-finance-unit-isolation-20261110.test.ts       (novo)
+  server/audit-fixes-exam-legend-permission-20261110.test.ts       (novo)
+  server/audit-fixes-anamnese-anexos-20261110.test.ts              (novo)
+  server/audit-fixes-medicaldata-unit-authorization-20261110.test.ts (novo)
+
+Nenhuma migration, nenhuma mudança de schema, nenhuma dependência nova.
+
+====================================================================
+2. ACHADOS CONFIRMADOS SEM REGRESSÃO (histórico, não repetidos aqui)
+====================================================================
+
+A auditoria setor por setor confirmou, com leitura direta do código real,
+que os seguintes 23 problemas de segurança já corrigidos em rodadas
+anteriores permanecem corrigidos:
+
+PACS/DICOM: audit log com unit_id correto + cache-hit com
+assertDicomFileAccess em pacs.ts; path traversal pós-UID bloqueado no
+proxy /api/dicomweb; URL do Orthanc nunca exposta em pacs.getViewerUrl;
+isolamento de cache de busca entre usuários (pacsCacheIsolation.ts).
+
+Laudos/PDF: autorização em masks.update/deleteReportMask; documentKey
+presente em executePrintAction; laudo cancelado volta a pendente; limite
+de 100 estudos em priorityStudyUids.
+
+Anamnese/Anexos: bypass de permissão corrigido em anamnesisSimple.ts
+(getByStudy/save) e anamnesis.ts (create/getByStudyId).
+
+Catálogo/SLA: autorização em studyExamLegend.getBatch e sla.getUnitSla;
+vigência de preço por legenda/modalidade (ends_at).
+
+Financeiro: setExternalSalePrice exige legenda ativa; confirmDoctorPayment
+é UPDATE atômico; isolamento entre múltiplos responsáveis financeiros;
+view_financial não é descartado na criação de usuário; política de
+isolamento multiunidade para responsavel_financeiro.
+
+Unidades/Admin: units.update sem escalonamento de privilégio; admin.ts
+expiration_date com parsing correto (parseStrictCalendarDate);
+createUserScoped (legado) neutralizado — delega para createUserTransactional
+e reaplica a mesma política, sem uso real pelo frontend; guarda central
+assertUnitAdminCanManageTargetUser aplicada nas 5 rotas documentadas;
+unit_admin bloqueado de criar responsavel_financeiro; expiration_date e
+isActive revalidados no servidor a cada requisição (context.ts), não só
+no login — na verdade vai além do que havia sido documentado antes.
+
+Storage/MinIO: minio.credentials.test.ts usa só valores sintéticos (a
+troca de PNG para JPEG na rasterização de PDF não introduziu problema de
+validação de conteúdo).
+
+Nenhum destes 23 itens foi alterado por esta branch — são só confirmações.
+
+====================================================================
+3. O MECANISMO DOS 7 ACHADOS NOVOS E DAS CORREÇÕES
+====================================================================
+
+--------------------------------------------------------------------
+3.1 CRÍTICO — setUserPermissions permitia wipe de permissões cross-unidade
+    Commit: ccfe7891ad691c5b426eaf69e21c3e91b6a202c7
+--------------------------------------------------------------------
+
+MECANISMO DO PROBLEMA:
+
+server/db.ts, função setUserUnitPermissions(userId, permissions), fazia:
+
+  await db.delete(user_unit_permissions).where(eq(user_unit_permissions.user_id, userId));
+
+Ou seja: DELETE de TODAS as linhas de permissão do usuário-alvo, em TODAS
+as unidades, sem nenhum filtro por unit_id. Depois disso, inseria só as
+linhas do array `permissions` recebido como parâmetro.
+
+A procedure chamadora, server/routers/admin.ts -> setUserPermissions,
+valida que cada unit_id presente no array pertence ao escopo do chamador
+(managedIds.includes(perm.unit_id), para um unit_admin). Essa validação é
+correta NO QUE VALIDA — mas não garante que o array cubra o conjunto
+COMPLETO de unidades em que o usuário-alvo tem permissão hoje.
+
+A tela client/src/components/UsersPermissionsTab.tsx sempre reenvia o
+conjunto COMPLETO (busca via listUsersWithPermissions, que devolve as
+permissões do usuário-alvo em todas as unidades sem filtro de escopo do
+chamador, e reenvia [...outras unidades sem alteração, unidade editada]).
+Por isso, pela UI, o bug nunca se manifestava — o payload sempre
+representava o estado final desejado em todas as unidades.
+
+O problema aparece numa chamada tRPC DIRETA (fora da UI): um unit_admin
+que administra só a unidade 10, por exemplo, pode chamar
+
+  admin.setUserPermissions({ userId: <qualquer usuário>, permissions: [{ unit_id: 10, ...flags }] })
+
+A validação de escopo passa (a única unidade mencionada, 10, está dentro
+do managedIds do chamador). O DELETE em setUserUnitPermissions, por não
+ser escopado, apaga TODAS as linhas de permissão do usuário-alvo — inclusive
+as de unidades 20, 30, 40..., que podem pertencer a outros unit_admins ou
+ao próprio admin_master. O resultado observável: o usuário-alvo perde
+silenciosamente acesso a todas as outras unidades, sem que o chamador
+tenha pedido isso, e sem que ninguém de fora do escopo dele tenha sido
+notificado ou tido chance de impedir.
+
+Esse é exatamente o tipo de dano que a arquitetura de permissão por
+unidade deveria impedir estruturalmente: um ator com autoridade limitada a
+uma unidade conseguindo afetar o estado de acesso do sistema em unidades
+totalmente fora do seu escopo, sem precisar de nenhuma condição adicional
+além de uma sessão unit_admin válida e uma chamada de API (não exige UI,
+não exige bug de outro tipo, não exige credencial adicional).
+
+MECANISMO DA CORREÇÃO:
+
+A correção muda a semântica de "substituição total das permissões do
+usuário" para "upsert escopado às unidades presentes no payload recebido":
+
+  const incomingUnitIds = permissions.map((p) => p.unit_id);
+
+  if (incomingUnitIds.length > 0) {
+    await db.delete(user_unit_permissions).where(
+      and(
+        eq(user_unit_permissions.user_id, userId),
+        inArray(user_unit_permissions.unit_id, incomingUnitIds)
+      )
+    );
+  }
+
+Agora o DELETE só afeta as unidades que estão presentes no array recebido.
+Linhas do usuário em unidades AUSENTES do array nunca são tocadas — nem
+lidas, nem removidas — independentemente de quem é o chamador.
+
+Por que isso resolve o problema, sem quebrar o fluxo legítimo: a validação
+de escopo em admin.ts já garante que toda unidade mencionada no array
+pertence ao managedIds do chamador. Como o DELETE agora só pode afetar
+unidades mencionadas no array, e o array só pode conter unidades dentro do
+escopo do chamador, o DELETE nunca mais alcança unidades fora do escopo do
+chamador. Para o fluxo normal da UI (que sempre reenvia o conjunto
+completo), o comportamento observável não muda nada. Para admin_master, o
+comportamento também fica mais correto — uma chamada futura que só queira
+afetar uma unidade específica não vai mais, por efeito colateral, apagar
+todas as outras.
+
+Efeito colateral que precisou ser tratado: o bloco de sincronização legada
+que grava users.unit_id (campo singular, legado, mantido por
+compatibilidade — a fonte real de verdade é user_unit_permissions) decidia
+antes com base só em permissions.length (1 unidade -> grava essa unidade;
+0 ou várias -> grava null). Isso era seguro enquanto o array sempre
+representava o estado TOTAL e final do usuário (porque o DELETE também
+era total). Com o DELETE agora parcial, uma chamada com só 1 unidade no
+payload não significa necessariamente que o usuário TEM só 1 unidade no
+total — pode ter outras preservadas que não apareceram neste payload. Por
+isso o bloco de sincronização agora recarrega o conjunto REAL e COMPLETO
+de unidades do usuário via getUserUnitPermissions(userId) depois do
+delete+insert, e só então decide o valor de users.unit_id com base nesse
+conjunto real, não no payload da chamada atual.
+
+Investigação de chamadores legados que pudessem depender do wipe total:
+grep -rn "setUserUnitPermissions(" confirma que o único caller de produção
+é admin.setUserPermissions (os demais hits são mocks em
+server/unit-admin-financial-guard.test.ts). createUserTransactional
+(server/db.ts) NÃO chama setUserUnitPermissions — insere direto em
+user_unit_permissions dentro da própria transação de criação. A remoção de
+UMA unidade específica (sem afetar as outras) já é feita por uma rota
+separada e já corretamente escopada: admin.removeUserUnitLink. Conclusão:
+não há caller legítimo que dependesse do wipe total. Se um dia for preciso
+"zerar todas as unidades de um usuário" de propósito, isso deve ser feito
+passando explicitamente a lista completa de unit_ids a remover (não existe
+hoje um caso de uso real para isso fora de removeUserUnitLink/deleteUser).
+
+CORREÇÕES RELACIONADAS NO MESMO COMMIT (mesmo setor, mesmo arquivo):
+
+- audit_log de deleteUser, updateUser e toggleUserActive gravava
+  unit_id: ctx.user.unit_id (a unidade do ATOR que executa a ação), não a
+  unidade do usuário-alvo afetado. Consequência prática: como admin_master
+  normalmente tem unit_id = null, toda exclusão/edição/ativação de usuário
+  feita por admin_master era gravada com unit_id = null — e
+  listAuditLog filtra por unit_id para um unit_admin ver só o que aconteceu
+  na sua própria unidade, então um unit_admin NUNCA via no log as ações que
+  o admin_master tomou sobre usuários da própria unidade dele. Corrigido
+  para gravar targetUser.unit_id (a unidade real do usuário afetado) nas
+  três rotas. Em setUserPermissions, como um único payload pode afetar
+  várias unidades, trocamos a única entrada de log por um loop que grava
+  uma entrada por unidade efetivamente presente no payload (Array.from(new
+  Set(...)) para não duplicar).
+
+- setUserPermissions, removeUserUnitLink e linkExistingUserToUnitGroup não
+  tinham o mesmo bloqueio explícito de papel-alvo que updateUser e
+  toggleUserActive já tinham (um unit_admin não pode gerenciar conta cujo
+  role seja admin_master ou unit_admin) — dependiam só de
+  assertUnitAdminCanManageTargetUser, que cobre apenas o cenário de
+  concessão/gestão de responsavel_financeiro, não esse caso geral.
+  Replicado o mesmo bloqueio explícito nas 3 rotas, no mesmo estilo de
+  código já usado.
+
+VALIDAÇÃO E PROVA DE REVERT:
+
+server/audit-fixes-rbac-permissions-scope-20261110.test.ts, 11 testes:
+4 usando a função REAL setUserUnitPermissions (não mockada, com mock de
+driver mysql2 + DATABASE_URL fake, no mesmo padrão já usado em
+server/create-user-transactional.test.ts) confirmando que uma chamada só
+com unit_id=A preserva intacta a permissão em unit_id=B; mais 7 testes de
+"wiring" (leitura de fonte) confirmando os pontos de audit_log e de
+bloqueio de papel-alvo.
+
+Prova de revert feita e documentada: reverteu-se manualmente só o bloco do
+DELETE de volta para a versão sem filtro de unit_id, rodou o teste central
+-> FALHOU como esperado (a linha de unit_id=B tinha sido apagada,
+"expected [] to have a length of 1 but got +0"). Restaurado o arquivo, os
+11 testes voltaram a passar.
+
+npx tsc --noEmit limpo. Suíte completa (vitest run server/) rodada depois
+de TODOS os 7 commits aplicados: 980 passando / 11 falhando (os mesmos 7
+arquivos históricos documentados na seção 4 abaixo) / 1 ignorado — nenhuma
+falha nova atribuível a este achado.
+
+--------------------------------------------------------------------
+3.2 ALTO — credencial raiz real do MinIO hardcoded em scripts versionados
+    Commit: b88292f813fe6b604653c03b968ce6cb96a00577
+--------------------------------------------------------------------
+
+MECANISMO DO PROBLEMA:
+
+scripts/setup-minio-vm2.sh gravava literalmente, dentro de um heredoc que
+escreve /etc/default/minio, o usuário raiz "lauds_admin" e uma senha raiz
+real em texto puro (a senha exata NÃO é repetida neste documento — ver
+nota de manuseio de credenciais abaixo; quem precisar do valor exato deve
+consultar o histórico do Git diretamente, com o mesmo cuidado de nunca
+colar esse valor de volta em nenhum documento, chat ou log).
+scripts/setup-minio-bucket.sh repetia o mesmo usuário/senha em texto puro
+na linha de "mc alias set" (ficando também no histórico do shell/
+~/.mc/config.json de quem rodasse o script) e de novo em dois echo's de
+"credenciais para configurar no portal".
+
+git log -p confirma múltiplas ocorrências dessa credencial no histórico
+desses dois arquivos, desde ~04/2026, e ela ainda estava presente no HEAD
+atual (bdfe3188) antes desta correção — ou seja, é uma credencial REAL,
+não um placeholder de exemplo, commitada e versionada por mais de 6 meses.
+
+Segundo docs/DESATIVACAO_MINIO_RESIDUAL_VM2.md, a instância MinIO da VM2
+(172.16.3.101) a que essa credencial se refere foi desativada
+permanentemente em 18/08/2026 (serviço parado, porta fechada) — mas os
+dados em /data/minio NÃO foram apagados, permanecem como contingência. Não
+há, neste repositório, nenhuma confirmação de que essa senha tenha sido
+rotacionada, nem de que a instância ativa na VM3 (172.16.3.102, segundo
+docs/ARQUITETURA_3_VMS_PACS.md) usa um valor diferente.
+
+NOTA DE MANUSEIO DE CREDENCIAIS: por disciplina já estabelecida neste
+projeto (reforçada em handoffs anteriores), o valor exato da senha
+exposta não é repetido neste documento, em nenhum commit desta branch, ou
+em qualquer resposta de chat — só o fato de que ela existe, onde ela
+estava, e que precisa ser rotacionada de verdade na infraestrutura real.
+
+MECANISMO DA CORREÇÃO:
+
+Os dois scripts agora exigem as variáveis de ambiente MINIO_ROOT_USER e
+MINIO_ROOT_PASSWORD, com guardas que falham imediatamente e com mensagem
+clara se elas não estiverem definidas:
+
+  : "${MINIO_ROOT_USER:?Defina a variavel de ambiente MINIO_ROOT_USER antes de rodar este script}"
+  : "${MINIO_ROOT_PASSWORD:?Defina a variavel de ambiente MINIO_ROOT_PASSWORD antes de rodar este script}"
+
+O heredoc de /etc/default/minio e a linha "mc alias set" passaram a
+interpolar essas variáveis em vez do literal. Os echo's finais de
+"informações de acesso" não imprimem mais o valor da senha — dizem
+"(definida pela variável de ambiente MINIO_ROOT_PASSWORD, não exibida
+aqui)". Ambos os scripts ganharam um comentário de aviso de segurança
+proeminente no topo, explicando o histórico do problema e a ação
+pendente, com a senha antiga redigida como <senha em texto puro> em vez
+de repetida.
+
+IMPORTANTE — O QUE ESTA CORREÇÃO NÃO FAZ: isso é só a limpeza do CÓDIGO
+dos scripts. A credencial antiga CONTINUA recuperável no histórico do Git
+(reescrever histórico do repo para removê-la está fora de escopo deste
+commit, por ser uma operação destrutiva e arriscada demais para fazer sem
+supervisão direta e coordenação com todos que têm clone do repositório).
+Mais importante: NENHUMA rotação real de senha em infraestrutura foi
+feita ou tentada — isso requer acesso operacional real à VM3 (e, por
+precaução, confirmar que os dados remanescentes em /data/minio da VM2 não
+são acessíveis com essa mesma credencial caso o serviço seja religado por
+engano). Essa é uma ação pendente, fora do escopo de código, que só a
+Manus/operação pode e deve fazer — ver seção 5 (Estado atual) e seção 6
+(fora de escopo).
+
+VALIDAÇÃO: bash -n em ambos os scripts confirma sintaxe válida. Confirmado
+que o valor antigo da senha não aparece mais nos arquivos atuais. Não há
+teste automatizado de vitest/tsc aplicável (são scripts bash).
+
+--------------------------------------------------------------------
+3.3 ALTO — GET /api/dicom-series/:studyUid sem checagem de autorização
+    Commit: 7f8fddc9c94be566bf69e8b52fbc298f5ad68d7b
+--------------------------------------------------------------------
+
+MECANISMO DO PROBLEMA:
+
+server/_core/index.ts, handler app.get('/api/dicom-series/:studyUid',
+requireAuth, ...), validava só o FORMATO do studyUid
+(isValidStudyInstanceUid) e que havia uma sessão autenticada válida
+(requireAuth) — mas, diferente de TODAS as rotas irmãs que servem dados de
+um studyUid a partir do mesmo cache em disco do servidor
+(/api/dicom-cache-status/:studyUid, /api/dicom-files/:studyUid,
+/api/dicom-files/:studyUid/:filename, /api/dicom-thumbnail/:studyUid/
+:filename, DELETE /api/dicom-files/:studyUid, /api/dicom-export/:studyUid,
+/api/dicom-viewer-launch/:studyUid), NUNCA chamava
+assertDicomFileAccess/assertCachedDicomFileAccess antes de ler e devolver
+ao cliente a lista de séries daquele estudo — descrição clínica da série
+(ex. "TORAX - PESQUISA NODULO"), modalidade, contagem de imagens e nomes
+de arquivo — para QUALQUER usuário autenticado do sistema, de qualquer
+unidade, desde que soubesse ou obtivesse um studyInstanceUid válido
+armazenado no cache em disco do servidor (que pode ser de qualquer
+unidade).
+
+Essa é uma falha clássica de IDOR (Insecure Direct Object Reference):
+rompe diretamente o isolamento multiunidade que é a premissa central de
+segurança do sistema — o próprio comentário de cabeçalho de
+server/authorization.ts diz "Esta é a ÚNICA fonte de verdade para
+validação de acesso por unidade. Todas as rotas sensíveis devem usar
+estas funções." Evidência adicional de que era uma lacuna não intencional,
+não uma decisão de desenho: o próprio arquivo de teste dedicado a esse
+exato assunto, server/dicom-isolation.test.ts, testava explicitamente que
+assertDicomFileAccess protegia TODAS as rotas irmãs listadas acima — mas
+usava a string "/api/dicom-series/:studyUid" só como delimitador textual
+para isolar outro teste (da rota DELETE), nunca testando a autorização
+dessa rota em si. A lacuna escapou de uma rodada de testes dedicada
+precisamente a esse assunto.
+
+A severidade não é crítica porque a rota não entrega os BYTES das imagens
+DICOM em si (essa é /api/dicom-files/:studyUid/:filename, que já estava
+protegida) — só metadados. Mas são metadados clínicos reais, de pacientes
+de unidades não autorizadas, vazados para qualquer conta autenticada no
+sistema (não exige conta anônima nem comprometimento adicional).
+
+MECANISMO DA CORREÇÃO:
+
+Adicionada, logo após a validação de formato do studyUid e antes de
+qualquer leitura do cache em disco, a mesma chamada usada pelas rotas
+irmãs:
+
+  try {
+    const { assertDicomFileAccess } = await import('../authorization');
+    await assertDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies');
+  } catch (e: any) {
+    return res.status(403).json({ success: false, error: e.message || 'Acesso negado' });
+  }
+
+Mesma assinatura e mesmo formato de resposta de erro (403, { success:
+false, error }) já usados pelas rotas irmãs mais próximas
+(/api/dicom-files/:studyUid, /api/dicom-thumbnail/:studyUid/:filename).
+
+VALIDAÇÃO E PROVA DE REVERT:
+
+Novo caso de teste adicionado a server/dicom-isolation.test.ts (mesmo
+estilo source-string dos outros 3 testes do arquivo), confirmando que a
+chamada a assertDicomFileAccess aparece dentro do bloco da rota, e ANTES
+da leitura do cache em disco (getOrderedDicomFiles). Prova de revert:
+removendo temporariamente o bloco de correção, o teste falhou
+("expected -1 to be greater than -1" — ou seja, a chamada de autorização
+não foi encontrada antes da leitura do cache); restaurado, o teste voltou
+a passar (4/4 no arquivo). npx tsc --noEmit limpo.
+
+--------------------------------------------------------------------
+3.4 ALTO — listDoctorsForResponsible vazava médicos/preços entre unidades
+    Commit: d5acd42e0bde19f873ec3ed28d3d22d70241abac
+--------------------------------------------------------------------
+
+MECANISMO DO PROBLEMA:
+
+server/routers/financeSimple.ts, procedure listDoctorsForResponsible,
+permite os papéis ['admin_master', 'responsavel_financeiro', 'unit_admin']
+— mas o bloco que preenche a variável allowedUnitIds (usada depois para
+filtrar a query por unit_id via inArray(billing_doctor_unit_prices.unit_id,
+allowedUnitIds)) só existia para o ramo ctx.user.role ===
+'responsavel_financeiro'. Para 'unit_admin', esse bloco simplesmente não
+existia: allowedUnitIds permanecia undefined, o filtro condicional
+"...(allowedUnitIds ? [inArray(...)] : [])" nunca era aplicado, e a query
+final devolvia nome de médico, nome de unidade e price_per_report (um
+valor monetário real de repasse) de TODAS as unidades do sistema, para
+qualquer conta autenticada com role 'unit_admin' — independentemente de o
+chamador ter qualquer vínculo operacional com essas outras unidades.
+
+Isso expõe dados comerciais/financeiros sensíveis (quanto cada médico
+recebe por laudo, em quais unidades ele atua) de clínicas/unidades
+concorrentes ou simplesmente não relacionadas, para um administrador de
+qualquer unidade individual. Não há, hoje, nenhum uso desse endpoint pelo
+frontend atual (grep em client/ não encontrou nenhuma chamada a
+listDoctorsForResponsible), e não há teste cobrindo o ramo unit_admin
+desta procedure — mas o endpoint tRPC continua publicamente invocável por
+qualquer conta autenticada com esse papel, via chamada de API direta, sem
+depender de nenhum bug adicional na UI.
+
+MECANISMO DA CORREÇÃO:
+
+Adicionado o bloco equivalente para unit_admin, reaproveitando a mesma
+função central já usada em outras procedures deste mesmo arquivo
+(dashboard e outras) para resolver as unidades que um unit_admin de fato
+administra — getAuthorizedFinancialUnitIds(db, ctx.user):
+
+  if (ctx.user.role === 'unit_admin') {
+    const authorizedUnitIds = await getAuthorizedFinancialUnitIds(db, ctx.user);
+    allowedUnitIds = authorizedUnitIds ?? [];
+    if (allowedUnitIds.length === 0) return [];
+  }
+
+Agora, para um unit_admin sem nenhuma unidade vinculada, a procedure
+retorna lista vazia (nunca cai para "todas as unidades" por omissão).
+
+CORREÇÃO RELACIONADA NO MESMO COMMIT: nenhuma das 5 procedures de preço
+por modalidade/sistema do médico (setSystemPrice, setDoctorPrice,
+setDoctorModalityPrice, setSystemPriceDirect, setDoctorPriceDirect)
+validava o campo pricePerReport além de "é uma string" — aceitando valor
+negativo, texto arbitrário, notação científica, etc. Por contraste,
+setDoctorLegendPrice (mesmo arquivo, preço por legenda canônica) já usa
+corretamente z.string().regex(/^\d+(\.\d{1,2})?$/, 'Informe um valor
+monetário válido.'). Aplicado o mesmo regex nas 5 procedures. Essa
+validação só pode ser acionada por quem já tem permissão de gerenciar
+preços (admin_master ou responsavel_financeiro vinculado), então não é
+por si só uma escalada de privilégio — mas é defesa em profundidade contra
+um preço negativo corromper silenciosamente o motor de faturamento (uma
+unidade "pagando" o médico em vez de receber, por exemplo), seja por erro
+humano ou por uma conta privilegiada comprometida.
+
+VALIDAÇÃO E PROVA DE REVERT:
+
+server/audit-fixes-finance-unit-isolation-20261110.test.ts, 8 testes: 2
+para o achado principal (um unit_admin com só a unidade 10 vinculada nunca
+recebe médicos da unidade 99; sem nenhuma unidade vinculada recebe lista
+vazia) e os demais cobrindo a rejeição de preço negativo/inválido nas 5
+procedures. Prova de revert: comentando temporariamente o bloco
+if (ctx.user.role === 'unit_admin') {...}, os 2 testes do achado principal
+falharam exatamente como esperado (o médico da unidade 99 voltou a
+aparecer; sem vínculo nenhum, o médico da unidade 10 ainda apareceu).
+Restaurado, 8/8 passando. Suíte relacionada mais ampla (28 testes, 6
+arquivos, incluindo server/finance-centralization.test.ts e
+server/financeSimple.test.ts) também sem regressão. npx tsc --noEmit
+limpo.
+
+--------------------------------------------------------------------
+3.5 MÉDIO — bypass da permissão edit_exam_legend em confirmSelections/select
+    Commit: 5438d3378c0453786f5b348c28a78858e063d830
+--------------------------------------------------------------------
+
+MECANISMO DO PROBLEMA:
+
+O sistema tem uma permissão granular por unidade dedicada exatamente a
+esta finalidade, edit_exam_legend (coluna em user_unit_permissions,
+rotulada "Editar Legenda de Exame" na UI de permissões), e ela já é usada
+corretamente em server/routers/studyMetadata.ts (com um comentário "V14-P1
+FIX: Validar edit_exam_legend via canAccessUnit"). Porém as duas mutations
+que de fato gravam/alteram a legenda selecionada do estudo em
+server/routers/studyExamLegend.ts — confirmSelections e select — checavam
+só assertCanSelect(role) e assertDicomFileAccess(..., "view_studies") —
+isto é, só a permissão de LEITURA do estudo, nunca a permissão específica
+de EDIÇÃO da legenda.
+
+A legenda selecionada determina financial_event_count, que é usado
+diretamente para criar linhas de faturamento em
+server/catalogFinancial.ts: db.insert(billing_catalog_study_events)
+.values(Array.from({ length: selection.financial_event_count }, ...)).
+Ou seja: um usuário que o administrador explicitamente restringiu (via
+edit_exam_legend: false na matriz de permissões) a não poder editar a
+legenda de um exame ainda conseguia, via chamada direta a
+confirmSelections/select, alterar quantos eventos financeiros/qual
+legenda seria faturada para aquele estudo — um controle de acesso
+configurado deliberadamente pelo admin era ignorado pelo próprio backend
+na operação para a qual a permissão foi nomeada.
+
+A severidade é média (não alta) porque exige que o atacante já seja um
+usuário autenticado com acesso de LEITURA à unidade (algum papel elegível:
+operador, atendente, médico, admin_master) — não há escalonamento entre
+unidades nem exposição de dados de outros pacientes; o impacto é
+escalonamento de escrita DENTRO da própria unidade, com efeito colateral
+financeiro.
+
+MECANISMO DA CORREÇÃO:
+
+Depois de resolver unitId via assertDicomFileAccess(..., "view_studies")
+(mantido — confirma que o usuário pode ver o estudo), adicionada uma
+checagem adicional, nas duas mutations:
+
+  const canEditLegend = await canAccessUnit(ctx.user, unitId, "edit_exam_legend");
+  if (!canEditLegend) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para editar a legenda deste exame." });
+  }
+
+Mesmo padrão exato já usado em studyMetadata.ts para esta mesma
+permissão.
+
+CORREÇÃO RELACIONADA NO MESMO COMMIT (server/routers/sla.ts): setUnitSla
+fazia new Date(input.effectiveFrom) sem checar Number.isNaN(...) —
+diferente de setDoctorModalityPrice/setDoctorLegendPrice (financeSimple.ts),
+que já validam a data de início. Uma string de data inválida vinda do
+cliente gerava Invalid Date e era persistida sem erro explícito. Não
+identificamos efeito de segurança direto (não é usada para cálculo
+automático de due_at hoje), mas é uma lacuna de integridade de dado em um
+campo de configuração de SLA. Corrigido com
+"if (Number.isNaN(effectiveFrom.getTime())) throw new TRPCError({ code:
+'BAD_REQUEST', message: 'Data inválida.' })".
+
+VALIDAÇÃO E PROVA DE REVERT:
+
+server/audit-fixes-exam-legend-permission-20261110.test.ts, 5 testes: 2
+para FORBIDDEN quando view_studies=true mas edit_exam_legend=false
+(confirmSelections e select), 1 confirmando que o fluxo legítimo
+(edit_exam_legend=true) não é bloqueado pela nova checagem, 2 para
+setUnitSla (data inválida rejeitada; data válida continua aceita). Prova
+de revert feita com git stash escopado só a studyExamLegend.ts (para não
+interferir com o trabalho concorrente de outros agentes na mesma branch
+compartilhada naquele momento): os 2 testes de confirmSelections/select
+falharam como esperado ("expected { code: 'INTERNAL_SERVER_ERROR' } to
+match object { code: 'FORBIDDEN' }" — ou seja, sem o fix o fluxo chega
+direto ao banco em vez de ser bloqueado). git stash pop restaurou a
+correção, 5/5 voltaram a passar. Suíte relacionada (13 testes, incluindo
+server/audit-fixes-forbidden-regressions.test.ts e
+server/exam-legend-modal-ui.test.ts) sem regressão. npx tsc --noEmit
+limpo.
+
+--------------------------------------------------------------------
+3.6 MÉDIO/BAIXO — getStatusBatch com fallback fraco + ausência de audit log
+    Commit: dbcb791c9bee78c0eabda794bc6f4cf976c0733d
+--------------------------------------------------------------------
+
+MECANISMO DO PROBLEMA (parte 1 — fallback de autorização):
+
+server/routers/anamnesisSimple.ts, getStatusBatch, fazia:
+
+  const studyUnitId = await getStudyUnitId(studyInstanceUid);
+  const accessUnitId = studyUnitId ?? input.unitId ?? await resolveEffectiveUnitId(ctx.user.id, ctx.user.unit_id);
+  if (!accessUnitId) return null;
+  return await canAccessUnit(ctx.user, accessUnitId, "view_anamnesis") ? studyInstanceUid : null;
+
+getStudyUnitId (server/authorization.ts) só consultava a tabela
+study_metadata — diferente de assertDicomFileAccess (usado por
+getByStudy/save NO MESMO ARQUIVO, com uma política de "deny by default"
+já documentada em comentário no próprio arquivo), que também consulta
+studies_cache antes de desistir. Quando um estudo é "órfão" — não está (ou
+ainda não está) em study_metadata, cenário que o próprio comentário do
+arquivo já reconhecia como real — o código caía para input.unitId
+(FORNECIDO PELO CLIENTE) ou, na ausência disso, para a unidade do próprio
+usuário chamador, e testava a autorização contra ESSA unidade, em vez da
+unidade REAL do estudo. Resultado prático: um usuário podia, em lote
+(getStatusBatch recebe um array de studyInstanceUid), consultar UIDs de
+estudos de qualquer unidade — inclusive de pacientes fora da sua unidade —
+e, para os que estivessem órfãos em study_metadata, receber de volta um
+booleano indicando se existe ou não anamnese registrada para aquele
+estudo. Não expõe o TEXTO da anamnese (isso continua protegido
+corretamente em getByStudy), só a EXISTÊNCIA do registro — mas é um
+vazamento de metadado cross-unidade real, e quebra exatamente a política
+de deny-by-default que o próprio arquivo documenta para as outras duas
+procedures.
+
+MECANISMO DA CORREÇÃO (parte 1):
+
+Criada uma função de resolução (resolveStudyUnitIdForStatusBatch) que
+replica a MESMA ordem de resolução usada por assertDicomFileAccess:
+consulta studies_cache e, se vazio, study_metadata — sem lançar erro (a
+rota é best-effort por item do lote) e, criticamente, SEM cair para
+input.unitId (cliente) nem para a unidade do usuário como substituto de
+autorização. Se, mesmo assim, a unidade do estudo não puder ser resolvida
+por uma fonte confiável (server-side), a função retorna null e
+getStatusBatch trata isso como negado (retorna null para aquele item do
+lote), em vez de usar qualquer fallback do lado do cliente. O campo
+unitId foi mantido no schema Zod do input só por compatibilidade com o
+client (que ainda o envia), mas deixou de ser usado para qualquer decisão
+de autorização.
+
+MECANISMO DO PROBLEMA (parte 2 — ausência de audit log):
+
+Nenhuma procedure de server/routers/annotations.ts (save/delete de
+anotação Cornerstone; upload/deleteAttachment de anexo de exame) nem de
+server/routers/audioReports.ts (upload/delete de áudio de laudo falado)
+chamava createAuditLog — diferente de anamnesis.ts/anamnesisSimple.ts.
+Upload e exclusão de anexos/áudio (dados clínicos sensíveis, nomes de
+arquivo que podem conter informação de paciente, gravações de voz do
+laudo) não deixavam NENHUMA trilha de quem fez o quê.
+
+MECANISMO DA CORREÇÃO (parte 2):
+
+Adicionadas chamadas a createAuditLog nas operações de ESCRITA desses dois
+arquivos: save e delete (anotações), upload e deleteAttachment (anexos),
+upload e delete (áudio). Operações de leitura (list, getByStudy,
+getAttachmentsStatusBatch, getStatusBatch) ficaram sem log, por não serem
+ações que alteram estado. unit_id gravado é sempre a unidade REAL do
+estudo (retornada por assertDicomFileAccess), nunca a do ator — seguindo
+o padrão já corrigido na seção 3.1. O enum `action` do audit_log é um tipo
+fixo no schema MySQL, sem valor próprio para anotação/anexo/áudio — criar
+um valor novo exigiria migration de produção, fora do escopo de uma
+correção só de código. Reaproveitamos o valor EDIT_STUDY_METADATA (já
+usado para esse tipo de ação correlata em outros pontos do próprio repo)
+e desambiguamos via target_type (DICOM_ANNOTATION / STUDY_ATTACHMENT /
+STUDY_AUDIO_REPORT) e metadata.action (SAVE_ANNOTATION, DELETE_ANNOTATION,
+UPLOAD_ATTACHMENT, DELETE_ATTACHMENT, UPLOAD_AUDIO_REPORT,
+DELETE_AUDIO_REPORT). Se for desejado um valor de enum dedicado no futuro,
+isso é um item de migration separado, decisão de produto, fora do escopo
+desta correção.
+
+MECANISMO DO PROBLEMA (parte 3 — annotations.delete sem revalidação):
+
+annotations.ts, delete, filtrava a exclusão por annotation_uid AND
+user_id = ctx.user.id (correto — sem IDOR entre usuários, um usuário só
+apaga a própria anotação), mas não revalidava que o usuário AINDA tinha
+acesso ao ESTUDO daquela anotação. Se o usuário perdesse permissão na
+unidade depois de criar a anotação (ex.: removido da unidade, ou
+permissão revogada), ainda conseguia deletá-la sem nova checagem de
+acesso ao estudo — ausência de defesa em profundidade, sem exploração
+cross-usuário real (porque o filtro de dono já impede isso).
+
+MECANISMO DA CORREÇÃO (parte 3):
+
+delete agora busca o studyInstanceUid real associado à anotação (SELECT
+prévio filtrado por annotation_uid AND user_id, preservando a proteção já
+existente) e chama assertDicomFileAccess(ctx.user, studyInstanceUid,
+"view_studies") antes de proceder com deleteAnnotation.
+
+CORREÇÃO ADICIONAL NO MESMO COMMIT: um teste PRÉ-EXISTENTE,
+server/anamnesis-status-security.test.ts, codificava o comportamento
+VULNERÁVEL como esperado — tinha uma asserção literal
+expect(batchRoute).toContain('const accessUnitId = studyUnitId ??
+input.unitId') — ou seja, o teste passava confirmando que o fallback
+inseguro existia. Esse teste foi corrigido (invertido) para confirmar a
+AUSÊNCIA desse fallback, com um comentário explicando a mudança de
+intenção. É importante que quem revisar este handoff saiba que esse teste
+antigo foi alterado de propósito, e por quê — não foi removido
+silenciosamente.
+
+VALIDAÇÃO E PROVA DE REVERT:
+
+server/audit-fixes-anamnese-anexos-20261110.test.ts, 6 testes: 2 para o
+fallback de autorização (estudo órfão nunca usa input.unitId do cliente;
+estudo com unidade resolvida via studies_cache usa a unidade REAL, não a
+do cliente), 2 de wiring confirmando a presença de createAuditLog nas 4
+operações de escrita, 1 de wiring confirmando que assertDicomFileAccess é
+chamado antes de deleteAnnotation, 1 comportamental confirmando que delete
+nega a exclusão quando o acesso ao estudo foi perdido. Prova de revert:
+sobrescrevendo temporariamente anamnesisSimple.ts com a versão do HEAD
+anterior (git show HEAD:... — sem tocar no resto do working tree
+compartilhado), os 2 testes do fallback falharam exatamente como esperado
+("expected true to be false" — anamnese órfã indevidamente consultada;
+"expected 999 to be 42" — checagem caiu para a unidade do cliente, não a
+real). Restaurado via cópia de backup, 20/20 testes relacionados (6 novos
++ 14 pré-existentes em 8 arquivos) voltaram a passar. npx tsc --noEmit
+limpo.
+
+--------------------------------------------------------------------
+3.7 BAIXO — medicalData.getReportContext sem checagem de unidade
+    Commit: 1cd3075913bd10717b3daebcac663ef11cffcb32
+--------------------------------------------------------------------
+
+MECANISMO DO PROBLEMA:
+
+server/routers/medicalData.ts, getReportContext, é protectedProcedure com
+input { unitId: z.number() } e nunca chamava canAccessUnit para esse
+unitId antes de buscar getUnitById(input.unitId). Qualquer usuário
+autenticado (médico, financeiro, admin de outra unidade) podia passar o
+unitId de qualquer outra unidade e receber unitName e unitLogoUrl
+(resolvida via storage) dessa unidade, mesmo sem nenhum vínculo. O impacto
+é baixo porque os campos signatureUrl/stampUrl retornados pela mesma
+procedure são sempre do próprio ctx.user, nunca do unitId informado — não
+há vazamento de PHI, assinatura ou laudo de outra unidade, só nome/logo de
+identidade visual.
+
+MECANISMO DA CORREÇÃO:
+
+Adicionada canAccessUnit(ctx.user, input.unitId, "view_studies") antes de
+buscar a unidade, lançando FORBIDDEN se negado — mesmo padrão de erro já
+usado no resto do router.
+
+VALIDAÇÃO E PROVA DE REVERT:
+
+server/audit-fixes-medicaldata-unit-authorization-20261110.test.ts, 1
+teste, mockando canAccessUnit para false e confirmando
+rejects.toMatchObject({ code: "FORBIDDEN" }). Prova de revert: removendo
+temporariamente a checagem, o teste falhou (a promise resolveu com os
+dados da unidade em vez de rejeitar); restaurado, voltou a passar. npx tsc
+--noEmit limpo.
+
+====================================================================
+4. VALIDAÇÃO EXECUTADA (consolidada, após os 7 commits aplicados)
+====================================================================
+
+- npx tsc --noEmit: limpo, exit code 0.
+
+- Testes direcionados (os 5 arquivos novos + os 2 pré-existentes
+  modificados, 37 testes no total):
+    server/audit-fixes-rbac-permissions-scope-20261110.test.ts       (11 passed)
+    server/audit-fixes-anamnese-anexos-20261110.test.ts              (6 passed)
+    server/audit-fixes-exam-legend-permission-20261110.test.ts       (5 passed)
+    server/audit-fixes-finance-unit-isolation-20261110.test.ts       (8 passed)
+    server/audit-fixes-medicaldata-unit-authorization-20261110.test.ts (1 passed)
+    server/dicom-isolation.test.ts                                  (4 passed)
+    server/anamnesis-status-security.test.ts                        (2 passed)
+  Total: 7 arquivos, 37 testes, 37 passed.
+
+- Suíte completa (TZ=UTC npx vitest run server/): 980 testes passando, 11
+  falhando, 1 ignorado, em 156 arquivos (149 passaram integralmente). As
+  11 falhas estão EXATAMENTE nos mesmos 7 arquivos históricos já
+  documentados em handoffs anteriores como linha de base pré-existente,
+  sem relação com qualquer correção deste fluxo:
+    server/exam-catalog-security.test.ts
+    server/finance-v2-dashboard.test.tsx
+    server/mediaProxy.test.ts
+    server/pacs-desktop-download-progress.test.ts
+    server/pacs.mobile-ui.test.ts
+    server/security.auth.test.ts
+    server/study-priority-ui.test.ts
+  Confirmado por comparação de arquivo por arquivo (não só contagem) —
+  nenhuma falha nova, nenhum arquivo novo na lista de falhas.
+
+- npx vite build: sucesso, 5.363 módulos transformados. Apenas avisos já
+  conhecidos de módulos browser/Cornerstone e de chunks grandes.
+
+- git diff --check (bdfe3188..HEAD): limpo, sem problemas de espaço em
+  branco/linha final.
+
+- Cada um dos 7 commits foi revisado individualmente (git diff por
+  arquivo) antes de ser criado, confirmando que cada um contém apenas as
+  mudanças pretendidas para aquele achado, sem mistura entre achados nem
+  resíduo de arquivos de backup/debug.
+
+====================================================================
+5. O QUE FICOU DELIBERADAMENTE FORA DO ESCOPO, E POR QUÊ
+====================================================================
+
+5.1 Rotação real da credencial do MinIO (ação operacional, não de código)
+
+A correção do Achado 3.2 limpa os SCRIPTS, mas não rotaciona nenhuma
+credencial real em nenhuma instância ativa — isso requer acesso
+operacional real à infraestrutura (VM3, 172.16.3.102) e só pode ser feito
+pela Manus/equipe de operação. Ação pendente explícita: (a) confirmar se a
+senha exposta (consultar o histórico do Git diretamente, nunca repetida
+em texto neste ou em outros documentos) ainda é usada em qualquer
+instância MinIO ativa, e se sim, rotacioná-la; (b) considerar os dados
+remanescentes em /data/minio da VM2 (desativada, mas não limpa) como
+potencialmente expostos até essa rotação ser confirmada, e avaliar se
+devem ser apagados ou movidos.
+
+5.2 Lacuna de autorização por objeto no prefixo layouts/* do /api/media/*
+
+Investigado (não corrigido) durante o Achado 3.3: a rota /api/media/* não
+tem checagem de autorização por unidade para objetos com prefixo
+"layouts/" (fundo/rodapé/logo de layout de laudo, upload restrito a
+admin_master) nem para "logos/layout_..." (sem o padrão "unit_(\d+)_"
+esperado pelo regex existente). Qualquer usuário autenticado que souber a
+URL de um objeto de layout de outra unidade consegue lê-lo — risco baixo
+(são imagens de identidade visual, não dados clínicos), mas é uma
+inconsistência real no modelo de controle de acesso por objeto, que
+quebra o padrão já aplicado a logos de unidade, assinaturas e carimbos.
+
+Não foi corrigido porque não há hoje identificador de unidade embutido na
+chave do objeto (layouts/layout_<timestamp>_<uuid>.<ext>) — uma correção
+exigiria OU mudar o formato da chave (quebra objetos já existentes) OU
+consultar a tabela model_layouts (que já tem unit_id e as colunas de URL
+de background/footer/logos) para descobrir a quais unit_id um objeto
+pertence antes de autorizar. Essa segunda abordagem é viável sem migration
+de schema, mas ainda exige: uma consulta ao banco por requisição de mídia
+(hoje a rota só faz regex em memória, sem custo de banco), uma política
+explícita de "negar por padrão" para imagem órfã (sem nenhum layout
+referenciando aquela chave), e cuidado para não assumir unicidade da URL
+entre unidades sem conferir. É uma decisão de desenho que precisa de
+aprovação explícita antes de implementar, não um ajuste de uma linha —
+recomendo tratar como um achado separado, de severidade baixa, para
+discussão de escopo com o Alessandro antes de abrir uma branch dedicada.
+
+5.3 Assimetria de sanitização entre reports.body e report_masks.body
+
+Confirmado durante o Achado 3.2 original (seção de Laudos/PDF, auditoria
+anterior a esta branch, não um achado novo desta rodada, mas vale
+reafirmar aqui): reports.body é sanitizado no SERVIDOR via sanitizeHtml
+antes de ser salvo; report_masks.body (máscaras de texto reutilizáveis) é
+uma decisão arquitetural DOCUMENTADA de NÃO sanitizar no servidor — a
+barreira contra XSS fica inteiramente no lado do cliente (DOMPurify), no
+momento em que a máscara é inserida no editor. Hoje isso não é uma
+vulnerabilidade ativa (todos os consumidores atuais de mask.body no
+cliente passam por sanitização), mas é um risco estrutural: um novo
+consumidor futuro de report_masks.body que esqueça de aplicar DOMPurify
+reintroduziria XSS armazenado imediatamente. Não corrigido porque mudar
+essa decisão arquitetural (sanitizar também no servidor) é uma decisão de
+produto/arquitetura que precisa de aprovação explícita, não uma correção
+pontual de segurança — fica registrado aqui para que não seja esquecido,
+não para ser corrigido unilateralmente.
+
+5.4 listExamLegends como publicProcedure (sem autenticação)
+
+sla.ts, listExamLegends, é publicProcedure — qualquer requisição NÃO
+autenticada lista o catálogo completo de legendas de exame (nome,
+modalidade, lateralidade, financial_event_count, etc.). Não há preço nem
+dado de paciente, e o próprio código tem um comentário explícito dizendo
+que isso é intencional ("público — sem autenticação necessária"). Não
+alterado porque parece ser uma decisão de produto deliberada, mas vale o
+Alessandro confirmar se esse catálogo deveria mesmo ser acessível sem
+login (ex.: se é consumido por alguma tela pública) ou se foi um descuido
+antigo que nunca foi revisitado.
+
+5.5 Renomear a granularidade de `action` no audit_log
+
+Vários pontos do sistema (não só os tocados nesta branch) gravam
+action: 'UPDATE_USER' para operações semanticamente distintas (trocar
+permissões granulares, desvincular unidade, trocar grupo de permissões,
+e até setGroupPermissions, que altera a matriz de permissões padrão de
+TODOS os grupos do sistema). Isso reduz a utilidade investigativa do log,
+mas não é um bypass de autorização. Não corrigido nesta rodada porque
+são muitos pontos espalhados e seria uma mudança maior, de baixo valor de
+segurança imediato comparado aos 7 achados corrigidos — fica registrado
+como possível trabalho futuro de observabilidade, não de segurança.
+
+5.6 Falha de escrita no audit_log engolida silenciosamente
+
+server/db.ts, createAuditLog: qualquer erro no INSERT é capturado e só
+gera console.error — a ação sensível já foi executada e retorna sucesso
+ao chamador mesmo que a gravação da auditoria falhe. Severidade baixa, mas
+registrado aqui porque é particularmente irônico num setor cujo propósito
+é justamente auditoria. Não corrigido nesta rodada por ser um padrão
+usado em todas as chamadas de createAuditLog do sistema (não só nas 7
+corrigidas aqui) — mudar isso globalmente (ex.: fazer a ação sensível
+falhar se o audit log falhar) é uma decisão de produto sobre o que é
+pior: perder uma linha de auditoria ou bloquear uma operação legítima por
+um problema de infraestrutura de logging. Fica como recomendação, não
+como correção aplicada.
+
+====================================================================
+6. ESTADO ATUAL
+====================================================================
+
+Branch publicada (ou a publicar, ver instruções de push) no GitHub:
+claude/auditoria-seguranca-rbac-pacs-financeiro-storage-20261110, 7
+commits acima de bdfe3188c2d2cdae0d016db9b4d84d1ecad29ca5 (o mesmo commit
+base da branch anterior claude/corrige-cache-desatualizado-busca-pacs-
+20261101 — origin/main não avançou desde então).
+
+Nenhum PR aberto, nenhum merge em main, nenhum deploy, nenhuma VM alterada
+por este trabalho. Todos os testes/validações foram executados no sandbox
+(worktree local detached em bdfe3188, com node_modules compartilhado via
+symlink do checkout principal — package.json e pnpm-lock.yaml confirmados
+idênticos entre os dois antes de symlinkar).
+
+Pendências explícitas antes de considerar merge/deploy, na mesma linha do
+que já foi acordado para a branch anterior: homologação visual real numa
+VM com dados sintéticos para os achados que envolvem fluxo de UI (achado
+3.1 — gestão de usuários/permissões; achado 3.4 — telas financeiras), e a
+ação operacional pendente da seção 5.1 (rotação da credencial MinIO) antes
+ou em paralelo ao deploy desta branch. Recomendo que a Manus repita a
+suíte completa em ambiente com dependências íntegras (sem o gap de jsdom
+já documentado em rodadas anteriores) e dê o veredito final sobre
+prontidão para VM1, seguindo exatamente o mesmo protocolo já estabelecido
+nas branches anteriores — nenhum passo desse protocolo foi pulado aqui,
+só ainda não foi executado por quem tem acesso real à infraestrutura.
