@@ -3512,7 +3512,10 @@ export const financeSimpleRouter = router({
       .input(z.object({
         financialResponsibleId: z.number(),
         unitId: z.number(),
-        pricePerReport: z.string(),
+        // CORREÇÃO (auditoria-seguranca-rbac-20261110): pricePerReport não validava
+        // formato/sinal (aceitava negativo, texto, etc.) — mesmo padrão já usado em
+        // setDoctorLegendPrice (pricePerEvent) aplicado aqui.
+        pricePerReport: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Informe um valor monetário válido.'),
         startsAt: z.string(),
         endsAt: z.string().optional(),
       }))
@@ -3548,7 +3551,10 @@ export const financeSimpleRouter = router({
         financialResponsibleId: z.number(),
         unitId: z.number(),
         doctorUserId: z.number(),
-        pricePerReport: z.string(),
+        // CORREÇÃO (auditoria-seguranca-rbac-20261110): pricePerReport não validava
+        // formato/sinal (aceitava negativo, texto, etc.) — mesmo padrão já usado em
+        // setDoctorLegendPrice (pricePerEvent) aplicado aqui.
+        pricePerReport: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Informe um valor monetário válido.'),
         startsAt: z.string(),
         endsAt: z.string().optional(),
       }))
@@ -3610,7 +3616,10 @@ export const financeSimpleRouter = router({
         unitId: z.number(),
         doctorUserId: z.number(),
         modality: z.string().min(1).max(10),
-        pricePerReport: z.string(),
+        // CORREÇÃO (auditoria-seguranca-rbac-20261110): pricePerReport não validava
+        // formato/sinal (aceitava negativo, texto, etc.) — mesmo padrão já usado em
+        // setDoctorLegendPrice (pricePerEvent) aplicado aqui.
+        pricePerReport: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Informe um valor monetário válido.'),
         startsAt: z.string(),
         endsAt: z.string().optional(),
       }))
@@ -4475,7 +4484,10 @@ export const financeSimpleRouter = router({
     setSystemPriceDirect: protectedProcedure
       .input(z.object({
         unitId: z.number(),
-        pricePerReport: z.string(),
+        // CORREÇÃO (auditoria-seguranca-rbac-20261110): pricePerReport não validava
+        // formato/sinal (aceitava negativo, texto, etc.) — mesmo padrão já usado em
+        // setDoctorLegendPrice (pricePerEvent) aplicado aqui.
+        pricePerReport: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Informe um valor monetário válido.'),
         startsAt: z.string(),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -4528,7 +4540,10 @@ export const financeSimpleRouter = router({
       .input(z.object({
         doctorUserId: z.number(),
         unitId: z.number(),
-        pricePerReport: z.string(),
+        // CORREÇÃO (auditoria-seguranca-rbac-20261110): pricePerReport não validava
+        // formato/sinal (aceitava negativo, texto, etc.) — mesmo padrão já usado em
+        // setDoctorLegendPrice (pricePerEvent) aplicado aqui.
+        pricePerReport: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Informe um valor monetário válido.'),
         startsAt: z.string(),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -4950,6 +4965,19 @@ export const financeSimpleRouter = router({
             .from(financial_responsible_units)
             .where(and(eq(financial_responsible_units.financial_responsible_id, respId), isNull(financial_responsible_units.ends_at)));
           allowedUnitIds = unitLinks.map(u => u.unit_id);
+          if (allowedUnitIds.length === 0) return [];
+        }
+        // CORREÇÃO (auditoria-seguranca-rbac-20261110): unit_admin estava na lista de
+        // papéis permitidos (allowed, acima) mas não tinha nenhum bloco preenchendo
+        // allowedUnitIds — ficava undefined, o filtro condicional de unidade não era
+        // aplicado, e a query devolvia médicos/preços de TODAS as unidades do sistema
+        // para um unit_admin, não apenas das unidades que ele administra. Corrigido
+        // reutilizando a mesma fonte central já usada em outras procedures deste
+        // arquivo (dashboard, etc.) para resolver as unidades autorizadas de um
+        // unit_admin (vínculos em user_unit_permissions + unit_id direto do usuário).
+        if (ctx.user.role === 'unit_admin') {
+          const authorizedUnitIds = await getAuthorizedFinancialUnitIds(db, ctx.user);
+          allowedUnitIds = authorizedUnitIds ?? [];
           if (allowedUnitIds.length === 0) return [];
         }
         // Buscar médicos com preços ativos
