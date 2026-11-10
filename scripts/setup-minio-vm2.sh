@@ -1,8 +1,24 @@
 #!/bin/bash
+# AVISO DE SEGURANCA (auditoria-seguranca-rbac-20261110):
+# Este script continha anteriormente a credencial real "lauds_admin" / <senha em texto puro>
+# (o valor exato da senha foi removido deste comentario para nao reintroduzir o segredo no
+# arquivo atual; ele permanece recuperavel no historico do Git, que e justamente o problema).
+# hardcoded, commitada no historico do Git desde ~04/2026. A instancia da VM2 a que essa
+# credencial se referia foi desativada em 18/08/2026, mas os dados em /data/minio NAO foram
+# apagados, e nao ha confirmacao de que a senha tenha sido rotacionada ou de que a VM3 ativa
+# usa uma senha diferente. ACAO NECESSARIA (fora do escopo deste commit, requer acesso real
+# a infraestrutura): rotacionar essa senha em qualquer instancia MinIO ativa que ainda a use,
+# e considerar os dados remanescentes em /data/minio da VM2 como potencialmente expostos ate
+# essa rotacao ser confirmada. Isso deve ser feito por alguem com acesso operacional real
+# (Manus/ops), nao por este commit.
 # Script de instalação do MinIO na VM2 (172.16.3.101)
 # Executar como root ou com sudo
 
 set -e
+
+# Credenciais do MinIO devem ser fornecidas via variaveis de ambiente, nunca hardcoded.
+: "${MINIO_ROOT_USER:?Defina a variavel de ambiente MINIO_ROOT_USER antes de rodar este script}"
+: "${MINIO_ROOT_PASSWORD:?Defina a variavel de ambiente MINIO_ROOT_PASSWORD antes de rodar este script}"
 
 echo "=== Instalação do MinIO na VM2 ==="
 
@@ -26,8 +42,8 @@ chown -R minio:minio /data/minio
 echo "Criando arquivo de variáveis de ambiente..."
 cat > /etc/default/minio <<EOF
 # MinIO Configuration
-MINIO_ROOT_USER=lauds_admin
-MINIO_ROOT_PASSWORD=Lauds@2026!Secure
+MINIO_ROOT_USER=${MINIO_ROOT_USER}
+MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
 MINIO_VOLUMES="/data/minio"
 MINIO_OPTS="--console-address :9001"
 EOF
@@ -92,8 +108,8 @@ if systemctl is-active --quiet minio; then
   echo "📋 Informações de acesso:"
   echo "   API Endpoint: http://172.16.3.101:9000"
   echo "   Console Web:  http://172.16.3.101:9001"
-  echo "   Usuário:      lauds_admin"
-  echo "   Senha:        Lauds@2026!Secure"
+  echo "   Usuário:      (definido pela variável de ambiente MINIO_ROOT_USER)"
+  echo "   Senha:        (definida pela variável de ambiente MINIO_ROOT_PASSWORD, não exibida aqui)"
   echo ""
   echo "⚠️  IMPORTANTE: Configure o firewall para permitir as portas 9000 e 9001"
   echo "   sudo ufw allow 9000/tcp"
