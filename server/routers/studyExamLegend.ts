@@ -234,6 +234,16 @@ export const studyExamLegendRouter = router({
     .mutation(async ({ input, ctx }) => {
       assertCanSelect(ctx.user.role);
       const unitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
+      // CORREÇÃO (auditoria-seguranca-rbac-20261110): assertDicomFileAccess só confirma
+      // que o usuário pode VER o estudo (view_studies). A legenda selecionada aqui
+      // determina financial_event_count, usado para criar eventos de faturamento
+      // (server/catalogFinancial.ts), então também é exigida a permissão granular
+      // edit_exam_legend por unidade — mesmo padrão já usado em studyMetadata.ts
+      // (V14-P1 FIX) — que nunca era checada neste endpoint.
+      const canEditLegend = await canAccessUnit(ctx.user, unitId, "edit_exam_legend");
+      if (!canEditLegend) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para editar a legenda deste exame." });
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados indisponível." });
       const studyModality = await resolveStudyModality(db, input.studyInstanceUid, unitId);
@@ -260,6 +270,14 @@ export const studyExamLegendRouter = router({
     .mutation(async ({ input, ctx }) => {
       assertCanSelect(ctx.user.role);
       const unitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
+      // CORREÇÃO (auditoria-seguranca-rbac-20261110): mesma lacuna de confirmSelections —
+      // assertDicomFileAccess só valida view_studies. É exigida também a permissão
+      // granular edit_exam_legend por unidade antes de persistir a seleção, pois ela
+      // determina financial_event_count usado no faturamento.
+      const canEditLegend = await canAccessUnit(ctx.user, unitId, "edit_exam_legend");
+      if (!canEditLegend) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para editar a legenda deste exame." });
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados indisponível." });
       const studyModality = await resolveStudyModality(db, input.studyInstanceUid, unitId);

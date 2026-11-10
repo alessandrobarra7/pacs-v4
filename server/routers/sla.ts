@@ -257,6 +257,14 @@ export const slaRouter = router({
         .limit(1);
 
       const effectiveFrom = input.effectiveFrom ? new Date(input.effectiveFrom) : new Date();
+      // CORREÇÃO (auditoria-seguranca-rbac-20261110): effectiveFrom não era validado —
+      // uma string de data inválida (ex.: "não-é-data") gerava um `Invalid Date` que
+      // era persistido sem erro em effective_from, diferente de
+      // setDoctorModalityPrice/setDoctorLegendPrice (financeSimple.ts), que validam a
+      // data de início antes de salvar.
+      if (Number.isNaN(effectiveFrom.getTime())) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Data inválida." });
+      }
 
       if (existing.length > 0) {
         await db
