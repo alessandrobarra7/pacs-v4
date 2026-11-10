@@ -1,6 +1,7 @@
 import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import { trpc } from "@/lib/trpc";
+import { clearStalePacsQueryResultsCache } from "@/lib/pacsCacheIsolation";
 import { normalizeDicomModality } from "@shared/modality";
 import {
   Search, Eye, FileText, Printer, Paperclip,
@@ -1173,6 +1174,17 @@ const isAdminMaster = user?.role === 'admin_master';
     onError: (error: any) => {
       toast.error(error.message || "Erro ao consultar PACS");
       setIsQuerying(false);
+      // CORREÇÃO (achado do Alessandro, 2026-11-01): quando a consulta DICOM
+      // ao vivo falha (ex.: PACS inalcançável — EHOSTUNREACH), a lista
+      // antiga — inicializada a partir do cache em localStorage, que é
+      // escopado só por unidade, não pelo filtro de data ativo — continuava
+      // na tela como se fosse o resultado do filtro atual, com apenas o
+      // toast de erro acima dela. Reproduzido: filtro "Hoje" continuando a
+      // mostrar um estudo de outra data. Agora a lista é zerada e o cache
+      // daquela unidade é limpo, para não haver dado desatualizado exibido
+      // silenciosamente como se fosse atual. Ver pacsCacheIsolation.ts.
+      setQueryResults([]);
+      clearStalePacsQueryResultsCache(cacheKey);
     },
   });
 

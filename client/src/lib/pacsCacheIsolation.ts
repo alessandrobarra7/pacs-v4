@@ -168,3 +168,40 @@ export function purgeStaleCrossUserCacheIfNeeded(
     // Storage indisponível — nada a fazer.
   }
 }
+
+/**
+ * CORREÇÃO (achado do Alessandro, 2026-11-01): a tela de busca do PACS
+ * (PacsQueryPage.tsx) inicializa `queryResults` a partir deste mesmo cache
+ * (`pacs_query_results_unit_<unitId>`) e, quando a consulta DICOM ao vivo
+ * falha (ex.: PACS inalcançável — `EHOSTUNREACH`), o `onError` da mutação só
+ * exibia um toast de erro; a lista antiga permanecia na tela. Como esse
+ * cache é escopado só por UNIDADE — nunca pelo filtro de data ativo (Hoje,
+ * Ontem, Últimos 7 dias, uma data específica) — o resultado de QUALQUER
+ * consulta anterior bem-sucedida (de qualquer período) ficava visível sob o
+ * filtro atualmente selecionado, sem nenhuma indicação visual de que não
+ * foi atualizado. Reproduzido: filtro "Hoje" (01/11/2026) continuando a
+ * mostrar um estudo de 15/10/2026 ao lado do toast de erro de conexão.
+ *
+ * Esta função limpa o registro em cache daquela unidade quando a consulta
+ * falha, para que nem a lista em memória (zerada separadamente via
+ * `setQueryResults([])` em PacsQueryPage.tsx) nem uma eventual recarga de
+ * página logo em seguida ressuscitem o mesmo resultado desatualizado a
+ * partir do localStorage.
+ *
+ * Observação para quem revisar: o cache continuar escopado só por unidade
+ * (não por filtro de data) é uma limitação de desenho pré-existente, mais
+ * ampla do que este achado específico — ao trocar de filtro com sucesso
+ * (não com erro), a tela ainda pode mostrar por um instante o resultado do
+ * filtro anterior antes do novo chegar. Não corrigido nesta branch: ver
+ * handoff para discussão de escopo antes de mudar a chave de cache.
+ */
+export function clearStalePacsQueryResultsCache(
+  cacheKey: string,
+  localStorageImpl: StorageLike = globalThis.localStorage,
+): void {
+  try {
+    localStorageImpl.removeItem(cacheKey);
+  } catch {
+    // Storage indisponível (ex.: modo privado restrito do navegador) — nada a fazer.
+  }
+}
