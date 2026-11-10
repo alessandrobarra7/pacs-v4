@@ -139,6 +139,7 @@ describe("audit-fixes-minio-credential-no-literal-20261110", () => {
         "docs/VM2_INFRAESTRUTURA.md",
         "scripts/setup-minio-vm2.sh",
         "scripts/setup-minio-bucket.sh",
+        "docs/auditoria-claude/HANDOFF_MANUS_AUDITORIA_SEGURANCA_RBAC_PACS_FINANCEIRO_STORAGE_2026-11-10.txt",
       ]) {
         const content = readRepoFile(relPath);
         expect(content).not.toContain("lauds_admin");

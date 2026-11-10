@@ -986,7 +986,7 @@ de os SCRIPTS estarem corrigidos.
 
 CORREÇÃO APLICADA (commit desta seção, hash abaixo):
 
-Todas as ocorrências literais do usuário raiz ("lauds_admin") e da senha
+Todas as ocorrências literais do usuário raiz legado e da senha
 raiz real foram substituídas por placeholders não reutilizáveis nos três
 arquivos, exatamente como a Manus recomendou:
 
@@ -1002,12 +1002,12 @@ corromper conteúdo não relacionado ao achado (um e-mail de contato do
 Certbot, a string de conexão DATABASE_URL, formatos de data como %Y%m%d,
 e uma credencial de admin do próprio Portal, sem relação com o MinIO).
 Depois da correção cirúrgica, uma nova varredura confirmou zero
-ocorrências de "lauds_admin" em todo o repositório (exceto como comentário
+ocorrências do usuário raiz legado em todo o repositório (exceto como comentário
 histórico, já com a senha redigida, explicando que a credencial existiu
 no passado).
 
 Também foram atualizadas, por consistência com a recomendação da Manus,
-as menções textuais ao usuário "lauds_admin" nos comentários de aviso de
+as menções textuais ao usuário raiz legado nos comentários de aviso de
 segurança dos dois scripts (seção 3.2) e no texto deste próprio handoff
 (seção 3.2), trocando o usuário literal por <MINIO_ACCESS_KEY> nessas
 três menções também (a senha, nesses três lugares, já estava redigida
@@ -1059,7 +1059,7 @@ valor antigo) — não repito aqui para não duplicar/divergir da fonte.
     arquivo novo de teste sem nenhuma falha) / 1 ignorado — nenhuma
     regressão nova.
   - npx vite build: limpo, mesmos avisos conhecidos de chunk grande.
-  - Varredura de "lauds_admin" em todo o repositório (exceto node_modules
+  - Varredura do usuário raiz legado em todo o repositório (exceto node_modules
     e .git): zero ocorrências fora de menções históricas já com a senha
     redigida.
 
