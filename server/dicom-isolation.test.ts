@@ -42,4 +42,25 @@ describe('Isolamento de Cache DICOM por Unidade (Setores 05-06)', () => {
     expect(route).toContain('invalidateOrderedDicomFiles(studyDir)');
     expect(route).toContain('fs.rm(studyDir, { recursive: true, force: true })');
   });
+
+  // CORREÇÃO (auditoria-seguranca-rbac-20261110): /api/dicom-series/:studyUid expunha
+  // metadados de série (descrição clínica, modalidade, lista de arquivos) a qualquer
+  // usuário autenticado, de qualquer unidade, sem checagem de autorização (IDOR).
+  it('deve autorizar o estudo antes de listar as séries DICOM (IDOR)', async () => {
+    const indexPath = path.resolve(__dirname, '_core', 'index.ts');
+    const content = await fs.readFile(indexPath, 'utf-8');
+    const routeStart = content.indexOf("app.get('/api/dicom-series/:studyUid'");
+    expect(routeStart).toBeGreaterThan(-1);
+    const routeEnd = content.indexOf("app.get('/api/dicom-thumbnail/:studyUid/:filename'", routeStart);
+    expect(routeEnd).toBeGreaterThan(routeStart);
+    const route = content.slice(routeStart, routeEnd);
+
+    // A checagem de autorização deve vir ANTES da leitura do cache em disco
+    // (getOrderedDicomFiles), não depois.
+    const authCallIdx = route.indexOf("assertDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies')");
+    const cacheReadIdx = route.indexOf('getOrderedDicomFiles(studyDir)');
+    expect(authCallIdx).toBeGreaterThan(-1);
+    expect(cacheReadIdx).toBeGreaterThan(-1);
+    expect(authCallIdx).toBeLessThan(cacheReadIdx);
+  });
 });

@@ -785,6 +785,13 @@ async function startServer() {
     if (!isValidStudyInstanceUid(studyUid)) {
       return res.status(400).json({ success: false, error: 'Invalid studyUid' });
     }
+    // CORREÇÃO (auditoria-seguranca-rbac-20261110): rota não validava autorização por unidade antes de expor metadados de série (IDOR) — alinhado com as rotas irmãs de cache DICOM
+    try {
+      const { assertDicomFileAccess } = await import('../authorization');
+      await assertDicomFileAccess((req as any).dicomUser, studyUid, 'view_studies');
+    } catch (e: any) {
+      return res.status(403).json({ success: false, error: e.message || 'Acesso negado' });
+    }
     const studyDir = `${DICOM_CACHE_ROOT}/${studyUid}`;
     try {
       const fs = await import('fs/promises');
