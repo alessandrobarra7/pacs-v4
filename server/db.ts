@@ -1552,8 +1552,15 @@ export async function resolveUnitFilter(
   return { unitIds: [] };
 }
 
-/** Define (replace) as permissões de um usuário para uma lista de unidades.
- *  Unidades não incluídas na lista terão seus registros removidos. */
+/** Faz upsert das permissões de um usuário, ESCOPADO às unidades presentes
+ *  no array `permissions` recebido. Unidades do usuário que NÃO aparecem no
+ *  array permanecem intactas (não são tocadas, nem lidas, nem removidas).
+ *  CORREÇÃO (auditoria-seguranca-rbac-20261110): antes este comentário
+ *  dizia "unidades não incluídas na lista terão seus registros removidos"
+ *  — isso descrevia um wipe total (DELETE WHERE user_id = X, sem filtro de
+ *  unit_id) que permitia a um unit_admin apagar permissões do usuário-alvo
+ *  em unidades fora do próprio escopo. Ver comentário completo dentro da
+ *  função. */
 export async function setUserUnitPermissions(
   userId: number,
   permissions: Array<{
@@ -1572,8 +1579,41 @@ export async function setUserUnitPermissions(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Remove todas as permissões existentes do usuário
-  await db.delete(user_unit_permissions).where(eq(user_unit_permissions.user_id, userId));
+  // CORREÇÃO (auditoria-seguranca-rbac-20261110): a versão anterior fazia
+  // DELETE FROM user_unit_permissions WHERE user_id = X — SEM filtrar por
+  // unit_id — e depois inseria só as unidades presentes no array recebido.
+  // Era uma substituição TOTAL das permissões do usuário em TODAS as
+  // unidades, não um upsert escopado. admin.routers.setUserPermissions já
+  // valida que cada unit_id do array está dentro do escopo do chamador
+  // (managedIds, para unit_admin), mas essa validação não garantia que o
+  // array cobrisse o conjunto COMPLETO de unidades do usuário-alvo: uma
+  // chamada tRPC direta enviando só a(s) unidade(s) do próprio escopo do
+  // chamador fazia este DELETE apagar também as permissões do alvo em
+  // QUALQUER OUTRA unidade — inclusive de outros admins ou do
+  // admin_master — porque o DELETE não era escopado pelo payload.
+  // Agora o DELETE (e portanto a "substituição") afeta SOMENTE as
+  // unidades presentes no array `permissions` recebido; linhas do usuário
+  // em unidades ausentes do array permanecem intactas, para qualquer
+  // chamador (unit_admin ou admin_master). Unidades fora do escopo do
+  // chamador nunca aparecem no array (a validação em admin.ts rejeita o
+  // array inteiro se aparecessem), logo nunca são tocadas por este DELETE.
+  // Para o fluxo normal da UI (UsersPermissionsTab sempre reenvia o
+  // conjunto completo de unidades do usuário), o comportamento observável
+  // não muda. Chamador que precise de fato limpar TODAS as unidades de um
+  // usuário deve passar explicitamente a lista completa de unit_ids a
+  // remover (ou usar uma função dedicada) — um array vazio aqui não limpa
+  // nada, propositalmente (ver nota no final do arquivo de testes
+  // correspondente).
+  const incomingUnitIds = permissions.map((p) => p.unit_id);
+
+  if (incomingUnitIds.length > 0) {
+    await db.delete(user_unit_permissions).where(
+      and(
+        eq(user_unit_permissions.user_id, userId),
+        inArray(user_unit_permissions.unit_id, incomingUnitIds)
+      )
+    );
+  }
 
   // Insere as novas permissões
   if (permissions.length > 0) {
@@ -1598,8 +1638,20 @@ export async function setUserUnitPermissions(
   // - 1 unidade: grava users.unit_id com a unidade única (compat. legada)
   // - múltiplas unidades: grava users.unit_id = null (user_unit_permissions é a fonte da verdade)
   // - 0 unidades: grava users.unit_id = null
-  if (permissions.length === 1) {
-    await db.update(usersTable).set({ unit_id: permissions[0].unit_id }).where(eq(usersTable.id, userId));
+  //
+  // CORREÇÃO (auditoria-seguranca-rbac-20261110): antes este bloco decidia
+  // com base apenas no array `permissions` recebido NESTA chamada — o que
+  // era seguro enquanto o DELETE acima também era total (o array recebido
+  // SEMPRE representava o conjunto completo e final de unidades do
+  // usuário). Agora que o DELETE é escopado às unidades do payload, uma
+  // chamada parcial (ex.: só a unidade A, preservando a unidade B) não
+  // representa mais o conjunto completo — usar só `permissions.length`
+  // aqui sincronizaria users.unit_id errado (ex.: zerando-o mesmo com a
+  // unidade B ainda vigente). Por isso recarregamos o conjunto real e
+  // completo de unidades do usuário após o delete+insert.
+  const currentUnitIds = (await getUserUnitPermissions(userId)).map((p) => p.unit_id);
+  if (currentUnitIds.length === 1) {
+    await db.update(usersTable).set({ unit_id: currentUnitIds[0] }).where(eq(usersTable.id, userId));
   } else {
     // 0 ou múltiplas unidades: limpar unit_id para forçar uso de user_unit_permissions
     await db.update(usersTable).set({ unit_id: null }).where(eq(usersTable.id, userId));

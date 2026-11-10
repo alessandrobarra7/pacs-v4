@@ -345,12 +345,26 @@ export const adminRouter = router({
         if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
         const { users } = await import("../../drizzle/schema");
         const { eq: eqOp } = await import("drizzle-orm");
+        // CORREÇÃO (auditoria-seguranca-rbac-20261110): carregamos o usuário-alvo
+        // ANTES do DELETE (depois dele a linha não existe mais) só para poder
+        // gravar no audit_log a unidade REAL do usuário excluído — ver nota
+        // abaixo, junto ao createAuditLog.
+        const [targetUserForAudit] = await db.select().from(users).where(eqOp(users.id, input.id));
         await db.delete(users).where(eqOp(users.id, input.id));
 
         // FIX: registrar exclusão no audit_log — operação irreversível
+        // CORREÇÃO (auditoria-seguranca-rbac-20261110): antes gravava
+        // unit_id: ctx.user.unit_id — a unidade do ATOR que executou a
+        // exclusão, não a unidade do usuário excluído. Isso torna o
+        // audit_log incorreto para auditar/filtrar por unidade afetada
+        // (ex.: admin_master não tem unit_id, então toda exclusão feita por
+        // ele gravaria unit_id=null; um unit_admin excluindo um usuário —
+        // hipótese hoje bloqueada por role, mas o padrão deve ser correto
+        // por si — gravaria a unidade do ATOR, não do ALVO). Agora grava a
+        // unidade real do usuário-alvo.
         await createAuditLog({
           user_id:     ctx.user.id,
-          unit_id:     ctx.user.unit_id ?? undefined,
+          unit_id:     targetUserForAudit?.unit_id ?? undefined,
           action:      'DELETE_USER',
           target_type: 'USER',
           target_id:   String(input.id),
@@ -450,9 +464,15 @@ export const adminRouter = router({
           updateData.password_hash = await bcryptLib.hash(input.password, 12);
         }
         await db.update(users).set(updateData as any).where(eqOp(users.id, input.id));
+        // CORREÇÃO (auditoria-seguranca-rbac-20261110): antes gravava
+        // unit_id: ctx.user.unit_id (unidade do ATOR), não a unidade do
+        // usuário-alvo editado — targetUser já estava carregado acima para
+        // as checagens de escopo, então usamos targetUser.unit_id (unidade
+        // do alvo ANTES desta atualização, coerente com o padrão já usado
+        // em removeUserUnitLink/linkExistingUserToUnitGroup).
         await createAuditLog({
           user_id: ctx.user.id,
-          unit_id: ctx.user.unit_id ?? undefined,
+          unit_id: targetUser.unit_id ?? undefined,
           action: 'UPDATE_USER',
           target_type: 'USER',
           target_id: String(input.id),
@@ -503,9 +523,14 @@ export const adminRouter = router({
         await db.update(users).set({ isActive: input.isActive }).where(eqOp(users.id, input.id));
 
         // FIX: registrar ativação/desativação no audit_log
+        // CORREÇÃO (auditoria-seguranca-rbac-20261110): antes gravava
+        // unit_id: ctx.user.unit_id (unidade do ATOR), não a unidade do
+        // usuário-alvo (des)ativado — targetUserToggle já estava carregado
+        // acima para as checagens de escopo, então usamos
+        // targetUserToggle.unit_id.
         await createAuditLog({
           user_id:     ctx.user.id,
-          unit_id:     ctx.user.unit_id ?? undefined,
+          unit_id:     targetUserToggle.unit_id ?? undefined,
           action:      input.isActive ? 'ACTIVATE_USER' : 'DEACTIVATE_USER',
           target_type: 'USER',
           target_id:   String(input.id),
@@ -575,6 +600,15 @@ export const adminRouter = router({
           const { eq: eqOpSUP } = await import('drizzle-orm');
           const [targetUserSUP] = await db2.select().from(usersTableSUP).where(eqOpSUP(usersTableSUP.id, input.userId));
           if (!targetUserSUP) throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
+          // CORREÇÃO (auditoria-seguranca-rbac-20261110, Achado 5): esta rota
+          // dependia só de assertUnitAdminCanManageTargetUser, que cobre
+          // apenas o cenário de responsavel_financeiro — ela NÃO bloqueia um
+          // unit_admin de alterar permissões de uma conta admin_master ou de
+          // outro unit_admin. Replicamos aqui o mesmo bloqueio explícito já
+          // usado em updateUser/toggleUserActive.
+          if (targetUserSUP.role === 'admin_master' || targetUserSUP.role === 'unit_admin') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não pode gerenciar contas de administradores (master ou unit_admin)' });
+          }
           await assertUnitAdminCanManageTargetUser(
             { id: ctx.user.id, role: ctx.user.role, unit_id: ctx.user.unit_id ?? null },
             { id: targetUserSUP.id, role: targetUserSUP.role }
@@ -594,15 +628,27 @@ export const adminRouter = router({
           manage_templates: false,
         }));
         await setUserUnitPermissions(input.userId, permissionsWithoutTemplateAdministration);
-        await createAuditLog({
-          user_id: ctx.user.id,
-          unit_id: ctx.user.unit_id ?? undefined,
-          action: 'UPDATE_USER',
-          target_type: 'USER',
-          target_id: String(input.userId),
-          ip_address: ctx.req.ip,
-          user_agent: ctx.req.headers['user-agent'],
-        });
+        // CORREÇÃO (auditoria-seguranca-rbac-20261110): antes gravava UMA
+        // única entrada de audit_log com unit_id: ctx.user.unit_id (a
+        // unidade do ATOR) — mesmo quando o array de permissões recebido
+        // cobre MÚLTIPLAS unidades do usuário-alvo, tornando o log inútil
+        // para saber qual unidade teve suas permissões alteradas. Agora
+        // gravamos UMA entrada POR unidade realmente afetada (unit_id de
+        // cada item do payload, sem duplicar unidades repetidas) — mesmo
+        // padrão de "unit_id = unidade afetada" já usado em
+        // removeUserUnitLink/linkExistingUserToUnitGroup.
+        const affectedUnitIds = Array.from(new Set(input.permissions.map((p) => p.unit_id)));
+        for (const affectedUnitId of affectedUnitIds) {
+          await createAuditLog({
+            user_id: ctx.user.id,
+            unit_id: affectedUnitId,
+            action: 'UPDATE_USER',
+            target_type: 'USER',
+            target_id: String(input.userId),
+            ip_address: ctx.req.ip,
+            user_agent: ctx.req.headers['user-agent'],
+          });
+        }
         return { success: true };
       }),
 
@@ -798,6 +844,15 @@ export const adminRouter = router({
           const { eq: eqOpRUL } = await import('drizzle-orm');
           const [targetUserRUL] = await db.select().from(usersTableRUL).where(eqOpRUL(usersTableRUL.id, input.userId));
           if (!targetUserRUL) throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
+          // CORREÇÃO (auditoria-seguranca-rbac-20261110, Achado 5): esta rota
+          // dependia só de assertUnitAdminCanManageTargetUser, que cobre
+          // apenas o cenário de responsavel_financeiro — ela NÃO bloqueia um
+          // unit_admin de remover vínculo de unidade de uma conta
+          // admin_master ou de outro unit_admin. Replicamos aqui o mesmo
+          // bloqueio explícito já usado em updateUser/toggleUserActive.
+          if (targetUserRUL.role === 'admin_master' || targetUserRUL.role === 'unit_admin') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não pode gerenciar contas de administradores (master ou unit_admin)' });
+          }
           const { assertUnitAdminCanManageTargetUser } = await import('../authorization');
           await assertUnitAdminCanManageTargetUser(
             { id: ctx.user.id, role: ctx.user.role, unit_id: ctx.user.unit_id ?? null },
@@ -1233,6 +1288,15 @@ export const adminRouter = router({
         const [targetUser] = await db.select().from(usersTable).where(eqOp(usersTable.id, input.userId));
         if (!targetUser) throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado' });
         if (ctx.user.role === 'unit_admin') {
+          // CORREÇÃO (auditoria-seguranca-rbac-20261110, Achado 5): checagem
+          // explícita de papel-alvo, no mesmo estilo já usado em
+          // updateUser/toggleUserActive — assertUnitAdminCanManageTargetUser
+          // (abaixo) cobre apenas o cenário de responsavel_financeiro e NÃO
+          // bloqueia, por si só, um unit_admin de alterar o grupo de
+          // permissões de uma conta admin_master ou de outro unit_admin.
+          if (targetUser.role === 'admin_master' || targetUser.role === 'unit_admin') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Unit admin não pode gerenciar contas de administradores (master ou unit_admin)' });
+          }
           // Parecer 2026-10-15 (Bloqueio 1): mesmo com groupKey diferente de
           // "responsaveisFinanceiros", um unit_admin não pode alterar o grupo de
           // permissões de uma conta que já é (ou já foi) responsável financeiro.
