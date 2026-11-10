@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
-import { getDb } from "../db";
+import { getDb, createAuditLog } from "../db";
 import { study_audio_reports } from "../../drizzle/schema";
 import { eq, inArray, desc } from "drizzle-orm";
 import { storagePut, storageDelete } from "../storage";
@@ -116,7 +116,7 @@ export const audioReportsRouter = router({
 
       const { url } = await storagePut(relKey, buffer, mimeType);
 
-      await db.insert(study_audio_reports).values({
+      const [inserted] = await db.insert(study_audio_reports).values({
         study_instance_uid: input.study_instance_uid,
         unit_id: unitId,
         user_id: ctx.user.id,
@@ -125,6 +125,26 @@ export const audioReportsRouter = router({
         file_name: input.file_name,
         file_size: buffer.length,
         duration_seconds: input.duration_seconds || 0,
+      });
+
+      // CORREÇÃO (auditoria-seguranca-rbac-20261110): upload de áudio de laudo falado
+      // (dado clínico sensível) não deixava trilha de auditoria, diferente de
+      // anamnesis.ts/anamnesisSimple.ts. 'action' é um ENUM fixo em
+      // drizzle/schema.ts sem valor próprio para áudio de laudo — adicioná-lo
+      // exigiria uma migration de produção fora do escopo desta correção de código;
+      // reaproveitamos EDIT_STUDY_METADATA (mesmo padrão já usado para
+      // STUDY_EXAM_LEGEND/anotações) e desambiguamos via target_type/metadata.action.
+      // unit_id é a unidade real do estudo (retornada por assertDicomFileAccess),
+      // não a do ator.
+      await createAuditLog({
+        user_id: ctx.user.id,
+        unit_id: unitId,
+        action: "EDIT_STUDY_METADATA",
+        target_type: "STUDY_AUDIO_REPORT",
+        target_id: inserted?.insertId != null ? String(inserted.insertId) : input.study_instance_uid,
+        ip_address: ctx.req.ip,
+        user_agent: ctx.req.headers["user-agent"],
+        metadata: { action: "UPLOAD_AUDIO_REPORT", study_instance_uid: input.study_instance_uid, file_name: input.file_name, duration_seconds: input.duration_seconds ?? null },
       });
 
       return { success: true, url };
@@ -151,7 +171,7 @@ export const audioReportsRouter = router({
       if (record.user_id !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas o médico autor pode excluir este áudio" });
       }
-      await assertDicomFileAccess(ctx.user, record.study_instance_uid, "view_studies");
+      const unitId = await assertDicomFileAccess(ctx.user, record.study_instance_uid, "view_studies");
       try {
         await storageDelete(record.file_url || record.file_key);
       } catch (_) {}
@@ -159,6 +179,19 @@ export const audioReportsRouter = router({
       await db
         .delete(study_audio_reports)
         .where(eq(study_audio_reports.id, input.id));
+
+      // CORREÇÃO (auditoria-seguranca-rbac-20261110): exclusão de áudio de laudo
+      // falado não deixava trilha de auditoria (ver comentário em upload, mesmo arquivo).
+      await createAuditLog({
+        user_id: ctx.user.id,
+        unit_id: unitId,
+        action: "EDIT_STUDY_METADATA",
+        target_type: "STUDY_AUDIO_REPORT",
+        target_id: String(input.id),
+        ip_address: ctx.req.ip,
+        user_agent: ctx.req.headers["user-agent"],
+        metadata: { action: "DELETE_AUDIO_REPORT", study_instance_uid: record.study_instance_uid, file_name: record.file_name },
+      });
 
       return { success: true };
     }),

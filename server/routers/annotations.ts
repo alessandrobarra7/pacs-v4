@@ -1,9 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
-import { getDb, getAnnotationsByStudy, upsertAnnotation, deleteAnnotation } from "../db";
-import { study_attachments } from "../../drizzle/schema";
-import { eq, inArray } from "drizzle-orm";
+import { getDb, getAnnotationsByStudy, upsertAnnotation, deleteAnnotation, createAuditLog } from "../db";
+import { study_attachments, dicom_annotations } from "../../drizzle/schema";
+import { eq, inArray, and } from "drizzle-orm";
 import { storagePut, storageDelete } from "../storage";
 import { toProxyUrl } from "../mediaProxy";
 import { assertDicomFileAccess } from "../authorization";
@@ -42,7 +42,7 @@ export const annotationsRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
+      const unitId = await assertDicomFileAccess(ctx.user, input.studyInstanceUid, "view_studies");
       await upsertAnnotation({
         study_instance_uid: input.studyInstanceUid,
         series_instance_uid: input.seriesInstanceUid ?? null,
@@ -52,6 +52,23 @@ export const annotationsRouter = router({
         annotation_data: input.annotationData,
         label: input.label ?? null,
       });
+      // CORREÇÃO (auditoria-seguranca-rbac-20261110): save/delete de anotação
+      // Cornerstone (dado clínico sobre o exame) não deixava nenhuma trilha de
+      // auditoria, diferente de anamnesis.ts/anamnesisSimple.ts. 'action' é um
+      // ENUM fixo em drizzle/schema.ts sem um valor próprio para anotação —
+      // adicioná-lo exigiria uma migration de produção fora do escopo desta
+      // correção de código; reaproveitamos EDIT_STUDY_METADATA (mesmo padrão já
+      // usado para STUDY_EXAM_LEGEND) e desambiguamos via target_type/metadata.action.
+      await createAuditLog({
+        user_id: ctx.user.id,
+        unit_id: unitId,
+        action: "EDIT_STUDY_METADATA",
+        target_type: "DICOM_ANNOTATION",
+        target_id: input.annotationUid,
+        ip_address: ctx.req.ip,
+        user_agent: ctx.req.headers["user-agent"],
+        metadata: { action: "SAVE_ANNOTATION", study_instance_uid: input.studyInstanceUid, tool_name: input.toolName },
+      });
       return { success: true };
     }),
 
@@ -59,7 +76,37 @@ export const annotationsRouter = router({
   delete: protectedProcedure
     .input(z.object({ annotationUid: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      await deleteAnnotation(input.annotationUid, ctx.user.id);
+      // CORREÇÃO (auditoria-seguranca-rbac-20261110): deleteAnnotation só filtra por
+      // annotation_uid + user_id (protege contra IDOR entre usuários), mas nunca
+      // revalidava que o usuário ainda tem acesso ao ESTUDO da anotação — se a
+      // permissão na unidade fosse revogada depois da anotação criada, o usuário
+      // ainda conseguia excluí-la. Buscamos o studyInstanceUid real da anotação
+      // (sempre restrito a user_id = ctx.user.id, preservando a proteção de IDOR já
+      // existente) e revalidamos com assertDicomFileAccess, com a mesma permissão
+      // ("view_studies") já usada em save/getByStudy neste mesmo arquivo, antes de
+      // prosseguir com a exclusão. Também registramos auditoria (ver comentário em save).
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [existing] = await db
+        .select({ study_instance_uid: dicom_annotations.study_instance_uid })
+        .from(dicom_annotations)
+        .where(and(eq(dicom_annotations.annotation_uid, input.annotationUid), eq(dicom_annotations.user_id, ctx.user.id)))
+        .limit(1);
+
+      if (existing) {
+        const unitId = await assertDicomFileAccess(ctx.user, existing.study_instance_uid, "view_studies");
+        await deleteAnnotation(input.annotationUid, ctx.user.id);
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: unitId,
+          action: "EDIT_STUDY_METADATA",
+          target_type: "DICOM_ANNOTATION",
+          target_id: input.annotationUid,
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers["user-agent"],
+          metadata: { action: "DELETE_ANNOTATION", study_instance_uid: existing.study_instance_uid },
+        });
+      }
       return { success: true };
     }),
 
@@ -150,13 +197,27 @@ export const annotationsRouter = router({
 
       const { url } = await storagePut(relKey, buffer, mimeType);
 
-      await db.insert(study_attachments).values({
+      const [inserted] = await db.insert(study_attachments).values({
         study_instance_uid: input.study_instance_uid,
         unit_id: unitId,
         user_id: ctx.user.id,
         file_url: url,
         file_name: input.file_name,
         file_type: mimeType,
+      });
+
+      // CORREÇÃO (auditoria-seguranca-rbac-20261110): upload de anexo clínico
+      // (foto/documento do exame) não deixava trilha de auditoria. unit_id é o da
+      // unidade real do estudo (retornado por assertDicomFileAccess), não a do ator.
+      await createAuditLog({
+        user_id: ctx.user.id,
+        unit_id: unitId,
+        action: "EDIT_STUDY_METADATA",
+        target_type: "STUDY_ATTACHMENT",
+        target_id: inserted?.insertId != null ? String(inserted.insertId) : input.study_instance_uid,
+        ip_address: ctx.req.ip,
+        user_agent: ctx.req.headers["user-agent"],
+        metadata: { action: "UPLOAD_ATTACHMENT", study_instance_uid: input.study_instance_uid, file_name: input.file_name, mime_type: mimeType },
       });
 
       return { success: true, url };
@@ -179,13 +240,25 @@ export const annotationsRouter = router({
         if (row.user_id !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Apenas o médico autor pode excluir este anexo" });
         }
-        await assertDicomFileAccess(ctx.user, row.study_instance_uid, "view_studies");
+        const unitId = await assertDicomFileAccess(ctx.user, row.study_instance_uid, "view_studies");
         try {
           await storageDelete(row.file_url);
         } catch (error) {
           console.error("[Attachments] Falha ao remover objeto:", error instanceof Error ? error.message : "erro desconhecido");
         }
         await db.delete(study_attachments).where(eq(study_attachments.id, input.id));
+        // CORREÇÃO (auditoria-seguranca-rbac-20261110): exclusão de anexo clínico não
+        // deixava trilha de auditoria (ver comentário em upload, mesmo arquivo).
+        await createAuditLog({
+          user_id: ctx.user.id,
+          unit_id: unitId,
+          action: "EDIT_STUDY_METADATA",
+          target_type: "STUDY_ATTACHMENT",
+          target_id: String(input.id),
+          ip_address: ctx.req.ip,
+          user_agent: ctx.req.headers["user-agent"],
+          metadata: { action: "DELETE_ATTACHMENT", study_instance_uid: row.study_instance_uid, file_name: row.file_name },
+        });
       }
 
       return { success: true };
