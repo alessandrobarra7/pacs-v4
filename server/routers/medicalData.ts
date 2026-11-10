@@ -8,6 +8,7 @@ import {
   storageGetUrl,
   storagePut,
 } from "../storage";
+import { canAccessUnit } from "../authorization";
 
 async function deleteAfterReplacement(reference: string | null | undefined): Promise<void> {
   if (!reference) return;
@@ -152,6 +153,14 @@ export const medicalDataRouter = router({
   getReportContext: protectedProcedure
     .input(z.object({ unitId: z.number() }))
     .query(async ({ input, ctx }) => {
+      // CORREÇÃO (auditoria-seguranca-rbac-20261110): getReportContext não validava acesso à unidade antes de expor nome/logo
+      const canAccess = await canAccessUnit(ctx.user, input.unitId, "view_studies");
+      if (!canAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Você não tem acesso a esta unidade.",
+        });
+      }
       const { getUserById, getUnitById } = await import("../db");
       const user = await getUserById(ctx.user.id);
       const unit = await getUnitById(input.unitId);
